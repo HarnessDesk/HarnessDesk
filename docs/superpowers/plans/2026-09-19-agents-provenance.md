@@ -3842,6 +3842,7 @@ A file event is a wakeup. The durable facts come from admitted snapshots, reflog
 - Create: `packages/server/src/provenance/observer.ts`, `packages/server/src/provenance/plane.ts`
 - Create: `packages/server/test/provenance-observer.test.ts`
 - Modify: `packages/server/src/host.ts`, `packages/protocol/src/wire.ts` (notification only)
+- Named existing test edit: `packages/server/test/evidence-backup.test.ts` keeps its over-limit restore proof while allowing the already-open project marker passive provenance capture intentionally creates; it additionally asserts that the project's evidence lines remain empty.
 - Consume unchanged: Tasks 1–4, including `GitReader`, `CommitObservation`, `RangeObservation`, `LinkObservation`, `ProvenanceJournal`, `ProvenancePreferences` and the Phase 4 evidence store.
 
 **Proof needs:** file-watch events — Sonnet for the complete task. Codex can prove scheduling, storage, polling, cancellation, restart and projection in isolation. A passing polling test never substitutes for the two tests that explicitly disable polling and require real file notifications.
@@ -3928,6 +3929,36 @@ test('a failed scan can retry and close aborts active work without requeue', asy
   await closing
   assert.equal(calls, 2)
   assert.equal(queue.controller.signal.aborted, true)
+})
+
+test('settled scans keep existing metadata watches attached', async (t) => {
+  const repo = await makeRepo()
+  const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
+  await repo.git('update-ref', 'refs/heads/main', base)
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  let opened = 0
+  let closed = 0
+  const fakeWatch = (() => {
+    opened += 1
+    const watcher = {
+      on: () => watcher,
+      close: () => { closed += 1 },
+    }
+    return watcher
+  }) as unknown as typeof watch
+  const observer = new RefObserver({
+    git: gitReader(handle), journal, changed: () => {}, problem: () => {}, watch: fakeWatch, pollMs: 0,
+  })
+  t.after(() => observer.close())
+  await observer.start(handle, null)
+  await observer.idle()
+  const attached = opened
+  assert.ok(attached > 0)
+  observer.wake()
+  await observer.idle()
+  assert.equal(opened, attached, 'a settled rescan must not replace every existing watcher')
+  assert.equal(closed, 0, 'a settled rescan must leave every existing watcher attached')
 })
 
 const observed = async (t: TestContext, options: { watch?: typeof watch; pollMs?: number } = {}) => {
@@ -4069,7 +4100,7 @@ test('plane disables, re-enables, forgets and closes independent projects withou
   const two = await makeRepo()
   const store = new EvidenceStore(join(one.stateDir, 'evidence'))
   const plane = new ProvenancePlane({
-    evidence: { store, seats: { byId: () => null } } as EvidencePlane,
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
     stateDir: one.stateDir, projects: () => [one.dir, two.dir], push: () => {}, log: () => {},
   })
   try {
@@ -4089,7 +4120,7 @@ test('plane disables, re-enables, forgets and closes independent projects withou
   } finally {
     await plane.close()
   }
-  const empty = new ProvenancePlane({ evidence: { store, seats: { byId: () => null } } as EvidencePlane,
+  const empty = new ProvenancePlane({ evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
     stateDir: one.stateDir, projects: () => [one.dir], push: () => assert.fail('late notification'), log: () => {} })
   const starting = empty.start()
   await empty.close()
@@ -4119,7 +4150,7 @@ test('restart rebuilds a local fact from durable fingerprints after its original
     fact: { kind: 'diff', from: base, to: first, files: 1, added: 1, removed: 1 },
   } }])
   const create = () => new ProvenancePlane({
-    evidence: { store, seats: { byId: () => seat } } as EvidencePlane,
+    evidence: { store, seats: { byId: () => seat } } as unknown as EvidencePlane,
     stateDir: repo.stateDir, projects: () => [repo.dir], push: () => {}, log: () => {},
   })
   const old = create()
@@ -4308,7 +4339,7 @@ export class RefObserver {
   #checkpoint = empty()
   #handle: RepoHandle | null = null
   #closed = false
-  #watchers: FSWatcher[] = []
+  #watchers = new Map<string, FSWatcher>()
   #poll: ReturnType<typeof setTimeout> | null = null
   #debounce: ReturnType<typeof setTimeout> | null = null
   #requested = new Set<string>()
@@ -4367,10 +4398,6 @@ export class RefObserver {
   }
 
   async #attach(): Promise<void> {
-    for (const watcher of this.#watchers.splice(0)) {
-      watcher.close()
-      watchers -= 1
-    }
     if (!this.#handle || this.#closed) return
     const directories = new Set<string>()
     let visited = 0
@@ -4402,14 +4429,26 @@ export class RefObserver {
       }
       for (const directory of directories) {
         if (this.#closed) break
-        if (this.#watchers.length >= 256 || watchers >= 1024) throw new Error('watch-limit')
+        if (this.#watchers.has(directory)) continue
+        if (this.#watchers.size >= 256 || watchers >= 1024) throw new Error('watch-limit')
         const watcher = (this.#options.watch ?? watch)(directory, () => this.#event())
         watcher.on('error', () => {
+          if (this.#watchers.get(directory) === watcher) {
+            this.#watchers.delete(directory)
+            watcher.close()
+            watchers -= 1
+          }
           this.#options.problem('degraded', 'watch-unavailable')
           // Polling retries attachment; an error must not create a rescan loop.
         })
-        this.#watchers.push(watcher)
+        this.#watchers.set(directory, watcher)
         watchers += 1
+      }
+      for (const [directory, watcher] of this.#watchers) {
+        if (directories.has(directory)) continue
+        watcher.close()
+        this.#watchers.delete(directory)
+        watchers -= 1
       }
     } catch {
       this.#options.problem('degraded', 'watch-unavailable')
@@ -4528,8 +4567,8 @@ export class RefObserver {
     await writeCheckpoint(journal, next)
     this.#checkpoint = next
     for (const sha of requested) this.#requested.delete(sha)
-    this.#options.changed()
     await this.#attach()
+    this.#options.changed()
     if (logs.more || frontier.length || next.rangePending.some((key) => !key.startsWith('limit:'))) this.wake()
   }
 
@@ -4537,10 +4576,11 @@ export class RefObserver {
     this.#closed = true
     if (this.#poll) clearTimeout(this.#poll)
     if (this.#debounce) clearTimeout(this.#debounce)
-    for (const watcher of this.#watchers.splice(0)) {
+    for (const watcher of this.#watchers.values()) {
       watcher.close()
       watchers -= 1
     }
+    this.#watchers.clear()
     await this.#queue.close()
     await this.#options.git.close()
     await this.#options.journal.flush()
@@ -5260,7 +5300,7 @@ Expected: exit 0; **9 tests, 9 pass, 0 fail**. This includes real polling and ac
 
 Run: `node --test --test-reporter=spec --test-timeout=20000 packages/server/dist/test/provenance-observer.test.js`
 
-Expected: on the full-access implementation seat, exit 0; **11 tests, 11 pass, 0 fail**. Both event-delivery tests have polling disabled, perform external Git writes without a host turn, and fail with `real file notifications must attach` when watches cannot attach. They do not skip and do not invoke a watch callback themselves.
+Expected: on the full-access implementation seat, exit 0; **12 tests, 12 pass, 0 fail**. Both event-delivery tests have polling disabled, perform external Git writes without a host turn, and fail with `real file notifications must attach` when watches cannot attach. The stable-registration test also keeps existing watches attached across settled scans, so one externally observed update cannot open a gap before the next. They do not skip and do not invoke a watch callback themselves.
 
 Planning limitation: real `fs.watch` returned `EMFILE: too many open files, watch` in this sandbox. The two event-delivery tests therefore failed on the attachment assertion. Their green result is not claimed; the complete task requires an unrestricted execution of this exact file. The host lifecycle edits above likewise still require the integrated host and full gate.
 
@@ -5505,7 +5545,7 @@ test('indexed reads dedupe in order, never queue while off, and preserve histori
     ['restored', { ...seat, id: 'restored', restored: { at: 3 } }],
   ])
   const plane = new ProvenancePlane({
-    evidence: { store, seats: { byId: (id: string) => records.get(id) ?? null } } as EvidencePlane,
+    evidence: { store, seats: { byId: (id: string) => records.get(id) ?? null } } as unknown as EvidencePlane,
     stateDir: repo.stateDir, projects: () => [repo.dir], push: () => {}, log: () => {},
   })
   t.after(() => plane.close())
@@ -8773,7 +8813,7 @@ Expected: the three scenes remain usable in both themes at 680px; no horizontal 
 
 Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/provenance-observer.test.js`
 
-Expected: on the full-access implementation seat, **11 tests, 11 pass, 0 fail**, including Task 5's two event-delivery cases with polling disabled. An injected callback or a polling test does not replace those cases.
+Expected: on the full-access implementation seat, **12 tests, 12 pass, 0 fail**, including Task 5's two event-delivery cases with polling disabled and its stable-registration regression. An injected callback or a polling test does not replace those cases.
 
 Run: `pnpm test:ui-system -- provenance.spec.ts`
 

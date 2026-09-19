@@ -1,6 +1,6 @@
 import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
-import type { ProvenanceBackup } from './provenance.js'
+import type { CaptureHealth, ProvenanceBackup } from './provenance.js'
 import type {
   CapabilityContribution,
   ContextImage,
@@ -2174,6 +2174,14 @@ export type WireResponse =
  * freshly connected client so it can render without replaying from zero.
  */
 export type WireNotification =
+  | {
+      readonly method: 'provenance/changed'
+      readonly params: {
+        readonly project: string
+        readonly revision: number
+        readonly health: CaptureHealth
+      }
+    }
   | {
       /**
        * One agent event, tagged with the runtime that produced it. Events

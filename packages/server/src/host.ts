@@ -84,7 +84,7 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
-import { ProvenanceBackups } from './provenance/backup.js'
+import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { flowSeatInput } from './evidence/seats.js'
 import { SEEN_FILE } from './evidence/seen.js'
@@ -456,7 +456,8 @@ export class Host {
    * append-only store per project under `evidence/` in the state directory.
    */
   readonly #evidence: EvidencePlane
-  readonly #provenanceBackups: ProvenanceBackups
+  readonly #provenance: ProvenancePlane
+  #provenanceGeneration = 0
   /**
    * The roster, watched (`AgentWatch`). Made at start rather than in the
    * constructor, so a host that is built and never started watches nothing.
@@ -742,7 +743,13 @@ export class Host {
       // defaults it was supposed to replace.
       this.#applyBrowserSettings()
     }
-    this.#provenanceBackups = new ProvenanceBackups(this.#evidence.store)
+    this.#provenance = new ProvenancePlane({
+      evidence: this.#evidence,
+      stateDir: this.#state.directory,
+      projects: () => [],
+      push: (notice) => this.#push(notice),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
     this.#context = this.#buildContext()
   }
 
@@ -985,6 +992,9 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    void this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
+      this.#logger.warn('provenance could not start')
+    })
     /* From here on a file changed under any of the roster's roots is one
        notice to every window. Guarded on `#disposed`: everything above this
        point can yield, and a quit landing in one of those gaps must find no
@@ -1128,7 +1138,7 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     await this.#flows.flush()
     await this.#team.flush()
-    await this.#provenanceBackups.close().catch(() => {
+    await this.#provenance.close().catch(() => {
       this.#logger.warn('provenance observations could not be saved')
     })
     await this.#evidence.close()
@@ -1603,7 +1613,7 @@ export class Host {
       ),
       seating: await this.#machineSeating.raw(),
       evidence: await this.#evidence.backup(),
-      provenance: await this.#provenanceBackups.backup(),
+      provenance: await this.#provenance.backup(),
     }
   }
 
@@ -1735,7 +1745,7 @@ export class Host {
     }
     // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
     const evidence = await this.#evidence.restore(file.evidence)
-    const provenance = await this.#provenanceBackups.restore(file.provenance)
+    const provenance = await this.#provenance.restore(file.provenance)
     this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance })
     return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance }
   }
@@ -2003,6 +2013,7 @@ export class Host {
    * never re-add a folder the newer call had already let go of.
    */
   async #watchProjects(): Promise<void> {
+    this.#captureProjects()
     const watch = this.#agentWatch
     if (!watch) return
     const generation = ++this.#watchGeneration
@@ -3665,6 +3676,19 @@ export class Host {
    * The promise itself is cached, not its result, so a page listing twenty
    * conversations in one folder starts one `rev-parse` rather than twenty.
    */
+  /** Register canonical open checkouts without making the opening wait for capture. */
+  #captureProjects(): void {
+    if (this.#disposed) return
+    const generation = ++this.#provenanceGeneration
+    const roots = this.#openRoots()
+    void Promise.all(roots.map(async (root) => (await this.#topLevelOf(root)) ?? root))
+      .then((projects) => {
+        if (this.#disposed || generation !== this.#provenanceGeneration) return
+        this.#provenance.setProjects(projects)
+      })
+      .catch(() => this.#logger.warn('provenance projects could not be registered'))
+  }
+
   #repoOf(cwd: string): Promise<RepoInfo | null> {
     const held = this.#repos.get(cwd)
     if (held) return held
@@ -3923,6 +3947,13 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
+      this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
+    }
+    if (!this.#disposed && (notification.method === 'session/removed' ||
+      (notification.method === 'event' && notification.params.event.type === 'session/started'))) {
+      this.#captureProjects()
+    }
     for (const broadcast of this.#broadcasters) {
       try {
         broadcast(notification)
