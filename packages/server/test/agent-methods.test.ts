@@ -386,3 +386,12 @@ test("workspace/open carries this checkout's own top, a linked worktree's includ
     "a worktree's own top and the main checkout `repo.root` names are two different folders here",
   )
 })
+
+test('the host says where this machine keeps its state, so the roster can name the folder it reads', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const hello = (await client.call('host/hello', { clientVersion: 'test' })) as { stateDir: string }
+  assert.equal(hello.stateDir, harness.stateDir)
+})

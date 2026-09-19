@@ -546,6 +546,13 @@ export interface HostMethods {
        * `/Users/<name>/…` in full.
        */
       readonly home: string
+      /**
+       * Where this desk keeps its state: `~/.harnessdesk` unless
+       * `HARNESSDESK_HOME` put it elsewhere. The roster footnotes this
+       * machine's Agents as `agents` in it, and an Agent's page footnotes
+       * `seating.json` there — the folder actually read, never a guess.
+       */
+      readonly stateDir: string
     }
   }
 

@@ -79,6 +79,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}) => {
         <Sidebar
           onOpenSettings={() => {}}
           onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
           onSignIn={() => {}}
@@ -134,5 +135,48 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     const empty = container.querySelector('p[class*="empty"]')
     expect(empty).not.toBeNull()
     expect(empty?.textContent).toContain('Connect a runtime to see your sessions.')
+  })
+})
+
+/**
+ * The plain path's one new row (the owner's rule, 2026-09-18): always there,
+ * reading nothing of its own — it counts whatever roster another surface has
+ * already asked for, and wears the Dashboard badge's own warn tone rather
+ * than a rule drawn just for this row.
+ */
+describe('the Agents row', () => {
+  const agentsRow = (): HTMLButtonElement => {
+    const found = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Agents'))
+    if (!found) throw new Error('no Agents row')
+    return found
+  }
+
+  it('shows with no count before any surface has read the roster', () => {
+    mount()
+    const row = agentsRow()
+    expect(row.querySelector('span[class*="navCount"]')).toBeNull()
+  })
+
+  it('counts the roster once something has read it, in force only', () => {
+    mount({
+      agents: [
+        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
+        { id: 'b', origin: 'builtin', path: '/b/AGENT.md', digest: 'd', shadows: [], problems: [{ level: 'error', at: 'x', text: 'bad' }], definition: null },
+      ],
+    } as unknown as Partial<AppSnapshot>)
+    const row = agentsRow()
+    // Only "a" parses; "b" is broken and not counted as in force.
+    expect(row.textContent).toContain('1')
+    expect(row.querySelector('[data-tone="warn"]')?.textContent).toBe('1')
+  })
+
+  it('wears no warn tone when nothing is broken', () => {
+    mount({
+      agents: [
+        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
+      ],
+    } as unknown as Partial<AppSnapshot>)
+    const row = agentsRow()
+    expect(row.querySelector('[data-tone="warn"]')).toBeNull()
   })
 })

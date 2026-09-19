@@ -450,6 +450,7 @@ export class AppStore {
       activeRuntime: this.#snapshot.activeRuntime ?? hello.runtimes[0]?.id ?? null,
       credentialProtection: hello.credentialProtection,
       home: hello.home,
+      stateDir: hello.stateDir,
     })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
@@ -3741,16 +3742,24 @@ export class AppStore {
   async loadAgentPlans(): Promise<void> {
     const project = this.#snapshot.workspace?.path ?? null
     const generation = ++this.#agentPlansGeneration
+    // Optimistic: a retry (a fresh sign-in, a reopened window) reads as
+    // "Checking seats…" again rather than the previous failure sitting there
+    // stale while a new request is already in flight.
+    this.#patch({ agentPlansFailed: false })
     let plans: readonly SeatPlan[]
     try {
       plans = await this.transport.request('agent/seat/dry', project ? { project } : {})
     } catch (error) {
-      if (generation === this.#agentPlansGeneration) this.notice('warning', describe(error))
+      if (generation !== this.#agentPlansGeneration) return
+      this.notice('warning', describe(error))
+      // A row with no plan for its Agent otherwise reads "Checking seats…"
+      // forever for an answer that already isn't coming.
+      this.#patch({ agentPlansFailed: true })
       return
     }
     if (generation !== this.#agentPlansGeneration) return
     if (project !== this.#snapshot.agentsProject) return
-    this.#patch({ agentPlans: new Map(plans.map((plan) => [plan.id, plan])) })
+    this.#patch({ agentPlans: new Map(plans.map((plan) => [plan.id, plan])), agentPlansFailed: false })
   }
 
   /**

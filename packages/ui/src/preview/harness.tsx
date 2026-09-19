@@ -907,6 +907,8 @@ class PreviewStore {
       agentsProject: PREVIEW_ROOT,
       agentPlans: PREVIEW_PLANS,
       seatAgents: new Map([[seatAgentKey(previewSession.cwd, 'code-reviewer'), PREVIEW_AGENTS[0] ?? null]]),
+      home: '/home/u',
+      stateDir: '/home/u/.harnessdesk',
       ...seed,
     } as AppSnapshot
     this.#watchWindowWidth()

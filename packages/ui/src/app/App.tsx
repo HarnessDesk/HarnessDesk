@@ -17,6 +17,7 @@ import { FolderPicker } from '../components/FolderPicker'
 import { resolveSection, Settings, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
+import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
@@ -353,6 +354,7 @@ export const App = () => {
               <Sidebar
                 onOpenSettings={(section) => setSettingsOpen(section ?? 'runtimes')}
                 onOpenPlugins={() => setSettingsOpen('plugins')}
+                onOpenAgents={() => openAgents()}
                 onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
                 onBrowseFolders={chooseFolder}
                 onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
@@ -410,6 +412,13 @@ export const App = () => {
           onClose={() => setUsageOpen(false)}
           onSignIn={(runtime) => setSignInOpen(runtime)}
           runtime={typeof usageOpen === 'string' ? usageOpen : null}
+        />
+      )}
+      {agentsOpen && (
+        <AgentsWindow
+          focus={agentsOpen.focus}
+          onClose={() => setAgentsOpen(false)}
+          onFocus={(id) => setAgentsOpen({ focus: id })}
         />
       )}
       {reviewOpen && <ChangesReview onClose={() => setReviewOpen(false)} />}

@@ -337,6 +337,17 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         },
       },
       {
+        id: 'agents-window',
+        group: 'Actions',
+        label: 'Agents',
+        icon: <BriefIcon size={14} />,
+        keywords: 'agents who roster brief reviewer implementer judge researcher seats ceiling',
+        run: () => {
+          close()
+          host.openAgents()
+        },
+      },
+      {
         // Kept under its own name rather than as "Settings › Archive": people
         // type what they want back, not where it is filed.
         id: 'archive',

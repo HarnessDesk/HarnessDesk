@@ -261,6 +261,8 @@ export interface AppSnapshot {
    * username in full.
    */
   readonly home: string
+  /** Where this desk keeps its state — see `host/hello`. Empty until the handshake. */
+  readonly stateDir: string
   /** Who each runtime is signed in as — the sign-in page and the Agents card read this. */
   readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
   /**
@@ -398,6 +400,12 @@ export interface AppSnapshot {
   readonly agentsProject: string | null
   /** Which seat each listed Agent would take here, by Agent id: one dry run of the whole roster. */
   readonly agentPlans: ReadonlyMap<string, SeatPlan>
+  /**
+   * Whether the dry run for `agentsProject` failed outright, so a row that
+   * never got a plan can say its seats could not be checked, rather than
+   * "Checking seats…" forever for an answer that already isn't coming.
+   */
+  readonly agentPlansFailed: boolean
   /**
    * The repository a new worktree is being set up for, or null.
    *
@@ -671,6 +679,7 @@ const EMPTY: AppSnapshot = {
   // No tilde until the host says what to shorten against; `shortPath` leaves
   // a path whole rather than guess, which is the right way round.
   home: '',
+  stateDir: '',
   accountsByRuntime: {},
   accountPrefs: {},
   profile: {},
@@ -705,6 +714,7 @@ const EMPTY: AppSnapshot = {
   agents: null,
   agentsProject: null,
   agentPlans: new Map(),
+  agentPlansFailed: false,
   newWorktreeFor: null,
   settingsFor: null,
   settingsFocus: null,
@@ -759,5 +769,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   foldersGone: new Map(),
   loadingSessions: new Set(),
   agentPlans: new Map(),
+  agentPlansFailed: false,
   seatAgents: new Map(),
 })

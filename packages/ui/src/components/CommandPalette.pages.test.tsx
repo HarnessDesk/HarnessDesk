@@ -31,7 +31,9 @@ afterEach(() => {
   container.remove()
 })
 
-const mount = async (patch: Partial<AppSnapshot> = {}): Promise<{ openSettings: ReturnType<typeof vi.fn> }> => {
+const mount = async (
+  patch: Partial<AppSnapshot> = {},
+): Promise<{ openSettings: ReturnType<typeof vi.fn>; openAgents: ReturnType<typeof vi.fn> }> => {
   const request = vi.fn(async () => ({ data: [], nextCursor: null }))
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -48,7 +50,8 @@ const mount = async (patch: Partial<AppSnapshot> = {}): Promise<{ openSettings: 
     openSession: vi.fn(async () => {}),
   } as unknown as AppStore
   const openSettings = vi.fn()
-  const host = { close: () => {}, chooseFolder: () => {}, openSettings, openUsage: () => {}, openAgents: () => {} }
+  const openAgents = vi.fn()
+  const host = { close: () => {}, chooseFolder: () => {}, openSettings, openUsage: () => {}, openAgents }
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
@@ -56,7 +59,7 @@ const mount = async (patch: Partial<AppSnapshot> = {}): Promise<{ openSettings: 
       </StoreProvider>,
     )
   })
-  return { openSettings }
+  return { openSettings, openAgents }
 }
 
 const type = (value: string): void => {
@@ -108,4 +111,12 @@ it('the Skills page is reached by the name its nav row shows (#219)', async () =
   type('skills & commands')
   await choose('Settings › Skills & commands')
   expect(openSettings).toHaveBeenCalledWith('skills')
+})
+
+it('Agents opens the window, never Settings — it is not one of the settings pages', async () => {
+  const { openAgents, openSettings } = await mount()
+  type('agents')
+  await choose('Agents')
+  expect(openAgents).toHaveBeenCalledWith()
+  expect(openSettings).not.toHaveBeenCalled()
 })

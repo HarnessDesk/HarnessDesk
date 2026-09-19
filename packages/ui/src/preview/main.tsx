@@ -8,6 +8,7 @@ import { Conversation } from '../components/Conversation'
 import { ChangesView, TrajectoryView } from '../components/Details'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
+import { AgentsWindow } from '../components/AgentsWindow'
 import { NewSessionChoice } from '../components/NewSessionChoice'
 import { SeatSheet } from '../components/SeatSheet'
 import { Settings, type Section } from '../components/Settings'
@@ -173,6 +174,9 @@ const Preview = () => {
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
   const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet'>('off')
+  // The Agents window's own rail selection: the overview, or one Agent's
+  // placeholder page (Task 15 fills in the real one).
+  const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -286,6 +290,26 @@ const Preview = () => {
           onChange={setSettingsSection}
         />
       </div>
+      {/* The Agents window: the owner's left-menu decision, in its own
+          top-level screen, never a Settings page — the same containment
+          trick as Settings and Usage, both `AppWindow`s too. */}
+      <Frame title="Agents — the roster, and a selected Agent">
+        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+          <AgentsWindow
+            focus={agentsFocus === 'overview' ? null : agentsFocus}
+            onClose={() => {}}
+            onFocus={(id) => setAgentsFocus(id ?? 'overview')}
+          />
+        </div>
+      </Frame>
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        <Dial
+          label="agents focus"
+          value={agentsFocus}
+          options={['overview', 'code-reviewer'] as const}
+          onChange={setAgentsFocus}
+        />
+      </div>
       {/* The Dashboard, at the width the window really opens it at. Its own
           rail scopes the page, so clicking an account in here shows the
           burn-down band the way the app does.
@@ -368,6 +392,7 @@ const Preview = () => {
             <Sidebar
               onOpenSettings={() => {}}
               onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
               onSignIn={() => {}}
