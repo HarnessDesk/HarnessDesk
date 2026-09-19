@@ -571,6 +571,12 @@ authentication, and nothing at all before either has happened. It is never
 lists the project's own Agents and the folder they are read from, with *Open*
 and *Forget* for a project that is not the one open.
 
+The runtime page also draws the controls the runtime declares for new sessions.
+Codex includes an optional CLI profile there: choosing one reads its bounded
+model and context settings when the conversation starts, while **None** sends
+no profile overrides. The live conversation and context ring then show only
+the settings and window Codex reports back, not the values the draft expected.
+
 Which pages actually carry anything varies by runtime, and the audit of that —
 along with what Settings still does not do — is recorded with the audit.
 
