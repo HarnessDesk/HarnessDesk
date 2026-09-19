@@ -1596,6 +1596,7 @@ export class Host {
         this.#logger.warn(message, details),
       ),
       seating: await this.#machineSeating.raw(),
+      evidence: await this.#evidence.backup(),
     }
   }
 
@@ -1725,8 +1726,10 @@ export class Host {
         params: { project: null, ...(seatingRevision === undefined ? {} : { revision: seatingRevision }) },
       })
     }
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating })
-    return { agents, preferences, transcripts, agentFolders, seating }
+    // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
+    const evidence = await this.#evidence.restore(file.evidence)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence }
   }
 
   /**

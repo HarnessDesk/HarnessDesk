@@ -130,6 +130,19 @@ export interface BackupFile {
   }[]
   /** This machine's `seating.json`, or null when it was absent or could not be read. */
   readonly seating?: Readonly<Record<string, unknown>> | null
+  /**
+   * What the desk observed and every Seat it kept: each project's evidence
+   * store, as the lines it holds. Never the commands this machine has approved —
+   * those are this machine's alone, and no backup carries them. Absent in a
+   * backup from before it existed.
+   */
+  readonly evidence?: readonly {
+    readonly project: string
+    readonly seats: readonly unknown[]
+    readonly facts: readonly unknown[]
+    /** Lines the exporting build could not read — a newer build's, or damaged — left out, and counted so the export says so. */
+    readonly unreadable?: number
+  }[]
 }
 
 /**
@@ -154,6 +167,19 @@ export interface BackupReport {
   readonly transcripts: { readonly restored: number; readonly skipped: number }
   readonly agentFolders: { readonly restored: number; readonly skipped: number }
   readonly seating: { readonly restored: number; readonly skipped: number }
+  /**
+   * Evidence and Seat records, counted by what became of each: `duplicate` was
+   * already here; `refused` could not be read, or asked for what a backup may
+   * not do here — close a Seat this desk kept, dress a conversation this desk
+   * seated, stand for a project it does not belong to, or go past a limit;
+   * `failed` could not be written.
+   */
+  readonly evidence: {
+    readonly restored: number
+    readonly duplicate: number
+    readonly refused: number
+    readonly failed: number
+  }
 }
 
 /**

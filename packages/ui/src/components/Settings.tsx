@@ -64,6 +64,7 @@ import { brandForRuntime } from '../lib/brands'
 import { ModelMark, RuntimeMark } from './BrandIcons'
 import { describeLimits, formatReset } from '../lib/limits'
 import { agentGroups } from '../lib/accounts'
+import { exportedSentence, restoredSentence } from '../lib/backup-words'
 import { describeUpdate, describeVersion } from '../lib/versions'
 import { summarise } from '../lib/options'
 import { presetsFor, snapshotValues, type AgentPreset } from '../state/presets'
@@ -1533,9 +1534,6 @@ export const GeneralSectionRows = () => (
   </>
 )
 
-/** "1 runtime", "3 runtimes" — a count and its noun, the noun's plural by adding an s. */
-const count = (n: number, noun: string): string => `${n} ${n === 1 ? noun : `${noun}s`}`
-
 /**
  * Export and restore, side by side, with the two promises that make them
  * safe to press. Export never includes credentials — they live in the OS
@@ -1559,9 +1557,7 @@ export const BackupRows = () => {
       anchor.download = `harnessdesk-backup-${new Date().toISOString().slice(0, 10)}.json`
       anchor.click()
       URL.revokeObjectURL(url)
-      setOutcome(
-        `Exported ${count(backup.agents.length, 'runtime')}, ${count(backup.agentFolders?.length ?? 0, 'Agent')} of yours and ${count(backup.transcripts.length, 'conversation')}.`,
-      )
+      setOutcome(exportedSentence(backup))
     } catch (error) {
       setOutcome(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1574,10 +1570,7 @@ export const BackupRows = () => {
     try {
       const backup: unknown = JSON.parse(await file.text())
       const report = await store.transport.request('backup/import', { backup })
-      const skipped = report.agents.skipped + report.transcripts.skipped + report.agentFolders.skipped
-      setOutcome(
-        `Restored ${count(report.agents.restored, 'runtime')}, ${count(report.agentFolders.restored, 'Agent')}, ${count(report.seating.restored, 'seat choice')}, ${count(report.preferences, 'preference')} and ${count(report.transcripts.restored, 'conversation')}.${skipped > 0 ? ` ${skipped} already here or newer, left alone.` : ''}`,
-      )
+      setOutcome(restoredSentence(report))
     } catch (error) {
       setOutcome(error instanceof Error ? error.message : String(error))
     } finally {
@@ -1589,7 +1582,7 @@ export const BackupRows = () => {
     <Rows>
       <Row
         title="Back up this Mac’s HarnessDesk"
-        desc="Runtimes, your Agents and their seats on this Mac, preferences and transcripts in one file — sign in again after restoring."
+        desc="Runtimes, your Agents and their seats on this Mac, preferences, transcripts and what the desk observed, in one file — sign in again after restoring."
         control={
           <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
             <DownloadIcon size={13} />

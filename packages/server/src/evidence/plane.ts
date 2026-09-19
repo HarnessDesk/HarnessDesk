@@ -1,4 +1,6 @@
-import type { BoardEvidence, EvidenceRecord, Intent, ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
+import { isAbsolute, normalize } from 'node:path'
+
+import type { BackupFile, BoardEvidence, EvidenceRecord, Intent, ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
@@ -7,11 +9,11 @@ import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
 import { Observer, type Look } from './observe.js'
-import { mintId } from './records.js'
+import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, type StoredLine } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
-import { EvidenceStore } from './store.js'
+import { EvidenceStore, type Admit } from './store.js'
 
 /**
  * The evidence plane: the store, the Seats it indexes, and — as later tasks
@@ -334,6 +336,112 @@ export class EvidencePlane {
     return result
   }
 
+  /**
+   * Every project's store, for a backup: each line this build can read, as it
+   * is written, and how many it could not — left out, and counted, so an
+   * export says it is not whole. Never the commands this machine approved
+   * (`seen.ts`), nor its key.
+   */
+  async backup(): Promise<NonNullable<BackupFile['evidence']>> {
+    const out: { project: string; seats: unknown[]; facts: unknown[]; unreadable: number }[] = []
+    for (const project of await this.store.projects()) {
+      const written = (line: StoredLine): unknown => ({ v: LINE_VERSION, ...line })
+      const seats = await this.store.read(project, 'seats')
+      const facts = await this.store.read(project, 'evidence')
+      out.push({
+        project,
+        seats: seats.lines.map(written),
+        facts: facts.lines.map(written),
+        unreadable: seats.skipped + facts.skipped,
+      })
+    }
+    return out
+  }
+
+  /**
+   * Adds a backup's records to this desk's stores, and counts what became of
+   * each. Additive, as every restore is, and **what this desk wrote wins**:
+   *
+   * - Every line is read by the one rule the store reads with (`lineOf`, where
+   *   it is going), and past `RESTORE_PROJECT_LIMIT` projects or
+   *   `RESTORE_LINE_LIMIT` lines, or a line over `LINE_LIMIT`, nothing is read.
+   * - A record already here, by id, is a duplicate, and left as it is.
+   * - A restored record is marked `restored`, and stays history: a restored
+   *   fact stands as unknown until the desk observes the question itself, and
+   *   never makes a card *Ready*; a restored Seat never says which Agent a
+   *   conversation here is (`seatedAs` reads only Seats this desk kept).
+   * - A Seat is refused for a conversation this desk already keeps a Seat for.
+   * - A closing is admitted only for a Seat opened in the same entry of the
+   *   same backup and restored beside it: a backup can never close a Seat this
+   *   desk kept.
+   *
+   * Each file is read, judged and appended as one queued step of the store's
+   * (`merge`), so two restores at once cannot both add a record. One line, or
+   * one project, that cannot be restored never stops the rest.
+   */
+  async restore(entries: unknown): Promise<{
+    readonly restored: number
+    readonly duplicate: number
+    readonly refused: number
+    readonly failed: number
+  }> {
+    const count = { restored: 0, duplicate: 0, refused: 0, failed: 0 }
+    const at = this.#now()
+    let budget = RESTORE_LINE_LIMIT
+    const list = Array.isArray(entries) ? entries : []
+    for (const [index, entry] of list.entries()) {
+      const one = (entry ?? {}) as { project?: unknown; seats?: unknown; facts?: unknown }
+      const seats = Array.isArray(one.seats) ? one.seats : []
+      const facts = Array.isArray(one.facts) ? one.facts : []
+      const project = one.project
+      if (
+        index >= RESTORE_PROJECT_LIMIT ||
+        typeof project !== 'string' ||
+        !isAbsolute(project) ||
+        normalize(project) !== project ||
+        project.length > 4_096
+      ) {
+        count.refused += seats.length + facts.length
+        continue
+      }
+      // The openings this entry brings: a closing is admitted beside its own opening, and no other.
+      const opened = new Set<string>()
+      for (const [file, raw] of [['seats', seats], ['evidence', facts]] as const) {
+        const lines: StoredLine[] = []
+        for (const value of raw) {
+          if (budget <= 0) {
+            count.refused += 1
+            continue
+          }
+          budget -= 1
+          const line = readRestored(value, { file, project })
+          if (!line) {
+            count.refused += 1
+            continue
+          }
+          if (line.type === 'seat') opened.add(line.record.id)
+          lines.push(markRestored(line, at))
+        }
+        try {
+          const merged = await this.store.merge(project, file, lines, admitRestored(opened))
+          count.restored += merged.added
+          count.duplicate += merged.duplicate
+          count.refused += merged.refused
+        } catch (error) {
+          count.failed += lines.length
+          this.#port.log("a project's records from a backup could not be restored", {
+            project,
+            file,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
+    if (count.refused > 0 || count.failed > 0) this.#port.log('a backup was restored in part', { ...count })
+    if (count.restored > 0) await this.seats.load()
+    return count
+  }
+
 
   /**
    * The desk is closing: every check still running is stopped — it leaves no
@@ -351,3 +459,50 @@ export class EvidencePlane {
     )
   }
 }
+
+/** The most projects, and lines across them, one restore reads; the rest are refused and counted. */
+export const RESTORE_PROJECT_LIMIT = 200
+export const RESTORE_LINE_LIMIT = 100_000
+
+/** A backup's line, read by the store's own rule for where it is going — and refused whole when it is over the line limit. */
+const readRestored = (value: unknown, where: { readonly file: StoreFile; readonly project: string }): StoredLine | null => {
+  let size: number
+  try {
+    size = Buffer.byteLength(JSON.stringify(value) ?? '')
+  } catch {
+    return null
+  }
+  return size > LINE_LIMIT ? null : lineOf(value, where)
+}
+
+/** A restored line carries when it came, or keeps the mark it came with: it was never observed here. */
+const markRestored = (line: StoredLine, at: number): StoredLine => {
+  if (line.type === 'seat') return { type: 'seat', record: { ...line.record, restored: line.record.restored ?? { at } } }
+  if (line.type === 'evidence') return { type: 'evidence', record: { ...line.record, restored: line.record.restored ?? { at } } }
+  return line
+}
+
+/** What a backup may add to a file here: nothing already here, no Seat for a conversation this desk seated, no closing but its own. */
+const admitRestored =
+  (opened: ReadonlySet<string>): Admit =>
+  (line, here, added) => {
+    const all = [...here, ...added]
+    if (all.some((one) => idOfLine(one) === idOfLine(line))) return 'duplicate'
+    if (line.type === 'seat') {
+      const { runtime, sessionId } = line.record.session
+      const kept = here.some(
+        (one) =>
+          one.type === 'seat' &&
+          !one.record.restored &&
+          one.record.session.runtime === runtime &&
+          one.record.session.sessionId === sessionId,
+      )
+      return kept ? 'refused' : 'add'
+    }
+    if (line.type === 'seat-closed') {
+      if (!opened.has(line.closing.seat)) return 'refused'
+      const opening = all.find((one) => one.type === 'seat' && one.record.id === line.closing.seat)
+      return opening?.type === 'seat' && opening.record.restored ? 'add' : 'refused'
+    }
+    return 'add'
+  }
