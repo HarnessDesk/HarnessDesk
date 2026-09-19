@@ -84,6 +84,7 @@
   height: 36px;
   padding: 0 10px;
   border-bottom: 1px solid var(--hd-border);
+  container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
 }
 
 /* The search keeps room for its own words; in a narrow pane the count gives
@@ -112,6 +113,15 @@
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* The row's controls and a four-figure count need about 500px between its
+   padding. Below that the count leaves whole: cut to "10…" it is a number
+   without its noun, which answers nothing. The pane opens at about 460px. */
+@container hd-git-tools (max-width: 500px) {
+  .count {
+    display: none; /* desk: shown → none below the row's width, a cut count answers nothing */
+  }
 }
 
 /* --- the body ------------------------------------------------------------ */
