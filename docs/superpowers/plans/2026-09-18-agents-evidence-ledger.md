@@ -4577,11 +4577,11 @@ test('a command that could not start says why, and has no status', async () => {
 
 test('only the last of a long output is kept, and without its colour codes', async () => {
   const cwd = tempDir('hd-run-')
-  const script = "printf '\\033[31mred\\033[0m\\n'; i=0; while [ $i -lt 3000 ]; do echo line-$i; i=$((i+1)); done"
+  const script = "i=0; while [ $i -lt 3000 ]; do echo line-$i; i=$((i+1)); done; printf '\\033[31mcolour-sentinel\\033[0m\\n'"
   const run = await runCommand(script, { cwd, timeoutSec: 20 })
   assert.equal(run.exit, 0)
   assert.equal(run.tail.length, TAIL_LIMIT)
-  assert.ok(run.tail.endsWith('line-2999\n'))
+  assert.ok(run.tail.includes('colour-sentinel'))
   assert.equal(run.tail.includes('\x1b'), false)
 })
 
@@ -4849,7 +4849,7 @@ Expected: PASS — 10 tests, in about four seconds.
 
 1. In the timeout handler, delete `stopGroup(child)`: `a command that runs past its time is stopped, with everything it started` fails on `the child it started went with it`. Restore it.
 2. In `stop`, delete `stopGroup(child)`: `a check the desk stops is stopped at once, with everything it started` fails. Restore it.
-3. Replace the `plain(printed)` call in `finish` with `printed`: `only the last of a long output is kept, and without its colour codes` fails. Restore it.
+3. Replace the `plain(printed)` call in `finish` with `printed`: `only the last of a long output is kept, and without its colour codes` fails on the coloured sentinel printed inside the retained tail. Restore it.
 4. Spawn with `env: process.env` in place of `env: checkEnvironment()`: `the command itself sees only that environment: a secret in the desk's is not there` fails. Restore it.
 5. Delete the `if (where.signal?.aborted) { … }` guard at the top: `a check asked to start after the desk has begun closing never starts` fails — the command runs and makes its file. Restore it.
 
