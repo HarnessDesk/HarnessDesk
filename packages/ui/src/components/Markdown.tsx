@@ -6,13 +6,15 @@ import {
   type MouseEvent as ReactMouseEvent,
   type UIEvent as ReactUIEvent,
 } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { Marked } from 'marked'
 
-import { buttonVariants, copyButtonIconMarkup } from '../design'
+import { Button, copyButtonIconMarkup } from '../design'
 import { ensureHighlighter, highlight, onHighlighterReady } from '../lib/highlight'
 import { sanitizeHtml } from '../lib/sanitize'
 import { useStore } from '../state/context'
 import { useTheme } from '../state/theme'
+import { CopyIcon } from './Icons'
 import styles from './Markdown.module.css'
 
 /**
@@ -79,13 +81,21 @@ const renderCodeBlocks = (html: string, dark: boolean): string => {
       label.textContent = language
       header.append(label)
     }
-    const copy = document.createElement('button')
-    copy.type = 'button'
-    copy.ariaLabel = 'Copy this code'
-    copy.title = 'Copy'
-    copy.dataset.copyCode = ''
-    copy.className = `${buttonVariants({ variant: 'quiet', size: 'icon-xs' })} ${styles.codeCopy}`
-    copy.innerHTML = copyButtonIconMarkup(false)
+    const copyMarkup = document.createElement('template')
+    copyMarkup.innerHTML = renderToStaticMarkup(
+      <Button
+        variant="quiet"
+        size="icon-xs"
+        title="Copy"
+        aria-label="Copy this code"
+        data-copy-code=""
+        className={styles.codeCopy}
+      >
+        <CopyIcon size={13} />
+      </Button>,
+    )
+    const copy = copyMarkup.content.firstElementChild
+    if (!(copy instanceof HTMLButtonElement)) continue
     header.append(copy)
     pre.replaceWith(plate)
     plate.append(header, pre)

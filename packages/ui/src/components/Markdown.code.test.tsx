@@ -45,7 +45,10 @@ describe('fenced code in prose', () => {
     render('```ts\nconst opened = true\n```')
 
     expect(container.querySelector('[data-code-language]')?.textContent).toBe('ts')
-    expect(container.querySelector('button[aria-label="Copy this code"]')).not.toBeNull()
+    const copy = container.querySelector('button[aria-label="Copy this code"]')
+    expect(copy).not.toBeNull()
+    expect(copy?.getAttribute('data-slot')).toBe('button')
+    expect(copy?.getAttribute('data-variant')).toBe('quiet')
   })
 
   it('copies only the code, without the header', async () => {
