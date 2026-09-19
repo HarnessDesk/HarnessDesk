@@ -341,6 +341,22 @@ test('two sets started together both land, each on top of what the other wrote',
   assert.deepEqual([first.wrote, second.wrote], [true, true], 'two writes, each saying so')
 })
 
+test('onlyIfAbsent decides inside the set queue, after an earlier local set has landed', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  const local = file.set('judge', [{ runtime: 'cursor' }])
+  const restored = (file.set as unknown as (
+    id: string,
+    seats: readonly { runtime: string }[],
+    options: { onlyIfAbsent: boolean },
+  ) => ReturnType<MachineSeatingFile['set']>)('judge', [{ runtime: 'codex' }], { onlyIfAbsent: true })
+
+  const [localOutcome, restoreOutcome] = await Promise.all([local, restored])
+  assert.equal(localOutcome.wrote, true)
+  assert.equal(restoreOutcome.wrote, false, 'the queued restore saw the local entry and did not overwrite it')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: ['cursor'] })
+})
+
 /*
  * M11: three gaps the review found — a directory where a file was expected,
  * JSON that is not an object at all, and `thinking` surviving both forms of

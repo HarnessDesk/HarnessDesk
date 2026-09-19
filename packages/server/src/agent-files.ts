@@ -1,10 +1,11 @@
 import { constants, type Stats } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join } from 'node:path'
+import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
+import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
 import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
 
-import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, PROJECT_AGENT_DIR, idsIn } from './agents.js'
+import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, NOTHING_HERE, PROJECT_AGENT_DIR, idsIn, readAtMost } from './agents.js'
 import { isReservedId } from './agent-seating-file.js'
 import { seatSpec, seatWritesCompactly } from './flow.js'
 
@@ -141,7 +142,11 @@ export interface CreatedAgentFolder {
   readonly fileIdentity: Identity
 }
 
-const alreadyThere = (root: string, id: string): Error => new Error(`There is already an Agent called “${id}” in ${root}.`)
+/** Marks `alreadyThere`'s own refusal so a caller can tell it apart from any other failure `writeAgentFolder` raises, without matching its words. */
+const AGENT_EXISTS = 'HD_AGENT_EXISTS'
+
+const alreadyThere = (root: string, id: string): Error =>
+  Object.assign(new Error(`There is already an Agent called “${id}” in ${root}.`), { code: AGENT_EXISTS })
 
 const exists = async (path: string): Promise<boolean> => {
   try {
@@ -224,18 +229,44 @@ export const createAgentFolder = (root: string, id: string, source: string): Pro
     await writeFile(join(temporary, 'AGENT.md'), source, { encoding: 'utf8', flag: 'wx' })
   })
 
-/** Copies regular files and folders, one by one; links and special files stay behind. */
-const copyTree = async (from: string, to: string): Promise<void> => {
-  for (const entry of await readdir(from, { withFileTypes: true })) {
-    const source = join(from, entry.name)
-    const destination = join(to, entry.name)
+/** A regular file or folder found directly inside a directory — a link, of any kind, to anything, is not one. */
+interface RegularEntry {
+  readonly name: string
+  readonly source: string
+  readonly kind: 'file' | 'dir'
+}
+
+/**
+ * Every regular file and folder directly inside `dir`. The one rule
+ * `copyAgentFolder`'s duplicate and `exportAgentFolders`'s backup both carry
+ * an Agent by: a link, wherever it leads, is left behind rather than
+ * followed, because a folder is `dev`+`ino` away from copying itself into a
+ * link that reaches back into it, and a backup that followed a link out of
+ * the folder would carry whatever that link names, decided by wherever it
+ * happens to point on this machine rather than by what is in the Agent's own
+ * folder.
+ */
+const regularEntries = async (dir: string): Promise<RegularEntry[]> => {
+  const found: RegularEntry[] = []
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const source = join(dir, entry.name)
     const info = await lstat(source)
     if (info.isSymbolicLink()) continue
-    if (info.isDirectory()) {
+    if (info.isDirectory()) found.push({ name: entry.name, source, kind: 'dir' })
+    else if (info.isFile()) found.push({ name: entry.name, source, kind: 'file' })
+  }
+  return found
+}
+
+/** Copies regular files and folders, one by one; links and special files stay behind. */
+const copyTree = async (from: string, to: string): Promise<void> => {
+  for (const entry of await regularEntries(from)) {
+    const destination = join(to, entry.name)
+    if (entry.kind === 'dir') {
       await mkdir(destination)
-      await copyTree(source, destination)
-    } else if (info.isFile()) {
-      await copyFile(source, destination, constants.COPYFILE_EXCL)
+      await copyTree(entry.source, destination)
+    } else {
+      await copyFile(entry.source, destination, constants.COPYFILE_EXCL)
     }
   }
 }
@@ -280,80 +311,213 @@ export interface AgentFolderCopy {
 
 /** The most one Agent folder contributes to a backup, across all of its files. */
 const BACKUP_FOLDER_LIMIT = 1024 * 1024
-const utf8 = new TextDecoder('utf-8', { fatal: true })
+// `ignoreBOM: true` keeps the decoder from doing what its name suggests it
+// would refuse to do: strip a leading byte-order mark. Without it, a file
+// that starts with one does not come back byte for byte.
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
-/** Every Agent folder in this machine's roster, with links inside each folder left behind. */
-export const exportAgentFolders = async (root: string): Promise<AgentFolderCopy[]> => {
+/** A linked git checkout's own metadata — never carried, at any depth: its `config` can hold a remote's token. */
+const GIT_DIR = '.git'
+
+/** A plain, total order no locale can read differently on a different machine. */
+const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+/**
+ * Every Agent folder in this machine's roster, with links inside each folder
+ * left behind (`regularEntries`, the rule `copyAgentFolder`'s own duplicate
+ * copies by) and a linked git checkout's `.git` left out at every depth.
+ *
+ * One bad Agent, or one bad file or subfolder inside an otherwise-good one,
+ * never costs the rest of the export. `idsIn` already decides what is an
+ * Agent at all — a dangling link or a link to a file is not one, and is left
+ * out without a word, the same as the roster itself reads it. Anything else
+ * that could not be read — a permission this account does not have, most
+ * likely — leaves just that Agent, or just that file or subfolder, out, with
+ * `log` told why.
+ *
+ * `AGENT.md` is read first, always, so nothing else in the folder can fill
+ * the budget before it gets a turn; everything after it follows in code-unit
+ * order, the same order a backup taken on a different machine would read it
+ * in.
+ */
+export const exportAgentFolders = async (
+  root: string,
+  log?: (message: string, details?: unknown) => void,
+): Promise<AgentFolderCopy[]> => {
   const copies: AgentFolderCopy[] = []
   for (const id of await idsIn(root)) {
     const files: { path: string; text: string }[] = []
     let total = 0
-    const walk = async (dir: string, prefix: string): Promise<void> => {
-      const entries = (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))
-      for (const entry of entries) {
-        const path = prefix ? `${prefix}/${entry.name}` : entry.name
-        if (entry.isDirectory()) {
-          await walk(join(dir, entry.name), path)
-        } else if (entry.isFile()) {
-          const bytes = await readFile(join(dir, entry.name))
-          if (bytes.length > AGENT_FILE_LIMIT || total + bytes.length > BACKUP_FOLDER_LIMIT) continue
-          let text: string
-          try {
-            text = utf8.decode(bytes)
-          } catch {
-            continue
-          }
-          total += bytes.length
-          files.push({ path, text })
+
+    const take = async (source: string, path: string): Promise<void> => {
+      let handle
+      try {
+        handle = await open(source, constants.O_RDONLY)
+      } catch (error) {
+        log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
+        return
+      }
+      try {
+        const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
+        // Too large, or the folder's own budget is spent: quiet, exactly as
+        // it was before this file was ever looked at — this is not a failure.
+        if (bytes === null || total + bytes.length > BACKUP_FOLDER_LIMIT) return
+        let text: string
+        try {
+          text = utf8.decode(bytes)
+        } catch {
+          return // not UTF-8: quiet, the same as an oversized file
         }
+        total += bytes.length
+        files.push({ path, text })
+      } catch (error) {
+        log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
+      } finally {
+        await handle.close()
       }
     }
-    await walk(join(root, id), '')
-    if (files.some((one) => one.path === 'AGENT.md')) copies.push({ id, files })
+
+    const walk = async (dir: string, prefix: string): Promise<void> => {
+      let entries: RegularEntry[]
+      try {
+        entries = await regularEntries(dir)
+      } catch (error) {
+        // At the Agent's own top folder, the caller decides quiet-or-warned:
+        // `idsIn` already kept this id only because something is there, so
+        // ENOENT/ENOTDIR here means a link that leads nowhere or to a file —
+        // not an Agent, the same as the roster reads it — and anything else
+        // is a real folder this account could not open.
+        if (prefix === '') throw error
+        log?.('a file or folder was left out of an Agent backup', { id, path: prefix, error: messageOf(error) })
+        return
+      }
+      const usable = entries.filter((entry) => entry.name !== GIT_DIR)
+      const ordered =
+        prefix === ''
+          ? [
+              ...usable.filter((entry) => entry.name === 'AGENT.md'),
+              ...usable.filter((entry) => entry.name !== 'AGENT.md').sort((a, b) => byCodeUnit(a.name, b.name)),
+            ]
+          : [...usable].sort((a, b) => byCodeUnit(a.name, b.name))
+      for (const entry of ordered) {
+        if (files.length >= MAX_BUNDLE_FILES) return
+        const path = prefix ? `${prefix}/${entry.name}` : entry.name
+        if (entry.kind === 'dir') await walk(entry.source, path)
+        else await take(entry.source, path)
+      }
+    }
+
+    try {
+      await walk(join(root, id), '')
+    } catch (error) {
+      if (!NOTHING_HERE.has(errnoOf(error))) {
+        log?.('a file or folder was left out of an Agent backup', { id, error: messageOf(error) })
+      }
+      continue
+    }
+
+    if (!files.some((one) => one.path === 'AGENT.md')) {
+      log?.('an Agent was left out of the backup', { id })
+      continue
+    }
+    copies.push({ id, files })
   }
   return copies
 }
 
-/** One relative backup path segment: never a climb, separator, or string the filesystem cannot accept. */
+/**
+ * One relative backup path segment: never a climb, a separator, a string
+ * the filesystem cannot accept, or a linked checkout's own metadata —
+ * `isSafePathSegment` is the one rule every one of those is built from, so
+ * this and a skill bundle's own name check cannot quietly drift apart at an
+ * edge (a backslash, a `.`, a NUL) the way they once had. A path segment
+ * this long already fails on most filesystems (`ENAMETOOLONG`) — dropped
+ * here, before the write, one long name no longer costs the whole folder.
+ */
 const isSegment = (name: string): boolean =>
-  name !== '' && name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes('\0')
+  isSafePathSegment(name) && name !== GIT_DIR && Buffer.byteLength(name, 'utf8') <= 255
 
-const isBackupPath = (path: string): boolean =>
-  !isAbsolute(path) && !/^[A-Za-z]:\//.test(path) && path.split('/').every(isSegment)
+/**
+ * Whether a whole relative path is safe to write under a temporary Agent
+ * folder. `isAbsolute` is not asked here: an absolute path's leading `/`
+ * makes an empty first segment, which `isSegment` already refuses — asking
+ * again would be a second rule that could one day disagree with the first,
+ * not a second guard.
+ */
+const isBackupPath = (path: string): boolean => !/^[A-Za-z]:\//.test(path) && path.split('/').every(isSegment)
 
-/** Restores one missing Agent folder transactionally and answers whether it was added. */
-export const importAgentFolder = async (root: string, copy: unknown): Promise<boolean> => {
+/** A path segment, folded so a case or Unicode alias of one already taken reads as the same segment. */
+const foldedSegment = (segment: string): string => segment.normalize('NFC').toLowerCase()
+
+/** A whole relative path, folded segment by segment — the separator itself never changes case or normal form. */
+const foldedPath = (path: string): string => path.split('/').map(foldedSegment).join('/')
+
+/** What became of one Agent folder from a backup: restored, or refused and — a bare collision aside — why. */
+export type AgentFolderRestoreOutcome = { readonly restored: true } | { readonly restored: false; readonly reason: string | null }
+
+const REFUSED_INVALID_ID = 'its id is not a valid Agent id'
+const REFUSED_RESERVED_ID = 'its id is a reserved name no Agent may use'
+const REFUSED_NOT_A_FILE_LIST = 'it names no files'
+const REFUSED_NO_BRIEF = 'it has no AGENT.md once its files were checked'
+
+/**
+ * Restores one missing Agent folder transactionally and says what happened:
+ * restored, or refused and why — except a plain collision with an Agent
+ * already here, which is this machine's own and never a stranger's to be
+ * told about, so it is refused quietly (`reason: null`). Detected from
+ * `writeAgentFolder`'s own refusal (tagged `AGENT_EXISTS`) rather than a
+ * separate `exists()` first: a second check is a second place for the
+ * answer to be stale by the time the first one writes.
+ */
+export const importAgentFolder = async (root: string, copy: unknown): Promise<AgentFolderRestoreOutcome> => {
   const record = (copy ?? {}) as { id?: unknown; files?: unknown }
   const id = typeof record.id === 'string' ? record.id : ''
-  if (agentIdOf(id) !== id || isReservedId(id) || !Array.isArray(record.files) || (await exists(join(root, id)))) return false
+  if (agentIdOf(id) !== id) return { restored: false, reason: REFUSED_INVALID_ID }
+  if (isReservedId(id)) return { restored: false, reason: REFUSED_RESERVED_ID }
+  if (!Array.isArray(record.files)) return { restored: false, reason: REFUSED_NOT_A_FILE_LIST }
+
   const files: { path: string; text: string }[] = []
   const filePaths = new Set<string>()
   const folderPaths = new Set<string>()
   let total = 0
   for (const one of record.files) {
+    // Past the cap, nothing more is even looked at — the guard against a
+    // backup naming tens of thousands of empty files is not spending less
+    // per file, it is never opening them.
+    if (files.length >= MAX_BUNDLE_FILES) break
     const file = (one ?? {}) as { path?: unknown; text?: unknown }
     if (typeof file.path !== 'string' || typeof file.text !== 'string' || !isBackupPath(file.path)) continue
     const bytes = Buffer.byteLength(file.text, 'utf8')
     if (bytes > AGENT_FILE_LIMIT || total + bytes > BACKUP_FOLDER_LIMIT) continue
     const segments = file.path.split('/')
-    const parents = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'))
-    // First wins: a duplicate, a descendant of a file, or a file where an
-    // earlier descendant already made a folder is left out before any write.
-    if (filePaths.has(file.path) || folderPaths.has(file.path) || parents.some((path) => filePaths.has(path))) continue
+    const key = foldedPath(file.path)
+    const parents = segments.slice(0, -1).map((_, index) => foldedPath(segments.slice(0, index + 1).join('/')))
+    // First wins: an exact duplicate, a case or Unicode alias of a path
+    // already taken, a descendant of a file, or a file where an earlier
+    // descendant already made a folder is left out before any write — every
+    // one of those would otherwise reach `writeFile`'s own `wx` flag as an
+    // `EEXIST`, which costs the whole folder, not just the one file.
+    if (filePaths.has(key) || folderPaths.has(key) || parents.some((path) => filePaths.has(path))) continue
     files.push({ path: file.path, text: file.text })
-    filePaths.add(file.path)
+    filePaths.add(key)
     for (const path of parents) folderPaths.add(path)
     total += bytes
   }
-  if (!files.some((one) => one.path === 'AGENT.md')) return false
-  await writeAgentFolder(root, id, async (temporary) => {
-    for (const file of files) {
-      const target = join(temporary, file.path)
-      await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, file.text, { encoding: 'utf8', flag: 'wx' })
-    }
-  })
-  return true
+  if (!files.some((one) => one.path === 'AGENT.md')) return { restored: false, reason: REFUSED_NO_BRIEF }
+
+  try {
+    await writeAgentFolder(root, id, async (temporary) => {
+      for (const file of files) {
+        const target = join(temporary, file.path)
+        await mkdir(dirname(target), { recursive: true })
+        await writeFile(target, file.text, { encoding: 'utf8', flag: 'wx' })
+      }
+    })
+  } catch (error) {
+    if ((error as { code?: unknown } | null)?.code === AGENT_EXISTS) return { restored: false, reason: null }
+    throw error
+  }
+  return { restored: true }
 }
 
 /** Reads the source Customize is about to copy, without following a last-step link and without exceeding the roster's limit. */

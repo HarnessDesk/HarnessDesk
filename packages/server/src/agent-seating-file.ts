@@ -226,8 +226,15 @@ export class MachineSeatingFile {
    * Answers whether it wrote, because only this can say: a caller comparing a
    * reading of its own, taken outside the queue, with what this answers cannot
    * tell a write that put back what it had read from no write at all.
+   *
+   * `onlyIfAbsent` is for a restore: "add only if this Agent has no entry
+   * yet" has to be decided against the file as it reads the instant before
+   * this call writes it, inside the same queued turn — not from a `read()`
+   * taken before the queue, which a `set()` from somewhere else, landing in
+   * the gap between that read and this call's own turn, could make stale by
+   * the time this call runs.
    */
-  set(id: string, seats: readonly FlowSeat[] | null): Promise<SeatingSetOutcome> {
+  set(id: string, seats: readonly FlowSeat[] | null, options: { onlyIfAbsent?: boolean } = {}): Promise<SeatingSetOutcome> {
     const run = async (): Promise<SeatingSetOutcome> => {
       // Refused before anything is read or written: accepted, this id would
       // read back indistinguishably from a real entry (`parseSeating` above),
@@ -276,6 +283,13 @@ export class MachineSeatingFile {
           )
         }
         raw = record
+      }
+
+      // Decided here, against the very `raw` this turn is about to write from
+      // and the id this turn already holds the queue for — not against a
+      // snapshot read before this call had its turn.
+      if (options.onlyIfAbsent && Object.hasOwn(raw, id)) {
+        return { seating: await this.read(), wrote: false }
       }
 
       // Pairs, then `fromEntries`: an Agent id is a folder name, and a folder

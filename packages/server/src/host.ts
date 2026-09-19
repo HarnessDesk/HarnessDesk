@@ -1482,7 +1482,9 @@ export class Host {
       agents: this.options.agents?.entries() ?? [],
       preferences: this.#state.state.preferences,
       transcripts: await this.#transcripts.exportAll(),
-      agentFolders: await exportAgentFolders(join(this.#state.directory, 'agents')),
+      agentFolders: await exportAgentFolders(join(this.#state.directory, 'agents'), (message, details) =>
+        this.#logger.warn(message, details),
+      ),
       seating: await this.#machineSeating.raw(),
     }
   }
@@ -1558,12 +1560,24 @@ export class Host {
     const agentFolders = { restored: 0, skipped: 0 }
     for (const copy of Array.isArray(file.agentFolders) ? file.agentFolders : []) {
       try {
-        if (await importAgentFolder(join(this.#state.directory, 'agents'), copy)) agentFolders.restored += 1
-        else agentFolders.skipped += 1
+        const outcome = await importAgentFolder(join(this.#state.directory, 'agents'), copy)
+        if (outcome.restored) {
+          agentFolders.restored += 1
+        } else {
+          agentFolders.skipped += 1
+          // `reason: null` is a plain collision with an Agent already here —
+          // this machine's own, never a stranger's, so it stays quiet.
+          if (outcome.reason !== null) {
+            this.#logger.warn('an Agent folder from a backup was refused', {
+              id: loggedId(backupCopyId(copy)),
+              error: outcome.reason,
+            })
+          }
+        }
       } catch (error) {
         agentFolders.skipped += 1
         this.#logger.warn('an Agent folder from a backup could not be restored', {
-          id: typeof copy === 'object' && copy !== null && 'id' in copy ? copy.id : null,
+          id: loggedId(backupCopyId(copy)),
           error: error instanceof Error ? error.message : String(error),
         })
       }
@@ -1572,22 +1586,16 @@ export class Host {
     const seating = { restored: 0, skipped: 0 }
     if (typeof file.seating === 'object' && file.seating !== null) {
       const saved = parseSeating(JSON.stringify(file.seating))
-      const here = await this.#machineSeating.read()
-      const unreadable = here.problems.some((one) => one.id === null)
-      const taken = new Set([...here.entries.map((one) => one.id), ...here.problems.flatMap((one) => one.id ?? [])])
       for (const entry of saved.entries) {
-        if (unreadable || taken.has(entry.id)) {
-          seating.skipped += 1
-          continue
-        }
         try {
-          const outcome = await this.#machineSeating.set(entry.id, entry.seats)
-          if (outcome.wrote) {
-            seating.restored += 1
-            taken.add(entry.id)
-          } else {
-            seating.skipped += 1
-          }
+          // `onlyIfAbsent` decides "is this Agent's id already taken" inside
+          // `set()`'s own write queue, against the file it is about to write —
+          // not from a read taken before this loop started, which a window's
+          // own `agent/seating/set` landing in the gap between that read and
+          // this call could otherwise have made stale.
+          const outcome = await this.#machineSeating.set(entry.id, entry.seats, { onlyIfAbsent: true })
+          if (outcome.wrote) seating.restored += 1
+          else seating.skipped += 1
         } catch (error) {
           seating.skipped += 1
           this.#logger.warn('a seating entry from a backup could not be restored', {
@@ -3735,6 +3743,20 @@ const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, 
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+/** A backup's own `id` field, whatever shape it turns out to be — never trusted to be the string it claims. */
+const backupCopyId = (copy: unknown): unknown =>
+  typeof copy === 'object' && copy !== null && 'id' in copy ? (copy as { id: unknown }).id : null
+
+/**
+ * A backup's own id, safe to put in a log: quoted like any other logged
+ * value, and capped — nothing here says a stranger's string is short,
+ * printable, or even a string at all.
+ */
+const loggedId = (id: unknown): string => {
+  const text = typeof id === 'string' ? id : String(id)
+  return JSON.stringify(text.length > 140 ? `${text.slice(0, 140)}…` : text)
+}
 
 /**
  * Why a queue stopped, in the turn's own words where it has any. A person

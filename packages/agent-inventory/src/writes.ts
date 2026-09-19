@@ -74,18 +74,23 @@ export interface WriteContext {
 }
 
 /** Caps on what an install will carry: past these, a bundle is a project. */
-const MAX_BUNDLE_FILES = 200
+export const MAX_BUNDLE_FILES = 200
 const MAX_BUNDLE_BYTES = 20 * 1024 * 1024
 
-/** A name is a path segment. Anything that is not one segment is an attack. */
-const validName = (name: string): boolean =>
-  name.length > 0 &&
-  name.length <= 128 &&
-  name !== '.' &&
-  name !== '..' &&
-  !name.includes('/') &&
-  !name.includes('\\') &&
-  !name.includes('\0')
+/**
+ * Whether a string could ever be one path segment: never empty, never a
+ * climb (`.` or `..`), and never carrying a separator or a NUL a filesystem
+ * would refuse outright. Exported so a caller with its own length policy —
+ * a skill or MCP server's name here, an Agent backup's path segment in
+ * `agent-files.ts` — states that policy as one extra check on top of this,
+ * rather than a second near-identical rule that quietly disagrees with this
+ * one at an edge nobody is looking at.
+ */
+export const isSafePathSegment = (name: string): boolean =>
+  name !== '' && name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes('\0')
+
+/** A name is a path segment, short enough for a skill or MCP server's own name. */
+const validName = (name: string): boolean => isSafePathSegment(name) && name.length <= 128
 
 interface Definition {
   /** The bundle directory or the flat file itself. */

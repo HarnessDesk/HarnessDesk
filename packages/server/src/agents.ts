@@ -83,7 +83,7 @@ const DIR_LEADS_OUT =
  * A raised error names a path and a reason they can act on; zero rows name
  * nothing.
  */
-const NOTHING_HERE = new Set(['ENOENT', 'ENOTDIR'])
+export const NOTHING_HERE = new Set(['ENOENT', 'ENOTDIR'])
 
 const errnoOf = (error: unknown): string => {
   const code = (error as { code?: unknown } | null)?.code
@@ -235,7 +235,7 @@ const kindOf = (info: Stats): string => {
  * between the two, and some report no size at all. One byte past the limit is
  * the most that is ever read, and it is enough to know.
  */
-const readAtMost = async (handle: FileHandle, limit: number): Promise<Buffer | null> => {
+export const readAtMost = async (handle: FileHandle, limit: number): Promise<Buffer | null> => {
   const buffer = Buffer.allocUnsafe(limit + 1)
   let filled = 0
   while (filled < buffer.length) {
