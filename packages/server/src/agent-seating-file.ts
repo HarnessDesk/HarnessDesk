@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 import { SEAT_PREFERENCE_LIMIT, type FlowSeat, type MachineSeating, type SeatingProblem } from '@harnessdesk/protocol'
 
-import { asList, asRecord, asText, parseSeatList, seatSpec, seatWritesCompactly } from './flow.js'
+import { asList, asRecord, asText, parseSeatList, sameSeat, seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
  * This machine's seats for its Agents: `seating.json` in the state directory.
@@ -40,6 +40,8 @@ import { asList, asRecord, asText, parseSeatList, seatSpec, seatWritesCompactly 
  */
 
 export const SEATING_FILE = 'seating.json'
+/** Persisted beside the entries; `$` cannot begin an Agent id. */
+const SEATING_REVISION = '$revision'
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -65,22 +67,40 @@ export const reservedIdText = (id: string): string =>
   `"${id}" is not read as an Agent id — every object answers to it on its own, so it is never truly this Agent's; rename it`
 
 /** What one file's text says: the entries that read, in order, and why the others did not. Pure. */
-export const parseSeating = (
-  text: string,
-): { entries: { id: string; seats: readonly FlowSeat[] }[]; problems: SeatingProblem[] } => {
+interface ParsedSeating {
+  readonly revision: number
+  readonly entries: { id: string; seats: readonly FlowSeat[] }[]
+  readonly problems: SeatingProblem[]
+}
+
+const parseSeatingDocument = (text: string): ParsedSeating => {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch (error) {
-    return { entries: [], problems: [{ id: null, at: '', text: `it is not JSON: ${messageOf(error)}` }] }
+    return { revision: 0, entries: [], problems: [{ id: null, at: '', text: `it is not JSON: ${messageOf(error)}` }] }
   }
   const file = asRecord(parsed)
   if (!file) {
-    return { entries: [], problems: [{ id: null, at: '', text: 'it is not an object of Agent ids to lists of seats' }] }
+    return {
+      revision: 0,
+      entries: [],
+      problems: [{ id: null, at: '', text: 'it is not an object of Agent ids to lists of seats' }],
+    }
+  }
+  const storedRevision = file[SEATING_REVISION]
+  const revision = storedRevision === undefined ? 0 : storedRevision
+  if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+    return {
+      revision: 0,
+      entries: [],
+      problems: [{ id: null, at: SEATING_REVISION, text: 'its revision is not a non-negative safe integer' }],
+    }
   }
   const entries: { id: string; seats: readonly FlowSeat[] }[] = []
   const problems: SeatingProblem[] = []
   for (const [id, value] of Object.entries(file)) {
+    if (id === SEATING_REVISION) continue
     if (isReservedId(id)) {
       problems.push({ id, at: '', text: reservedIdText(id) })
       continue
@@ -111,6 +131,14 @@ export const parseSeating = (
     }
     entries.push({ id, seats })
   }
+  return { revision: revision as number, entries, problems }
+}
+
+/** What the Agent entries say; the persisted ordering field is host bookkeeping, not an Agent. */
+export const parseSeating = (
+  text: string,
+): { entries: { id: string; seats: readonly FlowSeat[] }[]; problems: SeatingProblem[] } => {
+  const { entries, problems } = parseSeatingDocument(text)
   return { entries, problems }
 }
 
@@ -144,6 +172,22 @@ const sameJson = (a: unknown, b: unknown): boolean => {
   return false
 }
 
+/** A valid entry as seats, including a hand-written long form; null when the entry itself does not read. */
+const seatsIn = (value: unknown): readonly FlowSeat[] | null => {
+  const listed = asList(value) ?? (asText(value) !== null || asRecord(value) ? [value] : null)
+  if (listed === null) return null
+  const { seats, broken } = parseSeatList(listed)
+  return broken.length === 0 ? seats : null
+}
+
+const sameSeats = (a: readonly FlowSeat[], b: readonly FlowSeat[]): boolean =>
+  a.length === b.length && a.every((seat, index) => sameSeat(seat, b[index]!))
+
+interface SeatingCompareAndSet {
+  readonly expected: readonly FlowSeat[] | null
+  readonly message: string
+}
+
 /** What one `set()` did: this machine's seats as they now read, and whether the file was written to get there. */
 export interface SeatingSetOutcome {
   readonly seating: MachineSeating
@@ -162,26 +206,51 @@ export interface MachineSeatingFileOptions {
 
 export class MachineSeatingFile {
   #writes: Promise<unknown> = Promise.resolve()
+  /** Highest revision this desk has handed to any caller or persisted. */
+  #highWater = 0
 
   constructor(
     readonly path: string,
     private readonly options: MachineSeatingFileOptions = {},
   ) {}
 
-  async read(): Promise<MachineSeating> {
+  async #readNow(): Promise<MachineSeating> {
     let text: string
     try {
       text = await readFile(this.path, 'utf8')
     } catch (error) {
       // No file is no entries: nobody has chosen seats on this machine yet.
-      if ((error as { code?: unknown }).code === 'ENOENT') return { path: this.path, entries: [], problems: [] }
-      return { path: this.path, entries: [], problems: [{ id: null, at: '', text: unreadable(error) }] }
+      if ((error as { code?: unknown }).code === 'ENOENT') {
+        return { revision: this.#highWater, path: this.path, entries: [], problems: [] }
+      }
+      return {
+        revision: this.#highWater,
+        path: this.path,
+        entries: [],
+        problems: [{ id: null, at: '', text: unreadable(error) }],
+      }
     }
-    return { path: this.path, ...parseSeating(text) }
+    const parsed = parseSeatingDocument(text)
+    this.#highWater = Math.max(this.#highWater, parsed.revision)
+    return { path: this.path, ...parsed, revision: this.#highWater }
+  }
+
+  async read(): Promise<MachineSeating> {
+    // A public read never crosses an in-flight local write. Besides keeping
+    // its entries coherent with the revision, this means the high-water mark
+    // cannot move underneath a write after that write has chosen its next
+    // persisted revision.
+    await this.#writes
+    return this.#readNow()
   }
 
   /** The file as written for a backup, or null when it is absent or unreadable. */
   async raw(): Promise<Record<string, unknown> | null> {
+    // An export that starts after a local edit must include that edit, even
+    // while its atomic rename is still in flight. Keep this public read on
+    // the same ordering boundary as read(); set() uses #readNow() internally
+    // so its own queued turn never waits on itself.
+    await this.#writes
     let text: string
     try {
       text = await readFile(this.path, 'utf8')
@@ -211,7 +280,7 @@ export class MachineSeatingFile {
       })
       return null
     }
-    return record
+    return Object.fromEntries(Object.entries(record).filter(([key]) => key !== SEATING_REVISION))
   }
 
   /**
@@ -234,9 +303,10 @@ export class MachineSeatingFile {
    * the gap between that read and this call's own turn, could make stale by
    * the time this call runs.
    *
-   * `refuseIfDifferent` is a project Save's compare-and-set, decided the same
-   * way: "write only if this id is still absent, or still reads back exactly
-   * the seat this call is about to write" — the two cases a Save's own
+   * `refuseIfDifferent` is a compare-and-set decided the same way. A string is
+   * the project Save's original form: "write only if this id is still absent,
+   * or still reads back exactly the seat this call is about to write" — the
+   * two cases a Save's own
    * up-front check already treats as fine. A Save reads the file, decides the
    * id is absent or already its own seat, then awaits a project path walk and
    * an Agent-folder transaction before ever reaching this call; a different
@@ -246,12 +316,15 @@ export class MachineSeatingFile {
    * keeping what changed (`onlyIfAbsent`'s own answer) or silently overwriting
    * it — so a Save can roll back the folder it already made and refuse in its
    * own words, the same ones its up-front check would have refused with had
-   * it seen this file's current answer instead of the one it started from.
+   * it seen this file's current answer instead of the one it started from. An
+   * object carries the exact entry an interactive edit was built from; `null`
+   * means it saw no entry. Both comparisons happen against the file inside the
+   * queue, and valid hand-written long forms compare by the seats they mean.
    */
   set(
     id: string,
     seats: readonly FlowSeat[] | null,
-    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string } = {},
+    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string | SeatingCompareAndSet } = {},
   ): Promise<SeatingSetOutcome> {
     const run = async (): Promise<SeatingSetOutcome> => {
       // Refused before anything is read or written: accepted, this id would
@@ -302,12 +375,20 @@ export class MachineSeatingFile {
         }
         raw = record
       }
+      const storedRevision = raw[SEATING_REVISION]
+      const revision = storedRevision === undefined ? 0 : storedRevision
+      if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+        throw new Error(
+          `${this.path} was not changed: ${SEATING_REVISION} is not a non-negative safe integer. Fix it or remove it first, so what is in it is not lost.`,
+        )
+      }
+      this.#highWater = Math.max(this.#highWater, revision as number)
 
       // Decided here, against the very `raw` this turn is about to write from
       // and the id this turn already holds the queue for — not against a
       // snapshot read before this call had its turn.
       if (options.onlyIfAbsent && Object.hasOwn(raw, id)) {
-        return { seating: await this.read(), wrote: false }
+        return { seating: await this.#readNow(), wrote: false }
       }
 
       // Pairs, then `fromEntries`: an Agent id is a folder name, and a folder
@@ -315,6 +396,7 @@ export class MachineSeatingFile {
       const pairs: [string, unknown][] = []
       let placed = false
       for (const [key, value] of Object.entries(raw)) {
+        if (key === SEATING_REVISION) continue
         if (key !== id) {
           pairs.push([key, value])
           continue
@@ -331,17 +413,30 @@ export class MachineSeatingFile {
       // window's choice, made after whatever read led to this call — refused
       // in the caller's own words, never silently kept (that is
       // `onlyIfAbsent`'s job) and never silently replaced.
-      if (options.refuseIfDifferent !== undefined && before !== undefined && !sameJson(before, after)) {
+      if (typeof options.refuseIfDifferent === 'string' && before !== undefined && !sameJson(before, after)) {
         throw new Error(options.refuseIfDifferent)
       }
-      if (sameJson(before, after)) return { seating: await this.read(), wrote: false }
+      if (typeof options.refuseIfDifferent === 'object') {
+        const expected = options.refuseIfDifferent.expected
+        const matches =
+          expected === null
+            ? before === undefined
+            : before !== undefined && ((current) => current !== null && sameSeats(current, expected))(seatsIn(before))
+        if (!matches) throw new Error(options.refuseIfDifferent.message)
+      }
+      if (sameJson(before, after)) return { seating: await this.#readNow(), wrote: false }
 
       await mkdir(dirname(this.path), { recursive: true })
       // Write-then-rename, like every file the host owns.
       const temp = `${this.path}.${process.pid}.tmp`
-      await writeFile(temp, `${JSON.stringify(Object.fromEntries(pairs), null, 2)}\n`)
+      const nextRevision = Math.max((revision as number) + 1, this.#highWater + 1)
+      if (!Number.isSafeInteger(nextRevision)) {
+        throw new Error(`${this.path} was not changed: its revision cannot increase again.`)
+      }
+      await writeFile(temp, `${JSON.stringify(Object.fromEntries([[SEATING_REVISION, nextRevision], ...pairs]), null, 2)}\n`)
       await rename(temp, this.path)
-      return { seating: await this.read(), wrote: true }
+      this.#highWater = nextRevision
+      return { seating: await this.#readNow(), wrote: true }
     }
     // One write at a time, so two quick edits cannot each read the file before the other wrote it.
     const current = this.#writes.then(run, run)

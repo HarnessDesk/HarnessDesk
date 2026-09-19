@@ -82,7 +82,7 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * profile, not app state, and rebuilding it costs seconds of cold start for
  * nothing.
  */
-const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'window.json', 'codex-version']
+const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version']
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 
 if (process.argv.includes('--clean')) {
@@ -188,6 +188,16 @@ for (const agent of CAST) {
   writeFileSync(join(HOME, 'stores', `${agent.id}.json`), JSON.stringify(storeFor(agent.id), null, 1))
 }
 
+/**
+ * Windsurf's own sign-in answer: signed out.
+ *
+ * The host reads whether a seat is signed in from the runtime itself, not
+ * from the renderer's account rows the rig answers — so the one runtime the
+ * Agent scenes need signed out has to say so where the host asks. Windsurf,
+ * because no other scene seats it.
+ */
+const SIGNED_OUT = { command: 'node', args: ['-e', 'process.stdout.write(JSON.stringify({ loggedIn: false }))'] }
+
 writeFileSync(
   join(HOME, 'agents.json'),
   `${JSON.stringify(
@@ -207,6 +217,7 @@ writeFileSync(
              of the cast, so 0-3 land one distinct turn on each of them. */
           SHOT_TURN: String(n % 4),
         },
+        ...(agent.id === 'windsurf' ? { account: { status: SIGNED_OUT } } : {}),
       })),
     },
     null,
@@ -232,6 +243,51 @@ writeFileSync(
     2,
   )}\n`,
 )
+
+// ------------------------------------------------------------------ the Agents
+/**
+ * Agents, in all three places the roster reads: the storefront's own Code
+ * reviewer, which shadows the one that ships; one of yours that nothing here
+ * can seat; and this Mac's seats for the project's reviewer, the first of
+ * them passed over on the way. Seats name the rig's runtimes, except the one
+ * meant to be missing, so no Agent reads through to a CLI on this machine.
+ */
+const agentFile = ({ name, description, prefer, brief }) =>
+  `---\nname: ${name}\ndescription: ${description}\npermission: read\nanswers: [approve, request-changes]\nproduces: [review]\nprefer: [${prefer.join(', ')}]\n---\n\n${brief}\n`
+
+const writeAgent = (dir, source) => {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'AGENT.md'), source)
+}
+
+writeAgent(
+  join(roots.storefront, '.harnessdesk', 'agents', 'code-reviewer'),
+  agentFile({
+    name: 'Code reviewer',
+    description: 'The storefront’s reviewer: reads a change against the checkout rules before anyone merges it.',
+    prefer: ['codex'],
+    brief:
+      'You review a change to the storefront that somebody else wrote. Read the whole diff before you report, and hold every change to the checkout rules: money in minor units, retries capped, nothing charged twice.\n\n## How to report\n\nEvery finding with its file and line, blocking ones first, then a verdict: approve, or request changes.',
+  }),
+)
+
+writeAgent(
+  join(HOME, 'agents', 'release-checker'),
+  agentFile({
+    name: 'Release checker',
+    description: 'Reads a release branch against its changelog before it is tagged.',
+    // Signed out, then not added here at all: two reasons, two fixes, and no seat.
+    prefer: [rigRuntimeId('windsurf'), 'claude-code'],
+    brief:
+      'You check a release branch before it is tagged: every change in the changelog is in the branch, and every change in the branch is in the changelog.\n\n## How to report\n\nWhat is missing from each side, then a verdict.',
+  }),
+)
+
+writeFileSync(
+  join(HOME, 'seating.json'),
+  `${JSON.stringify({ 'code-reviewer': [rigRuntimeId('windsurf'), `${rigRuntimeId('claude-code')}=opus`] }, null, 2)}\n`,
+)
+say('agents: storefront’s Code reviewer (shadows the one that ships), Release checker (yours), seats for this Mac')
 
 say(`agents: ${REGISTERED_CAST.length} registered  (${REGISTERED_CAST.map((one) => one.name).join(', ')})`)
 say(`home:   ${HOME}`)

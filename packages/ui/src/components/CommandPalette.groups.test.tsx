@@ -44,6 +44,7 @@ const mount = async (history: readonly SessionSummary[]): Promise<void> => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadAgents: async () => {},
     transport: { request },
     openSession: vi.fn(async () => {}),
   } as unknown as AppStore
@@ -52,6 +53,7 @@ const mount = async (history: readonly SessionSummary[]): Promise<void> => {
     chooseFolder: () => {},
     openSettings: () => {},
     openUsage: () => {},
+    openAgents: () => {},
   }
   await act(async () => {
     root.render(
@@ -74,7 +76,7 @@ const type = (value: string): void => {
 
 it('does not render duplicate or interleaved group headers when filtering (#386)', async () => {
   // Session 1: title starts with "settings" -> inLabel = 0 -> score 100
-  // Action "Settings › Agents": label starts with "settings" -> score 100
+  // Action "Settings › Runtimes": label starts with "settings" -> score 100
   // Session 2: title "workspace tools", preview mentions "settings" -> inExtra >= 0 -> score 30
   // In a flat sort by score, Session 1 (100) and Actions (100) interleave with Session 2 (30),
   // causing "Sessions", then "Actions", then "Sessions" again.

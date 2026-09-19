@@ -94,20 +94,23 @@ export const agentMethods = {
       const entry = roster.find((one) => one.id === id)
       if (!entry) return { plan: blockedPlan(id, `No Agent called “${id}”.`) }
       if (!entry.definition || entry.digest === null) return { plan: blockedPlan(id, unusable(entry)) }
-      const list = candidatesFor(entry.definition, machine)
-      if ('refused' in list) return { plan: blockedPlan(id, list.refused, 'machine') }
-      return { id, list }
+      return { id, list: candidatesFor(entry.definition, machine), prefer: entry.definition.prefer }
     })
+    // Every runtime either list names, read once: the Agent's own list is only weighed beside this Mac's.
     const desk = await readDesk(
       ctx,
-      weighed.flatMap((one) => ('list' in one ? one.list.seats : [])),
+      weighed.flatMap((one) => ('list' in one ? [...('seats' in one.list ? one.list.seats : []), ...one.prefer] : [])),
     )
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
-    return weighed.map((one) =>
-      'plan' in one
-        ? one.plan
-        : planSeats(one.id, one.list.seats, desk.offers, words, one.list.from === 'machine' ? 'machine' : 'prefer'),
-    )
+    return weighed.map((one): SeatPlan => {
+      if ('plan' in one) return one.plan
+      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer').candidates
+      if ('refused' in one.list) return { ...blockedPlan(one.id, one.list.refused, 'machine'), own: own() }
+      if (one.list.from === 'machine') {
+        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine'), own: own() }
+      }
+      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer')
+    })
   },
 
   /**
@@ -203,6 +206,7 @@ export const agentMethods = {
       }
       return ctx.seats.recordAgent(opened.runtime, opened.sessionId, {
         agent: definition.id,
+        name: definition.name,
         briefDigest: digest,
         permission,
         seatLabel: opened.label,
@@ -214,7 +218,15 @@ export const agentMethods = {
   'agent/seating/read': (ctx) => ctx.seating.read(),
 
   'agent/seating/set': async (ctx, params) => {
-    const { seating, wrote } = await ctx.seating.set(params.id, params.seats)
+    const changedElsewhere =
+      "This Agent's seats on this Mac changed in another window; nothing was saved. The page now shows the current seats."
+    const { seating, wrote } = await ctx.seating.set(
+      params.id,
+      params.seats,
+      params.expected === undefined
+        ? {}
+        : { refuseIfDifferent: { expected: params.expected, message: changedElsewhere } },
+    )
     // Every plan drawn before a write is stale, in every window: each write is
     // told, once, and nothing else is — a set that changes nothing must not
     // send every window back to re-read a file that did not change. Whether it
@@ -222,7 +234,7 @@ export const agentMethods = {
     // A reading taken here before queueing could not tell two sets racing
     // (codex to claude, and back) from one, and told every window only of the
     // first — a window re-reading on it stayed on claude.
-    if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
+    if (wrote) ctx.push({ method: 'agent/changed', params: { project: null, revision: seating.revision } })
     return seating
   },
 
@@ -339,8 +351,8 @@ export const agentMethods = {
         // another window's set landing in the gap since could have made
         // stale. This call's own folder and path walk stay sound either way;
         // only its choice of seat might no longer be.
-        const { wrote } = await ctx.seating.set(id, [params.seat], { refuseIfDifferent: alreadySeatedText })
-        if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
+        const { seating, wrote } = await ctx.seating.set(id, [params.seat], { refuseIfDifferent: alreadySeatedText })
+        if (wrote) ctx.push({ method: 'agent/changed', params: { project: null, revision: seating.revision } })
       } catch (error) {
         const left = await rollbackCreatedAgent(created, project ?? '')
         if (left) {
@@ -450,11 +462,21 @@ export const agentMethods = {
  * File verbs match `id` against the roster and then `listedAgentPath` checks
  * that the matched entry is one folder name at the exact tier path before any
  * path is acted on. The unread-project placeholder is deliberately not one.
+ *
+ * A folder inside a checkout is read as that checkout's top (`topLevel`),
+ * because that is where a project keeps its Agents.
  */
 const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
   if (project === undefined) return undefined
   if (!isAbsolute(project)) throw new Error(`${project} is not an absolute path.`)
-  return ctx.workspaces.confineGitRoot(project)
+  const confined = await ctx.workspaces.confineGitRoot(project)
+  /* A project keeps its Agents at the top of its checkout, and a person often
+     opens a folder inside it — so a folder is read as the checkout it is in: a
+     subfolder as its repository's top, a linked worktree as its own. The top
+     is held to the same rule the folder was, so this never reaches a
+     repository nobody opened part of. */
+  const top = await ctx.workspaces.topLevel(confined)
+  return top === null || top === confined ? confined : ctx.workspaces.confineGitRoot(top)
 }
 
 /** Why an entry cannot be seated: its first error, where it is, in the file's own terms. */
@@ -592,13 +614,20 @@ const savedFieldMismatch = (
 
 /**
  * One Agent, weighed for `agent/seat/dry`: already blocked, or a candidate
- * list still waiting on the desk's own reads. Given its own name rather than
- * inferred, so the union stays the one written here — combining these two
- * shapes through plain, unannotated return statements pads each with the
- * other's keys as optional `undefined`, which defeats the `'plan' in one` /
- * `'list' in one` checks below that tell them apart.
+ * list still waiting on the desk's own reads, with its own `prefer` beside it
+ * — read once here, whether or not it ends up weighed as `own`. Given its own
+ * name rather than inferred, so the union stays the one written here —
+ * combining these two shapes through plain, unannotated return statements
+ * pads each with the other's keys as optional `undefined`, which defeats the
+ * `'plan' in one` / `'list' in one` checks below that tell them apart.
  */
-type Weighed = { readonly plan: SeatPlan } | { readonly id: AgentId; readonly list: CandidateList }
+type Weighed =
+  | { readonly plan: SeatPlan }
+  | {
+      readonly id: AgentId
+      readonly list: CandidateList | { readonly refused: string }
+      readonly prefer: readonly FlowSeat[]
+    }
 
 /**
  * A registry snapshot's name for an id, worth showing: never blank or

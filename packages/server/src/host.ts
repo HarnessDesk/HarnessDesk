@@ -1334,6 +1334,7 @@ export class Host {
         openRoots: () => this.#openRoots(),
         fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        topLevel: (path) => gitOps.topLevel(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
@@ -1639,6 +1640,7 @@ export class Host {
     }
 
     const seating = { restored: 0, skipped: 0 }
+    let seatingRevision: number | undefined
     if (typeof file.seating === 'object' && file.seating !== null) {
       const saved = parseSeating(JSON.stringify(file.seating))
       for (const entry of saved.entries) {
@@ -1649,8 +1651,10 @@ export class Host {
           // own `agent/seating/set` landing in the gap between that read and
           // this call could otherwise have made stale.
           const outcome = await this.#machineSeating.set(entry.id, entry.seats, { onlyIfAbsent: true })
-          if (outcome.wrote) seating.restored += 1
-          else seating.skipped += 1
+          if (outcome.wrote) {
+            seating.restored += 1
+            seatingRevision = outcome.seating.revision
+          } else seating.skipped += 1
         } catch (error) {
           seating.skipped += 1
           this.#logger.warn('a seating entry from a backup could not be restored', {
@@ -1662,7 +1666,10 @@ export class Host {
       seating.skipped += saved.problems.filter((one) => one.id !== null).length
     }
     if (agentFolders.restored > 0 || seating.restored > 0) {
-      this.#push({ method: 'agent/changed', params: { project: null } })
+      this.#push({
+        method: 'agent/changed',
+        params: { project: null, ...(seatingRevision === undefined ? {} : { revision: seatingRevision }) },
+      })
     }
     this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating })
     return { agents, preferences, transcripts, agentFolders, seating }
@@ -1901,6 +1908,12 @@ export class Host {
       // Which project this folder is, so the session list can put a worktree
       // opened as a workspace under the project it is a checkout of.
       repo: await this.#repoOf(described.path),
+      // The top of *this* checkout — a linked worktree's own, where `repo`
+      // above deliberately names the main one instead. `#topLevelOf` is the
+      // same cached read `#watchProjects` makes for this same folder, so a
+      // surface comparing against this never disagrees with what a change
+      // notification names.
+      checkoutRoot: await this.#topLevelOf(described.path),
     }
   }
 
@@ -3121,6 +3134,8 @@ export class Host {
            conversations on one agent and one account are told apart by the one
            thing that actually differs between them. */
         model: sessionModel(record.session),
+        /* A conversation seated as an Agent is called that in a room. */
+        ...(record.seatedAs ? { seatedAs: record.seatedAs.name } : {}),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */

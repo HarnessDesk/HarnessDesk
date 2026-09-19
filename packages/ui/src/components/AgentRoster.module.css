@@ -1,0 +1,14 @@
+/* The two facts at the right of a roster row: what it may do, and where it would sit here. */
+.facts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--hd-space-1);
+  text-align: right;
+}
+
+.seat {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+}

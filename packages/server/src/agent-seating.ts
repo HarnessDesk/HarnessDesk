@@ -13,6 +13,8 @@ import type {
   SessionSettings,
 } from '@harnessdesk/protocol'
 
+import { effortWord } from '@harnessdesk/protocol'
+
 import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
 
 /**
@@ -514,23 +516,12 @@ export interface SeatWords {
 }
 
 /**
- * Effort ids as a person says them, for a runtime that did not label them.
- * An id not here is said as written — a vendor adds levels faster than this
- * table learns them, and a word borrowed for one would lie about the next.
+ * Re-exported rather than kept here: the renderer words a refusal from the
+ * same vocabulary (`reasonWords` in `packages/ui/src/lib/agents.ts`), and one
+ * shared table (`@harnessdesk/protocol`) is what keeps an effort from reading
+ * two different ways depending on which side of the wire is talking about it.
  */
-const EFFORT_WORDS: Readonly<Record<string, string>> = {
-  none: 'Off',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-  ultra: 'Ultra',
-}
-
-export const effortWord = (effort: string): string =>
-  Object.hasOwn(EFFORT_WORDS, effort) ? (EFFORT_WORDS[effort] ?? effort) : effort
+export { effortWord }
 
 /** "Claude · Opus 5 · High · thinking" — what a surface shows where a spec would otherwise be. */
 export const describeSeat = (seat: FlowSeat, words: SeatWords): string =>

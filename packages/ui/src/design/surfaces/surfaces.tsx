@@ -77,7 +77,7 @@ export const ConversationSurface = () => (
           onChooseProject={() => {}}
           onSignIn={() => {}}
           onOpenUsage={() => {}}
-          onOpenAgents={() => {}}
+          onOpenRuntimes={() => {}}
         />
       </PaneProvider>
     </Frame>
@@ -121,6 +121,7 @@ export const RailSurface = () => (
         <Sidebar
           onOpenSettings={() => {}}
           onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
           onOpenUsage={() => {}}
           onBrowseFolders={() => {}}
           onSignIn={() => {}}
@@ -276,6 +277,7 @@ export const PanelsSurface = () => (
           <Sidebar
             onOpenSettings={() => {}}
             onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
             onOpenUsage={() => {}}
             onBrowseFolders={() => {}}
             onSignIn={() => {}}

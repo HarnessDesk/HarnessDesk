@@ -19,6 +19,7 @@ import { Slot } from '../slots/registry'
 import { Composer } from './Composer'
 import {
   BranchIcon,
+  BriefIcon,
   CheckIcon,
   CommitIcon,
   CompactIcon,
@@ -70,8 +71,11 @@ import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
 import { sessionLabel } from '../lib/sessions'
+import { ledBy } from '../lib/agents'
+import { useSeatAgent } from '../state/seat-agent'
 import { PlanMeters } from './PlanMeters'
 import { WindowControls } from './WindowControls'
+import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
 
 /**
@@ -86,10 +90,10 @@ const NEAR_BOTTOM_PX = 120
 
 const EmptyState = ({
   onSignIn,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onSignIn: (runtime?: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const snapshot = useSnapshot()
   const runtime = useRuntime()
@@ -116,7 +120,7 @@ const EmptyState = ({
           {health.message}
           {health.remediation ? ` ${health.remediation}` : ''}
         </p>
-        <SetupDesk onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+        <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
       </div>
     )
   }
@@ -184,9 +188,9 @@ const EmptyState = ({
            left for settings to reveal: the other agents on this machine can
            join without anyone hand-editing a file. */
         <p className={styles.emptyBody}>
-          {words.name} is the only agent here.{' '}
-          <Button type="button" variant="link" size="content" onClick={onOpenAgents}>
-            Add another agent…
+          {words.name} is the only runtime here.{' '}
+          <Button type="button" variant="link" size="content" onClick={onOpenRuntimes}>
+            Add another runtime…
           </Button>
         </p>
       )}
@@ -207,6 +211,7 @@ const ConversationMenu = () => {
   const session = useActiveSession()
   const capabilities = runtime.capabilities
   const [confirmUndo, setConfirmUndo] = useState(false)
+  const [saving, setSaving] = useState(false)
   if (!session) return null
   const memoryOn = session.memory === true
 
@@ -214,13 +219,14 @@ const ConversationMenu = () => {
   const several = snapshot.layout.root.kind === 'split'
 
   return (
-    <Popover
-      align="right"
-      title="Conversation"
-      label={<MoreIcon size={15} />}
-    >
-      {(close) => (
-        <>
+    <>
+      <Popover
+        align="right"
+        title="Conversation"
+        label={<MoreIcon size={15} />}
+      >
+        {(close) => (
+          <>
           {capabilities.memory && (
             <PopoverOption
               role="menuitemcheckbox"
@@ -292,7 +298,21 @@ const ConversationMenu = () => {
                 </PopoverOptionBody>
               </PopoverOption>
             ))}
-          {/* Every view of this conversation, so the panel's own tab row is
+            <PopoverOption
+              onClick={() => {
+                setSaving(true)
+                close()
+              }}
+            >
+              <PopoverOptionMark>
+                <BriefIcon size={13} />
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Save as an Agent…</PopoverOptionLabel>
+                <PopoverOptionHint>This seat, a brief and a ceiling, under a name to start again.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
+            {/* Every view of this conversation, so the panel's own tab row is
               not the only way to reach one — it cannot be seen until the panel
               is open. Changes is the exception: it belongs to the workspace
               chip beside this menu, which carries the file count with it, and
@@ -360,9 +380,12 @@ const ConversationMenu = () => {
               </PopoverOptionBody>
             </PopoverOption>
           )}
-        </>
-      )}
-    </Popover>
+          </>
+        )}
+      </Popover>
+      {/* Outside the menu: the menu closes as the dialog opens. */}
+      {saving && <SaveAsAgentDialog session={session} onClose={() => setSaving(false)} />}
+    </>
   )
 }
 
@@ -456,12 +479,12 @@ export const Conversation = ({
   onChooseProject,
   onSignIn,
   onOpenUsage,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
   onOpenUsage: (runtime: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -546,7 +569,7 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <span className={styles.title}>{titleOf(session)}</span>
+        <HeaderTitle session={session} />
         {session && (
           <span className={`${styles.status} hd-no-drag`} data-status={status} title={STATUS_LABEL[status]}>
             <span className={styles.statusDot} />
@@ -675,7 +698,7 @@ export const Conversation = ({
           </div>
         ) : (
           <div className={styles.scroll} ref={scroll} onScroll={onScroll}>
-            <EmptyState onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+            <EmptyState onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
           </div>
         )}
 
@@ -947,4 +970,10 @@ const titleOf = (session: Session | null): string => {
   const label = sessionLabel(session.title, session.preview ?? spoken, 'New session')
   // A first message is a paragraph; a title is a line.
   return label.length > 72 ? `${label.slice(0, 71).trimEnd()}…` : label
+}
+
+/** The header's title: the conversation's own, led by the Agent it was seated as. */
+const HeaderTitle = ({ session }: { readonly session: Session | null }) => {
+  const seated = useSeatAgent(session)
+  return <span className={styles.title}>{ledBy(seated?.name ?? null, titleOf(session))}</span>
 }

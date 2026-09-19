@@ -8,7 +8,11 @@ import { Conversation } from '../components/Conversation'
 import { ChangesView, TrajectoryView } from '../components/Details'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
-import { Settings, type Section } from '../components/Settings'
+import { AgentsWindow } from '../components/AgentsWindow'
+import { NewSessionChoice } from '../components/NewSessionChoice'
+import { SeatSheet } from '../components/SeatSheet'
+import { SaveAsAgentDialog } from '../components/SaveAsAgent'
+import { Settings, WorkspacesSection, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
 import { RemoveWorktree } from './../components/RemoveWorktree'
@@ -24,11 +28,13 @@ import {
   Boundary,
   EDGE_ROOM,
   EMPTY_ROOM,
+  PREVIEW_PLANS,
   PREVIEW_ROOM,
   PREVIEW_SESSION_KEY,
   runtime,
   store,
 } from './harness'
+import { PREVIEW_ROOT } from './sidebar-fixture'
 import '../styles/app.css'
 
 /**
@@ -153,7 +159,7 @@ const SETTINGS_SECTIONS = [
   'shortcuts',
   'workspaces',
   'archive',
-  'agents',
+  'runtimes',
   'models',
   'skills',
   'extensions',
@@ -169,7 +175,11 @@ const Preview = () => {
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
-  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in'>('off')
+  const [dialog, setDialog] = useState<
+    'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet' | 'save as agent'
+  >('off')
+  // The Agents window's own rail selection: the overview, or one Agent's own page.
+  const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -207,7 +217,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent'] as const}
           onChange={setDialog}
         />
       </div>
@@ -216,9 +226,29 @@ const Preview = () => {
           screen here that is *only* ever a dialog — so at a narrow window
           nothing else on the page shows what it does. */}
       {dialog === 'sign in' && <SignIn onClose={() => setDialog('off')} />}
-      {dialog !== 'off' && dialog !== 'sign in' && (
-        <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
+      {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'seat sheet' && (
+        <SeatSheet
+          refusal={{
+            agent: 'security-reviewer',
+            name: 'Security reviewer',
+            blocked: null,
+            opened: false,
+            candidates: PREVIEW_PLANS.get('security-reviewer')?.candidates ?? [],
+          }}
+          onClose={() => setDialog('off')}
+          onFix={() => setDialog('off')}
+        />
       )}
+      {dialog === 'save as agent' && (
+        <SaveAsAgentDialog
+          session={store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!}
+          onClose={() => setDialog('off')}
+        />
+      )}
+      {dialog === 'remove' || dialog === 'bring back' ? (
+        <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
+      ) : null}
       {/* The board, in a pane of its own — which is one of the two shapes it
           really has (the other is the room's right half, further down). It is
           first here because it is the widest surface the token layer touches:
@@ -269,6 +299,36 @@ const Preview = () => {
           onChange={setSettingsSection}
         />
       </div>
+      {/* The Agents window: the owner's left-menu decision, in its own
+          top-level screen, never a Settings page — the same containment
+          trick as Settings and Usage, both `AppWindow`s too. */}
+      <Frame title="Agents — the roster, and a selected Agent">
+        <div className="relative h-[860px]" style={{ transform: 'translateZ(0)' }}>
+          <AgentsWindow
+            focus={agentsFocus === 'overview' ? null : agentsFocus}
+            onClose={() => {}}
+            onFocus={(id) => setAgentsFocus(id ?? 'overview')}
+          />
+        </div>
+      </Frame>
+      <div className="my-4 flex flex-wrap items-center gap-3">
+        <Dial
+          label="agents focus"
+          // Task 15's page states remain here. Task 16 adds the four seating
+          // frames to the same dial: 'release-checker' has no list on this Mac;
+          // 'code-reviewer' has two seats, one passed over with a fix;
+          // 'security-reviewer' has a broken seating entry; and Add a seat…
+          // opens the fourth, the word-only dialog.
+          value={agentsFocus}
+          options={['overview', 'release-checker', 'code-reviewer', 'security-reviewer', 'draft'] as const}
+          onChange={setAgentsFocus}
+        />
+      </div>
+      <Frame title="Settings › Workspaces — a project">
+        <div className="max-h-[560px] overflow-y-auto p-4">
+          <WorkspacesSection focus={PREVIEW_ROOT} />
+        </div>
+      </Frame>
       {/* The Dashboard, at the width the window really opens it at. Its own
           rail scopes the page, so clicking an account in here shows the
           burn-down band the way the app does.
@@ -303,7 +363,7 @@ const Preview = () => {
               onChooseProject={() => {}}
               onSignIn={() => {}}
               onOpenUsage={() => {}}
-              onOpenAgents={() => {}}
+              onOpenRuntimes={() => {}}
             />
           </PaneProvider>
         </div>
@@ -351,6 +411,7 @@ const Preview = () => {
             <Sidebar
               onOpenSettings={() => {}}
               onOpenPlugins={() => {}}
+          onOpenAgents={() => {}}
               onOpenUsage={() => {}}
               onBrowseFolders={() => {}}
               onSignIn={() => {}}

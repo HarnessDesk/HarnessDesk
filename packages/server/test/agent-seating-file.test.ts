@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { SEAT_PREFERENCE_LIMIT } from '@harnessdesk/protocol'
+import { SEAT_PREFERENCE_LIMIT, type MachineSeating } from '@harnessdesk/protocol'
 
 import { MachineSeatingFile, parseSeating } from '../src/agent-seating-file.js'
 import { tempDir } from './scratch.js'
@@ -66,7 +66,7 @@ test('a file that is not JSON is one problem, for every Agent', () => {
 
 test('no file is no entries and nothing wrong', async () => {
   const file = new MachineSeatingFile(join(tempDir('hd-seating-'), 'seating.json'))
-  assert.deepEqual(await file.read(), { path: file.path, entries: [], problems: [] })
+  assert.deepEqual(await file.read(), { revision: 0, path: file.path, entries: [], problems: [] })
 })
 
 test('setting one Agent leaves every other entry as it was written, in its place', async () => {
@@ -79,6 +79,7 @@ test('setting one Agent leaves every other entry as it was written, in its place
   ])
   assert.equal(wrote, true)
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+    $revision: 1,
     // Broken, and kept exactly as written: it is the person's, and they will fix it.
     judge: ['codex', 'claude-code+fast'],
     researcher: ['cursor'],
@@ -90,7 +91,7 @@ test('setting one Agent leaves every other entry as it was written, in its place
     ['researcher', 'code-reviewer'],
   )
   await file.set('researcher', null)
-  assert.deepEqual(Object.keys(JSON.parse(await readFile(path, 'utf8'))), ['judge', 'code-reviewer'])
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(path, 'utf8'))), ['$revision', 'judge', 'code-reviewer'])
 })
 
 test('a file that is not JSON is never written over, and an empty list is not a way to clear', async () => {
@@ -219,7 +220,7 @@ test('set() reads the file once before it writes it — what a second read would
   assert.equal(wrote, true)
   assert.deepEqual(
     JSON.parse(String(await realRead(path, 'utf8'))),
-    { judge: ['codex'], researcher: ['cursor'], 'code-reviewer': ['codex'] },
+    { $revision: 1, judge: ['codex'], researcher: ['cursor'], 'code-reviewer': ['codex'] },
     'every entry kept',
   )
   // Also what shows the patch reached the module under test: unpatched, nothing here would count a read.
@@ -240,7 +241,7 @@ test('an effort with a + in it is written the long way, not split into an effort
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
   const { seating: after } = await file.set('judge', [{ runtime: 'codex', effort: 'high+thinking' }])
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: [{ runtime: 'codex', effort: 'high+thinking' }] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 1, judge: [{ runtime: 'codex', effort: 'high+thinking' }] })
   assert.deepEqual(after.entries, [{ id: 'judge', seats: [{ runtime: 'codex', effort: 'high+thinking' }] }])
 })
 
@@ -248,7 +249,7 @@ test('an effort with a / in it is written the long way, not cut at the slash', a
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
   const { seating: after } = await file.set('judge', [{ runtime: 'codex', effort: 'x/y' }])
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: [{ runtime: 'codex', effort: 'x/y' }] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 1, judge: [{ runtime: 'codex', effort: 'x/y' }] })
   assert.deepEqual(after.entries, [{ id: 'judge', seats: [{ runtime: 'codex', effort: 'x/y' }] }])
 })
 
@@ -256,7 +257,7 @@ test('a runtime with an = in it is written the long way, not read back as a runt
   const path = join(tempDir('hd-seating-'), 'seating.json')
   const file = new MachineSeatingFile(path)
   const { seating: after } = await file.set('judge', [{ runtime: 'cursor=m' }])
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: [{ runtime: 'cursor=m' }] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 1, judge: [{ runtime: 'cursor=m' }] })
   assert.deepEqual(after.entries, [{ id: 'judge', seats: [{ runtime: 'cursor=m' }] }])
 })
 
@@ -293,7 +294,7 @@ test('clearing an entry that was never there writes nothing', async (t) => {
     const file = new MachineSeatingFile(path)
     const { seating, wrote } = await file.set('ghost', null)
     assert.equal(wrote, false, 'and says so')
-    assert.deepEqual(seating, { path, entries: [], problems: [] })
+    assert.deepEqual(seating, { revision: 0, path, entries: [], problems: [] })
   } finally {
     await chmod(dir, 0o755)
   }
@@ -335,10 +336,63 @@ test('two sets started together both land, each on top of what the other wrote',
     file.set('first', [{ runtime: 'codex' }]),
     file.set('second', [{ runtime: 'claude' }]),
   ])
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { first: ['codex'], second: ['claude'] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 2, first: ['codex'], second: ['claude'] })
   assert.deepEqual(first.seating.entries.map((one) => one.id), ['first'])
   assert.deepEqual(second.seating.entries.map((one) => one.id), ['first', 'second'])
   assert.deepEqual([first.wrote, second.wrote], [true, true], 'two writes, each saying so')
+})
+
+test('the seating revision survives a new desk instance and increases on its next write', async () => {
+  const path = join(tempDir('hd-seating-revision-'), 'seating.json')
+  const firstDesk = new MachineSeatingFile(path)
+  const first = await firstDesk.set('judge', [{ runtime: 'codex' }])
+  assert.equal((first.seating as MachineSeating & { readonly revision?: number }).revision, 1)
+
+  const restartedDesk = new MachineSeatingFile(path)
+  assert.equal(((await restartedDesk.read()) as MachineSeating & { readonly revision?: number }).revision, 1)
+  const second = await restartedDesk.set('judge', [{ runtime: 'claude-code' }])
+  assert.equal((second.seating as MachineSeating & { readonly revision?: number }).revision, 2)
+})
+
+test('a running desk never hands an open window an older revision after seating.json is removed', async () => {
+  const path = join(tempDir('hd-seating-revision-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  await file.set('judge', [{ runtime: 'codex' }])
+  const drawn = (await file.set('reviewer', [{ runtime: 'claude-code' }])).seating
+  assert.equal(drawn.revision, 2, 'control: the window first drew revision 2')
+
+  await rm(path)
+  const removed = await file.read()
+  assert.equal(removed.revision, drawn.revision, 'the removal can clear the drawn entries without rolling its revision back')
+  assert.deepEqual(removed.entries, [])
+
+  const recreated = (await file.set('scout', [{ runtime: 'cursor' }])).seating
+  assert.ok(recreated.revision > drawn.revision, 'the recreated file advances beyond what this desk already handed out')
+  const window = recreated.revision >= drawn.revision ? recreated : drawn
+  assert.deepEqual(window.entries, [{ id: 'scout', seats: [{ runtime: 'cursor' }] }], 'the already-open window draws the recreation')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 3, scout: ['cursor'] })
+})
+
+test('repairing a malformed or revisionless seating.json continues above this desk high-water mark', async () => {
+  const path = join(tempDir('hd-seating-revision-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  await file.set('judge', [{ runtime: 'codex' }])
+  const drawn = (await file.set('reviewer', [{ runtime: 'claude-code' }])).seating
+  assert.equal(drawn.revision, 2, 'control: the window first drew revision 2')
+
+  await writeFile(path, '{ not json', 'utf8')
+  const malformed = await file.read()
+  assert.equal(malformed.revision, drawn.revision, 'even the repair prompt is not handed out under an older revision')
+  assert.equal(malformed.problems.length, 1)
+
+  await writeFile(path, JSON.stringify({ judge: ['cursor'] }), 'utf8')
+  const repaired = (await file.set('reviewer', [{ runtime: 'codex' }])).seating
+  assert.ok(repaired.revision > drawn.revision, 'the repaired file advances beyond what this desk already handed out')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+    $revision: 3,
+    judge: ['cursor'],
+    reviewer: ['codex'],
+  })
 })
 
 test('onlyIfAbsent decides inside the set queue, after an earlier local set has landed', async () => {
@@ -354,7 +408,7 @@ test('onlyIfAbsent decides inside the set queue, after an earlier local set has 
   const [localOutcome, restoreOutcome] = await Promise.all([local, restored])
   assert.equal(localOutcome.wrote, true)
   assert.equal(restoreOutcome.wrote, false, 'the queued restore saw the local entry and did not overwrite it')
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { judge: ['cursor'] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 1, judge: ['cursor'] })
 })
 
 /*
@@ -389,7 +443,7 @@ test('refuseIfDifferent decides inside the set queue: a queued local set first m
   await assert.rejects(save, /would win over the one you are saving/)
   assert.deepEqual(
     JSON.parse(await readFile(path, 'utf8')),
-    { scratch: ['cursor'] },
+    { $revision: 1, scratch: ['cursor'] },
     'the queued local set is what stayed — the refused compare-and-set wrote nothing over it',
   )
 })
@@ -402,7 +456,7 @@ test('refuseIfDifferent writes through when the id is still absent, and is a sil
   assert.equal(first.wrote, true, 'absent — the compare-and-set writes through like a plain set')
   const second = await file.set('scratch', seats, { refuseIfDifferent: 'would win' })
   assert.equal(second.wrote, false, 'already exactly this seat — a no-op, never a refusal')
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { scratch: ['claude-code=opus-5/high'] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 1, scratch: ['claude-code=opus-5/high'] })
 })
 
 /*
@@ -494,6 +548,7 @@ test('thinking survives a write and a read, in both the compact and the long for
     { runtime: 'cursor', model: 'vendor/model-1', thinking: true },
   ])
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+    $revision: 1,
     judge: ['codex+thinking', { runtime: 'cursor', model: 'vendor/model-1', thinking: true }],
   })
   assert.deepEqual(after.entries, [

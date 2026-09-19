@@ -496,7 +496,7 @@ renderer applies to every select, in every runtime, on its own.
 | Reply here with X | hint | hover — the check mark already says it |
 | Hand off to X… (×N) | N identical hints | one `MenuNote` over the group |
 | Agent taglines (Start with) | hint on the one agent that had one | hover — a line only some rows have is a ragged edge, not a column |
-| Agent tagline (Settings › Agents card) | truncated line | hover — a definition of an agent you already installed; still shown in full in Add agent, first run and sign-in |
+| Runtime tagline (Settings › Runtimes card) | truncated line | hover — a definition of a runtime you already installed; still shown in full in Add a runtime, first run and sign-in |
 | HarnessDesk, in the account menu | truncated line | a **Local** chip — earned, but a word, not a sentence; the clause is on `title` and on Settings › Account |
 | Two entries of one agent in the desk survey | two identical rows | the second wears the name it was registered under; “Use this agent” stops being a coin toss |
 | Auto-compact · Output style · Reasoning effort (Claude Code) | a hint on the one or two rows that had one | hover — the same ragged edge, now caught by the renderer rather than by hand |

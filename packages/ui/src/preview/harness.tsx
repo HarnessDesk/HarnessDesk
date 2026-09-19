@@ -3,8 +3,13 @@ import type { ReactNode } from 'react'
 import {
   runtimeId,
   sessionKey,
+  type AgentEntry,
+  type FlowSeat,
+  type MachineSeating,
+  type ModelInfo,
   type OptionValue,
   type RuntimeInfo,
+  type SeatPlan,
   type Session,
   type SessionId,
   type SessionKey,
@@ -34,6 +39,7 @@ import {
   type StackId,
   type Zoom,
 } from '../state/workbench'
+import { seatAgentKey } from '../lib/agents'
 import { permits } from '../panels/views'
 import { applyProfile, type ProfilePatch } from '../lib/profile'
 import {
@@ -591,6 +597,130 @@ Measure, don't guess.
 Report the delta with its variance. A single run is an anecdote.`,
 }
 
+/**
+ * The roster every Agent screen below is drawn from: a project Agent that
+ * shadows a shipped one, one of yours, the shipped ones, and a file that will
+ * not parse — the four shapes a roster row has — with a dry run in which one
+ * Agent cannot be seated here.
+ */
+const agentEntry = (
+  id: string,
+  name: string,
+  origin: AgentEntry['origin'],
+  description: string,
+  permission: 'read' | 'publish' = 'read',
+  shadows: AgentEntry['shadows'] = [],
+): AgentEntry => ({
+  id,
+  origin,
+  path:
+    origin === 'project'
+      ? `${PREVIEW_ROOT}/.harnessdesk/agents/${id}/AGENT.md`
+      : origin === 'user'
+        ? `/home/u/.harnessdesk/agents/${id}/AGENT.md`
+        : `/app/agents/${id}/AGENT.md`,
+  digest: `digest-${id}`,
+  shadows,
+  problems: [],
+  definition: {
+    id,
+    name,
+    description,
+    permission,
+    answers: permission === 'read' ? ['approve', 'request-changes'] : [],
+    produces: ['review'],
+    skills: [],
+    prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
+    brief: `You review a change somebody else wrote.\n\n## How to report\n\nEvery finding, then a verdict.\n\n## What you never do\n\nNever push.`,
+  },
+})
+
+const PREVIEW_AGENTS: readonly AgentEntry[] = [
+  agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
+    { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
+  ]),
+  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.'),
+  agentEntry('implementer', 'Implementer', 'builtin', 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.', 'publish'),
+  agentEntry('security-reviewer', 'Security reviewer', 'builtin', 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'),
+  {
+    id: 'draft',
+    origin: 'user',
+    path: '/home/u/.harnessdesk/agents/draft/AGENT.md',
+    digest: 'digest-draft',
+    shadows: [],
+    problems: [{ level: 'error', at: 'permission', text: '"admin" is not a permission — it is read, publish or merge' }],
+    definition: null,
+  },
+]
+
+const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
+  id,
+  from: 'prefer',
+  winner: 0,
+  blocked: null,
+  candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
+})
+
+export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
+  [
+    'code-reviewer',
+    {
+      id: 'code-reviewer',
+      from: 'machine',
+      winner: 0,
+      blocked: null,
+      candidates: [
+        {
+          seat: { runtime: 'cursor', model: 'gamma-pro' },
+          label: 'Gamma · Pro',
+          runtimeName: 'Gamma',
+          state: 'passed',
+          reason: { kind: 'signedOut' },
+          fix: { kind: 'signIn', runtime: 'cursor' },
+        },
+        {
+          seat: { runtime: 'claude', model: 'opus', effort: 'high' },
+          label: 'Beta · Opus · High',
+          runtimeName: 'Beta',
+          state: 'taken',
+          reason: null,
+          fix: null,
+        },
+      ],
+      // Its own `prefer`, weighed the same way, muted on its page since this
+      // Mac's seats above replace it here.
+      own: [
+        { seat: { runtime: 'claude' }, label: 'Beta', runtimeName: 'Beta', state: 'taken', reason: null, fix: null },
+        { seat: { runtime: 'codex' }, label: 'Alpha', runtimeName: 'Alpha', state: 'untried', reason: null, fix: null },
+        { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'untried', reason: null, fix: null },
+      ],
+    },
+  ],
+  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
+  ['implementer', takenOn('implementer', 'claude', 'Beta')],
+  [
+    'security-reviewer',
+    {
+      id: 'security-reviewer',
+      from: 'machine',
+      winner: null,
+      blocked: null,
+      candidates: [
+        { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
+        { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
+      ],
+      // Its own `prefer`, muted on its page since this Mac's seats replace it
+      // here too — a `from: 'machine'` plan always carries one.
+      own: [
+        { seat: { runtime: 'claude' }, label: 'Beta', runtimeName: 'Beta', state: 'taken', reason: null, fix: null },
+        { seat: { runtime: 'codex' }, label: 'Alpha', runtimeName: 'Alpha', state: 'untried', reason: null, fix: null },
+        { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'untried', reason: null, fix: null },
+      ],
+    },
+  ],
+  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', candidates: [] }],
+])
+
 /** The smallest store the mounted screens call. */
 class PreviewStore {
   #snapshot: AppSnapshot
@@ -687,7 +817,7 @@ class PreviewStore {
       customPresets: [
         {
           id: 'custom-1',
-          name: 'Careful reviewer',
+          name: 'High effort, asks first',
           description: 'GPT-5.6 Sol · High · Read only',
           runtime: 'codex',
           values: {},
@@ -752,7 +882,22 @@ class PreviewStore {
       sessions: new Map([
         [
           sessionKey(runtimeId('codex'), 's1' as SessionId),
-          previewSession,
+          {
+            ...previewSession,
+            settings: {
+              ...previewSession.settings,
+              cwd: previewSession.cwd,
+              model: 'gpt-5.6-sol',
+              agent: 'code-reviewer',
+              // Not the roster's digest: the file has moved on since this was handed over.
+              briefDigest: 'digest-when-it-started',
+              permission: 'read',
+              seatLabel: 'Alpha · GPT-5.6 Sol',
+              passedOver: [
+                { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
+              ],
+            },
+          } as unknown as Session,
         ],
         [
           sessionKey(runtimeId('codex'), 'c1' as SessionId),
@@ -801,6 +946,32 @@ class PreviewStore {
           } as unknown as Session,
         ],
       ]),
+      agents: PREVIEW_AGENTS,
+      agentsProject: PREVIEW_ROOT,
+      agentPlans: PREVIEW_PLANS,
+      seating: {
+        revision: 1,
+        path: '/home/u/.harnessdesk/seating.json',
+        entries: [
+          {
+            id: 'code-reviewer',
+            seats: [
+              { runtime: 'cursor', model: 'gamma-pro' },
+              { runtime: 'claude', model: 'opus', effort: 'high' },
+            ],
+          },
+        ],
+        problems: [
+          {
+            id: 'security-reviewer',
+            at: '[1]',
+            text: '“+fast” is not a switch a seat takes — the only one is +thinking',
+          },
+        ],
+      } satisfies MachineSeating,
+      seatAgents: new Map([[seatAgentKey(previewSession.cwd, 'code-reviewer'), PREVIEW_AGENTS[0] ?? null]]),
+      home: '/home/u',
+      stateDir: '/home/u/.harnessdesk',
       ...seed,
     } as AppSnapshot
     this.#watchWindowWidth()
@@ -1129,6 +1300,25 @@ class PreviewStore {
   ]
   loadWorktrees = async () => {}
   agentCatalog = async () => []
+  agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
+  plansIn = async (): Promise<readonly SeatPlan[]> => [...PREVIEW_PLANS.values()]
+  modelsFor = async (): Promise<readonly ModelInfo[]> => [
+    {
+      id: 'opus',
+      displayName: 'Opus',
+      isDefault: true,
+      reasoningLevels: [{ id: 'high', label: 'High' }],
+      supportsImages: false,
+      thinking: 'optional',
+    },
+  ]
+  loadSeating = async (): Promise<void> => {}
+  setSeating = async (id: string, seats: readonly FlowSeat[] | null): Promise<void> => {
+    const seating = this.#snapshot.seating
+    if (!seating) return
+    const entries = seating.entries.filter((entry) => entry.id !== id)
+    this.patch({ seating: { ...seating, entries: seats ? [...entries, { id, seats }] : entries } })
+  }
   // What a new session starts with, for the one agent that declares it —
   // the same shape Codex reports — so Permissions has something to show.
   newSessionDefaultsFor = async (id: string) =>

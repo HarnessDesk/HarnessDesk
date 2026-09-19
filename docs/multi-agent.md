@@ -202,15 +202,20 @@ because a chat that never took a turn has no folder in Cursor's store.)
   sessions run the same model, numbers are appended (`Opus 2`). The nickname
   is persisted with board state so cards, signals, and message headers never
   render as "(untitled)". Nicknames are unique among *members*, open or not.
+  A member seated as an Agent is named for the Agent instead — Code reviewer,
+  Code reviewer 2 — since that is the name it is addressed by.
   Previously, requiring the conversation to be running caused counter creep on
   every relaunch ("Gemini 2", "Gemini 3", "Gemini 4", each the only Gemini
   present); removing ghost members from the board rather than relying on
   liveness checks resolved this.
-- **Adding members**: clicking the roster's **+** opens a dialog offering
-  registered runtimes with their declared controls (model, mode, effort,
-  approvals, sandbox). Creating a member spawns the conversation in the
-  background without replacing the active room view. Existing loose
-  conversations can also be adopted into the room.
+- **Adding members**: clicking the roster's **+** opens a dialog that offers
+  the project's Agents first, each with the seat it would take there — one
+  that cannot be seated is offered greyed, with its reason, and choosing it
+  shows every seat and its fix rather than adding anything — then a bare
+  runtime with its declared controls (model, mode, effort, approvals,
+  sandbox), then the project's loose conversations to adopt. A new member
+  starts in the background without replacing the room on screen, and joins at
+  once.
 - **Renaming and deletion**: the room row's menu (⋯) allows renaming the room
   or deleting it. Deleting a room removes its board and message history, while
   its member conversations are preserved and returned to the project list.

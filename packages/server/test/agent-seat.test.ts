@@ -36,6 +36,7 @@ import {
   type SessionId,
   type SessionOptions,
   type SessionSettings,
+  type TeamPeerInfo,
   type TeamState,
   type TurnId,
   type UsageReport,
@@ -849,7 +850,7 @@ test("the seat is told the narrower of the Agent's ceiling and the seating's gra
     assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
     assert.deepEqual(
       seen.recorded,
-      [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: held, seatLabel: 'claude', passedOver: [] }],
+      [{ agent: 'reviewer', name: 'Reviewer', briefDigest: digestOf(seen.source), permission: held, seatLabel: 'claude', passedOver: [] }],
       said,
     )
     assert.equal(session.settings?.permission, held, said)
@@ -1512,6 +1513,18 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.deepEqual(held?.passedOver, [])
 })
 
+test('through the host: a member seated as an Agent goes by its name in a room, numbered like any other name', async (t) => {
+  const { harness, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  const room = (await client.call('team/room/create', { root: work, name: 'Review' })) as TeamState
+  for (let n = 0; n < 2; n += 1) {
+    const seated = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+    await client.call('team/room/join', { room: room.id, runtime: 'seatfake', sessionId: String(seated.id) })
+  }
+  const peers = (await client.call('team/peers', { room: room.id })) as TeamPeerInfo[]
+  assert.deepEqual(peers.map((one) => one.nickname).sort(), ['Reviewer', 'Reviewer 2'])
+})
+
 test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {
   const { harness, seats, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=small/high+thinking')
@@ -1733,6 +1746,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
   assert.deepEqual(seen.recorded, [
     {
       agent: 'reviewer',
+      name: 'Reviewer',
       briefDigest: digestOf(seen.source),
       permission: 'read',
       seatLabel: 'claude',
@@ -3179,7 +3193,10 @@ test('an entry this machine cannot read refuses the seating — never the prefer
   )
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
-  assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  const { own, ...rest } = plan!
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  // The list it replaced here is still weighed, for the Agent's page.
+  assert.deepEqual(own?.map((one) => one.label), ['claude · opus-5'])
 })
 
 /**
@@ -3212,9 +3229,10 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
     id: 'reviewer',
     seats: [{ runtime: 'seatfake', model: 'small' }],
   })) as MachineSeating
+  assert.equal(set.revision, 1)
   assert.equal(set.path, join(harness.stateDir, 'seating.json'))
   assert.deepEqual(set.entries, [{ id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] }])
-  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { reviewer: ['seatfake=small'] })
+  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { $revision: 1, reviewer: ['seatfake=small'] })
   assert.equal(machineNotices(client), 1, "every window told once, of this machine's own seats — not one project's")
   const [plan] = (await client.call('agent/seat/dry', { ids: ['reviewer'], project: work })) as SeatPlan[]
   assert.equal(plan?.from, 'machine')
@@ -3222,9 +3240,17 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
 
   // Cleared: a write too, so every window is told again — once.
   const cleared = (await client.call('agent/seating/set', { id: 'reviewer', seats: null })) as MachineSeating
+  assert.equal(cleared.revision, 2)
   assert.deepEqual(cleared.entries, [])
-  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), {})
+  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { $revision: 2 })
   assert.equal(machineNotices(client), 2, 'the clear told every window once more')
+  assert.deepEqual(
+    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed'),
+    [
+      { method: 'agent/changed', params: { project: null, revision: 1 } },
+      { method: 'agent/changed', params: { project: null, revision: 2 } },
+    ],
+  )
   assert.deepEqual(await client.call('agent/seating/read', {}), cleared)
 })
 
@@ -3235,6 +3261,17 @@ test('the wire refuses more seats than an Agent may name, and the file refuses a
     assert.equal(error.code, 'badRequest')
     return true
   })
+  await assert.rejects(
+    client.call('agent/seating/set', {
+      id: 'reviewer',
+      seats: [{ runtime: 'seatfake' }],
+      expected: nine,
+    } as never),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, 'badRequest')
+      return true
+    },
+  )
   await assert.rejects(client.call('agent/seating/set', { id: 'reviewer', seats: [] }), /at least one seat/)
 })
 
@@ -3280,7 +3317,7 @@ test('a set that changes nothing tells no window; a real change does; a refused 
  * roster watch is running here to push a notice of its own.
  */
 
-test('two sets started together are two writes and two notices, and the last notice finds the file as the last write left it', async () => {
+test('two sets without an expected value started together are two writes and two notices, and the last notice finds the file as the last write left it', async () => {
   const path = join(tempDir('hd-agent-seat-'), 'seating.json')
   await writeFile(path, JSON.stringify({ reviewer: ['codex'] }), 'utf8')
   const pushed: { notice: unknown; file: unknown }[] = []
@@ -3290,26 +3327,81 @@ test('two sets started together are two writes and two notices, and the last not
     push: (notice: unknown) => pushed.push({ notice, file: JSON.parse(readFileSync(path, 'utf8')) }),
   } as never
   const set = agentMethods['agent/seating/set']
-  const notice = { method: 'agent/changed', params: { project: null } }
-
   const [first, second] = await Promise.all([
     set(ctx, { id: 'reviewer', seats: [{ runtime: 'claude' }] }),
     set(ctx, { id: 'reviewer', seats: [{ runtime: 'codex' }] }),
   ])
   assert.deepEqual(pushed, [
-    { notice, file: { reviewer: ['claude'] } },
-    { notice, file: { reviewer: ['codex'] } },
+    {
+      notice: { method: 'agent/changed', params: { project: null, revision: 1 } },
+      file: { $revision: 1, reviewer: ['claude'] },
+    },
+    {
+      notice: { method: 'agent/changed', params: { project: null, revision: 2 } },
+      file: { $revision: 2, reviewer: ['codex'] },
+    },
   ])
   // Each answers what it wrote, as the wire says: this machine's seats, whole.
-  assert.deepEqual(first, { path, entries: [{ id: 'reviewer', seats: [{ runtime: 'claude' }] }], problems: [] })
-  assert.deepEqual(second, { path, entries: [{ id: 'reviewer', seats: [{ runtime: 'codex' }] }], problems: [] })
+  assert.deepEqual(first, { revision: 1, path, entries: [{ id: 'reviewer', seats: [{ runtime: 'claude' }] }], problems: [] })
+  assert.deepEqual(second, { revision: 2, path, entries: [{ id: 'reviewer', seats: [{ runtime: 'codex' }] }], problems: [] })
 
   // The list already there: nothing written, nothing told.
   await set(ctx, { id: 'reviewer', seats: [{ runtime: 'codex' }] })
   // Refused: nothing written, nothing told.
   await assert.rejects(() => set(ctx, { id: 'reviewer', seats: [] }), /at least one seat/)
   assert.equal(pushed.length, 2, 'still one notice for each of the two writes')
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['codex'] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 2, reviewer: ['codex'] })
+})
+
+test('a stale expected value is refused inside the write queue, and the first edit is left unchanged', async () => {
+  const path = join(tempDir('hd-agent-seat-'), 'seating.json')
+  const original = [{ runtime: 'codex' }, { runtime: 'claude' }, { runtime: 'cursor' }]
+  const moved = [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }]
+  const removedFromStale = [{ runtime: 'codex' }, { runtime: 'claude' }]
+  await writeFile(path, JSON.stringify({ reviewer: ['codex', 'claude', 'cursor'] }), 'utf8')
+  const pushed: unknown[] = []
+  const ctx = {
+    seating: new MachineSeatingFile(path),
+    push: (notice: unknown) => pushed.push(notice),
+  } as never
+  const set = agentMethods['agent/seating/set']
+
+  const [first, stale] = await Promise.allSettled([
+    set(ctx, { id: 'reviewer', seats: moved, expected: original } as never),
+    set(ctx, { id: 'reviewer', seats: removedFromStale, expected: original } as never),
+  ])
+
+  assert.equal(first.status, 'fulfilled')
+  assert.equal(stale.status, 'rejected')
+  assert.match(
+    stale.status === 'rejected' ? String(stale.reason) : '',
+    /changed in another window; nothing was saved/,
+  )
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+    $revision: 1,
+    reviewer: ['claude', 'codex', 'cursor'],
+  })
+  assert.equal(pushed.length, 1, 'only the accepted edit wrote and told the windows')
+})
+
+test('expected null is refused when an entry now exists, and that entry is left unchanged', async () => {
+  const path = join(tempDir('hd-agent-seat-'), 'seating.json')
+  await writeFile(path, JSON.stringify({ reviewer: ['claude'] }), 'utf8')
+  const pushed: unknown[] = []
+  const ctx = {
+    seating: new MachineSeatingFile(path),
+    push: (notice: unknown) => pushed.push(notice),
+  } as never
+
+  await assert.rejects(
+    agentMethods['agent/seating/set'](
+      ctx,
+      { id: 'reviewer', seats: [{ runtime: 'codex' }], expected: null } as never,
+    ),
+    /changed in another window; nothing was saved/,
+  )
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['claude'] })
+  assert.equal(pushed.length, 0)
 })
 
 /*
@@ -3364,5 +3456,42 @@ test('a seating.json that cannot be read at all refuses the seating in one sente
   )
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
-  assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  const { own, ...rest } = plan!
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  // A whole-file problem still leaves this Agent's own prefer weighed, exactly
+  // as one entry that alone cannot be read does — nobody can tell whether the
+  // file would have replaced it, so it is treated as if it would.
+  assert.deepEqual(own?.map((one) => one.label), ['claude · opus-5'])
+})
+
+/*
+ * An Agent's page shows its own list beside this Mac's, so the dry run weighs
+ * `prefer` too whenever this Mac's seats replace it — against the same
+ * readings, opening nothing — and only then.
+ */
+
+test("an Agent this Mac seats otherwise still has its own list weighed, for its page", async () => {
+  const seen = await rig(
+    'claude=opus-5',
+    {
+      claude: { name: 'Claude', models: ['opus-5'] },
+      cursor: { name: 'Cursor', models: ['gemini-3.8-flash'], signedOut: true },
+    },
+    { machine: JSON.stringify({ reviewer: ['cursor=gemini-3.8-flash'] }) },
+  )
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'machine')
+  assert.deepEqual(
+    plan?.candidates.map((one) => [one.label, one.state]),
+    [['Cursor · gemini-3.8-flash', 'passed']],
+  )
+  assert.deepEqual(plan?.own?.map((one) => [one.label, one.state]), [['Claude · opus-5', 'taken']])
+  untouched(seen)
+})
+
+test('an Agent whose own list is the one in force is weighed once', async () => {
+  const seen = await rig('claude=opus-5', { claude: { name: 'Claude', models: ['opus-5'] } })
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'prefer')
+  assert.equal(plan !== undefined && 'own' in plan, false)
 })

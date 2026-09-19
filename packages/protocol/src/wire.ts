@@ -399,6 +399,17 @@ export interface WorkspaceEntry {
    * is, and the session list groups it there.
    */
   readonly repo?: RepoInfo | null
+  /**
+   * The top of the checkout this folder is in, when the host has read it —
+   * a linked worktree's own top, unlike `repo.root`, which names the *main*
+   * checkout on purpose (so the session list can group a worktree under the
+   * project it is a checkout of). Null outside git. This is what a project
+   * keeps its Agents at (`projectOf` in `methods/agents.ts`) and what the
+   * roster's watch reports a change against, so a surface naming this
+   * folder's project, or matching an `agent/changed` notice against it,
+   * reads this rather than `repo.root`.
+   */
+  readonly checkoutRoot?: string | null
 }
 
 /**
@@ -545,6 +556,13 @@ export interface HostMethods {
        * `/Users/<name>/…` in full.
        */
       readonly home: string
+      /**
+       * Where this desk keeps its state: `~/.harnessdesk` unless
+       * `HARNESSDESK_HOME` put it elsewhere. The roster footnotes this
+       * machine's Agents as `agents` in it, and an Agent's page footnotes
+       * `seating.json` there — the folder actually read, never a guess.
+       */
+      readonly stateDir: string
     }
   }
 
@@ -1646,14 +1664,21 @@ export interface HostMethods {
   /**
    * Sets one Agent's seats on this machine, replacing its `prefer` here, or
    * clears them (`seats: null`) so its `prefer` applies again. Every other
-   * entry is kept as written. Refused while the file as a whole cannot be read,
+   * entry is kept as written. `expected`, when present, is the entry the edit
+   * was built from (`null` means there was no entry); a different current entry
+   * refuses the edit rather than replacing it. Omitting it keeps last-write-wins
+   * for non-editor callers. Refused while the file as a whole cannot be read,
    * so a hand-edit is never written over; an empty list is refused too — it is
    * not a way to clear. Every window is told once for each write
    * (`agent/changed`); a set that would change nothing writes nothing, and
    * tells nothing.
    */
   'agent/seating/set': {
-    params: { readonly id: string; readonly seats: readonly FlowSeat[] | null }
+    params: {
+      readonly id: string
+      readonly seats: readonly FlowSeat[] | null
+      readonly expected?: readonly FlowSeat[] | null
+    }
     result: MachineSeating
   }
   /**
@@ -2158,7 +2183,11 @@ export type WireNotification =
        * every listing shows.
        */
       readonly method: 'agent/changed'
-      readonly params: { readonly project: string | null }
+      readonly params: {
+        readonly project: string | null
+        /** Present when this notice is for a seating write: the revision that write produced. */
+        readonly revision?: number
+      }
     }
   | {
       /** Base64 output from a terminal. Every client receives it; a pane shows its own. */

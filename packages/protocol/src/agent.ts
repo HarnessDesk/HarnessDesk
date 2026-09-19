@@ -295,6 +295,13 @@ export interface SeatPlan {
    * `candidates` is empty and `winner` null.
    */
   readonly blocked: string | null
+  /**
+   * The Agent's own `prefer`, weighed against the same readings, when this
+   * machine's seats replace it here (`from: 'machine'`) — what its page lists
+   * under *Seats*, muted, beside the list in force. Absent otherwise: when
+   * `prefer` is the list in force, `candidates` already is it.
+   */
+  readonly own?: readonly SeatCandidate[]
 }
 
 /** One thing wrong with this machine's seating file, and whose entry it is in. */
@@ -312,8 +319,40 @@ export interface SeatingProblem {
  * An entry replaces its Agent's `prefer` here; it never merges with it.
  */
 export interface MachineSeating {
+  /**
+   * Host order for this whole state. It increases on every write that changes
+   * `seating.json` and is persisted with the file, so renderer windows and a
+   * restarted desk compare answers by the state they carry, not request order.
+   */
+  readonly revision: number
   /** Where the file is: `seating.json` in the desk's state directory. */
   readonly path: string
   readonly entries: readonly { readonly id: AgentId; readonly seats: readonly FlowSeat[] }[]
   readonly problems: readonly SeatingProblem[]
 }
+
+/**
+ * Effort ids as a person says them, for a runtime that did not label them.
+ * An id not here is said as written — a vendor adds levels faster than this
+ * table learns them, and a word borrowed for one would lie about the next.
+ *
+ * Shared between the host, which builds `SeatCandidate.label` from it
+ * (`describeSeat` in `packages/server/src/agent-seating.ts`, which re-exports
+ * this rather than keeping its own copy), and the renderer, which words a
+ * refusal from the same vocabulary (`reasonWords` in
+ * `packages/ui/src/lib/agents.ts`) — one table, so an effort never reads two
+ * different ways depending on which side of the wire is talking about it.
+ */
+const EFFORT_WORDS: Readonly<Record<string, string>> = {
+  none: 'Off',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra',
+}
+
+export const effortWord = (effort: string): string =>
+  Object.hasOwn(EFFORT_WORDS, effort) ? (EFFORT_WORDS[effort] ?? effort) : effort

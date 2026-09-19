@@ -13,6 +13,7 @@ import {
   MoveUpIcon,
   PinIcon,
   PlusIcon,
+  SettingsIcon,
   TerminalIcon,
   TrashIcon,
   UnpinIcon,
@@ -184,6 +185,12 @@ const WorkspaceRows = ({
         label="Copy path"
         hint={group.root}
         onSelect={() => void navigator.clipboard?.writeText(group.root)}
+      />
+      <MenuItem
+        icon={<SettingsIcon size={14} />}
+        label="Project settings"
+        title="Its own Agents, on a page of its own."
+        onSelect={() => store.askSettings('workspaces', group.root)}
       />
 
       <MenuSeparator />

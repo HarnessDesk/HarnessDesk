@@ -24,14 +24,16 @@ import {
 } from '@harnessdesk/protocol'
 
 import { accountIdentity, accountKey, accountName, runtimeTint } from '../lib/accounts'
+import { ceilingWords, originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
 import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
 import { formatElapsed } from '../lib/turn-view'
 import { bindingLane, describeLane } from '../lib/usage'
 import { usageAccount } from '../lib/usage-alerts'
+import { useSeatAgent, type SeatAgent } from '../state/seat-agent'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { AgentCard, type AgentCardAction, type AgentCardSubject } from '../design'
+import { AgentCard, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from '../design'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_OPEN_DELAY,
@@ -804,6 +806,27 @@ const turnStartedAt = (live: Session | undefined): number | null => {
 const busyNow = (live: Session | undefined): boolean =>
   live !== undefined && Array.isArray(live.turns) && isBusy(live)
 
+/** The Agent band for a conversation seated as one, and what its card should warn about it. */
+const seatedOf = (
+  live: Session | undefined,
+  seated: SeatAgent | null,
+): { readonly agent: AgentCardSubject['agent']; readonly cautions: readonly AgentCardCaution[] } => {
+  if (!live || !seated || seated.name === null) return { agent: null, cautions: [] }
+  const settings = live.settings
+  const definition = seated.entry?.definition ?? null
+  return {
+    agent: {
+      name: seated.name,
+      ceiling: ceilingWords(settings?.permission ?? definition?.permission ?? 'read'),
+      description: definition?.description ?? null,
+      origin: seated.entry ? originWords(seated.entry.origin, projectOfAgent(seated.entry)) : null,
+      seat: settings?.seatLabel ?? null,
+      passedOver: (settings?.passedOver ?? []).map(passedWords),
+    },
+    cautions: seatCautions(seated.entry, settings?.briefDigest).map((text) => ({ tone: 'warning' as const, text })),
+  }
+}
+
 /**
  * Once a second, so a turn timer counts while it is being read.
  *
@@ -859,11 +882,14 @@ const MemberCardBody = ({
 }) => {
   const snapshot = useSnapshot()
   const now = useTick()
+  const seated = useSeatAgent(snapshot.sessions.get(member.key))
 
   const subject = useMemo<AgentCardSubject>(() => {
     const info = snapshot.runtimes.find((one) => one.id === member.peer.runtime) ?? null
     const live = snapshot.sessions.get(member.key)
+    const { agent, cautions: agentCautions } = seatedOf(live, seated)
     const cautions: AgentCardSubject['cautions'] = [
+      ...agentCautions,
       ...(!member.canUseBoard
         ? ([
             {
@@ -908,6 +934,7 @@ const MemberCardBody = ({
       identity: identityOf(snapshot, info, member.peer.agent),
       tint: tintFor(snapshot, member.peer.runtime),
       mark: info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />,
+      agent,
       working: member.busy,
       running: {
         model: member.peer.model ?? live?.settings?.model ?? null,
@@ -932,7 +959,7 @@ const MemberCardBody = ({
       ...(choice ? { choice } : {}),
       ...(actions ? { actions } : {}),
     }
-  }, [snapshot, member, actions, choice, now])
+  }, [snapshot, member, actions, choice, now, seated])
 
   return <AgentCard subject={subject} />
 }
@@ -987,14 +1014,16 @@ const SessionCardBody = ({
 }) => {
   const snapshot = useSnapshot()
   const now = useTick()
+  const key = sessionKey(session.runtime, session.id)
+  const seated = useSeatAgent(snapshot.sessions.get(key))
 
   const subject = useMemo<AgentCardSubject>(() => {
     const info = snapshot.runtimes.find((one) => one.id === session.runtime) ?? null
-    const key = sessionKey(session.runtime, session.id)
     const live = snapshot.sessions.get(key)
     const busy = busyNow(live)
     const agentName = info?.presentation.name ?? session.runtime
     const gone = snapshot.foldersGone.get(session.cwd) ?? null
+    const { agent, cautions: agentCautions } = seatedOf(live, seated)
 
     return {
       kind: 'session',
@@ -1004,6 +1033,7 @@ const SessionCardBody = ({
       identity: identityOf(snapshot, info, agentName),
       tint: tintFor(snapshot, session.runtime),
       mark: info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />,
+      agent,
       working: busy,
       running: {
         model: live?.settings?.model ?? null,
@@ -1017,6 +1047,7 @@ const SessionCardBody = ({
          carry: the band above already prints the folder, and this says what
          has happened to it. */
       cautions: [
+        ...agentCautions,
         ...(gone
           ? [{ tone: 'warning' as const, text: `${gone} The transcript is read-only.` }]
           : []),
@@ -1026,7 +1057,7 @@ const SessionCardBody = ({
       ],
       ...(actions ? { actions } : {}),
     }
-  }, [snapshot, session, actions, now])
+  }, [snapshot, session, actions, now, key, seated])
 
   return <AgentCard subject={subject} />
 }
@@ -1128,7 +1159,7 @@ const AccountCardBody = ({
          Surfacing it instead would have been the wrong repair — a band headed
          "Running" holding nothing but `0.153.0` is the divider-for-one-fact
          that `AgentCard`'s own test forbids, and an account is not running
-         anything. Settings › Agents is where a version is the subject. */
+         anything. Settings › Runtimes is where a version is the subject. */
       /* The same band as a session's context, a different budget: both answer
          "how much of this can I still spend". `remainingPercent` is null when
          the source gave a figure that cannot be read as one, and the band

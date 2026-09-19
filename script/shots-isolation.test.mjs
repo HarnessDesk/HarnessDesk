@@ -7,6 +7,8 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { AgentRegistryStore } from '../packages/server/dist/src/agent-registry.js'
+import { parseSeating } from '../packages/server/dist/src/agent-seating-file.js'
+import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
@@ -88,4 +90,34 @@ test('every seeded camera agent stays on its scripted process even with real CLI
   const ids = new Set(configs.map(agent => agent.id))
   for (const id of Object.keys(RUNTIME_ACCOUNTS)) assert.ok(ids.has(id), `account mapped to missing runtime ${id}`)
   for (const row of [...USAGE, ...LEDGER.rows, ...LEDGER.daily]) assert.ok(ids.has(row.runtime), `usage mapped to missing runtime ${row.runtime}`)
+})
+
+test('the staged desk has Agents: a project one shadowing one that ships, one of yours, and this Mac’s seats', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-agents-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+    stdio: 'pipe',
+  })
+  const roster = new Agents({ user: join(home, 'agents'), builtin: join(root, 'packages/server/agents') })
+  const listed = await roster.list(join(work, 'storefront'))
+  const byId = new Map(listed.map(one => [one.id, one]))
+  assert.equal(byId.get('code-reviewer')?.origin, 'project')
+  assert.deepEqual(byId.get('code-reviewer')?.shadows.map(one => one.origin), ['builtin'])
+  assert.equal(byId.get('release-checker')?.origin, 'user')
+  assert.equal(byId.get('judge')?.origin, 'builtin')
+  assert.deepEqual(listed.flatMap(one => one.problems), [], 'every staged Agent parses')
+
+  const seating = parseSeating(readFileSync(join(home, 'seating.json'), 'utf8'))
+  assert.deepEqual(seating.problems, [])
+  assert.deepEqual(seating.entries.map(one => one.id), ['code-reviewer'])
+  // This Mac's seats are the rig's own runtimes: nothing reads through to a CLI installed here.
+  const configs = new AgentRegistryStore(join(home, 'agents.json')).configs()
+  const ids = new Set(configs.map(one => one.id))
+  for (const seat of seating.entries.flatMap(one => one.seats)) assert.ok(ids.has(seat.runtime), seat.runtime)
+  // One runtime is signed out where the host asks, and the renderer is told the same.
+  assert.ok(configs.find(one => one.id === 'shots-windsurf')?.account?.status, 'Windsurf answers its own sign-in')
+  assert.deepEqual(RUNTIME_ACCOUNTS['shots-windsurf']?.accounts, [])
 })

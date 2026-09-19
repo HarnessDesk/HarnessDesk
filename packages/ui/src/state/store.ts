@@ -8,8 +8,10 @@ import {
   type ExtensionEvent,
   type PluginInstance,
   type BackgroundTask,
+  type AgentEntry,
   type AgentEvent,
   type AgentItem,
+  type AgentOrigin,
   type ApprovalDecision,
   type ApprovalId,
   type CapabilityContribution,
@@ -18,6 +20,7 @@ import {
   findOption,
   type EditorDocument,
   type EditorEvent,
+  type MachineSeating,
   type ModelInfo,
   type NoticeLevel,
   type McpServer,
@@ -26,6 +29,8 @@ import {
   type ScopeQuery,
   type RuntimeCatalog,
   type RuntimePlugin,
+  type SeatFix,
+  type SeatPlan,
   type LedgerQuery,
   type LedgerReport,
   type RateLimits,
@@ -49,7 +54,9 @@ import {
   type TeamState,
   type FlowDryRun,
   type FlowFile,
+  type FlowPermission,
   type FlowRun,
+  type FlowSeat,
   type TerminalSize,
   type UiDecoration,
   type UserContent,
@@ -73,6 +80,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import {
   afterDismiss,
   readNoticePolicy,
@@ -198,6 +206,7 @@ import {
   type PendingApproval,
   type PolicyRule,
   type RouteInfo,
+  type SeatRefusal,
   type StoredCredential,
 } from './snapshot'
 
@@ -211,6 +220,7 @@ export type {
   PendingApproval,
   PolicyRule,
   RouteInfo,
+  SeatRefusal,
   StoredCredential,
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
@@ -308,6 +318,8 @@ export class AppStore {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
           }
           void this.loadAccounts()
+          // A runtime just added may be exactly what an Agent's `prefer` names.
+          if (this.#agentsRequested) void this.loadAgentPlans()
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
@@ -331,6 +343,48 @@ export class AppStore {
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
             historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
+          // Whatever a plan had it seated on may no longer be offered at all.
+          if (this.#agentsRequested) void this.loadAgentPlans()
+        }
+        if (notification.method === 'session/removed') {
+          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+        }
+        if (notification.method === 'agent/changed') {
+          /* A file under the roster moved, or this machine's seats did. Read
+             again only when a load has been asked for at least once — a
+             window that never showed an Agent has nothing drawn from the
+             roster to go stale — and only for a project this window shows:
+             `null` is this machine's roster or `seating.json`, either of
+             which touches every open project; a named one is the watched
+             project root, which for a folder opened inside its checkout is
+             that checkout's top rather than the folder itself — so both
+             spellings of "this window's project" are checked. `checkoutRoot`,
+             never `workspace.repo?.root`: for a linked worktree the latter is
+             deliberately the *main* checkout, which the watch does not name.
+             The dry run asks every runtime a question, so a notice for a
+             project nobody here is looking at is not worth that. */
+          const { project } = notification.params
+          const open = this.#snapshot.workspace?.path ?? null
+          const top = this.#snapshot.workspace?.checkoutRoot ?? null
+          if (this.#agentsRequested && (project === null || project === open || project === top)) {
+            void this.loadAgents()
+          }
+          // Every Agent a conversation was seated as, read again: a brief that moved on says so on its card.
+          for (const key of this.#snapshot.seatAgents.keys()) {
+            const [cwd, id] = JSON.parse(key) as [string, string]
+            this.readSeatAgent(cwd, id)
+          }
+          // This Mac's seats may be what changed; read them again only where a
+          // page has read them. A seating notice says which host revision it
+          // represents, so one already drawn needs no round trip. Roster
+          // notices carry none and preserve the older conservative reload.
+          if (
+            this.#snapshot.seating !== null &&
+            (notification.params.revision === undefined ||
+              notification.params.revision > this.#snapshot.seating.revision)
+          ) {
+            void this.loadSeating()
+          }
         }
         if (notification.method === 'session/removed') {
           this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
@@ -414,6 +468,7 @@ export class AppStore {
       activeRuntime: this.#snapshot.activeRuntime ?? hello.runtimes[0]?.id ?? null,
       credentialProtection: hello.credentialProtection,
       home: hello.home,
+      stateDir: hello.stateDir,
     })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
@@ -3632,9 +3687,330 @@ export class AppStore {
     await this.transport.request('team/room/leave', { room, runtime, sessionId })
   }
 
-  /** Asks the shell to open a settings page, or clears the request once it has. */
-  askSettings(section: string | null): void {
-    this.#patch({ settingsFor: section })
+  /** Asks the shell to open a settings page — and a thing inside it — or clears the request once it has. */
+  askSettings(section: string | null, focus: string | null = null): void {
+    this.#patch({ settingsFor: section, settingsFocus: section ? focus : null })
+  }
+
+  /** Asks the shell to take a seat's fix where it is fixed (`app/seat-fixes.ts`), or clears the request once it has. */
+  askSeatFix(fix: SeatFix | null, agent = ''): void {
+    this.#patch({ seatFix: fix ? { fix, agent } : null })
+  }
+
+  // ------------------------------------------------------------------ agents
+
+  /**
+   * Numbered against overlapping reads: a workspace switch, an `agent/changed`
+   * push and a sign-in can each start one of these while an earlier one is
+   * still in flight, and the answer that resolves last must not be the one
+   * that started last — an older `agent/list` landing after a newer one would
+   * draw the previous project's roster back over the current one. Bumped at
+   * the call, checked once the read returns, on the same pattern as
+   * `#accountsGeneration`.
+   */
+  #agentsGeneration = 0
+  /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
+  #agentPlansGeneration = 0
+  /**
+   * Set the instant a window's first `loadAgents()` call is made, never
+   * cleared. `#snapshot.agents` says whether a load has *answered* — it stays
+   * `null` for as long as the very first one is in flight — and every place
+   * that decides whether to react to a later change (another folder opened, a
+   * push, a sign-in) by starting a fresh load used to read that instead. So a
+   * workspace switch during the still-pending first read found `agents` still
+   * `null`, started no replacement load, and the first read — for the folder
+   * that was open when it started, not the one on screen once it landed —
+   * applied unopposed: nothing had bumped `#agentsGeneration` since it began,
+   * so its own generation check waved it through. This is asked instead:
+   * whether a load was ever *requested*, which becomes true the instant the
+   * first one is, before it has awaited anything.
+   */
+  #agentsRequested = false
+
+  /**
+   * Reads the Agent roster for the folder that is open, and then which seat
+   * each would take here. Two reads, because the listing is a few files and
+   * the dry run asks every runtime a question: the list draws first. The host
+   * reads the folder as the checkout it is in, so an open subfolder still
+   * lists its repository's Agents.
+   */
+  async loadAgents(): Promise<void> {
+    this.#agentsRequested = true
+    const project = this.#snapshot.workspace?.path ?? null
+    const generation = ++this.#agentsGeneration
+    let agents: readonly AgentEntry[]
+    try {
+      agents = await this.transport.request('agent/list', project ? { project } : {})
+    } catch (error) {
+      if (generation === this.#agentsGeneration) this.notice('warning', describe(error))
+      return
+    }
+    // A newer load started while this one was in flight: its answer, not this one, belongs on screen.
+    if (generation !== this.#agentsGeneration) return
+    this.#patch({ agents, agentsProject: project })
+    await this.loadAgentPlans()
+  }
+
+  /**
+   * Which seat each listed Agent would take here — a dry run, which opens
+   * nothing. Applied only when it is both the latest dry run asked for and
+   * still the project the roster on screen is for: a roster for project A
+   * must never be shown seated by a dry run that answered for project B.
+   */
+  async loadAgentPlans(): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const generation = ++this.#agentPlansGeneration
+    // Optimistic: a retry (a fresh sign-in, a reopened window) reads as
+    // "Checking seats…" again rather than the previous failure sitting there
+    // stale while a new request is already in flight.
+    this.#patch({ agentPlansFailed: false })
+    let plans: readonly SeatPlan[]
+    try {
+      plans = await this.transport.request('agent/seat/dry', project ? { project } : {})
+    } catch (error) {
+      if (generation !== this.#agentPlansGeneration) return
+      this.notice('warning', describe(error))
+      // A row with no plan for its Agent otherwise reads "Checking seats…"
+      // forever for an answer that already isn't coming.
+      this.#patch({ agentPlansFailed: true })
+      return
+    }
+    if (generation !== this.#agentPlansGeneration) return
+    if (project !== this.#snapshot.agentsProject) return
+    this.#patch({ agentPlans: new Map(plans.map((plan) => [plan.id, plan])), agentPlansFailed: false })
+  }
+
+  /**
+   * One project's roster, read for that project rather than the open one —
+   * its own Agents, then this machine's and the shipped ones — for its page
+   * on Workspaces. Leaves the snapshot's roster alone. Throws the host's
+   * refusal, for the page to say.
+   */
+  async agentsIn(project: string): Promise<readonly AgentEntry[]> {
+    return this.transport.request('agent/list', { project })
+  }
+
+  /** Which seat each of one project's Agents would take here — a dry run for that project, opening nothing. Throws. */
+  async plansIn(project: string): Promise<readonly SeatPlan[]> {
+    return this.transport.request('agent/seat/dry', { project })
+  }
+
+  /**
+   * Opens a conversation as an Agent in the open folder — or in `cwd`, a
+   * room's — and shows it; or, when nothing can seat it there, opens nothing
+   * and raises the refusal sheet with every candidate, its reason and its fix.
+   *
+   * The plan is asked again first, for this one Agent: a sign-in since the
+   * menu was drawn changes the answer, and a plan that already takes no seat
+   * refuses without asking the host to open anything. A refusal the host finds
+   * only once a seat is open arrives as `seatRefused`, with its own list — that
+   * path may have opened, tried and closed or kept a seat before failing, so
+   * `opened` carries whether "Nothing was opened" is still true. The folder is
+   * also the project the Agent is read for, because that is whose Agents a
+   * conversation there should get.
+   */
+  async startAsAgent(
+    id: string,
+    options: { readonly cwd?: string; readonly reveal?: boolean } = {},
+  ): Promise<SessionKey | null> {
+    const cwd = options.cwd ?? this.#snapshot.workspace?.path
+    // As `newSession`: a folder this app has proof is gone is never where a conversation starts.
+    if (!cwd || this.#snapshot.foldersGone.has(cwd)) {
+      this.notice('warning', 'Choose a project folder before starting a conversation.')
+      return null
+    }
+    const entry = this.#snapshot.agents?.find((one) => one.id === id)
+    const name = entry?.definition?.name ?? id
+    let plan: SeatPlan | undefined
+    try {
+      ;[plan] = await this.transport.request('agent/seat/dry', { ids: [id], project: cwd })
+    } catch (error) {
+      this.notice('error', describe(error))
+      return null
+    }
+    // The fresher answer replaces the one the menus drew — for the roster this window holds, not another folder's.
+    if (plan && cwd === this.#snapshot.agentsProject) {
+      this.#patch({ agentPlans: new Map(this.#snapshot.agentPlans).set(id, plan) })
+    }
+    if (!plan || plan.winner === null) {
+      this.#patch({
+        seatRefusal: {
+          agent: id,
+          name,
+          candidates: plan?.candidates ?? [],
+          blocked: plan?.blocked ? blockedWords(entry, this.#snapshot.home) : null,
+          opened: false,
+        },
+      })
+      return null
+    }
+    try {
+      const session = await this.transport.request('agent/seat', { id, cwd, project: cwd })
+      this.#setSession(session)
+      const key = sessionKey(session.runtime, session.id)
+      if (options.reveal !== false) this.#showInPane(key)
+      void this.loadHistory({ reset: true })
+      return key
+    } catch (error) {
+      const candidates = refusalOf(error)
+      if (candidates) {
+        this.#patch({ seatRefusal: { agent: id, name, candidates, blocked: null, opened: anyOpened(candidates) } })
+        return null
+      }
+      // The conversation opened and was closed again because handing its
+      // brief over failed — worded here, never `describe(error)`'s host
+      // sentence, which carries the seat it ran on. Read the same way every
+      // other wire code is read on this side of the wire (`refusalOf` above):
+      // `rejectionFor` (`lib/transport.ts`) puts the host's code on `.code`,
+      // never `.wireCode`, which is the host-side check on the class itself.
+      if ((error as { code?: unknown } | null)?.code === 'briefNotHandedOver') {
+        this.notice('error', `${name} was seated, and its brief could not be handed over, so the conversation was closed.`)
+        return null
+      }
+      this.notice('error', describe(error))
+      return null
+    }
+  }
+
+  /** Puts the refusal sheet away. */
+  dismissSeatRefusal(): void {
+    this.#patch({ seatRefusal: null })
+  }
+
+  /** Shows the file an Agent comes from in the file browser — the copy at `origin`, or the one in force. */
+  async revealAgent(id: string, origin?: AgentOrigin): Promise<void> {
+    const project = this.#snapshot.agentsProject
+    try {
+      await this.transport.request('agent/reveal', { id, ...(origin ? { origin } : {}), ...(project ? { project } : {}) })
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
+  }
+
+  /**
+   * *Customize…*: copies an Agent to you or to the project, where the copy
+   * comes first, and answers the copy. Throws the host's refusal, for the
+   * dialog that asked to say.
+   */
+  async customizeAgent(id: string, from: AgentOrigin, to: 'user' | 'project'): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const copy = await this.transport.request('agent/copy', { id, from, to, ...(project ? { project } : {}) })
+    void this.loadAgents()
+    return copy
+  }
+
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Throws the host's refusal. */
+  async trashAgent(id: string, origin: 'user' | 'project'): Promise<void> {
+    const project = this.#snapshot.agentsProject
+    await this.transport.request('agent/remove', { id, origin, ...(project ? { project } : {}) })
+    void this.loadAgents()
+  }
+
+  /**
+   * *Save as an Agent…*: writes a new Agent — to you, or to the open project —
+   * whose first seat is the one given, and reads the roster again. Answers the
+   * new entry, for its brief to be opened; throws the host's refusal for the
+   * dialog to say.
+   */
+  async saveAsAgent(agent: {
+    readonly name: string
+    readonly description: string
+    readonly permission: FlowPermission
+    readonly seat: FlowSeat
+    readonly to: 'user' | 'project'
+  }): Promise<AgentEntry> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const entry = await this.transport.request('agent/create', {
+      name: agent.name,
+      ...(agent.description ? { description: agent.description } : {}),
+      permission: agent.permission,
+      seat: agent.seat,
+      to: agent.to,
+      ...(project ? { project } : {}),
+    })
+    void this.loadAgents()
+    return entry
+  }
+
+  /** This machine's seats for its Agents — `seating.json` — as the host reads it. */
+  async loadSeating(): Promise<void> {
+    let seating: MachineSeating
+    try {
+      seating = await this.transport.request('agent/seating/read', {})
+    } catch (error) {
+      this.notice('warning', describe(error))
+      return
+    }
+    if (seating.revision < (this.#snapshot.seating?.revision ?? -1)) return
+    this.#patch({ seating })
+  }
+
+  /**
+   * Sets one Agent's seats on this machine, or clears them (`null`) so its own
+   * list applies again. Throws the host's refusal — a file that cannot be read
+   * is never written over — for the surface that asked to say why.
+   *
+   * Draws the host's own answer, never a locally-composed guess: a second
+   * window editing the same Agent's seats may have landed in between, and the
+   * last write standing is the host's to say, not this window's.
+   *
+   * Re-reads the plans itself, once this write answers, rather than waiting
+   * on the `agent/changed` notice a real change pushes: a no-op set (clearing
+   * an entry that was never there) pushes no notice at all, and even a real
+   * change's notice is a round trip this window need not wait for when it
+   * already knows the write happened.
+   */
+  async setSeating(
+    id: string,
+    seats: readonly FlowSeat[] | null,
+    expected?: readonly FlowSeat[] | null,
+  ): Promise<void> {
+    const seating = await this.transport.request('agent/seating/set', {
+      id,
+      seats,
+      ...(expected !== undefined ? { expected } : {}),
+    })
+    if (seating.revision >= (this.#snapshot.seating?.revision ?? -1)) {
+      this.#patch({ seating })
+    }
+    void this.loadAgentPlans()
+  }
+
+  /**
+   * Clears this Mac's seats for an Agent id — the *Also clear this Mac's
+   * seats* checkbox on *Remove…*, called once the Agent itself is gone. A
+   * failure here is a notice, not a reason to undo a Remove that already
+   * succeeded.
+   */
+  async clearMachineSeats(id: string): Promise<void> {
+    try {
+      await this.setSeating(id, null)
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
+  }
+
+  /** Agent reads in flight, by `seatAgentKey`, so one conversation drawn in three places asks once. */
+  readonly #seatAgentReads = new Set<string>()
+
+  /**
+   * Reads the Agent a seated conversation was seated as, for the folder it
+   * works in — once per folder and id, and again when the roster moves — so
+   * its header, its row and its name card can say who it is and whether its
+   * brief has moved on. A read that fails leaves nothing: the conversation is
+   * drawn as a conversation rather than as a guess.
+   */
+  readSeatAgent(cwd: string, id: string): void {
+    const key = seatAgentKey(cwd, id)
+    if (this.#seatAgentReads.has(key)) return
+    this.#seatAgentReads.add(key)
+    this.transport
+      .request('agent/read', { id, project: cwd })
+      .then(
+        (entry) => this.#patch({ seatAgents: new Map(this.#snapshot.seatAgents).set(key, entry) }),
+        () => undefined,
+      )
+      .finally(() => this.#seatAgentReads.delete(key))
   }
 
   async loadWorktrees(): Promise<void> {
@@ -4439,6 +4815,8 @@ export class AppStore {
       if (this.#layouts) this.#restoreLayout(workspace.path)
       await this.loadWorkspaces()
       void this.loadDraftOptions()
+      // Another folder is another project's Agents.
+      if (this.#agentsRequested) void this.loadAgents()
     } catch (error) {
       this.notice('error', describe(error))
     }
@@ -5019,6 +5397,8 @@ export class AppStore {
     if (event.type === 'account/changed') {
       void this.loadAccounts()
       void this.refreshRuntime()
+      // A sign-in is exactly what moves a candidate from passed over to taken.
+      if (this.#agentsRequested) void this.loadAgentPlans()
       return
     }
     if (event.type === 'catalog/changed') {

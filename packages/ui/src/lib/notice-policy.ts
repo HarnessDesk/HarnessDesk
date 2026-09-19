@@ -211,7 +211,7 @@ export const NOTICE_KINDS: readonly NoticeKind[] = [
     kind: 'agent:signin',
     lifetime: 'occurrence',
     title: 'Agent not signed in',
-    detail: 'An agent has no account connected, so its sessions cannot start. The Agents page says the same.',
+    detail: 'An agent has no account connected, so its sessions cannot start. The Runtimes page says the same.',
   },
   {
     kind: 'agent:health',

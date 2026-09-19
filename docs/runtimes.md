@@ -153,7 +153,7 @@ The implementation sits in `packages/server/src/installs/`:
 
 ### What the interface shows
 
-Navigate to **Settings › Agents › [Agent]** to view its **Install** section:
+Navigate to **Settings › Runtimes › [runtime]** to view its **Install** section:
 
 - **Summary line:** Summarises current execution state:
   "Running 1.18.29 · via Homebrew (2 other copies found)",
@@ -183,10 +183,14 @@ Navigate to **Settings › Agents › [Agent]** to view its **Install** section:
 - **Startup failures:** When a runtime fails preflight or daemon checks, the
   interface presents the runtime's raw stderr findings in a scrolling pane
   alongside actionable remediation commands formatted as code blocks.
-- **Add agent dialog:** Templates display detected versions (e.g., "Found
+- **Add a runtime page:** Templates display detected versions (e.g., "Found
   opencode 1.18.29 via Homebrew"). When a runtime is already installed,
   registry cards indicate detection and switch the action button to *Add*
   rather than *Download*.
+
+The page was called Agents until Agents — who does the work, a brief with the
+seats it prefers — got a window of their own; a runtime is what an Agent sits
+on ([agents.md](agents.md)).
 
 ### Supported runtimes, as measured
 

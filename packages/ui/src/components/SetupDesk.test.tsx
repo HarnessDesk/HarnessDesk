@@ -46,7 +46,7 @@ const mount = async (
   active: string | null = null,
 ) => {
   const onSignIn = vi.fn()
-  const onOpenAgents = vi.fn()
+  const onOpenRuntimes = vi.fn()
   const selectRuntime = vi.fn(async () => {})
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -65,11 +65,11 @@ const mount = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <SetupDesk onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+        <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
       </StoreProvider>,
     )
   })
-  return { onSignIn, onOpenAgents, selectRuntime }
+  return { onSignIn, onOpenRuntimes, selectRuntime }
 }
 
 const button = (label: string): HTMLButtonElement | undefined =>
@@ -117,7 +117,7 @@ it('a signed-out agent gets its sign-in, a healthy one the offer to work', async
 })
 
 it('the active agent is not offered to itself, and the add door is always there', async () => {
-  const { onOpenAgents } = await mount(
+  const { onOpenRuntimes } = await mount(
     [runtime('fine', 'Healthy')],
     { fine: { state: 'ready' } },
     { fine: signedIn },
@@ -125,8 +125,8 @@ it('the active agent is not offered to itself, and the add door is always there'
   )
 
   expect(button('Use this agent')).toBeUndefined()
-  button('Add an agent…')?.click()
-  expect(onOpenAgents).toHaveBeenCalled()
+  button('Add a runtime…')?.click()
+  expect(onOpenRuntimes).toHaveBeenCalled()
 })
 
 it('two entries sharing a brand remain distinguishable while account data loads', async () => {

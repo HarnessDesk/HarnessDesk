@@ -81,7 +81,7 @@ import { Dialog, ConfirmDialog } from '../design'
 import styles from './SettingsAgents.module.css'
 
 /**
- * Agents, and the accounts under them.
+ * Runtimes — the agent programs HarnessDesk starts — and the accounts under them.
  *
  * The account is the unit. An agent is the runtime that account speaks
  * through, so the page is a list of agents each holding its accounts, and
@@ -463,8 +463,8 @@ const AgentBlock = ({
             already chose and installed; a definition of it cannot change what
             you do on a page for managing its accounts, and the one line it had
             was set to nowrap, so a longer one arrived cut. It still shows in
-            full where choosing is the actual task — the Add agent list below,
-            first run, and sign-in. */}
+            full where choosing is the actual task — the Add a runtime list
+            below, first run, and sign-in. */}
         <RowButton
           className={styles.headOpen}
           onClick={onOpenAgent}
@@ -858,13 +858,13 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
 
   return (
     <Dialog
-      title="Add a custom agent"
+      title="Add a custom runtime"
       icon={<AgentIcon size={15} />}
       onClose={onClose}
       footer={
         <>
           <Button variant="default" disabled={busy || !ready} onClick={() => void add()}>
-            {busy ? 'Adding…' : 'Add agent'}
+            {busy ? 'Adding…' : 'Add runtime'}
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
@@ -966,10 +966,10 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
+      <BackLink to="Runtimes" onClick={onBack} />
       <PageHead
-        title="Add an agent"
-        blurb="An agent keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it."
+        title="Add a runtime"
+        blurb="A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it."
       />
       <Rows>
         {(templates ?? []).map((template) => (
@@ -1200,7 +1200,7 @@ const AccountDetail = ({
 
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
+      <BackLink to="Runtimes" onClick={onBack} />
       <DetailHead
         mark={
           <AccountMark
@@ -1716,7 +1716,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
 
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
+      <BackLink to="Runtimes" onClick={onBack} />
       <DetailHead
         mark={
           <DetailMark>
@@ -1824,7 +1824,14 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
 /* --- the page ------------------------------------------------------------ */
 
 
-export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => void }) => {
+export const RuntimesSection = ({
+  onSignIn,
+  focus = null,
+}: {
+  onSignIn: (runtime: RuntimeId) => void
+  /** The thing inside the page to open, once — the refusal sheet's "Add Codex", "Open Cursor in Settings". */
+  focus?: string | null
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -1844,6 +1851,15 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
   useEffect(() => {
     void store.loadAccounts()
   }, [store])
+
+  // Opened on a thing inside the page — the refusal sheet's "Add Codex", its
+  // "Open Cursor in Settings" — rather than on the list.
+  useEffect(() => {
+    if (focus === 'add') setView({ kind: 'add' })
+    else if (focus && snapshot.runtimes.some((entry) => entry.id === focus)) {
+      setView({ kind: 'agent', runtime: focus as RuntimeId })
+    }
+  }, [focus, snapshot.runtimes])
 
   const back = (): void => setView({ kind: 'list' })
 
@@ -1901,8 +1917,8 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
   return (
     <>
       <PageHead
-        title="Agents"
-        blurb="The agents HarnessDesk can start, and the accounts each is signed in as."
+        title="Runtimes"
+        blurb="What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as."
         actions={
           <>
             {/* Hidden while filtering, which force-opens every hit anyway. */}
@@ -1913,7 +1929,7 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
             )}
             <Button variant="default" onClick={() => setView({ kind: 'add' })}>
               <PlusIcon size={14} />
-              Add agent
+              Add a runtime
             </Button>
           </>
         }
@@ -1926,7 +1942,7 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
           <Search
             className={styles.pageSearch}
             value={query}
-            placeholder="Search agents or accounts"
+            placeholder="Search runtimes or accounts"
             onChange={setQuery}
           />
           <NativeSelect
@@ -1946,17 +1962,17 @@ export const AgentsSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => 
       {listed.length === 0 ? (
         <Rows>
           <Row
-            title={groups.length === 0 ? 'No agent is registered yet' : 'No agent matches'}
+            title={groups.length === 0 ? 'No runtime is added yet' : 'No runtime matches'}
             desc={
               groups.length === 0
-                ? 'Add one to send it a session.'
+                ? 'Add one to start a conversation on it.'
                 : 'Nothing matches that search and status.'
             }
             control={
               groups.length === 0 ? (
                 <Button size="sm" variant="default" onClick={() => setView({ kind: 'add' })}>
                   <PlusIcon size={13} />
-                  Add agent
+                  Add a runtime
                 </Button>
               ) : (
                 <Button variant="secondary"

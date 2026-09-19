@@ -5,6 +5,7 @@ import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/prot
 
 import { runtimeLabel } from '../lib/accounts'
 import { brandOf } from '../lib/identity'
+import { inForce, markFor, seatTaken } from '../lib/agents'
 import { extractHit } from '../lib/search-highlight'
 import { sessionLabel } from '../lib/sessions'
 import { availableCommands } from '../state/commands'
@@ -14,6 +15,7 @@ import {
   AgentIcon,
   ArchiveIcon,
   BranchIcon,
+  BriefIcon,
   DiffIcon,
   FileIcon,
   FolderOpenIcon,
@@ -45,7 +47,7 @@ import { DialogContent, DialogRoot } from '../design'
  * (#104).
  */
 const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: React.ReactNode; keywords: string }> = {
-  agents: { label: 'Agents', icon: <AgentIcon size={14} />, keywords: 'agents accounts sign in' },
+  runtimes: { label: 'Runtimes', icon: <AgentIcon size={14} />, keywords: 'runtimes installed agents accounts sign in' },
   profile: { label: 'Profile', icon: <UserIcon size={14} />, keywords: 'profile you name picture avatar photo face identity' },
   general: { label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
   appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
@@ -74,15 +76,17 @@ import styles from './CommandPalette.module.css'
  */
 
 export interface PaletteHost {
-  readonly openSettings: (section: Section) => void
+  readonly openSettings: (section: Section, focus?: string) => void
   readonly openUsage: () => void
   readonly chooseFolder: () => void
+  /** Opens the Agents window — the left-menu screen, never Settings — on one Agent, or the overview. */
+  readonly openAgents: (agent?: string) => void
   readonly close: () => void
 }
 
 interface Entry {
   readonly id: string
-  readonly group: 'Actions' | 'Agents' | 'Sessions' | 'Files' | 'Commands'
+  readonly group: 'Actions' | 'Agents' | 'Runtimes' | 'Sessions' | 'Files' | 'Commands'
   readonly label: string
   readonly hint?: string
   /** A line from the content where the query matched, for inline display. */
@@ -146,6 +150,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   const [contentHits, setContentHits] = useState<ReadonlyMap<string, TranscriptHit>>(new Map())
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
+
+  // The roster, for "Start as" — read once if nothing has read it yet.
+  useEffect(() => {
+    if (store.getSnapshot().agents === null) void store.loadAgents()
+  }, [store])
 
   // Content search, from both places content lives. The host's transcript
   // store covers every agent the same way — it is what the host watched — and
@@ -328,6 +337,17 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         },
       },
       {
+        id: 'agents-window',
+        group: 'Actions',
+        label: 'Agents',
+        icon: <BriefIcon size={14} />,
+        keywords: 'agents who roster brief reviewer implementer judge researcher seats ceiling',
+        run: () => {
+          close()
+          host.openAgents()
+        },
+      },
+      {
         // Kept under its own name rather than as "Settings › Archive": people
         // type what they want back, not where it is filed.
         id: 'archive',
@@ -345,7 +365,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           id: `settings-${entry.section}`,
           group: 'Actions',
           label: `Settings › ${entry.section === 'skills' && skillsLabel ? skillsLabel : entry.label}`,
-          hint: entry.section === 'agents' ? '⌘,' : undefined,
+          hint: entry.section === 'runtimes' ? '⌘,' : undefined,
           icon: entry.icon,
           keywords: `settings ${entry.keywords}${entry.section === 'skills' && skillsLabel ? ` ${skillsLabel}` : ''}`,
           run: () => {
@@ -358,9 +378,9 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
 
     // Named by account where an agent has more than one, or two accounts of
     // one Codex would offer the same sentence twice.
-    const agents: Entry[] = snapshot.runtimes.map((runtime) => ({
+    const runtimeEntries: Entry[] = snapshot.runtimes.map((runtime) => ({
       id: `agent-${runtime.id}`,
-      group: 'Agents',
+      group: 'Runtimes',
       label: `Start with ${runtimeLabel(runtime, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)}`,
       hint: runtime.id === snapshot.activeRuntime ? 'current' : runtime.presentation.tagline,
       icon: <RuntimeMark runtime={runtime} />,
@@ -379,6 +399,41 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         store.newDraft()
       },
     }))
+
+    /* Who, before which program: an Agent to start as, and its page in the
+       Agents window. One that cannot be seated here is listed all the same —
+       starting it is how the refusal sheet, and its fixes, are reached. */
+    const roster: Entry[] = inForce(snapshot.agents ?? []).flatMap((entry) => {
+      const definition = entry.definition
+      if (!definition) return []
+      const plan = snapshot.agentPlans.get(entry.id)
+      const seat = seatTaken(plan)
+      return [
+        {
+          id: `start-as-${entry.id}`,
+          group: 'Agents' as const,
+          label: `Start as ${definition.name}`,
+          hint: seat ? seat.label : plan ? 'Can’t seat here' : undefined,
+          icon: seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} /> : <BriefIcon size={14} />,
+          keywords: `agent new conversation ${definition.description ?? ''}`,
+          run: () => {
+            close()
+            void store.startAsAgent(entry.id)
+          },
+        },
+        {
+          id: `open-agent-${entry.id}`,
+          group: 'Agents' as const,
+          label: `Open ${definition.name}`,
+          icon: <BriefIcon size={14} />,
+          keywords: 'agent brief seats ceiling this mac',
+          run: () => {
+            close()
+            host.openAgents(entry.id)
+          },
+        },
+      ]
+    })
 
     const needle = query.trim()
     const sessionEntryFrom = (summary: SessionSummary): Entry => {
@@ -448,15 +503,17 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       },
     }))
 
-    return [...actions, ...agents, ...sessions, ...fileEntries, ...commands]
+    return [...actions, ...roster, ...runtimeEntries, ...sessions, ...fileEntries, ...commands]
   }, [contentHits, files, host, query, searchResults, snapshot, store])
 
   const shown = useMemo(() => {
     const needle = query.trim()
     if (!needle) {
-      // Nothing typed: the actions, the agents, and the latest few sessions.
       return [
-        ...entries.filter((entry) => entry.group === 'Actions' || entry.group === 'Agents'),
+        ...entries.filter((entry) => entry.group === 'Actions'),
+        // Starting as an Agent up front; its page is found by typing.
+        ...entries.filter((entry) => entry.group === 'Agents' && entry.id.startsWith('start-as-')),
+        ...entries.filter((entry) => entry.group === 'Runtimes'),
         ...entries.filter((entry) => entry.group === 'Sessions').slice(0, 6),
       ]
     }

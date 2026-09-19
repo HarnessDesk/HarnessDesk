@@ -68,6 +68,7 @@ const mount = async () => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadAgents: async () => {},
     transport: { request },
     openSession,
   } as unknown as AppStore
@@ -77,6 +78,7 @@ const mount = async () => {
     chooseFolder: () => {},
     openSettings,
     openUsage: () => {},
+    openAgents: () => {},
   }
   await act(async () => {
     root.render(
@@ -123,7 +125,7 @@ it('a reshuffle cannot move the highlight off the row the user saw', async () =>
   type('settings')
 
   // First paint of the query: an action leads and holds the highlight.
-  expect(activeLabel()).toContain('Settings › Agents')
+  expect(activeLabel()).toContain('Settings › Runtimes')
 
   await settle()
 
@@ -131,10 +133,10 @@ it('a reshuffle cannot move the highlight off the row the user saw', async () =>
   const first = container.querySelector('[role="option"]')
   expect(first?.textContent).toContain('Settings expedition')
   // …but the highlight stayed where the user left it.
-  expect(activeLabel()).toContain('Settings › Agents')
+  expect(activeLabel()).toContain('Settings › Runtimes')
 
   press('Enter')
-  expect(openSettings).toHaveBeenCalledWith('agents')
+  expect(openSettings).toHaveBeenCalledWith('runtimes')
   expect(openSession).not.toHaveBeenCalled()
 })
 

@@ -20,6 +20,7 @@ export const appMethods = {
     // drawing. `homedir()` is what every path in the library report was
     // already resolved against, so the two agree by construction.
     home: homedir(),
+    stateDir: ctx.state.directory,
   }),
 
   'diagnostics/bundle': (ctx) => ctx.diagnostics(),

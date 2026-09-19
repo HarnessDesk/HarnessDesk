@@ -524,6 +524,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'agent/seating/set': shape({
     id: isFilled,
     seats: (value: unknown, path = '') => (value === null ? null : seatListValidator(value, path)),
+    expected: optional((value: unknown, path = '') => (value === null ? null : seatListValidator(value, path))),
   }),
   'agent/create': shape({
     name: atMost(AGENT_NAME_LIMIT, isFilled),

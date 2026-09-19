@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { SEAT_PREFERENCE_LIMIT, type RuntimeId } from '@harnessdesk/protocol'
+import { SEAT_PREFERENCE_LIMIT, type MachineSeating, type RuntimeId } from '@harnessdesk/protocol'
 
 import { exportAgentFolders } from '../src/agent-files.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
@@ -237,15 +237,142 @@ test("a backup carries this machine's Agents and seats, and restore only adds wh
   assert.equal(await readFile(join(dirB, 'agents', 'scout', 'skills', 'look.md'), 'utf8'), 'Look closely.')
   assert.equal(await readFile(join(dirB, 'agents', 'keeper', 'AGENT.md'), 'utf8'), 'local copy')
   assert.deepEqual(JSON.parse(await readFile(join(dirB, 'seating.json'), 'utf8')), {
+    $revision: 1,
     judge: ['cursor'],
     scout: ['claude-code=opus-5/high'],
   })
-  assert.ok(notices.length >= 1, 'the explicit restore notice arrived; the watcher may add another')
+  assert.ok(
+    notices.some(
+      (notice) =>
+        typeof notice === 'object' &&
+        notice !== null &&
+        'method' in notice &&
+        notice.method === 'agent/changed' &&
+        'params' in notice &&
+        (notice.params as { revision?: unknown }).revision === 1,
+    ),
+    'the explicit restore notice carried the restored seating revision; the watcher may add another',
+  )
 
   const again = await b.host.call('backup/import', { backup })
   assert.deepEqual(again.agentFolders, { restored: 0, skipped: 1 })
   assert.deepEqual(again.seating, { restored: 0, skipped: 2 })
   assert.deepEqual(await readdir(join(dirB, 'agents', 'scout')), ['AGENT.md', 'skills'])
+})
+
+test('backup export waits for a seating edit that was already queued', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-queue-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const { host } = await hostAt(dir)
+  t.after(() => host.dispose())
+  await host.call('agent/seating/set', { id: 'judge', seats: [{ runtime: 'codex' }] })
+
+  const path = join(dir, 'seating.json')
+  const before = await readFile(path, 'utf8')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readFile: (...args: unknown[]) => Promise<unknown>
+    rename: (...args: unknown[]) => Promise<void>
+  }
+  const { readFile: realRead, rename: realRename } = fsp
+  let releaseRename!: () => void
+  const renameReleased = new Promise<void>((resolve) => {
+    releaseRename = resolve
+  })
+  let enterRename!: () => void
+  const renameEntered = new Promise<void>((resolve) => {
+    enterRename = resolve
+  })
+  let writeHeld = false
+  let observeBackupRead!: () => void
+  const backupRead = new Promise<void>((resolve) => {
+    observeBackupRead = resolve
+  })
+  fsp.readFile = async (...args) => {
+    if (String(args[0]) === path && writeHeld) {
+      observeBackupRead()
+      return before
+    }
+    return realRead(...args)
+  }
+  fsp.rename = async (...args) => {
+    if (String(args[1]) === path) {
+      writeHeld = true
+      enterRename()
+      await renameReleased
+      writeHeld = false
+    }
+    return realRename(...args)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    releaseRename()
+    fsp.readFile = realRead
+    fsp.rename = realRename
+    syncBuiltinESMExports()
+  })
+
+  const set = host.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: 'cursor' }] })
+  await renameEntered
+  const backup = host.call('backup/export', {})
+  const crossedWrite = await Promise.race([
+    backupRead.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+  ])
+  if (crossedWrite) await backup
+  releaseRename()
+
+  const [exported] = await Promise.all([backup, set])
+  assert.equal(crossedWrite, false, 'the export did not read seating.json across the in-flight local write')
+  assert.deepEqual(exported.seating, {
+    judge: ['codex'],
+    reviewer: ['cursor'],
+  })
+})
+
+test('restoring seating into a removed file advances beyond the revision an open client drew', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-revision-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const { host } = await hostAt(dir)
+  t.after(() => host.dispose())
+
+  const first = (await host.call('agent/seating/set', { id: 'judge', seats: [{ runtime: 'codex' }] })) as MachineSeating
+  const drawn = (await host.call('agent/seating/set', {
+    id: 'reviewer',
+    seats: [{ runtime: 'claude-code' }],
+  })) as MachineSeating
+  assert.equal(first.revision, 1, 'control: the first write ran')
+  assert.equal(drawn.revision, 2, 'control: the open client drew revision 2')
+
+  await rm(join(dir, 'seating.json'))
+  const notices: unknown[] = []
+  host.addBroadcaster((notice) => {
+    if (notice.method === 'agent/changed') notices.push(notice)
+  })
+  const report = await host.call('backup/import', {
+    backup: backupWith([], { scout: ['cursor'] }),
+  })
+  assert.deepEqual(report.seating, { restored: 1, skipped: 0 })
+
+  const restored = (await host.call('agent/seating/read', {})) as MachineSeating
+  assert.ok(restored.revision > drawn.revision, 'restore advances beyond the open client')
+  const window = restored.revision >= drawn.revision ? restored : drawn
+  assert.deepEqual(
+    window.entries,
+    [{ id: 'scout', seats: [{ runtime: 'cursor' }] }],
+    'the already-open client accepts and draws the restored seats',
+  )
+  assert.ok(
+    notices.some(
+      (notice) =>
+        typeof notice === 'object' &&
+        notice !== null &&
+        'method' in notice &&
+        notice.method === 'agent/changed' &&
+        'params' in notice &&
+        (notice.params as { revision?: unknown }).revision === restored.revision,
+    ),
+    'the restore notification carries the same monotonic revision',
+  )
 })
 
 test('export uses the roster ids, leaves links inside behind, and carries only bounded UTF-8 text', async (t) => {
@@ -1303,7 +1430,7 @@ test('bad files and refused writes are isolated, bounded, and leave no half-writ
   }
   assert.equal(await readFile(join(dir, 'agents', 'after', 'AGENT.md'), 'utf8'), 'still restored')
   assert.deepEqual((await readdir(join(dir, 'agents'))).sort(), ['after', 'mixed'], 'the failed transaction left no final or temp folder')
-  assert.deepEqual(JSON.parse(await readFile(join(dir, 'seating.json'), 'utf8')), { later: ['codex'] })
+  assert.deepEqual(JSON.parse(await readFile(join(dir, 'seating.json'), 'utf8')), { $revision: 1, later: ['codex'] })
   assert.ok(heard.said.includes('an Agent folder from a backup could not be restored'))
   assert.ok(heard.said.includes('a seating entry from a backup could not be restored'))
 })
