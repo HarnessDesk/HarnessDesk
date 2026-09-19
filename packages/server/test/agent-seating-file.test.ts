@@ -406,6 +406,39 @@ test('refuseIfDifferent writes through when the id is still absent, and is a sil
 })
 
 /*
+ * PR #814 round 2: round 2's own review read this as already failing closed
+ * — a malformed raw value for the id is still *present*, so the
+ * compare-and-set's own `before !== undefined` check never depended on it
+ * parsing as a valid seat — but asked for a test that actually proves it
+ * rather than leaves it "appears to". Pinned here.
+ */
+test('refuseIfDifferent refuses even when the existing raw entry for the id does not itself parse as a valid seat list', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  // `null` names no list, no text and no record — `parseSeating` refuses it
+  // outright ("its seats are written as a list…"), unlike a bare number or
+  // string, which reads back as one compact seat and would not be malformed
+  // at all.
+  await writeFile(path, JSON.stringify({ scratch: null }), 'utf8')
+  const file = new MachineSeatingFile(path)
+  // The malformed value never reads back as an entry at all — `parseSeating`
+  // drops it and reports a problem instead — but the compare-and-set decides
+  // against the raw JSON, not that reading, so it still finds the key there
+  // and refuses rather than silently overwriting whatever it holds.
+  const read = await file.read()
+  assert.equal(read.entries.find((one) => one.id === 'scratch'), undefined, 'the malformed entry reads as no entry at all')
+  assert.ok(read.problems.some((one) => one.id === 'scratch'), 'and is reported as a problem, not silently dropped')
+  await assert.rejects(
+    (file.set as unknown as (
+      id: string,
+      seats: readonly { runtime: string }[],
+      options: { refuseIfDifferent: string },
+    ) => ReturnType<MachineSeatingFile['set']>)('scratch', [{ runtime: 'codex' }], { refuseIfDifferent: 'would win' }),
+    /would win/,
+  )
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { scratch: null }, 'the malformed raw value was left exactly as it was')
+})
+
+/*
  * M11: three gaps the review found — a directory where a file was expected,
  * JSON that is not an object at all, and `thinking` surviving both forms of
  * a write and a read.

@@ -132,6 +132,43 @@ const sameIdentity = (left: Identity, right: Stats): boolean => left.dev === rig
 const errnoOf = (error: unknown): string => String((error as { code?: unknown } | null)?.code ?? '')
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/**
+ * macOS's own `O_NOFOLLOW_ANY` — `0x20000000`, no named export in Node,
+ * passed through unchanged because libuv's `open()` forwards whatever
+ * numeric flags it is given. Plain `O_NOFOLLOW` refuses a link only at a
+ * path's *last* component; an ancestor swapped for one after a directory it
+ * contains was classified — round 2's own finding — is followed like any
+ * other lookup, the same as `readdir` follows one. `O_NOFOLLOW_ANY` refuses a
+ * link at *any* component instead, last one included — measured directly:
+ * it alone refuses both a same-name last-component link and an ancestor
+ * swapped for one, and opens a real file on a canonical path clean. Measured
+ * the other way too: OR'd together with `O_NOFOLLOW`, the two refuse every
+ * open with `EINVAL` rather than adding up, which is why `openNoFollow`
+ * below chooses one or the other, never both. Given that, every path this is
+ * used on must already be free of a *legitimate* link to begin with: the
+ * walk's own canonical root (`realpath`'d once, per `copyAgentFolder` and
+ * `exportAgentFolders`) plus plain joins from there, never a second
+ * `realpath` this close to the open — measured on this Mac to happily follow
+ * `/var` itself (a link to `/private/var`), which would refuse a perfectly
+ * real file the same way a genuine swap should be refused. Elsewhere than
+ * macOS this is `0`: the last-step `O_NOFOLLOW` plus the
+ * `fstat`-against-classification identity check below still hold there, and
+ * the desk ships and runs its CI on macOS only.
+ */
+const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
+
+/**
+ * Every content open in this file goes through here: `NOFOLLOW_ANY` where it
+ * exists, since it already refuses the last component too; plain `O_NOFOLLOW`
+ * where it does not (`NOFOLLOW_ANY` reads `0` there, so `||` falls through).
+ * `ELOOP` is what a live link answers with; each caller maps it to the same
+ * "was replaced … nothing was used" wording its own `fstat`-identity
+ * mismatch already gives, since both mean the same thing found at a
+ * different moment — one while a link was still there to refuse, the other
+ * once it was gone again.
+ */
+const openNoFollow = (path: string, flags: number) => open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+
 type CheckedStat = { readonly at: 'found'; readonly info: Stats } | { readonly at: 'missing' } | { readonly at: 'error'; readonly reason: string }
 
 const checkedStat = async (path: string): Promise<CheckedStat> => {
@@ -247,14 +284,20 @@ interface RegularEntry {
 }
 
 /**
- * Every regular file and folder directly inside `dir`. The one rule
- * `copyAgentFolder`'s duplicate and `exportAgentFolders`'s backup both carry
- * an Agent by: a link, wherever it leads, is left behind rather than
- * followed, because a folder is `dev`+`ino` away from copying itself into a
- * link that reaches back into it, and a backup that followed a link out of
- * the folder would carry whatever that link names, decided by wherever it
- * happens to point on this machine rather than by what is in the Agent's own
- * folder.
+ * Every regular file and folder directly inside `dir`, classified by
+ * `lstat`. The invariant that actually keeps a link's target out of a copy or
+ * a backup is not made here: it is made where a classified entry is finally
+ * opened (`copyRegularFile`, `take`) — every byte read comes from a
+ * descriptor `openNoFollow`'d on a canonical-root-plus-plain-joins path and
+ * `fstat`-checked against what this function classified, so a swap landing
+ * *after* this call returns (mid-loop below, between the loop's own
+ * `readdir` and the recursive call this makes for a nested directory, or
+ * anywhere later) is still refused at the one place that matters: a link
+ * still there answers `ELOOP`, one already put back answers a mismatched
+ * `fstat`. What this function's own before/after checks add is catching a
+ * swap of `dir` *itself* early, before wasting a walk on what a live link
+ * would otherwise make look like a real subtree — not the last word on
+ * safety, a cheaper first one.
  *
  * `expected` is `dir`'s own identity, as classified one level up — absent
  * for a walk's own top folder, which no parent's `regularEntries` ever
@@ -262,20 +305,17 @@ interface RegularEntry {
  * `readdir`'s own natural refusal to make, exactly as it always was: `idsIn`
  * and this file's own callers already decide what a dangling or non-folder
  * top entry means, and this never turns that into the same "replaced" error
- * a swap gets. Given `expected`, though, `dir` *was* classified as a
- * directory a moment ago, and is checked without following, once right
- * before `readdir` and once right after: swapped for a link elsewhere, it
- * would otherwise have that link's target read straight through it, on the
- * very next `readdir` — `readdir`, like every plain path lookup but `lstat`
- * itself, follows a link at the path it is given. The "before" check catches
- * a swap made any time since classification, which is the gap this exists
- * for; the "after" check additionally catches one made during `readdir`
- * itself, which "before" alone cannot, since two syscalls a path apart are
- * never one atomic look. A mismatch throws rather than returning fewer
- * entries, so a caller that would otherwise trust an empty or partial
- * listing refuses or leaves the whole folder out instead (`copyTree`'s and
- * `exportAgentFolders`'s own catches already do that with whatever this
- * throws).
+ * a swap gets. `copyAgentFolder` and `exportAgentFolders` now give the top
+ * folder its own identity too, from a fresh `lstat` right after their own
+ * one-time `realpath`, so it gets this same early check. Given `expected`,
+ * `dir` *was* classified as a directory a moment ago, and is checked without
+ * following, once right before `readdir` and once right after: catching a
+ * swap made any time up to there, and one made during `readdir` itself,
+ * which two syscalls a path apart can never rule out on their own. A
+ * mismatch throws rather than returning fewer entries, so a caller that
+ * would otherwise trust an empty or partial listing refuses or leaves the
+ * whole folder out instead (`copyTree`'s and `exportAgentFolders`'s own
+ * catches already do that with whatever this throws).
  */
 const regularEntries = async (dir: string, expected?: Identity): Promise<RegularEntry[]> => {
   if (expected) {
@@ -304,11 +344,16 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
 
 /**
  * Copies one classified file by its own descriptor, never by reopening its
- * path. Opened without following a last-step link: a file swapped for one
- * since `regularEntries` classified it is refused outright, the same as a
- * link there always was. `fstat`-checked against that classification too, so
- * a file swapped for a *different regular file* — nothing to refuse to
- * follow, there — is caught the same way: read from the descriptor this
+ * path. The invariant this and `regularEntries` both hold: every byte copied
+ * is read from a descriptor opened with `openNoFollow` on a path built from
+ * the walk's canonical root plus plain joins, and `fstat`-checked against
+ * `regularEntries`' own classification. `NOFOLLOW_ANY` refuses a link at any
+ * component the path still has at the moment of this open — an ancestor
+ * swapped for one since classification included — so whatever a `readdir` or
+ * an `lstat` upstream saw through such a swap, nothing outside is read here:
+ * a link still in place answers `ELOOP`; one already put back answers a
+ * `fstat` that does not match what was classified, since that identity was
+ * only ever the outside one the swap exposed. Read from the descriptor this
  * already opened rather than a fresh look at the path, which a second swap
  * after this check could otherwise still redirect. The destination is made
  * exclusively, like `copyFile`'s own `COPYFILE_EXCL` before it, and given the
@@ -316,11 +361,17 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
  * default away from.
  */
 const copyRegularFile = async (entry: RegularEntry, destination: string): Promise<void> => {
-  const source = await open(entry.source, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+  const replaced = `${entry.source} was replaced after it was found there, so nothing was copied from it.`
+  let source
+  try {
+    source = await openNoFollow(entry.source, constants.O_RDONLY | constants.O_NONBLOCK)
+  } catch (error) {
+    throw errnoOf(error) === 'ELOOP' ? new Error(replaced) : error
+  }
   try {
     const info = await source.stat()
     if (!info.isFile() || !sameIdentity(entry.identity, info)) {
-      throw new Error(`${entry.source} was replaced after it was found there, so nothing was copied from it.`)
+      throw new Error(replaced)
     }
     const out = await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL)
     try {
@@ -363,16 +414,21 @@ const copyTree = async (from: string, to: string, expected?: Identity): Promise<
  * itself may be exactly such a link, and `cp`'s own filter (below) would
  * otherwise drop it whole, copying nothing. Every link *inside* the tree is
  * still left behind, because only the one step the roster itself already
- * took is repeated here. And a copy that followed nothing but links copied
- * nothing worth having, so if no `AGENT.md` arrived, what was made is removed
- * and the copy is refused — never left as an Agent with no brief, and never
- * left to fail later in a stranger's sentence than this one.
+ * took is repeated here. `real` is also `lstat`'d once, right after, so its
+ * own identity can be given to `regularEntries` as `topIdentity` below —
+ * every path this walk ever opens is built from `real` plus plain joins from
+ * there, never a second `realpath`, which a swap made after this one could
+ * just as easily follow as the first. And a copy that followed nothing but
+ * links copied nothing worth having, so if no `AGENT.md` arrived, what was
+ * made is removed and the copy is refused — never left as an Agent with no
+ * brief, and never left to fail later in a stranger's sentence than this one.
  */
 export const copyAgentFolder = async (from: string, to: string): Promise<void> => {
   const id = basename(to)
   const real = await realpath(from)
+  const topIdentity = identityOf(await lstat(real))
   await writeAgentFolder(dirname(to), id, async (temporary) => {
-    await copyTree(real, temporary)
+    await copyTree(real, temporary, topIdentity)
     const hasBrief = await lstat(join(temporary, 'AGENT.md')).then(
       (info) => info.isFile(),
       () => false,
@@ -420,10 +476,15 @@ const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0
  * One bad Agent, or one bad file or subfolder inside an otherwise-good one,
  * never costs the rest of the export. `idsIn` already decides what is an
  * Agent at all — a dangling link or a link to a file is not one, and is left
- * out without a word, the same as the roster itself reads it. Anything else
- * that could not be read — a permission this account does not have, most
- * likely — leaves just that Agent, or just that file or subfolder, out, with
- * `log` told why.
+ * out without a word, the same as the roster itself reads it, so each id's
+ * own top folder is `realpath`'d and `lstat`'d before anything under it is
+ * walked: `realpath`'s and that `lstat`'s own failures are what decide
+ * "nothing here" (`NOTHING_HERE` reads their codes exactly as it always read
+ * `readdir`'s), and only past them is there a real, canonical top folder to
+ * give `regularEntries` an identity for, the same early check a nested
+ * directory already gets. Anything else that could not be read — a
+ * permission this account does not have, most likely — leaves just that
+ * Agent, or just that file or subfolder, out, with `log` told why.
  *
  * `AGENT.md` is read first, always, so nothing else in the folder can fill
  * the budget before it gets a turn; everything after it follows in code-unit
@@ -458,6 +519,7 @@ export const exportAgentFolders = async (
     let briefProblem: string | null = null
 
     const take = async (entry: RegularEntry, path: string): Promise<void> => {
+      const reason = 'it was replaced after it was found there'
       let handle
       try {
         // `O_NONBLOCK`, like the roster's own read of an `AGENT.md`
@@ -466,26 +528,32 @@ export const exportAgentFolders = async (
         // that check to still be true. Opened non-blocking, a file swapped
         // for a pipe with nothing writing to it in that gap is read as empty
         // rather than left to hang the export — and everyone behind it in
-        // the same libuv threadpool with it. `O_NOFOLLOW` for the same gap
-        // with a link: `regularEntries` already left every link behind, and
-        // a plain open would otherwise follow one dropped into its place,
-        // carrying into the backup whatever that link happens to name.
-        handle = await open(entry.source, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+        // the same libuv threadpool with it. `openNoFollow`, not a plain
+        // `O_NOFOLLOW`, for the link: an ancestor swapped for one after a
+        // directory containing this file was classified is followed by a
+        // plain open exactly as `readdir` follows it — `NOFOLLOW_ANY`
+        // refuses a link at any component the path still has, not only the
+        // last one, which is the gap round 2 found here.
+        handle = await openNoFollow(entry.source, constants.O_RDONLY | constants.O_NONBLOCK)
       } catch (error) {
+        if (errnoOf(error) === 'ELOOP') {
+          log?.('a file or folder was left out of an Agent backup', { id, path, error: reason })
+          if (path === 'AGENT.md') briefProblem = reason
+          return
+        }
         log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
         if (path === 'AGENT.md') briefProblem = `it could not be opened — ${messageOf(error)}`
         return
       }
       try {
-        // `O_NOFOLLOW` alone refuses a link swapped in since classification;
-        // it says nothing about a *different regular file* swapped in the
-        // same gap, since there is no link there to refuse to follow. Checked
-        // here, against the very identity `regularEntries` classified —
-        // never a fresh `lstat` of the path, which a second swap after that
-        // check could still redirect just as easily as the first did.
+        // A live link is `openNoFollow`'s to refuse; this is the other half —
+        // a *different regular file* swapped into the same gap, nothing to
+        // refuse to follow there — checked against the very identity
+        // `regularEntries` classified, never a fresh `lstat` of the path,
+        // which a second swap after that check could still redirect just as
+        // easily as the first did.
         const info = await handle.stat()
         if (!info.isFile() || !sameIdentity(entry.identity, info)) {
-          const reason = 'it was replaced after it was found there'
           log?.('a file or folder was left out of an Agent backup', { id, path, error: reason })
           if (path === 'AGENT.md') briefProblem = reason
           return
@@ -571,7 +639,17 @@ export const exportAgentFolders = async (
     }
 
     try {
-      await walk(join(root, id), '')
+      // `idsIn` keeps a dangling or a to-a-file top link (`isDirectory() ||
+      // isSymbolicLink()`, its own rule) without following either — so
+      // deciding "nothing here" is still `realpath`'s and this `lstat`'s own
+      // natural refusal, in their own codes, exactly as `readdir`'s used to
+      // be: caught below, `NOTHING_HERE` reads it the same as ever, quietly.
+      // Only past this point is there a real, present, canonical top folder
+      // to give `walk` an identity for at all.
+      const canonicalTop = await realpath(join(root, id))
+      const topInfo = await lstat(canonicalTop)
+      if (!topInfo.isDirectory()) throw Object.assign(new Error(`${canonicalTop} is not a folder.`), { code: 'ENOTDIR' })
+      await walk(canonicalTop, '', identityOf(topInfo))
     } catch (error) {
       if (!NOTHING_HERE.has(errnoOf(error))) {
         log?.('a file or folder was left out of an Agent backup', { id, error: messageOf(error) })
@@ -687,9 +765,29 @@ export const importAgentFolder = async (root: string, copy: unknown): Promise<Ag
   return { restored: true }
 }
 
-/** Reads the source Customize is about to copy, without following a last-step link and without exceeding the roster's limit. */
+/**
+ * Reads the source Customize is about to copy, without exceeding the
+ * roster's limit and without following a link anywhere in the path — a
+ * project's own Agent is exactly the case `copyAgentFolder` itself refuses to
+ * read through one for, and `path` here is read *before* that call, to
+ * validate what it is about to copy. `dirname(path)` is `realpath`'d once,
+ * the same single top-level follow `copyAgentFolder` gives a linked-in
+ * built-in or personal Agent, and every path after that is `openNoFollow`'d:
+ * a project that swaps its own Agent folder for a link out of it, in the gap
+ * between the roster finding this path and this call opening it, is refused
+ * the same way a copy or an export would refuse it.
+ */
 export const readAgentSource = async (path: string): Promise<string> => {
-  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+  const canonical = join(await realpath(dirname(path)), basename(path))
+  let handle
+  try {
+    handle = await openNoFollow(canonical, constants.O_RDONLY | constants.O_NONBLOCK)
+  } catch (error) {
+    if (errnoOf(error) === 'ELOOP') {
+      throw new Error(`${path} was replaced before it could be read, so nothing was copied.`)
+    }
+    throw error
+  }
   try {
     const info = await handle.stat()
     if (!info.isFile()) throw new Error(`${path} is not a regular Agent file.`)

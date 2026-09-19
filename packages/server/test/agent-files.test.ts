@@ -287,6 +287,112 @@ test('a copy refuses whole, and copies nothing from outside, when a nested file 
   assert.equal(await readFile(outside, 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
 })
 
+/*
+ * PR #814 round 2: the tests above swap a nested folder or file the moment it
+ * is classified — the gap round 1 closed. Round 2's own review found a later
+ * one: `regularEntries`' own before/after checks on a nested directory run
+ * once, at its own top, before the loop that looks at its children one by
+ * one — a swap landing *after* those checks pass but *before* that loop's
+ * first `lstat` rides the same ancestor through to whatever a link now
+ * answers with, and neither the recursive pre-check nor the file `fstat`
+ * that follows ever see anything but the identity that escape exposed. The
+ * fix (`openNoFollow`, `NOFOLLOW_ANY` on macOS) checks every path component
+ * at the moment of the actual open, not only `dir` itself at the top of one
+ * `regularEntries` call — so it closes this gap wherever it lands, without
+ * `regularEntries` needing to re-check `dir` once per child.
+ *
+ * `lstat` is patched to count calls for the one path this test cares about:
+ * call 1 classifies `nested` from its parent's own loop, call 2 is
+ * `nested`'s own before-check, call 3 is its own after-check — passed
+ * legitimately, because `nested` really was still fine at that moment. Only
+ * once that third call has already resolved does the swap land, strictly
+ * after both checks and strictly before the loop below ever names one of
+ * `nested`'s own children.
+ */
+test('a copy refuses whole, and copies nothing from outside, when a nested folder is swapped for a link right after its own before/after checks pass, before its first child is named', async (t) => {
+  const root = tempDir('hd-agent-files-midloop-swap-')
+  const from = join(root, 'from', 'scout')
+  const outside = join(root, 'outside')
+  await mkdir(join(from, 'nested'), { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(from, 'nested', 'note.txt'), 'inside, safe')
+  await mkdir(outside)
+  await writeFile(join(outside, 'note.txt'), 'OUTSIDE SECRET')
+  const nested = join(await realpath(from), 'nested')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let calls = 0
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (String(args[0]) === nested) {
+      calls += 1
+      if (calls === 3) {
+        await rm(nested, { recursive: true, force: true })
+        await symlink(outside, nested)
+      }
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.equal(await readFile(join(outside, 'note.txt'), 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
+})
+
+/*
+ * Round 2's own review also named the walk's own top folder: before round 2
+ * `regularEntries` had no `expected` identity for it at all, so neither
+ * before- nor after-check ever ran there, whatever swapped it. `readdir` is
+ * patched to swap right after it returns — timing that means nothing on the
+ * old code (no check to land inside of) but is caught immediately by the
+ * new top-folder after-check, right where round 1's own gap for a nested
+ * folder used to be.
+ */
+test("a copy refuses whole, and copies nothing from outside, when the walk's own root is swapped for a link right after its readdir, before any child is named", async (t) => {
+  const root = tempDir('hd-agent-files-top-swap-')
+  const from = join(root, 'from', 'scout')
+  const outside = join(root, 'outside')
+  await mkdir(from, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await mkdir(outside)
+  await writeFile(join(outside, 'AGENT.md'), 'OUTSIDE SECRET')
+  const realFrom = await realpath(from)
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realReaddir = fsp.readdir
+  let swapped = false
+  fsp.readdir = async (...args: unknown[]) => {
+    const result = await realReaddir(...args)
+    if (!swapped && String(args[0]) === realFrom) {
+      swapped = true
+      await rm(realFrom, { recursive: true, force: true })
+      await symlink(outside, realFrom)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readdir = realReaddir
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.equal(await readFile(join(outside, 'AGENT.md'), 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
+})
+
 /** A host whose Trash and Finder are recorded rather than touched, with a project open. */
 const desk = async (t: TestContext) => {
   const trashed: string[] = []
@@ -764,6 +870,34 @@ test('through the host: a project Save is refused, and rolls back its folder, wh
     JSON.parse(await readFile(seatingPath, 'utf8')),
     { scratch: ['codex'] },
     'seating.json holds the other window’s choice, not this Save’s',
+  )
+})
+
+/*
+ * PR #814 round 2: round 2's own review read `refuseIfDifferent` as already
+ * failing closed for a malformed raw entry — present, so refused, whatever
+ * its own shape — but asked for a test through the whole handler, not just
+ * `set()` itself, to pin that a Save's rollback fires the same way here too.
+ */
+test('through the host: a project Save refuses, and rolls back its folder, when this Mac’s seating.json holds a malformed raw entry for the same id', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  // See the unit test in agent-seating-file.test.ts: `null` is refused
+  // outright by `parseSeating` (no list, no text, no record), so it never
+  // reads back as an entry at all — only as a problem.
+  await writeFile(join(stateDir, SEATING_FILE), JSON.stringify({ scratch: null }), 'utf8')
+  await assert.rejects(
+    client.call('agent/create', { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    /This Mac already has seats for “scratch”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false),
+    false,
+    'the folder this Save made was rolled back',
+  )
+  assert.deepEqual(
+    JSON.parse(await readFile(join(stateDir, SEATING_FILE), 'utf8')),
+    { scratch: null },
+    'the malformed raw entry was left exactly as it was',
   )
 })
 
