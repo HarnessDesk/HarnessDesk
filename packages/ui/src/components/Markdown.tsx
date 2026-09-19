@@ -67,12 +67,12 @@ export const Markdown = ({
   document?: boolean
 }) => {
   const theme = useTheme()
-  const [, setTick] = useState(0)
+  const [grammars, setGrammars] = useState(0)
 
   useEffect(() => {
     ensureHighlighter()
     // Re-render once grammars land so code that painted plain gets colour.
-    return onHighlighterReady(() => setTick((value) => value + 1))
+    return onHighlighterReady(() => setGrammars((value) => value + 1))
   }, [])
 
   const html = useMemo(() => {
@@ -80,7 +80,10 @@ export const Markdown = ({
       async: false,
     }) as string
     return applyHighlighting(sanitizeHtml(parsed), theme === 'dark')
-  }, [text, theme, document])
+    /* `grammars` is read by nothing here, and it is the point: a grammar that
+       lands after the first paint has to rebuild this HTML, or a finished
+       message — whose text never changes again — keeps its code plain. */
+  }, [text, theme, document, grammars])
 
   /* `chat` is the same prose at a message's size and rhythm — a channel line is
      read in a column of other people's lines, not as a document. */
