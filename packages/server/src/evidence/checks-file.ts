@@ -4,9 +4,10 @@ import { lstat, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-import type { NamedCheck } from '@harnessdesk/protocol'
+import type { NamedCheck, Sha } from '@harnessdesk/protocol'
 
 import { parseYaml } from '../yaml.js'
+import { isSha } from './records.js'
 
 /**
  * A project's named checks: `.harnessdesk/checks.yml`, the commands the desk
@@ -139,11 +140,11 @@ const workingCopy = async (file: string): Promise<Buffer | null> => {
   }
 }
 
-/** Reads a project's checks, as committed at its `HEAD`. `project` is the top of its checkout. Never throws for what the file says. */
-export const readChecks = async (project: string): Promise<ChecksFile> => {
+/** Reads a checkout's checks from one already-chosen commit object. Never throws for what the file says. */
+export const readChecksAt = async (project: string, revision: Sha): Promise<ChecksFile> => {
   const file = join(project, CHECKS_FILE)
   let digest: string | null = null
-  let at: string | null = null
+  const at: string | null = isSha(revision) ? revision : null
   let uncommitted = false
   const answer = (checks: readonly NamedCheck[], problems: readonly ChecksProblem[], exists = true): ChecksFile => ({
     file,
@@ -155,10 +156,11 @@ export const readChecks = async (project: string): Promise<ChecksFile> => {
     problems,
   })
   const whole = (text: string): ChecksFile => answer([], [{ at: '', text }])
-
-  // The commit, then the blob in it: two immutable objects, so what is read is what was committed.
-  at = (await git(project, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.toString('utf8').trim() || null
   if (at === null) return answer([], [], false)
+
+  // The caller chose the commit once. Every lookup below names that immutable
+  // object, so a concurrent ref move cannot change either the command or its
+  // generation halfway through this read.
   const listed = (await git(project, ['ls-tree', '-z', at, '--', '.harnessdesk', CHECKS_PATH]))?.toString('utf8') ?? ''
   const tree = new Map(
     listed
@@ -186,7 +188,7 @@ export const readChecks = async (project: string): Promise<ChecksFile> => {
   if (size > CHECKS_FILE_LIMIT) {
     return whole(`It is ${Math.ceil(size / 1024)} KB, and a checks file may be at most ${CHECKS_FILE_LIMIT / 1024} KB.`)
   }
-  const bytes = await git(project, ['cat-file', 'blob', blob.id])
+  const bytes = await git(project, ['show', `${at}:${CHECKS_PATH}`])
   if (bytes === null || bytes.length !== size) return whole('It could not be read from git.')
   digest = blob.id
   // Said, never read: only what is committed runs.
@@ -248,4 +250,12 @@ export const readChecks = async (project: string): Promise<ChecksFile> => {
     checks.push({ name, run, timeout })
   }
   return answer(checks, problems)
+}
+
+/** Reads a project's checks as committed at its `HEAD`, for listing surfaces that do not start a command. */
+export const readChecks = async (project: string): Promise<ChecksFile> => {
+  const at = (await git(project, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.toString('utf8').trim() || null
+  if (at !== null) return readChecksAt(project, at)
+  const file = join(project, CHECKS_FILE)
+  return { file, exists: false, digest: null, at: null, uncommitted: false, checks: [], problems: [] }
 }

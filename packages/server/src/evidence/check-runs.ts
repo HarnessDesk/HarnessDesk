@@ -2,10 +2,10 @@ import { CheckUnseenError, type EvidenceRecord, type Intent, type NamedCheck, ty
 
 import { repositoryRoot } from '../worktree.js'
 import type { RunningChecks } from './board.js'
-import { readChecks } from './checks-file.js'
+import { readChecksAt } from './checks-file.js'
 import { mintId } from './records.js'
-import { projectOf, revisionOf, type Revision } from './revision.js'
-import { runCommand } from './run.js'
+import { canonical, headOf, projectOf, revisionAt, type Revision } from './revision.js'
+import { runCommand, TAIL_LIMIT } from './run.js'
 import type { SeatBook } from './seats.js'
 import { incarnationOf, type CommandsSeen } from './seen.js'
 import type { EvidenceStore } from './store.js'
@@ -17,8 +17,9 @@ import type { EvidenceStore } from './store.js'
  * run outside a flow.** The rules, in the order they are checked, and nothing
  * runs until every one has passed:
  *
- * 1. The check is read from `.harnessdesk/checks.yml` as committed at the
- *    project's `HEAD` — one git blob, through `readChecks` and nowhere else. A
+ * 1. The checkout's `HEAD` is read once, then the check is read from that
+ *    commit's `.harnessdesk/checks.yml` — one git blob, through `readChecksAt`
+ *    and nowhere else. A
  *    check that file refuses — a command that is not plain printable ASCII, a
  *    key a check cannot say — cannot run, whatever the caller says.
  * 2. It runs in the card's checkout: its holder's folder while it is claimed,
@@ -33,8 +34,9 @@ import type { EvidenceStore } from './store.js'
  *    generation they were shown; it is recorded and run only while the file is
  *    still exactly that, so a file that changed between the question and the
  *    answer asks again.
- * 4. One check runs on a card at a time, whatever its name, bound to the commit
- *    it started at.
+ * 4. One check runs on a card at a time, whatever its name, bound to that
+ *    commit and checks digest. After it ends, `HEAD` is read again; if it moved,
+ *    the recorded result says so and cannot count as a pass for either commit.
  *
  * It runs with the person's own authority and a small environment of its own
  * (`run.ts`); the question that approves it says so.
@@ -147,18 +149,23 @@ export class CheckRuns {
       throw new Error(`A check is bound to a commit, and ${folder} is in no git repository, so no check runs here.`)
     }
 
-    // 1. The check, read from the project's own file as committed, as strictly as it is shown.
-    const read = await readChecks(project)
+    // 1. Where it would run, held to the project, and the one commit this
+    // admission is about. Nothing below asks HEAD which revision owns the
+    // command: every checks lookup names this object directly.
+    const cwd = await this.#checkoutFor(board, intent, project)
+    still()
+    const head = await headOf(cwd)
+    still()
+    if (head === null) throw new Error(`${cwd} has no commit yet, and a check is bound to one, so it has not run.`)
+
+    // 2. The check from R's own git object, parsed as strictly as it is shown.
+    const read = await readChecksAt(await canonical(cwd), head)
     still()
     const check = read.checks.find((one) => one.name === name)
     if (!check || read.digest === null) {
       const problem = read.problems.find((one) => one.at === '' || one.check === name)
       throw new Error(problem ? `${name} cannot run: ${problem.text}` : `${read.file} names no check called “${name}”.`)
     }
-
-    // 2. Where it would run, held to the project.
-    const cwd = await this.#checkoutFor(board, intent, project)
-    still()
 
     // 3. Approved on this machine, for this repository and this file — or asked, and nothing runs.
     const scope = { project, incarnation: await incarnationOf(project), digest: read.digest }
@@ -178,48 +185,16 @@ export class CheckRuns {
     }
     still()
 
-    // Admission may have waited on checkout or approval I/O. Re-read the
-    // committed blob after that work, so a commit made in the window cannot
-    // run the old command under the new checks generation.
-    const proveCurrent = async (): Promise<void> => {
-      const current = await readChecks(project)
-      still()
-      if (current.digest === read.digest) return
-      const currentCheck = current.checks.find((one) => one.name === name)
-      if (!currentCheck || current.digest === null) {
-        const problem = current.problems.find((one) => one.at === '' || one.check === name)
-        throw new Error(problem ? `${name} cannot run: ${problem.text}` : `${current.file} names no check called “${name}”.`)
-      }
-      const currentScope = { project, incarnation: scope.incarnation, digest: current.digest }
-      await seen.reconcile(
-        currentScope,
-        current.checks.map((one) => one.name),
-      )
-      still()
-      throw new CheckUnseenError(
-        `${currentCheck.name} runs a command this machine has not approved as it is written now, so it has not run.`,
-        {
-          check: currentCheck,
-          previous: await seen.previous(currentScope, currentCheck.name, currentCheck.run),
-          cwd,
-          file: current.file,
-          digest: current.digest,
-        },
-      )
-    }
-    await proveCurrent()
     if (needsApproval) {
       await seen.approve(scope, check)
       still()
-      await proveCurrent()
     }
 
-    // 4. Bound to the commit it starts at, and alone on its card. Revision is
-    // the final asynchronous read before spawn: nothing below yields until the
-    // child exists, so the fact names the checkout HEAD the command starts in.
-    const revision = await revisionOf(cwd)
+    // 4. Bound to the already-chosen commit and digest, and alone on its card.
+    // Branch and dirty state are metadata for R; neither can substitute a new
+    // HEAD into the admission. Nothing below yields until the child exists.
+    const revision = await revisionAt(cwd, head)
     still()
-    if (!revision) throw new Error(`${cwd} has no commit yet, and a check is bound to one, so it has not run.`)
 
     const busy = this.#parts.running.start(room, card, check.name, this.#now())
     if (busy) throw new Error(`${busy.name} is running on #${card}, and one check runs on a card at a time.`)
@@ -229,7 +204,7 @@ export class CheckRuns {
         : null
     port.changed(room)
     started(
-      this.#execute({ room, card, check, cwd, revision, seat, project, signal }).finally(() => {
+      this.#execute({ room, card, check, digest: read.digest, cwd, revision, seat, project, signal }).finally(() => {
         this.#parts.running.end(room, card)
         port.changed(room)
       }),
@@ -261,6 +236,7 @@ export class CheckRuns {
     readonly room: string
     readonly card: number
     readonly check: NamedCheck
+    readonly digest: string
     readonly cwd: string
     readonly revision: Revision
     readonly seat: string | null
@@ -276,6 +252,14 @@ export class CheckRuns {
       })
       return
     }
+    const after = await headOf(run.cwd)
+    const counted = after === run.revision.head
+    const movement = counted
+      ? ''
+      : after === null
+        ? `Not counted: HEAD moved away from ${run.revision.head} while this check ran.`
+        : `Not counted: HEAD moved from ${run.revision.head} to ${after} while this check ran.`
+    const tail = (result.tail + (result.tail && movement ? '\n\n' : '') + movement).slice(-TAIL_LIMIT)
     const record: EvidenceRecord = {
       id: mintId(),
       fact: {
@@ -285,8 +269,10 @@ export class CheckRuns {
         exit: result.exit,
         timedOut: result.timedOut,
         at: run.revision.head,
+        digest: run.digest,
+        counted,
         dirty: run.revision.dirty,
-        tail: result.tail,
+        tail,
       },
       card: { board: run.room, id: run.card },
       checkout: { cwd: run.cwd, branch: run.revision.branch },

@@ -155,6 +155,10 @@ export type Evidence =
       readonly exit: number | null
       readonly timedOut: boolean
       readonly at: Sha
+      /** The committed checks file whose exact command ran. Absent only on records written before this binding existed. */
+      readonly digest?: Sha
+      /** False when HEAD moved before the run finished, so this result is not a pass for either revision. */
+      readonly counted?: boolean
       /** True when the checkout held changes not committed: the result is about no commit at all. */
       readonly dirty: boolean
       /** The last of what it printed, so a failure can say why. At most 4,000 characters. */

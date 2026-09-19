@@ -189,6 +189,8 @@ export const factOf = (value: unknown): Evidence | null => {
           orNull(value['exit'], isInteger) &&
           typeof value['timedOut'] === 'boolean' &&
           isSha(value['at']) &&
+          (value['digest'] === undefined || isSha(value['digest'])) &&
+          (value['counted'] === undefined || typeof value['counted'] === 'boolean') &&
           typeof value['dirty'] === 'boolean' &&
           typeof value['tail'] === 'string' &&
           value['tail'].length <= TAIL_LIMIT

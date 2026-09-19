@@ -45,13 +45,23 @@ export interface Revision {
   readonly dirty: boolean
 }
 
-/** Null outside a repository, or in one with no commit yet: there is no revision to bind a fact to. */
-export const revisionOf = async (cwd: string): Promise<Revision | null> => {
+/** The checkout's commit now, read once. Null outside a repository or before its first commit. */
+export const headOf = async (cwd: string): Promise<Sha | null> => {
   const head = (await gitOr(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.trim() ?? ''
-  if (!isSha(head)) return null
+  return isSha(head) ? head : null
+}
+
+/** The rest of a revision's evidence metadata, bound to a commit already chosen by the caller. */
+export const revisionAt = async (cwd: string, head: Sha): Promise<Revision> => {
   const branch = (await gitOr(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim() || null
   const status = await gitOr(cwd, ['status', '--porcelain=v1', '--untracked-files=normal'])
   return { head, branch, dirty: status === null || status.trim() !== '' }
+}
+
+/** Null outside a repository, or in one with no commit yet: there is no revision to bind a fact to. */
+export const revisionOf = async (cwd: string): Promise<Revision | null> => {
+  const head = await headOf(cwd)
+  return head === null ? null : revisionAt(cwd, head)
 }
 
 /**

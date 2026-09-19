@@ -26,6 +26,9 @@ import { freshnessOf } from './revision.js'
 /** Why a restored fact stands as unknown. */
 export const RESTORED_WHY = 'it came from a backup, and this desk has not observed it'
 
+/** Why a check whose run crossed a HEAD move can never be a passing fact. */
+export const MOVED_CHECK_WHY = 'HEAD moved while this check ran, so its result is not counted for either revision.'
+
 /**
  * The named check running on each card now. One at a time on a card, whatever
  * its name: two checks in one checkout at once would each be measuring the
@@ -118,6 +121,9 @@ export const boardEvidence = async (input: BoardEvidenceInput): Promise<BoardEvi
   const standing = new Map<string, Promise<Freshness>>()
   const freshness = (record: EvidenceRecord): Promise<Freshness> => {
     if (record.restored) return Promise.resolve({ state: 'unknown', why: RESTORED_WHY })
+    if (record.fact.kind === 'check' && record.fact.counted === false) {
+      return Promise.resolve({ state: 'unknown', why: MOVED_CHECK_WHY })
+    }
     const at = boundTo(record)
     if (at === null) return Promise.resolve({ state: 'fresh' })
     if (!record.checkout) return Promise.resolve({ state: 'unknown', why: 'where it was observed is not recorded' })

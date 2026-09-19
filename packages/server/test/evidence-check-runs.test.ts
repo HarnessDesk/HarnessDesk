@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -15,6 +15,7 @@ import {
 
 import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
+import { whichOnPath } from '../src/installs/which.js'
 import { evidenceDesk, makeRepo, until, type Repo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -146,6 +147,8 @@ test('the answer runs exactly the command that was shown, once, and the fact it 
     exit: 0,
     timedOut: false,
     at: await r.repo.git('rev-parse', 'HEAD'),
+    digest: carried.digest,
+    counted: true,
     dirty: false,
     tail: '',
   })
@@ -158,6 +161,7 @@ test('the answer runs exactly the command that was shown, once, and the fact it 
 
 test('what runs is the file as committed: a change in the working copy is not run, and not asked about', async () => {
   const r = await rig('verify: { run: touch MARKERS/committed }\n')
+  const at = await r.repo.git('rev-parse', 'HEAD')
   await writeFile(join(r.repo.dir, '.harnessdesk', 'checks.yml'), `verify: { run: touch ${r.markers}/working }\n`)
   const carried = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
   assert.equal(carried.check.run, `touch ${r.markers}/committed`)
@@ -166,6 +170,8 @@ test('what runs is the file as committed: a change in the working copy is not ru
   assert.equal(await exists(join(r.markers, 'committed')), true)
   assert.equal(await exists(join(r.markers, 'working')), false)
   assert.equal(fact?.fact.kind === 'check' && fact.fact.dirty, true, 'and the fact says the tree held changes')
+  assert.equal(fact?.fact.kind === 'check' && 'digest' in fact.fact ? fact.fact.digest : null, carried.digest)
+  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, at)
 })
 
 test('a file never committed offers nothing to run', async () => {
@@ -225,9 +231,10 @@ test('an answer given for another generation of the file asks again, even when t
   assert.equal(await exists(join(r.markers, 'verify')), false)
 })
 
-test('a commit made while an answered check is being admitted asks again before anything starts', async () => {
+test('a commit made while an answered check is being admitted cannot substitute its new command for R\'s', async () => {
   const r = await rig('verify: { run: touch MARKERS/old }\n')
   const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const pinned = await r.repo.git('rev-parse', 'HEAD')
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -251,19 +258,79 @@ test('a commit made while an answered check is being admitted asks again before 
   const admitting = r.plane.checks.run('room-1', 1, 'verify', answer(shown))
   await inside
   await r.checks('verify: { run: touch MARKERS/new }\n')
+  const advanced = await r.repo.git('rev-parse', 'HEAD')
   release()
 
-  const again = await unseen(admitting)
-  assert.equal(again.check.run, `touch ${r.markers}/new`)
-  assert.equal(again.digest, await blob(r))
-  assert.equal(await exists(join(r.markers, 'old')), false)
+  assert.deepEqual(await admitting, { started: true })
+  const [fact] = await settled(r, 1)
+  assert.equal(await exists(join(r.markers, 'old')), true)
   assert.equal(await exists(join(r.markers, 'new')), false)
-  assert.deepEqual(await r.facts(), [])
+  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, pinned)
+  assert.equal(fact?.fact.kind === 'check' && fact.fact.digest, shown.digest)
+  assert.equal(fact?.fact.kind === 'check' && fact.fact.counted, false)
+  assert.match(fact?.fact.kind === 'check' ? fact.fact.tail : '', new RegExp(`HEAD moved from ${pinned} to ${advanced}`))
 })
 
-test('a checkout commit made during final admission is the revision the command runs and records', async () => {
+test('a checks commit between the generation read and spawn runs only the command from the pinned revision', async (t) => {
+  const r = await rig('verify: { run: touch MARKERS/old }\n')
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const pinned = await r.repo.git('rev-parse', 'HEAD')
+
+  // Hold git's branch read after the old implementation's final checks read.
+  // The replacement snapshot may reach the same read while assembling R's
+  // evidence metadata; either way, the commit lands after R was chosen and
+  // before the process starts.
+  const fakebin = tempDir('hd-check-runs-git-')
+  const entered = join(fakebin, 'entered')
+  const release = join(fakebin, 'release')
+  const held = join(fakebin, 'held')
+  const originalPath = process.env['PATH'] ?? ''
+  const realGit = whichOnPath('git', { env: { ...process.env, PATH: originalPath } })
+  assert.ok(realGit)
+  const wrapper = join(fakebin, 'git')
+  await writeFile(
+    wrapper,
+    `#!${process.execPath}\n` +
+      `const { existsSync, writeFileSync } = require('node:fs')\n` +
+      `const { spawnSync } = require('node:child_process')\n` +
+      `const args = process.argv.slice(2)\n` +
+      `if (args[0] === '-C' && args[1] === ${JSON.stringify(r.repo.dir)} && args[2] === 'symbolic-ref' && !existsSync(${JSON.stringify(held)})) {\n` +
+      `  writeFileSync(${JSON.stringify(held)}, '')\n` +
+      `  writeFileSync(${JSON.stringify(entered)}, '')\n` +
+      `  const cell = new Int32Array(new SharedArrayBuffer(4))\n` +
+      `  while (!existsSync(${JSON.stringify(release)})) Atomics.wait(cell, 0, 0, 20)\n` +
+      `}\n` +
+      `const result = spawnSync(${JSON.stringify(realGit)}, args)\n` +
+      `if (result.stdout) process.stdout.write(result.stdout)\n` +
+      `if (result.stderr) process.stderr.write(result.stderr)\n` +
+      `process.exit(result.status ?? 1)\n`,
+  )
+  await chmod(wrapper, 0o755)
+  process.env['PATH'] = `${fakebin}:${originalPath}`
+  t.after(() => {
+    process.env['PATH'] = originalPath
+  })
+
+  const admitting = r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  await until(async () => ((await exists(entered)) ? true : null), 'the held checkout metadata read')
+  await r.checks('verify: { run: touch MARKERS/new }\n')
+  const advanced = await r.repo.git('rev-parse', 'HEAD')
+  await writeFile(release, '')
+
+  assert.deepEqual(await admitting, { started: true })
+  const [fact] = await settled(r, 1)
+  assert.equal(await exists(join(r.markers, 'old')), true, 'the command read from R ran')
+  assert.equal(await exists(join(r.markers, 'new')), false, 'the later command never ran under R\'s approval')
+  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, pinned)
+  assert.equal(fact?.fact.kind === 'check' && 'digest' in fact.fact ? fact.fact.digest : null, shown.digest)
+  assert.equal(fact?.fact.kind === 'check' && 'counted' in fact.fact ? fact.fact.counted : true, false)
+  assert.match(fact?.fact.kind === 'check' ? fact.fact.tail : '', new RegExp(`HEAD moved from ${pinned} to ${advanced}`))
+})
+
+test('a checkout commit made during final admission leaves R recorded and the moved result not counted', async () => {
   const r = await rig('verify: { run: git rev-parse HEAD > MARKERS/head }\n')
   const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const pinned = await r.repo.git('rev-parse', 'HEAD')
 
   let release!: () => void
   const gate = new Promise<void>((resolve) => {
@@ -292,7 +359,32 @@ test('a checkout commit made during final admission is the revision the command 
   assert.deepEqual(await admitting, { started: true })
   const [fact] = await settled(r, 1)
   assert.equal((await readFile(join(r.markers, 'head'), 'utf8')).trim(), advanced)
-  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, advanced)
+  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, pinned)
+  assert.equal(fact?.fact.kind === 'check' && fact.fact.counted, false)
+  assert.match(fact?.fact.kind === 'check' ? fact.fact.tail : '', new RegExp(`HEAD moved from ${pinned} to ${advanced}`))
+})
+
+test('a HEAD move during a check leaves evidence that is not counted for either revision', async () => {
+  const command =
+    "printf moved > during.txt && git add during.txt && git -c user.email=dev@example.com -c user.name='Jane Doe' commit -qm moved"
+  const r = await rig(`verify: { run: ${command} }\n`)
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const pinned = await r.repo.git('rev-parse', 'HEAD')
+
+  await r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  const [fact] = await settled(r, 1)
+  const advanced = await r.repo.git('rev-parse', 'HEAD')
+  assert.notEqual(advanced, pinned, 'control: the check itself moved HEAD')
+  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, pinned)
+  assert.equal(fact?.fact.kind === 'check' && 'digest' in fact.fact ? fact.fact.digest : null, shown.digest)
+  assert.equal(fact?.fact.kind === 'check' && 'counted' in fact.fact ? fact.fact.counted : true, false)
+  assert.match(fact?.fact.kind === 'check' ? fact.fact.tail : '', new RegExp(`HEAD moved from ${pinned} to ${advanced}`))
+
+  const board = await r.plane.board('room-1')
+  assert.deepEqual(board.cards[0]?.facts[0]?.freshness, {
+    state: 'unknown',
+    why: 'HEAD moved while this check ran, so its result is not counted for either revision.',
+  })
 })
 
 test('an approval does not outlive the file it was given for: a command that changes and changes back asks again', async () => {
