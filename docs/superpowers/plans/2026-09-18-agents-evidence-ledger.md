@@ -8427,7 +8427,7 @@ export const PREVIEW_SEAT: SeatRecord = {
   ],
   standing: { kind: 'permission', permission: 'read' },
   ceiling: null,
-  checkout: { cwd: PREVIEW_ROOT, project: PREVIEW_ROOT, branch: 'retry-on-502', head: HEAD },
+  checkout: { cwd: '/home/dev/code/HarnessDesk', project: PREVIEW_ROOT, branch: 'retry-on-502', head: HEAD },
   session: { runtime: 'codex', sessionId: 's1' },
   board: EVIDENCE_ROOM,
   role: null,

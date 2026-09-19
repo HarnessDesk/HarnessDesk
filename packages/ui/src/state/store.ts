@@ -10,6 +10,7 @@ import {
   type BackgroundTask,
   type BoardEvidence,
   type CheckUnseen,
+  type SeatRecord,
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
@@ -3686,6 +3687,10 @@ export class AppStore {
       }
       throw error
     }
+  }
+
+  async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
+    return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
   }
 
   #keepBoardEvidence(room: string, evidence: BoardEvidence): void {

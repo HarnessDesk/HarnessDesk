@@ -1,8 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
-import { type HostMethodName, type WireNotification } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, type HostMethodName, type WireNotification } from '@harnessdesk/protocol'
 
-import { EVIDENCE_BOARD, EVIDENCE_ROOM, PREVIEW_UNSEEN } from '../preview/evidence-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, PREVIEW_SEAT, PREVIEW_UNSEEN } from '../preview/evidence-fixture'
 import { AppStore } from './store'
 
 let store: AppStore
@@ -100,4 +100,10 @@ it('any other refusal to run a check is thrown in the host’s words', async () 
   await expect(store.runCheck(EVIDENCE_ROOM, 1, 'verify')).rejects.toThrow(
     'lint is running on #1, and one check runs on a card at a time.',
   )
+})
+
+it("a conversation's Seat record is read from the host as it is", async () => {
+  request.mockResolvedValueOnce(PREVIEW_SEAT)
+  await expect(store.seatRecord(runtimeId('codex'), sessionId('s1'))).resolves.toBe(PREVIEW_SEAT)
+  expect(request).toHaveBeenLastCalledWith('evidence/seat', { runtime: 'codex', sessionId: 's1' })
 })

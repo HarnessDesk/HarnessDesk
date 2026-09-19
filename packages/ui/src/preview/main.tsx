@@ -5,7 +5,7 @@ import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@har
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
-import { ChangesView, TrajectoryView } from '../components/Details'
+import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { AppearanceSection } from '../components/SettingsYou'
@@ -428,6 +428,19 @@ const Preview = () => {
               }}
             >
               <TrajectoryView />
+            </PaneProvider>
+          </div>
+        </Frame>
+        <Frame title="Side panel — Agents, with the Seat record">
+          <div className="h-[420px]">
+            <PaneProvider
+              scope={{
+                paneId: 'preview' as never,
+                view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+                sessionKey: PREVIEW_SESSION_KEY,
+              }}
+            >
+              <AgentsView />
             </PaneProvider>
           </div>
         </Frame>

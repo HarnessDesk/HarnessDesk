@@ -10,6 +10,7 @@ import {
   type ModelInfo,
   type OptionValue,
   type RuntimeInfo,
+  type SeatRecord,
   type SeatPlan,
   type Session,
   type SessionId,
@@ -55,7 +56,7 @@ import {
   previewWorkspaces,
 } from './sidebar-fixture'
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
-import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
@@ -1088,6 +1089,8 @@ class PreviewStore {
     kind: 'unseen',
     unseen: PREVIEW_UNSEEN,
   })
+  seatRecord = async (runtime: string, sessionId: string): Promise<SeatRecord | null> =>
+    sessionKey(runtime, sessionId) === PREVIEW_SESSION_KEY ? PREVIEW_SEAT : null
 
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })
