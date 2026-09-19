@@ -737,6 +737,9 @@ const KanbanBoard = () => {
           </BoardColumn>
         ))}
       </Board>
+      <Board derived className="mt-3">
+        <BoardColumn title="No result" count={0} onAdd={() => undefined} />
+      </Board>
       <Rule>
         A card&rsquo;s column is its state, so no card repeats it — every card says who has it, how
         urgent it is and how much conversation it has collected, and none of them says &ldquo;in
@@ -744,7 +747,8 @@ const KanbanBoard = () => {
         column pushes every card in it into a verdict it has not earned, and a card sitting there
         three days starts to read as an incident. Only <code>priority</code> judges. Unassigned is
         said out loud, because an unassigned card and a card whose avatars failed to load look
-        identical otherwise.
+        identical otherwise. A derived board reports facts and therefore offers no way to add or
+        move one; its empty column says so without drawing a drop target.
       </Rule>
     </>
   )

@@ -764,6 +764,12 @@ key. AppWindow uses canonical dialog modality but explicitly delegates
 Escape here, retaining the window stack's ordering and approval boundary.
 Other dialogs consume Escape themselves; see `lib/overlays.ts`.
 
+### `stateTone`
+
+`packages/ui/src/design/patterns/PublicationCard.tsx`
+
+The one label and tone for a pull-request state or check outcome.
+
 ### `publicationVerb`
 
 `packages/ui/src/design/patterns/PublicationCard.tsx`
@@ -803,9 +809,10 @@ of the text, not as a claim the desk makes about it.
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
-The state, said out loud. Pass `label` only to say something more specific
-than the state's own name — "Out of weekly credit until Thursday" rather
-than "Limit reached".
+A compact state, said out loud. Readiness keeps its dot and default word;
+every other fact takes a semantic `tone` and words from `children` or
+`label`. Stale and unknown facts keep those meanings distinct in both ink
+and their accessible names.
 
 ### `Search`
 
