@@ -3581,7 +3581,7 @@ test('over Codex: a coalesced turn/start answer and opening echo still record th
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
 
-test('over Codex: the normal turn after a silent order is speech and supplies the opening preview and name', async (t) => {
+test('over Codex: the normal turn after a silent order is speech and supplies the opening preview', async (t) => {
   const { harness, client, work, runtime } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
   await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
 
@@ -3626,11 +3626,6 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
       { type: 'text', text: request },
     ],
   })
-  await client.until(
-    () => client.events.some((event) => event.type === 'session/title' && event.sessionId === session.id && event.title === request),
-    5_000,
-    'the normal opening message to name the session',
-  )
 
   const read = (await client.call('session/read', {
     runtime: session.runtime,
@@ -3646,5 +3641,6 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
   assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
   const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
   assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
-  assert.equal(summary?.title, request, 'the normal turn still drives the naming call')
+  // `agent/seat` names the conversation before handing over its silent order,
+  // so this seated session cannot be renamed by a later opening message.
 })
