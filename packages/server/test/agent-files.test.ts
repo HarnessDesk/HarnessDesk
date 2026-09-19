@@ -393,6 +393,75 @@ test("a copy refuses whole, and copies nothing from outside, when the walk's own
   assert.equal(await readFile(join(outside, 'AGENT.md'), 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
 })
 
+/*
+ * PR #814 round 2, write side: the tests above swap a *source* ancestor.
+ * This one swaps the *destination*'s own temporary folder — the one
+ * `writeAgentFolder` builds the copy into out of sight, before its one
+ * rename gives it a final name — for a link to an outside directory,
+ * mid-copy, after one file has already been written into it for real.
+ * `mkdir`, used for a nested destination directory, has no flag to refuse a
+ * swapped ancestor with, so the one thing this can still make land outside
+ * is an empty directory; every content write goes through `copyRegularFile`,
+ * which now opens its destination the same `openNoFollow`'d way the source
+ * side already does, so no file's bytes ever follow the swap.
+ *
+ * `mkdtemp` is patched to capture the random name `writeAgentFolder` gives
+ * its own temporary folder — needed only because a test cannot otherwise
+ * name a path it did not choose. `mkdir` is then patched to swap that
+ * temporary folder for a link to `outside/` the moment the copy asks to
+ * make its own nested destination directory inside it — deterministic
+ * regardless of which of `AGENT.md` or `nested/` a given filesystem's
+ * `readdir` happens to list first, since whichever one is not yet written
+ * when the swap lands is refused by the same `ELOOP`, and whichever already
+ * was stays inside the (soon to be orphaned) real temporary folder, never
+ * inside `outside/`.
+ */
+test('a copy refuses whole, and leaves at most an empty directory outside, when its own destination temporary folder is swapped for a link mid-copy', async (t) => {
+  const root = tempDir('hd-agent-files-dest-swap-')
+  const from = join(root, 'from', 'scout')
+  const outside = join(root, 'outside')
+  await mkdir(join(from, 'nested'), { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(from, 'nested', 'note.txt'), 'inside, safe')
+  await mkdir(outside)
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    mkdtemp: (...args: unknown[]) => Promise<string>
+    mkdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realMkdtemp = fsp.mkdtemp
+  const realMkdir = fsp.mkdir
+  let temporary: string | undefined
+  fsp.mkdtemp = async (...args: unknown[]) => {
+    const result = await realMkdtemp(...(args as Parameters<typeof realMkdtemp>))
+    temporary = result
+    return result
+  }
+  let swapped = false
+  fsp.mkdir = async (...args: unknown[]) => {
+    const path = String(args[0])
+    if (!swapped && temporary && path === join(temporary, 'nested')) {
+      swapped = true
+      await rm(temporary, { recursive: true, force: true })
+      await symlink(outside, temporary)
+    }
+    return realMkdir(...args)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.mkdtemp = realMkdtemp
+    fsp.mkdir = realMkdir
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was renamed into place')
+  assert.ok(swapped, 'the swap this test depends on actually fired')
+  assert.deepEqual(await readdir(outside), ['nested'], 'the only thing that landed outside is the one directory `mkdir` made through the swap')
+  assert.deepEqual(await readdir(join(outside, 'nested')), [], 'and it is empty — no file’s content followed the swap')
+})
+
 /** A host whose Trash and Finder are recorded rather than touched, with a project open. */
 const desk = async (t: TestContext) => {
   const trashed: string[] = []

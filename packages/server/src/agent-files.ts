@@ -215,19 +215,48 @@ const removeTemporary = async (root: string, rootIdentity: Identity, temporary: 
   return null
 }
 
-/** Builds a folder out of sight, then gives it its final name in one move. */
+/**
+ * Builds a folder out of sight, then gives it its final name in one move.
+ *
+ * `root` is `realpath`'d exactly once, here, before anything is made under
+ * it, into `canonicalRoot` — mirroring the read side's own invariant, no
+ * byte this call (or the `write` it runs) puts anywhere is ever written
+ * outside this one canonical path: `canonicalFolder` and `temporary` are
+ * both built from it with a plain `join`, never a second `realpath` this
+ * close to the write, which a swap landing after this one could just as
+ * easily follow as the first. A swap of `root` itself, or of anything under
+ * it, landing *after* this point is then a write through a path this call
+ * no longer names — `temporary` is handed to `write` as this same canonical
+ * path, so a caller building its own destinations under it (`copyTree`'s
+ * `copyRegularFile`, most of all) inherits the guarantee for free.
+ *
+ * The folder this call finally reports, though, is spelled from the
+ * *caller's own* `root` — never `canonicalRoot` — because the roster reads
+ * an Agent back by that same caller's spelling, not by whatever a legitimate
+ * top-level link (a linked-in personal Agents folder, most of all) resolves
+ * to: a write reported back under a path that only differs from what the
+ * roster would read by having resolved a link the roster does not resolve
+ * looks, to a caller comparing the two strings, like the write landed
+ * somewhere else entirely. The two identity checks below already catch a
+ * swap of `root` or `temporary` themselves before this call ever renames
+ * anything into place; they are unchanged by canonicalizing `root` for the
+ * writes themselves, since a swap that already happened before this call
+ * started is exactly what capturing `rootIdentity` from the canonical path,
+ * once, is for.
+ */
 export const writeAgentFolder = async (
   root: string,
   id: string,
   write: (temporary: string) => Promise<void>,
 ): Promise<CreatedAgentFolder> => {
   await mkdir(root, { recursive: true })
-  const folder = join(root, id)
-  if (await exists(folder)) throw alreadyThere(root, id)
-  const rootIdentity = identityOf(await lstat(root))
+  const canonicalRoot = await realpath(root)
+  const canonicalFolder = join(canonicalRoot, id)
+  if (await exists(canonicalFolder)) throw alreadyThere(root, id)
+  const rootIdentity = identityOf(await lstat(canonicalRoot))
   // The component has a fixed, short bound independent of `id`, so a legal
   // long Agent name never makes the transaction name exceed NAME_MAX.
-  const temporary = await mkdtemp(join(root, AGENT_TEMP_PREFIX))
+  const temporary = await mkdtemp(join(canonicalRoot, AGENT_TEMP_PREFIX))
   const temporaryIdentity = identityOf(await lstat(temporary))
   let moved = false
   try {
@@ -235,15 +264,17 @@ export const writeAgentFolder = async (
     // directory, so give it the mode `mkdir` would have under this process's umask.
     await chmod(temporary, 0o777 & ~process.umask())
     await write(temporary)
-    const currentRoot = await lstat(root)
-    if (!sameIdentity(rootIdentity, currentRoot)) throw new Error(`${root} changed before the Agent could be put in place.`)
+    const currentRoot = await lstat(canonicalRoot)
+    if (!sameIdentity(rootIdentity, currentRoot)) {
+      throw new Error(`${canonicalRoot} changed before the Agent could be put in place.`)
+    }
     const currentTemporary = await lstat(temporary)
     if (!sameIdentity(temporaryIdentity, currentTemporary)) {
       throw new Error(`${temporary} was replaced before the Agent could be put in place.`)
     }
-    if (await exists(folder)) throw alreadyThere(root, id)
+    if (await exists(canonicalFolder)) throw alreadyThere(root, id)
     try {
-      await rename(temporary, folder)
+      await rename(temporary, canonicalFolder)
     } catch (error) {
       if (['EEXIST', 'ENOTEMPTY'].includes(errnoOf(error))) throw alreadyThere(root, id)
       throw error
@@ -251,11 +282,12 @@ export const writeAgentFolder = async (
     moved = true
   } catch (error) {
     if (!moved) {
-      const left = await removeTemporary(root, rootIdentity, temporary, temporaryIdentity)
+      const left = await removeTemporary(canonicalRoot, rootIdentity, temporary, temporaryIdentity)
       if (left) throw new Error(`${messageOf(error)} The temporary Agent folder was left in place because ${left}.`)
     }
     throw error
   }
+  const folder = join(root, id)
   const path = join(folder, 'AGENT.md')
   const folderInfo = await lstat(folder)
   const fileInfo = await lstat(path)
@@ -344,9 +376,9 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
 
 /**
  * Copies one classified file by its own descriptor, never by reopening its
- * path. The invariant this and `regularEntries` both hold: every byte copied
- * is read from a descriptor opened with `openNoFollow` on a path built from
- * the walk's canonical root plus plain joins, and `fstat`-checked against
+ * path. The read side's invariant: every byte copied is read from a
+ * descriptor opened with `openNoFollow` on a path built from the walk's
+ * canonical root plus plain joins, and `fstat`-checked against
  * `regularEntries`' own classification. `NOFOLLOW_ANY` refuses a link at any
  * component the path still has at the moment of this open — an ancestor
  * swapped for one since classification included — so whatever a `readdir` or
@@ -355,10 +387,20 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
  * `fstat` that does not match what was classified, since that identity was
  * only ever the outside one the swap exposed. Read from the descriptor this
  * already opened rather than a fresh look at the path, which a second swap
- * after this check could otherwise still redirect. The destination is made
- * exclusively, like `copyFile`'s own `COPYFILE_EXCL` before it, and given the
- * source's own permission bits, which a plain `open()` would otherwise
- * default away from.
+ * after this check could otherwise still redirect.
+ *
+ * The write side's own matching invariant: `destination` is itself built
+ * from `writeAgentFolder`'s own canonical `temporary`, and created the same
+ * `openNoFollow`'d way — exclusively, like `copyFile`'s own `COPYFILE_EXCL`
+ * before it, so nothing this call writes ever lands outside that canonical
+ * destination either. An ancestor of `destination` swapped for a link after
+ * `writeAgentFolder` captured it (a project's own folder, mid-copy, most of
+ * all) answers this open with the same `ELOOP` the source side already
+ * refuses. `mkdir`, used elsewhere for a nested destination directory, has
+ * no such flag to give it — the one thing a live swap can still make land
+ * outside is an empty directory a `mkdir` created through it before this
+ * open ever ran, never a byte of file content, since every content write
+ * goes through here.
  */
 const copyRegularFile = async (entry: RegularEntry, destination: string): Promise<void> => {
   const replaced = `${entry.source} was replaced after it was found there, so nothing was copied from it.`
@@ -373,7 +415,14 @@ const copyRegularFile = async (entry: RegularEntry, destination: string): Promis
     if (!info.isFile() || !sameIdentity(entry.identity, info)) {
       throw new Error(replaced)
     }
-    const out = await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL)
+    let out
+    try {
+      out = await openNoFollow(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL)
+    } catch (error) {
+      throw errnoOf(error) === 'ELOOP'
+        ? new Error(`${destination} could not be made there — its folder was replaced, so nothing was copied.`)
+        : error
+    }
     try {
       // Permissions set before the streaming, not after: a write stream
       // auto-closes its `FileHandle` the moment the pipeline ends, and a
