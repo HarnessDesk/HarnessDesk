@@ -45,6 +45,39 @@ export interface Revision {
   readonly dirty: boolean
 }
 
+/**
+ * The append-only Git logs whose unchanged identity proves a checkout did not
+ * leave one HEAD and return to it. Null means that continuity cannot be
+ * observed, so a run must fail closed rather than become revision evidence.
+ */
+export type HeadMark = string
+
+const reflogMark = async (cwd: string, name: string): Promise<string | null> => {
+  const path = (await gitOr(cwd, ['rev-parse', '--git-path', `logs/${name}`]))?.trim()
+  if (!path) return null
+  try {
+    const info = await stat(resolve(cwd, path), { bigint: true })
+    if (!info.isFile()) return null
+    return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A monotonic mark for this worktree's HEAD and, when attached, its branch.
+ * Ordinary Git ref moves append to one or both reflogs. Comparing the marks
+ * therefore catches a move away and back that two SHA point samples cannot.
+ */
+export const headMarkOf = async (cwd: string, branch: string | null): Promise<HeadMark | null> => {
+  const [head, attached] = await Promise.all([
+    reflogMark(cwd, 'HEAD'),
+    branch === null ? Promise.resolve(null) : reflogMark(cwd, `refs/heads/${branch}`),
+  ])
+  if (head === null || (branch !== null && attached === null)) return null
+  return `${head}|${attached ?? 'detached'}`
+}
+
 /** The checkout's commit now, read once. Null outside a repository or before its first commit. */
 export const headOf = async (cwd: string): Promise<Sha | null> => {
   const head = (await gitOr(cwd, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}']))?.trim() ?? ''

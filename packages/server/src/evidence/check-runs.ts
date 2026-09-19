@@ -4,7 +4,7 @@ import { repositoryRoot } from '../worktree.js'
 import type { RunningChecks } from './board.js'
 import { readChecksAt } from './checks-file.js'
 import { mintId } from './records.js'
-import { canonical, headOf, projectOf, revisionAt, type Revision } from './revision.js'
+import { canonical, headMarkOf, headOf, projectOf, revisionAt, type HeadMark, type Revision } from './revision.js'
 import { runCommand, TAIL_LIMIT } from './run.js'
 import type { SeatBook } from './seats.js'
 import { incarnationOf, type CommandsSeen } from './seen.js'
@@ -35,8 +35,9 @@ import type { EvidenceStore } from './store.js'
  *    still exactly that, so a file that changed between the question and the
  *    answer asks again.
  * 4. One check runs on a card at a time, whatever its name, bound to that
- *    commit and checks digest. After it ends, `HEAD` is read again; if it moved,
- *    the recorded result says so and cannot count as a pass for either commit.
+ *    commit and checks digest. Its HEAD and branch reflogs are marked before
+ *    spawn and after exit; if HEAD moved — even away and back — the recorded
+ *    result says so and cannot count as a pass for either commit.
  *
  * It runs with the person's own authority and a small environment of its own
  * (`run.ts`); the question that approves it says so.
@@ -195,6 +196,11 @@ export class CheckRuns {
     // HEAD into the admission. Nothing below yields until the child exists.
     const revision = await revisionAt(cwd, head)
     still()
+    const headMark = await headMarkOf(cwd, revision.branch)
+    still()
+    if (headMark === null) {
+      throw new Error(`${cwd}'s HEAD movement cannot be observed, so its check has not run.`)
+    }
 
     const busy = this.#parts.running.start(room, card, check.name, this.#now())
     if (busy) throw new Error(`${busy.name} is running on #${card}, and one check runs on a card at a time.`)
@@ -204,7 +210,7 @@ export class CheckRuns {
         : null
     port.changed(room)
     started(
-      this.#execute({ room, card, check, digest: read.digest, cwd, revision, seat, project, signal }).finally(() => {
+      this.#execute({ room, card, check, digest: read.digest, cwd, revision, headMark, seat, project, signal }).finally(() => {
         this.#parts.running.end(room, card)
         port.changed(room)
       }),
@@ -239,6 +245,7 @@ export class CheckRuns {
     readonly digest: string
     readonly cwd: string
     readonly revision: Revision
+    readonly headMark: HeadMark
     readonly seat: string | null
     readonly project: string
     readonly signal: AbortSignal
@@ -253,12 +260,16 @@ export class CheckRuns {
       return
     }
     const after = await headOf(run.cwd)
-    const counted = after === run.revision.head
-    const movement = counted
-      ? ''
-      : after === null
-        ? `Not counted: HEAD moved away from ${run.revision.head} while this check ran.`
-        : `Not counted: HEAD moved from ${run.revision.head} to ${after} while this check ran.`
+    const afterMark = await headMarkOf(run.cwd, run.revision.branch)
+    const counted = after === run.revision.head && afterMark === run.headMark
+    let movement = ''
+    if (!counted) {
+      if (afterMark === null) movement = 'Not counted: HEAD continuity could not be observed while this check ran.'
+      else if (after === run.revision.head) {
+        movement = `Not counted: HEAD moved away from ${run.revision.head} and returned while this check ran.`
+      } else if (after === null) movement = `Not counted: HEAD moved away from ${run.revision.head} while this check ran.`
+      else movement = `Not counted: HEAD moved from ${run.revision.head} to ${after} while this check ran.`
+    }
     const tail = (result.tail + (result.tail && movement ? '\n\n' : '') + movement).slice(-TAIL_LIMIT)
     const record: EvidenceRecord = {
       id: mintId(),

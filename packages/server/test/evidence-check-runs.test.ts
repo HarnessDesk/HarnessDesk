@@ -387,6 +387,24 @@ test('a HEAD move during a check leaves evidence that is not counted for either 
   })
 })
 
+test('a HEAD move away and back during a check is still not counted', async () => {
+  const r = await rig('verify: { run: git checkout -q HEAD^ && git checkout -q - }\n')
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const pinned = await r.repo.git('rev-parse', 'HEAD')
+
+  await r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  const [fact] = await settled(r, 1)
+  assert.equal(await r.repo.git('rev-parse', 'HEAD'), pinned, 'control: the check returned to the pinned commit')
+  assert.equal(fact?.fact.kind === 'check' && 'counted' in fact.fact ? fact.fact.counted : true, false)
+  assert.match(fact?.fact.kind === 'check' ? fact.fact.tail : '', /HEAD moved away from .* and returned while this check ran/)
+
+  const board = await r.plane.board('room-1')
+  assert.deepEqual(board.cards[0]?.facts[0]?.freshness, {
+    state: 'unknown',
+    why: 'HEAD moved while this check ran, so its result is not counted for either revision.',
+  })
+})
+
 test('an approval does not outlive the file it was given for: a command that changes and changes back asks again', async () => {
   const r = await rig('verify: { run: touch MARKERS/a }\n')
   await r.plane.checks.run('room-1', 1, 'verify', answer(await unseen(r.plane.checks.run('room-1', 1, 'verify'))))
