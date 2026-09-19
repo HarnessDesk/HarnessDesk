@@ -1454,6 +1454,38 @@ rules:
     await sleep(1200)
   } }
 
+  /**
+   * One agent's own page, headed by the detail head: mark, name, build, the
+   * agent's tagline, and the action that makes it the default.
+   *
+   * The list frame above it cannot show this head, and the head is where a
+   * blurb and a row of actions compete for one line — so the narrow takes of
+   * this scene are the ones that say whether the sentence is still readable.
+   */
+  SCENES['settings-agent-detail'] = { leaveOverlay: true, expect: 'Registration', run: async () => {
+    await cdp.eval(`${STORE}.askSettings('agents'); true`)
+    await sleep(1200)
+    /* A trusted press, at the row's own mark: the name is a `RowButton`, whose
+       click handler sits above the element the class names, so a synthetic
+       `click()` on that element opens nothing and the take reads as a scene
+       that never navigated. */
+    const spot = await cdp.json(`(() => {
+      const heads = [...document.querySelectorAll('[class*="headOpen"]')]
+      const row = heads.find((node) => /Cursor/.test(node.textContent ?? ''))
+      if (!row) return false
+      const rect = row.getBoundingClientRect()
+      return { x: Math.round(rect.left + 40), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    if (!spot) throw new Error('no agent row to open in Settings › Agents')
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...spot })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
+    await sleep(1200)
+    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
+      throw new Error('the agent page did not draw its detail head')
+    }
+  } }
+
   /* ------------------------------------ when an agent's own history is wrong */
 
   /**
