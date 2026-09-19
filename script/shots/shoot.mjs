@@ -1569,7 +1569,7 @@ rules:
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       const session = await cdp.json(`${STORE}.transport.request('agent/seat', ${q({ id: 'reviewer', cwd: REPO })})`, 60_000)
       // `sessionKey`'s own format (`packages/protocol/src/ids.ts`): runtime, a NUL, the id.
-      agentKey = `${session.runtime} ${session.id}`
+      agentKey = `${session.runtime}\u0000${session.id}`
       await cdp.eval(`${STORE}.openSession(${q(String(session.id))}, ${q({ runtime: session.runtime })})`, 60_000)
       await sleep(4000)
     },
