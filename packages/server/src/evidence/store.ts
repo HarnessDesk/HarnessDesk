@@ -59,7 +59,7 @@ export interface MergeFailureCount extends MergeCount {
   readonly failed: number
 }
 
-/** A merge can leave a whole appended prefix; its caller needs that count rather than an all-or-nothing lie. */
+/** A merge can leave a durable prefix; its caller needs that count rather than an all-or-nothing lie. */
 export class EvidenceMergeError extends Error {
   override readonly cause: unknown
   readonly count: MergeFailureCount
@@ -72,16 +72,16 @@ export class EvidenceMergeError extends Error {
   }
 }
 
-/** How much of one append completed before its first write-side failure. */
+/** How much of one append reached the store's sync boundary before its failure. */
 class EvidenceWriteError extends Error {
   override readonly cause: unknown
-  readonly written: number
+  readonly durable: number
 
-  constructor(cause: unknown, written: number) {
+  constructor(cause: unknown, durable: number) {
     super(cause instanceof Error ? cause.message : String(cause))
     this.name = 'EvidenceWriteError'
     this.cause = cause
-    this.written = written
+    this.durable = durable
   }
 }
 
@@ -145,12 +145,12 @@ export class EvidenceStore {
         await this.#write(project, file, added)
         return { added: added.length, duplicate, refused }
       } catch (error) {
-        const written = error instanceof EvidenceWriteError ? Math.min(error.written, added.length) : 0
+        const durable = error instanceof EvidenceWriteError ? Math.min(error.durable, added.length) : 0
         throw new EvidenceMergeError(error instanceof EvidenceWriteError ? error.cause : error, {
-          added: written,
+          added: durable,
           duplicate,
           refused,
-          failed: added.length - written,
+          failed: added.length - durable,
         })
       }
     })
@@ -215,6 +215,7 @@ export class EvidenceStore {
       throw new Error(`A record would be ${large.length} bytes and a line may be at most ${LINE_LIMIT}, so none of these was written.`)
     }
     let written = 0
+    let durable = 0
     try {
       const folder = this.folderOf(project)
       await mkdir(folder, { recursive: true, mode: 0o700 })
@@ -226,25 +227,41 @@ export class EvidenceStore {
       })
       const handle = await open(join(folder, FILE_OF[file]), 'a+', 0o600)
       try {
-        const { size } = await handle.stat()
-        if (size > 0) {
-          // A line a crash cut short is ended here, so it cannot swallow the next one.
-          const last = Buffer.alloc(1)
-          await handle.read(last, 0, 1, size - 1)
-          if (last[0] !== 0x0a) await handle.write(Buffer.from('\n'))
+        try {
+          const { size } = await handle.stat()
+          if (size > 0) {
+            // A line a crash cut short is ended here, so it cannot swallow the next one.
+            const last = Buffer.alloc(1)
+            await handle.read(last, 0, 1, size - 1)
+            if (last[0] !== 0x0a) await handle.write(Buffer.from('\n'))
+          }
+          for (const text of texts) {
+            // One write per line, on a file opened for appending: never inside another writer's line.
+            const { bytesWritten } = await handle.write(text)
+            if (bytesWritten !== text.length) throw new Error('A record was written short; the next write ends it.')
+            written += 1
+          }
+          await handle.sync()
+          durable = written
+        } catch (error) {
+          // A later line can fail after a whole prefix was appended. Sync that
+          // prefix before reporting it as restored. A failure of the batch's
+          // own sync leaves the whole batch failed: presence is not durability.
+          if (written > 0 && written < texts.length) {
+            try {
+              await handle.sync()
+              durable = written
+            } catch {
+              // The prefix did not reach the durability boundary either.
+            }
+          }
+          throw error
         }
-        for (const text of texts) {
-          // One write per line, on a file opened for appending: never inside another writer's line.
-          const { bytesWritten } = await handle.write(text)
-          if (bytesWritten !== text.length) throw new Error('A record was written short; the next write ends it.')
-          written += 1
-        }
-        await handle.sync()
       } finally {
         await handle.close()
       }
     } catch (error) {
-      throw new EvidenceWriteError(error, written)
+      throw new EvidenceWriteError(error, durable)
     }
   }
 

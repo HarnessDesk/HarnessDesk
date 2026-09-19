@@ -178,14 +178,9 @@ export class CheckRuns {
     }
     still()
 
-    // 4. Bound to the commit it starts at, and alone on its card.
-    const revision = await revisionOf(cwd)
-    still()
-    if (!revision) throw new Error(`${cwd} has no commit yet, and a check is bound to one, so it has not run.`)
-
-    // Admission may have waited on checkout, approval or revision I/O. Re-read
-    // the committed blob at the last asynchronous boundary before spawn, so a
-    // commit made in that window cannot run the old command under the new HEAD.
+    // Admission may have waited on checkout or approval I/O. Re-read the
+    // committed blob after that work, so a commit made in the window cannot
+    // run the old command under the new checks generation.
     const proveCurrent = async (): Promise<void> => {
       const current = await readChecks(project)
       still()
@@ -218,6 +213,13 @@ export class CheckRuns {
       still()
       await proveCurrent()
     }
+
+    // 4. Bound to the commit it starts at, and alone on its card. Revision is
+    // the final asynchronous read before spawn: nothing below yields until the
+    // child exists, so the fact names the checkout HEAD the command starts in.
+    const revision = await revisionOf(cwd)
+    still()
+    if (!revision) throw new Error(`${cwd} has no commit yet, and a check is bound to one, so it has not run.`)
 
     const busy = this.#parts.running.start(room, card, check.name, this.#now())
     if (busy) throw new Error(`${busy.name} is running on #${card}, and one check runs on a card at a time.`)

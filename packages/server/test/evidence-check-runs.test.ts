@@ -261,6 +261,40 @@ test('a commit made while an answered check is being admitted asks again before 
   assert.deepEqual(await r.facts(), [])
 })
 
+test('a checkout commit made during final admission is the revision the command runs and records', async () => {
+  const r = await rig('verify: { run: git rev-parse HEAD > MARKERS/head }\n')
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let entered!: () => void
+  const inside = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const approve = r.plane.seen.approve.bind(r.plane.seen)
+  r.plane.seen.approve = async (...args) => {
+    entered()
+    await gate
+    return approve(...args)
+  }
+
+  const admitting = r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  await inside
+  await writeFile(join(r.repo.dir, 'during-admission.txt'), 'new revision\n')
+  await r.repo.git('add', 'during-admission.txt')
+  await r.repo.git('commit', '-q', '-m', 'advance during admission')
+  const advanced = await r.repo.git('rev-parse', 'HEAD')
+  assert.equal(await blob(r), shown.digest, 'the checks generation did not change')
+  release()
+
+  assert.deepEqual(await admitting, { started: true })
+  const [fact] = await settled(r, 1)
+  assert.equal((await readFile(join(r.markers, 'head'), 'utf8')).trim(), advanced)
+  assert.equal(fact?.fact.kind === 'check' ? fact.fact.at : null, advanced)
+})
+
 test('an approval does not outlive the file it was given for: a command that changes and changes back asks again', async () => {
   const r = await rig('verify: { run: touch MARKERS/a }\n')
   await r.plane.checks.run('room-1', 1, 'verify', answer(await unseen(r.plane.checks.run('room-1', 1, 'verify'))))

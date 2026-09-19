@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { appendFile } from 'node:fs/promises'
+import { appendFile, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -256,6 +256,44 @@ test('a partial merge reports its durable prefix as restored and only the unwrit
   assert.deepEqual(await plane.restore(backup), { restored: 1, duplicate: 0, refused: 0, failed: 1 })
   assert.deepEqual(await plane.restore(backup), { restored: 1, duplicate: 1, refused: 0, failed: 0 })
   assert.deepEqual(ids((await plane.store.read(project, 'evidence')).lines), ['first', 'second'])
+})
+
+test('a sync failure after every line was written reports the whole non-durable batch as failed', async (t) => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const at = await repo.git('rev-parse', 'HEAD')
+  const stateDir = tempDir('hd-backup-sync-failure-')
+  const plane = new EvidencePlane(
+    { dir: join(stateDir, 'evidence'), seenFile: join(stateDir, SEEN_FILE), now: () => 10 },
+    { board: () => null, cwdOf: () => null, push: () => {}, log: () => {} },
+  )
+  const backup = [
+    {
+      project,
+      seats: [],
+      facts: [
+        { v: 1, type: 'evidence', record: fact('first', at, repo.dir) },
+        { v: 1, type: 'evidence', record: fact('second', at, repo.dir) },
+      ],
+    },
+  ]
+
+  const probe = await open(join(tempDir('hd-backup-sync-probe-'), 'file'), 'w')
+  type SyncHandle = { sync(): Promise<void> }
+  const prototype = Object.getPrototypeOf(probe) as SyncHandle
+  const sync = prototype.sync
+  await probe.close()
+  prototype.sync = async () => {
+    throw Object.assign(new Error('injected sync failure'), { code: 'EIO' })
+  }
+  t.after(() => {
+    prototype.sync = sync
+  })
+
+  assert.deepEqual(await plane.restore(backup), { restored: 0, duplicate: 0, refused: 0, failed: 2 })
+  prototype.sync = sync
+  await assert.rejects(plane.store.flush(), 'the quit is still told the batch was not durable')
+  assert.deepEqual(await plane.restore(backup), { restored: 0, duplicate: 2, refused: 0, failed: 0 })
 })
 
 test('a restore reads no more than its limits: projects past the first ones, and lines past the budget, are refused', async (t) => {
