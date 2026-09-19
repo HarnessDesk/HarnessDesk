@@ -17,6 +17,7 @@ import {
   type AgentSession,
   type ApprovalDecision,
   type ApprovalId,
+  type CommandApproval,
   type ConfigOption,
   type FlowPermission,
   type FlowRun,
@@ -1363,6 +1364,29 @@ test('over ACP: the next candidate that runs what it asked for is seated, and th
   assert.deepEqual(await ranOn(truth), [{ session: String(session.id), model: 'fam', effort: 'medium', thinking: true }])
 })
 
+test("over ACP: the brief opens as a notice, not a turn the person is shown as having typed", async (t) => {
+  const { harness, client, work } = await acpDesk(t, 'variant-acp-agent.mjs', 'variant', {})
+  await writeReviewer(harness.stateDir, 'variant=fam/medium+thinking')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  // The brief opened the conversation, but not as the person's own words —
+  // titleOf and the sidebar read only `userMessage`, and would otherwise
+  // pick the brief's own text (including its git rules) as the title.
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the brief is never recorded as something a person typed',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
 test("over ACP: a flow seat's label says what the agent settled on, not what the flow asked for", async (t) => {
   // The flow still seats — a flow says a difference, it does not refuse one —
   // but what it says is now what runs: medium comes with thinking.
@@ -1409,7 +1433,7 @@ const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   harness.host.register(runtime)
   await runtime.start()
   t.after(() => runtime.dispose())
-  return { harness, client, work }
+  return { harness, client, work, runtime }
 }
 
 for (const [order, how] of [
@@ -1447,3 +1471,107 @@ for (const [order, how] of [
     assert.equal(harness.host.registry.get(runtimeId('codex'), sessionId('thread-e2e'))?.live ?? null, null, 'the first is let go')
   })
 }
+
+test('over Codex: the brief opens as a notice too — Codex echoes it back as `userMessage` on its own wire, and the session still does not read it as one', async (t) => {
+  const { harness, client, work } = await codexDesk(t, {})
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the brief is never recorded as something a person typed, even once Codex echoes it back',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: a coalesced turn/start answer and opening echo still record the brief as a notice', async (t) => {
+  const { harness, client, work } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the synchronous opening echo cannot overtake the silent-turn marker',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the coalesced echo is still recorded as a notice')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: the normal turn after a silent order is speech and supplies the opening preview', async (t) => {
+  const { harness, client, work, runtime } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          event.approval.sessionId === session.id &&
+          event.approval.type === 'command',
+      ),
+    5_000,
+    'the silent order approval',
+  )
+  const approval = client.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> & { approval: CommandApproval } =>
+      event.type === 'approval/requested' &&
+      event.approval.sessionId === session.id &&
+      event.approval.type === 'command',
+  )!
+  await client.call('approval/respond', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    approvalId: approval.approval.id,
+    decision: {
+      type: 'option',
+      optionId: approval.approval.options.find((option) => option.intent === 'approve')!.id,
+    },
+  })
+  await client.until(
+    () => client.events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
+    5_000,
+    'the silent order to finish',
+  )
+  const request = 'Continue with the person\'s request.'
+  await client.call('turn/send', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    input: [
+      { type: 'text', text: '<context source="Git">\nStatus: ## main\n</context>' },
+      { type: 'text', text: request },
+    ],
+  })
+
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const spoken = read.turns
+    .flatMap((turn) => turn.items)
+    .filter((item) => item.type === 'userMessage')
+  assert.equal(spoken.length, 1, 'only the person\'s follow-up is speech')
+  const spokenText = spoken.flatMap((item) =>
+    item.type === 'userMessage' ? item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])) : [],
+  )
+  assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
+  const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
+  assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
+  // `agent/seat` names the conversation before handing over its silent order,
+  // so this seated session cannot be renamed by a later opening message.
+})

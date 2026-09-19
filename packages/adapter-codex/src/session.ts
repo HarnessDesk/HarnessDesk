@@ -120,6 +120,21 @@ export class CodexSession implements AgentSession {
    * `turn/interrupt`, so the session has to know which turn is live.
    */
   #currentTurnId: string | null = null
+  /**
+   * Turns opened with `recordAs: 'notice'` — an Agent's standing order, not a
+   * person's words. Codex still runs the turn and reports its opening item
+   * back as `userMessage` on its own wire; this is what tells `#track`
+   * (`CodexRuntime`) to hand that one item back to the host as a `notice`
+   * instead. Cleared once the turn ends: only its opening item needs this.
+   */
+  readonly #silentTurnIds = new Set<string>()
+  /**
+   * A silent `turn/start` whose id is not known yet. Armed before the request
+   * is written, then consumed by `noteTurnStarted`: the app-server can put its
+   * response and opening notifications in one stdout chunk, whose synchronous
+   * dispatch runs before the request promise resumes.
+   */
+  #pendingSilentOrder = false
   /** Tool count Codex was told about at thread/start, for staleness detection. */
   readonly #projectedTools: number
   /**
@@ -421,29 +436,50 @@ export class CodexSession implements AgentSession {
   /** Called by the runtime as turns open and close on this thread. */
   noteTurnStarted(turnId: string): void {
     this.#currentTurnId = turnId
+    if (this.#pendingSilentOrder) {
+      this.#silentTurnIds.add(turnId)
+      this.#pendingSilentOrder = false
+    }
   }
 
   noteTurnEnded(turnId: string): void {
     if (this.#currentTurnId === turnId) this.#currentTurnId = null
+    this.#silentTurnIds.delete(turnId)
   }
 
   get activeTurnId(): TurnId | null {
     return this.#currentTurnId ? makeTurnId(this.#currentTurnId) : null
   }
 
-  async send(input: readonly UserContent[]): Promise<TurnId> {
+  /** Whether `turnId`'s opening item is a standing order, not a person's turn — see `#silentTurnIds`. */
+  isSilentTurn(turnId: string): boolean {
+    return this.#silentTurnIds.has(turnId)
+  }
+
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
     const enriched = await this.#withContext(input)
-    const response = await this.deps.server.request('turn/start', {
-      threadId: this.id,
-      input: enriched.map(toCodexInput),
-      ...overrides,
-    })
+    const silent = opts?.recordAs === 'notice'
+    if (silent) this.#pendingSilentOrder = true
+    let response: CodexProtocol.v2.TurnStartResponse
+    try {
+      response = await this.deps.server.request('turn/start', {
+        threadId: this.id,
+        input: enriched.map(toCodexInput),
+        ...overrides,
+      })
+    } catch (error) {
+      if (silent) this.#pendingSilentOrder = false
+      throw error
+    }
     this.#currentTurnId = response.turn.id
-    // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
-    this.#noteOpening(input)
-    void this.#nameFromOpeningMessage(enriched)
+    if (!silent) {
+      // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
+      // Skipped for a standing order: it is not what opened this conversation for a person, and must not name the row after it.
+      this.#noteOpening(input)
+      void this.#nameFromOpeningMessage(enriched)
+    }
     return makeTurnId(response.turn.id)
   }
 
