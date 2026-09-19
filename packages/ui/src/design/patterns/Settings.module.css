@@ -704,8 +704,8 @@
 
 .detailText {
   /* Actions take the next line before the blurb loses its reading measure. */
-  flex: 1 1 16rem; /* desk: reserve a reading measure before fitting actions */
-  min-width: min(16rem, 100%); /* desk: a narrow head may use its whole line */
+  flex: 1 1 16rem;
+  min-width: min(16rem, 100%);
 }
 
 .detailName {
