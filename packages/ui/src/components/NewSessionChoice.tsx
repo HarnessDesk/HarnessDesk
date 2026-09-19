@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AgentEntry } from '@harnessdesk/protocol'
 
 import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
-import { Button, Dialog, Input, Note } from '../design'
+import { ActionError, Button, Dialog, IconTile, Input, Note, Text } from '../design'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
@@ -164,18 +164,16 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
               if (event.key === 'Enter') void create()
             }}
           />
-          <p className={styles.note}>
+          <Note>
             {rooms.length > 0
               ? `${rooms.length === 1 ? 'One room' : `${rooms.length} rooms`} already in this project: ${rooms
                   .map((one) => one.name)
                   .join(', ')}. The name is how you tell them apart in the sidebar.`
               : 'A room has a board of its own and reaches only the agents you put in it. The name is what the sidebar shows.'}
-          </p>
+          </Note>
           {root && <FlowStart root={root} disabled={busy} onChange={setFlow} />}
           {problem && (
-            <p className={styles.problem} role="alert">
-              {problem}
-            </p>
+            <ActionError>{problem}</ActionError>
           )}
         </div>
       </Dialog>
@@ -216,14 +214,14 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
             }
           }}
         >
-          <span className={styles.mark}>
+          <IconTile tint="blue">
             <AgentIcon size={16} />
-          </span>
+          </IconTile>
           <span className={styles.text}>
-            <span className={styles.name}>A session</span>
-            <span className={styles.note}>
+            <Text role="row">A session</Text>
+            <Text role="muted">
               One agent, working in this folder. What ⌘N does.
-            </span>
+            </Text>
           </span>
         </Button>
 
@@ -233,16 +231,16 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
           disabled={!root}
           onClick={() => setNaming(true)}
         >
-          <span className={styles.mark} data-tone="team">
+          <IconTile tint="violet">
             <TeamIcon size={16} />
-          </span>
+          </IconTile>
           <span className={styles.text}>
-            <span className={styles.name}>A room</span>
-            <span className={styles.note}>
+            <Text role="row">A room</Text>
+            <Text role="muted">
               {here > 0
                 ? `Several agents share one board. ${here} ${here === 1 ? 'conversation is' : 'conversations are'} already in this project — you choose which of them join.`
                 : 'Several agents share one board — work is claimed, and nobody edits the same file twice.'}
-            </span>
+            </Text>
           </span>
         </Button>
       </div>

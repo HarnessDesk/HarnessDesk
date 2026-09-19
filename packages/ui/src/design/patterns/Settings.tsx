@@ -575,7 +575,8 @@ export const Note = ({
   ink = 'secondary',
   icon,
   className,
-}: {
+  ...props
+}: Omit<ComponentProps<'p'>, 'children'> & {
   children: ReactNode
   tone?: 'warn' | 'bad'
   ink?: 'secondary' | 'muted'
@@ -591,6 +592,7 @@ export const Note = ({
     {...(icon ? { 'data-icon': '' } : {})}
     {...(tone ? { 'data-tone': tone } : {})}
     {...(tone === 'bad' ? { role: 'alert' } : {})}
+    {...props}
   >
     {icon}
     {icon ? <span>{children}</span> : children}
@@ -753,7 +755,7 @@ const TEXT_INK = {
 
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h4' | 'summary' | 'label'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h4' | 'summary' | 'label' | 'li'
   children: ReactNode
   role?: TextRole
   tone?: Tone

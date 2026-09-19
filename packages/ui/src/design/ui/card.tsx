@@ -80,4 +80,18 @@ const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div data-slot="card-footer" className={cn('flex items-center px-4', className)} {...props} />
 )
 
-export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent }
+/** A fixed-height media window inside a preview card. */
+const CardViewport = ({
+  className,
+  size = 'editor',
+  ...props
+}: React.ComponentProps<'div'> & { size?: 'editor' }) => (
+  <div
+    data-slot="card-viewport"
+    data-size={size}
+    className={cn(size === 'editor' && 'h-44', className)}
+    {...props}
+  />
+)
+
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent, CardViewport }

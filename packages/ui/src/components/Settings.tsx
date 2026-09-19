@@ -85,6 +85,7 @@ import {
   Field,
   FormStack,
   Input,
+  IconTile,
   FileButton,
   Note,
   PageHead,
@@ -97,7 +98,9 @@ import {
   SectionHead,
   SectionToggle,
   NativeSelect,
+  Monogram,
   Switch,
+  Text,
   WireText,
 } from '../design'
 import { Dialog, ConfirmDialog } from '../design'
@@ -975,18 +978,18 @@ const ModelsSection = () => {
             title={
               <>
                 {model.displayName}
-                {model.isDefault && <span className={styles.inlineBadge}>Default</span>}
+                {model.isDefault && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>Default</Chip>}
                 {(model.reasoningLevels.length > 0 || model.thinking) && (
                   <span className={styles.efforts}>
                     {model.thinking && (
-                      <span className={styles.effort} data-thinking>
+                      <Chip tone="brand" size="sm">
                         {model.thinking === 'always' ? 'Always thinks' : 'Thinking'}
-                      </span>
+                      </Chip>
                     )}
                     {model.reasoningLevels.map((level) => (
-                      <span key={level.id} className={styles.effort}>
+                      <Chip key={level.id} tone="neutral" size="sm">
                         {level.label}
-                      </span>
+                      </Chip>
                     ))}
                   </span>
                 )}
@@ -1105,9 +1108,12 @@ const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) =>
   }
   if (skill.brandColor) {
     return (
-      <span className={styles.skillTile} style={{ background: skill.brandColor }}>
-        {skillTitle(skill).charAt(0).toUpperCase()}
-      </span>
+      <IconTile
+        size="xs"
+        style={{ background: skill.brandColor, color: 'var(--hd-accent-foreground)' }}
+      >
+        <Monogram>{skillTitle(skill).charAt(0).toUpperCase()}</Monogram>
+      </IconTile>
     )
   }
   return <SparkIcon size={size} />
@@ -1164,7 +1170,7 @@ const SkillPage = ({
       {skill.description && skill.description !== skill.shortDescription && (
         <>
           <SectionHead name="What it does" />
-          <p className={styles.skillBody}>{skill.description}</p>
+          <Text as="p" role="muted" className={styles.skillBody}>{skill.description}</Text>
         </>
       )}
 
@@ -1270,9 +1276,9 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                   mark={<SkillMark skill={skill} />}
                   title={skillTitle(skill)}
                   desc={
-                    <span className={styles.skillDesc}>
+                    <Text role="muted" className={styles.skillDesc}>
                       {skill.shortDescription ?? skill.description}
-                    </span>
+                    </Text>
                   }
                   control={
                     <>

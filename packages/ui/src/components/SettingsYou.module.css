@@ -4,14 +4,6 @@
   align-items: center;
   justify-content: center;
   min-width: 30px;
-  height: 22px;
-  padding: 0 var(--hd-space-2); /* desk: canonical One UI System scale */
-  border: 1px solid var(--hd-border-strong);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
 }
 
 /*
@@ -24,10 +16,6 @@
  * six rows each growing a second line would turn a page you scan into a page
  * you read.
  */
-.putAway {
-  color: var(--hd-muted-foreground);
-}
-
 /*
  * The paragraph closing a page, for something the list above deliberately does
  * not contain. Matches the note under a group heading on the other settings
@@ -36,9 +24,6 @@
 .pageNote {
   margin: 12px 0 0;
   max-width: 78ch;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
 }
 
 /* The accents, as a row of colours; the one in use is ringed, not filled. */
@@ -64,10 +49,6 @@
   display: grid;
   grid-template-columns: repeat(var(--face-columns), minmax(0, 1fr));
   gap: var(--hd-space-2);
-  padding: var(--hd-space-3);
-  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
-  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hd-card));
 }
 
 /* One face you could wear. The one you wear is ringed, not filled — the
@@ -87,11 +68,3 @@
 .faceChoice:hover .faceTile {
   transform: scale(1.06);
 }
-
-.faceChoice[data-on] .faceTile {
-  box-shadow:
-    var(--hd-hairline),
-    0 0 0 2px var(--hd-card-fill, var(--hd-card)),
-    0 0 0 4px var(--hd-ring);
-}
-

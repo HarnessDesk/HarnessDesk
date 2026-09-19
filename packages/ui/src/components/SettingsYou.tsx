@@ -17,9 +17,12 @@ import {
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
   Button,
+  Card,
   DetailHead,
   Face,
   Input,
+  Keycap,
+  Note,
   RowValue,
   PageHead,
   Row,
@@ -28,6 +31,7 @@ import {
   Segmented,
   NativeSelect,
   Switch,
+  Text,
 } from '../design'
 import styles from './SettingsYou.module.css'
 
@@ -177,10 +181,10 @@ export const ProfileSection = () => {
         onChange={(avatar) => store.setProfile({ avatar })}
       />
       {keeps && (
-        <p id={noteId} className={styles.pageNote}>
+        <Note id={noteId} className={styles.pageNote}>
           Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
           as it is until you choose one here.
-        </p>
+        </Note>
       )}
     </>
   )
@@ -254,14 +258,15 @@ const FacePicker = ({
   }
 
   return (
-    <div
-      className={styles.faces}
-      style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
-      role="radiogroup"
-      aria-label="Picture"
-      {...(describedBy ? { 'aria-describedby': describedBy } : {})}
-    >
-      {FACE_CHOICES.map((choice, index) => {
+    <Card spacing="compact" radius="lg">
+      <div
+        className={styles.faces}
+        style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
+        role="radiogroup"
+        aria-label="Picture"
+        {...(describedBy ? { 'aria-describedby': describedBy } : {})}
+      >
+        {FACE_CHOICES.map((choice, index) => {
         const on = index === current
         return (
           <Button
@@ -276,6 +281,7 @@ const FacePicker = ({
             title={`${choice.label} — ${choice.about}`}
             tabIndex={index === stop ? 0 : -1}
             variant="ghost" size="inline" className={styles.faceChoice}
+            data-swatch
             {...(on ? { 'data-on': '' } : {})}
             onClick={() => onChange(choice.id)}
             onKeyDown={(event) => {
@@ -293,8 +299,9 @@ const FacePicker = ({
             <Face avatar={choice.id} size={44} className={styles.faceTile} />
           </Button>
         )
-      })}
-    </div>
+        })}
+      </div>
+    </Card>
   )
 }
 
@@ -674,10 +681,10 @@ export const NotificationsSection = () => {
                   {record ? (
                     <>
                       {' '}
-                      <span className={styles.putAway}>
+                      <Text role="meta">
                         Put away {record.count === 1 ? 'once' : `${record.count} times`}
                         {record.at > 0 ? `, last ${formatAge(record.at, now)}` : ''}.
-                      </span>
+                      </Text>
                     </>
                   ) : null}
                 </>
@@ -694,9 +701,9 @@ export const NotificationsSection = () => {
         })}
       </Rows>
 
-      <p className={styles.pageNote}>
+      <Note className={styles.pageNote}>
         A lost connection is not on this list: it is the one message the app must always make.
-      </p>
+      </Note>
     </>
   )
 }
@@ -714,7 +721,7 @@ const GROUPS: readonly Shortcut['group'][] = [...new Set(SHORTCUTS.map((s) => s.
 const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
   <Row
     title={shortcut.label}
-    control={<kbd className={styles.chord}>{chordOf(shortcut)}</kbd>}
+    control={<Keycap className={styles.chord}>{chordOf(shortcut)}</Keycap>}
   />
 )
 
@@ -745,10 +752,10 @@ export const ShortcutsSection = () => (
 
     <SectionHead name="In the composer" />
     <Rows>
-      <Row title="Send" control={<kbd className={styles.chord}>↵</kbd>} />
-      <Row title="New line" control={<kbd className={styles.chord}>⇧↵</kbd>} />
-      <Row title="Commands" control={<kbd className={styles.chord}>/</kbd>} />
-      <Row title="Mention a file" control={<kbd className={styles.chord}>@</kbd>} />
+      <Row title="Send" control={<Keycap className={styles.chord}>↵</Keycap>} />
+      <Row title="New line" control={<Keycap className={styles.chord}>⇧↵</Keycap>} />
+      <Row title="Commands" control={<Keycap className={styles.chord}>/</Keycap>} />
+      <Row title="Mention a file" control={<Keycap className={styles.chord}>@</Keycap>} />
     </Rows>
   </>
 )

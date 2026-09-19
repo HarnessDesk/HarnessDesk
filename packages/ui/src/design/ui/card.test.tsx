@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Card } from './card'
+import { Card, CardViewport } from './card'
 import { KeyValue, KeyValueRow } from './key-value'
 import { Section, SectionBody } from './section'
 import { Table, TableCaption, TableCell, TableFooter, TableHead, TableRow } from './table'
@@ -70,6 +70,13 @@ it('owns the compact inset and rhythm of a dense report card', () => {
   expect(card?.className).toContain('gap-2')
   expect(card?.className).toContain('p-3')
   expect(card?.className).not.toContain('py-4')
+})
+
+it('owns the fixed preview viewport inside a card', () => {
+  act(() => root.render(<CardViewport size="editor">Preview</CardViewport>))
+  const viewport = container.querySelector<HTMLElement>('[data-slot="card-viewport"]')
+  expect(viewport?.dataset['size']).toBe('editor')
+  expect(viewport?.className).toContain('h-44')
 })
 
 it('owns the compact panel section and key-value readings', () => {
