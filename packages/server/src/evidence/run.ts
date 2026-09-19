@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from 'node:child_process'
+import { stripVTControlCharacters } from 'node:util'
 
 import { TAIL_LIMIT } from './records.js'
 
@@ -80,9 +81,21 @@ export interface CommandRun {
   readonly tail: string
 }
 
-/** Colour and cursor codes, and every other control character but line feeds and tabs. */
-const plain = (text: string): string =>
-  text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+/** Colour, cursor and terminal-string codes, and every control but line feeds and tabs. */
+const plain = (text: string): string => {
+  const sevenBit = text
+    .replaceAll('\u0090', '\x1bP')
+    .replaceAll('\u0098', '\x1bX')
+    .replaceAll('\u009b', '\x1b[')
+    .replaceAll('\u009c', '\x1b\\')
+    .replaceAll('\u009d', '\x1b]')
+    .replaceAll('\u009e', '\x1b^')
+    .replaceAll('\u009f', '\x1b_')
+  // Node strips CSI and the common VT forms. Strip terminal strings first so
+  // an incomplete one at the retained tail's edge cannot leave its payload.
+  const withoutStrings = sevenBit.replace(/\x1b(?:P|X|\^|_|\])[\s\S]*?(?:\x07|\x1b\\|$)/g, '')
+  return stripVTControlCharacters(withoutStrings).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '')
+}
 
 const stopGroup = (child: ChildProcess): void => {
   try {
@@ -90,6 +103,17 @@ const stopGroup = (child: ChildProcess): void => {
     if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
   } catch {
     // Already gone.
+  }
+}
+
+/** Whether anything remains in the command's process group. */
+const groupAlive = (child: ChildProcess): boolean => {
+  if (child.pid === undefined) return false
+  try {
+    process.kill(-child.pid, 0)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -110,6 +134,8 @@ export const runCommand = (
     let printed = ''
     let settled = false
     let timedOut = false
+    let shellExit: number | null = null
+    let stopped: string | null = null
     let afterExit: ReturnType<typeof setTimeout> | null = null
     const child = spawn(command, {
       cwd: where.cwd,
@@ -123,36 +149,50 @@ export const runCommand = (
       settled = true
       clearTimeout(timer)
       if (afterExit) clearTimeout(afterExit)
+      where.signal?.removeEventListener('abort', stop)
       const text = plain(printed)
       const joined = said ? `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${said}` : text
       resolve({ exit, timedOut, tail: joined.slice(-TAIL_LIMIT) })
+    }
+    let waitingForGroup = false
+    const finishWhenGroupIsGone = (): void => {
+      if (settled || waitingForGroup) return
+      waitingForGroup = true
+      const look = (): void => {
+        if (groupAlive(child)) {
+          setTimeout(look, 10)
+          return
+        }
+        finish(stopped === null ? shellExit : null, stopped ?? undefined)
+      }
+      look()
     }
     const keep = (chunk: Buffer): void => {
       printed = (printed + chunk.toString('utf8')).slice(-TAIL_LIMIT * 4)
     }
     const timer = setTimeout(() => {
       timedOut = true
+      stopped = `It ran past ${where.timeoutSec}s and was stopped.`
       stopGroup(child)
-      finish(null, `It ran past ${where.timeoutSec}s and was stopped.`)
     }, where.timeoutSec * 1000)
     // A check left running cannot hold a quit open; the kill above is what ends it.
     timer.unref?.()
     const stop = (): void => {
+      stopped = 'It was stopped: the desk closed.'
       stopGroup(child)
-      finish(null, 'It was stopped: the desk closed.')
     }
     where.signal?.addEventListener('abort', stop, { once: true })
     child.stdout?.on('data', keep)
     child.stderr?.on('data', keep)
     child.on('error', (error) => finish(null, `It did not start: ${error.message}`))
     child.on('exit', (code, killedBy) => {
-      const exit = killedBy ? null : code
-      // The streams close after the shell exits; a child still holding them is ended, not waited for.
-      afterExit = setTimeout(() => {
-        stopGroup(child)
-        finish(exit)
-      }, AFTER_EXIT_MS)
-      afterExit.unref?.()
-      child.on('close', () => finish(exit))
+      shellExit = killedBy ? null : code
+      // The streams close after the shell exits; a child still holding them is
+      // ended after the grace period, then the result waits until the group is gone.
+      if (stopped === null) {
+        afterExit = setTimeout(() => stopGroup(child), AFTER_EXIT_MS)
+        afterExit.unref?.()
+      }
     })
+    child.on('close', finishWhenGroupIsGone)
   })

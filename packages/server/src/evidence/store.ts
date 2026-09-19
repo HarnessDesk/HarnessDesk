@@ -54,6 +54,37 @@ export interface MergeCount {
   readonly refused: number
 }
 
+/** What a merge knew had happened when a later line in its append failed. */
+export interface MergeFailureCount extends MergeCount {
+  readonly failed: number
+}
+
+/** A merge can leave a whole appended prefix; its caller needs that count rather than an all-or-nothing lie. */
+export class EvidenceMergeError extends Error {
+  override readonly cause: unknown
+  readonly count: MergeFailureCount
+
+  constructor(cause: unknown, count: MergeFailureCount) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name = 'EvidenceMergeError'
+    this.cause = cause
+    this.count = count
+  }
+}
+
+/** How much of one append completed before its first write-side failure. */
+class EvidenceWriteError extends Error {
+  override readonly cause: unknown
+  readonly written: number
+
+  constructor(cause: unknown, written: number) {
+    super(cause instanceof Error ? cause.message : String(cause))
+    this.name = 'EvidenceWriteError'
+    this.cause = cause
+    this.written = written
+  }
+}
+
 /** `merge`'s question about each incoming line: add it, pass it over as already here, or refuse it. */
 export type Admit = (
   line: StoredLine,
@@ -110,8 +141,18 @@ export class EvidenceStore {
         else if (verdict === 'duplicate') duplicate += 1
         else refused += 1
       }
-      await this.#write(project, file, added)
-      return { added: added.length, duplicate, refused }
+      try {
+        await this.#write(project, file, added)
+        return { added: added.length, duplicate, refused }
+      } catch (error) {
+        const written = error instanceof EvidenceWriteError ? Math.min(error.written, added.length) : 0
+        throw new EvidenceMergeError(error instanceof EvidenceWriteError ? error.cause : error, {
+          added: written,
+          duplicate,
+          refused,
+          failed: added.length - written,
+        })
+      }
     })
   }
 
@@ -173,31 +214,37 @@ export class EvidenceStore {
     if (large) {
       throw new Error(`A record would be ${large.length} bytes and a line may be at most ${LINE_LIMIT}, so none of these was written.`)
     }
-    const folder = this.folderOf(project)
-    await mkdir(folder, { recursive: true, mode: 0o700 })
-    await writeFile(join(folder, PROJECT_FILE), `${JSON.stringify({ root: project })}\n`, {
-      flag: 'wx',
-      mode: 0o600,
-    }).catch((error: unknown) => {
-      if (errnoOf(error) !== 'EEXIST') throw error
-    })
-    const handle = await open(join(folder, FILE_OF[file]), 'a+', 0o600)
+    let written = 0
     try {
-      const { size } = await handle.stat()
-      if (size > 0) {
-        // A line a crash cut short is ended here, so it cannot swallow the next one.
-        const last = Buffer.alloc(1)
-        await handle.read(last, 0, 1, size - 1)
-        if (last[0] !== 0x0a) await handle.write(Buffer.from('\n'))
+      const folder = this.folderOf(project)
+      await mkdir(folder, { recursive: true, mode: 0o700 })
+      await writeFile(join(folder, PROJECT_FILE), `${JSON.stringify({ root: project })}\n`, {
+        flag: 'wx',
+        mode: 0o600,
+      }).catch((error: unknown) => {
+        if (errnoOf(error) !== 'EEXIST') throw error
+      })
+      const handle = await open(join(folder, FILE_OF[file]), 'a+', 0o600)
+      try {
+        const { size } = await handle.stat()
+        if (size > 0) {
+          // A line a crash cut short is ended here, so it cannot swallow the next one.
+          const last = Buffer.alloc(1)
+          await handle.read(last, 0, 1, size - 1)
+          if (last[0] !== 0x0a) await handle.write(Buffer.from('\n'))
+        }
+        for (const text of texts) {
+          // One write per line, on a file opened for appending: never inside another writer's line.
+          const { bytesWritten } = await handle.write(text)
+          if (bytesWritten !== text.length) throw new Error('A record was written short; the next write ends it.')
+          written += 1
+        }
+        await handle.sync()
+      } finally {
+        await handle.close()
       }
-      for (const text of texts) {
-        // One write per line, on a file opened for appending: never inside another writer's line.
-        const { bytesWritten } = await handle.write(text)
-        if (bytesWritten !== text.length) throw new Error('A record was written short; the next write ends it.')
-      }
-      await handle.sync()
-    } finally {
-      await handle.close()
+    } catch (error) {
+      throw new EvidenceWriteError(error, written)
     }
   }
 

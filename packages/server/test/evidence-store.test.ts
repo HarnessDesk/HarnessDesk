@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { appendFile, readdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, open, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { Evidence, EvidenceRecord } from '@harnessdesk/protocol'
 
 import { foldSeats, LINE_LIMIT, lineOf, TAIL_LIMIT, type SeatOpening, type StoredLine } from '../src/evidence/records.js'
-import { EvidenceStore, type Admit } from '../src/evidence/store.js'
+import { EvidenceMergeError, EvidenceStore, type Admit } from '../src/evidence/store.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -240,6 +240,38 @@ test('a read, a judgement and an append are one step: two merges at once never a
   ])
   assert.deepEqual([first.added + second.added, first.duplicate + second.duplicate], [2, 2])
   assert.deepEqual(ids((await store.read('/work/repo', 'evidence')).lines), ['one', 'two'])
+})
+
+test('a merge failure says how many whole lines were appended before the failed write', async (t) => {
+  const store = new EvidenceStore(tempDir('hd-evidence-store-'))
+  const probe = await open(join(tempDir('hd-evidence-probe-'), 'file'), 'w')
+  type WritableHandle = { write(buffer: Uint8Array): Promise<{ bytesWritten: number }> }
+  const prototype = Object.getPrototypeOf(probe) as WritableHandle
+  const write = prototype.write
+  await probe.close()
+  let records = 0
+  prototype.write = async function (this: WritableHandle, buffer: Uint8Array) {
+    if (Buffer.from(buffer).includes(Buffer.from('"type":"evidence"')) && (records += 1) === 2) {
+      throw Object.assign(new Error('injected second-line failure'), { code: 'EIO' })
+    }
+    return write.call(this, buffer)
+  }
+  t.after(() => {
+    prototype.write = write
+  })
+
+  const lines = [factLine({ id: 'one' }), factLine({ id: 'two' })]
+  await assert.rejects(
+    store.merge('/work/repo', 'evidence', lines, () => 'add'),
+    (error: unknown) => {
+      assert.ok(error instanceof EvidenceMergeError)
+      assert.deepEqual(error.count, { added: 1, duplicate: 0, refused: 0, failed: 1 })
+      return true
+    },
+  )
+  prototype.write = write
+  await assert.rejects(store.flush(), 'the quit is still told the merge was incomplete')
+  assert.deepEqual(ids((await store.read('/work/repo', 'evidence')).lines), ['one'])
 })
 
 test('a Seat is closed by its first closing, and a second changes nothing', () => {

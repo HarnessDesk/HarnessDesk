@@ -21,18 +21,6 @@ const alive = (pid: number): boolean => {
   }
 }
 
-/**
- * Whether a process is gone, given a moment. A killed process is reaped by the
- * system rather than at once, and until then a signal 0 still finds it.
- */
-const gone = async (pid: number): Promise<boolean> => {
-  for (let n = 0; n < 40; n += 1) {
-    if (!alive(pid)) return true
-    await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-  return false
-}
-
 test('a command exits with its status and the end of what it printed, both streams', async () => {
   const cwd = tempDir('hd-run-')
   assert.deepEqual(await runCommand("printf 'one\\n'; echo two >&2; exit 3", { cwd, timeoutSec: 10 }), {
@@ -50,7 +38,7 @@ test('a command that runs past its time is stopped, with everything it started',
   assert.equal(run.timedOut, true)
   assert.match(run.tail, /It ran past 1s and was stopped\.$/)
   const child = Number(await readFile(join(cwd, 'child.pid'), 'utf8'))
-  assert.equal(await gone(child), true, 'the child it started went with it')
+  assert.equal(alive(child), false, 'the run does not answer until the child it started is gone')
 })
 
 test('a child still holding its output after the shell exits does not hold the check open', async () => {
@@ -59,7 +47,7 @@ test('a child still holding its output after the shell exits does not hold the c
   const run = await runCommand('sleep 30 & echo $! > child.pid; exit 0', { cwd, timeoutSec: 20 })
   assert.equal(run.exit, 0)
   assert.ok(Date.now() - started < 5_000, 'it answered once the shell was done, not when the child was')
-  assert.equal(await gone(Number(await readFile(join(cwd, 'child.pid'), 'utf8'))), true)
+  assert.equal(alive(Number(await readFile(join(cwd, 'child.pid'), 'utf8'))), false, 'the held pipe is closed and its child is gone')
 })
 
 test('a command that could not start says why, and has no status', async () => {
@@ -79,6 +67,17 @@ test('only the last of a long output is kept, and without its colour codes', asy
   assert.equal(run.tail.includes('\x1b'), false)
 })
 
+test('the retained tail has no Unicode C1, string, or incomplete terminal controls', async () => {
+  const cwd = tempDir('hd-run-')
+  await writeFile(
+    join(cwd, 'controls.cjs'),
+    "process.stdout.write('left\\u009b31mred\\u009b0m\\x1b]0;title\\x07 right\\x1b[31')\n",
+  )
+  const run = await runCommand(`${JSON.stringify(process.execPath)} controls.cjs`, { cwd, timeoutSec: 10 })
+  assert.equal(run.tail, 'leftred right')
+  assert.doesNotMatch(run.tail, /[\x00-\x08\x0b-\x1f\x7f-\x9f]/)
+})
+
 test('a check the desk stops is stopped at once, with everything it started', async () => {
   const cwd = tempDir('hd-run-')
   const stop = new AbortController()
@@ -89,7 +88,7 @@ test('a check the desk stops is stopped at once, with everything it started', as
   assert.equal(run.exit, null)
   assert.equal(run.timedOut, false)
   assert.match(run.tail, /It was stopped: the desk closed\.$/)
-  assert.equal(await gone(Number(await readFile(join(cwd, 'child.pid'), 'utf8'))), true)
+  assert.equal(alive(Number(await readFile(join(cwd, 'child.pid'), 'utf8'))), false, 'the stop does not answer before the child is gone')
 })
 
 test("a check's environment is built from a short list of names: nothing else of the desk's reaches it", () => {

@@ -167,15 +167,14 @@ export class CheckRuns {
       read.checks.map((one) => one.name),
     )
     still()
-    if (!(await seen.approved(scope, check))) {
+    const needsApproval = !(await seen.approved(scope, check))
+    if (needsApproval) {
       if (answer.seen !== check.run || answer.digest !== read.digest) {
         throw new CheckUnseenError(
           `${check.name} runs a command this machine has not approved as it is written now, so it has not run.`,
           { check, previous: await seen.previous(scope, check.name, check.run), cwd, file: read.file, digest: read.digest },
         )
       }
-      still()
-      await seen.approve(scope, check)
     }
     still()
 
@@ -183,6 +182,43 @@ export class CheckRuns {
     const revision = await revisionOf(cwd)
     still()
     if (!revision) throw new Error(`${cwd} has no commit yet, and a check is bound to one, so it has not run.`)
+
+    // Admission may have waited on checkout, approval or revision I/O. Re-read
+    // the committed blob at the last asynchronous boundary before spawn, so a
+    // commit made in that window cannot run the old command under the new HEAD.
+    const proveCurrent = async (): Promise<void> => {
+      const current = await readChecks(project)
+      still()
+      if (current.digest === read.digest) return
+      const currentCheck = current.checks.find((one) => one.name === name)
+      if (!currentCheck || current.digest === null) {
+        const problem = current.problems.find((one) => one.at === '' || one.check === name)
+        throw new Error(problem ? `${name} cannot run: ${problem.text}` : `${current.file} names no check called “${name}”.`)
+      }
+      const currentScope = { project, incarnation: scope.incarnation, digest: current.digest }
+      await seen.reconcile(
+        currentScope,
+        current.checks.map((one) => one.name),
+      )
+      still()
+      throw new CheckUnseenError(
+        `${currentCheck.name} runs a command this machine has not approved as it is written now, so it has not run.`,
+        {
+          check: currentCheck,
+          previous: await seen.previous(currentScope, currentCheck.name, currentCheck.run),
+          cwd,
+          file: current.file,
+          digest: current.digest,
+        },
+      )
+    }
+    await proveCurrent()
+    if (needsApproval) {
+      await seen.approve(scope, check)
+      still()
+      await proveCurrent()
+    }
+
     const busy = this.#parts.running.start(room, card, check.name, this.#now())
     if (busy) throw new Error(`${busy.name} is running on #${card}, and one check runs on a card at a time.`)
     const seat =

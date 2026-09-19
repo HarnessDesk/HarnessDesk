@@ -5,11 +5,11 @@ import { test } from 'node:test'
 
 import type { BackupFile, BackupReport, EvidenceRecord, SeatRecord, Session } from '@harnessdesk/protocol'
 
-import { RESTORE_LINE_LIMIT, RESTORE_PROJECT_LIMIT } from '../src/evidence/plane.js'
+import { EvidencePlane, RESTORE_LINE_LIMIT, RESTORE_PROJECT_LIMIT } from '../src/evidence/plane.js'
 import type { SeatOpening } from '../src/evidence/records.js'
 import { canonical } from '../src/evidence/revision.js'
 import { CommandsSeen, incarnationOf, SEEN_FILE } from '../src/evidence/seen.js'
-import { EvidenceStore } from '../src/evidence/store.js'
+import { EvidenceMergeError, EvidenceStore } from '../src/evidence/store.js'
 import { evidenceDesk, makeRepo, writeAgent } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -222,6 +222,40 @@ test('two restores at once add each record once', async (t) => {
   const store = new EvidenceStore(join(stateDir, 'evidence'))
   assert.equal((await store.read(project, 'evidence')).lines.length, 20)
   assert.equal((await store.read(project, 'seats')).lines.length, 1)
+})
+
+test('a partial merge reports its durable prefix as restored and only the unwritten suffix as failed', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const at = await repo.git('rev-parse', 'HEAD')
+  const stateDir = tempDir('hd-backup-partial-')
+  const plane = new EvidencePlane(
+    { dir: join(stateDir, 'evidence'), seenFile: join(stateDir, SEEN_FILE), now: () => 10 },
+    { board: () => null, cwdOf: () => null, push: () => {}, log: () => {} },
+  )
+  const first = { v: 1, type: 'evidence', record: fact('first', at, repo.dir) }
+  const second = { v: 1, type: 'evidence', record: fact('second', at, repo.dir) }
+  const backup = [{ project, seats: [], facts: [first, second] }]
+
+  const merge = plane.store.merge.bind(plane.store)
+  let injected = false
+  plane.store.merge = async (into, file, lines, admit) => {
+    if (!injected && file === 'evidence') {
+      injected = true
+      await plane.store.append(into, file, [lines[0]!])
+      throw new EvidenceMergeError(new Error('injected write failure'), {
+        added: 1,
+        duplicate: 0,
+        refused: 0,
+        failed: lines.length - 1,
+      })
+    }
+    return merge(into, file, lines, admit)
+  }
+
+  assert.deepEqual(await plane.restore(backup), { restored: 1, duplicate: 0, refused: 0, failed: 1 })
+  assert.deepEqual(await plane.restore(backup), { restored: 1, duplicate: 1, refused: 0, failed: 0 })
+  assert.deepEqual(ids((await plane.store.read(project, 'evidence')).lines), ['first', 'second'])
 })
 
 test('a restore reads no more than its limits: projects past the first ones, and lines past the budget, are refused', async (t) => {

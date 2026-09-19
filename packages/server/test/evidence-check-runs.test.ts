@@ -225,6 +225,42 @@ test('an answer given for another generation of the file asks again, even when t
   assert.equal(await exists(join(r.markers, 'verify')), false)
 })
 
+test('a commit made while an answered check is being admitted asks again before anything starts', async () => {
+  const r = await rig('verify: { run: touch MARKERS/old }\n')
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let entered!: () => void
+  const inside = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  let held = false
+  const approved = r.plane.seen.approved.bind(r.plane.seen)
+  r.plane.seen.approved = async (...args) => {
+    if (!held) {
+      held = true
+      entered()
+      await gate
+    }
+    return approved(...args)
+  }
+
+  const admitting = r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  await inside
+  await r.checks('verify: { run: touch MARKERS/new }\n')
+  release()
+
+  const again = await unseen(admitting)
+  assert.equal(again.check.run, `touch ${r.markers}/new`)
+  assert.equal(again.digest, await blob(r))
+  assert.equal(await exists(join(r.markers, 'old')), false)
+  assert.equal(await exists(join(r.markers, 'new')), false)
+  assert.deepEqual(await r.facts(), [])
+})
+
 test('an approval does not outlive the file it was given for: a command that changes and changes back asks again', async () => {
   const r = await rig('verify: { run: touch MARKERS/a }\n')
   await r.plane.checks.run('room-1', 1, 'verify', answer(await unseen(r.plane.checks.run('room-1', 1, 'verify'))))

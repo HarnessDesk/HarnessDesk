@@ -13,7 +13,7 @@ import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, typ
 import { projectOf, revisionOf } from './revision.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
-import { EvidenceStore, type Admit } from './store.js'
+import { EvidenceMergeError, EvidenceStore, type Admit } from './store.js'
 
 /**
  * The evidence plane: the store, the Seats it indexes, and — as later tasks
@@ -428,7 +428,14 @@ export class EvidencePlane {
           count.duplicate += merged.duplicate
           count.refused += merged.refused
         } catch (error) {
-          count.failed += lines.length
+          if (error instanceof EvidenceMergeError) {
+            count.restored += error.count.added
+            count.duplicate += error.count.duplicate
+            count.refused += error.count.refused
+            count.failed += error.count.failed
+          } else {
+            count.failed += lines.length
+          }
           this.#port.log("a project's records from a backup could not be restored", {
             project,
             file,
