@@ -11,6 +11,7 @@ import {
   type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
+import { seatAgentKey } from '../lib/agents'
 import { AppStore } from './store'
 
 /**
@@ -500,4 +501,37 @@ it('a seat opened and its brief could not be handed over says so in a sentence n
   const notice = store.getSnapshot().notices.at(-1)
   expect(notice?.message).toContain('Code reviewer')
   expect(notice?.message).not.toContain('Opus 5 · High')
+})
+
+/**
+ * `readSeatAgent`: the Agent a seated conversation was seated as, read once
+ * per folder and id, and again once the roster moves. A conversation with no
+ * `agent` setting — the plain path — never asks: `useSeatAgent` reads nothing
+ * for it (its own tests, per surface), and this store method itself is
+ * simply never called for one.
+ */
+it('reads the Agent a seated conversation was seated as once, for its folder, and again when the roster moves', async () => {
+  answering({ 'agent/read': () => ENTRY })
+  store.readSeatAgent('/w/storefront', 'code-reviewer')
+  store.readSeatAgent('/w/storefront', 'code-reviewer')
+  await vi.waitFor(() =>
+    expect(store.getSnapshot().seatAgents.get(seatAgentKey('/w/storefront', 'code-reviewer'))).toEqual(ENTRY),
+  )
+  expect(asked.filter((one) => one.method === 'agent/read').map((one) => one.params)).toEqual([
+    { id: 'code-reviewer', project: '/w/storefront' },
+  ])
+  handlers().onNotification({ method: 'agent/changed', params: { project: null } })
+  await vi.waitFor(() => expect(asked.filter((one) => one.method === 'agent/read')).toHaveLength(2))
+})
+
+it('a read that fails leaves the Agent unread, rather than saying it is gone', async () => {
+  answering({
+    'agent/read': () => {
+      throw new Error('offline')
+    },
+  })
+  store.readSeatAgent('/w/storefront', 'code-reviewer')
+  await vi.waitFor(() => expect(asked.some((one) => one.method === 'agent/read')).toBe(true))
+  // Still unread — not `null`, which would say the Agent is gone.
+  expect(store.getSnapshot().seatAgents.has(seatAgentKey('/w/storefront', 'code-reviewer'))).toBe(false)
 })

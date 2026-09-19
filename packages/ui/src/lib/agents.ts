@@ -416,3 +416,50 @@ export const blockedWords = (entry: AgentEntry | undefined, home: string): strin
   if (entry && problem) return `${fileWords(entry, home)}: ${problem.at ? `${problem.at} — ` : ''}${problem.text}`
   return 'This Mac’s seats for it could not be read.'
 }
+
+/* --- a conversation seated as an Agent ------------------------------------ */
+
+/** A word from an Agent's file — its id, a verdict — as a person reads it: `request-changes` → "Request changes". */
+export const wordOf = (word: string): string => {
+  const spaced = word.replace(/[-_]+/g, ' ')
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+}
+
+/** A conversation's title led by the Agent it was seated as — said once, where the title already is its name. */
+export const ledBy = (agent: string | null, title: string): string =>
+  agent === null || title === agent ? title : `${agent} · ${title}`
+
+/** Where the renderer keeps the Agent a seated conversation was seated as: the folder it works in, and the Agent's id. */
+export const seatAgentKey = (cwd: string, id: string): string => JSON.stringify([cwd, id])
+
+/** The folder a project Agent lives in, by name — "storefront" — or null for one of yours or one that ships. */
+export const projectOfAgent = (entry: AgentEntry): string | null =>
+  entry.origin === 'project' ? (entry.path.split('/').slice(0, -4).at(-1) ?? null) : null
+
+/**
+ * What a seated conversation's card warns about its Agent: a brief that has
+ * moved on since it was handed over, or an Agent no longer there. Nothing
+ * while it is still being read, and nothing on a read that failed outright —
+ * a failure says nothing rather than guessing that the Agent is gone.
+ */
+export const seatCautions = (entry: AgentEntry | null | undefined, briefDigest: string | undefined): readonly string[] => {
+  if (entry === undefined) return []
+  if (entry === null) return ['Its Agent is not in this project any more.']
+  return briefDigest && entry.digest !== null && entry.digest !== briefDigest
+    ? ['The brief has changed since this started.']
+    : []
+}
+
+/**
+ * A seat passed over on the way to the one taken, with why — built from
+ * `reasonWords` and `leftWords` rather than repeating either.
+ */
+export const passedWords = (candidate: SeatCandidate): string => {
+  const why = [
+    candidate.reason ? reasonWords(candidate.reason, candidate.runtimeName) : 'passed over',
+    candidate.left ? leftWords(candidate.left, candidate.runtimeName) : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join('. ')
+  return `${candidate.label} — ${why}`
+}

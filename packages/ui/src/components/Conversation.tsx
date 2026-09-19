@@ -70,6 +70,8 @@ import { SetupDesk } from './SetupDesk'
 import { TurnTail } from './TurnTail'
 import { describeLimits } from '../lib/limits'
 import { sessionLabel } from '../lib/sessions'
+import { ledBy } from '../lib/agents'
+import { useSeatAgent } from '../state/seat-agent'
 import { PlanMeters } from './PlanMeters'
 import { WindowControls } from './WindowControls'
 import styles from './Conversation.module.css'
@@ -546,7 +548,7 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <span className={styles.title}>{titleOf(session)}</span>
+        <HeaderTitle session={session} />
         {session && (
           <span className={`${styles.status} hd-no-drag`} data-status={status} title={STATUS_LABEL[status]}>
             <span className={styles.statusDot} />
@@ -947,4 +949,10 @@ const titleOf = (session: Session | null): string => {
   const label = sessionLabel(session.title, session.preview ?? spoken, 'New session')
   // A first message is a paragraph; a title is a line.
   return label.length > 72 ? `${label.slice(0, 71).trimEnd()}…` : label
+}
+
+/** The header's title: the conversation's own, led by the Agent it was seated as. */
+const HeaderTitle = ({ session }: { readonly session: Session | null }) => {
+  const seated = useSeatAgent(session)
+  return <span className={styles.title}>{ledBy(seated?.name ?? null, titleOf(session))}</span>
 }

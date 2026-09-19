@@ -422,6 +422,12 @@ export interface AppSnapshot {
    * usage window and Settings, takes it where it is fixed.
    */
   readonly seatFix: { readonly fix: SeatFix; readonly agent: string } | null
+  /**
+   * The Agent each seated conversation was seated as, read for the folder it
+   * works in, by `seatAgentKey(cwd, id)` — what its header, its row and its
+   * name card say about it. Null when no Agent by that id is there any more.
+   */
+  readonly seatAgents: ReadonlyMap<string, AgentEntry | null>
 
   readonly workspaces: readonly WorkspaceEntry[]
   readonly workspace: WorkspaceEntry | null
@@ -704,6 +710,7 @@ const EMPTY: AppSnapshot = {
   settingsFocus: null,
   seatRefusal: null,
   seatFix: null,
+  seatAgents: new Map(),
   workspaces: [],
   workspace: null,
   skills: [],
@@ -752,4 +759,5 @@ export const emptySnapshot = (): AppSnapshot => ({
   foldersGone: new Map(),
   loadingSessions: new Set(),
   agentPlans: new Map(),
+  seatAgents: new Map(),
 })

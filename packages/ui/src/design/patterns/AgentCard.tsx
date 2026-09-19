@@ -45,6 +45,10 @@ import type { Tint } from '../ui/tone'
  *
  *   Crest    the mark on the account's own ring, the name, and the two facts
  *            the row never had room for — which harness, whose credential.
+ *   Agent    who a conversation was seated as, when it was: the Agent and the
+ *            most it may do — asked, not held, until something holds it —
+ *            what it is for, where it came from, the seat it took and every
+ *            seat passed over on the way, each with why.
  *   Running  model and effort, the harness version dimmed at the end, and the
  *            state as a fact *with a number*: "Working — 41s into this turn".
  *            The bare word "Working" would only repeat the lamp on the mark.
@@ -130,6 +134,22 @@ export type AgentCardSubject = {
   readonly mark: ReactNode
   /** Mid-turn. A light on the mark, never a word — the app's rule everywhere. */
   readonly working?: boolean
+  /**
+   * The Agent a conversation was seated as, when it was. Absent for one that
+   * is only a runtime, and then the band is not drawn.
+   */
+  readonly agent?: {
+    readonly name: string
+    /** "Read · asked": the ceiling the seat was told, and that nothing holds it to it yet. */
+    readonly ceiling: string
+    readonly description?: string | null
+    /** "In storefront", "Yours", "Built in". */
+    readonly origin?: string | null
+    /** The seat it took, as read back when it opened: "Claude · Opus 5 · High". */
+    readonly seat?: string | null
+    /** Every seat passed over before it, with why: "Cursor — Cursor is signed out". */
+    readonly passedOver?: readonly string[]
+  } | null
   readonly running?: {
     /** "Opus 5 · Max effort". */
     readonly model?: string | null
@@ -197,7 +217,7 @@ const Band = ({ label, children }: { label?: string; children: ReactNode }) => (
 )
 
 export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
-  const { running, meter, on, cautions = [], choice = null, actions = [] } = subject
+  const { agent = null, running, meter, on, cautions = [], choice = null, actions = [] } = subject
   /* Earned, band by band. `running` can arrive as an object with every field
      empty — a session the renderer has never opened knows the harness and
      nothing else — and an empty object must not draw a divider. */
@@ -265,6 +285,23 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           )}
         </span>
       </div>
+
+      {agent && (
+        <Band label="Agent">
+          <div className="flex items-baseline gap-1.5">
+            <span className="min-w-0 flex-1 truncate text-xs font-medium">{agent.name}</span>
+            <span className="flex-none text-xs text-(--hd-muted-foreground)">{agent.ceiling}</span>
+          </div>
+          {agent.description && <div className="mt-0.5 text-xs">{agent.description}</div>}
+          {agent.origin && <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">{agent.origin}</div>}
+          {agent.seat && <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">Seated on {agent.seat}</div>}
+          {(agent.passedOver ?? []).map((line) => (
+            <div key={line} className="mt-0.5 text-xs text-(--hd-muted-foreground)">
+              Passed over {line}
+            </div>
+          ))}
+        </Band>
+      )}
 
       {hasRunning && running && (
         <Band label="Running">

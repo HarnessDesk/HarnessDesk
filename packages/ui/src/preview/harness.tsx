@@ -36,6 +36,7 @@ import {
   type StackId,
   type Zoom,
 } from '../state/workbench'
+import { seatAgentKey } from '../lib/agents'
 import { permits } from '../panels/views'
 import { applyProfile, type ProfilePatch } from '../lib/profile'
 import {
@@ -838,7 +839,22 @@ class PreviewStore {
       sessions: new Map([
         [
           sessionKey(runtimeId('codex'), 's1' as SessionId),
-          previewSession,
+          {
+            ...previewSession,
+            settings: {
+              ...previewSession.settings,
+              cwd: previewSession.cwd,
+              model: 'gpt-5.6-sol',
+              agent: 'code-reviewer',
+              // Not the roster's digest: the file has moved on since this was handed over.
+              briefDigest: 'digest-when-it-started',
+              permission: 'read',
+              seatLabel: 'Alpha · GPT-5.6 Sol',
+              passedOver: [
+                { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
+              ],
+            },
+          } as unknown as Session,
         ],
         [
           sessionKey(runtimeId('codex'), 'c1' as SessionId),
@@ -890,6 +906,7 @@ class PreviewStore {
       agents: PREVIEW_AGENTS,
       agentsProject: PREVIEW_ROOT,
       agentPlans: PREVIEW_PLANS,
+      seatAgents: new Map([[seatAgentKey(previewSession.cwd, 'code-reviewer'), PREVIEW_AGENTS[0] ?? null]]),
       ...seed,
     } as AppSnapshot
     this.#watchWindowWidth()

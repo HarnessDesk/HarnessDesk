@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionId, sessionKey, turnId, itemId, type Session } from '@harnessdesk/protocol'
+import { sessionId, sessionKey, turnId, itemId, type AgentEntry, type Session } from '@harnessdesk/protocol'
 
+import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Conversation } from './Conversation'
@@ -52,7 +53,11 @@ const session = (over: Partial<Session> = {}): Session =>
     ...over,
   }) as Session
 
-const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new Map()) => {
+const rig = (
+  one: Session | null,
+  foldersGone: ReadonlyMap<string, string> = new Map(),
+  over: Partial<AppSnapshot> = {},
+) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -71,6 +76,7 @@ const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new
     ] as unknown as AppSnapshot['runtimes'],
     sessions: one ? new Map([[KEY, one]]) : new Map(),
     activeSessionKey: one ? KEY : null,
+    ...over,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -84,6 +90,7 @@ const rig = (one: Session | null, foldersGone: ReadonlyMap<string, string> = new
     refreshTasks: vi.fn(),
     loadHistory: vi.fn(),
     resumeSession: vi.fn(),
+    readSeatAgent: vi.fn(),
   } as unknown as AppStore
   return { store }
 }
@@ -297,4 +304,25 @@ it('leaves the composer alone when the folder is where it always was', () => {
 
   expect(container.textContent).not.toContain('folder is gone')
   expect(container.querySelector('textarea')).not.toBeNull()
+})
+
+it('a conversation seated as an Agent is headed by it — once, while its title is the Agent’s name', () => {
+  const settings = { cwd: '/repo', model: 'gpt-5.6-sol', agent: 'code-reviewer', briefDigest: 'd', permission: 'read' as const, seatLabel: 'Codex', passedOver: [] }
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
+  const over = { seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]) }
+  const header = (): string => container.querySelector('header')?.textContent ?? ''
+
+  render(rig(session({ title: 'Checkout review', settings }), new Map(), over).store)
+  expect(header()).toContain('Code reviewer · Checkout review')
+
+  render(rig(session({ title: 'Code reviewer', settings }), new Map(), over).store)
+  expect(header()).toContain('Code reviewer')
+  expect(header()).not.toContain('Code reviewer · Code reviewer')
+})
+
+it('a plain conversation’s header is unchanged, and asks nothing about an Agent', () => {
+  const { store } = rig(session({ title: 'Checkout review' }))
+  render(store)
+  expect(container.querySelector('header')?.textContent).toContain('Checkout review')
+  expect(store.readSeatAgent).not.toHaveBeenCalled()
 })

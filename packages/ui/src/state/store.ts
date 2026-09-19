@@ -76,7 +76,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
-import { anyOpened, blockedWords, refusalOf } from '../lib/agents'
+import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import {
   afterDismiss,
   readNoticePolicy,
@@ -364,6 +364,11 @@ export class AppStore {
           const top = this.#snapshot.workspace?.checkoutRoot ?? null
           if (this.#agentsRequested && (project === null || project === open || project === top)) {
             void this.loadAgents()
+          }
+          // Every Agent a conversation was seated as, read again: a brief that moved on says so on its card.
+          for (const key of this.#snapshot.seatAgents.keys()) {
+            const [cwd, id] = JSON.parse(key) as [string, string]
+            this.readSeatAgent(cwd, id)
           }
         }
         if (notification.method === 'usage/updated') {
@@ -3828,6 +3833,29 @@ export class AppStore {
   /** Puts the refusal sheet away. */
   dismissSeatRefusal(): void {
     this.#patch({ seatRefusal: null })
+  }
+
+  /** Agent reads in flight, by `seatAgentKey`, so one conversation drawn in three places asks once. */
+  readonly #seatAgentReads = new Set<string>()
+
+  /**
+   * Reads the Agent a seated conversation was seated as, for the folder it
+   * works in — once per folder and id, and again when the roster moves — so
+   * its header, its row and its name card can say who it is and whether its
+   * brief has moved on. A read that fails leaves nothing: the conversation is
+   * drawn as a conversation rather than as a guess.
+   */
+  readSeatAgent(cwd: string, id: string): void {
+    const key = seatAgentKey(cwd, id)
+    if (this.#seatAgentReads.has(key)) return
+    this.#seatAgentReads.add(key)
+    this.transport
+      .request('agent/read', { id, project: cwd })
+      .then(
+        (entry) => this.#patch({ seatAgents: new Map(this.#snapshot.seatAgents).set(key, entry) }),
+        () => undefined,
+      )
+      .finally(() => this.#seatAgentReads.delete(key))
   }
 
   async loadWorktrees(): Promise<void> {

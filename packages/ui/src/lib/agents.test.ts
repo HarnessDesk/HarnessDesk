@@ -12,13 +12,18 @@ import {
   firstParagraph,
   firstReason,
   fixWords,
+  ledBy,
   leftWords,
   markFor,
   originWords,
+  passedWords,
   projectName,
+  projectOfAgent,
   reasonWords,
   refusalOf,
+  seatCautions,
   seatTaken,
+  wordOf,
 } from './agents'
 
 /**
@@ -369,5 +374,43 @@ describe('agents in words', () => {
     // A seating-file problem, or an id nothing answers to, has no entry to read: generic, and names no folder.
     expect(blockedWords(undefined, '/Users/dev')).not.toMatch(/\/Users|~\//)
     expect(blockedWords(entry('clean'), '/Users/dev')).not.toMatch(/\/Users|~\//)
+  })
+})
+
+describe('a conversation seated as an Agent, in words', () => {
+  it('leads a title with the Agent, once', () => {
+    expect(ledBy('Code reviewer', 'Code reviewer')).toBe('Code reviewer')
+    expect(ledBy('Code reviewer', 'Checkout review')).toBe('Code reviewer · Checkout review')
+    expect(ledBy(null, 'Checkout review')).toBe('Checkout review')
+    expect(wordOf('code-reviewer')).toBe('Code reviewer')
+  })
+
+  it('names the project a project Agent lives in, and no other', () => {
+    expect(projectOfAgent(entry('a', { origin: 'project', path: '/w/storefront/.harnessdesk/agents/a/AGENT.md' }))).toBe('storefront')
+    expect(projectOfAgent(entry('a'))).toBeNull()
+  })
+
+  it('warns when the brief has moved on, or the Agent is gone — and says nothing while it is being read, or on a failed read', () => {
+    expect(seatCautions(undefined, 'd')).toEqual([])
+    expect(seatCautions(entry('a'), 'd')).toEqual([])
+    expect(seatCautions(entry('a', { digest: 'e' }), 'd')).toEqual(['The brief has changed since this started.'])
+    expect(seatCautions(null, 'd')).toEqual(['Its Agent is not in this project any more.'])
+  })
+
+  it('says each seat passed over with why, built from reasonWords and leftWords rather than repeating either', () => {
+    expect(passedWords(plan().candidates[0]!)).toBe('Cursor — Cursor is signed out')
+    expect(
+      passedWords({
+        seat: { runtime: 'gemini' },
+        label: 'Gemini CLI',
+        runtimeName: 'Gemini CLI',
+        state: 'passed',
+        reason: { kind: 'openedOtherwise', differences: [{ field: 'effort', asked: 'high', running: 'low' }] },
+        fix: { kind: 'seats' },
+        left: { kind: 'kept', archived: 'here' },
+      }),
+    ).toBe(
+      'Gemini CLI — Gemini CLI opened it at Low effort, instead of High. Gemini CLI may keep the empty conversation it opened — it was put here',
+    )
   })
 })

@@ -2,10 +2,11 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentEntry, RuntimeInfo, Session } from '@harnessdesk/protocol'
 import { sessionKey, type SessionSummary, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { AgentCard } from '../design'
+import { seatAgentKey } from '../lib/agents'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_SIDE_OFFSET,
@@ -1661,5 +1662,105 @@ it('reads its trigger as it is now, so a trigger drawn again while open still cl
     container.querySelector('[data-testid="list"]')?.dispatchEvent(new Event('scroll'))
   })
   expect(trigger().hasAttribute('data-popup-open')).toBe(false)
+  vi.useRealTimers()
+})
+
+it('a conversation seated as an Agent is carded as it, and says when its brief has moved on', () => {
+  vi.useFakeTimers()
+  const key = sessionKey('claude-code', 'sess-1' as SessionSummary['id'])
+  const live = {
+    ...SESSION,
+    turns: [],
+    itemsLoaded: true,
+    settings: {
+      cwd: '/repo',
+      agent: 'code-reviewer',
+      briefDigest: 'handed-over',
+      permission: 'read',
+      seatLabel: 'Claude · Opus 5 · High',
+      passedOver: [
+        {
+          seat: { runtime: 'cursor' },
+          label: 'Cursor',
+          runtimeName: 'Cursor',
+          state: 'passed',
+          reason: { kind: 'signedOut' },
+          fix: { kind: 'signIn', runtime: 'cursor' },
+        },
+      ],
+    },
+  } as unknown as Session
+  const entry = {
+    id: 'code-reviewer',
+    origin: 'builtin',
+    path: '/app/agents/code-reviewer/AGENT.md',
+    digest: 'edited-since',
+    shadows: [],
+    problems: [],
+    definition: {
+      id: 'code-reviewer',
+      name: 'Code reviewer',
+      description: 'Reviews a change it did not write.',
+      permission: 'read',
+      answers: [],
+      produces: [],
+      skills: [],
+      prefer: [{ runtime: 'claude-code' }],
+      brief: 'Review.',
+    },
+  } as AgentEntry
+  const snapshot = {
+    ...emptySnapshot(),
+    runtimes: [{ id: 'claude-code', presentation: { name: 'Claude Code' }, capabilities: {} }] as unknown as RuntimeInfo[],
+    sessions: new Map([[key, live]]),
+    seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]),
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readSeatAgent: vi.fn() } as unknown as AppStore
+
+  act(() =>
+    root.render(
+      <StoreProvider store={store}>
+        <SessionHoverCard session={SESSION}>
+          <span>glyph</span>
+        </SessionHoverCard>
+      </StoreProvider>,
+    ),
+  )
+  rest(trigger())
+  const text = openCard()?.textContent ?? ''
+  expect(text).toContain('Reviews a change it did not write.')
+  expect(text).toContain('Read · asked')
+  expect(text).toContain('Built in')
+  expect(text).toContain('Seated on Claude · Opus 5 · High')
+  expect(text).toContain('Passed over Cursor — Cursor is signed out')
+  expect(text).toContain('The brief has changed since this started.')
+  expect(store.readSeatAgent).not.toHaveBeenCalled()
+  vi.useRealTimers()
+})
+
+it('a plain conversation carries no Agent band, and reads nothing for one', () => {
+  vi.useFakeTimers()
+  const key = sessionKey('claude-code', 'sess-1' as SessionSummary['id'])
+  const live = { ...SESSION, turns: [], itemsLoaded: true, settings: { cwd: '/repo', model: 'opus-5' } } as unknown as Session
+  const snapshot = {
+    ...emptySnapshot(),
+    runtimes: [{ id: 'claude-code', presentation: { name: 'Claude Code' }, capabilities: {} }] as unknown as RuntimeInfo[],
+    sessions: new Map([[key, live]]),
+  } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readSeatAgent: vi.fn() } as unknown as AppStore
+
+  act(() =>
+    root.render(
+      <StoreProvider store={store}>
+        <SessionHoverCard session={SESSION}>
+          <span>glyph</span>
+        </SessionHoverCard>
+      </StoreProvider>,
+    ),
+  )
+  rest(trigger())
+  const labels = [...container.querySelectorAll('[data-slot="agent-card-band"] p')].map((el) => el.textContent)
+  expect(labels).not.toContain('Agent')
+  expect(store.readSeatAgent).not.toHaveBeenCalled()
   vi.useRealTimers()
 })
