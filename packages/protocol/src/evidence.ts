@@ -253,3 +253,12 @@ export type Freshness =
    */
   | { readonly state: 'final' }
   | { readonly state: 'unknown'; readonly why: string }
+
+/** A named check, as `.harnessdesk/checks.yml` declares it. */
+export interface NamedCheck {
+  readonly name: string
+  /** The command, exactly as it will run: printable ASCII and line breaks only. */
+  readonly run: string
+  /** Seconds before it is stopped. */
+  readonly timeout: number
+}
