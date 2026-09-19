@@ -29,6 +29,7 @@ const tileVariants = cva(
   {
     variants: {
       size: {
+        xs: 'size-4.5 [&_svg]:size-3',
         sm: 'size-6 [&_svg]:size-3.5',
         default: 'size-8 [&_svg]:size-4',
         lg: 'size-10 [&_svg]:size-5',

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SelectOption } from '@harnessdesk/protocol'
 import { optionsIn } from '@harnessdesk/protocol'
 
-import { Button, Dialog } from '../design'
+import { Button, Dialog, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -846,24 +846,14 @@ export const HandoffSheet = ({
         {to} cannot read {from}'s thread, so HarnessDesk writes what happened into a new
         conversation there. Choose how much travels.
       </p>
-      {/* `row`, not `sm`: `sm` is a fixed-height control whose base does not
-          wrap, so a two-line choice overflowed it both ways — the hint ran the
-          row wider than the dialog and the label sat outside the 28px box. A
-          row is the size that is allowed to be as tall as what it holds. */}
       <div className={sheet.choices} role="radiogroup" aria-label="What to carry">
         {CARRY_OPTIONS.map((option) => (
-          <Button variant="ghost" size="row"
+          <RowChoice
             key={option.id}
-            type="button"
-            role="radio"
-            aria-checked={carry === option.id}
-            className={sheet.choice}
-            {...(carry === option.id ? { 'data-selected': '' } : {})}
+            selected={carry === option.id}
             onClick={() => setCarry(option.id)}
-          >
-            <span className={sheet.choiceMark} aria-hidden="true" />
-            <span className={sheet.choiceText}>
-              <div className={sheet.choiceLabel}>
+            title={
+              <span className={sheet.choiceLabel}>
                 {option.id === 'summary' ? (
                   <SummaryIcon size={13} />
                 ) : option.id === 'transcript' ? (
@@ -872,10 +862,11 @@ export const HandoffSheet = ({
                   <DiffIcon size={13} />
                 )}
                 {option.label}
-              </div>
-              <div className={sheet.choiceHint}>{option.hint}</div>
-            </span>
-          </Button>
+              </span>
+            }
+            desc={option.hint}
+            wrapDesc
+          />
         ))}
       </div>
     </Dialog>
@@ -1010,13 +1001,17 @@ export const PlaceControl = () => {
         label={
           <>
             {armed ? (
-              <NewWorktreeIcon size={13} className={sheet.armed} />
+              <Text role="row" tone="brand"><NewWorktreeIcon size={13} /></Text>
             ) : tagged ? (
               <BranchIcon size={13} />
             ) : (
               <LocalIcon size={13} />
             )}
-            {!narrow && <PopoverStrong className={`${sheet.word} ${armed ? sheet.armed : ''}`}>{word}</PopoverStrong>}
+            {!narrow && (
+              armed
+                ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
+                : <PopoverStrong className={sheet.word}>{word}</PopoverStrong>
+            )}
             {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
             <Chevron />
           </>

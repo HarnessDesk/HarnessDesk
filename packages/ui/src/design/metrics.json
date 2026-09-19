@@ -671,6 +671,14 @@
     "pad": "0 0 0 0",
     "radius": 6
   },
+  "tile/icon-tile/size/xs": {
+    "h": 18,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
   "tool-pane/tool-pane/variant/default": {
     "h": 224,
     "text": 14,

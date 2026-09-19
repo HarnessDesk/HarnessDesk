@@ -739,6 +739,8 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   ink?: keyof typeof TEXT_INK
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
+  /** Put the ellipsis at the beginning, so a path keeps the filename end. */
+  truncateFrom?: 'start'
   /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
   fade?: boolean
   numeric?: boolean
@@ -754,6 +756,7 @@ export const Text = ({
   ink,
   align = 'start',
   truncate,
+  truncateFrom,
   fade,
   numeric,
   children,
@@ -768,6 +771,7 @@ export const Text = ({
       ...(tone ? { 'data-tone': tone } : {}),
       ...(tint ? { 'data-tint': tint } : {}),
       ...(ink ? { 'data-ink': ink } : {}),
+      ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
       className: cx(
         TEXT_ROLE[role],
         tone
@@ -778,7 +782,8 @@ export const Text = ({
               ? TEXT_INK[ink]
               : TEXT_ROLE_INK[role],
         align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
-        truncate && 'truncate',
+        (truncate || truncateFrom) && 'truncate',
+        truncateFrom === 'start' && '[direction:rtl] text-left',
         fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
         numeric && 'tabular-nums',
         className,
@@ -899,12 +904,15 @@ export const RowButton = ({
 export const RowChoice = ({
   title,
   desc,
+  wrapDesc = false,
   selected,
   disabled,
   onClick,
 }: {
   title: ReactNode
   desc?: ReactNode
+  /** A consequence in a narrow choice arrives whole rather than ellipsised. */
+  wrapDesc?: boolean
   selected: boolean
   disabled?: boolean
   onClick: () => void
@@ -914,13 +922,13 @@ export const RowChoice = ({
     role="radio"
     aria-checked={selected}
     disabled={disabled}
-    className={cx(styles.row, styles.rowButton, styles.rowChoice)}
+    className={cx('w-full min-w-0', styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
   >
     <span className={styles.choiceMark}>{selected ? <CheckIcon size={15} /> : null}</span>
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={styles.rowDesc}>{desc}</span> : null}
+      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
   </Button>
 )

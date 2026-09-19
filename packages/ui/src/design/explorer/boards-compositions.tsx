@@ -183,7 +183,7 @@ const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'
 const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
 const ATTACHMENT_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
 const ATTACHMENT_CATALOG_STATES = ['default', 'loading', 'error'] as const
-const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical'] as const
+const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical', 'tile'] as const
 const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'] as const
 const BADGE_CATALOG_SIZES = ['default'] as const
 const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
@@ -193,7 +193,7 @@ const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
-const ICON_TILE_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
+const ICON_TILE_CATALOG_SIZES = ['xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
@@ -1220,7 +1220,9 @@ const AdoptedBoard = () => {
           {ATTACHMENT_CATALOG_ORIENTATION.map((orientation) => (
             <Attachment key={orientation} orientation={orientation} data-catalog-orientation={orientation} state="done">
               <AttachmentMedia />
-              <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
+              {orientation !== 'tile' && (
+                <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
+              )}
             </Attachment>
           ))}
         </AttachmentGroup>
