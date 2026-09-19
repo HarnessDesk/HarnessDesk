@@ -83,6 +83,10 @@ import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
+import { EvidencePlane } from './evidence/plane.js'
+import type { GhInCheckout } from './evidence/forge.js'
+import { flowSeatInput } from './evidence/seats.js'
+import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
@@ -255,6 +259,8 @@ export const builtinAgentRoot = (): string =>
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
+  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
+  readonly evidence?: { readonly gh?: GhInCheckout }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -445,6 +451,11 @@ export class Host {
    */
   readonly #machineSeating: MachineSeatingFile
   /**
+   * The evidence plane: every Seat this desk kept and what it observed, one
+   * append-only store per project under `evidence/` in the state directory.
+   */
+  readonly #evidence: EvidencePlane
+  /**
    * The roster, watched (`AgentWatch`). Made at start rather than in the
    * constructor, so a host that is built and never started watches nothing.
    */
@@ -576,6 +587,23 @@ export class Host {
     this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE), {
       log: (message, details) => this.#logger.warn(message, details),
     })
+    this.#evidence = new EvidencePlane(
+      {
+        dir: join(this.#state.directory, 'evidence'),
+        seenFile: join(this.#state.directory, SEEN_FILE),
+        ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
+        cipher: options.credentialCipher ?? plainCipher,
+      },
+      {
+        board: (room) => (this.#team.hasRoom(room) ? this.#team.stateFor(room) : null),
+        cwdOf: (runtime, sessionId) =>
+          this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
+        push: (notification) => this.#push(notification),
+        log: (message, details) => this.#logger.warn(message, details ?? {}),
+      },
+    )
+    // A conversation seen for the first time wears the Agent its Seat record names.
+    this.registry.restoreSeatedAs((runtime, id) => this.#evidence.seatedAs(runtime, id))
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -626,6 +654,7 @@ export class Host {
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
+      settled: (room, intent) => this.#evidence.settled(room, intent),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
@@ -651,6 +680,21 @@ export class Host {
         return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
       },
       retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+      /* Not awaited by the run, which already exists: a record that could not
+         be written is logged loudly with the seat it was for, and the run goes
+         on. An Agent's seat is stricter (`agent/seat`), because nothing has
+         started yet when its record is written. */
+      recorded: (room, seat) => {
+        void this.#evidence.seats.opened(flowSeatInput(room, seat)).catch((error: unknown) => {
+          this.#logger.error("a flow seat's record could not be written", {
+            room,
+            role: seat.role,
+            runtime: seat.runtime,
+            sessionId: seat.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      },
       join: async (room, runtime, sessionId) => {
         const id = makeSessionId(sessionId)
         const known = this.registry.get(runtime as RuntimeId, id)?.session
@@ -668,7 +712,7 @@ export class Host {
          room's rule, and the folder rule alone would refuse a room made from
          a linked worktree, which works in the main checkout. */
       isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
-      run: (command, where) => runCheck(command, where),
+      run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
@@ -930,6 +974,14 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    /* Before any runtime starts, so the first conversation listed already
+       wears the Agent its Seat record names. Caught like the flow runs above:
+       records that cannot be read cost the restored names, not the desk. */
+    await this.#evidence.load().catch((error: unknown) => {
+      this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
     /* From here on a file changed under any of the roster's roots is one
        notice to every window. Guarded on `#disposed`: everything above this
        point can yield, and a quit landing in one of those gaps must find no
@@ -1073,6 +1125,7 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#evidence.close()
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
        that did not wait here was only the *request* to stop writing: the last
@@ -1237,6 +1290,7 @@ export class Host {
       flows: this.#flows,
       agents: this.#agents,
       seating: this.#machineSeating,
+      evidence: this.#evidence,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,
@@ -1542,6 +1596,7 @@ export class Host {
         this.#logger.warn(message, details),
       ),
       seating: await this.#machineSeating.raw(),
+      evidence: await this.#evidence.backup(),
     }
   }
 
@@ -1671,8 +1726,10 @@ export class Host {
         params: { project: null, ...(seatingRevision === undefined ? {} : { revision: seatingRevision }) },
       })
     }
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating })
-    return { agents, preferences, transcripts, agentFolders, seating }
+    // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
+    const evidence = await this.#evidence.restore(file.evidence)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence }
   }
 
   /**

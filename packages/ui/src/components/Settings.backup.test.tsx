@@ -13,8 +13,8 @@ import { BackupRows } from './Settings'
  * calling the registered runtimes "agents" — the rename Task 11 made
  * everywhere else. It counts four things apart: the runtimes registered here,
  * this Mac's own Agent files, this Mac's seats for them, and its
- * preferences/conversations — never folding runtimes and Agents into one
- * word.
+ * preferences/conversations, and records of what the desk observed — never
+ * folding runtimes and Agents into one word.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -84,7 +84,7 @@ it('says the runtimes it exported are runtimes, and counts Agents and seats apar
   })
   expect(request).toHaveBeenCalledWith('backup/export', {})
   const text = container.textContent ?? ''
-  expect(text).toContain('Exported 2 runtimes, 3 Agents of yours and 1 conversation.')
+  expect(text).toContain('Exported 2 runtimes, 3 Agents of yours, 1 conversation and 0 records of what the desk observed.')
   expect(text).not.toMatch(/\b2 agents\b/)
 })
 
@@ -94,6 +94,7 @@ const REPORT: BackupReport = {
   transcripts: { restored: 4, skipped: 0 },
   agentFolders: { restored: 3, skipped: 0 },
   seating: { restored: 1, skipped: 0 },
+  evidence: { restored: 5, duplicate: 2, refused: 0, failed: 0 },
 }
 
 it('says the runtimes it restored are runtimes, and counts Agents and seats apart', async () => {
@@ -112,6 +113,8 @@ it('says the runtimes it restored are runtimes, and counts Agents and seats apar
   })
   expect(request).toHaveBeenCalledWith('backup/import', { backup: {} })
   const text = container.textContent ?? ''
-  expect(text).toContain('Restored 1 runtime, 3 Agents, 1 seat choice, 2 preferences and 4 conversations.')
+  expect(text).toContain(
+    'Restored 1 runtime, 3 Agents, 1 seat choice, 2 preferences, 4 conversations and 5 records of what the desk observed. 3 already here or newer, left alone.',
+  )
   expect(text).not.toMatch(/\b1 agent\b/)
 })

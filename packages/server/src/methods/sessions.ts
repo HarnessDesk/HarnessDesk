@@ -171,6 +171,9 @@ export const sessionMethods = {
       await record.live?.close().catch(() => {})
       ctx.registry.delete(runtime.info.id, id)
     }
+    /* Its Seat, if it had one, is closed — never removed: the record outlives
+       the conversation it points at, which is exactly when it is needed. */
+    await ctx.evidence.seats.closed(runtime.info.id, id, 'deleted')
     // Every window, not only the one that asked: another may be drawing it.
     ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id } })
     return {

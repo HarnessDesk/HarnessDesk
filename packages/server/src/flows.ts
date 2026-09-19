@@ -88,6 +88,13 @@ export interface FlowPort {
    */
   retire(runtime: string, sessionId: string): Promise<void>
   /**
+   * A seat this run kept, once the run exists: the desk writes its durable
+   * Seat record. The run's own `FlowSeatRecord` is the seat's working state
+   * and goes with the run; the Seat record is what outlives it. Absent on a
+   * port that keeps no records, which is every test port.
+   */
+  recorded?(room: string, seat: FlowSeatRecord): void
+  /**
    * Why this conversation's last turn ended badly, in the runtime's own words,
    * or null when it ended normally.
    *
@@ -112,10 +119,18 @@ export interface FlowPort {
   confine(folder: string): Promise<void>
   /** A worktree of its own, on a branch of its own, for a role that isolates. */
   isolate(root: string, name: string): Promise<string>
-  /** Runs a check's command. Resolves with its exit status, or null if it ran over. */
+  /**
+   * Runs a check's command. Resolves with its exit status, or null if it ran
+   * over. `card` says which card and round it is for, so the desk can record
+   * what it observed as that card's check evidence.
+   */
   run(
     command: string,
-    where: { readonly cwd: string; readonly timeoutSec: number },
+    where: {
+      readonly cwd: string
+      readonly timeoutSec: number
+      readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
+    },
   ): Promise<{ readonly status: number | null }>
   /** One room's runs, to every window. */
   changed(room: string, runs: readonly FlowRun[]): void
@@ -501,6 +516,7 @@ export class Flows implements TeamFlows {
       startedAt: now(),
     }
     this.#runs.set(id, run)
+    for (const seat of seats) this.#port.recorded?.(request.room, seat)
 
     /* Past this line the run exists, so a failure is *stopped* rather than
        unwound: its seats have their orders and are already waiting, and a run
@@ -1117,7 +1133,11 @@ export class Flows implements TeamFlows {
       if (!current || current.state !== 'running') return
       const card = board.intents.find((c) => c.id === intent)
       if (card && (card.state === 'done' || card.state === 'abandoned')) continue
-      const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
+      const { status } = await this.#port.run(check.run, {
+        cwd,
+        timeoutSec: check.timeout,
+        card: { room: run.room, intent, name: role.id, round: round.n },
+      })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
       const note =
         status === null
