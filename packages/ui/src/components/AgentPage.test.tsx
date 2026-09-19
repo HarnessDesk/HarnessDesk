@@ -15,6 +15,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AgentPage } from './AgentPage'
 import { AgentsRosterSection } from './AgentRoster'
 
 /**
@@ -151,9 +152,8 @@ const MODELS: readonly ModelInfo[] = [
   { id: 'opus-5', displayName: 'Opus 5', reasoningLevels: [{ id: 'high', label: 'High' }], supportsImages: false },
 ]
 
-const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; readonly seating?: MachineSeating } = {}) => {
-  const onLeave = vi.fn()
-  const snapshot = {
+const snapshotFor = (seating: MachineSeating): AppSnapshot =>
+  ({
     ...emptySnapshot(),
     status: 'open',
     home: '/Users/dev',
@@ -164,8 +164,10 @@ const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; reado
     agentsProject: '/w/storefront',
     agentPlans: PLANS,
     seating,
-  } as unknown as AppSnapshot
-  const store = {
+  }) as unknown as AppSnapshot
+
+const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}): AppStore =>
+  ({
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAgents: vi.fn(async () => {}),
@@ -180,7 +182,13 @@ const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; reado
     loadSeating: vi.fn(async () => {}),
     setSeating: vi.fn(async () => {}),
     modelsFor: vi.fn(async () => MODELS),
-  } as unknown as AppStore
+    ...overrides,
+  }) as unknown as AppStore
+
+const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; readonly seating?: MachineSeating } = {}) => {
+  const onLeave = vi.fn()
+  const snapshot = snapshotFor(seating)
+  const store = storeFor(snapshot)
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -204,6 +212,13 @@ const rowFor = (name: string): HTMLButtonElement => {
   return found
 }
 const settle = () => act(async () => {})
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 it('opens from its roster row, names its file, and opens or reveals it', () => {
   const { store, onLeave } = mount()
@@ -429,8 +444,9 @@ it('lists this Mac’s seats in order, each with its state here, and names the f
   expect(here).toContain('~/.harnessdesk/seating.json')
 })
 
-it('a seat moves, or goes, and Clear gives the Agent its own list back', () => {
+it('a seat moves, or goes, and Clear gives the Agent its own list back', async () => {
   const { store } = mount({ focus: 'code-reviewer' })
+  const expected = [{ runtime: 'codex' }, { runtime: 'claude-code' }]
   expect(labelled('Move up')).toHaveLength(2)
   expect(labelled('Move down')).toHaveLength(2)
   expect(labelled('Move up')[0]!.textContent).toContain('Move up')
@@ -438,11 +454,18 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', () => {
   expect(labelled('Move up')[0]!.disabled).toBe(true)
   expect(labelled('Move down')[1]!.disabled).toBe(true)
   act(() => labelled('Move down')[0]!.click())
-  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'claude-code' }, { runtime: 'codex' }])
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith(
+    'code-reviewer',
+    [{ runtime: 'claude-code' }, { runtime: 'codex' }],
+    expected,
+  )
   act(() => labelled('Remove this seat')[1]!.click())
-  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }])
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }], expected)
   act(() => button('Clear').click())
-  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null)
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, expected)
 })
 
 it('the last seat removed gives the Agent its own list back too', () => {
@@ -451,7 +474,89 @@ it('the last seat removed gives the Agent its own list back too', () => {
     seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }] },
   })
   act(() => labelled('Remove this seat')[0]!.click())
-  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null)
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, [{ runtime: 'codex' }])
+})
+
+it('disables every seat edit while a move is in flight, so a quick remove cannot undo it from the old list', async () => {
+  const { store } = mount({ focus: 'code-reviewer' })
+  const write = deferred<void>()
+  store.setSeating = vi.fn(() => write.promise)
+
+  act(() => labelled('Move down')[0]!.click())
+  expect(labelled('Move up').every((one) => one.disabled)).toBe(true)
+  expect(labelled('Move down').every((one) => one.disabled)).toBe(true)
+  expect(labelled('Remove this seat').every((one) => one.disabled)).toBe(true)
+  expect(button('Clear').disabled).toBe(true)
+  expect(button('Add a seat…').disabled).toBe(true)
+
+  act(() => labelled('Remove this seat')[1]!.click())
+  expect(store.setSeating).toHaveBeenCalledTimes(1)
+  expect(store.setSeating).toHaveBeenCalledWith(
+    'code-reviewer',
+    [{ runtime: 'claude-code' }, { runtime: 'codex' }],
+    [{ runtime: 'codex' }, { runtime: 'claude-code' }],
+  )
+
+  await act(async () => {
+    write.resolve(undefined)
+    await write.promise
+  })
+})
+
+it('two pages editing one Agent refuse the stale page, reload it, and show the refusal without undoing the first edit', async () => {
+  const message = "This Agent's seats on this Mac changed in another window; nothing was saved. The page now shows the current seats."
+  const original = [{ runtime: 'codex' }, { runtime: 'claude-code' }]
+  let hostSeats: readonly { readonly runtime: string }[] | null = original
+  const firstStore = storeFor(snapshotFor(SEATING), {
+    setSeating: vi.fn(async (_id: string, seats: readonly { readonly runtime: string }[] | null, expected: unknown) => {
+      expect(expected).toEqual(original)
+      hostSeats = seats
+    }),
+  })
+  const staleStore = storeFor(snapshotFor(SEATING), {
+    setSeating: vi.fn(async (_id: string, seats: readonly { readonly runtime: string }[] | null, expected: unknown) => {
+      if (JSON.stringify(expected) !== JSON.stringify(hostSeats)) throw new Error(message)
+      hostSeats = seats
+    }),
+    loadSeating: vi.fn(async () => {}),
+  })
+
+  act(() => {
+    root.render(
+      <>
+        <div data-page="first">
+          <StoreProvider store={firstStore}>
+            <AgentPage entry={ROSTER[0]!} onBack={() => {}} onLeave={() => {}} />
+          </StoreProvider>
+        </div>
+        <div data-page="stale">
+          <StoreProvider store={staleStore}>
+            <AgentPage entry={ROSTER[0]!} onBack={() => {}} onLeave={() => {}} />
+          </StoreProvider>
+        </div>
+      </>,
+    )
+  })
+  await settle()
+  vi.mocked(firstStore.loadSeating).mockClear()
+  vi.mocked(staleStore.loadSeating).mockClear()
+  const first = container.querySelector<HTMLElement>('[data-page="first"]')!
+  const stale = container.querySelector<HTMLElement>('[data-page="stale"]')!
+  const firstMove = [...first.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.getAttribute('aria-label') === 'Move down')!
+  const staleRemoves = [...stale.querySelectorAll<HTMLButtonElement>('button')].filter(
+    (one) => one.getAttribute('aria-label') === 'Remove this seat',
+  )
+
+  act(() => firstMove.click())
+  await settle()
+  expect(hostSeats).toEqual([{ runtime: 'claude-code' }, { runtime: 'codex' }])
+
+  act(() => staleRemoves[1]!.click())
+  await settle()
+  expect(staleStore.setSeating).toHaveBeenCalledWith('code-reviewer', [{ runtime: 'codex' }], original)
+  expect(staleStore.loadSeating).toHaveBeenCalledTimes(1)
+  expect(stale.textContent).toContain(message)
+  expect(hostSeats).toEqual([{ runtime: 'claude-code' }, { runtime: 'codex' }])
 })
 
 it('adds a seat chosen in words to the end of this Mac’s list', async () => {
@@ -464,7 +569,11 @@ it('adds a seat chosen in words to the end of this Mac’s list', async () => {
   choose('Effort', 'high')
   act(() => button('Add seat').click())
   await settle()
-  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }])
+  expect(store.setSeating).toHaveBeenCalledWith(
+    'judge',
+    [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }],
+    null,
+  )
 })
 
 it('an entry this Mac cannot read says where and why; a file that will not read is not written over from here', () => {
@@ -527,5 +636,9 @@ it('passes a model id with a slash in it through untouched — no special-casing
   choose('Model', 'gpt-5.6/preview')
   act(() => button('Add seat').click())
   await settle()
-  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'claude-code', model: 'gpt-5.6/preview' }])
+  expect(store.setSeating).toHaveBeenCalledWith(
+    'judge',
+    [{ runtime: 'claude-code', model: 'gpt-5.6/preview' }],
+    null,
+  )
 })

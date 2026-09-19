@@ -571,12 +571,42 @@ it("reads this Mac's seats when asked, keeps what setting them answers, and read
   expect(store.getSnapshot().seating).toBeNull()
   await store.loadSeating()
   expect(store.getSnapshot().seating).toEqual(seating)
-  await store.setSeating('code-reviewer', null)
-  expect(asked.find((one) => one.method === 'agent/seating/set')?.params).toEqual({ id: 'code-reviewer', seats: null })
+  await store.setSeating('code-reviewer', null, seating.entries[0]!.seats)
+  expect(asked.find((one) => one.method === 'agent/seating/set')?.params).toEqual({
+    id: 'code-reviewer',
+    seats: null,
+    expected: seating.entries[0]!.seats,
+  })
   expect(store.getSnapshot().seating?.entries).toEqual([])
   asked.length = 0
   handlers().onNotification({ method: 'agent/changed', params: { project: null } })
   await vi.waitFor(() => expect(asked.some((one) => one.method === 'agent/seating/read')).toBe(true))
+})
+
+it('never lets a seating read delayed across a write move the state backward', async () => {
+  const before = {
+    path: '/u/.harnessdesk/seating.json',
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
+    problems: [],
+  }
+  const after = {
+    ...before,
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
+  }
+  const staleRead = deferred<typeof before>()
+  answering({
+    'agent/seating/read': () => staleRead.promise,
+    'agent/seating/set': () => after,
+    'agent/seat/dry': () => [],
+  })
+
+  const read = store.loadSeating()
+  await store.setSeating('code-reviewer', after.entries[0]!.seats)
+  expect(store.getSnapshot().seating).toEqual(after)
+
+  staleRead.resolve(before)
+  await read
+  expect(store.getSnapshot().seating).toEqual(after)
 })
 
 /**

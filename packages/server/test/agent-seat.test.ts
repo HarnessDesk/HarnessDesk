@@ -3252,6 +3252,17 @@ test('the wire refuses more seats than an Agent may name, and the file refuses a
     assert.equal(error.code, 'badRequest')
     return true
   })
+  await assert.rejects(
+    client.call('agent/seating/set', {
+      id: 'reviewer',
+      seats: [{ runtime: 'seatfake' }],
+      expected: nine,
+    } as never),
+    (error: Error & { code?: string }) => {
+      assert.equal(error.code, 'badRequest')
+      return true
+    },
+  )
   await assert.rejects(client.call('agent/seating/set', { id: 'reviewer', seats: [] }), /at least one seat/)
 })
 
@@ -3297,7 +3308,7 @@ test('a set that changes nothing tells no window; a real change does; a refused 
  * roster watch is running here to push a notice of its own.
  */
 
-test('two sets started together are two writes and two notices, and the last notice finds the file as the last write left it', async () => {
+test('two sets without an expected value started together are two writes and two notices, and the last notice finds the file as the last write left it', async () => {
   const path = join(tempDir('hd-agent-seat-'), 'seating.json')
   await writeFile(path, JSON.stringify({ reviewer: ['codex'] }), 'utf8')
   const pushed: { notice: unknown; file: unknown }[] = []
@@ -3327,6 +3338,54 @@ test('two sets started together are two writes and two notices, and the last not
   await assert.rejects(() => set(ctx, { id: 'reviewer', seats: [] }), /at least one seat/)
   assert.equal(pushed.length, 2, 'still one notice for each of the two writes')
   assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['codex'] })
+})
+
+test('a stale expected value is refused inside the write queue, and the first edit is left unchanged', async () => {
+  const path = join(tempDir('hd-agent-seat-'), 'seating.json')
+  const original = [{ runtime: 'codex' }, { runtime: 'claude' }, { runtime: 'cursor' }]
+  const moved = [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }]
+  const removedFromStale = [{ runtime: 'codex' }, { runtime: 'claude' }]
+  await writeFile(path, JSON.stringify({ reviewer: ['codex', 'claude', 'cursor'] }), 'utf8')
+  const pushed: unknown[] = []
+  const ctx = {
+    seating: new MachineSeatingFile(path),
+    push: (notice: unknown) => pushed.push(notice),
+  } as never
+  const set = agentMethods['agent/seating/set']
+
+  const [first, stale] = await Promise.allSettled([
+    set(ctx, { id: 'reviewer', seats: moved, expected: original } as never),
+    set(ctx, { id: 'reviewer', seats: removedFromStale, expected: original } as never),
+  ])
+
+  assert.equal(first.status, 'fulfilled')
+  assert.equal(stale.status, 'rejected')
+  assert.match(
+    stale.status === 'rejected' ? String(stale.reason) : '',
+    /changed in another window; nothing was saved/,
+  )
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['claude', 'codex', 'cursor'] })
+  assert.equal(pushed.length, 1, 'only the accepted edit wrote and told the windows')
+})
+
+test('expected null is refused when an entry now exists, and that entry is left unchanged', async () => {
+  const path = join(tempDir('hd-agent-seat-'), 'seating.json')
+  await writeFile(path, JSON.stringify({ reviewer: ['claude'] }), 'utf8')
+  const pushed: unknown[] = []
+  const ctx = {
+    seating: new MachineSeatingFile(path),
+    push: (notice: unknown) => pushed.push(notice),
+  } as never
+
+  await assert.rejects(
+    agentMethods['agent/seating/set'](
+      ctx,
+      { id: 'reviewer', seats: [{ runtime: 'codex' }], expected: null } as never,
+    ),
+    /changed in another window; nothing was saved/,
+  )
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['claude'] })
+  assert.equal(pushed.length, 0)
 })
 
 /*

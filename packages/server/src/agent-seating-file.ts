@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 
 import { SEAT_PREFERENCE_LIMIT, type FlowSeat, type MachineSeating, type SeatingProblem } from '@harnessdesk/protocol'
 
-import { asList, asRecord, asText, parseSeatList, seatSpec, seatWritesCompactly } from './flow.js'
+import { asList, asRecord, asText, parseSeatList, sameSeat, seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
  * This machine's seats for its Agents: `seating.json` in the state directory.
@@ -144,6 +144,22 @@ const sameJson = (a: unknown, b: unknown): boolean => {
   return false
 }
 
+/** A valid entry as seats, including a hand-written long form; null when the entry itself does not read. */
+const seatsIn = (value: unknown): readonly FlowSeat[] | null => {
+  const listed = asList(value) ?? (asText(value) !== null || asRecord(value) ? [value] : null)
+  if (listed === null) return null
+  const { seats, broken } = parseSeatList(listed)
+  return broken.length === 0 ? seats : null
+}
+
+const sameSeats = (a: readonly FlowSeat[], b: readonly FlowSeat[]): boolean =>
+  a.length === b.length && a.every((seat, index) => sameSeat(seat, b[index]!))
+
+interface SeatingCompareAndSet {
+  readonly expected: readonly FlowSeat[] | null
+  readonly message: string
+}
+
 /** What one `set()` did: this machine's seats as they now read, and whether the file was written to get there. */
 export interface SeatingSetOutcome {
   readonly seating: MachineSeating
@@ -234,9 +250,10 @@ export class MachineSeatingFile {
    * the gap between that read and this call's own turn, could make stale by
    * the time this call runs.
    *
-   * `refuseIfDifferent` is a project Save's compare-and-set, decided the same
-   * way: "write only if this id is still absent, or still reads back exactly
-   * the seat this call is about to write" — the two cases a Save's own
+   * `refuseIfDifferent` is a compare-and-set decided the same way. A string is
+   * the project Save's original form: "write only if this id is still absent,
+   * or still reads back exactly the seat this call is about to write" — the
+   * two cases a Save's own
    * up-front check already treats as fine. A Save reads the file, decides the
    * id is absent or already its own seat, then awaits a project path walk and
    * an Agent-folder transaction before ever reaching this call; a different
@@ -246,12 +263,15 @@ export class MachineSeatingFile {
    * keeping what changed (`onlyIfAbsent`'s own answer) or silently overwriting
    * it — so a Save can roll back the folder it already made and refuse in its
    * own words, the same ones its up-front check would have refused with had
-   * it seen this file's current answer instead of the one it started from.
+   * it seen this file's current answer instead of the one it started from. An
+   * object carries the exact entry an interactive edit was built from; `null`
+   * means it saw no entry. Both comparisons happen against the file inside the
+   * queue, and valid hand-written long forms compare by the seats they mean.
    */
   set(
     id: string,
     seats: readonly FlowSeat[] | null,
-    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string } = {},
+    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string | SeatingCompareAndSet } = {},
   ): Promise<SeatingSetOutcome> {
     const run = async (): Promise<SeatingSetOutcome> => {
       // Refused before anything is read or written: accepted, this id would
@@ -331,8 +351,16 @@ export class MachineSeatingFile {
       // window's choice, made after whatever read led to this call — refused
       // in the caller's own words, never silently kept (that is
       // `onlyIfAbsent`'s job) and never silently replaced.
-      if (options.refuseIfDifferent !== undefined && before !== undefined && !sameJson(before, after)) {
+      if (typeof options.refuseIfDifferent === 'string' && before !== undefined && !sameJson(before, after)) {
         throw new Error(options.refuseIfDifferent)
+      }
+      if (typeof options.refuseIfDifferent === 'object') {
+        const expected = options.refuseIfDifferent.expected
+        const matches =
+          expected === null
+            ? before === undefined
+            : before !== undefined && ((current) => current !== null && sameSeats(current, expected))(seatsIn(before))
+        if (!matches) throw new Error(options.refuseIfDifferent.message)
       }
       if (sameJson(before, after)) return { seating: await this.read(), wrote: false }
 

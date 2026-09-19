@@ -218,7 +218,15 @@ export const agentMethods = {
   'agent/seating/read': (ctx) => ctx.seating.read(),
 
   'agent/seating/set': async (ctx, params) => {
-    const { seating, wrote } = await ctx.seating.set(params.id, params.seats)
+    const changedElsewhere =
+      "This Agent's seats on this Mac changed in another window; nothing was saved. The page now shows the current seats."
+    const { seating, wrote } = await ctx.seating.set(
+      params.id,
+      params.seats,
+      params.expected === undefined
+        ? {}
+        : { refuseIfDifferent: { expected: params.expected, message: changedElsewhere } },
+    )
     // Every plan drawn before a write is stale, in every window: each write is
     // told, once, and nothing else is — a set that changes nothing must not
     // send every window back to re-read a file that did not change. Whether it

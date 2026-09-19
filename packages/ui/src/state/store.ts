@@ -20,6 +20,7 @@ import {
   findOption,
   type EditorDocument,
   type EditorEvent,
+  type MachineSeating,
   type ModelInfo,
   type NoticeLevel,
   type McpServer,
@@ -3701,6 +3702,8 @@ export class AppStore {
   #agentsGeneration = 0
   /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
   #agentPlansGeneration = 0
+  /** Shared by seating reads and writes, so an older read can never land over a newer set's answer. */
+  #seatingGeneration = 0
   /**
    * Set the instant a window's first `loadAgents()` call is made, never
    * cleared. `#snapshot.agents` says whether a load has *answered* — it stays
@@ -3924,11 +3927,16 @@ export class AppStore {
 
   /** This machine's seats for its Agents — `seating.json` — as the host reads it. */
   async loadSeating(): Promise<void> {
+    const generation = ++this.#seatingGeneration
+    let seating: MachineSeating
     try {
-      this.#patch({ seating: await this.transport.request('agent/seating/read', {}) })
+      seating = await this.transport.request('agent/seating/read', {})
     } catch (error) {
-      this.notice('warning', describe(error))
+      if (generation === this.#seatingGeneration) this.notice('warning', describe(error))
+      return
     }
+    if (generation !== this.#seatingGeneration) return
+    this.#patch({ seating })
   }
 
   /**
@@ -3946,8 +3954,18 @@ export class AppStore {
    * change's notice is a round trip this window need not wait for when it
    * already knows the write happened.
    */
-  async setSeating(id: string, seats: readonly FlowSeat[] | null): Promise<void> {
-    this.#patch({ seating: await this.transport.request('agent/seating/set', { id, seats }) })
+  async setSeating(
+    id: string,
+    seats: readonly FlowSeat[] | null,
+    expected?: readonly FlowSeat[] | null,
+  ): Promise<void> {
+    const generation = ++this.#seatingGeneration
+    const seating = await this.transport.request('agent/seating/set', {
+      id,
+      seats,
+      ...(expected !== undefined ? { expected } : {}),
+    })
+    if (generation === this.#seatingGeneration) this.#patch({ seating })
     void this.loadAgentPlans()
   }
 

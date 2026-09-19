@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
   SEAT_PREFERENCE_LIMIT,
@@ -85,6 +85,9 @@ export const AgentPage = ({
   const [customizing, setCustomizing] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [seatingBusy, setSeatingBusy] = useState(false)
+  const [seatingProblem, setSeatingProblem] = useState<string | null>(null)
+  const seatingInFlight = useRef(false)
   const definition = entry.definition
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
@@ -98,6 +101,26 @@ export const AgentPage = ({
   const openFile = (): void => {
     store.openFile(entry.path)
     onLeave()
+  }
+
+  const setMachineSeats = async (
+    seats: readonly FlowSeat[] | null,
+    expected: readonly FlowSeat[] | null,
+  ): Promise<void> => {
+    if (seatingInFlight.current) return
+    seatingInFlight.current = true
+    setSeatingBusy(true)
+    setSeatingProblem(null)
+    try {
+      await store.setSeating(entry.id, seats, expected)
+    } catch (error) {
+      await store.loadSeating()
+      setSeatingProblem(error instanceof Error ? error.message : 'This Mac’s seats were not saved.')
+      throw error
+    } finally {
+      seatingInFlight.current = false
+      setSeatingBusy(false)
+    }
   }
 
   return (
@@ -207,7 +230,13 @@ export const AgentPage = ({
           </Rows>
 
           <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />
-          <MachineSeats entry={entry} onAdd={() => setAdding(true)} />
+          <MachineSeats
+            entry={entry}
+            busy={seatingBusy}
+            problem={seatingProblem}
+            onSet={setMachineSeats}
+            onAdd={() => setAdding(true)}
+          />
 
           <SectionHead name="What it hands back" />
           <Rows>
@@ -260,7 +289,8 @@ export const AgentPage = ({
       {adding && definition && (
         <AddSeatDialog
           entry={entry}
-          current={snapshot.seating?.entries.find((one) => one.id === entry.id)?.seats ?? []}
+          expected={snapshot.seating?.entries.find((one) => one.id === entry.id)?.seats ?? null}
+          onSet={setMachineSeats}
           onClose={() => setAdding(false)}
         />
       )}
@@ -362,10 +392,21 @@ export const SeatRow = ({
  * where it is, with why — never dropped, and never quietly replaced by the
  * list it replaced.
  */
-const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly onAdd: () => void }) => {
+const MachineSeats = ({
+  entry,
+  busy,
+  problem,
+  onSet,
+  onAdd,
+}: {
+  readonly entry: AgentEntry
+  readonly busy: boolean
+  readonly problem: string | null
+  readonly onSet: (seats: readonly FlowSeat[] | null, expected: readonly FlowSeat[] | null) => Promise<void>
+  readonly onAdd: () => void
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const [problem, setProblem] = useState<string | null>(null)
   useEffect(() => {
     void store.loadSeating()
   }, [store])
@@ -388,10 +429,7 @@ const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly o
       : null
 
   const set = (seats: readonly FlowSeat[] | null): void => {
-    setProblem(null)
-    store.setSeating(entry.id, seats).catch((error: unknown) => {
-      setProblem(error instanceof Error ? error.message : 'This Mac’s seats were not saved.')
-    })
+    void onSet(seats, mine?.seats ?? null).catch(() => {})
   }
   const move = (from: number, to: number): void => {
     if (!mine) return
@@ -414,14 +452,14 @@ const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly o
         action={
           <span className={styles.actions}>
             {mine && (
-              <Button size="sm" variant="outline" disabled={unreadable} onClick={() => set(null)}>
+              <Button size="sm" variant="outline" disabled={busy || unreadable} onClick={() => set(null)}>
                 Clear
               </Button>
             )}
             <Button
               size="sm"
               variant="outline"
-              disabled={unreadable || full}
+              disabled={busy || unreadable || full}
               title={
                 unreadable
                   ? 'The file cannot be read, so nothing here writes to it — fix it by hand first.'
@@ -469,7 +507,7 @@ const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly o
                     size="sm"
                     variant="ghost"
                     aria-label="Move up"
-                    disabled={index === 0}
+                    disabled={busy || index === 0}
                     onClick={() => move(index, index - 1)}
                   >
                     <MoveUpIcon size={14} />
@@ -479,7 +517,7 @@ const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly o
                     size="sm"
                     variant="ghost"
                     aria-label="Move down"
-                    disabled={index === mine.seats.length - 1}
+                    disabled={busy || index === mine.seats.length - 1}
                     onClick={() => move(index, index + 1)}
                   >
                     <MoveDownIcon size={14} />
@@ -490,6 +528,7 @@ const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly o
                     variant="ghost"
                     aria-label="Remove this seat"
                     title="Remove this seat"
+                    disabled={busy}
                     onClick={() => remove(index)}
                   >
                     <CrossIcon size={13} />
@@ -515,11 +554,13 @@ const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly o
  */
 const AddSeatDialog = ({
   entry,
-  current,
+  expected,
+  onSet,
   onClose,
 }: {
   readonly entry: AgentEntry
-  readonly current: readonly FlowSeat[]
+  readonly expected: readonly FlowSeat[] | null
+  readonly onSet: (seats: readonly FlowSeat[] | null, expected: readonly FlowSeat[] | null) => Promise<void>
   readonly onClose: () => void
 }) => {
   const store = useStore()
@@ -560,7 +601,7 @@ const AddSeatDialog = ({
       ...(thinking ? { thinking: true } : {}),
     }
     try {
-      await store.setSeating(entry.id, [...current, seat])
+      await onSet([...(expected ?? []), seat], expected)
       onClose()
     } catch (error) {
       setBusy(false)
@@ -586,7 +627,7 @@ const AddSeatDialog = ({
       }
     >
       <FormStack>
-        {current.length === 0 && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
+        {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
         <Field label="Runtime">
           {(control) => (
             <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
