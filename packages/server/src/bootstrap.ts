@@ -11,6 +11,7 @@ import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
 import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import { ToolGateway } from './tool-gateway.js'
+import { GatedRegistry } from './ceilings/gate.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -160,6 +161,9 @@ export const createDefaultHost = (
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
     },
   )
+  // Every runtime sees the same capability surface; the gate consults the
+  // host only when a tool is invoked, after the host below exists.
+  const gated = new GatedRegistry(extensions, () => host.ceilingGate)
 
   // Whether a newer build of an agent is published: one registry read a day
   // per package, cached here, and off entirely with HARNESSDESK_NO_UPDATE_CHECK.
@@ -199,7 +203,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
       logger: logger.child(id),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     })
 
@@ -309,7 +313,7 @@ export const createDefaultHost = (
           session: scope.sessionId,
         })
       }
-      return extensions.invokeTool(
+      return gated.invokeTool(
         tool.id,
         args,
         scope
@@ -452,7 +456,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
       logger: logger.child('codex'),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     }),
   )

@@ -8,9 +8,13 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  ceilingOfPermission,
   holderOf,
+  itemId,
   isFolderGone,
   type CeilingLevel,
+  type NoticeItem,
+  type SeatCeiling,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -67,6 +71,7 @@ import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
+import { CeilingGate } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
@@ -2038,6 +2043,35 @@ export class Host {
    */
   get forgePlane(): ForgePlane {
     return this.#forge
+  }
+
+  /** The gate every desk-tool call passes before it reaches its plugin. */
+  get ceilingGate(): CeilingGate {
+    return this.#ceilingGate
+  }
+
+  readonly #ceilingGate = new CeilingGate({
+    ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
+    say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
+  })
+
+  /** The Agent or live-flow ceiling this conversation runs under. */
+  #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
+    const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
+    if (seated) return seated
+    const flowSeat = this.#flows.seatOf(runtime, sessionId)
+    return flowSeat ? { level: ceilingOfPermission(flowSeat.permission), hold: 'asked' } : null
+  }
+
+  /** Put a desk decision in the conversation's running or latest turn. */
+  #say(runtime: string, sessionId: string, text: string): boolean {
+    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text }
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
   }
 
   /**

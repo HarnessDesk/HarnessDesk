@@ -277,6 +277,17 @@ export class Flows implements TeamFlows {
     await this.#writes
   }
 
+  /** A seat governed by a flow that is still live; settled and stopped runs govern nothing. */
+  seatOf(runtime: string, sessionId: string): FlowSeatRecord | null {
+    const key = String(sessionKey(runtime as never, sessionId as never))
+    for (const run of this.#runs.values()) {
+      if (run.state !== 'running' && run.state !== 'stalled') continue
+      const seat = Array.isArray(run.seats) ? run.seats.find((one) => one.key === key) : undefined
+      if (seat) return seat
+    }
+    return null
+  }
+
   // ------------------------------------------------------------------ reading
 
   /**
