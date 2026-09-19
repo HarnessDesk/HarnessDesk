@@ -129,6 +129,10 @@
   padding: 0 var(--rail) 4px; /* desk: 6 → --rail, the column's one inset */
 }
 
+.nav > * + * {
+  margin-top: var(--hd-space-0-5);
+}
+
 /* New session, Plugins: the same size as the list they sit above — one
    column, one reading size, the way Codex's "New chat" matches its projects.
 
@@ -284,16 +288,15 @@
   color: var(--hd-primary);
 }
 
-.groupRow[data-current] .groupName {
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-}
-
 .groupName {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   mask-image: var(--hd-fade);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  font-weight: var(--hd-weight-medium);
 }
 
 /* Reserve the actions in the content layout, leaving the navigation
@@ -351,8 +354,12 @@
    Codex and Claude Code both leave a couple of pixels between rows even at
    their tightest, which is what makes a hover or selection pill read as one
    row rather than as a band across the column. */
-.rowWrap + .rowWrap {
+.triage .rowWrap + .rowWrap {
   margin-top: 2px;
+}
+
+.nested > * + * {
+  margin-top: var(--hd-space-0-5);
 }
 
 .row {
@@ -383,7 +390,6 @@
 .row[data-active] .rowTitle,
 .row[data-open] .rowTitle {
   color: var(--hd-sidebar-selected-foreground, var(--hd-sidebar-foreground));
-  font-weight: var(--hd-nav-weight-selected, var(--hd-weight-normal));
 }
 
 /* Everything else in a filled row goes with it. A grey wash lets the metadata
@@ -421,12 +427,14 @@
 }
 
 .rowTitle {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   mask-image: var(--hd-fade);
-  font-size: var(--hd-text);
+  font-size: var(--hd-text-sm); /* desk: var(--hd-text) → var(--hd-text-sm), sidebar rows use the chrome step */
   color: var(--hd-sidebar-foreground);
-  line-height: var(--hd-line);
+  line-height: var(--hd-line-sm); /* desk: var(--hd-line) → var(--hd-line-sm), the line follows its type step */
 }
 
 .rowWorktree {
@@ -1464,21 +1472,8 @@
  * through a band or a fill — the row is still a destination you press.
  */
 .roomRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   width: 100%;
-  height: var(--hd-row-h);
-  padding: 0 8px 0 2px;
-  border-radius: 8px;
-  color: var(--hd-sidebar-foreground);
-  cursor: pointer;
   text-align: left;
-  font-size: var(--hd-text);
-}
-
-.roomRow:hover {
-  background: var(--hd-sidebar-hover);
 }
 
 /* A held message is the team's "needs you": it goes nowhere until somebody

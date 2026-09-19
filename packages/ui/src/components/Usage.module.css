@@ -41,10 +41,6 @@
   text-overflow: ellipsis;
 }
 
-.acct[data-selected] .acctName {
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-}
-
 .acctFigure {
   grid-row: 1;
   font-size: var(--hd-text-xs);

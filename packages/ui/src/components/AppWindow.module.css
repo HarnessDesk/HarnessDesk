@@ -62,47 +62,8 @@
   place-items: center;
 }
 
-/* The search field, on the tokens every other control in this window reads:
-   the page's control height, the small radius, the elevation and the focus
-   ring. It was a 32px pill with a hard border swap — a pill because nothing
-   said otherwise, at a height nothing else in the window shared. */
-.winSearch {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  height: var(--hd-page-search-h, 32px);
+.winSearchLayout {
   margin-top: var(--hd-space-1-5);
-  padding: 0 var(--hd-space-2-5);
-  border: 1px solid var(--hd-border-strong);
-  /* Desk's is a pill; Studio squares it to the radius every other control on
-     the page is cut to. */
-  border-radius: var(--hd-page-search-radius, 16px);
-  background: var(--hd-card);
-  box-shadow: var(--hd-input-shadow);
-  color: var(--hd-sidebar-muted-foreground);
-  transition:
-    border-color var(--hd-duration-fast) var(--hd-ease),
-    box-shadow var(--hd-duration-fast) var(--hd-ease);
-}
-
-.winSearch:focus-within {
-  border-color: var(--hd-ring);
-  box-shadow: var(--hd-focus-ring);
-}
-
-.winSearch input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  color: var(--hd-sidebar-foreground);
-  font: inherit;
-  font-size: var(--hd-text-sm);
-  outline: none;
-}
-
-.winSearch input::placeholder {
-  color: var(--hd-sidebar-muted-foreground);
 }
 
 /* A column, so a rail's last child can take `margin-top: auto` and sit at the

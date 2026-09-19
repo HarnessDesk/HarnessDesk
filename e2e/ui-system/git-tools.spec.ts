@@ -1,0 +1,101 @@
+import { expect, test, type Page } from '@playwright/test'
+
+/**
+ * The history tool row at the widths it is really given.
+ *
+ * The pane opens beside a conversation at about 460px, and at that width the
+ * row has room for its controls and not for the commit count as well. The
+ * count gives way first because nobody acts on it, but it leaves whole: cut to
+ * "0…" it is a number with no noun, which answers nothing. The search beside it
+ * keeps room for its own words either way.
+ */
+const mount = async (page: Page, width: number) => {
+  await page.route('**/src/preview/main.tsx*', async route => {
+    const response = await route.fetch()
+    const source = await response.text()
+    const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+    if (!reactUrl) throw new Error('Preview React module import was not found')
+    await route.fulfill({ response, body: `${source}
+      import gitReact from ${JSON.stringify(reactUrl)};
+      const gitElement = gitReact.createElement;
+      import { GitPane } from '/src/components/GitPane.tsx';
+      import { MountProvider } from '/src/panels/mount.tsx';
+      const gitTransport = { request: async (method) => {
+        if (method === 'git/log') return { commits: [], hasMore: false };
+        if (method === 'git/refs') return {
+          headSha: 'aaaa111', branch: 'main', branches: [], remotes: [], tags: [], stashes: []
+        };
+        if (method === 'git/worktrees') return [];
+        return null;
+      }};
+      const gitStore = new Proxy(store, {
+        get: (target, key) => key === 'transport' ? gitTransport : Reflect.get(target, key)
+      });
+      const gitFrame = document.createElement('section');
+      gitFrame.setAttribute('aria-label', 'Git tools fixture');
+      Object.assign(gitFrame.style, {
+        position: 'fixed', top: '80px', left: '16px', width: '${width}px',
+        height: '550px', background: 'var(--hd-background)', zIndex: '1'
+      });
+      document.body.append(gitFrame);
+      createRoot(gitFrame).render(gitElement(StoreProvider, { store: gitStore },
+        gitElement(MountProvider, { scope: { area: 'main', id: 'git-preview', view: { kind: 'git', root: '/repo/example' } } },
+          gitElement(GitPane))));
+    ` })
+  })
+  await page.goto('/preview.html')
+  const frame = page.getByRole('region', { name: 'Git tools fixture' })
+  await expect(frame.getByRole('searchbox', { name: 'Search history' })).toBeVisible()
+  return frame
+}
+
+test('in the pane’s opening width the count leaves whole and the search keeps its words', async ({ page }) => {
+  const frame = await mount(page, 460)
+  await expect(frame.getByText('0 commits', { exact: true })).toBeHidden()
+  const search = await frame.getByRole('searchbox', { name: 'Search history' }).evaluate(node => node.getBoundingClientRect().width)
+  expect(search).toBeGreaterThanOrEqual(120)
+  // Everything else still fits on the one 36px line.
+  const row = await frame.getByRole('combobox', { name: 'What the search matches' }).evaluate(node => {
+    let bar = node.parentElement!
+    while (!bar.querySelector('[role="radiogroup"]')) bar = bar.parentElement!
+    return bar.getBoundingClientRect().height
+  })
+  expect(row).toBe(36)
+})
+
+test('with room for it the count stands whole, never cut to a number without its noun', async ({ page }) => {
+  const frame = await mount(page, 900)
+  const count = frame.getByText('0 commits', { exact: true })
+  await expect(count).toBeVisible()
+  const cut = await count.evaluate(node => node.scrollWidth > node.clientWidth)
+  expect(cut).toBe(false)
+  // One line of controls is still the 36px row it always was.
+  expect(await count.evaluate(node => node.parentElement!.getBoundingClientRect().height)).toBe(36)
+})
+
+/* A split can make the pane narrower than the row's controls. The row then
+   takes a second line; it never pushes a control past its own edge, where the
+   pane would cut it off, and the search still keeps room for its words. */
+test('narrower than its controls, the row wraps and cuts nothing off', async ({ page }) => {
+  const frame = await mount(page, 380)
+  const search = frame.getByRole('searchbox', { name: 'Search history' })
+  await expect(search).toBeVisible()
+  const row = await search.evaluate(node => {
+    let bar = node.parentElement!
+    while (!bar.querySelector('[role="radiogroup"]')) bar = bar.parentElement!
+    const edge = bar.getBoundingClientRect()
+    const spill = [...bar.children].filter(child => {
+      const box = child.getBoundingClientRect()
+      return box.width > 0 && (box.right > edge.right + 0.5 || box.left < edge.left - 0.5)
+    }).map(child => child.className)
+    // The qualifier belongs to the field: they share a line, qualifier after.
+    const field = node.getBoundingClientRect()
+    const scope = bar.querySelector('[aria-label="What the search matches"]')!.getBoundingClientRect()
+    const together = Math.abs((field.top + field.bottom) / 2 - (scope.top + scope.bottom) / 2) < 1 && scope.left > field.right
+    return { spill, height: edge.height, search: field.width, together }
+  })
+  expect(row.spill).toEqual([])
+  expect(row.search).toBeGreaterThanOrEqual(120)
+  expect(row.height).toBeGreaterThan(36)
+  expect(row.together).toBe(true)
+})

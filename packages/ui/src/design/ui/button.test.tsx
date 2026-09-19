@@ -58,6 +58,30 @@ describe('the canonical button', () => {
     }
   })
 
+  it('never changes the label weight for a chosen state', () => {
+    for (const variant of ['row', 'navigation', 'choice'] as const) {
+      const classes = buttonVariants({ variant })
+      expect(classes).not.toMatch(/(?:data-\[(?:selected|active|current|open|on)\]|aria-checked):font-/)
+    }
+  })
+
+  /* The weight left, so the fill is now the only mark a chosen row has. Each
+     state a caller uses to choose one must carry a fill, or that choice is
+     drawn by nothing — the browser contract measures the fills themselves. */
+  it('gives every state a caller chooses with a fill of its own', () => {
+    const chosen = {
+      row: ['data-[selected]', 'data-[current]', 'data-[on]', 'aria-checked'],
+      navigation: ['data-[selected]', 'data-[current]'],
+      choice: ['data-[selected]', 'data-[on]', 'aria-checked'],
+    } as const
+    for (const [variant, states] of Object.entries(chosen)) {
+      const classes = buttonVariants({ variant: variant as keyof typeof chosen })
+      for (const state of states) {
+        expect(classes, `${variant} ${state} has no fill`).toContain(`${state}:bg-`)
+      }
+    }
+  })
+
 })
 
 /**
