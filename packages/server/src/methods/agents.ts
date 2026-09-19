@@ -21,6 +21,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from '../agent-def.js'
+import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
   agentSource,
@@ -204,14 +205,44 @@ export const agentMethods = {
           `${definition.name} was seated on ${describeSeat(seat, words)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
         )
       }
-      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, {
+      /* `ceiling` is the one value phase 3 changes here: the ceiling this seat
+         actually runs under, and whether the runtime holds it. Null until then,
+         on the record the host keeps and on the durable one alike. */
+      const seated: SeatedAs = {
         agent: definition.id,
         name: definition.name,
         briefDigest: digest,
         permission,
         seatLabel: opened.label,
         passedOver: said(passed),
-      })
+        ceiling: null,
+      }
+      /* Written before the seat is kept, and awaited. A seat whose record could
+         not be written is closed, as one whose brief could not be handed over
+         is: no conversation works as an Agent with no record that it did. */
+      try {
+        await ctx.evidence.seats.opened({
+          agent: { id: definition.id, name: definition.name, origin: entry.origin },
+          briefDigest: digest,
+          seat,
+          seatLabel: seated.seatLabel,
+          passedOver: seated.passedOver,
+          // Today's generation of standing order, as the Agent's file said it. Phase 3
+          // writes `{ kind: 'ceiling', level }` here for an Agent that says only `ceiling:`.
+          standing: { kind: 'permission', permission },
+          ceiling: seated.ceiling,
+          cwd: params.cwd,
+          session: { runtime: opened.runtime, sessionId: opened.sessionId },
+          board: null,
+          role: null,
+        })
+      } catch (error) {
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw new Error(
+          `${definition.name} was seated on ${describeSeat(seat, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
+        )
+      }
+      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, seated)
     }
   },
 

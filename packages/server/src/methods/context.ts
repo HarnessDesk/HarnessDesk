@@ -34,6 +34,7 @@ import type { AuditLog } from '../audit.js'
 import type { CatalogRefresher } from '../catalog-refresher.js'
 import type { CredentialBroker } from '../credentials.js'
 import type { EditorPlane } from '../editor-plane.js'
+import type { EvidencePlane } from '../evidence/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger } from '../ledger/index.js'
 import type { LibraryUsageReader } from '../library-usage.js'
@@ -89,6 +90,12 @@ export interface HostContext {
   readonly agents: Agents
   /** This machine's seats for its Agents: `seating.json`, which replaces an Agent's `prefer` here. */
   readonly seating: MachineSeatingFile
+  /**
+   * The evidence plane: every Seat this desk kept, what it observed, and the
+   * project checks it runs once a person has seen them. Its own store, never
+   * the usage ledger (`ledger()`).
+   */
+  readonly evidence: EvidencePlane
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher

@@ -1,4 +1,5 @@
 import type { SeatCandidate } from './agent.js'
+import type { CheckUnseen } from './evidence.js'
 
 /**
  * Failures a client can do something about, named on the wire.
@@ -186,3 +187,24 @@ export class BriefNotHandedOverError extends Error {
 }
 
 export const isBriefNotHandedOver = (error: unknown): boolean => wireCodeOf(error) === 'briefNotHandedOver'
+
+/**
+ * A project's check has not been approved, as its file is now, by a person on
+ * this machine — so nothing ran. `wireData` carries the command verbatim, and
+ * the file's generation, for the surface to show and ask about. The person's
+ * answer is the same call with `seen` and `digest` set to exactly what they
+ * were shown, which runs only while the file is still that.
+ */
+export class CheckUnseenError extends Error {
+  readonly wireCode = 'checkUnseen'
+  constructor(
+    message: string,
+    readonly wireData: CheckUnseen,
+  ) {
+    super(message)
+    this.name = 'CheckUnseenError'
+  }
+}
+
+/** Host-side, like `isSeatRefused`: a renderer reads `error.code === 'checkUnseen'`. */
+export const isCheckUnseen = (error: unknown): boolean => wireCodeOf(error) === 'checkUnseen'

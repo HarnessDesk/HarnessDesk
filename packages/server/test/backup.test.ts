@@ -157,7 +157,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   // Nothing credential-shaped travels: the file has exactly the stores a backup owns.
   assert.deepEqual(
     Object.keys(backup).sort(),
-    ['agentFolders', 'agents', 'exportedAt', 'hostVersion', 'kind', 'preferences', 'seating', 'transcripts', 'version'],
+    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'hostVersion', 'kind', 'preferences', 'seating', 'transcripts', 'version'],
   )
   assert.deepEqual(backup.agentFolders, [])
   assert.equal(backup.seating, null)

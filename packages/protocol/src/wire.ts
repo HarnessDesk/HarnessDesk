@@ -10,6 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
+import type { BoardEvidence, ProjectChecks, SeatRecord } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
@@ -129,6 +130,19 @@ export interface BackupFile {
   }[]
   /** This machine's `seating.json`, or null when it was absent or could not be read. */
   readonly seating?: Readonly<Record<string, unknown>> | null
+  /**
+   * What the desk observed and every Seat it kept: each project's evidence
+   * store, as the lines it holds. Never the commands this machine has approved —
+   * those are this machine's alone, and no backup carries them. Absent in a
+   * backup from before it existed.
+   */
+  readonly evidence?: readonly {
+    readonly project: string
+    readonly seats: readonly unknown[]
+    readonly facts: readonly unknown[]
+    /** Lines the exporting build could not read — a newer build's, or damaged — left out, and counted so the export says so. */
+    readonly unreadable?: number
+  }[]
 }
 
 /**
@@ -153,6 +167,19 @@ export interface BackupReport {
   readonly transcripts: { readonly restored: number; readonly skipped: number }
   readonly agentFolders: { readonly restored: number; readonly skipped: number }
   readonly seating: { readonly restored: number; readonly skipped: number }
+  /**
+   * Evidence and Seat records, counted by what became of each: `duplicate` was
+   * already here; `refused` could not be read, or asked for what a backup may
+   * not do here — close a Seat this desk kept, dress a conversation this desk
+   * seated, stand for a project it does not belong to, or go past a limit;
+   * `failed` could not be written.
+   */
+  readonly evidence: {
+    readonly restored: number
+    readonly duplicate: number
+    readonly refused: number
+    readonly failed: number
+  }
 }
 
 /**
@@ -1727,6 +1754,64 @@ export interface HostMethods {
     result: null
   }
 
+  /**
+   * A conversation's Seat record: the latest Seat the desk kept it as, with how
+   * it ended, or null when the desk never seated it. Read-only, as the record
+   * is: it is written once, when the seat is kept, and closed once.
+   */
+  'evidence/seat': {
+    params: { readonly runtime: string; readonly sessionId: string }
+    result: SeatRecord | null
+  }
+  /**
+   * A project's named checks — `.harnessdesk/checks.yml` at the top of its main
+   * checkout, as committed at its `HEAD` — each command verbatim, with whether
+   * this machine has approved it for this generation of the file, whether the
+   * working copy differs from what is committed, and every problem with the
+   * file, where it is. Reads; never runs anything. `project` is held to the
+   * folders the person opened.
+   */
+  'evidence/checks': {
+    params: { readonly project: string }
+    result: ProjectChecks
+  }
+  /**
+   * A room's evidence: for each card that carries any, the latest fact of each
+   * kind the desk observed — each named check apart — and how it stands now
+   * against its branch, with the Seat that produced it in words; the named
+   * checks running for it; and the checks its project names. Read on demand;
+   * every change after is pushed whole, as `evidence/changed`.
+   */
+  'evidence/board': {
+    params: { readonly room: string }
+    result: BoardEvidence
+  }
+  /**
+   * Runs one of the room's project's named checks for a card, and answers once
+   * it has started: what it observed arrives as the room's evidence.
+   *
+   * Security-critical. A command a repository names runs only after a person
+   * has approved it, verbatim, on this machine, for this repository and this
+   * generation of its checks file as committed; until then — and again
+   * whenever the file changes in any way — nothing runs, and the call is
+   * refused `checkUnseen` with the command and the file's generation as data
+   * (`CheckUnseen`). The person's answer is the same call with `seen` and
+   * `digest` set to exactly what they were shown, which runs only while the
+   * file is still exactly that. It runs with the person's own authority.
+   */
+  'evidence/check/run': {
+    params: {
+      readonly room: string
+      readonly card: number
+      readonly name: string
+      /** The answer: the command exactly as it was shown… */
+      readonly seen?: string
+      /** …and the checks file it was shown from (`CheckUnseen.digest`). */
+      readonly digest?: string
+    }
+    result: { readonly started: true }
+  }
+
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {
     params: { readonly root: string }
@@ -2246,6 +2331,15 @@ export type WireNotification =
        */
       readonly method: 'flow/changed'
       readonly params: { readonly room: string; readonly runs: readonly FlowRun[] }
+    }
+  | {
+      /**
+       * One room's evidence, whole — sent when the desk records a fact for one
+       * of its cards, and when a named check starts or ends — for the reason
+       * the board is sent whole: a new fact can move a card to another column.
+       */
+      readonly method: 'evidence/changed'
+      readonly params: { readonly room: string; readonly evidence: BoardEvidence }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
 
