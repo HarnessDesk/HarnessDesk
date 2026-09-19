@@ -38,6 +38,7 @@ import { countFileChange, wholeFileOf } from '../lib/diff'
 import {
   describedTitle,
   isSilentReasoning,
+  PATH_KEYS,
   reasoningBody,
   reasoningHeadline,
   shellCommandOf as toolCallCommandOf,
@@ -121,14 +122,13 @@ const relativeTo = (path: string, root: string | undefined): string => {
 }
 
 const EMPTY_SENTENCES = new Map<string, string>()
-const FILE_PATH_KEYS = ['file_path', 'filePath', 'path', 'target_file', 'notebook_path', 'file']
 
 /** A path argument shared by the adapters' read, search, and edit tools. */
 const pathArgument = (args: unknown): string | null => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
   const record = args as Record<string, unknown>
   return (
-    FILE_PATH_KEYS.map((key) => record[key]).find(
+    PATH_KEYS.map((key) => record[key]).find(
       (value): value is string => typeof value === 'string' && value.trim().length > 0,
     ) ?? null
   )
@@ -986,7 +986,8 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
   // A call the lookup has no grammar for carries no object in its sentence,
   // so its one telling argument — the page, the query — stands beside it.
-  const headline = !described && !detail ? headlineArg(item.args, root) : null
+  const argument = !described && !detail ? headlineArg(item.args, root) : null
+  const headline = argument && !label.includes(argument.split('/').pop() ?? argument) ? argument : null
   const change = verb === 'fileChange' ? editOf(item) : null
   const counts = change ? countFileChange(change) : null
   const Icon = VERB_ICON[verb]

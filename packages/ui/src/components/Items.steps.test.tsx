@@ -104,6 +104,14 @@ describe('step sentences', () => {
         status: 'completed',
         args: { url: 'https://example.com/docs/retries' },
       },
+      {
+        id: 'titled-edit',
+        type: 'toolCall',
+        tool: 'Edit src/checkout/retry.ts',
+        source: { kind: 'builtin' },
+        status: 'completed',
+        args: { path: 'src/checkout/retry.ts' },
+      },
     ] as unknown as AgentItem[]
 
     render(items)
@@ -115,6 +123,8 @@ describe('step sentences', () => {
       'Ran pnpm test',
       'other · Str replace based edit tool',
       'Fetch pagehttps://example.com/docs/retries',
+      // Reported by its kind with only a file: still an edit, named once.
+      'Edited retry.ts',
     ])
     expect(titles().every((title) => !title.textContent?.includes('mcp__'))).toBe(true)
     expect(titles().every((title) => !title.textContent?.includes('str_replace'))).toBe(true)
