@@ -1,7 +1,7 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
-export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded'
+export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
 export type CatalogEntry = {
   readonly id: string
@@ -202,7 +202,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   attachment: ['default', 'loading', 'error'],
   'avatar-stack': ['default', 'populated', 'empty'],
   badge: ['default', 'active', 'inactive'],
-  board: ['default', 'loading', 'empty', 'populated'],
+  board: ['default', 'loading', 'empty', 'populated', 'derived'],
   breadcrumb: ['default', 'active'],
   button: ['default', 'hover', 'focus-visible', 'disabled'],
   card: ['default', 'hover', 'selected'],
@@ -247,7 +247,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   tone: ['default', 'success', 'warning', 'error'],
   turn: ['default', 'loading', 'success', 'error'],
   tooltip: ['closed', 'open'],
-  Settings: ['default', 'loading', 'error'],
+  Settings: ['default', 'loading', 'error', 'stale', 'unknown'],
   ModalDialog: ['closed', 'open'],
   ApprovalDialog: ['closed', 'open', 'loading', 'error'],
   ConfirmDialog: ['closed', 'open', 'loading', 'error'],
@@ -259,7 +259,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   AgentCard: ['default', 'active', 'inactive', 'loading'],
   CodeBlock: ['default', 'error'],
   CopyButton: ['default'],
-  PublicationCard: ['default', 'loading', 'success', 'error'],
+  PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
   RefusedAction: ['disabled', 'focus-visible'],
 }

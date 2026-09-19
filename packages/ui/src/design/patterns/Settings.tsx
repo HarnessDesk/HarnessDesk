@@ -8,6 +8,7 @@ import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
+import { softTone, type Tone } from '../ui/tone'
 import styles from './Settings.module.css'
 
 /**
@@ -28,25 +29,55 @@ export const Dot = ({ state, className }: { state: Readiness; className?: string
   <span className={cx(styles.dot, className)} data-state={state} />
 )
 
-/**
- * The state, said out loud. Pass `label` only to say something more specific
- * than the state's own name — "Out of weekly credit until Thursday" rather
- * than "Limit reached".
- */
-export const Chip = ({
-  state,
-  label,
-  className,
-}: {
-  state: Readiness
-  label?: string
+type ChipBaseProps = {
+  label?: ReactNode
   className?: string
-}) => (
-  <span className={cx(styles.chip, className)} data-state={state}>
-    <Dot state={state} />
-    {label ?? READINESS_LABEL[state]}
-  </span>
+  stale?: boolean
+  unknown?: boolean
+  children?: ReactNode
+}
+
+export type ChipProps = ChipBaseProps & (
+  | { state: Readiness; tone?: never }
+  | { state?: never; tone: Tone }
 )
+
+const READINESS_TONE: Record<Readiness, Tone> = {
+  ready: 'success',
+  available: 'neutral',
+  signin: 'brand',
+  limit: 'warning',
+  broken: 'danger',
+}
+
+/**
+ * A compact state, said out loud. Readiness keeps its dot and default word;
+ * every other fact takes a semantic `tone` and words from `children` or
+ * `label`. Stale and unknown facts keep those meanings distinct in both ink
+ * and their accessible names.
+ */
+export const Chip = (props: ChipProps) => {
+  const { label, className, stale = false, unknown = false, children } = props
+  const state = props.state
+  const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
+  const tone = unknown || (stale && requestedTone === 'success') ? 'neutral' : requestedTone
+  const words = children ?? label ?? (unknown ? 'Unknown' : state ? READINESS_LABEL[state] : null)
+
+  return (
+    <span
+      className={cx(styles.chip, tone && softTone({ tone }), className)}
+      {...(state ? { 'data-state': state } : {})}
+      {...(tone ? { 'data-tone': tone } : {})}
+      {...(stale ? { 'data-stale': '' } : {})}
+      {...(unknown ? { 'data-unknown': '' } : {})}
+    >
+      {state && <Dot state={state} />}
+      <span className={styles.chipWords} data-slot="chip-words">{words}</span>
+      {stale && <span className="sr-only"> (stale)</span>}
+      {unknown && <span className="sr-only"> (unknown)</span>}
+    </span>
+  )
+}
 
 /**
  * A search field: the input with the glass inside it.
