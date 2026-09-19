@@ -2006,6 +2006,29 @@ test('over ACP: the next candidate that runs what it asked for is seated, and th
   assert.deepEqual(await ranOn(truth), [{ session: String(session.id), model: 'fam', effort: 'medium', thinking: true }])
 })
 
+test("over ACP: the brief opens as a notice, not a turn the person is shown as having typed", async (t) => {
+  const { harness, client, work } = await acpDesk(t, 'variant-acp-agent.mjs', 'variant', {})
+  await writeReviewer(harness.stateDir, 'variant=fam/medium+thinking')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  // The brief opened the conversation, but not as the person's own words —
+  // titleOf and the sidebar read only `userMessage`, and would otherwise
+  // pick the brief's own text (including its git rules) as the title.
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the brief is never recorded as something a person typed',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
 test("over ACP: a flow seat's label says what the agent settled on, not what the flow asked for", async (t) => {
   // The flow still seats — a flow says a difference, it does not refuse one —
   // but what it says is now what runs: medium comes with thinking.
@@ -3517,4 +3540,22 @@ test('an Agent whose own list is the one in force is weighed once', async () => 
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   assert.equal(plan?.from, 'prefer')
   assert.equal(plan !== undefined && 'own' in plan, false)
+test('over Codex: the brief opens as a notice too — Codex echoes it back as `userMessage` on its own wire, and the session still does not read it as one', async (t) => {
+  const { harness, client, work } = await codexDesk(t, {})
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the brief is never recorded as something a person typed, even once Codex echoes it back',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
 })
