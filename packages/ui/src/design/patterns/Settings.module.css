@@ -684,6 +684,7 @@
 
 .detailHead {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   gap: var(--hd-space-4);
   margin-bottom: var(--hd-space-6);
@@ -702,8 +703,9 @@
 }
 
 .detailText {
-  flex: 1;
-  min-width: 0;
+  /* Actions take the next line before the blurb loses its reading measure. */
+  flex: 1 1 16rem; /* desk: reserve a reading measure before fitting actions */
+  min-width: min(16rem, 100%); /* desk: a narrow head may use its whole line */
 }
 
 .detailName {
@@ -733,6 +735,8 @@
 .detailCtl {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   align-items: center;
   gap: 10px;
   padding-top: 6px;
