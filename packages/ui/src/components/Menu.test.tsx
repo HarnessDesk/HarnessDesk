@@ -120,6 +120,12 @@ describe('Menu rows', () => {
     expect(row('Low').getAttribute('aria-checked')).toBe('false')
     expect(row('Max').getAttribute('aria-disabled')).toBe('true')
     expect(row('Max').textContent).toContain('Policy forbids it.')
+    const reason = [...row('Max').querySelectorAll('span')].find(
+      (one) => one.textContent === 'Policy forbids it.',
+    )
+    expect(reason).not.toBeUndefined()
+    expect(reason?.id).not.toBe('')
+    expect(row('Max').getAttribute('aria-describedby')).toBe(reason?.id)
   })
 
   it('a switch flips without closing', () => {

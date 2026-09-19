@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { Children, createContext, forwardRef, useContext, useEffect, useRef, useState } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -54,6 +54,8 @@ import { dotTint, softTone, softTint, type Tint, type Tone } from './tone'
  */
 
 type BoardProps = React.ComponentProps<'div'> & {
+  /** Marks a board whose columns report facts and therefore cannot accept moves or additions. */
+  derived?: boolean
   /**
    * Let the columns flow onto a second row instead of scrolling sideways.
    *
@@ -74,22 +76,27 @@ type BoardProps = React.ComponentProps<'div'> & {
   wrap?: boolean
 }
 
-const Board = ({ className, wrap = false, ...props }: BoardProps) => (
-  <div
-    data-slot="board"
-    {...(wrap ? { 'data-wrap': '' } : {})}
-    className={cn(
-      'items-start gap-3 pb-2',
-      wrap
-        ? /* The parent decides the column is fluid; the column keeps its own
-             fixed width for every other board, and knows nothing about this. */
-          'grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] content-start ' +
-          '[&>[data-slot=board-column]]:w-auto [&>[data-slot=board-column]]:min-w-0'
-        : 'flex overflow-x-auto',
-      className,
-    )}
-    {...props}
-  />
+const BoardContext = createContext(false)
+
+const Board = ({ className, wrap = false, derived = false, ...props }: BoardProps) => (
+  <BoardContext.Provider value={derived}>
+    <div
+      data-slot="board"
+      {...(wrap ? { 'data-wrap': '' } : {})}
+      {...(derived ? { 'data-derived': '' } : {})}
+      className={cn(
+        'items-start gap-3 pb-2',
+        wrap
+          ? /* The parent decides the column is fluid; the column keeps its own
+               fixed width for every other board, and knows nothing about this. */
+            'grid grid-cols-[repeat(auto-fit,minmax(10rem,1fr))] content-start ' +
+            '[&>[data-slot=board-column]]:w-auto [&>[data-slot=board-column]]:min-w-0'
+          : 'flex overflow-x-auto',
+        className,
+      )}
+      {...props}
+    />
+  </BoardContext.Provider>
 )
 
 type BoardColumnProps = Omit<React.ComponentProps<'div'>, 'title'> & {
@@ -133,8 +140,11 @@ const BoardColumn = ({
   addPlaceholder = 'What needs doing?',
   children,
   ...props
-}: BoardColumnProps) => (
-  <section
+}: BoardColumnProps) => {
+  const derived = useContext(BoardContext)
+  const empty = Children.toArray(children).length === 0
+
+  return <section
     data-slot="board-column"
     className={cn(
       /* The border is the half of "a column is a panel" that was missing, and
@@ -165,7 +175,7 @@ const BoardColumn = ({
           {count}
         </span>
       )}
-      {onAdd && (
+      {!derived && onAdd && (
         <button
           type="button"
           onClick={onAdd}
@@ -179,10 +189,15 @@ const BoardColumn = ({
       {actions}
     </header>
     <div className="flex min-w-0 flex-col gap-2">{children}</div>
+    {derived && empty && (
+      <p data-slot="board-empty" className="mt-auto text-xs text-(--hd-muted-foreground)">
+        Nothing here
+      </p>
+    )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a
         plain slot when adding means opening something. */}
-    {onAddTitle ? (
+    {!derived && (onAddTitle ? (
       <BoardAddCard onAdd={onAddTitle} label={addLabel} placeholder={addPlaceholder} />
     ) : (
       onAdd && (
@@ -196,9 +211,9 @@ const BoardColumn = ({
           {addLabel}
         </button>
       )
-    )}
+    ))}
   </section>
-)
+}
 
 /**
  * The slot at the foot of a column, which becomes a field when pressed.
@@ -242,6 +257,7 @@ const BoardAddCard = ({
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const field = useRef<HTMLInputElement>(null)
+  const derived = useContext(BoardContext)
 
   useEffect(() => {
     if (open) field.current?.focus()
@@ -253,6 +269,8 @@ const BoardAddCard = ({
     setTitle('')
     onAdd(text)
   }
+
+  if (derived) return null
 
   if (!open) {
     return (
