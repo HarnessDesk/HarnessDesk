@@ -98,7 +98,7 @@ const withSession = (info: RuntimeInfo, usage: SessionUsage | null, extra: Parti
   }
 }
 
-const ring = (): HTMLElement | null => container.querySelector('button [role="img"]')
+const ring = (): HTMLElement | null => container.querySelector('button [data-slot="progress-ring"]')
 const open = (): void => {
   const trigger = container.querySelector('button')
   if (!trigger) throw new Error('no trigger')
@@ -128,9 +128,9 @@ describe('ContextUsage', () => {
     )
     const glyph = ring()
     expect(glyph?.getAttribute('aria-label')).toBe('Context window 66% full — 171K of 258K tokens')
-    expect(glyph?.dataset['tone']).toBe('good')
+    expect(glyph?.dataset['tone']).toBe('brand')
     expect(glyph?.hasAttribute('data-unknown')).toBe(false)
-    expect(glyph?.style.getPropertyValue('--ring-fill')).toMatch(/^66\.2/)
+    expect(glyph?.getAttribute('aria-valuenow')).toBe('66')
 
     open()
     const text = panelText()
@@ -152,9 +152,9 @@ describe('ContextUsage', () => {
       mount(withSession(runtime('alpha', 'Alpha', false), { total: tokens(1), last: tokens(1), contextUsed: used, contextWindow: 100 }))
       return ring()?.dataset['tone']
     }
-    expect(at(50)).toBe('good')
-    expect(at(75)).toBe('warn')
-    expect(at(95)).toBe('bad')
+    expect(at(50)).toBe('brand')
+    expect(at(75)).toBe('warning')
+    expect(at(95)).toBe('danger')
   })
 
   it('draws a dashed ring and says so, in the agent\'s name, when there is no window', () => {

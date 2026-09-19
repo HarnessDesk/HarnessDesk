@@ -74,6 +74,8 @@ import {
   MarkerContent,
   MarkerIcon,
   Progress,
+  ProgressRing,
+  ProgressStack,
   RadioGroup,
   RadioGroupItem,
   ResizeHandle,
@@ -126,6 +128,7 @@ import {
   ToolbarGap,
   toast,
 } from '../ui'
+import { Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -545,13 +548,36 @@ const KeyValueBoard = () => (
           <Progress value={44} />
           <Progress value={19} tone="warning" />
           <Progress value={96} tone="danger" label="96% of plan" />
+          <Progress value={12} measure="remaining" label="12% left" />
+        </div>
+      </Case>
+      <Case label="ring and composed reading">
+        <div className="flex w-full items-start gap-4">
+          <ProgressRing value={74} size={28} tone="warning" label="Context window" />
+          <ProgressStack
+            className="min-w-48 flex-1"
+            label="What is in context"
+            parts={[
+              { id: 'instructions', label: 'Instructions', value: 62, reading: '62K', meta: '62%' },
+              { id: 'tools', label: 'Tools', value: 38, reading: '38K', meta: '38%' },
+            ]}
+          />
+        </div>
+      </Case>
+      <Case label="text roles">
+        <div className="flex flex-col gap-1">
+          <Text role="subject">Account name</Text>
+          <Text role="row">Weekly allowance</Text>
+          <Text role="muted">Resets in four days</Text>
+          <Text role="meta">Read 2m ago</Text>
+          <Text role="figure">74%</Text>
         </div>
       </Case>
     </div>
     <Rule>
-      The bar fills with what has <em>happened</em>. An earlier version of this app&rsquo;s usage
-      meter filled with what was left, sat next to a number counting up, and the two contradicted
-      each other on the same line — see <code>docs</code> and the meter-direction note.
+      Ordinary progress fills with what has <em>happened</em>. A remaining budget says so through
+      <code>measure=&quot;remaining&quot;</code>, fills with the amount left, and takes its warning and danger
+      tones from the same thresholds on every screen.
     </Rule>
   </>
 )
@@ -974,6 +1000,12 @@ const AdoptedBoard = () => {
               <CardDescription>The production card primitive, not copied markup.</CardDescription>
             </CardHeader>
             <CardContent>One border, one ground, one spacing contract.</CardContent>
+          </Card>
+          <Card variant="muted" className="w-full">
+            <CardHeader>
+              <CardTitle>No reading yet</CardTitle>
+              <CardDescription>The object remains present without claiming a figure.</CardDescription>
+            </CardHeader>
           </Card>
         </Case>
 

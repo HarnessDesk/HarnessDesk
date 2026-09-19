@@ -294,6 +294,7 @@ const RowBoard = () => {
     <>
       <div className={styles.stack}>
         <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
+        <SectionHead sticky name="Sticky group label" action={<Button variant="outline" size="sm">Range</Button>} />
         <Rows>
           <Row
             mark={<PluginIcon size={15} />}

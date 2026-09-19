@@ -8,7 +8,7 @@ import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { softTone, type Tone } from '../ui/tone'
+import { inkTone, softTone, type Tone } from '../ui/tone'
 import styles from './Settings.module.css'
 
 /**
@@ -296,12 +296,76 @@ export const PageHead = ({
   </div>
 )
 
-export const SectionHead = ({ name, action }: { name: ReactNode; action?: ReactNode }) => (
-  <div className={styles.sectionHead}>
+export const SectionHead = ({
+  name,
+  action,
+  sticky,
+  className,
+}: {
+  name: ReactNode
+  action?: ReactNode
+  sticky?: boolean
+  className?: string
+}) => (
+  <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
     <span className={styles.sectionName}>{name}</span>
     {action}
   </div>
 )
+
+const TEXT_ROLE = {
+  page: 'text-(length:--hd-title) leading-(--hd-line-title) font-normal tracking-[-0.01em]',
+  subject: 'text-base leading-(--hd-line) font-medium text-(--hd-foreground)',
+  row: 'text-sm leading-(--hd-line-sm) font-medium text-(--hd-foreground)',
+  muted: 'text-sm leading-(--hd-line-sm) font-normal text-(--hd-secondary-foreground)',
+  meta: 'text-xs leading-(--hd-line-xs) font-normal text-(--hd-muted-foreground)',
+  figure:
+    'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums text-(--hd-foreground)',
+  metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums text-(--hd-foreground)',
+  value: 'text-base leading-(--hd-line) font-normal tabular-nums text-(--hd-foreground)',
+} as const
+
+export type TextRole = keyof typeof TEXT_ROLE
+export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
+  as?: 'span' | 'div' | 'p' | 'strong' | 'h2'
+  children: ReactNode
+  role?: TextRole
+  tone?: Tone
+  align?: 'start' | 'center' | 'end'
+  truncate?: boolean
+  numeric?: boolean
+}
+
+/** The interface's named text roles, including dashboard readouts. */
+export const Text = ({
+  as = 'span',
+  className,
+  role = 'muted',
+  tone,
+  align = 'start',
+  truncate,
+  numeric,
+  children,
+  ...props
+}: TextProps) =>
+  createElement(
+    as,
+    {
+      ...props,
+      'data-slot': 'text',
+      'data-role': role,
+      ...(tone ? { 'data-tone': tone } : {}),
+      className: cx(
+        TEXT_ROLE[role],
+        tone && inkTone({ tone }),
+        align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
+        truncate && 'truncate',
+        numeric && 'tabular-nums',
+        className,
+      ),
+    },
+    children,
+  )
 
 /** A card of rows. Every settings page is made of these and nothing else. */
 export const Rows = ({
