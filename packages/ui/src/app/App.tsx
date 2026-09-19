@@ -116,7 +116,7 @@ export const App = () => {
           store.setDetailsTab('changes')
           return
         case 'settings':
-          setSettingsOpen('agents')
+          setSettingsOpen('runtimes')
           return
         case 'sign-in':
           setSignInOpen((subject as RuntimeId | undefined) ?? true)
@@ -308,13 +308,13 @@ export const App = () => {
             chooseProject: chooseFolder,
             signIn: (runtime) => setSignInOpen(runtime ?? true),
             openUsage: (runtime) => setUsageOpen(runtime),
-            openAgents: () => setSettingsOpen('agents'),
+            openRuntimes: () => setSettingsOpen('runtimes'),
           }}
         >
           <Workbench
             sidebar={
               <Sidebar
-                onOpenSettings={(section) => setSettingsOpen(section ?? 'agents')}
+                onOpenSettings={(section) => setSettingsOpen(section ?? 'runtimes')}
                 onOpenPlugins={() => setSettingsOpen('plugins')}
                 onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
                 onBrowseFolders={chooseFolder}

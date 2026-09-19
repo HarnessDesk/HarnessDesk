@@ -45,7 +45,7 @@ import { DialogContent, DialogRoot } from '../design'
  * (#104).
  */
 const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: React.ReactNode; keywords: string }> = {
-  agents: { label: 'Agents', icon: <AgentIcon size={14} />, keywords: 'agents accounts sign in' },
+  runtimes: { label: 'Runtimes', icon: <AgentIcon size={14} />, keywords: 'runtimes installed agents accounts sign in' },
   profile: { label: 'Profile', icon: <UserIcon size={14} />, keywords: 'profile you name picture avatar photo face identity' },
   general: { label: 'General', icon: <SlidersIcon size={14} />, keywords: 'general backup restore diagnostics data' },
   appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
@@ -345,7 +345,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           id: `settings-${entry.section}`,
           group: 'Actions',
           label: `Settings › ${entry.section === 'skills' && skillsLabel ? skillsLabel : entry.label}`,
-          hint: entry.section === 'agents' ? '⌘,' : undefined,
+          hint: entry.section === 'runtimes' ? '⌘,' : undefined,
           icon: entry.icon,
           keywords: `settings ${entry.keywords}${entry.section === 'skills' && skillsLabel ? ` ${skillsLabel}` : ''}`,
           run: () => {

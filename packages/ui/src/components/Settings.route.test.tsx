@@ -243,18 +243,18 @@ it('a route to Extensions still gives way when the agent has none', async () => 
   const { route, held, rerender } = await mount([runtime({ mcp: false, extensionStore: false })])
 
   // The page belongs to the agent rather than to the app, so the redirect has
-  // the last word over the route: Agents, not a blank panel.
+  // the last word over the route: Runtimes, not a blank panel.
   await act(async () => route('extensions'))
-  expect(page()).toBe('Agents')
+  expect(page()).toBe('Runtimes')
 
   // And it corrects the one copy of the section, so the parent is not left
   // naming a page the window is not on — which would make the next request
   // for Agents a no-op against a window that had never got there by choice.
-  expect(held()).toBe('agents')
+  expect(held()).toBe('runtimes')
 
   // The correction sticks: nothing re-asserts the route it gave way to.
   await act(async () => rerender())
-  expect(page()).toBe('Agents')
+  expect(page()).toBe('Runtimes')
 })
 
 it('the import banner opens the Library with its import flow, window already open', async () => {

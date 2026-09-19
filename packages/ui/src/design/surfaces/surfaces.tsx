@@ -77,7 +77,7 @@ export const ConversationSurface = () => (
           onChooseProject={() => {}}
           onSignIn={() => {}}
           onOpenUsage={() => {}}
-          onOpenAgents={() => {}}
+          onOpenRuntimes={() => {}}
         />
       </PaneProvider>
     </Frame>

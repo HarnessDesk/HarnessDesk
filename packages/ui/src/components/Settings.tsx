@@ -69,7 +69,7 @@ import { summarise } from '../lib/options'
 import { presetsFor, snapshotValues, type AgentPreset } from '../state/presets'
 import { ArchiveSection } from './Archive'
 import { LibrarySection } from './Library'
-import { AgentsSection, agentReadiness } from './SettingsAgents'
+import { RuntimesSection, agentReadiness } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
 import { RemoveWorktree } from './RemoveWorktree'
@@ -124,7 +124,7 @@ export type Section =
   | 'shortcuts'
   | 'workspaces'
   | 'archive'
-  | 'agents'
+  | 'runtimes'
   | 'models'
   | 'skills'
   | 'extensions'
@@ -144,12 +144,15 @@ const MOVED: Readonly<Record<string, Section>> = {
   account: 'general',
   preferences: 'general',
   presets: 'models',
+  // Until the roster takes the id back (Task 13): a route to the installed
+  // CLIs that was written as `agents` lands on the page they now live on.
+  agents: 'runtimes',
 }
 const SECTIONS: readonly Section[] = [
   'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive',
-  'agents', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
+  'runtimes', 'models', 'skills', 'extensions', 'library', 'plugins', 'permissions', 'browser',
 ]
-export const resolveSection = (name: string | null | undefined, fallback: Section = 'agents'): Section =>
+export const resolveSection = (name: string | null | undefined, fallback: Section = 'runtimes'): Section =>
   name && (SECTIONS as readonly string[]).includes(name)
     ? (name as Section)
     : (name && MOVED[name]) || fallback
@@ -774,7 +777,7 @@ const SavePresetDialog = ({
             <Input
               {...control}
               value={name}
-              placeholder="Careful reviewer"
+              placeholder="High effort, asks first"
               autoFocus
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
@@ -1540,6 +1543,9 @@ export const GeneralSectionRows = () => (
   </>
 )
 
+/** "1 runtime", "3 runtimes" — a count and its noun, the noun's plural by adding an s. */
+const count = (n: number, noun: string): string => `${n} ${n === 1 ? noun : `${noun}s`}`
+
 /**
  * Export and restore, side by side, with the two promises that make them
  * safe to press. Export never includes credentials — they live in the OS
@@ -1564,7 +1570,7 @@ const BackupRows = () => {
       anchor.click()
       URL.revokeObjectURL(url)
       setOutcome(
-        `Exported ${backup.agents.length} ${backup.agents.length === 1 ? 'agent' : 'agents'} and ${backup.transcripts.length} ${backup.transcripts.length === 1 ? 'conversation' : 'conversations'}.`,
+        `Exported ${count(backup.agents.length, 'runtime')}, ${count(backup.agentFolders?.length ?? 0, 'Agent')} of yours and ${count(backup.transcripts.length, 'conversation')}.`,
       )
     } catch (error) {
       setOutcome(error instanceof Error ? error.message : String(error))
@@ -1578,9 +1584,9 @@ const BackupRows = () => {
     try {
       const backup: unknown = JSON.parse(await file.text())
       const report = await store.transport.request('backup/import', { backup })
-      const skipped = report.agents.skipped + report.transcripts.skipped
+      const skipped = report.agents.skipped + report.transcripts.skipped + report.agentFolders.skipped
       setOutcome(
-        `Restored ${report.agents.restored} ${report.agents.restored === 1 ? 'agent' : 'agents'}, ${report.preferences} ${report.preferences === 1 ? 'preference' : 'preferences'} and ${report.transcripts.restored} ${report.transcripts.restored === 1 ? 'conversation' : 'conversations'}.${skipped > 0 ? ` ${skipped} already here or newer, left alone.` : ''}`,
+        `Restored ${count(report.agents.restored, 'runtime')}, ${count(report.agentFolders.restored, 'Agent')}, ${count(report.seating.restored, 'seat choice')}, ${count(report.preferences, 'preference')} and ${count(report.transcripts.restored, 'conversation')}.${skipped > 0 ? ` ${skipped} already here or newer, left alone.` : ''}`,
       )
     } catch (error) {
       setOutcome(error instanceof Error ? error.message : String(error))
@@ -1593,7 +1599,7 @@ const BackupRows = () => {
     <Rows>
       <Row
         title="Back up this Mac’s HarnessDesk"
-        desc="Agents, preferences and transcripts in one file — sign in again after restoring."
+        desc="Runtimes, your Agents and their seats on this Mac, preferences and transcripts in one file — sign in again after restoring."
         control={
           <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
             <DownloadIcon size={13} />
@@ -1749,7 +1755,7 @@ const matches = (entry: NavEntry, query: string): boolean => {
  * and read by `LibrarySection` on its own first render.
  */
 export const Settings = ({
-  section = 'agents',
+  section = 'runtimes',
   libraryImport = false,
   onSection,
   onClose,
@@ -1793,10 +1799,10 @@ export const Settings = ({
   // Before this, the nav item vanished and the page stayed selected: a blank
   // panel with nothing highlighted and no way to tell what had happened.
   useEffect(() => {
-    if (section === 'extensions' && !hasExtensions) onSection('agents')
+    if (section === 'extensions' && !hasExtensions) onSection('runtimes')
   }, [section, hasExtensions, onSection])
 
-  // The Agents row carries the one state that stops a first session, so the
+  // The Runtimes row carries the one state that stops a first session, so the
   // nav can say there is something to do without being opened.
   // Asked per agent, not per runtime, so the rail and the page it opens
   // cannot disagree: a second account added but never signed into is an
@@ -1879,12 +1885,12 @@ export const Settings = ({
       label: 'Agents',
       entries: [
         {
-          id: 'agents',
-          label: 'Agents',
+          id: 'runtimes',
+          label: 'Runtimes',
           icon: <AgentIcon size={14} />,
           ...(accountCount > 0 ? { count: accountCount } : {}),
           ...(agentsState ? { state: agentsState } : {}),
-          keywords: ['accounts', 'sign in', 'sign out', 'add agent', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
+          keywords: ['runtimes', 'installed', 'cli', 'accounts', 'sign in', 'sign out', 'add runtime', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
         },
         {
           id: 'models',
@@ -2035,7 +2041,7 @@ export const Settings = ({
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'workspaces' && <WorkspacesSection />}
             {section === 'archive' && <ArchiveSection />}
-            {section === 'agents' && <AgentsSection onSignIn={onSignIn} />}
+            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} />}
             {section === 'models' && <ModelsSection />}
             {section === 'plugins' && <PluginsSection />}
             {section === 'extensions' && hasExtensions && <ExtensionsSection />}

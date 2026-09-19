@@ -103,7 +103,7 @@ const render = (store: AppStore, key: string | null = KEY): void => {
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
-            onOpenAgents={() => undefined}
+            onOpenRuntimes={() => undefined}
           />
         </PaneProvider>
       </StoreProvider>,
@@ -172,7 +172,7 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
               onChooseProject={() => undefined}
               onSignIn={() => undefined}
               onOpenUsage={() => undefined}
-              onOpenAgents={() => undefined}
+              onOpenRuntimes={() => undefined}
             />
           </PaneProvider>
         </StoreProvider>,
@@ -259,7 +259,7 @@ it('the empty pane’s Sign in names this pane’s agent, not the default', () =
     root.render(
       <StoreProvider store={scoped}>
         <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}>
-          <Conversation onChooseProject={() => undefined} onSignIn={onSignIn} onOpenUsage={() => undefined} onOpenAgents={() => undefined} />
+          <Conversation onChooseProject={() => undefined} onSignIn={onSignIn} onOpenUsage={() => undefined} onOpenRuntimes={() => undefined} />
         </PaneProvider>
       </StoreProvider>,
     )

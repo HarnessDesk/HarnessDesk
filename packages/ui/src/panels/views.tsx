@@ -290,14 +290,14 @@ export interface ShellActions {
   readonly chooseProject: () => void
   readonly signIn: (runtime?: RuntimeId) => void
   readonly openUsage: (runtime: RuntimeId) => void
-  readonly openAgents: () => void
+  readonly openRuntimes: () => void
 }
 
 const NONE: ShellActions = {
   chooseProject: () => undefined,
   signIn: () => undefined,
   openUsage: () => undefined,
-  openAgents: () => undefined,
+  openRuntimes: () => undefined,
 }
 
 const ShellContext = createContext<ShellActions>(NONE)

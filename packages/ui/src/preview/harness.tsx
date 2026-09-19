@@ -773,7 +773,7 @@ class PreviewStore {
       customPresets: [
         {
           id: 'custom-1',
-          name: 'Careful reviewer',
+          name: 'High effort, asks first',
           description: 'GPT-5.6 Sol · High · Read only',
           runtime: 'codex',
           values: {},
