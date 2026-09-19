@@ -46,8 +46,8 @@ furniture is smaller than a row's own title.
 | `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
 | `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
 | `--hd-text-lg` | 16px | a dialog's title | 16 |
-| `--hd-heading` | 20px | a section's own name | 11 |
-| `--hd-title` | 24px | a page's title | 2 |
+| `--hd-heading` | 20px | a section's own name, a page's title, the wordmark | 13 |
+| `--hd-title` | 24px | the reserved top interface step; Markdown's h1 fallback | 1 |
 | `--hd-display` | 36px | a figure that fills a card | 1 |
 
 The counts are measured, not aspirational. The sizes above 14 are rare because
@@ -116,15 +116,18 @@ ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
 and `text-xl` included: those two agreed with the table by coincidence across
 a hundred and fifty call sites, and a coincidence does not follow a change.
 
-## Four steps and nothing else
+## Named text roles
 
-A size and a weight together name a *role*, and there are four:
+A size and a weight together name a *role*. A role describes what the words
+are doing; screens do not invent a new spelling for the same job:
 
 | role | spelling | what wears it |
 | --- | --- | --- |
-| page | 24 / normal | the name of a place — a settings page, a review |
+| wordmark | 20 / semibold | the product name beside its mark |
+| page | 20 / semibold | the name of a place — a settings page, a review; it matches the wordmark rather than outsizing it |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
-| row | 13 / medium | the name of one thing in a list, and the word above a control |
+| row | 13 / medium | the title of a setting, and the word above a control |
+| navigation | 13 / normal | the name of one thing in a navigable list |
 | muted | 13 / normal | a description under a name, and chrome that labels rather than names |
 
 Counted before this rule was written down: eight. A dialog's title was 16/600
@@ -252,8 +255,8 @@ what produced those thirty captions.
 | weight | where |
 | --- | --- |
 | 400 | everything, unless named below |
-| 500 | the app's name, a pane's title, a settings nav row, a settings row's title, button labels |
-| 600 | reserved — the sidebar's app name and a settings page's title only |
+| 500 | a pane's title, a settings nav row, a settings row's title, button labels |
+| 600 | reserved — the sidebar's app name and a page title only |
 
 A column of bold is a column of shouting. Selection is marked by a filled pill
 and a check, never by making one row heavier than its neighbours. Button labels

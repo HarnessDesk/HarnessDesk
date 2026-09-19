@@ -60,11 +60,12 @@ const buttonVariants = cva(
        as live rather than as circled. */
     'focus-visible:border-(--hd-ring) focus-visible:shadow-(--hd-focus-ring)',
     'active:not-aria-[haspopup]:translate-y-px',
-    'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
+    'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[dragging]:opacity-40',
     'aria-invalid:border-(--hd-destructive)',
     // Icons carry their own dimensions through the app's icon facade. A
     // descendant-wide size override also shrank avatar marks and nested art.
     '[&_svg]:pointer-events-none [&_svg]:shrink-0',
+    '[&_[data-chevron]]:transition-transform [&_[data-chevron][data-open]]:rotate-90',
   ].join(' '),
   {
     variants: {
@@ -94,7 +95,7 @@ const buttonVariants = cva(
         row:
           'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
         navigation:
-          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))]',
+          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[current]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[open]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[selected]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[insert=before]:shadow-[inset_0_2px_0_0_var(--hd-primary)] data-[insert=after]:shadow-[inset_0_-2px_0_0_var(--hd-primary)]',
         /* A chosen option is filled whichever way its caller says so:
            `data-selected`, `data-on`, or the radio's own `aria-checked`.
            Hover takes the plain hover fill, so pointing at an option never

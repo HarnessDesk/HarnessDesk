@@ -1,14 +1,14 @@
 import { Button } from '../ui/button'
-import { createElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode } from 'react'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, SearchIcon } from '../../components/Icons'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import styles from './Settings.module.css'
 
 /**
@@ -25,8 +25,40 @@ const cx = (...parts: readonly (string | false | undefined)[]): string =>
 
 /* --- readiness ----------------------------------------------------------- */
 
-export const Dot = ({ state, className }: { state: Readiness; className?: string }) => (
-  <span className={cx(styles.dot, className)} data-state={state} />
+export const Dot = ({ state, pulse = false, variant = 'default', className, ...props }: HTMLAttributes<HTMLSpanElement> & { state: Readiness; pulse?: boolean; variant?: 'default' | 'navigation' }) => (
+  <span {...props} className={cx(styles.dot, className)} data-slot="dot" data-state={state} data-variant={variant} {...(pulse ? { 'data-pulse': '' } : {})} />
+)
+
+const SPINNER_TONE: Record<Tone, string> = {
+  neutral: 'border-t-(--hd-muted-foreground)',
+  brand: 'border-t-(--hd-primary)',
+  success: 'border-t-(--hd-success)',
+  warning: 'border-t-(--hd-warning)',
+  danger: 'border-t-(--hd-danger)',
+  info: 'border-t-(--hd-tint-sky-ink)',
+}
+
+const SPINNER_SIZE = { sm: 'size-3', default: 'size-4' } as const
+
+export type SpinnerProps = ComponentProps<'span'> & {
+  tone?: Tone
+  size?: keyof typeof SPINNER_SIZE
+}
+
+/** A running operation whose words live beside it. */
+export const Spinner = ({ className, tone = 'neutral', size = 'default', ...props }: SpinnerProps) => (
+  <span
+    data-slot="spinner"
+    data-tone={tone}
+    data-size={size}
+    className={cx(
+      'inline-block shrink-0 animate-spin rounded-full border border-(--hd-border-emphasis) motion-reduce:animate-none',
+      SPINNER_TONE[tone],
+      SPINNER_SIZE[size],
+      className,
+    )}
+    {...props}
+  />
 )
 
 type ChipBaseProps = {
@@ -36,6 +68,7 @@ type ChipBaseProps = {
   unknown?: boolean
   children?: ReactNode
   title?: string
+  size?: 'default' | 'sm'
 }
 
 export type ChipProps = ChipBaseProps & (
@@ -59,7 +92,7 @@ const READINESS_TONE: Record<Readiness, Tone> = {
  * facts keep those meanings distinct in both ink and their accessible names.
  */
 export const Chip = (props: ChipProps) => {
-  const { label, className, stale = false, unknown = false, children, title } = props
+  const { label, className, stale = false, unknown = false, children, title, size = 'default' } = props
   const state = props.state
   const tint = props.tint
   const emphasis = props.emphasis
@@ -70,6 +103,7 @@ export const Chip = (props: ChipProps) => {
   return (
     <span
       className={cx(styles.chip, tone && softTone({ tone }), tint && softTint({ tint }), className)}
+      data-size={size}
       {...(state ? { 'data-state': state } : {})}
       {...(tone ? { 'data-tone': tone } : {})}
       {...(tint ? { 'data-tint': tint } : {})}
@@ -101,6 +135,12 @@ export const Search = ({
   className,
   autoFocus,
   clear,
+  size = 'default',
+  icon = 'search',
+  title,
+  onFocus,
+  onBlur,
+  onKeyDown,
 }: {
   value: string
   onChange: (next: string) => void
@@ -109,23 +149,40 @@ export const Search = ({
   label?: string
   className?: string
   autoFocus?: boolean
+  size?: 'default' | 'compact'
+  /** A filter field is still a search input, but its resting glyph says what it narrows. */
+  icon?: 'search' | 'filter'
+  title?: string
+  onFocus?: FocusEventHandler<HTMLInputElement>
+  onBlur?: FocusEventHandler<HTMLInputElement>
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>
   /** An accessible clear action, present only while the field has a value. */
   clear?: { readonly label: string; readonly onClick: () => void }
 }) => (
   <span
     className={cx(styles.search, className)}
     data-slot="search"
+    data-size={size}
+    data-icon={icon}
     {...(clear && value ? { 'data-clear': '' } : {})}
   >
-    <SearchIcon size={14} />
+    {icon === 'filter'
+      ? <FilterIcon size={size === 'compact' ? 12 : 14} />
+      : <SearchIcon size={size === 'compact' ? 12 : 14} />}
     <Input
       type="search"
       spellCheck={false}
-      className={styles.input}
+      variant={size === 'compact' ? 'quiet' : 'default'}
+      controlSize={size === 'compact' ? 'compact' : 'default'}
+      className={size === 'compact' ? styles.searchCompactInput : styles.input}
       placeholder={placeholder}
       aria-label={label ?? placeholder}
       value={value}
       autoFocus={autoFocus}
+      title={title}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
       onChange={(event) => onChange(event.target.value)}
     />
     {clear && value ? (
@@ -308,17 +365,24 @@ export const SectionHead = ({
   description,
   action,
   sticky,
+  level = 'label',
   className,
 }: {
   name: ReactNode
   description?: ReactNode
   action?: ReactNode
   sticky?: boolean
+  /** Card groups are labels by default; page bands opt into a real heading. */
+  level?: 'label' | 'heading'
   className?: string
 }) => (
   <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
     <div className={styles.sectionHeadText}>
-      <h2 className={styles.sectionName} data-slot="section-name">{name}</h2>
+      {createElement(
+        level === 'heading' ? 'h2' : 'span',
+        { className: styles.sectionName, 'data-slot': 'section-name', 'data-level': level },
+        name,
+      )}
       {description != null && (
         <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
       )}
@@ -328,9 +392,11 @@ export const SectionHead = ({
 )
 
 const TEXT_ROLE = {
-  page: 'text-(length:--hd-title) leading-(--hd-line-title) font-normal tracking-[-0.01em]',
+  wordmark: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
+  page: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
   subject: 'text-base leading-(--hd-line) font-medium',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
+  navigation: 'text-sm leading-(--hd-line-sm) font-normal',
   muted: 'text-sm leading-(--hd-line-sm) font-normal',
   meta: 'text-xs leading-(--hd-line-xs) font-normal',
   figure:
@@ -340,9 +406,11 @@ const TEXT_ROLE = {
 } as const
 
 const TEXT_ROLE_INK = {
+  wordmark: 'text-(--hd-foreground)',
   page: undefined,
   subject: 'text-(--hd-foreground)',
   row: 'text-(--hd-foreground)',
+  navigation: 'text-(--hd-foreground)',
   muted: 'text-(--hd-secondary-foreground)',
   meta: 'text-(--hd-muted-foreground)',
   figure: 'text-(--hd-foreground)',
@@ -356,8 +424,12 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   children: ReactNode
   role?: TextRole
   tone?: Tone
+  /** Identity colour, kept separate from a tone that judges state. */
+  tint?: Tint
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
+  /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
+  fade?: boolean
   numeric?: boolean
 }
 
@@ -367,8 +439,10 @@ export const Text = ({
   className,
   role = 'muted',
   tone,
+  tint,
   align = 'start',
   truncate,
+  fade,
   numeric,
   children,
   ...props
@@ -380,17 +454,42 @@ export const Text = ({
       'data-slot': 'text',
       'data-role': role,
       ...(tone ? { 'data-tone': tone } : {}),
+      ...(tint ? { 'data-tint': tint } : {}),
       className: cx(
         TEXT_ROLE[role],
-        tone ? inkTone({ tone }) : TEXT_ROLE_INK[role],
+        tone ? inkTone({ tone }) : tint ? inkTint({ tint }) : TEXT_ROLE_INK[role],
         align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
         truncate && 'truncate',
+        fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
         numeric && 'tabular-nums',
         className,
       ),
     },
     children,
   )
+
+/** The label line above navigation rows, including the controls that act on that list. */
+export const NavigationGroupHeader = ({
+  label,
+  filtering = false,
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & {
+  label: ReactNode
+  filtering?: boolean
+  children?: ReactNode
+}) => (
+  <div
+    {...props}
+    data-slot="navigation-group-header"
+    {...(filtering ? { 'data-filtering': '' } : {})}
+    className={cx(styles.navigationGroupHeader, className)}
+  >
+    <span className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</span>
+    {children}
+  </div>
+)
 
 /** A card of rows. Every settings page is made of these and nothing else. */
 export const Rows = ({

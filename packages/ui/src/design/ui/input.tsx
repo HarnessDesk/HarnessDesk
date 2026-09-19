@@ -51,6 +51,8 @@ const Input = ({ className, type, hidden, variant = 'default', controlSize = 'de
     type={type ?? 'text'}
     hidden={hidden}
     data-slot="input"
+    data-variant={variant}
+    data-size={controlSize}
     spellCheck={false}
     className={cn(inputVariants({ variant, size: controlSize }), hidden && 'hidden', className)}
     {...props}

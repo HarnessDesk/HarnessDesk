@@ -88,6 +88,16 @@ describe('the canonical button', () => {
     }
   })
 
+  it('carries navigation ink into named text roles and owns arrange markers', () => {
+    const navigation = buttonVariants({ variant: 'navigation' })
+    expect(navigation).toContain('data-[active]:[&_[data-slot=text]]:text-')
+    expect(navigation).toContain('data-[active]:[&_[data-role=meta]]:text-')
+    expect(navigation).toContain('data-[insert=before]:shadow-')
+    expect(navigation).toContain('data-[insert=after]:shadow-')
+    expect(navigation).toContain('data-[dragging]:opacity-40')
+    expect(navigation).toContain('[&_[data-chevron][data-open]]:rotate-90')
+  })
+
 })
 
 /**

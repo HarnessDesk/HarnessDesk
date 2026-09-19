@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import type { TeamState } from '@harnessdesk/protocol'
 
-import { Button, Dialog, Input } from '../design'
+import { ActionError, Button, Dialog, Input, Text } from '../design'
 import { useStore } from '../state/context'
 import styles from './RoomActions.module.css'
 
@@ -77,14 +77,12 @@ export const RenameRoom = ({
             by name in the channel — an agent types it to reach a peer — and
             "does this break what the agents were told" is the first question
             somebody renaming one will have. */}
-        <p className={styles.note}>
+        <Text as="p" role="muted">
           The name is what the sidebar and the room's own header show. Its board, its members and
           everything said in it are untouched.
-        </p>
+        </Text>
         {problem && (
-          <p className={styles.problem} role="alert">
-            {problem}
-          </p>
+          <ActionError>{problem}</ActionError>
         )}
       </div>
     </Dialog>
@@ -153,22 +151,20 @@ export const DeleteRoom = ({
             not *what* cannot be undone leaves somebody to guess whether their
             agents are about to be deleted too — which is the fear, and the
             answer is no. */}
-        <p className={styles.note}>
+        <Text as="p" role="muted">
           {going.length > 0
             ? `Its board and its chat go with it — ${going.join(' and ')}. This cannot be undone.`
             : 'There is nothing on its board and nothing has been said in it. This cannot be undone.'}
-        </p>
-        <p className={styles.keeps}>
+        </Text>
+        <Text as="p" role="meta">
           {members === 0
             ? 'No conversations are in it.'
             : members === 1
               ? 'The one conversation in it leaves the room and carries on — nothing is closed, and no transcript is touched.'
               : `All ${members} conversations in it leave the room and carry on — nothing is closed, and no transcript is touched.`}
-        </p>
+        </Text>
         {problem && (
-          <p className={styles.problem} role="alert">
-            {problem}
-          </p>
+          <ActionError>{problem}</ActionError>
         )}
       </div>
     </Dialog>

@@ -1,4 +1,4 @@
-import { Button } from '../design'
+import { Button, PopoverGroupLabel } from '../design'
 import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
 
 import type { UiAction, UiBlock, UiPanelData, UiTreeNode } from '@harnessdesk/protocol'
@@ -382,7 +382,7 @@ export const PanelSection = ({
           >
             <ChevronIcon size={11} />
           </span>
-          <span className={styles.sectionTitleLabel}>{title}</span>
+          <PopoverGroupLabel inset={false}>{title}</PopoverGroupLabel>
         </Button>
       )}
       {/* A title-less panel has no way to unfold itself, so it never folds. */}

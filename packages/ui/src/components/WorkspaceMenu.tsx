@@ -18,7 +18,7 @@ import {
   TrashIcon,
   UnpinIcon,
 } from './Icons'
-import { Button, ContextMenu, MenuItem, MenuSeparator, useMenuClose, type MenuPoint } from '../design'
+import { Button, ContextMenu, MenuItem, MenuNote, MenuSeparator, PopoverGroupLabel, useMenuClose, type MenuPoint } from '../design'
 import styles from './WorkspaceMenu.module.css'
 
 /**
@@ -96,14 +96,14 @@ const WorkspaceRows = ({
     const remove = confirming === 'remove'
     return (
       <div className={styles.confirm} role="group" aria-label={remove ? 'Remove project' : 'Archive sessions'}>
-        <div className={styles.confirmTitle}>
+        <PopoverGroupLabel>
           {remove ? `Remove ${group.name}?` : `Archive ${sessionsWord}?`}
-        </div>
-        <div className={styles.confirmText}>
+        </PopoverGroupLabel>
+        <MenuNote>
           {remove
             ? `Its ${sessionsWord} are archived and the folder leaves this list. Nothing on disk changes.`
             : 'They leave this list but stay in the agent’s history.'}
-        </div>
+        </MenuNote>
         <div className={styles.confirmActions}>
           <Button
             variant="ghost" size="sm"
