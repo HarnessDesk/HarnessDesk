@@ -252,6 +252,12 @@ export const ImportIcon = icon(Import, 'ImportIcon')
    — and sat a few pixels from a tab wearing the same glyph for that reason. */
 export const ExportIcon = icon(FileDown, 'ExportIcon')
 export const CopyIcon = icon(Copy, 'CopyIcon')
+
+/** The copy control's Lucide marks for trusted HTML that React does not own. */
+export const copyIconMarkup = (copied: boolean): string =>
+  copied
+    ? '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>'
+    : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>'
 export const TrashIcon = icon(Trash2, 'TrashIcon')
 export const PencilIcon = icon(Pencil, 'PencilIcon')
 export const ArchiveIcon = icon(Archive, 'ArchiveIcon')

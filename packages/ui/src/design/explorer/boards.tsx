@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react'
 
 import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { DiffView } from '../../components/Diff'
 import { Markdown } from '../../components/Markdown'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
@@ -429,6 +430,24 @@ const BannerBoard = () => (
    hands back the same object each time it is asked. */
 const catalogueSnapshot = emptySnapshot()
 const catalogueStore = { subscribe: () => () => {}, getSnapshot: () => catalogueSnapshot } as unknown as AppStore
+const CATALOGUE_DIFF = [
+  'diff --git a/src/new.ts b/src/new.ts',
+  'new file mode 100644',
+  'index 0000000..734dfc9',
+  '--- /dev/null',
+  '+++ b/src/new.ts',
+  '@@ -0,0 +1,2 @@',
+  '+export const opened = true',
+  '+export const count = 2',
+  'diff --git a/src/existing.ts b/src/existing.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/existing.ts',
+  '+++ b/src/existing.ts',
+  '@@ -8,2 +8,2 @@',
+  '-const label = "Before"',
+  '+const label = "After"',
+  ' render(label)',
+].join('\n')
 
 const CodeBoard = () => (
   <div className={styles.stack}>
@@ -449,6 +468,11 @@ const CodeBoard = () => (
         <StoreProvider store={catalogueStore}>
           <Markdown text={'```ts\nconst opened = true\n```'} />
         </StoreProvider>
+      </div>
+    </Case>
+    <Case label="two hunks, including a new file">
+      <div className="w-full" data-testid="diff-sample">
+        <DiffView diff={CATALOGUE_DIFF} />
       </div>
     </Case>
     <p className={styles.rule}>

@@ -723,16 +723,21 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
       status={item.status}
       defaultOpen={item.changes.length === 1}
     >
-      <div className={styles.fileList}>
-        {item.changes.map((change) => (
-          <FileEntry
-            key={change.path}
-            change={change}
-            root={root}
-            single={item.changes.length === 1}
-          />
-        ))}
-      </div>
+      {only ? (
+        <div className={styles.fileBody}>
+          <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
+        </div>
+      ) : (
+        <div className={styles.fileList}>
+          {item.changes.map((change) => (
+            <FileEntry
+              key={change.path}
+              change={change}
+              root={root}
+            />
+          ))}
+        </div>
+      )}
     </Row>
   )
 }
@@ -740,13 +745,11 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
 const FileEntry = ({
   change,
   root,
-  single,
 }: {
   change: FileChangeItem['changes'][number]
   root?: string
-  single: boolean
 }) => {
-  const [open, setOpen] = useState(single)
+  const [open, setOpen] = useState(false)
   // The rule the view below draws by — the whole file, added or removed, unless
   // the payload is a diff — so the badge is what is drawn. See `countFileChange`.
   const counts = countFileChange(change)
@@ -764,7 +767,7 @@ const FileEntry = ({
       </Button>
       {open && (
         <div className={styles.fileBody}>
-          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
+          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
         </div>
       )}
     </div>
@@ -969,11 +972,15 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
         )
       }
       status={item.status}
-      defaultOpen={item.status === 'inProgress'}
+      defaultOpen={Boolean(change) || item.status === 'inProgress'}
     >
       {wire && <div className={styles.wireName}>{wire}</div>}
       {item.error ? (
         <CodeBlock output={stripAnsi(item.error)} />
+      ) : change ? (
+        <div className={styles.fileBody}>
+          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
+        </div>
       ) : (
         <>
           {/* A shell call opens onto the command it ran, the way a command
@@ -1013,7 +1020,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             if (diff) {
               return (
                 <div key={index} className={styles.fileBody}>
-                  <DiffView diff={diff} />
+                  <DiffView diff={diff} inline />
                 </div>
               )
             }

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 
-import { CheckIcon, CopyIcon } from '../../components/Icons'
+import { CheckIcon, CopyIcon, copyIconMarkup } from '../../components/Icons'
 import { Button } from '../ui/button'
+
+export const copyButtonIconMarkup = copyIconMarkup
 
 /**
  * The one copy control: an icon that becomes a tick for a moment once the

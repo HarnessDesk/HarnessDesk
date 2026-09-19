@@ -87,6 +87,41 @@ const outputs = (): string[] => [
 const json = (): string[] => byClass('json').map((el) => el.textContent ?? '')
 
 describe('an opened tool step', () => {
+  it('draws a successful file edit as its diff, without raw arguments or the model-facing reply', () => {
+    const item = call({
+      tool: 'Edit',
+      args: {
+        file_path: '/w/src/app.ts',
+        old_string: 'const oldName = true',
+        new_string: 'const newName = true',
+        replace_all: false,
+      },
+      result: [{ type: 'text', text: 'The file /w/src/app.ts has been updated successfully.' }],
+    })
+    render(item)
+
+    expect(container.querySelector('table')).not.toBeNull()
+    expect(container.textContent).toContain('const oldName = true')
+    expect(container.textContent).toContain('const newName = true')
+    expect(container.textContent).not.toContain('replace_all')
+    expect(container.textContent).not.toContain('updated successfully')
+  })
+
+  it('keeps a failed file edit error instead of replacing it with a diff', () => {
+    const item = {
+      ...call({
+        tool: 'Edit',
+        args: { file_path: '/w/src/app.ts', old_string: 'old', new_string: 'new' },
+      }),
+      status: 'failed',
+      error: 'The text to replace was not found.',
+    } as ToolCallItem
+    render(item)
+
+    expect(outputs()).toEqual(['The text to replace was not found.'])
+    expect(container.querySelector('table')).toBeNull()
+  })
+
   it('shows the command without the backticks the adapter wrapped it in', () => {
     open(call({ tool: '`ps -p 511 -o pid,ppid,etime`' }))
     expect(title()).toContain('ps -p 511 -o pid,ppid,etime')

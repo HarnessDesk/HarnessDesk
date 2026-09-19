@@ -31,6 +31,50 @@ const makeDiffWithHunks = (hunkCount: number) => {
 }
 
 describe('DiffView hunk navigation (#390)', () => {
+  it('does not draw git headers, but still counts the hunks after them', () => {
+    const diff = [
+      'diff --git a/file.txt b/file.txt',
+      'index 1111111..2222222 100644',
+      '--- a/file.txt',
+      '+++ b/file.txt',
+      '@@ -1,1 +1,1 @@',
+      '-old one',
+      '+new one',
+      '@@ -10,1 +10,1 @@',
+      '-old two',
+      '+new two',
+    ].join('\n')
+
+    act(() => {
+      root.render(<DiffView diff={diff} />)
+    })
+
+    expect(container.textContent).not.toContain('diff --git')
+    expect(container.textContent).not.toContain('index 1111111')
+    expect(container.textContent).not.toContain('--- a/file.txt')
+    expect(container.textContent).not.toContain('+++ b/file.txt')
+    expect(container.textContent).toContain('Hunk 1 of 2')
+  })
+
+  it('uses one line-number column and no hunk navigation inline', () => {
+    act(() => {
+      root.render(<DiffView diff={makeDiffWithHunks(2)} inline />)
+    })
+
+    expect(container.textContent).not.toContain('Hunk 1 of 2')
+    expect(container.querySelectorAll('tr[class*="_add_"] td[class*="_gutter_"]')).toHaveLength(2)
+  })
+
+  it('omits the redundant separator for one hunk starting at the first new line', () => {
+    act(() => {
+      root.render(<DiffView diff={'--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+one\n+two'} />)
+    })
+
+    expect(container.textContent).not.toContain('@@ -0,0 +1,2 @@')
+    expect(container.textContent).toContain('one')
+    expect(container.textContent).toContain('two')
+  })
+
   it('resets or clamps hunk index when diff changes to one with fewer hunks', () => {
     const diff8 = makeDiffWithHunks(8)
     const diff2 = makeDiffWithHunks(2)

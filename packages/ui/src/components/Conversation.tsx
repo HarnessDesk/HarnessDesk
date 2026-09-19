@@ -680,7 +680,13 @@ export const Conversation = ({
 
         {!pinned && items.length > 0 && (
           <span className={styles.jumpButton}>
-            <Button type="button" variant="ghost" size="sm" onClick={jumpToBottom}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="rounded-full bg-(--hd-card) shadow-[var(--hd-shadow-raised),inset_0_0_0_1px_var(--hd-border-strong)]"
+              onClick={jumpToBottom}
+            >
               Jump to latest
             </Button>
           </span>

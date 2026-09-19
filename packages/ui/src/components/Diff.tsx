@@ -35,9 +35,13 @@ export interface DiffViewProps {
    * a scrollbar nobody drags.
    */
   readonly wrap?: boolean
+  /** A transcript diff: no pane navigation, and one useful line-number column. */
+  readonly inline?: boolean
 }
 
-export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProps) => {
+const startsAtFirstNewLine = (text: string): boolean => /^@@+ .*\+1(?:,\d+)? @@+/.test(text)
+
+export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false }: DiffViewProps) => {
   const [expanded, setExpanded] = useState(false)
   const [hunk, setHunk] = useState(0)
   const rows = useRef<Map<number, HTMLTableRowElement>>(new Map())
@@ -50,17 +54,27 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
     },
     [diff, wholeFile],
   )
+  const displayLines = useMemo(() => {
+    // The post-hunk "no newline" marker is a fact about the change, not part
+    // of git's file introduction, so it keeps the quiet metadata treatment.
+    const withoutHeaders = lines.filter((line) => line.kind !== 'meta' || line.text.startsWith('\\'))
+    const hunks = withoutHeaders.filter((line) => line.kind === 'hunk')
+    if (hunks.length === 1 && startsAtFirstNewLine(hunks[0]!.text)) {
+      return withoutHeaders.filter((line) => line !== hunks[0])
+    }
+    return withoutHeaders
+  }, [lines])
   const hunkRows = useMemo(
-    () => lines.flatMap((line, index) => (line.kind === 'hunk' ? [index] : [])),
-    [lines],
+    () => displayLines.flatMap((line, index) => (line.kind === 'hunk' ? [index] : [])),
+    [displayLines],
   )
 
   useEffect(() => {
     setHunk((current) => (hunkRows.length === 0 ? 0 : Math.min(current, hunkRows.length - 1)))
   }, [hunkRows.length])
 
-  const visible = expanded ? lines : lines.slice(0, COLLAPSE_AFTER)
-  const hidden = lines.length - visible.length
+  const visible = expanded ? displayLines : displayLines.slice(0, COLLAPSE_AFTER)
+  const hidden = displayLines.length - visible.length
 
   const go = useCallback(
     (next: number) => {
@@ -78,7 +92,7 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
 
   return (
     <div className={styles.diff}>
-      {hunkRows.length > 1 && (
+      {!inline && hunkRows.length > 1 && (
         <div className={styles.nav}>
           <span>
             Hunk {Math.min(hunk + 1, hunkRows.length)} of {hunkRows.length}
@@ -104,7 +118,11 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
         </div>
       )}
       <div className={styles.scroll}>
-        <table className={styles.table} {...(wrap ? { 'data-wrap': '' } : {})}>
+        <table
+          className={styles.table}
+          {...(wrap ? { 'data-wrap': '' } : {})}
+          {...(inline ? { 'data-inline': '' } : {})}
+        >
           <tbody>
             {visible.map((line, index) => (
               <tr
@@ -124,8 +142,14 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false }: DiffViewProp
                 }`}
                 {...(line.kind === 'hunk' && hunkRows[hunk] === index ? { 'data-current': '' } : {})}
               >
-                <td className={styles.gutter}>{line.oldNumber ?? ''}</td>
-                <td className={styles.gutter}>{line.newNumber ?? ''}</td>
+                {inline ? (
+                  <td className={styles.gutter}>{line.newNumber ?? line.oldNumber ?? ''}</td>
+                ) : (
+                  <>
+                    <td className={styles.gutter}>{line.oldNumber ?? ''}</td>
+                    <td className={styles.gutter}>{line.newNumber ?? ''}</td>
+                  </>
+                )}
                 <td className={styles.code}>
                   <span className={styles.marker}>
                     {line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ''}
