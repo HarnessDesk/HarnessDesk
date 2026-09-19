@@ -1760,6 +1760,31 @@ export interface HostMethods {
     params: { readonly room: string }
     result: BoardEvidence
   }
+  /**
+   * Runs one of the room's project's named checks for a card, and answers once
+   * it has started: what it observed arrives as the room's evidence.
+   *
+   * Security-critical. A command a repository names runs only after a person
+   * has approved it, verbatim, on this machine, for this repository and this
+   * generation of its checks file as committed; until then — and again
+   * whenever the file changes in any way — nothing runs, and the call is
+   * refused `checkUnseen` with the command and the file's generation as data
+   * (`CheckUnseen`). The person's answer is the same call with `seen` and
+   * `digest` set to exactly what they were shown, which runs only while the
+   * file is still exactly that. It runs with the person's own authority.
+   */
+  'evidence/check/run': {
+    params: {
+      readonly room: string
+      readonly card: number
+      readonly name: string
+      /** The answer: the command exactly as it was shown… */
+      readonly seen?: string
+      /** …and the checks file it was shown from (`CheckUnseen.digest`). */
+      readonly digest?: string
+    }
+    result: { readonly started: true }
+  }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {

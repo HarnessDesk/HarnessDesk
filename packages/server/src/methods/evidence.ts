@@ -9,6 +9,11 @@ export const evidenceMethods = {
 
   'evidence/board': (ctx, params) => ctx.evidence.board(params.room),
 
+  /* Security-critical: every rule a check is held to is `CheckRuns.run`'s, and
+     nothing here reads the file or runs anything of its own. */
+  'evidence/check/run': (ctx, params) =>
+    ctx.evidence.checks.run(params.room, params.card, params.name, { seen: params.seen, digest: params.digest }),
+
   /* Confined like every folder the renderer names: a project's page can only
      ask about a folder the person opened, or one a conversation works in. */
   'evidence/checks': async (ctx, params) =>

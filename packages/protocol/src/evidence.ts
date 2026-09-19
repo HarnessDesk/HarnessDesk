@@ -310,3 +310,17 @@ export interface BoardEvidence {
   /** Only the cards that carry anything. */
   readonly cards: readonly CardEvidence[]
 }
+/**
+ * What a check refused as unseen carries, for the surface that asks: the
+ * command exactly as it would run, what this machine last approved under the
+ * same name when it was something else, where it would run, and the file it is
+ * in.
+ */
+export interface CheckUnseen {
+  readonly check: NamedCheck
+  readonly previous: string | null
+  readonly cwd: string
+  readonly file: string
+  /** The checks file as it was read for this question: the answer runs only while it is still exactly this. */
+  readonly digest: string
+}

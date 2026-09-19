@@ -3,6 +3,7 @@ import type { BoardEvidence, ProjectChecks, TeamState, WireNotification } from '
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
 import { boardEvidence, RunningChecks } from './board.js'
+import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import { projectOf } from './revision.js'
 import { SeatBook } from './seats.js'
@@ -46,6 +47,8 @@ export class EvidencePlane {
   readonly seen: CommandsSeen
   /** Named checks running now, by room and card. */
   readonly running = new RunningChecks()
+  /** Runs a project's named checks, once a person has seen them (`check-runs.ts`). */
+  readonly checks: CheckRuns
   readonly #port: EvidencePort
   readonly #now: () => number
   /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
@@ -58,6 +61,19 @@ export class EvidencePlane {
     this.seats = new SeatBook(this.store, options.now)
     this.seen = new CommandsSeen(options.seenFile, {
       ...(options.cipher ? { cipher: options.cipher } : {}),
+      ...(options.now ? { now: options.now } : {}),
+    })
+    this.checks = new CheckRuns({
+      store: this.store,
+      seen: this.seen,
+      seats: this.seats,
+      running: this.running,
+      port: {
+        board: (room) => port.board(room),
+        cwdOf: (runtime, sessionId) => port.cwdOf(runtime, sessionId),
+        changed: (room) => this.announce(room),
+        log: (message, details) => port.log(message, details),
+      },
       ...(options.now ? { now: options.now } : {}),
     })
   }
@@ -183,8 +199,13 @@ export class EvidencePlane {
     return this.#lastStamp
   }
 
-  /** The desk is closing: this resolves once every record already asked for is on disk. */
+  /**
+   * The desk is closing: every check still running is stopped — it leaves no
+   * fact, since nothing was observed — and this resolves once every record
+   * already asked for is on disk.
+   */
   async close(): Promise<void> {
+    await this.checks.stop()
     await this.seats.settled()
     // A write that failed was refused to its caller already; the quit says so again, where it is read.
     await this.store.flush().catch((error: unknown) =>
