@@ -376,6 +376,9 @@ export class AppStore {
           // This Mac's seats may be what changed; read them again only where a page has read them.
           if (this.#snapshot.seating !== null) void this.loadSeating()
         }
+        if (notification.method === 'session/removed') {
+          this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+        }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
           const { report } = notification.params

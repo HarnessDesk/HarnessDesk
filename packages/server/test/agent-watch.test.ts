@@ -1196,6 +1196,122 @@ test('(G9) a project whose own folder is swapped for a link while it is followed
 })
 
 /*
+ * P3 (final Part A review): `reach`'s own walk had no rule against a link
+ * resolving *above* the very Agents folder it was asked about — the project
+ * root itself, chief among them — so a committed `.harnessdesk/agents -> ..`
+ * turned a project's roster watch into a recursive watch on the whole
+ * checkout: every write anywhere in it, `node_modules` and `.git` included,
+ * became a notice. The walk-up now treats such a resolution exactly like one
+ * that leads nowhere — `.harnessdesk` itself is watched, non-recursively,
+ * for the name `agents` to become a real folder, proved live below — so the
+ * project's own root is never handed to a watcher at all.
+ */
+test('(P3) a committed .harnessdesk/agents -> .. is never watched recursively as the project root', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const project = join(root, 'project')
+  await mkdir(join(project, '.harnessdesk'), { recursive: true })
+  await mkdir(join(project, 'build'), { recursive: true })
+  await symlink('..', join(project, '.harnessdesk', 'agents'))
+  const projectReal = await realpath(project)
+  const probe = recording()
+  const { said, changed } = heard()
+  const watch = new AgentWatch({ roots: [], changed, settleMs: 30, watchFn: probe.watchFn })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([project])
+
+  // Proves the walk-up's watch on `.harnessdesk` is live before any silence from it is trusted.
+  await proveWatching(probe, join(project, '.harnessdesk'), 'the walk-up watch on .harnessdesk')
+  assert.ok(
+    probe.watched.every((dir) => dir !== projectReal),
+    `the project root was itself handed to a watcher: ${probe.watched.join(', ')}`,
+  )
+
+  await settled()
+  said.length = 0
+  for (let n = 0; n < 5; n++) {
+    await writeFile(join(project, 'build', `out${n}.js`), 'x')
+    await pause(60)
+  }
+  await pause(600)
+  assert.deepEqual(said, [], 'a recursive watch on the project root reported changes under build/')
+})
+
+/**
+ * The identical hazard one level down: the Agents folder itself is real, but
+ * a link directly inside it reaches the project root the same way
+ * `.harnessdesk/agents -> ..` does above. `#rescanLinks` had no rule against
+ * adding a recursive watch wherever such a link resolved. The Agents folder's
+ * own watch stays exactly as it should be — recursive, and live — while the
+ * link that reaches above it is simply left unwatched.
+ */
+test('(P3) a top-level link inside the Agents folder that reaches the project root is left unwatched', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const project = join(root, 'project')
+  await mkdir(join(project, '.harnessdesk', 'agents'), { recursive: true })
+  await mkdir(join(project, 'build'), { recursive: true })
+  await symlink(join('..', '..'), join(project, '.harnessdesk', 'agents', 'x'))
+  const projectReal = await realpath(project)
+  const probe = recording()
+  const { said, changed } = heard()
+  const watch = new AgentWatch({ roots: [], changed, settleMs: 30, watchFn: probe.watchFn })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([project])
+
+  // Proves the Agents folder's own recursive watch is live before any silence about the link is trusted.
+  await proveWatching(probe, join(project, '.harnessdesk', 'agents'), "the Agents folder's own watch")
+  assert.ok(
+    probe.watched.every((dir) => dir !== projectReal),
+    `the link's target — the project root — was itself handed to a watcher: ${probe.watched.join(', ')}`,
+  )
+
+  await settled()
+  said.length = 0
+  for (let n = 0; n < 5; n++) {
+    await writeFile(join(project, 'build', `out${n}.js`), 'x')
+    await pause(60)
+  }
+  await pause(600)
+  assert.deepEqual(said, [], 'a link inside the Agents folder that reaches the project root was watched recursively')
+})
+
+/**
+ * `#rescanLinks` used to run once per event the root's own recursive watch
+ * reported — a `readdir` of the root, plus a `reach` (its own `lstat`s and
+ * `realpath`s) per top-level link found, on every single file changed
+ * anywhere beneath it. It now runs once per settled burst, on the same clock
+ * `#poke`'s own notice already settles on — proved here by counting
+ * `onRescan` across a burst of rapid changes, once the watch is proved live.
+ */
+test('(P3) the top-level link rescan runs once per settled burst, not once per file changed beneath the root', async (t) => {
+  const root = tempDir('hd-agent-watch-')
+  const project = join(root, 'project')
+  await mkdir(join(project, '.harnessdesk', 'agents', 'scout'), { recursive: true })
+  await writeFile(join(project, '.harnessdesk', 'agents', 'scout', 'AGENT.md'), brief('Original.'))
+  const elsewhere = tempDir('hd-agent-watch-linked-')
+  await symlink(elsewhere, join(project, '.harnessdesk', 'agents', 'shared'))
+
+  let rescans = 0
+  const probe = recording()
+  const { changed } = heard()
+  const watch = new AgentWatch({
+    roots: [],
+    changed,
+    settleMs: 30,
+    watchFn: probe.watchFn,
+    onRescan: () => void rescans++,
+  })
+  t.after(() => watch.dispose())
+  await watch.watchProjects([project])
+  await proveWatching(probe, join(project, '.harnessdesk', 'agents'), "the Agents folder's own watch")
+  await settled()
+  rescans = 0
+
+  for (let n = 0; n < 20; n++) await writeFile(join(project, '.harnessdesk', 'agents', 'scout', `f${n}.txt`), 'x')
+  await settled()
+  assert.ok(rescans <= 2, `20 rapid changes beneath the root caused ${rescans} rescans, not one settled burst`)
+})
+
+/*
  * G4 — the tests that count `agent/changed` point their host's built-in root
  * at a copy, so an edit to `packages/server/agents` cannot land in a count.
  * This one does not: it is the app's own setup, and proves the real folder the

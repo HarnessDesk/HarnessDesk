@@ -358,6 +358,87 @@ test('onlyIfAbsent decides inside the set queue, after an earlier local set has 
 })
 
 /*
+ * R1 (PR #814 round 1): a project Save reads `seating.json`, decides the id
+ * is absent or already its own seat, then walks the project path and writes
+ * the Agent folder before it ever calls `set()` — a different window's set
+ * for the same id can land in that gap. `refuseIfDifferent` is Save's
+ * compare-and-set: decided inside the write queue, the same turn `onlyIfAbsent`
+ * already decides its own question in, against whatever is in the file the
+ * instant before this call writes it — not the read Save took before any of
+ * that awaiting.
+ */
+
+test('refuseIfDifferent decides inside the set queue: a queued local set first makes the entry present and different, and the compare-and-set refuses instead of overwriting it', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  // Queued, not raced: started together, the local set's `run()` occupies the
+  // queue first and the compare-and-set's `run()` does not read the file
+  // until the local set has written it — the same ordering M8's two-sets test
+  // already pins, here made to matter for a third call's own decision.
+  const local = file.set('scratch', [{ runtime: 'cursor' }])
+  const save = (file.set as unknown as (
+    id: string,
+    seats: readonly { runtime: string; model?: string }[],
+    options: { refuseIfDifferent: string },
+  ) => ReturnType<MachineSeatingFile['set']>)('scratch', [{ runtime: 'claude-code', model: 'opus-5' }], {
+    refuseIfDifferent: 'This Mac already has seats for “scratch”, and they would win over the one you are saving.',
+  })
+
+  const [localOutcome] = await Promise.all([local, save.catch((error: unknown) => error)])
+  assert.equal(localOutcome.wrote, true)
+  await assert.rejects(save, /would win over the one you are saving/)
+  assert.deepEqual(
+    JSON.parse(await readFile(path, 'utf8')),
+    { scratch: ['cursor'] },
+    'the queued local set is what stayed — the refused compare-and-set wrote nothing over it',
+  )
+})
+
+test('refuseIfDifferent writes through when the id is still absent, and is a silent no-op when it already reads back the same seat', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  const seats = [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }]
+  const first = await file.set('scratch', seats, { refuseIfDifferent: 'would win' })
+  assert.equal(first.wrote, true, 'absent — the compare-and-set writes through like a plain set')
+  const second = await file.set('scratch', seats, { refuseIfDifferent: 'would win' })
+  assert.equal(second.wrote, false, 'already exactly this seat — a no-op, never a refusal')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { scratch: ['claude-code=opus-5/high'] })
+})
+
+/*
+ * PR #814 round 2: round 2's own review read this as already failing closed
+ * — a malformed raw value for the id is still *present*, so the
+ * compare-and-set's own `before !== undefined` check never depended on it
+ * parsing as a valid seat — but asked for a test that actually proves it
+ * rather than leaves it "appears to". Pinned here.
+ */
+test('refuseIfDifferent refuses even when the existing raw entry for the id does not itself parse as a valid seat list', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  // `null` names no list, no text and no record — `parseSeating` refuses it
+  // outright ("its seats are written as a list…"), unlike a bare number or
+  // string, which reads back as one compact seat and would not be malformed
+  // at all.
+  await writeFile(path, JSON.stringify({ scratch: null }), 'utf8')
+  const file = new MachineSeatingFile(path)
+  // The malformed value never reads back as an entry at all — `parseSeating`
+  // drops it and reports a problem instead — but the compare-and-set decides
+  // against the raw JSON, not that reading, so it still finds the key there
+  // and refuses rather than silently overwriting whatever it holds.
+  const read = await file.read()
+  assert.equal(read.entries.find((one) => one.id === 'scratch'), undefined, 'the malformed entry reads as no entry at all')
+  assert.ok(read.problems.some((one) => one.id === 'scratch'), 'and is reported as a problem, not silently dropped')
+  await assert.rejects(
+    (file.set as unknown as (
+      id: string,
+      seats: readonly { runtime: string }[],
+      options: { refuseIfDifferent: string },
+    ) => ReturnType<MachineSeatingFile['set']>)('scratch', [{ runtime: 'codex' }], { refuseIfDifferent: 'would win' }),
+    /would win/,
+  )
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { scratch: null }, 'the malformed raw value was left exactly as it was')
+})
+
+/*
  * M11: three gaps the review found — a directory where a file was expected,
  * JSON that is not an object at all, and `thinking` surviving both forms of
  * a write and a read.

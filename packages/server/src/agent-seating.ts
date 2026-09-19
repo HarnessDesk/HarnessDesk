@@ -308,7 +308,10 @@ export const leftWords = (runtime: string, left: SeatLeft): string => {
     case 'inUse':
       return 'the conversation it opened was used meanwhile, so it was left as it is'
     case 'alreadyHeld':
-      return 'the conversation it opened is one the desk already held, so it was left as it is'
+      // Never "opened": this candidate opened nothing at all — the runtime
+      // answered with the id of a conversation the desk already had, which
+      // `#openSeat` refuses before attaching, naming or closing anything.
+      return 'the conversation it answered with is one the desk already held, so it was left as it is'
     case 'unasked':
       return `${runtime} was gone before it could be asked to delete the conversation it opened, which may stay in its history`
   }

@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
 import { rmSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile, type FileHandle } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import { SEAT_PREFERENCE_LIMIT, type RuntimeId } from '@harnessdesk/protocol'
 
+import { exportAgentFolders } from '../src/agent-files.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX } from '../src/agents.js'
@@ -81,6 +82,30 @@ const transcriptFile = (savedAt: number, text: string) =>
       },
     ],
   })
+
+/**
+ * Whether `text` holds a UTF-16 surrogate half with no partner: a high one
+ * not immediately followed by a low one, or a low one with no high one
+ * before it. `String.prototype.isWellFormed` says the same thing, but is
+ * newer than this project's `lib` target — this is the same check by hand.
+ */
+const hasLoneSurrogate = (text: string): boolean => {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      // `charCodeAt` past the end answers `NaN`, and every comparison with
+      // `NaN` is false — so a high surrogate as the very last character, with
+      // no partner to even ask about, must be caught by a positive range
+      // check on `next`, never by negating two `<`/`>` comparisons against it.
+      const next = text.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true
+      index += 1 // the pair is one code point; do not re-examine its low half
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true
+    }
+  }
+  return false
+}
 
 const backupWith = (agentFolders: unknown[], seating?: Readonly<Record<string, unknown>>) => ({
   kind: 'harnessdesk-backup' as const,
@@ -255,6 +280,309 @@ test('export uses the roster ids, leaves links inside behind, and carries only b
   assert.deepEqual(copy?.files.map((one) => one.path), ['AGENT.md', 'chunk-a.md', 'chunk-b.md', 'chunk-c.md'])
 })
 
+/*
+ * R2 (PR #814 round 1, agent-files.ts:479, regularEntries/take): a folder's
+ * contents are classified with one `lstat`, then read again later, by path —
+ * a folder swapped for a link out of the Agent folder in that gap has its
+ * new target's contents read straight through the very next `readdir`, and
+ * export's own `take()` already opens a file with `O_NOFOLLOW` (so a file
+ * swapped for a *link* is already refused before this fix), but nothing
+ * before this fix checks that a file opened clean is still the very file
+ * `regularEntries` classified — a swap to a different regular file (here, a
+ * hard link to one outside the Agent folder, sharing its inode) opens fine
+ * and reads through, unnoticed.
+ *
+ * `lstat` is patched the same way `agent-seating-file.test.ts` already
+ * patches this same module: the swap lands right after classification
+ * captured the entry, answered with the real, pre-swap result every time, so
+ * classification itself is never wrong.
+ */
+/*
+ * These five tests match a swap target by the *relative* suffix of the path
+ * a real `lstat`/`readdir` call names — `join('scout', 'nested')`, say —
+ * never a pre-computed absolute path. `exportAgentFolders` now `realpath`s
+ * each id's own top folder before walking it (round 2), so the absolute
+ * path it later checks a nested entry against may not be byte-for-byte what
+ * a test builds from the un-resolved `agents` root it created (on this Mac,
+ * `/tmp` is itself a link to `/private/tmp`) — matching by suffix means
+ * these patches fire correctly whichever form the code under test happens
+ * to use, round 1's or round 2's, rather than silently never firing at all
+ * and leaving a test "red" only because a file it expected absent shows up
+ * with its own honest content, never because anything outside was read.
+ */
+test('export leaves a nested folder out, and carries nothing from outside, when it is swapped for a link out of the Agent folder right after it is classified', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-dir-swap-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  const nested = join(agents, 'scout', 'nested')
+  const outside = join(dir, 'outside')
+  await mkdir(nested, { recursive: true })
+  await mkdir(join(agents, 'good'), { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(join(nested, 'todo.txt'), 'inside, safe')
+  await writeFile(join(agents, 'good', 'AGENT.md'), 'good brief')
+  await mkdir(outside)
+  await writeFile(join(outside, 'secret.txt'), 'OUTSIDE SECRET')
+  const suffix = join('scout', 'nested')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    const path = String(args[0])
+    if (!swapped && path.endsWith(suffix)) {
+      swapped = true
+      await rm(path, { recursive: true, force: true })
+      await symlink(outside, path)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good', 'scout'])
+  const scout = backup.agentFolders?.find((one) => one.id === 'scout')
+  assert.deepEqual(scout?.files, [{ path: 'AGENT.md', text: 'scout brief' }], 'the swapped folder carried nothing')
+  assert.ok(heard.said.includes('a file or folder was left out of an Agent backup'))
+})
+
+test('export leaves a nested file out, and carries nothing from outside, when it is swapped for a hard link to a file outside the Agent folder right after it is classified', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-file-swap-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  const note = join(agents, 'scout', 'note.txt')
+  const outside = join(dir, 'outside-secret.txt')
+  await mkdir(join(agents, 'scout'), { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(note, 'inside, safe')
+  await writeFile(outside, 'OUTSIDE SECRET')
+  const suffix = join('scout', 'note.txt')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    const path = String(args[0])
+    if (!swapped && path.endsWith(suffix)) {
+      swapped = true
+      await unlink(path)
+      await link(outside, path)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  const scout = backup.agentFolders?.find((one) => one.id === 'scout')
+  assert.deepEqual(scout?.files, [{ path: 'AGENT.md', text: 'scout brief' }], 'the swapped file carried nothing')
+  assert.ok(heard.said.includes('a file or folder was left out of an Agent backup'))
+})
+
+/*
+ * PR #814 round 2: the two tests above swap a nested folder or file the
+ * moment it is classified. Round 2's own review found a later gap:
+ * `regularEntries`' own before/after checks on a nested directory run once,
+ * at its own top, before the loop that looks at its children one by one — a
+ * swap landing *after* those checks pass but *before* that loop's first
+ * `lstat` rides the same ancestor through to whatever a link now answers
+ * with, and neither the recursive pre-check nor the file `fstat` that
+ * follows ever see anything but the identity that escape exposed. The fix
+ * (`openNoFollow`, `NOFOLLOW_ANY` on macOS) checks every path component at
+ * the moment of the actual open, so it closes this gap wherever it lands,
+ * without `regularEntries` needing to re-check `dir` once per child.
+ *
+ * `lstat` is patched to count calls whose path ends with the one this test
+ * cares about: call 1 classifies `nested` from its parent's own loop, call 2
+ * is `nested`'s own before-check, call 3 is its own after-check — passed
+ * legitimately, because `nested` really was still fine at that moment. Only
+ * once that third call has already resolved does the swap land, strictly
+ * after both checks and strictly before the loop below ever names one of
+ * `nested`'s own children.
+ */
+test('export leaves a nested folder out, and carries nothing from outside, when it is swapped for a link right after its own before/after checks pass, before its first child is named', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-midloop-swap-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  await mkdir(join(agents, 'scout', 'nested'), { recursive: true })
+  await mkdir(join(agents, 'good'), { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(join(agents, 'scout', 'nested', 'note.txt'), 'inside, safe')
+  await writeFile(join(agents, 'good', 'AGENT.md'), 'good brief')
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  await writeFile(join(outside, 'note.txt'), 'OUTSIDE SECRET')
+  const suffix = join('scout', 'nested')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let calls = 0
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    const path = String(args[0])
+    if (path.endsWith(suffix)) {
+      calls += 1
+      if (calls === 3) {
+        await rm(path, { recursive: true, force: true })
+        await symlink(outside, path)
+      }
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good', 'scout'])
+  const scout = backup.agentFolders?.find((one) => one.id === 'scout')
+  assert.deepEqual(scout?.files, [{ path: 'AGENT.md', text: 'scout brief' }], 'the swapped folder carried nothing')
+  assert.ok(heard.said.includes('a file or folder was left out of an Agent backup'))
+})
+
+/*
+ * Round 2's own review also named the walk's own top folder: before round 2
+ * `regularEntries` had no `expected` identity for it at all, so neither
+ * before- nor after-check ever ran there, whatever swapped it. `readdir` is
+ * patched to swap right after it returns — timing that means nothing on the
+ * old code (no check to land inside of) but is caught immediately by the new
+ * top-folder after-check, right where round 1's own gap for a nested folder
+ * used to be.
+ */
+test("export leaves an Agent out whole, and carries nothing from outside, when its own top folder is swapped for a link right after its readdir, before any child is named", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-top-swap-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  await mkdir(join(agents, 'scout'), { recursive: true })
+  await mkdir(join(agents, 'good'), { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(join(agents, 'good', 'AGENT.md'), 'good brief')
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  await writeFile(join(outside, 'AGENT.md'), 'OUTSIDE SECRET')
+  const suffix = join('agents', 'scout')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realReaddir = fsp.readdir
+  let swapped = false
+  fsp.readdir = async (...args: unknown[]) => {
+    const result = await realReaddir(...args)
+    const path = String(args[0])
+    if (!swapped && path.endsWith(suffix)) {
+      swapped = true
+      await rm(path, { recursive: true, force: true })
+      await symlink(outside, path)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readdir = realReaddir
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good'], 'the swapped Agent carried nothing and was left out whole')
+  assert.ok(!(backup.agentFolders ?? []).some((one) => one.files.some((file) => file.text.includes('OUTSIDE SECRET'))))
+})
+
+/*
+ * A different shape of the same finding: the ancestor is swapped only long
+ * enough for the child's own classification `lstat` to read through it, then
+ * put back before anything opens it. `regularEntries`' before/after checks
+ * cannot see this at all — by the time either runs, `nested` reads as
+ * perfectly real again — so this is round 1's own `fstat`-against-
+ * classification identity check to prove: the descriptor this opens is the
+ * real, restored file, and its identity does not match the outside one the
+ * classification recorded, because that was never a lie the ancestor being
+ * live could paper back over once the ancestor is gone again.
+ */
+test('export leaves a nested file out, and carries nothing from outside, when its ancestor is swapped only for the classification and restored before the open', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-swap-restore-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  const nested = join(agents, 'scout', 'nested')
+  await mkdir(nested, { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(join(nested, 'note.txt'), 'inside, safe')
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  await writeFile(join(outside, 'note.txt'), 'OUTSIDE SECRET')
+  const suffix = join('nested', 'note.txt')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const path = String(args[0])
+    if (swapped || !path.endsWith(suffix)) return realLstat(...args)
+    swapped = true
+    // `path` names `.../scout/nested/note.txt`; its own directory is
+    // `nested`, dropped off the end of the classification path itself so
+    // the swap-and-restore below works on whichever spelling — resolved or
+    // not — this specific `lstat` call actually used.
+    const ancestor = dirname(path)
+    await rm(ancestor, { recursive: true, force: true })
+    await symlink(outside, ancestor)
+    // Resolves through the live symlink: `outside/note.txt`'s own identity.
+    const result = await realLstat(...args)
+    await rm(ancestor, { force: true })
+    await mkdir(ancestor)
+    await writeFile(join(ancestor, 'note.txt'), 'inside, safe')
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  const scout = backup.agentFolders?.find((one) => one.id === 'scout')
+  assert.deepEqual(scout?.files, [{ path: 'AGENT.md', text: 'scout brief' }], 'the swapped-then-restored file carried nothing')
+})
+
 test('export quietly skips a dangling Agent link and still carries the good Agent beside it', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-dangling-agent-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
@@ -372,6 +700,51 @@ test('export takes AGENT.md first, then files in code-unit order, and warns when
   assert.match(String(reasonFor('absent-brief')), /no AGENT\.md/)
 })
 
+/**
+ * P4 (final Part A review): once a folder's 1 MiB budget is spent, every file
+ * behind it in the walk was still opened and read, only to be discarded once
+ * `take` compared the running total against the budget — 20,000 files behind
+ * a spent budget cost 20,000 wasted opens. The walk now stops opening more
+ * files the moment the budget is gone, the same way it already stops once
+ * `MAX_BUNDLE_FILES` files have been examined.
+ */
+test('export stops opening files once an Agent folder’s byte budget is already spent, rather than opening every file behind it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-budget-cost-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  await mkdir(join(agents, 'skilled', 'skills'), { recursive: true })
+  await writeFile(join(agents, 'skilled', 'AGENT.md'), 'brief')
+  const chunk = 'x'.repeat(AGENT_FILE_LIMIT)
+  // Spends the whole 1 MiB folder budget, sorting before "skills" the same way the priority test above relies on.
+  for (const name of ['!a.md', '!b.md', '!c.md', '!d.md']) await writeFile(join(agents, 'skilled', name), chunk)
+  // Behind the now-spent budget: files a walk with no cap on examined-vs-opened would still open every one of.
+  const extra = 50
+  for (let index = 0; index < extra; index += 1) {
+    await writeFile(join(agents, 'skilled', 'skills', `m${String(index).padStart(3, '0')}.js`), 'x')
+  }
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    open: (...args: unknown[]) => Promise<unknown>
+  }
+  const realOpen = fsp.open
+  let opened = 0
+  fsp.open = async (...args: unknown[]) => {
+    opened += 1
+    return realOpen(...args)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.open = realOpen
+    syncBuiltinESMExports()
+  })
+
+  const copies = await exportAgentFolders(agents)
+  assert.deepEqual(copies[0]?.files.map((one) => one.path), ['AGENT.md', '!a.md', '!b.md', '!c.md'])
+  // 1 (AGENT.md) + 4 (!a..!d — !d is opened, then rejected, since it is what spends the budget) — never
+  // the 50 files sitting behind it in skills/, which the old walk opened and discarded one by one.
+  assert.ok(opened <= 5, `${opened} files were opened past an Agent folder’s already-spent byte budget`)
+})
+
 test('.git is left out at every depth on export and restore', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-git-metadata-'))
   const restored = await mkdtemp(join(tmpdir(), 'hd-backup-git-restored-'))
@@ -470,6 +843,65 @@ test('export and restore preserve a UTF-8 byte-order mark byte for byte', async 
   const backup = await a.host.call('backup/export', {})
   await b.host.call('backup/import', { backup })
   assert.deepEqual(await readFile(join(restored, 'agents', 'scout', 'AGENT.md')), source)
+})
+
+// The top temporary folder stays unchanged: only a restore subdirectory is
+// swapped, after mkdir returns and immediately before its file is written.
+// A final identity check of the top folder cannot catch this outside write.
+test('restore refuses without writing outside when a subdirectory is swapped for a link before its file is written', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-restore-swap-'))
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    mkdtemp: (...args: unknown[]) => Promise<string>
+    mkdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realMkdtemp = fsp.mkdtemp
+  const realMkdir = fsp.mkdir
+  let temporary: string | undefined
+  let swapped = false
+  fsp.mkdtemp = async (...args: unknown[]) => {
+    temporary = await realMkdtemp(...args)
+    return temporary
+  }
+  fsp.mkdir = async (...args: unknown[]) => {
+    const result = await realMkdir(...args)
+    const path = String(args[0])
+    if (!swapped && temporary && path === join(temporary, 'nested')) {
+      swapped = true
+      await rm(path, { recursive: true, force: true })
+      await symlink(outside, path)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.mkdtemp = realMkdtemp
+    fsp.mkdir = realMkdir
+    syncBuiltinESMExports()
+  })
+
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: 'scout', files: [
+      { path: 'AGENT.md', text: 'restored brief' },
+      { path: 'nested/note.txt', text: 'restored note' },
+    ] }]),
+  })
+  assert.ok(swapped, 'the swap this test depends on actually fired')
+  const escaped = await readFile(join(outside, 'note.txt'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null
+    throw error
+  })
+  assert.equal(escaped, null, 'no restore bytes land outside the canonical Agent root')
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  assert.deepEqual(await readdir(join(dir, 'agents')), [], 'the refused temporary folder was removed and nothing was renamed into place')
+  assert.deepEqual(heard.said, ['an Agent folder from a backup could not be restored'])
+  assert.match(String((heard.details[0] as { error?: unknown })?.error), /replaced.*nothing was written/)
 })
 
 test("restore refuses '..' instead of writing above the Agent's temporary folder", async (t) => {
@@ -581,7 +1013,26 @@ test('restore never examines past the 200th entry, even when every one of the fi
   await assert.rejects(readdir(join(dir, 'agents', 'scout')), { code: 'ENOENT' })
 })
 
-test('restore admits only roster ids and never replaces an existing folder or writes through a link', async (t) => {
+/**
+ * P2 (final Part A review — this pinned test edited, per its brief):
+ * this test's own name said "roster ids" while its body still refused
+ * `Upper`, which the roster (`idsIn`) has always listed — `agentIdOf`, the
+ * *writer's* slug rule for a typed name, was standing in for the roster's
+ * own, looser rule (a safe segment, at most 255 bytes, not `.git`, not the
+ * temp prefix — `isAgentFolderName`, now shared with `idsIn`). `Upper`,
+ * `constructor` and `__proto__` are now expected restored, not skipped:
+ *
+ * Decision, made once here: a reserved id (`constructor`, `__proto__`) is
+ * restored rather than refused. The roster already seats a hand-placed
+ * folder by either name — it keys every entry in a `Map`, where neither
+ * string is special — so refusing to *restore* one made the backup path
+ * stricter than the roster it is restoring into, and silently dropped a real
+ * Agent. `seating.json`'s own reserved-id guard (`agent-seating-file.ts`) is
+ * untouched: that file's keys are a plain JSON object's own properties,
+ * where `__proto__` genuinely is dangerous, which is a fact about that file,
+ * not about an Agent folder's name.
+ */
+test('restore admits every id the roster would list, and never replaces an existing folder or writes through a link', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-agent-ids-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
@@ -606,12 +1057,24 @@ test('restore admits only roster ids and never replaces an existing folder or wr
       folder('valid-agent'),
     ]),
   })
-  assert.deepEqual(report.agentFolders, { restored: 1, skipped: 6 })
+  assert.deepEqual(report.agentFolders, { restored: 4, skipped: 3 })
   assert.equal(await readFile(join(agents, 'existing', 'AGENT.md'), 'utf8'), 'local folder')
   assert.equal(await readFile(join(outside, 'AGENT.md'), 'utf8'), 'linked target')
-  assert.deepEqual((await readdir(agents)).sort(), ['existing', 'linked', 'valid-agent'])
+  assert.deepEqual(
+    (await readdir(agents)).sort(),
+    ['Upper', '__proto__', 'constructor', 'existing', 'linked', 'valid-agent'],
+  )
 })
 
+/**
+ * P2 (final Part A review — this pinned test edited): `Reviewer` was this
+ * test's example of a refused id, refused only because restore was reading
+ * it through `agentIdOf` (the writer's slug rule) instead of the roster's own
+ * rule — which admits `Reviewer` outright, per the fix above. `../climber`
+ * replaces it: a genuine climb, refused under the shared rule for the same
+ * reason (`its id is not a valid Agent id`), so this test still proves what
+ * it always meant to — a refused folder does not refuse its own valid seat.
+ */
 test('restore logs every refused Agent id with a reason and a quoted, capped id', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-refused-id-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
@@ -622,10 +1085,10 @@ test('restore logs every refused Agent id with a reason and a quoted, capped id'
   const report = await host.call('backup/import', {
     backup: backupWith(
       [
-        { id: 'Reviewer', files: [{ path: 'AGENT.md', text: 'brief' }] },
+        { id: '../climber', files: [{ path: 'AGENT.md', text: 'brief' }] },
         { id: stranger, files: [{ path: 'AGENT.md', text: 'brief' }] },
       ],
-      { Reviewer: ['codex'] },
+      { '../climber': ['codex'] },
     ),
   })
 
@@ -636,7 +1099,7 @@ test('restore logs every refused Agent id with a reason and a quoted, capped id'
     'an Agent folder from a backup was refused',
   ])
   const details = heard.details as { id?: unknown; error?: unknown }[]
-  assert.equal(details[0]?.id, '"Reviewer"')
+  assert.equal(details[0]?.id, '"../climber"')
   assert.match(String(details[0]?.error), /id/i)
   assert.equal(typeof details[1]?.id, 'string')
   assert.ok(String(details[1]?.id).length <= 160, 'the quoted id is capped before it reaches the log')
@@ -661,6 +1124,68 @@ test('a control character in a backup id does not smuggle the logged id past its
   const logged = String(details[0]?.id)
   assert.ok(logged.length <= 140, `capped after escaping, not before: got ${logged.length} characters`)
   assert.match(logged, /^".*"$/s, 'still looks like a quoted string')
+})
+
+/**
+ * P9 (final Part A review, "10-m1"): capping the already-quoted text fixed
+ * the cap being smuggled past (above), but slicing the *quoted* string by a
+ * raw character position can itself land inside a six-character `\u0000`
+ * escape, leaving a torn fragment like `\u00` right before the ellipsis. The
+ * cap now truncates the *raw* id first — to a prefix whose own quoted form
+ * plus the ellipsis still fits — and quotes only that, so an escape is
+ * always either whole or entirely absent from what is kept.
+ */
+test('a logged id truncated past its cap never ends with a torn escape', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-log-torn-escape-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+  // Every one of these escapes to six characters once quoted, so the cap
+  // falls inside one of them wherever it lands unless the raw text, not the
+  // quoted text, is what gets cut.
+  const nully = '\0'.repeat(200)
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: nully, files: [{ path: 'AGENT.md', text: 'brief' }] }]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  const details = heard.details as { id?: unknown }[]
+  const logged = String(details[0]?.id)
+  assert.match(logged, /…"$/, 'a truncated id still ends in an ellipsis and a closing quote')
+  // Put a closing quote back where the ellipsis was cut from, and the result
+  // must still be one complete, valid JSON string — never `\u00` with the
+  // rest of its own escape missing.
+  const beforeEllipsis = logged.slice(0, -2)
+  assert.doesNotThrow(() => JSON.parse(`${beforeEllipsis}"`), 'the escape immediately before the ellipsis was torn in half')
+})
+
+/**
+ * P9 (final Part A review, "10-m1"): the same slice-the-quoted-text mistake
+ * can land between the two UTF-16 halves of an astral character's surrogate
+ * pair — JSON.stringify leaves one unescaped, so nothing marks where it is
+ * safe to cut. Truncating the raw id by whole code points first means a pair
+ * is always kept whole or dropped whole, never split.
+ */
+test('a logged id truncated past its cap never splits an astral character’s surrogate pair', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-log-surrogate-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+  // U+1D306, a surrogate pair, repeated well past the cap.
+  const astral = '\u{1d306}'.repeat(80)
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: astral, files: [{ path: 'AGENT.md', text: 'brief' }] }]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  const details = heard.details as { id?: unknown }[]
+  const logged = String(details[0]?.id)
+  assert.match(logged, /…"$/, 'a truncated id still ends in an ellipsis and a closing quote')
+  const inner = logged.slice(1, -2) // drop the opening quote, then the ellipsis and closing quote
+  assert.ok(
+    !hasLoneSurrogate(inner),
+    `a surrogate pair was split by the truncation: ${JSON.stringify(inner.slice(-4))}`,
+  )
 })
 
 test('an existing Agent collision is a quiet skip', async (t) => {
@@ -715,18 +1240,23 @@ test('bad files and refused writes are isolated, bounded, and leave no half-writ
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
   const fsp = createRequire(import.meta.url)('node:fs/promises') as {
-    writeFile: (...args: unknown[]) => Promise<unknown>
+    open: (...args: unknown[]) => Promise<FileHandle>
   }
-  const realWriteFile = fsp.writeFile
-  fsp.writeFile = async (...args) => {
+  const realOpen = fsp.open
+  fsp.open = async (...args) => {
+    const handle = await realOpen(...args)
     if (String(args[0]).endsWith('/fault.md')) {
-      throw Object.assign(new Error('injected Agent backup write failure'), { code: 'EIO' })
+      // Agent content is written through the opened descriptor. Fail that
+      // write, preserving coverage of its finally-close and folder cleanup.
+      handle.writeFile = async () => {
+        throw Object.assign(new Error('injected Agent backup write failure'), { code: 'EIO' })
+      }
     }
-    return realWriteFile(...args)
+    return handle
   }
   syncBuiltinESMExports()
   t.after(() => {
-    fsp.writeFile = realWriteFile
+    fsp.open = realOpen
     syncBuiltinESMExports()
   })
   const chunk = 'x'.repeat(AGENT_FILE_LIMIT)

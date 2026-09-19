@@ -169,9 +169,12 @@ export interface OpenedSeat {
  */
 interface SeatInHand {
   /**
-   * The handle the seating opened it on: the one a discard closes, when nobody
-   * is in the conversation yet, whatever a reopen has put on the record since.
-   * A handle on the record that is not this one is somebody else's.
+   * The handle the seating opened it on: the one a discard closes, when
+   * nobody is in the conversation yet. A reopen since, which puts a
+   * *different* handle on the record, counts as somebody being in it
+   * (`#leaveAsItIs`) — so a discard that finds one closes nothing at all,
+   * this handle included, rather than closing this one regardless of what
+   * the record now holds.
    */
   readonly live: AgentSession
   /** A window asked something of it — read it, reopened it, wrote to it — while the seating held it. */
@@ -2502,14 +2505,25 @@ export class Host {
         .filter((record) => record.runtime === runtime.info.id)
         .map((record) => String(record.session.id)),
     )
-    const live = await runtime.createSession({
-      cwd: where.cwd,
-      ...(seat.model ? { model: seat.model } : {}),
-      options: {
-        ...(seat.effort ? { effort: seat.effort } : {}),
-        ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
-      },
-    })
+    let live: Awaited<ReturnType<typeof runtime.createSession>>
+    try {
+      live = await runtime.createSession({
+        cwd: where.cwd,
+        ...(seat.model ? { model: seat.model } : {}),
+        options: {
+          ...(seat.effort ? { effort: seat.effort } : {}),
+          ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+        },
+      })
+    } catch (error) {
+      // Nothing opened, so nothing is left — said outright rather than left
+      // unsaid, because an adapter that keeps one error object and throws it
+      // again for the next seat would otherwise leave a stale note from
+      // whatever an earlier seat's own discard left, read out here as this
+      // seat's, though this seat never opened a conversation at all.
+      noteLeftOnFailure(error, null)
+      throw error
+    }
     if (held.has(String(live.id))) {
       this.#logger.warn('a runtime answered a new seat with a conversation the desk already holds, so it was left as it is', {
         runtime: String(runtime.info.id),
@@ -2614,11 +2628,20 @@ export class Host {
       // this look to the delete on its way nothing is awaited, so nothing can start on it in between.
       const leave = before ?? this.#leaveAsItIs(inHand, runtime, id)
       if (leave) {
+        // Read fresh off the record rather than assumed from `before`: a
+        // reopen since this seat was opened puts a *different* handle on the
+        // record, which is one of `#leaveAsItIs`'s own reasons to leave
+        // things as they are — and when that is why, this seating's own
+        // handle was never "kept open" by anything done here, it was simply
+        // superseded, which is a different fact from either "kept open" or
+        // "closed".
+        const record = this.registry.get(runtime, id)
+        const handle = record?.live === inHand.live ? 'kept open' : record?.live ? 'replaced' : 'closed'
         this.#logger.info('a seat passed over was left as it is, not deleted', {
           runtime: String(runtime),
           session: String(id),
           why: leave.kind,
-          handle: before ? 'kept open' : 'closed',
+          handle,
         })
         return leave
       }
@@ -3866,18 +3889,39 @@ const LOGGED_ID_LIMIT = 140
 /**
  * A backup's own id, safe to put in a log: quoted like any other logged
  * value, and capped — nothing here says a stranger's string is short,
- * printable, or even a string at all. Capped *after* `JSON.stringify`, not
- * before: a control character or anything else JSON expands to several
- * characters (a NUL becomes six characters, U+0000 spelled out) would otherwise
- * smuggle a short raw string into a long escaped one, past the very cap this
- * exists to hold it under.
+ * printable, or even a string at all.
+ *
+ * The *raw* text is capped first, not the quoted text: a control character or
+ * anything else JSON expands to several characters (a NUL becomes six
+ * characters, U+0000 spelled out) is exactly why a cap taken before quoting
+ * could smuggle a short raw string past it — but a cap taken by slicing the
+ * already-quoted text at a raw character position can itself land inside one
+ * of those six characters, leaving `\u00` with nothing after it, or between
+ * the two UTF-16 halves of an astral character's surrogate pair, which
+ * `JSON.stringify` leaves unescaped and so gives no mark of where it is safe
+ * to cut. Both are avoided the same way: find the longest prefix of the raw
+ * text, whole code points only, whose own quoted form still fits the cap
+ * once the ellipsis this appends is counted — then quote only that prefix.
+ * An escape or a surrogate pair is then always either whole or entirely
+ * behind the cut, never half of either.
  */
 const loggedId = (id: unknown): string => {
   const text = typeof id === 'string' ? id : String(id)
-  const quoted = JSON.stringify(text)
-  if (quoted.length <= LOGGED_ID_LIMIT) return quoted
-  // The opening quote survives in the slice; the closing one is put back by hand.
-  return `${quoted.slice(0, LOGGED_ID_LIMIT - 2)}…"`
+  const whole = JSON.stringify(text)
+  if (whole.length <= LOGGED_ID_LIMIT) return whole
+  // The prefix's own quoted form may cost this much: its closing quote is
+  // about to be swapped for `…"`, one character longer, so one is held back
+  // here to leave room for that swap.
+  const budget = LOGGED_ID_LIMIT - 1
+  let prefix = ''
+  for (const codePoint of text) {
+    const next = prefix + codePoint
+    if (JSON.stringify(next).length > budget) break
+    prefix = next
+  }
+  // The quoted prefix's own closing quote is dropped and put back after the
+  // ellipsis, exactly as the un-truncated form's is by `JSON.stringify` itself.
+  return `${JSON.stringify(prefix).slice(0, -1)}…"`
 }
 
 /**

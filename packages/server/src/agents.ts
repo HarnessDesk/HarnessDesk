@@ -2,7 +2,7 @@ import { constants, type Stats } from 'node:fs'
 import { lstat, open, readdir, readlink, realpath, type FileHandle } from 'node:fs/promises'
 import { dirname, isAbsolute, join, sep } from 'node:path'
 
-import { digestOf } from '@harnessdesk/agent-inventory'
+import { digestOf, isSafePathSegment } from '@harnessdesk/agent-inventory'
 import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from './agent-def.js'
@@ -92,6 +92,43 @@ const errnoOf = (error: unknown): string => {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
+/** A linked git checkout's own metadata — never an Agent's own folder, at the top level or nested inside one. */
+const GIT_DIR = '.git'
+
+/**
+ * A path segment, folded so a case or Unicode alias of one already taken —
+ * or of `.git` itself, on a case-insensitive volume the default on macOS —
+ * reads as the same segment. Shared with `agent-files.ts`'s own fold, so a
+ * name this admits and a name a backup's own walk excludes cannot drift
+ * apart at a spelling neither side is looking at.
+ */
+const foldedSegment = (segment: string): string => segment.normalize('NFC').toLowerCase()
+
+/** Whether a segment is a git checkout's own metadata folder, however its case was spelled. */
+const isGitDir = (name: string): boolean => foldedSegment(name) === GIT_DIR
+
+/**
+ * A folder name that could be a real Agent's id — what the roster (`idsIn`),
+ * export and restore (`importAgentFolder`) all agree on, so a name none of
+ * the three would touch is never silently different from what the other two
+ * admit. A safe path segment — never a climb, a separator or a NUL — short
+ * enough for `seating.json` and every filesystem this runs on, never a git
+ * checkout's own metadata (however its case was spelled), and never this
+ * module's own temp namespace.
+ *
+ * This is deliberately not `agentIdOf`: that is the writer's rule for slugging
+ * a typed *name* into a brand new folder — lower case, hyphens, capped at 48
+ * characters — never a reader's rule for a folder already there. Reading a
+ * folder back through the writer's rule refused a hand-placed or older name
+ * the roster and export both admit without complaint (`Reviewer`, `my_agent`,
+ * a 60-character name), so a restore silently dropped every one of them.
+ */
+export const isAgentFolderName = (name: string): boolean =>
+  isSafePathSegment(name) &&
+  Buffer.byteLength(name, 'utf8') <= 255 &&
+  !isGitDir(name) &&
+  !name.startsWith(AGENT_TEMP_PREFIX)
+
 export const idsIn = async (dir: string): Promise<string[]> => {
   let entries
   try {
@@ -106,9 +143,7 @@ export const idsIn = async (dir: string): Promise<string[]> => {
      answers as nothing. Dropping links here hid every linked Agent without a
      word. */
   return entries
-    // Hide only this module's transaction namespace. Other dot-prefixed names
-    // remain visible as broken Agents rather than silently disappearing.
-    .filter((one) => !one.name.startsWith(AGENT_TEMP_PREFIX) && (one.isDirectory() || one.isSymbolicLink()))
+    .filter((one) => isAgentFolderName(one.name) && (one.isDirectory() || one.isSymbolicLink()))
     .map((one) => one.name)
     .sort()
 }
