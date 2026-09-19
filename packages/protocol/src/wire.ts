@@ -1,5 +1,6 @@
 import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import type { ProvenanceBackup } from './provenance.js'
 import type {
   CapabilityContribution,
   ContextImage,
@@ -130,6 +131,8 @@ export interface BackupFile {
   }[]
   /** This machine's `seating.json`, or null when it was absent or could not be read. */
   readonly seating?: Readonly<Record<string, unknown>> | null
+  /** Historical provenance only; never capture preferences or live cursors. */
+  readonly provenance?: ProvenanceBackup
   /**
    * What the desk observed and every Seat it kept: each project's evidence
    * store, as the lines it holds. Never the commands this machine has approved —
@@ -167,6 +170,11 @@ export interface BackupReport {
   readonly transcripts: { readonly restored: number; readonly skipped: number }
   readonly agentFolders: { readonly restored: number; readonly skipped: number }
   readonly seating: { readonly restored: number; readonly skipped: number }
+  readonly provenance: {
+    readonly restored: number
+    readonly duplicate: number
+    readonly refused: number
+  }
   /**
    * Evidence and Seat records, counted by what became of each: `duplicate` was
    * already here; `refused` could not be read, or asked for what a backup may

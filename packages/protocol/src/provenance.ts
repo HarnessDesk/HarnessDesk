@@ -49,3 +49,12 @@ export interface ProvenanceSeatDetail {
   readonly session: SessionPointer | null
   readonly unavailable: string | null
 }
+
+/** Historical observations only. A backup never activates local capture. */
+export interface ProvenanceBackup {
+  readonly version: 1
+  readonly projects: readonly {
+    readonly project: string
+    readonly entries: readonly unknown[]
+  }[]
+}

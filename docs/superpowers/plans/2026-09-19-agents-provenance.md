@@ -2782,6 +2782,7 @@ Every published observation has a durable journal prefix behind it. A damaged pr
 - Create: `packages/server/test/provenance-journal.test.ts`, `packages/server/test/provenance-backup.test.ts`
 - Modify: `packages/protocol/src/provenance.ts`, `packages/protocol/src/wire.ts`, `packages/server/src/host.ts`
 - Named test edit: `packages/server/test/backup.test.ts` adds the provenance key and a historical round trip, preserving every previous key and assertion.
+- Named fixture edits: `packages/ui/src/lib/backup-words.test.ts` and `packages/ui/src/components/Settings.backup.test.tsx` add the required zeroed provenance report counter to their existing `BackupReport` fixtures; their wording assertions remain unchanged because Task 4 adds historical transport, not new Backup-page copy.
 
 **Proof needs:** neither — Codex; temporary local files, Node tests and injected write failures. No listener, runtime, file event or renderer is involved.
 
@@ -3725,12 +3726,16 @@ with:
     ['agentFolders', 'agents', 'evidence', 'exportedAt', 'hostVersion', 'kind', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
 ```
 
-Append this complete test to `packages/server/test/backup.test.ts`. It uses that file’s existing `hostAt`, `tempDir` and `assert`; it adds no runtime or listener.
+Append this complete test to `packages/server/test/backup.test.ts`. It uses that file’s existing `hostAt`, `mkdtemp`, `tmpdir`, `join`, `rm` and `assert`; it adds no runtime or listener.
 
 ```ts
 test('the host carries provenance as historical observations and deduplicates a second restore', async (t) => {
-  const first = await hostAt(tempDir('provenance-backup-first-'))
-  const second = await hostAt(tempDir('provenance-backup-second-'))
+  const firstDir = await mkdtemp(join(tmpdir(), 'provenance-backup-first-'))
+  const secondDir = await mkdtemp(join(tmpdir(), 'provenance-backup-second-'))
+  t.after(async () => rm(firstDir, { recursive: true, force: true }))
+  t.after(async () => rm(secondDir, { recursive: true, force: true }))
+  const first = await hostAt(firstDir)
+  const second = await hostAt(secondDir)
   t.after(() => first.host.dispose())
   t.after(() => second.host.dispose())
   const backup = await first.host.call('backup/export', {})

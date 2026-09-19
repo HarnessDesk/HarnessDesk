@@ -84,6 +84,7 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import { ProvenanceBackups } from './provenance/backup.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { flowSeatInput } from './evidence/seats.js'
 import { SEEN_FILE } from './evidence/seen.js'
@@ -455,6 +456,7 @@ export class Host {
    * append-only store per project under `evidence/` in the state directory.
    */
   readonly #evidence: EvidencePlane
+  readonly #provenanceBackups: ProvenanceBackups
   /**
    * The roster, watched (`AgentWatch`). Made at start rather than in the
    * constructor, so a host that is built and never started watches nothing.
@@ -740,6 +742,7 @@ export class Host {
       // defaults it was supposed to replace.
       this.#applyBrowserSettings()
     }
+    this.#provenanceBackups = new ProvenanceBackups(this.#evidence.store)
     this.#context = this.#buildContext()
   }
 
@@ -1125,6 +1128,9 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#provenanceBackups.close().catch(() => {
+      this.#logger.warn('provenance observations could not be saved')
+    })
     await this.#evidence.close()
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
@@ -1597,6 +1603,7 @@ export class Host {
       ),
       seating: await this.#machineSeating.raw(),
       evidence: await this.#evidence.backup(),
+      provenance: await this.#provenanceBackups.backup(),
     }
   }
 
@@ -1728,8 +1735,9 @@ export class Host {
     }
     // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
     const evidence = await this.#evidence.restore(file.evidence)
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence })
-    return { agents, preferences, transcripts, agentFolders, seating, evidence }
+    const provenance = await this.#provenanceBackups.restore(file.provenance)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance }
   }
 
   /**

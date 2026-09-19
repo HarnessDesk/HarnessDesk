@@ -157,7 +157,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   // Nothing credential-shaped travels: the file has exactly the stores a backup owns.
   assert.deepEqual(
     Object.keys(backup).sort(),
-    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'hostVersion', 'kind', 'preferences', 'seating', 'transcripts', 'version'],
+    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'hostVersion', 'kind', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
   )
   assert.deepEqual(backup.agentFolders, [])
   assert.equal(backup.seating, null)
@@ -1504,4 +1504,34 @@ test('what is not a backup is refused whole', async (t) => {
     host.call('backup/import', { backup: { some: 'other json file' } }),
     /not a HarnessDesk backup/,
   )
+})
+
+test('the host carries provenance as historical observations and deduplicates a second restore', async (t) => {
+  const firstDir = await mkdtemp(join(tmpdir(), 'provenance-backup-first-'))
+  const secondDir = await mkdtemp(join(tmpdir(), 'provenance-backup-second-'))
+  t.after(async () => rm(firstDir, { recursive: true, force: true }))
+  t.after(async () => rm(secondDir, { recursive: true, force: true }))
+  const first = await hostAt(firstDir)
+  const second = await hostAt(secondDir)
+  t.after(() => first.host.dispose())
+  t.after(() => second.host.dispose())
+  const backup = await first.host.call('backup/export', {})
+  assert.deepEqual(backup.provenance, { version: 1, projects: [] })
+  const carried = {
+    ...backup,
+    provenance: {
+      version: 1,
+      projects: [{
+        project: '/work/project',
+        entries: [{ kind: 'gap', value: { id: 'historical-gap', reason: 'history-gap', from: null, to: 10 } }],
+      }],
+    },
+  }
+  const restored = await second.host.call('backup/import', { backup: carried })
+  assert.deepEqual(restored.provenance, { restored: 1, duplicate: 0, refused: 0 })
+  const again = await second.host.call('backup/import', { backup: carried })
+  assert.deepEqual(again.provenance, { restored: 0, duplicate: 1, refused: 0 })
+  const exported = await second.host.call('backup/export', {})
+  const entry = exported.provenance?.projects[0]?.entries[0] as { value: { restoredAt: number } }
+  assert.equal(typeof entry.value.restoredAt, 'number')
 })
