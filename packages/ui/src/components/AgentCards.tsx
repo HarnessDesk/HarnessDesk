@@ -1128,7 +1128,7 @@ const AccountCardBody = ({
          Surfacing it instead would have been the wrong repair — a band headed
          "Running" holding nothing but `0.153.0` is the divider-for-one-fact
          that `AgentCard`'s own test forbids, and an account is not running
-         anything. Settings › Agents is where a version is the subject. */
+         anything. Settings › Runtimes is where a version is the subject. */
       /* The same band as a session's context, a different budget: both answer
          "how much of this can I still spend". `remainingPercent` is null when
          the source gave a figure that cannot be read as one, and the band

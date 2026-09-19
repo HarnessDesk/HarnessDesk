@@ -91,7 +91,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     transport: { request },
     // The Profile page writes the name when it is let go.
     setProfile: vi.fn(),
-    // The Agents page reads the machine on mount; these are the verbs it asks
+    // The Runtimes page reads the machine on mount; these are the verbs it asks
     // for, answered emptily so the redirect can be watched landing on it.
     loadAccounts: vi.fn(async () => {}),
     agentCatalog: vi.fn(async () => []),
@@ -249,7 +249,7 @@ it('a route to Extensions still gives way when the agent has none', async () => 
 
   // And it corrects the one copy of the section, so the parent is not left
   // naming a page the window is not on — which would make the next request
-  // for Agents a no-op against a window that had never got there by choice.
+  // for Runtimes a no-op against a window that had never got there by choice.
   expect(held()).toBe('runtimes')
 
   // The correction sticks: nothing re-asserts the route it gave way to.

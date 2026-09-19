@@ -3,13 +3,20 @@ import { describe, expect, it } from 'vitest'
 import { resolveSection } from '../components/Settings'
 
 /**
- * The route id `agents` is reused.
+ * The route id `agents` is reused, and its old meaning is retired for good.
  *
- * It named the page of installed CLIs and their accounts; from this phase it
- * names the roster of Agents, and that page is `runtimes`. `MOVED` cannot
- * carry an id that still exists, so every door that meant the CLIs — a
- * sign-in, an "add another", ⌘, — moved to `runtimes` by hand, and this is
- * the test that nothing was left behind asking the roster for a sign-in.
+ * It named the page of installed CLIs and their accounts; that page is
+ * `runtimes` now, and the redirect below is permanent — no later task hands
+ * the id back to a page in Settings. The roster of Agents lives in its own
+ * left-menu window instead, never in Settings. `MOVED` cannot carry an id
+ * that still exists, so every door that meant the CLIs — a sign-in, an "add
+ * another", ⌘, — moved to `runtimes` by hand, and this is the test that
+ * nothing was left behind asking Settings for a sign-in on the roster's
+ * behalf.
+ *
+ * The roster's own door is `openAgents`, opened by the shell action, the
+ * palette and a handful of pages that point at one Agent — audited on its
+ * own, below, never as an exemption from the Settings check.
  *
  * It reads the renderer's source for literal routes, because a door is a
  * string handed to one of a few verbs, and the door nobody renders in a test
@@ -37,7 +44,12 @@ const sources = import.meta.glob<string>('../**/*.{ts,tsx}', {
 const relativeToSrc = (key: string): string =>
   key.startsWith('../') ? key.slice(3) : `app/${key.slice(2)}`
 
-/** Every way the renderer spells a route to the `agents` page. */
+/**
+ * Every way the renderer spells a door to Settings on the retired `agents`
+ * id. None of these is ever legitimate again — the roster's own door,
+ * `openAgents`, is checked separately below — so this list carries no
+ * exemption of its own.
+ */
 const DOORS: readonly RegExp[] = [
   /\b(?:setSettingsOpen|askSettings|openSettings|onOpenSettings|onSection)\(\s*'agents'/g,
   /\?\?\s*'agents'\s*\)/g,
@@ -46,25 +58,35 @@ const DOORS: readonly RegExp[] = [
 ]
 
 /**
- * The files allowed to open the roster, each for a reason that is about an
- * Agent rather than a runtime. Empty until the roster exists; each task that
- * adds a door to it adds the file here, with the door in its commit.
+ * The files allowed to call `openAgents`, the Agents window's own door — not
+ * a door to Settings, which never legitimately opens on the retired roster
+ * id. Empty until Task 13 builds the window; each task that gives a surface
+ * a genuine door to it names the file here, with the door in its own commit.
  */
 const ROSTER_DOORS: readonly string[] = []
 
 describe('the Settings route split', () => {
-  it('opens on Runtimes by default, and an old route to agents lands there until the roster exists', () => {
+  it('opens on Runtimes by default, and the retired agents route redirects there for good', () => {
     expect(resolveSection(null)).toBe('runtimes')
     expect(resolveSection('runtimes')).toBe('runtimes')
     expect(resolveSection('agents')).toBe('runtimes')
   })
 
-  it('nothing opens the Agents page but a door that is about Agents', () => {
+  it('nothing spells a new door to Settings on the retired agents id', () => {
+    const offenders = Object.entries(sources).flatMap(([key, text]) => {
+      if (/\.test\.tsx?$/.test(key)) return []
+      const where = relativeToSrc(key)
+      return DOORS.flatMap((door) => [...text.matchAll(door)].map((match) => `${where}: ${match[0]}`))
+    })
+    expect(offenders).toEqual([])
+  })
+
+  it("only the roster's own doors call openAgents", () => {
     const offenders = Object.entries(sources).flatMap(([key, text]) => {
       if (/\.test\.tsx?$/.test(key)) return []
       const where = relativeToSrc(key)
       if (ROSTER_DOORS.includes(where)) return []
-      return DOORS.flatMap((door) => [...text.matchAll(door)].map((match) => `${where}: ${match[0]}`))
+      return [...text.matchAll(/\bopenAgents\(/g)].map(() => where)
     })
     expect(offenders).toEqual([])
   })

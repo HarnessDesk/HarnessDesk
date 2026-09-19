@@ -463,8 +463,8 @@ const AgentBlock = ({
             already chose and installed; a definition of it cannot change what
             you do on a page for managing its accounts, and the one line it had
             was set to nowrap, so a longer one arrived cut. It still shows in
-            full where choosing is the actual task — the Add agent list below,
-            first run, and sign-in. */}
+            full where choosing is the actual task — the Add a runtime list
+            below, first run, and sign-in. */}
         <RowButton
           className={styles.headOpen}
           onClick={onOpenAgent}

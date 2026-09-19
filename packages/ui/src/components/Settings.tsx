@@ -144,8 +144,9 @@ const MOVED: Readonly<Record<string, Section>> = {
   account: 'general',
   preferences: 'general',
   presets: 'models',
-  // Until the roster takes the id back (Task 13): a route to the installed
-  // CLIs that was written as `agents` lands on the page they now live on.
+  // Permanent: `agents` named the installed CLIs, and that page is
+  // `runtimes` now. The roster of Agents lives in its own left-menu window,
+  // never in Settings, so this id is never handed back to a page here.
   agents: 'runtimes',
 }
 const SECTIONS: readonly Section[] = [
