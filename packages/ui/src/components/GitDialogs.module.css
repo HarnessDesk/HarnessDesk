@@ -21,7 +21,7 @@
 
 .files {
   overflow-y: auto;
-  max-height: 220px;
+  max-height: min(220px, 45vh);
 }
 
 .fileMarks {
@@ -64,5 +64,4 @@
 .rangeDiff {
   overflow: auto;
   height: 100%;
-  padding: var(--hd-space-2-5) var(--hd-space-3);
 }

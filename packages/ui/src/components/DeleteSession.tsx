@@ -6,7 +6,7 @@ import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { TrashIcon } from './Icons'
-import { Button, Note } from '../design'
+import { Button, Note, Text } from '../design'
 import { Dialog } from '../design'
 import styles from './DeleteSession.module.css'
 
@@ -104,10 +104,10 @@ export const DeleteSession = ({
         </>
       }
     >
-      <p className={styles.subject}>
+      <Text as="p" role="subject" className={styles.subject}>
         {runtime && <RuntimeMark runtime={runtime} size={13} />}
         <span>{label}</span>
-      </p>
+      </Text>
       <p>
         This removes the conversation from {agent}, and the transcript HarnessDesk kept of it.
         It will not be in either window afterwards.

@@ -52,13 +52,9 @@ const buttonVariants = cva(
        button. It centred anyway — but a line box taller than its control is
        the thing that makes a two-line label overflow instead of wrap, and
        Kit's `.btn` has always said `line-height: 1`. */
-    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors outline-none select-none data-[draggable]:cursor-grab',
-    /* The focus mark. `outline-none` above kills the document's, and until
-       now nothing put one back: a button in this app could be focused with
-       no way to tell. The reference's answer is two marks at once — the ring
-       colour on the border, and its wash outside it — so the control reads
-       as live rather than as circled. */
-    'focus-visible:border-(--hd-ring) focus-visible:shadow-(--hd-focus-ring)',
+    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors select-none data-[draggable]:cursor-grab',
+    /* The document-level focus rule owns the one ring. A component shadow
+       here would draw a second mark around the same button under Desk. */
     'active:not-aria-[haspopup]:translate-y-px',
     'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[dragging]:opacity-40',
     'aria-invalid:border-(--hd-destructive)',

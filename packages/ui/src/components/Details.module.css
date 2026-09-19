@@ -6,7 +6,3 @@
   display: flex;
   gap: 4px;
 }
-
-.inlineDiff {
-  padding: var(--hd-space-1) 0 var(--hd-space-2); /* desk: 0 8px 6px → 4px 0 8px, the shared diff owns its horizontal inset */
-}

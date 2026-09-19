@@ -68,7 +68,7 @@
    must not make the dialog taller than the window. */
 .branches {
   overflow-y: auto;
-  max-height: 168px;
+  max-height: min(168px, 40vh);
 }
 
 .branch {
