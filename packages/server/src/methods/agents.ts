@@ -217,6 +217,31 @@ export const agentMethods = {
         passedOver: said(passed),
         ceiling: null,
       }
+      /* Written before the seat is kept, and awaited. A seat whose record could
+         not be written is closed, as one whose brief could not be handed over
+         is: no conversation works as an Agent with no record that it did. */
+      try {
+        await ctx.evidence.seats.opened({
+          agent: { id: definition.id, name: definition.name, origin: entry.origin },
+          briefDigest: digest,
+          seat,
+          seatLabel: seated.seatLabel,
+          passedOver: seated.passedOver,
+          // Today's generation of standing order, as the Agent's file said it. Phase 3
+          // writes `{ kind: 'ceiling', level }` here for an Agent that says only `ceiling:`.
+          standing: { kind: 'permission', permission },
+          ceiling: seated.ceiling,
+          cwd: params.cwd,
+          session: { runtime: opened.runtime, sessionId: opened.sessionId },
+          board: null,
+          role: null,
+        })
+      } catch (error) {
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw new Error(
+          `${definition.name} was seated on ${describeSeat(seat, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
+        )
+      }
       return ctx.seats.recordAgent(opened.runtime, opened.sessionId, seated)
     }
   },

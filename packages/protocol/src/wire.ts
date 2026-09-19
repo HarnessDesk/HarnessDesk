@@ -10,6 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
+import type { SeatRecord } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
@@ -1725,6 +1726,16 @@ export interface HostMethods {
   'agent/reveal': {
     params: { readonly id: string; readonly origin?: AgentOrigin; readonly project?: string }
     result: null
+  }
+
+  /**
+   * A conversation's Seat record: the latest Seat the desk kept it as, with how
+   * it ended, or null when the desk never seated it. Read-only, as the record
+   * is: it is written once, when the seat is kept, and closed once.
+   */
+  'evidence/seat': {
+    params: { readonly runtime: string; readonly sessionId: string }
+    result: SeatRecord | null
   }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }

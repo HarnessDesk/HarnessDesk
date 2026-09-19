@@ -54,6 +54,7 @@ import type { OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
+import type { SeatOpeningInput } from '../src/evidence/seats.js'
 import type { SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
@@ -689,6 +690,8 @@ const rig = async (
   const retired: string[] = []
   const discarded: string[] = []
   const recorded: SeatedAs[] = []
+  /* What the seating asked the evidence plane to keep, durable, for each seat it kept. */
+  const durable: SeatOpeningInput[] = []
   const asked: (string | undefined)[] = []
   /* Seats this call has open right now, and every moment a second was opened
      beside one. Letting a seat go takes a turn of the event loop here, so a
@@ -699,6 +702,14 @@ const rig = async (
   const runtimes = new Map(Object.entries(desk).map(([id, pretend]) => [id, pretendRuntime(id, pretend)]))
 
   const ctx = {
+    evidence: {
+      seats: {
+        opened: async (input: SeatOpeningInput) => {
+          durable.push(input)
+          return {}
+        },
+      },
+    },
     agents: {
       list: (project?: string) => roster.list(project),
       read: (id: string, project?: string) => {
@@ -793,6 +804,7 @@ const rig = async (
     retired,
     discarded,
     recorded,
+    durable,
     asked,
     root,
     overlaps,

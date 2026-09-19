@@ -547,6 +547,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     project: optional(isString),
   }),
 
+  'evidence/seat': shape({ runtime: isFilled, sessionId: isFilled }),
+
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),
   'git/checkout': shape({ root: isString, branch: isString, create: optional(isBoolean) }),

@@ -83,6 +83,7 @@ import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
+import { EvidencePlane } from './evidence/plane.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
@@ -445,6 +446,11 @@ export class Host {
    */
   readonly #machineSeating: MachineSeatingFile
   /**
+   * The evidence plane: every Seat this desk kept and what it observed, one
+   * append-only store per project under `evidence/` in the state directory.
+   */
+  readonly #evidence: EvidencePlane
+  /**
    * The roster, watched (`AgentWatch`). Made at start rather than in the
    * constructor, so a host that is built and never started watches nothing.
    */
@@ -576,6 +582,16 @@ export class Host {
     this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE), {
       log: (message, details) => this.#logger.warn(message, details),
     })
+    this.#evidence = new EvidencePlane(
+      { dir: join(this.#state.directory, 'evidence') },
+      {
+        board: (room) => (this.#team.hasRoom(room) ? this.#team.stateFor(room) : null),
+        cwdOf: (runtime, sessionId) =>
+          this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
+        push: (notification) => this.#push(notification),
+        log: (message, details) => this.#logger.warn(message, details ?? {}),
+      },
+    )
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1073,6 +1089,7 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#evidence.close()
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
        that did not wait here was only the *request* to stop writing: the last
@@ -1237,6 +1254,7 @@ export class Host {
       flows: this.#flows,
       agents: this.#agents,
       seating: this.#machineSeating,
+      evidence: this.#evidence,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,
