@@ -131,7 +131,7 @@ export const TeamRoomPane = ({
   onChooseProject = () => undefined,
   onSignIn = () => undefined,
   onOpenUsage = () => undefined,
-  onOpenAgents = () => undefined,
+  onOpenRuntimes = () => undefined,
 }: {
   room: string
   /* The shell's four actions, threaded from `Panes` so the conversation
@@ -141,7 +141,7 @@ export const TeamRoomPane = ({
   onChooseProject?: () => void
   onSignIn?: (runtime?: RuntimeId) => void
   onOpenUsage?: (runtime: RuntimeId) => void
-  onOpenAgents?: () => void
+  onOpenRuntimes?: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -1027,7 +1027,7 @@ export const TeamRoomPane = ({
                           onChooseProject={onChooseProject}
                           onSignIn={onSignIn}
                           onOpenUsage={onOpenUsage}
-                          onOpenAgents={onOpenAgents}
+                          onOpenRuntimes={onOpenRuntimes}
                         />
                         {/* An approval is a stop: the turn does not continue
                             until it is answered. Every column mounts its own, or

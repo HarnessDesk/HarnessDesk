@@ -86,10 +86,10 @@ const NEAR_BOTTOM_PX = 120
 
 const EmptyState = ({
   onSignIn,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onSignIn: (runtime?: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const snapshot = useSnapshot()
   const runtime = useRuntime()
@@ -116,7 +116,7 @@ const EmptyState = ({
           {health.message}
           {health.remediation ? ` ${health.remediation}` : ''}
         </p>
-        <SetupDesk onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+        <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
       </div>
     )
   }
@@ -184,9 +184,9 @@ const EmptyState = ({
            left for settings to reveal: the other agents on this machine can
            join without anyone hand-editing a file. */
         <p className={styles.emptyBody}>
-          {words.name} is the only agent here.{' '}
-          <Button type="button" variant="link" size="content" onClick={onOpenAgents}>
-            Add another agent…
+          {words.name} is the only runtime here.{' '}
+          <Button type="button" variant="link" size="content" onClick={onOpenRuntimes}>
+            Add another runtime…
           </Button>
         </p>
       )}
@@ -456,12 +456,12 @@ export const Conversation = ({
   onChooseProject,
   onSignIn,
   onOpenUsage,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
   onOpenUsage: (runtime: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -675,7 +675,7 @@ export const Conversation = ({
           </div>
         ) : (
           <div className={styles.scroll} ref={scroll} onScroll={onScroll}>
-            <EmptyState onSignIn={onSignIn} onOpenAgents={onOpenAgents} />
+            <EmptyState onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
           </div>
         )}
 

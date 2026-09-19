@@ -14,7 +14,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { accountKey } from '../lib/accounts'
-import { AgentsSection } from './SettingsAgents'
+import { RuntimesSection } from './SettingsAgents'
 
 /**
  * What an account row in Settings says it has left, and whether it says the
@@ -125,7 +125,7 @@ const mount = async (usage: readonly UsageReport[]): Promise<AppStore> => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={() => {}} />
       </StoreProvider>,
     )
   })

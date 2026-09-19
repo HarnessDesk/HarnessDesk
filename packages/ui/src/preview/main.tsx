@@ -153,7 +153,7 @@ const SETTINGS_SECTIONS = [
   'shortcuts',
   'workspaces',
   'archive',
-  'agents',
+  'runtimes',
   'models',
   'skills',
   'extensions',
@@ -303,7 +303,7 @@ const Preview = () => {
               onChooseProject={() => {}}
               onSignIn={() => {}}
               onOpenUsage={() => {}}
-              onOpenAgents={() => {}}
+              onOpenRuntimes={() => {}}
             />
           </PaneProvider>
         </div>

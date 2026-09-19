@@ -147,7 +147,7 @@ export const AddMember = ({
     const key = await store.newSession({ cwd: root, runtime, reveal: false })
     if (!key) {
       setBusy(false)
-      setProblem('That agent would not start. Check it is signed in, in Settings › Agents.')
+      setProblem('That runtime would not start. Check it is signed in, in Settings › Runtimes.')
       return
     }
     /* Starting it is half the job. Membership is explicit now — a project

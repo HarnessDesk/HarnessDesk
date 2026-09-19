@@ -90,7 +90,7 @@ const ConversationView = () => {
         onChooseProject={shell.chooseProject}
         onSignIn={shell.signIn}
         onOpenUsage={shell.openUsage}
-        onOpenAgents={shell.openAgents}
+        onOpenRuntimes={shell.openRuntimes}
       />
       <Approvals />
     </>
@@ -130,7 +130,7 @@ const RoomView = () => {
       onChooseProject={shell.chooseProject}
       onSignIn={shell.signIn}
       onOpenUsage={shell.openUsage}
-      onOpenAgents={shell.openAgents}
+      onOpenRuntimes={shell.openRuntimes}
     />
   )
 }

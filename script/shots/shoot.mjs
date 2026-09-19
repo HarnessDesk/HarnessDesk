@@ -809,14 +809,14 @@ rules:
 
   // The review sweep records every Settings destination, including the rich
   // rows that a single Appearance frame cannot exercise.
-  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'agents', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
+  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'runtimes', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
     SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
       if (!await cdp.eval(`Boolean(document.querySelector(':is(section, [role="dialog"])[aria-label="Settings"]')) && !document.querySelector(':is(section, [role="dialog"])[aria-label="Dashboard"]')`)) {
         throw new Error('Settings did not become the visible window for ' + section)
       }
-      if (section === 'agents') {
+      if (section === 'runtimes') {
         // Keep an account in the frame so header and nested-row containment
         // are both exercised, not just the collapsed list's card outlines.
         await cdp.eval(`document.querySelector('button[aria-label^="Show the accounts under"]')?.click(); true`)

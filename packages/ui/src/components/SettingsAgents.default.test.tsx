@@ -13,7 +13,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AgentsSection } from './SettingsAgents'
+import { RuntimesSection } from './SettingsAgents'
 
 /**
  * The "Default" chip, on all three surfaces that draw it.
@@ -112,7 +112,7 @@ const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
@@ -143,7 +143,7 @@ const openBlock = async (): Promise<void> => {
 
 const back = async (): Promise<void> => {
   await click(
-    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Agents'),
+    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Runtimes'),
     'the back link',
   )
 }
