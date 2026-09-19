@@ -12,7 +12,7 @@ import { AgentsWindow } from '../components/AgentsWindow'
 import { NewSessionChoice } from '../components/NewSessionChoice'
 import { SeatSheet } from '../components/SeatSheet'
 import { SaveAsAgentDialog } from '../components/SaveAsAgent'
-import { Settings, type Section } from '../components/Settings'
+import { Settings, WorkspacesSection, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
 import { RemoveWorktree } from './../components/RemoveWorktree'
@@ -34,6 +34,7 @@ import {
   runtime,
   store,
 } from './harness'
+import { PREVIEW_ROOT } from './sidebar-fixture'
 import '../styles/app.css'
 
 /**
@@ -323,6 +324,11 @@ const Preview = () => {
           onChange={setAgentsFocus}
         />
       </div>
+      <Frame title="Settings › Workspaces — a project">
+        <div className="max-h-[560px] overflow-y-auto p-4">
+          <WorkspacesSection focus={PREVIEW_ROOT} />
+        </div>
+      </Frame>
       {/* The Dashboard, at the width the window really opens it at. Its own
           rail scopes the page, so clicking an account in here shows the
           burn-down band the way the app does.

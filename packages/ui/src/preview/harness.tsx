@@ -1299,6 +1299,7 @@ class PreviewStore {
   ]
   loadWorktrees = async () => {}
   agentCatalog = async () => []
+  agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
   modelsFor = async (): Promise<readonly ModelInfo[]> => [
     {
       id: 'opus',

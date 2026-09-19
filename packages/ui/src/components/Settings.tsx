@@ -104,7 +104,9 @@ import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
 import { ProfileFace } from './ProfileFace'
 import { profileName } from '../lib/profile'
+import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
+import { ProjectPage } from './ProjectPage'
 import styles from './Settings.module.css'
 
 /**
@@ -1464,20 +1466,25 @@ const BrowserSection = () => {
 }
 
 /**
- * Every folder this desk has opened, and the worktrees it made for them.
- *
- * Forgetting a folder drops it from the list and touches nothing on disk;
- * removing a worktree goes through the dialog that lists what would be lost.
+ * Every folder HarnessDesk has opened, each a way into its project's page —
+ * and Settings opened on a project (`focus`, from the sidebar's project menu)
+ * goes straight there. Open and Forget are on the page: a row that opens
+ * something cannot also hold buttons.
  */
-const WorkspacesSection = () => {
-  const store = useStore()
+export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const snapshot = useSnapshot()
+  const [open, setOpen] = useState<string | null>(focus)
+  useEffect(() => {
+    if (focus) setOpen(focus)
+  }, [focus])
+
+  if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
 
   return (
     <>
       <PageHead
         title="Workspaces"
-        blurb="Every folder HarnessDesk has opened. Forgetting one touches nothing on disk."
+        blurb="Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk."
       />
 
       <SectionHead name={withCount('Folders', snapshot.workspaces.length)} />
@@ -1485,36 +1492,18 @@ const WorkspacesSection = () => {
         {snapshot.workspaces.length === 0 && (
           <Row title="No folders opened yet" desc="Open one from File › Open Folder, or ⌘O." />
         )}
-        {snapshot.workspaces.map((workspace) => {
-          const isCurrent = workspace.path === snapshot.workspace?.path
-          return (
-            <Row
-              key={workspace.path}
-              mark={<FolderIcon size={15} />}
-              title={workspace.name}
-              desc={workspace.path}
-              control={
-                isCurrent ? (
-                  <Chip state="ready" label="Current" />
-                ) : (
-                  <>
-                    <Button variant="secondary" size="sm" onClick={() => store.openWorkspace(workspace.path)}>
-                      Open
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      title="Drop it from this list. The folder is untouched."
-                      onClick={() => void store.forgetWorkspace(workspace.path)}
-                    >
-                      Forget
-                    </Button>
-                  </>
-                )
-              }
-            />
-          )
-        })}
+        {snapshot.workspaces.map((workspace) => (
+          <RowButton
+            key={workspace.path}
+            mark={<FolderIcon size={15} />}
+            title={workspace.name}
+            desc={shortPath(workspace.path, snapshot.home)}
+            {...(workspace.path === snapshot.workspace?.path
+              ? { control: <Chip state="ready" label="Current" /> }
+              : {})}
+            onClick={() => setOpen(workspace.path)}
+          />
+        ))}
       </Rows>
       <WorktreeRows />
     </>
@@ -2043,7 +2032,7 @@ export const Settings = ({
             {section === 'appearance' && <AppearanceSection />}
             {section === 'notifications' && <NotificationsSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
-            {section === 'workspaces' && <WorkspacesSection />}
+            {section === 'workspaces' && <WorkspacesSection focus={focus} />}
             {section === 'archive' && <ArchiveSection />}
             {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} />}
             {section === 'models' && <ModelsSection />}

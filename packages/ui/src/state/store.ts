@@ -3768,6 +3768,16 @@ export class AppStore {
   }
 
   /**
+   * One project's roster, read for that project rather than the open one —
+   * its own Agents, then this machine's and the shipped ones — for its page
+   * on Workspaces. Leaves the snapshot's roster alone. Throws the host's
+   * refusal, for the page to say.
+   */
+  async agentsIn(project: string): Promise<readonly AgentEntry[]> {
+    return this.transport.request('agent/list', { project })
+  }
+
+  /**
    * Opens a conversation as an Agent in the open folder — or in `cwd`, a
    * room's — and shows it; or, when nothing can seat it there, opens nothing
    * and raises the refusal sheet with every candidate, its reason and its fix.

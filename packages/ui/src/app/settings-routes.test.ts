@@ -69,6 +69,8 @@ const ROSTER_DOORS: readonly string[] = [
   'app/App.tsx',
   // "Open <Agent>".
   'components/CommandPalette.tsx',
+  // A project's page: its own Agents, each a way into its page on the roster.
+  'components/ProjectPage.tsx',
 ]
 
 describe('the Settings route split', () => {
