@@ -540,7 +540,8 @@ const ListBoard = () => (
                 </IconTile>
               }
               title="Trace the flaky socket test"
-              subtitle="Waiting on approval since 09:12"
+              subtitle="Waiting on approval because the socket runner is still holding the port from its last failed attempt."
+              wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
             />
           </ListRows>

@@ -34,6 +34,8 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   lead?: React.ReactNode
   title: React.ReactNode
   subtitle?: React.ReactNode
+  /** An earned sentence wraps whole; names, paths and compact facts truncate. */
+  wrapSubtitle?: boolean
   /** The reading: a figure, a chip, a `Delta`, a menu. */
   trail?: React.ReactNode
   /** Below the title, full width — a `Progress`, a set of chips. */
@@ -87,6 +89,7 @@ const ListRow = ({
   lead,
   title,
   subtitle,
+  wrapSubtitle,
   trail,
   meta,
   interactive,
@@ -154,7 +157,11 @@ const ListRow = ({
       {subtitle != null && (
         <div
           data-slot="list-row-subtitle"
-          className="truncate text-xs text-(--hd-muted-foreground)"
+          {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
+          className={cn(
+            'text-xs text-(--hd-muted-foreground)',
+            wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
+          )}
         >
           {subtitle}
         </div>

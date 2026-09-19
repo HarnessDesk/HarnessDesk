@@ -580,6 +580,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
                   lead={<Glyph size={18} />}
                   title={<Text role="subject">{method.label}</Text>}
                   subtitle={method.description ? <Text role="muted">{method.description}</Text> : undefined}
+                  wrapSubtitle
                   trail={<ChevronIcon size={16} />}
                 />
               )
