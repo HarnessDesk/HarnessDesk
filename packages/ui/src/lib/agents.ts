@@ -103,6 +103,13 @@ export const fileWords = (
 export const isAgentFolder = (entry: { readonly id: string; readonly path: string }): boolean =>
   entry.path.endsWith(`/${entry.id}/AGENT.md`)
 
+/** Whether two seats ask for the same thing: runtime, model, effort and thinking, an absent one the same as none. */
+export const sameSeat = (a: FlowSeat, b: FlowSeat): boolean =>
+  a.runtime === b.runtime &&
+  (a.model ?? null) === (b.model ?? null) &&
+  (a.effort ?? null) === (b.effort ?? null) &&
+  Boolean(a.thinking) === Boolean(b.thinking)
+
 /** A brief's opening paragraph, on one line: what a page shows before *Open in editor*. */
 export const firstParagraph = (brief: string): string =>
   (brief.trim().split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim()
@@ -483,6 +490,9 @@ export const passedWords = (candidate: SeatCandidate): string => {
 export const stateWords = (candidate: SeatCandidate): string => {
   if (candidate.state === 'taken') return 'The seat it takes here'
   if (candidate.state === 'untried') return 'Not reached: a seat before it is free'
+  // The candidate label already names the model in the runtime's own words;
+  // repeating its wire id as the reason would turn a readable row back into a spec.
+  if (candidate.reason?.kind === 'noModel') return `${candidate.runtimeName} does not offer this model`
   return candidate.reason ? reasonWords(candidate.reason, candidate.runtimeName) : 'Passed over'
 }
 

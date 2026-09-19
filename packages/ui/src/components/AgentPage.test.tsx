@@ -6,6 +6,8 @@ import {
   runtimeId,
   sessionKey,
   type AgentEntry,
+  type MachineSeating,
+  type ModelInfo,
   type RuntimeInfo,
   type SeatCandidate,
   type SeatPlan,
@@ -118,16 +120,38 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'machine',
       winner: 0,
       blocked: null,
-      candidates: [candidate('codex', 'Codex · GPT-5.6 Sol', 'taken')],
+      candidates: [candidate('codex', 'Codex · GPT-5.6 Sol', 'taken'), candidate('claude-code', 'Claude', 'untried')],
       own: [candidate('claude-code', 'Claude', 'taken')],
     },
   ],
-  ['scout', { id: 'scout', from: 'prefer', winner: 0, blocked: null, candidates: [candidate('claude-code', 'Claude', 'taken')] }],
+  [
+    'scout',
+    {
+      id: 'scout',
+      from: 'prefer',
+      winner: 1,
+      blocked: null,
+      candidates: [
+        candidate('claude-code', 'Claude · Opus 9', 'passed', { reason: { kind: 'noModel', model: 'opus-9' }, fix: { kind: 'seats' } }),
+        candidate('claude-code', 'Claude', 'taken'),
+      ],
+    },
+  ],
 ])
 
 const COPY: AgentEntry = { ...ROSTER[2]!, origin: 'user', path: '/Users/dev/.harnessdesk/agents/judge/AGENT.md' }
 
-const mount = (props: { readonly focus?: string } = {}) => {
+const SEATING: MachineSeating = {
+  path: '/Users/dev/.harnessdesk/seating.json',
+  entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }, { runtime: 'claude-code' }] }],
+  problems: [],
+}
+
+const MODELS: readonly ModelInfo[] = [
+  { id: 'opus-5', displayName: 'Opus 5', reasoningLevels: [{ id: 'high', label: 'High' }], supportsImages: false },
+]
+
+const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; readonly seating?: MachineSeating } = {}) => {
   const onLeave = vi.fn()
   const snapshot = {
     ...emptySnapshot(),
@@ -139,6 +163,7 @@ const mount = (props: { readonly focus?: string } = {}) => {
     agents: ROSTER,
     agentsProject: '/w/storefront',
     agentPlans: PLANS,
+    seating,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -152,6 +177,9 @@ const mount = (props: { readonly focus?: string } = {}) => {
     startAsAgent: vi.fn(async () => sessionKey(runtimeId('claude-code'), 's1')),
     askSeatFix: vi.fn(),
     askSettings: vi.fn(),
+    loadSeating: vi.fn(async () => {}),
+    setSeating: vi.fn(async () => {}),
+    modelsFor: vi.fn(async () => MODELS),
   } as unknown as AppStore
   act(() => {
     root.render(
@@ -373,4 +401,131 @@ it('shows Remove’s own refusal in its dialog on a server-only host, and stays 
   expect(document.body.textContent).toContain('needs the desktop app')
   expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
   expect(hasButton('Keep')).toBe(true)
+})
+
+/* --- On this Mac (Task 16) ------------------------------------------------ */
+
+const section = (label: string): string => container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? ''
+const labelled = (label: string): HTMLButtonElement[] => [
+  ...container.querySelectorAll<HTMLButtonElement>(`button[aria-label="${label}"]`),
+]
+const choose = (label: string, value: string): void => {
+  const tag = [...document.body.querySelectorAll('label')].find((one) => one.textContent === label)
+  const select = tag ? document.getElementById(tag.htmlFor) : null
+  if (!(select instanceof HTMLSelectElement)) throw new Error(`no field labelled ${label}`)
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+it('lists this Mac’s seats in order, each with its state here, and names the file they live in', () => {
+  const { store } = mount({ focus: 'code-reviewer' })
+  expect(store.loadSeating).toHaveBeenCalled()
+  const here = section('On this Mac')
+  expect(here.indexOf('Codex · GPT-5.6 Sol')).toBeLessThan(here.indexOf('Claude'))
+  expect(here).toContain('The seat it takes here')
+  expect(here).toContain('Not reached: a seat before it is free')
+  expect(here).toContain('~/.harnessdesk/seating.json')
+})
+
+it('a seat moves, or goes, and Clear gives the Agent its own list back', () => {
+  const { store } = mount({ focus: 'code-reviewer' })
+  expect(labelled('Move up')).toHaveLength(2)
+  expect(labelled('Move down')).toHaveLength(2)
+  expect(labelled('Move up')[0]!.textContent).toContain('Move up')
+  expect(labelled('Move down')[0]!.textContent).toContain('Move down')
+  expect(labelled('Move up')[0]!.disabled).toBe(true)
+  expect(labelled('Move down')[1]!.disabled).toBe(true)
+  act(() => labelled('Move down')[0]!.click())
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'claude-code' }, { runtime: 'codex' }])
+  act(() => labelled('Remove this seat')[1]!.click())
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }])
+  act(() => button('Clear').click())
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null)
+})
+
+it('the last seat removed gives the Agent its own list back too', () => {
+  const { store } = mount({
+    focus: 'code-reviewer',
+    seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }] },
+  })
+  act(() => labelled('Remove this seat')[0]!.click())
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null)
+})
+
+it('adds a seat chosen in words to the end of this Mac’s list', async () => {
+  const { store } = mount({ focus: 'judge' })
+  expect(section('On this Mac')).toContain('Its own seats apply here')
+  act(() => button('Add a seat…').click())
+  await settle()
+  expect(store.modelsFor).toHaveBeenCalledWith('claude-code')
+  choose('Model', 'opus-5')
+  choose('Effort', 'high')
+  act(() => button('Add seat').click())
+  await settle()
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }])
+})
+
+it('an entry this Mac cannot read says where and why; a file that will not read is not written over from here', () => {
+  mount({
+    focus: 'judge',
+    seating: {
+      ...SEATING,
+      entries: [],
+      problems: [{ id: 'judge', at: '[1]', text: '"+fast" is not a switch a seat takes — the only one is +thinking' }],
+    },
+  })
+  expect(section('On this Mac')).toContain('"+fast" is not a switch a seat takes')
+  expect(section('On this Mac')).toContain('At [1] in its entry')
+  expect(button('Add a seat…').disabled).toBe(false)
+
+  mount({ focus: 'judge', seating: { ...SEATING, entries: [], problems: [{ id: null, at: '', text: 'it is not JSON' }] } })
+  expect(section('On this Mac')).toContain('it is not JSON')
+  expect(button('Add a seat…').disabled).toBe(true)
+})
+
+it('a seat its runtime cannot give is fixed on this page, by a seat for this Mac', async () => {
+  mount({ focus: 'scout' })
+  expect(section('Seats')).toContain('Claude does not offer this model')
+  act(() => button('Edit seats for this Mac').click())
+  await settle()
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('A seat for Scout on this Mac')
+})
+
+/*
+ * Correction 1 (task-16-corrections.md): until the dry run catches up with a
+ * reorder, a row reads "Checking…" rather than lend one seat's words to
+ * another — proven directly against the `weighed` guard: this Mac's own two
+ * seats, but a plan whose candidates do not (yet) match them one for one.
+ */
+it('reads a row as “Checking…” when the dry run has not caught up with this Mac’s own list yet', () => {
+  mount({
+    focus: 'code-reviewer',
+    seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }, { runtime: 'codex' }] }] },
+  })
+  // The order above is the reverse of PLANS' code-reviewer candidates
+  // (codex, then claude-code) — `sameSeat` fails at index 0, so nothing here
+  // borrows either seat's words.
+  const here = section('On this Mac')
+  expect(here).toContain('Checking…')
+  expect(here).not.toContain('Codex · GPT-5.6 Sol')
+})
+
+/*
+ * Correction 2 (task-16-corrections.md): a model id may itself contain `=`,
+ * `/` or `+` — the host writes the long form, and the dialog does nothing
+ * special with it, so an id with a `/` in it must round-trip untouched.
+ */
+it('passes a model id with a slash in it through untouched — no special-casing', async () => {
+  const { store } = mount({ focus: 'judge' })
+  store.modelsFor = vi.fn(async () => [
+    { id: 'gpt-5.6/preview', displayName: 'GPT-5.6 Preview', reasoningLevels: [], supportsImages: false },
+  ])
+  act(() => button('Add a seat…').click())
+  await settle()
+  choose('Model', 'gpt-5.6/preview')
+  act(() => button('Add seat').click())
+  await settle()
+  expect(store.setSeating).toHaveBeenCalledWith('judge', [{ runtime: 'claude-code', model: 'gpt-5.6/preview' }])
 })

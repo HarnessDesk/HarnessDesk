@@ -22,6 +22,7 @@ import {
   projectOfAgent,
   reasonWords,
   refusalOf,
+  sameSeat,
   seatCautions,
   seatTaken,
   shadowWords,
@@ -445,5 +446,13 @@ describe('an Agent’s page in words', () => {
     expect(copyTargets('user', true)).toEqual(['project'])
     expect(copyTargets('user', false)).toEqual([])
     expect(copyTargets('project', true)).toEqual([])
+  })
+})
+
+describe('sameSeat', () => {
+  it('knows one seat from another by everything it asks for', () => {
+    expect(sameSeat({ runtime: 'codex' }, { runtime: 'codex', model: null })).toBe(true)
+    expect(sameSeat({ runtime: 'codex', effort: 'high' }, { runtime: 'codex' })).toBe(false)
+    expect(sameSeat({ runtime: 'cursor', thinking: true }, { runtime: 'cursor', thinking: false })).toBe(false)
   })
 })

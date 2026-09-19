@@ -91,7 +91,12 @@ const mount = (focus: string | null = null) => {
     agents: ROSTER,
     agentPlans: PLANS,
   } as unknown as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadAgents: vi.fn(async () => {}) } as unknown as AppStore
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    loadAgents: vi.fn(async () => {}),
+    loadSeating: vi.fn(async () => {}),
+  } as unknown as AppStore
   const onClose = vi.fn()
   const onFocus = vi.fn()
   act(() => {

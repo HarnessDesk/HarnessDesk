@@ -560,3 +560,41 @@ it('customizing and removing read the roster again, and say why when the host re
   await vi.waitFor(() => expect(asked.some((one) => one.method === 'agent/list')).toBe(true))
   await expect(store.trashAgent('code-reviewer', 'user')).rejects.toThrow('needs the desktop app')
 })
+
+it("reads this Mac's seats when asked, keeps what setting them answers, and reads them again when they change", async () => {
+  const seating = { path: '/u/.harnessdesk/seating.json', entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }], problems: [] }
+  answering({
+    'agent/seating/read': () => seating,
+    'agent/seating/set': () => ({ ...seating, entries: [] }),
+    'agent/seat/dry': () => [],
+  })
+  expect(store.getSnapshot().seating).toBeNull()
+  await store.loadSeating()
+  expect(store.getSnapshot().seating).toEqual(seating)
+  await store.setSeating('code-reviewer', null)
+  expect(asked.find((one) => one.method === 'agent/seating/set')?.params).toEqual({ id: 'code-reviewer', seats: null })
+  expect(store.getSnapshot().seating?.entries).toEqual([])
+  asked.length = 0
+  handlers().onNotification({ method: 'agent/changed', params: { project: null } })
+  await vi.waitFor(() => expect(asked.some((one) => one.method === 'agent/seating/read')).toBe(true))
+})
+
+/**
+ * Correction 1 (task-16-corrections.md): a real change is not always told by
+ * a notice — a second window's set() answers `wrote: false` and pushes
+ * nothing when it changes nothing — so `setSeating` re-reads the plans
+ * itself, once its own write answers, rather than waiting on a notice that
+ * may never come.
+ */
+it('re-reads the plans once its own set answers, without waiting for a notice', async () => {
+  let dryRuns = 0
+  answering({
+    'agent/seating/set': () => ({ path: '/u/.harnessdesk/seating.json', entries: [], problems: [] }),
+    'agent/seat/dry': () => {
+      dryRuns += 1
+      return []
+    },
+  })
+  await store.setSeating('code-reviewer', null)
+  expect(dryRuns).toBe(1)
+})

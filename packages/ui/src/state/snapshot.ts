@@ -8,6 +8,7 @@ import type {
   Approval,
   ConfigOption,
   EditorDocument,
+  MachineSeating,
   ModelInfo,
   NoticeLevel,
   OptionValue,
@@ -406,6 +407,8 @@ export interface AppSnapshot {
    * "Checking seats…" forever for an answer that already isn't coming.
    */
   readonly agentPlansFailed: boolean
+  /** This machine's seats for its Agents, as the host read `seating.json` — null until a page asks. */
+  readonly seating: MachineSeating | null
   /**
    * The repository a new worktree is being set up for, or null.
    *
@@ -715,6 +718,7 @@ const EMPTY: AppSnapshot = {
   agentsProject: null,
   agentPlans: new Map(),
   agentPlansFailed: false,
+  seating: null,
   newWorktreeFor: null,
   settingsFor: null,
   settingsFocus: null,
@@ -770,5 +774,6 @@ export const emptySnapshot = (): AppSnapshot => ({
   loadingSessions: new Set(),
   agentPlans: new Map(),
   agentPlansFailed: false,
+  seating: null,
   seatAgents: new Map(),
 })

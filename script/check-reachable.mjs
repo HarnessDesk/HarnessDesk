@@ -59,8 +59,6 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
-  'agent/seating/read':
-    "likewise — On this Mac (Task 16) reads this machine's seats for it, in the second half of the same phase",
   'agent/create': 'likewise — Save as an Agent, in a conversation’s menu, is the second half of the same phase',
 }
 

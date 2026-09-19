@@ -4,6 +4,9 @@ import {
   runtimeId,
   sessionKey,
   type AgentEntry,
+  type FlowSeat,
+  type MachineSeating,
+  type ModelInfo,
   type OptionValue,
   type RuntimeInfo,
   type SeatPlan,
@@ -668,6 +671,14 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       blocked: null,
       candidates: [
         {
+          seat: { runtime: 'cursor', model: 'gamma-pro' },
+          label: 'Gamma · Pro',
+          runtimeName: 'Gamma',
+          state: 'passed',
+          reason: { kind: 'signedOut' },
+          fix: { kind: 'signIn', runtime: 'cursor' },
+        },
+        {
           seat: { runtime: 'claude', model: 'opus', effort: 'high' },
           label: 'Beta · Opus · High',
           runtimeName: 'Beta',
@@ -938,6 +949,25 @@ class PreviewStore {
       agents: PREVIEW_AGENTS,
       agentsProject: PREVIEW_ROOT,
       agentPlans: PREVIEW_PLANS,
+      seating: {
+        path: '/home/u/.harnessdesk/seating.json',
+        entries: [
+          {
+            id: 'code-reviewer',
+            seats: [
+              { runtime: 'cursor', model: 'gamma-pro' },
+              { runtime: 'claude', model: 'opus', effort: 'high' },
+            ],
+          },
+        ],
+        problems: [
+          {
+            id: 'security-reviewer',
+            at: '[1]',
+            text: '“+fast” is not a switch a seat takes — the only one is +thinking',
+          },
+        ],
+      } satisfies MachineSeating,
       seatAgents: new Map([[seatAgentKey(previewSession.cwd, 'code-reviewer'), PREVIEW_AGENTS[0] ?? null]]),
       home: '/home/u',
       stateDir: '/home/u/.harnessdesk',
@@ -1269,6 +1299,23 @@ class PreviewStore {
   ]
   loadWorktrees = async () => {}
   agentCatalog = async () => []
+  modelsFor = async (): Promise<readonly ModelInfo[]> => [
+    {
+      id: 'opus',
+      displayName: 'Opus',
+      isDefault: true,
+      reasoningLevels: [{ id: 'high', label: 'High' }],
+      supportsImages: false,
+      thinking: 'optional',
+    },
+  ]
+  loadSeating = async (): Promise<void> => {}
+  setSeating = async (id: string, seats: readonly FlowSeat[] | null): Promise<void> => {
+    const seating = this.#snapshot.seating
+    if (!seating) return
+    const entries = seating.entries.filter((entry) => entry.id !== id)
+    this.patch({ seating: { ...seating, entries: seats ? [...entries, { id, seats }] : entries } })
+  }
   // What a new session starts with, for the one agent that declares it —
   // the same shape Codex reports — so Permissions has something to show.
   newSessionDefaultsFor = async (id: string) =>

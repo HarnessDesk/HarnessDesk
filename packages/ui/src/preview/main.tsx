@@ -304,12 +304,13 @@ const Preview = () => {
       <div className="my-4 flex flex-wrap items-center gap-3">
         <Dial
           label="agents focus"
-          // 'code-reviewer' shows both lists (this Mac's seats, muted beside its
-          // own); 'security-reviewer' a shipped Agent whose seats are refused;
-          // 'draft' one whose file will not parse — the frames the design bar
-          // asks an Agent's page be checked in (Task 15 correction 6).
+          // Task 15's page states remain here. Task 16 adds the four seating
+          // frames to the same dial: 'release-checker' has no list on this Mac;
+          // 'code-reviewer' has two seats, one passed over with a fix;
+          // 'security-reviewer' has a broken seating entry; and Add a seat…
+          // opens the fourth, the word-only dialog.
           value={agentsFocus}
-          options={['overview', 'code-reviewer', 'security-reviewer', 'draft'] as const}
+          options={['overview', 'release-checker', 'code-reviewer', 'security-reviewer', 'draft'] as const}
           onChange={setAgentsFocus}
         />
       </div>

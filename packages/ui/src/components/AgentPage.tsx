@@ -1,6 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import type { AgentEntry, SeatCandidate, SeatFix } from '@harnessdesk/protocol'
+import {
+  SEAT_PREFERENCE_LIMIT,
+  type AgentEntry,
+  type FlowSeat,
+  type ModelInfo,
+  type RuntimeId,
+  type SeatCandidate,
+  type SeatFix,
+} from '@harnessdesk/protocol'
 
 import {
   agentName,
@@ -14,6 +22,7 @@ import {
   markFor,
   originWords,
   projectName,
+  sameSeat,
   shadowWords,
   stateWords,
   wordList,
@@ -21,7 +30,7 @@ import {
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { BriefIcon } from './Icons'
+import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
 import {
   BackLink,
   Button,
@@ -31,12 +40,16 @@ import {
   DetailHead,
   DetailMark,
   Dialog,
+  Field,
+  FormStack,
+  NativeSelect,
   Note,
   Row,
   RowChoice,
   RowValue,
   Rows,
   SectionHead,
+  Switch,
 } from '../design'
 import styles from './AgentPage.module.css'
 
@@ -71,6 +84,7 @@ export const AgentPage = ({
   const snapshot = useSnapshot()
   const [customizing, setCustomizing] = useState(false)
   const [removing, setRemoving] = useState(false)
+  const [adding, setAdding] = useState(false)
   const definition = entry.definition
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
@@ -192,7 +206,8 @@ export const AgentPage = ({
             <Row title={ceilingWords(definition.permission)} desc={ceilingMeaning(definition.permission)} />
           </Rows>
 
-          <OwnSeats entry={entry} />
+          <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />
+          <MachineSeats entry={entry} onAdd={() => setAdding(true)} />
 
           <SectionHead name="What it hands back" />
           <Rows>
@@ -239,6 +254,14 @@ export const AgentPage = ({
             store.openFile(copy.path)
             onLeave()
           }}
+        />
+      )}
+
+      {adding && definition && (
+        <AddSeatDialog
+          entry={entry}
+          current={snapshot.seating?.entries.find((one) => one.id === entry.id)?.seats ?? []}
+          onClose={() => setAdding(false)}
         />
       )}
 
@@ -329,6 +352,293 @@ export const SeatRow = ({
           }
         : {})}
     />
+  )
+}
+
+/**
+ * On this Mac: the seats this machine gives the Agent, which replace its own
+ * list here and are never committed. Added to, reordered or cleared here, and
+ * footnoted with the file they live in. An entry this Mac cannot read is shown
+ * where it is, with why — never dropped, and never quietly replaced by the
+ * list it replaced.
+ */
+const MachineSeats = ({ entry, onAdd }: { readonly entry: AgentEntry; readonly onAdd: () => void }) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [problem, setProblem] = useState<string | null>(null)
+  useEffect(() => {
+    void store.loadSeating()
+  }, [store])
+
+  const seating = snapshot.seating
+  const mine = seating?.entries.find((one) => one.id === entry.id)
+  const troubles = seating?.problems.filter((one) => one.id === entry.id || one.id === null) ?? []
+  const unreadable = troubles.some((one) => one.id === null)
+  const full = (mine?.seats.length ?? 0) >= SEAT_PREFERENCE_LIMIT
+  const plan = snapshot.agentPlans.get(entry.id)
+  /* The words and the states are the dry run's of this very list. Until it
+     has caught up — the moment after a reorder — a row reads "Checking…"
+     rather than borrow the words of the seat that used to be there. */
+  const weighed =
+    plan?.from === 'machine' &&
+    mine &&
+    plan.candidates.length === mine.seats.length &&
+    plan.candidates.every((one, index) => sameSeat(one.seat, mine.seats[index]!))
+      ? plan.candidates
+      : null
+
+  const set = (seats: readonly FlowSeat[] | null): void => {
+    setProblem(null)
+    store.setSeating(entry.id, seats).catch((error: unknown) => {
+      setProblem(error instanceof Error ? error.message : 'This Mac’s seats were not saved.')
+    })
+  }
+  const move = (from: number, to: number): void => {
+    if (!mine) return
+    const next = [...mine.seats]
+    const [seat] = next.splice(from, 1)
+    if (seat) next.splice(to, 0, seat)
+    set(next)
+  }
+  const remove = (index: number): void => {
+    if (!mine) return
+    const next = mine.seats.filter((_, at) => at !== index)
+    // The last seat gone is no list at all: its own applies again, rather than an empty one refusing every seating.
+    set(next.length > 0 ? next : null)
+  }
+
+  return (
+    <section aria-label="On this Mac">
+      <SectionHead
+        name="On this Mac"
+        action={
+          <span className={styles.actions}>
+            {mine && (
+              <Button size="sm" variant="outline" disabled={unreadable} onClick={() => set(null)}>
+                Clear
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={unreadable || full}
+              title={
+                unreadable
+                  ? 'The file cannot be read, so nothing here writes to it — fix it by hand first.'
+                  : full
+                    ? `An Agent names at most ${SEAT_PREFERENCE_LIMIT} seats.`
+                    : undefined
+              }
+              onClick={onAdd}
+            >
+              <PlusIcon size={14} />
+              Add a seat…
+            </Button>
+          </span>
+        }
+      />
+      <Rows>
+        {troubles.map((one) => (
+          <Row
+            key={`${one.id ?? 'file'}-${one.at}`}
+            title={one.text}
+            desc={
+              one.id === null
+                ? 'The whole file cannot be read: fix it by hand. Nothing here writes over it.'
+                : `${one.at ? `At ${one.at} in its entry` : 'Its entry'}: seating it here is refused until it reads.`
+            }
+          />
+        ))}
+        {!mine && troubles.length === 0 && (
+          <Row
+            title="Its own seats apply here"
+            desc="Seats added here replace its own list on this Mac. They are not added to it."
+          />
+        )}
+        {mine?.seats.map((seat, index) => {
+          const candidate = weighed?.[index]
+          return (
+            <Row
+              key={`${index}-${seat.runtime}-${seat.model ?? ''}-${seat.effort ?? ''}`}
+              {...(candidate ? { mark: <RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} /> } : {})}
+              title={candidate?.label ?? 'Checking…'}
+              {...(candidate ? { desc: stateWords(candidate) } : {})}
+              control={
+                <span className={styles.actions}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Move up"
+                    disabled={index === 0}
+                    onClick={() => move(index, index - 1)}
+                  >
+                    <MoveUpIcon size={14} />
+                    Move up
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    aria-label="Move down"
+                    disabled={index === mine.seats.length - 1}
+                    onClick={() => move(index, index + 1)}
+                  >
+                    <MoveDownIcon size={14} />
+                    Move down
+                  </Button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label="Remove this seat"
+                    title="Remove this seat"
+                    onClick={() => remove(index)}
+                  >
+                    <CrossIcon size={13} />
+                  </Button>
+                </span>
+              }
+            />
+          )
+        })}
+      </Rows>
+      <Note>
+        {`Kept in ${seating ? shortPath(seating.path, snapshot.home) : 'seating.json'}, on this Mac only — never committed.`}
+      </Note>
+      {problem && <Note tone="bad">{problem}</Note>}
+    </section>
+  )
+}
+
+/**
+ * One seat for this Mac, chosen in words: a runtime this desk has added, one
+ * of its models or its default, one of that model's efforts or its default,
+ * and thinking where the model has the switch. Appended to the list.
+ */
+const AddSeatDialog = ({
+  entry,
+  current,
+  onClose,
+}: {
+  readonly entry: AgentEntry
+  readonly current: readonly FlowSeat[]
+  readonly onClose: () => void
+}) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [runtime, setRuntime] = useState<string>(snapshot.runtimes[0]?.id ?? '')
+  const [models, setModels] = useState<readonly ModelInfo[] | null>(null)
+  const [model, setModel] = useState('')
+  const [effort, setEffort] = useState('')
+  const [thinking, setThinking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!runtime) return
+    let live = true
+    setModels(null)
+    setModel('')
+    setEffort('')
+    setThinking(false)
+    void store.modelsFor(runtime as RuntimeId).then((list) => {
+      if (live) setModels(list.filter((one) => !one.hidden))
+    })
+    return () => {
+      live = false
+    }
+  }, [runtime, store])
+
+  // Its efforts and its switch are the chosen model's — or, for its default, the model it defaults to.
+  const shape = models?.find((one) => (model ? one.id === model : one.isDefault)) ?? null
+
+  const add = async (): Promise<void> => {
+    setBusy(true)
+    setProblem(null)
+    const seat: FlowSeat = {
+      runtime,
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(thinking ? { thinking: true } : {}),
+    }
+    try {
+      await store.setSeating(entry.id, [...current, seat])
+      onClose()
+    } catch (error) {
+      setBusy(false)
+      setProblem(error instanceof Error ? error.message : 'The seat was not saved.')
+    }
+  }
+
+  return (
+    <Dialog
+      title={`A seat for ${agentName(entry)} on this Mac`}
+      icon={<BriefIcon size={15} />}
+      size="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="default" disabled={busy || !runtime || models === null} onClick={() => void add()}>
+            {busy ? 'Adding…' : 'Add seat'}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+        </>
+      }
+    >
+      <FormStack>
+        {current.length === 0 && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
+        <Field label="Runtime">
+          {(control) => (
+            <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
+              {snapshot.runtimes.map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.presentation.name}
+                </option>
+              ))}
+            </NativeSelect>
+          )}
+        </Field>
+        <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
+          {(control) => (
+            <NativeSelect
+              {...control}
+              value={model}
+              disabled={models === null}
+              onChange={(event) => {
+                setModel(event.target.value)
+                setEffort('')
+                setThinking(false)
+              }}
+            >
+              <option value="">Its default</option>
+              {(models ?? []).map((one) => (
+                <option key={one.id} value={one.id}>
+                  {one.displayName}
+                </option>
+              ))}
+            </NativeSelect>
+          )}
+        </Field>
+        {shape && shape.reasoningLevels.length > 0 && (
+          <Field label="Effort">
+            {(control) => (
+              <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
+                <option value="">Its default</option>
+                {shape.reasoningLevels.map((level) => (
+                  <option key={level.id} value={level.id}>
+                    {level.label}
+                  </option>
+                ))}
+              </NativeSelect>
+            )}
+          </Field>
+        )}
+        {shape?.thinking === 'optional' && (
+          <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
+        )}
+        {problem && <Note tone="bad">{problem}</Note>}
+      </FormStack>
+    </Dialog>
   )
 }
 

@@ -54,6 +54,7 @@ import {
   type FlowDryRun,
   type FlowFile,
   type FlowRun,
+  type FlowSeat,
   type TerminalSize,
   type UiDecoration,
   type UserContent,
@@ -371,6 +372,8 @@ export class AppStore {
             const [cwd, id] = JSON.parse(key) as [string, string]
             this.readSeatAgent(cwd, id)
           }
+          // This Mac's seats may be what changed; read them again only where a page has read them.
+          if (this.#snapshot.seating !== null) void this.loadSeating()
         }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
@@ -3874,6 +3877,35 @@ export class AppStore {
     void this.loadAgents()
   }
 
+  /** This machine's seats for its Agents — `seating.json` — as the host reads it. */
+  async loadSeating(): Promise<void> {
+    try {
+      this.#patch({ seating: await this.transport.request('agent/seating/read', {}) })
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
+  }
+
+  /**
+   * Sets one Agent's seats on this machine, or clears them (`null`) so its own
+   * list applies again. Throws the host's refusal — a file that cannot be read
+   * is never written over — for the surface that asked to say why.
+   *
+   * Draws the host's own answer, never a locally-composed guess: a second
+   * window editing the same Agent's seats may have landed in between, and the
+   * last write standing is the host's to say, not this window's.
+   *
+   * Re-reads the plans itself, once this write answers, rather than waiting
+   * on the `agent/changed` notice a real change pushes: a no-op set (clearing
+   * an entry that was never there) pushes no notice at all, and even a real
+   * change's notice is a round trip this window need not wait for when it
+   * already knows the write happened.
+   */
+  async setSeating(id: string, seats: readonly FlowSeat[] | null): Promise<void> {
+    this.#patch({ seating: await this.transport.request('agent/seating/set', { id, seats }) })
+    void this.loadAgentPlans()
+  }
+
   /**
    * Clears this Mac's seats for an Agent id — the *Also clear this Mac's
    * seats* checkbox on *Remove…*, called once the Agent itself is gone. A
@@ -3882,7 +3914,7 @@ export class AppStore {
    */
   async clearMachineSeats(id: string): Promise<void> {
     try {
-      await this.transport.request('agent/seating/set', { id, seats: null })
+      await this.setSeating(id, null)
     } catch (error) {
       this.notice('warning', describe(error))
     }
