@@ -15,21 +15,26 @@ import styles from './TurnWork.module.css'
  *
  * While the agent runs: "Working for 12s", ticking, with the narration and
  * steps below and the current step as a faint line that shimmers. When it
- * finishes, the receipt depends on what the steps are:
+ * finishes, one of two postures, decided by what the steps are:
  *
  * - **Templated steps fold.** A Codex turn's steps are "Ran a command" and
  *   "Read files" — labels the app derived, carrying nothing a count does not.
  *   It folds to "Worked for 1m 14s · read 6 files, ran 2 commands ›" so what
  *   stays on screen is the answer, the way Codex's own app folds it.
- * - **Described steps read back in the receipt.** A shell call may carry the
- *   sentence the agent wrote for it — "Find every caller of take" — and the
- *   folded head preserves those words instead of flattening them to a count.
+ * - **Described steps stand.** A Claude Code turn's shell calls each carry
+ *   the sentence the agent wrote for them — "Find every caller of take" —
+ *   and those sentences *are* the record of a research turn. They stay in
+ *   the flow, one line each, the way Claude's own app keeps them; the fold
+ *   is still there to close by hand, and closed it reads the sentences back
+ *   as its receipt rather than a tally.
  *
- * Opening or closing is remembered for as long as the transcript is mounted;
- * a fresh read starts folded once the turn has finished.
+ * Folding by information rather than by count is the whole rule. Opening or
+ * closing is remembered for as long as the transcript is mounted; a fresh
+ * read starts in the posture the steps earn.
  *
- * A finished fold opens only when the person opens it. Trouble stays visible
- * in the receipt, and each failed row keeps its output behind one more click.
+ * Trouble does not change that posture: its count stays visible in the receipt,
+ * and each failed row keeps its output behind one more click so a long failure
+ * cannot take over the transcript.
  */
 
 /** A clock that only ticks while something is running. */
@@ -60,7 +65,7 @@ export const TurnWork = ({
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
   const line = describeTurnWork(turn, work, now)
-  const open = choice ?? running
+  const open = choice ?? (running || line.informative)
 
   if (work.length === 0 && !running) return null
 
@@ -78,6 +83,7 @@ export const TurnWork = ({
       data-testid="turn-work"
       {...(running ? { 'data-running': '' } : {})}
       {...(line.trouble ? { 'data-trouble': '' } : {})}
+      {...(line.informative ? { 'data-described': '' } : {})}
     >
       <Button
         type="button"

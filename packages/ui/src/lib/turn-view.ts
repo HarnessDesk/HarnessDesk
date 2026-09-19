@@ -193,6 +193,13 @@ export interface TurnWorkLine {
   readonly failed: number
   /** Declined steps, kept separate because refusal is not failure. */
   readonly declined: number
+  /**
+   * The work carries steps the agent described in its own words, so it reads
+   * back standing rather than folded: the sentences are the record, and a
+   * fold would hide exactly the half a reader scrolls back for. A turn of
+   * templated steps — every Codex turn — still folds to its count.
+   */
+  readonly informative: boolean
 }
 
 const plural = (count: number, one: string, many = `${one}s`): string =>
@@ -335,10 +342,11 @@ export const describeTurnWork = (
   const hurt = troubles(work)
   const trouble = !running && (hurt.failed > 0 || hurt.declined > 0 || turn.status === 'failed')
   const said = work.map(describedTitle).filter((title): title is string => title !== null)
+  const informative = said.length > 0
 
   // While it runs the live line already says what is happening; a count that
   // changes every second under it is noise, not information.
-  if (running) return { head, receipt: '', trouble: false, failed: 0, declined: 0 }
+  if (running) return { head, receipt: '', trouble: false, failed: 0, declined: 0, informative }
 
   // The sentences first, as the agent wrote them; then the count of what it
   // did not describe. Codex folds a two-minute turn to "Worked for 2m 04s"
@@ -351,7 +359,7 @@ export const describeTurnWork = (
   // An interrupted turn is asked one question above all others, and the items
   // answer it: nothing was written, or these files were.
   if (turn.status === 'interrupted' && parts.length === 0) {
-    return { head, receipt: 'nothing was written', trouble, ...hurt }
+    return { head, receipt: 'nothing was written', trouble, informative, ...hurt }
   }
-  return { head, receipt: parts.join(' · '), trouble, ...hurt }
+  return { head, receipt: parts.join(' · '), trouble, informative, ...hurt }
 }
