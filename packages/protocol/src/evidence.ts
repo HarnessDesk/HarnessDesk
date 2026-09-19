@@ -227,3 +227,29 @@ export interface EvidenceRecord {
    */
   readonly restored?: Restored | null
 }
+// ----------------------------------------------------------- what is drawn
+
+/**
+ * How a fact stands against where its branch is now.
+ *
+ * Only a current fact is a verdict: `fresh`, or `final` — which only a merged
+ * pull request whose branch is gone can be. `behind`, `moved` and
+ * `uncommitted` are stale — drawn, never silently green — and `unknown` is not
+ * zero: it says why the desk cannot tell. A fact a backup brought is `unknown`
+ * until this desk observes the same question itself.
+ */
+export type Freshness =
+  | { readonly state: 'fresh' }
+  /** Its revision is on the branch, and this many commits have landed since. */
+  | { readonly state: 'behind'; readonly commits: number }
+  /** Its revision is no longer on the branch: rewritten by an amend or a rebase. */
+  | { readonly state: 'moved' }
+  /** It ran on changes that were never committed. */
+  | { readonly state: 'uncommitted' }
+  /**
+   * The last word on a branch that is gone: a pull request that was merged, and
+   * its branch deleted after. Nothing can land on it now, so it stands as it is.
+   * Only a merged pull request is ever final.
+   */
+  | { readonly state: 'final' }
+  | { readonly state: 'unknown'; readonly why: string }
