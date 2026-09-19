@@ -91,6 +91,7 @@ export { ConfirmDialog } from './patterns/ConfirmDialog'
 export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
+export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {

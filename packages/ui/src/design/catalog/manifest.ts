@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'flush' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -118,7 +118,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'RefusedAction',
+  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -136,7 +136,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   board: ['default'],
   breadcrumb: ['default'],
   button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
-  card: ['default', 'muted'],
+  card: ['default', 'muted', 'flush'],
   chart: ['default'],
   checkbox: ['default'],
   commit: ['default'],
@@ -192,6 +192,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   DockPanel: ['default'],
   PublicationCard: ['default'],
   ActionError: ['default'],
+  Change: ['default'],
   RefusedAction: ['default'],
 }
 
@@ -261,6 +262,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
+  Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
 }
 
@@ -294,6 +296,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
+  Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
 }
 
@@ -311,6 +314,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   CopyButton: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
   ActionError: 'packages/ui/src/design/explorer/boards.tsx',
+  Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
 }
 
@@ -427,6 +431,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['DockPanel', 'panels', 'Docked panel chrome and actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
   ['ActionError', 'banner', 'Failure and reason for an action just taken'],
+  ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
 ] as const satisfies readonly ModuleSeed[]
 

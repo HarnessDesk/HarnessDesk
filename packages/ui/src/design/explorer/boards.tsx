@@ -17,6 +17,8 @@ import {
   BannerAction,
   ActionError,
   Button,
+  Card,
+  ChangeStats,
   AgentCard,
   ApprovalDialog,
   ChannelMessage,
@@ -27,11 +29,14 @@ import {
   ConfirmDialog,
   DetailHead,
   Face,
+  FileState,
   Input,
   Dialog,
   Dot,
   NativeSelect,
   PageHead,
+  PatchHeader,
+  PatchSection,
   Row,
   RowButton,
   RowChoice,
@@ -174,6 +179,20 @@ const StateBoard = () => (
         <Chip tone="danger">Danger</Chip>
         <Chip tone="info">Info</Chip>
       </Case>
+      <Case label="chip identity tints">
+        <Chip tint="blue">Branch</Chip>
+        <Chip tint="amber">Tag</Chip>
+        <Chip tint="violet">Session</Chip>
+      </Case>
+      <Case label="long identity chip">
+        <Chip tint="blue" title="feat/promo-stacking-for-the-seasonal-storefront">
+          <BranchIcon size={10} />
+          <span>feat/promo-stacking-for-the-seasonal-storefront</span>
+        </Chip>
+      </Case>
+      <Case label="emphatic current chip">
+        <Chip tone="brand" emphasis>HEAD</Chip>
+      </Case>
       <Case label="stale and unknown">
         <Chip tone="success" stale>Passed yesterday</Chip>
         <Chip tone="danger" unknown />
@@ -192,9 +211,10 @@ const StateBoard = () => (
       </Case>
     </div>
     <p className={styles.rule}>
-      Readiness keeps its five states and dot. A toned chip judges any other compact fact; stale
-      crosses out what is no longer current, while unknown says the fact cannot be determined.
-      Pull requests and checks take their label and tone from one <code>stateTone</code> map.
+      Readiness keeps its five states and dot. A toned chip judges any other compact fact; a tinted
+      chip identifies one. The emphatic brand form marks the current item. Stale crosses out what is
+      no longer current, while unknown says the fact cannot be determined. Pull requests and checks
+      take their label and tone from one <code>stateTone</code> map.
     </p>
   </>
 )
@@ -409,6 +429,14 @@ const BannerBoard = () => (
         </Alert>
       ))}
       <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
+      <Card variant="flush">
+        <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
+        <PatchSection className="flex items-center gap-2 px-3 py-2">
+          <FileState state="modified" />
+          <span>One implementation for repository presentation</span>
+          <ChangeStats added={12} removed={3} className="ml-auto" />
+        </PatchSection>
+      </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>

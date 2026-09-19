@@ -1,5 +1,32 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
+test('the conversation header keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/preview.html')
+  const strip = page.getByRole('group', { name: 'Plan usage' })
+  await expect(strip).toBeVisible()
+  // The preview's plan strip holds a meter with a track and a second reading
+  // after it; whatever that reading says, it must sit clear of the first.
+  await expect(strip.locator('[data-slot="plan-meter"]')).toHaveCount(2)
+
+  const measured = await strip.evaluate(node => {
+    const [meter, next] = [...node.querySelectorAll<HTMLElement>('[data-slot="plan-meter"]')]
+    const track = meter!.querySelector<HTMLElement>('[data-slot="progress-track"]')!
+    const figure = [...meter!.querySelectorAll<HTMLElement>('[data-slot="text"]')].at(-1)!
+    const icon = next!.querySelector('svg')
+    const reading = [...next!.querySelectorAll<HTMLElement>('[data-slot="text"]')].at(-1)!
+    return {
+      trackWidth: track.getBoundingClientRect().width,
+      gap: next!.getBoundingClientRect().left - figure.getBoundingClientRect().right,
+      iconColor: icon ? getComputedStyle(icon).color : null,
+      readingColor: getComputedStyle(reading).color,
+    }
+  })
+  expect(measured.trackWidth).toBeGreaterThan(0)
+  expect(measured.gap).toBeGreaterThan(0)
+  if (measured.iconColor) expect(measured.iconColor).toBe(measured.readingColor)
+})
+
 for (const theme of ['light', 'dark'] as const) {
   for (const width of [1440, 980]) {
     test(`dashboard account rows keep their padding and contents at ${width}px in ${theme}`, async ({ page }, testInfo) => {

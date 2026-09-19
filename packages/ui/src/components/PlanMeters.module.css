@@ -20,7 +20,7 @@
 }
 
 .stripProgress {
-  width: 34px;
+  width: 50px; /* desk: 34px → 50px, the header meter keeps a legible reading between its mark and percentage */
 }
 
 @container hd-header (max-width: 760px) {

@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { Chip } from './Settings'
+import css from './Settings.module.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -41,6 +42,34 @@ it('takes a tone without a readiness state or an automatic dot', () => {
   expect(chip.className).toContain('bg-(--hd-tint-sky-fill)')
   expect(chip.textContent).toBe('Running')
   expect(chip.querySelector('[data-state]')).toBeNull()
+})
+
+it('takes an identity tint without turning it into a status claim', () => {
+  const chip = draw(<Chip tint="violet">Session</Chip>)
+  expect(chip.hasAttribute('data-state')).toBe(false)
+  expect(chip.hasAttribute('data-tone')).toBe(false)
+  expect(chip.dataset['tint']).toBe('violet')
+  expect(chip.className).toContain('bg-(--hd-tint-violet-fill)')
+  expect(chip.textContent).toBe('Session')
+})
+
+it('keeps a tinted icon and long identity inside one edged chip', () => {
+  const chip = draw(
+    <Chip tint="blue">
+      <svg aria-hidden="true" />
+      <span>feat/promo-stacking-for-the-seasonal-storefront</span>
+    </Chip>,
+  )
+  expect(chip.querySelector('[data-slot="chip-words"]')?.children).toHaveLength(2)
+  expect(css).toMatch(/\.chipWords\s*\{[^}]*display:\s*inline-flex[^}]*gap:\s*var\(--hd-space-1\)[^}]*min-width:\s*0[^}]*overflow:\s*hidden/s)
+  expect(css).toMatch(/\.chip\[data-tint][^}]*max-width:\s*190px/s)
+  expect(css).toMatch(/\.chip\[data-tint='blue'\][^}]*box-shadow:\s*inset 0 0 0 1px var\(--hd-tint-blue-edge\)/s)
+})
+
+it('can emphasize the current fact without changing its semantic tone', () => {
+  const chip = draw(<Chip tone="brand" emphasis>HEAD</Chip>)
+  expect(chip.dataset['tone']).toBe('brand')
+  expect(chip.dataset['emphasis']).toBe('')
 })
 
 it('says stale accessibly and refuses the success tone', () => {
