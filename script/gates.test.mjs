@@ -494,9 +494,15 @@ test('screen appearance counts role declarations and leaves layout to screens', 
     '  width: 30px;',
     '  height: 100%;',
     '  min-height: calc(var(--hd-nav-h) + 2px);',
+    '  max-height: 220px;',
+    '  max-height: var(--hd-dialog-max-h);',
+    '  max-height: calc(var(--hd-line-sm) * 4);',
     '  height: calc(100% - 2px);',
     '  height: 10dvh;',
     '  height: fit-content;',
+    '  max-height: 100%;',
+    '  max-height: 10dvh;',
+    '  max-height: max-content;',
     '  --role-ground: var(--hd-surface);',
     '  background: ;',
     '}',
@@ -504,7 +510,7 @@ test('screen appearance counts role declarations and leaves layout to screens', 
 
   assert.deepEqual(
     screenAppearanceOf(file, fs.readFileSync(file, 'utf8')).map(({ property }) => property),
-    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow', 'height', 'min-height'],
+    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow', 'height', 'min-height', 'max-height', 'max-height', 'max-height'],
   )
 })
 

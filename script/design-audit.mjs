@@ -1795,9 +1795,10 @@ const INK_APPEARANCE = new Set(['color', 'background', 'background-color', 'fill
  * Type, ink, ground, edges and a role's inner box are owned by the component
  * that names that role, so every declaration of one here is a copy a system
  * change cannot reach. Layout, behaviour, motion and custom properties are
- * deliberately not counted: those remain the screen's job. Height is split
- * at the same boundary. A fixed length or token is a control metric, while a
- * percentage, intrinsic size or viewport measure describes its layout.
+ * deliberately not counted: those remain the screen's job. Height and its
+ * minimum and maximum constraints are split at the same boundary. A fixed
+ * length or token is a control metric, while a percentage, intrinsic size or
+ * viewport measure describes its layout.
  *
  * Markdown is exempt because prose keeps its own ratio ladder, and Diff is
  * exempt because a diff viewer is a specialized renderer. Both boundaries
@@ -1812,7 +1813,7 @@ export const screenAppearanceOf = (file, css) => {
     if (name === 'border' || name.startsWith('border-')) return true
     if (name === 'outline' || name.startsWith('outline-') || name === 'box-shadow') return true
     if (name === 'padding' || name.startsWith('padding-')) return true
-    if (name !== 'height' && name !== 'min-height') return false
+    if (name !== 'height' && name !== 'min-height' && name !== 'max-height') return false
     const metric = value.replace(/\s*!important\s*$/i, '').trim()
     return !LAYOUT_HEIGHT.test(metric)
   })

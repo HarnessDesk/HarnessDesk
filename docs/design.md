@@ -621,7 +621,7 @@ these is opening every tab in a browser.
 
 `pnpm design:audit --strict` holds seventeen categories at a baseline. Fifteen
 are at zero; `patternClass` sits at 3, which is three screens still drawing
-their own empty state, and `screenAppearance` sits at 2,747 declarations.
+their own empty state, and `screenAppearance` sits at 2,767 declarations.
 
 `screenAppearance` counts every browser-kept declaration in a screen sheet
 that draws a role's type, ink, ground, edge or inner box, including fixed and
