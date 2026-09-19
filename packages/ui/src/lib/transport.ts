@@ -175,7 +175,11 @@ export class Transport {
  * the first time either sentence was improved.
  */
 export const rejectionFor = (error: WireError): Error =>
-  Object.assign(new Error(sentenceOf(error)), { code: error.code })
+  Object.assign(new Error(sentenceOf(error)), {
+    code: error.code,
+    // A list the interface draws a way out from, when the failure has one (a seating's refusal).
+    ...(error.data !== undefined ? { data: error.data } : {}),
+  })
 
 /**
  * A failed request as one sentence.

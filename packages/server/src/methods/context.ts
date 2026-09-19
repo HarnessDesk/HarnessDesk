@@ -15,6 +15,7 @@ import type {
   RuntimeFiles,
   RuntimeId,
   RuntimeInfo,
+  SeatLeft,
   SecretReload,
   Session,
   SessionBusyError,
@@ -26,6 +27,7 @@ import type {
 } from '@harnessdesk/protocol'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 
+import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { Agents } from '../agents.js'
 import type { SessionArchive } from '../archive.js'
 import type { AuditLog } from '../audit.js'
@@ -85,6 +87,8 @@ export interface HostContext {
    * can start. An Agent is who does the work; a runtime is what it runs on.
    */
   readonly agents: Agents
+  /** This machine's seats for its Agents: `seating.json`, which replaces an Agent's `prefer` here. */
+  readonly seating: MachineSeatingFile
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher
@@ -155,7 +159,15 @@ export interface HostContext {
      * the seat's picks, and answers with what it is actually running, read
      * back once the picks are in. A pick the runtime declines is not an
      * error here: the caller compares, and decides. A failure leaves nothing
-     * open: a conversation that opened and then failed is closed first.
+     * open: a conversation that opened and then failed is discarded first
+     * (`discard`), the failure is thrown as it came, and what the discard
+     * left is noted beside it (`leftOnFailure` in `agent-seating.ts`). A
+     * runtime that answers with a conversation the desk already holds fails
+     * it at once, noted `alreadyHeld`, with nothing done to that conversation.
+     *
+     * The conversation is held for the seating until it is kept
+     * (`recordAgent`), retired, or discarded; only while it is held can it be
+     * discarded.
      */
     open(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
@@ -166,6 +178,19 @@ export interface HostContext {
      * be opened without two ever being open at once.
      */
     retire(runtime: string, sessionId: string): Promise<void>
+    /**
+     * Takes a seat a seating opened and passed over out of the world: closed,
+     * let go, deleted where its runtime keeps it, forgotten by the desk, and
+     * dropped from every window. Answers what it was left as, or null when
+     * nothing is left.
+     *
+     * Only ever the conversation the seating itself opened, untouched: one a
+     * window read, reopened or wrote to while it was open, or one a turn
+     * started on, is left as it is (`inUse`) — its handle not even closed when
+     * somebody is already in it. One its runtime cannot or will not delete is
+     * archived and keeps its name (`kept`, `undeleted`).
+     */
+    discard(runtime: string, sessionId: string): Promise<SeatLeft | null>
     /**
      * Records which Agent a conversation was seated as, the digest of the
      * brief it was handed and the permission it was told it holds, tells every
@@ -226,6 +251,8 @@ export interface HostContext {
   readonly workspaces: {
     /** Every folder a path may be confined to: open workspaces and live conversations' cwds. Absolute paths only. */
     openRoots(): string[]
+    /** Where a file may be read or written by path: the open roots and the roster's own folders (`#fileRoots`). */
+    fileRoots(mode: 'read' | 'write'): string[]
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
     /**
@@ -238,7 +265,7 @@ export interface HostContext {
     open(path: string): Promise<HostResult<'workspace/open'>>
     repoOf(cwd: string): Promise<RepoInfo | null>
     boardRootOf(cwd: string): Promise<string | null>
-    /** Drops the folder→board cache; call when the set of workspaces changed. */
+    /** Drops the folder→board cache and re-points the Agent roster's watch; call when the set of workspaces changed. */
     forgetBoardRoots(): void
     /** Mints a short-lived ticket the preview route redeems for one file. */
     issuePreviewTicket(path: string, runtime: RuntimeId | undefined): string

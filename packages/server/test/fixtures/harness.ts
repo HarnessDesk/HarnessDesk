@@ -1,11 +1,13 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { cp, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { AgentEvent, HostMethodName, HostToClient } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
+import { builtinAgentRoot } from '../../src/host.js'
 import { Host, Logger, StateStore, serve, type HostOptions, type RunningServer } from '../../src/index.js'
+import { tempDir } from '../scratch.js'
 import { FakeRuntime } from './fake-runtime.js'
 
 /**
@@ -43,6 +45,22 @@ export const start = async (options: Partial<HostOptions> = {}, at?: string): Pr
   await host.start()
   const server = await serve({ host, logger: silent, port: 0 })
   return { host, runtime, server, stateDir }
+}
+
+/**
+ * A copy of the Agents that ship with the app, for a host's `builtinAgents`.
+ *
+ * The real folder is this checkout's `packages/server/agents`, which somebody
+ * may be editing while the tests run — and to a host watching it, every edit
+ * there is an `agent/changed` to every window. A test that counts those
+ * notices points its host here, so it counts only what it did itself; the
+ * roster it lists is still the one that ships. Removed with the file's other
+ * scratch folders once its tests are done.
+ */
+export const shippedAgentsCopy = async (): Promise<string> => {
+  const dir = tempDir('hd-shipped-agents-')
+  await cp(builtinAgentRoot(), dir, { recursive: true })
+  return dir
 }
 
 /** The host and its server stopped, and its state left where it is, for another host to start on. */
@@ -113,7 +131,12 @@ export class Client {
         // transport: a failure the interface is meant to *act* on is told
         // apart by its code, never by reading its English.
         else if ('ok' in message) {
-          reject(Object.assign(new Error(message.error.message), { code: message.error.code }))
+          reject(
+            Object.assign(new Error(message.error.message), {
+              code: message.error.code,
+              ...(message.error.data !== undefined ? { data: message.error.data } : {}),
+            }),
+          )
         }
       })
       this.#socket.send(JSON.stringify({ id, method, params }))

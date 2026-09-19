@@ -2,7 +2,7 @@ import { constants, type Stats } from 'node:fs'
 import { lstat, open, readdir, readlink, realpath, type FileHandle } from 'node:fs/promises'
 import { dirname, isAbsolute, join, sep } from 'node:path'
 
-import { digestOf } from '@harnessdesk/agent-inventory'
+import { digestOf, isSafePathSegment } from '@harnessdesk/agent-inventory'
 import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from './agent-def.js'
@@ -34,6 +34,9 @@ export interface AgentRoots {
 /** Where a project keeps the Agents it shares with everyone who clones it. */
 export const PROJECT_AGENT_DIR = join('.harnessdesk', 'agents')
 
+/** A sibling used while an Agent is assembled before its one final rename. */
+export const AGENT_TEMP_PREFIX = '.harnessdesk-agent-'
+
 const FILE = 'AGENT.md'
 
 /**
@@ -44,7 +47,7 @@ const FILE = 'AGENT.md'
  * different standing order from the one somebody wrote, and nothing would say
  * so.
  */
-const LIMIT = 256 * 1024
+export const AGENT_FILE_LIMIT = 256 * 1024
 
 /**
  * How an `AGENT.md` is opened: to read, and without waiting.
@@ -80,7 +83,7 @@ const DIR_LEADS_OUT =
  * A raised error names a path and a reason they can act on; zero rows name
  * nothing.
  */
-const NOTHING_HERE = new Set(['ENOENT', 'ENOTDIR'])
+export const NOTHING_HERE = new Set(['ENOENT', 'ENOTDIR'])
 
 const errnoOf = (error: unknown): string => {
   const code = (error as { code?: unknown } | null)?.code
@@ -89,7 +92,44 @@ const errnoOf = (error: unknown): string => {
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-const idsIn = async (dir: string): Promise<string[]> => {
+/** A linked git checkout's own metadata — never an Agent's own folder, at the top level or nested inside one. */
+const GIT_DIR = '.git'
+
+/**
+ * A path segment, folded so a case or Unicode alias of one already taken —
+ * or of `.git` itself, on a case-insensitive volume the default on macOS —
+ * reads as the same segment. Shared with `agent-files.ts`'s own fold, so a
+ * name this admits and a name a backup's own walk excludes cannot drift
+ * apart at a spelling neither side is looking at.
+ */
+const foldedSegment = (segment: string): string => segment.normalize('NFC').toLowerCase()
+
+/** Whether a segment is a git checkout's own metadata folder, however its case was spelled. */
+const isGitDir = (name: string): boolean => foldedSegment(name) === GIT_DIR
+
+/**
+ * A folder name that could be a real Agent's id — what the roster (`idsIn`),
+ * export and restore (`importAgentFolder`) all agree on, so a name none of
+ * the three would touch is never silently different from what the other two
+ * admit. A safe path segment — never a climb, a separator or a NUL — short
+ * enough for `seating.json` and every filesystem this runs on, never a git
+ * checkout's own metadata (however its case was spelled), and never this
+ * module's own temp namespace.
+ *
+ * This is deliberately not `agentIdOf`: that is the writer's rule for slugging
+ * a typed *name* into a brand new folder — lower case, hyphens, capped at 48
+ * characters — never a reader's rule for a folder already there. Reading a
+ * folder back through the writer's rule refused a hand-placed or older name
+ * the roster and export both admit without complaint (`Reviewer`, `my_agent`,
+ * a 60-character name), so a restore silently dropped every one of them.
+ */
+export const isAgentFolderName = (name: string): boolean =>
+  isSafePathSegment(name) &&
+  Buffer.byteLength(name, 'utf8') <= 255 &&
+  !isGitDir(name) &&
+  !name.startsWith(AGENT_TEMP_PREFIX)
+
+export const idsIn = async (dir: string): Promise<string[]> => {
   let entries
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -103,7 +143,7 @@ const idsIn = async (dir: string): Promise<string[]> => {
      answers as nothing. Dropping links here hid every linked Agent without a
      word. */
   return entries
-    .filter((one) => one.isDirectory() || one.isSymbolicLink())
+    .filter((one) => isAgentFolderName(one.name) && (one.isDirectory() || one.isSymbolicLink()))
     .map((one) => one.name)
     .sort()
 }
@@ -119,7 +159,7 @@ const realRoot = async (dir: string): Promise<string | null> => {
 }
 
 /** Where a path inside a project led: to a real path still inside it, to nothing, or out of it. */
-type Resolved =
+export type Resolved =
   | { readonly to: 'inside'; readonly path: string }
   | { readonly to: 'nothing' }
   | { readonly to: 'outside' }
@@ -149,8 +189,11 @@ type Resolved =
  * What it reached is used at once — listed, or opened. A directory on the way
  * swapped for a link in between is not caught: that takes something writing
  * inside the project while it is being listed, which a clone cannot do.
+ *
+ * The roster's watch (`agent-watch.ts`) judges a project's paths with this
+ * same walk, so that what is watched and what is read never disagree.
  */
-const resolveWithin = async (root: string, from: string, steps: readonly string[]): Promise<Resolved> => {
+export const resolveWithin = async (root: string, from: string, steps: readonly string[]): Promise<Resolved> => {
   const rootSteps = root.split(sep).filter(Boolean)
   const pending = [...steps]
   let at = from
@@ -227,7 +270,7 @@ const kindOf = (info: Stats): string => {
  * between the two, and some report no size at all. One byte past the limit is
  * the most that is ever read, and it is enough to know.
  */
-const readAtMost = async (handle: FileHandle, limit: number): Promise<Buffer | null> => {
+export const readAtMost = async (handle: FileHandle, limit: number): Promise<Buffer | null> => {
   const buffer = Buffer.allocUnsafe(limit + 1)
   let filled = 0
   while (filled < buffer.length) {
@@ -377,11 +420,11 @@ const candidateAt = async (place: Place, id: string): Promise<Candidate> => {
     if (!info.isFile()) {
       return { at: 'unread', why: `this is not a regular file — it is ${kindOf(info)} — so it was not read` }
     }
-    const bytes = await readAtMost(handle, LIMIT)
+    const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
     if (bytes === null) {
       return {
         at: 'unread',
-        why: `this file is larger than ${LIMIT / 1024} KiB, so it was not read: a brief is read whole or not at all`,
+        why: `this file is larger than ${AGENT_FILE_LIMIT / 1024} KiB, so it was not read: a brief is read whole or not at all`,
       }
     }
     return { at: 'text', source: bytes.toString('utf8') }
@@ -393,7 +436,8 @@ const candidateAt = async (place: Place, id: string): Promise<Candidate> => {
 }
 
 export class Agents {
-  constructor(private readonly roots: AgentRoots) {}
+  /** Where this machine's and the built-in Agents are: what a write to one of them is made against. */
+  constructor(readonly roots: AgentRoots) {}
 
   async list(project?: string): Promise<AgentEntry[]> {
     const found = new Map<string, AgentEntry>()

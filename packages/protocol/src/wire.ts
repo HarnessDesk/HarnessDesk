@@ -1,4 +1,4 @@
-import type { AgentEntry } from './agent.js'
+import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -118,6 +118,17 @@ export interface BackupFile {
     readonly id: string
     readonly data: unknown
   }[]
+  /**
+   * This machine's own Agents, as text files relative to each Agent folder.
+   * `agents` above keeps its older meaning: entries in the runtime registry.
+   * Absent in backups written before Agent folders travelled with them.
+   */
+  readonly agentFolders?: readonly {
+    readonly id: string
+    readonly files: readonly { readonly path: string; readonly text: string }[]
+  }[]
+  /** This machine's `seating.json`, or null when it was absent or could not be read. */
+  readonly seating?: Readonly<Record<string, unknown>> | null
 }
 
 /**
@@ -125,11 +136,23 @@ export interface BackupFile {
  * a number here is a verified write, not an attempted one. `skipped` is the
  * merge policy speaking: an agent already registered, or a transcript the
  * local store holds a newer copy of, is left alone.
+ *
+ * `agentFolders` and `seating` fold a second, different cause into the same
+ * `skipped`: an entry refused outright — an id that is not safe to use, seats
+ * that do not parse, a folder that named no files — rather than one merely
+ * left alone because this machine already answers for it. Both counted the
+ * same way because either way nothing was written, but only the refusal is a
+ * fact worth a reason, and that reason is logged (`an Agent folder from a
+ * backup was refused`, and likewise for a seating entry) rather than folded
+ * into this count alone; a plain collision — this machine's own, never a
+ * stranger's — stays quiet by design.
  */
 export interface BackupReport {
   readonly agents: { readonly restored: number; readonly skipped: number }
   readonly preferences: number
   readonly transcripts: { readonly restored: number; readonly skipped: number }
+  readonly agentFolders: { readonly restored: number; readonly skipped: number }
+  readonly seating: { readonly restored: number; readonly skipped: number }
 }
 
 /**
@@ -1557,6 +1580,23 @@ export interface HostMethods {
     result: AgentEntry | null
   }
   /**
+   * Which seat each Agent would take here, and why not the others — opening
+   * nothing. The reads a seating makes before it chooses, each held to the
+   * same deadline; one read of the desk serves every Agent asked about. `ids`
+   * absent is every Agent in force, in the roster's order; an id nobody
+   * defined is answered with why, never dropped.
+   *
+   * "Opening nothing" is about conversations: none is opened for any Agent
+   * named here, and none is named either. Learning an ACP agent's models for
+   * the first time in this process is not a conversation, but it is not free:
+   * it starts that agent's own hidden probe once, the same one a real seating
+   * or the model picker would have started to answer the same question.
+   */
+  'agent/seat/dry': {
+    params: { readonly ids?: readonly string[]; readonly project?: string }
+    result: readonly SeatPlan[]
+  }
+  /**
    * Opens a conversation as an Agent: the first of its seats this machine can
    * offer, handed the Agent's brief once as its standing order — the brief as
    * written, then the rule of the permission the seat holds — and recorded in
@@ -1596,6 +1636,70 @@ export interface HostMethods {
       readonly permission?: FlowPermission
     }
     result: Session
+  }
+  /**
+   * This machine's seats for its Agents — `seating.json` in the state
+   * directory — as read: every entry that reads, in the file's order, and
+   * every one that does not, with where and why. Never committed.
+   */
+  'agent/seating/read': { params: Record<string, never>; result: MachineSeating }
+  /**
+   * Sets one Agent's seats on this machine, replacing its `prefer` here, or
+   * clears them (`seats: null`) so its `prefer` applies again. Every other
+   * entry is kept as written. Refused while the file as a whole cannot be read,
+   * so a hand-edit is never written over; an empty list is refused too — it is
+   * not a way to clear. Every window is told once for each write
+   * (`agent/changed`); a set that would change nothing writes nothing, and
+   * tells nothing.
+   */
+  'agent/seating/set': {
+    params: { readonly id: string; readonly seats: readonly FlowSeat[] | null }
+    result: MachineSeating
+  }
+  /**
+   * Writes a new Agent — *Save as an Agent* — to this machine (`to: 'user'`)
+   * or to a project, and answers its entry. `seat` is the seat the
+   * conversation it is saved from is on: saved to this machine it is the
+   * Agent's `prefer`; saved to a project, `prefer` names its runtime alone and
+   * this machine's `seating.json` keeps the exact seat, because a committed
+   * model name breaks the Agent on every other machine. The brief is a skeleton
+   * to be written in the editor. An Agent by that name already there is a
+   * refusal, never an overwrite.
+   */
+  'agent/create': {
+    params: {
+      readonly name: string
+      readonly description?: string
+      readonly permission: FlowPermission
+      readonly seat: FlowSeat
+      readonly to: 'user' | 'project'
+      readonly project?: string
+    }
+    result: AgentEntry
+  }
+  /**
+   * *Customize…*: copies the Agent found at `from` to this machine or to a
+   * project, where the copy shadows it, and answers the copy's entry. Refused
+   * where the copy would itself be shadowed by what it copies.
+   */
+  'agent/copy': {
+    params: {
+      readonly id: string
+      readonly from: AgentOrigin
+      readonly to: 'user' | 'project'
+      readonly project?: string
+    }
+    result: AgentEntry
+  }
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Needs the desktop app; what ships cannot be removed. */
+  'agent/remove': {
+    params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string }
+    result: null
+  }
+  /** Shows the file an Agent comes from in the OS file browser — the winner, or the copy at `origin`. Needs the desktop app. */
+  'agent/reveal': {
+    params: { readonly id: string; readonly origin?: AgentOrigin; readonly project?: string }
+    result: null
   }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
@@ -1935,6 +2039,12 @@ export interface WireError {
   readonly code: string
   readonly message: string
   readonly details?: string | null
+  /**
+   * What a failure with a way out carries for the interface to draw it, when
+   * a sentence is not enough — a seating's refusal lists every candidate with
+   * its reason and its fix. Read only by a caller that knows the code.
+   */
+  readonly data?: unknown
 }
 
 export type WireResponse =
@@ -2026,6 +2136,29 @@ export type WireNotification =
   | {
       readonly method: 'runtime/removed'
       readonly params: { readonly runtime: RuntimeId }
+    }
+  | {
+      /**
+       * A conversation the host no longer holds and no window should draw:
+       * deleted, or opened for a seat, passed over and discarded. Without this
+       * a window kept the row the conversation's `session/started` gave it
+       * until it was reloaded — and a reload brought it back from the host's
+       * own record. A seat passed over that somebody used meanwhile is not
+       * discarded, and sends none: it stays, as it is.
+       */
+      readonly method: 'session/removed'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    }
+  | {
+      /**
+       * The roster changed under one of its roots, or this machine's seats for
+       * it did: every listing and every dry run drawn from them is stale.
+       * `project` names the project whose own Agents changed; null means this
+       * machine's — its Agents or its seats — or the built-in ones, which
+       * every listing shows.
+       */
+      readonly method: 'agent/changed'
+      readonly params: { readonly project: string | null }
     }
   | {
       /** Base64 output from a terminal. Every client receives it; a pane shows its own. */

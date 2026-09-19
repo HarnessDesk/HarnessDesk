@@ -35,6 +35,8 @@ export {
 } from './mcp.js'
 export {
   applyLibrary,
+  isSafePathSegment,
+  MAX_BUNDLE_FILES,
   planLibrary,
   type WriteAgent,
   type WriteContext,

@@ -232,8 +232,11 @@ const connected = async (t: TestContext) => {
   return client
 }
 
+/** The project's and this machine's Agents: the built-in ones ship with every desk and are not what these tests are about. */
 const idsOf = (listed: unknown) =>
-  (listed as readonly AgentEntry[]).map((one) => [one.id, one.origin, one.definition?.name])
+  (listed as readonly AgentEntry[])
+    .filter((one) => one.origin !== 'builtin')
+    .map((one) => [one.id, one.origin, one.definition?.name])
 
 /*
  * The host's rule, through the host. Every path below is sent exactly as

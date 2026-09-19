@@ -77,6 +77,17 @@ test('a model id with a slash in it is written as a map, the way a role writes o
   assert.deepEqual(agent?.prefer[0], { runtime: 'cline', model: 'deepseek/deepseek-v4-flash' })
 })
 
+test('a misspelt field in a map-form prefer seat is refused, not read as the default model with no problem', () => {
+  const { agent, problems } = parseAgentDefinition(
+    '---\nname: Typo\nprefer:\n  - runtime: cursor\n    modle: gpt-5.3-codex\n---\nWork.\n',
+    'typo',
+  )
+  assert.equal(agent, null)
+  assert.equal(problems.length, 1)
+  assert.equal(problems[0]?.at, 'prefer[0]')
+  assert.match(problems[0]?.text ?? '', /"modle" is not a seat's field/)
+})
+
 test('a seat that does not parse is refused, never pushed through as itself', () => {
   const { agent, problems } = parseAgentDefinition(
     '---\nname: Bad seat\nprefer: [claude=opus-5+turbo]\n---\nx\n',
@@ -230,10 +241,10 @@ test('empty front matter closes, and is the same as no front matter', () => {
 })
 
 test('a prefer list longer than eight is refused whole, never cut short', () => {
-  /* Every seat that opens and is passed over leaves an empty conversation in
-     that agent's history, and an Agent arrives in a clone — so the list is
-     capped. Cutting it at eight would try a different list from the one
-     written, quietly; the author is told instead. */
+  /* Every seat that opens and is passed over costs a conversation — one an
+     agent that cannot delete may keep in its history — and an Agent arrives in
+     a clone, so the list is capped. Cutting it at eight would try a different
+     list from the one written, quietly; the author is told instead. */
   const seats = (count: number) => Array.from({ length: count }, (_, index) => `claude=m${index}`).join(', ')
   const long = parseAgentDefinition(`---\nname: Long\nprefer: [${seats(9)}]\n---\nWork.\n`, 'long')
   assert.equal(long.agent, null)
@@ -241,7 +252,7 @@ test('a prefer list longer than eight is refused whole, never cut short', () => 
     {
       level: 'error',
       at: 'prefer',
-      text: 'it names 9 seats, and an Agent may name at most 8 — each seat that opens and is passed over leaves an empty conversation in that agent’s history, so keep the ones worth trying',
+      text: 'it names 9 seats, and an Agent may name at most 8 — each seat that opens and is passed over costs a conversation, which an agent that cannot delete one may keep in its history, so keep the ones worth trying',
     },
   ])
   // Eight is allowed.

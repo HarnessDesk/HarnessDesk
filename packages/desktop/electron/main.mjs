@@ -126,6 +126,11 @@ const revealPath = async (path) => {
   shell.showItemInFolder(path)
 }
 
+/** The Trash, where a removed Agent can be dragged back out — what "Move to Trash" means on a Mac. */
+const trashPath = async (path) => {
+  await shell.trashItem(path)
+}
+
 const createWindow = async (url) => {
   const displays = screen.getAllDisplays()
   const state = await readWindowState(windowStateFile, displays)
@@ -643,6 +648,7 @@ const start = async () => {
     console: !app.isPackaged,
     pickDirectory,
     revealPath,
+    trashPath,
   })
   host = bootstrap.host
   logger = bootstrap.logger

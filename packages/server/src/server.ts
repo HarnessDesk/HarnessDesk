@@ -8,6 +8,7 @@ import {
   ValidationError,
   parseClientMessage,
   wireCodeOf,
+  wireDataOf,
   wireError,
   type HostMethodName,
   type HostToClient,
@@ -181,7 +182,7 @@ const handleMessage = async (
     send({
       id: parsed.id,
       ok: false,
-      error: wireError(wireCodeOf(error) ?? 'methodFailed', describeError(error), details),
+      error: wireError(wireCodeOf(error) ?? 'methodFailed', describeError(error), details, wireDataOf(error)),
     } as WireResponse)
   }
 }

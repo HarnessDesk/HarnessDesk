@@ -65,6 +65,15 @@ const UNREACHED = {
     'likewise — opening one Agent from that roster is the same later phase',
   'agent/seat':
     'likewise — seating an Agent from that roster is the same later phase',
+  'agent/seat/dry':
+    'likewise — every menu that lists Agents is drawn from it, and those menus are the second half of the same phase',
+  'agent/seating/read':
+    "likewise — an Agent's page reads this machine's seats for it, in the second half of the same phase",
+  'agent/seating/set': 'likewise — the same page edits them',
+  'agent/create': 'likewise — Save as an Agent, in a conversation’s menu, is the second half of the same phase',
+  'agent/copy': "likewise — an Agent's page offers Customize…",
+  'agent/remove': "likewise — an Agent's page offers Remove…",
+  'agent/reveal': "likewise — an Agent's page offers Reveal",
 }
 
 /**
