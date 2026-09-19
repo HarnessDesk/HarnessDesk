@@ -206,22 +206,42 @@ export interface MachineSeatingFileOptions {
 
 export class MachineSeatingFile {
   #writes: Promise<unknown> = Promise.resolve()
+  /** Highest revision this desk has handed to any caller or persisted. */
+  #highWater = 0
 
   constructor(
     readonly path: string,
     private readonly options: MachineSeatingFileOptions = {},
   ) {}
 
-  async read(): Promise<MachineSeating> {
+  async #readNow(): Promise<MachineSeating> {
     let text: string
     try {
       text = await readFile(this.path, 'utf8')
     } catch (error) {
       // No file is no entries: nobody has chosen seats on this machine yet.
-      if ((error as { code?: unknown }).code === 'ENOENT') return { revision: 0, path: this.path, entries: [], problems: [] }
-      return { revision: 0, path: this.path, entries: [], problems: [{ id: null, at: '', text: unreadable(error) }] }
+      if ((error as { code?: unknown }).code === 'ENOENT') {
+        return { revision: this.#highWater, path: this.path, entries: [], problems: [] }
+      }
+      return {
+        revision: this.#highWater,
+        path: this.path,
+        entries: [],
+        problems: [{ id: null, at: '', text: unreadable(error) }],
+      }
     }
-    return { path: this.path, ...parseSeatingDocument(text) }
+    const parsed = parseSeatingDocument(text)
+    this.#highWater = Math.max(this.#highWater, parsed.revision)
+    return { path: this.path, ...parsed, revision: this.#highWater }
+  }
+
+  async read(): Promise<MachineSeating> {
+    // A public read never crosses an in-flight local write. Besides keeping
+    // its entries coherent with the revision, this means the high-water mark
+    // cannot move underneath a write after that write has chosen its next
+    // persisted revision.
+    await this.#writes
+    return this.#readNow()
   }
 
   /** The file as written for a backup, or null when it is absent or unreadable. */
@@ -357,12 +377,13 @@ export class MachineSeatingFile {
           `${this.path} was not changed: ${SEATING_REVISION} is not a non-negative safe integer. Fix it or remove it first, so what is in it is not lost.`,
         )
       }
+      this.#highWater = Math.max(this.#highWater, revision as number)
 
       // Decided here, against the very `raw` this turn is about to write from
       // and the id this turn already holds the queue for — not against a
       // snapshot read before this call had its turn.
       if (options.onlyIfAbsent && Object.hasOwn(raw, id)) {
-        return { seating: await this.read(), wrote: false }
+        return { seating: await this.#readNow(), wrote: false }
       }
 
       // Pairs, then `fromEntries`: an Agent id is a folder name, and a folder
@@ -398,18 +419,19 @@ export class MachineSeatingFile {
             : before !== undefined && ((current) => current !== null && sameSeats(current, expected))(seatsIn(before))
         if (!matches) throw new Error(options.refuseIfDifferent.message)
       }
-      if (sameJson(before, after)) return { seating: await this.read(), wrote: false }
+      if (sameJson(before, after)) return { seating: await this.#readNow(), wrote: false }
 
       await mkdir(dirname(this.path), { recursive: true })
       // Write-then-rename, like every file the host owns.
       const temp = `${this.path}.${process.pid}.tmp`
-      const nextRevision = (revision as number) + 1
+      const nextRevision = Math.max((revision as number) + 1, this.#highWater + 1)
       if (!Number.isSafeInteger(nextRevision)) {
         throw new Error(`${this.path} was not changed: its revision cannot increase again.`)
       }
       await writeFile(temp, `${JSON.stringify(Object.fromEntries([[SEATING_REVISION, nextRevision], ...pairs]), null, 2)}\n`)
       await rename(temp, this.path)
-      return { seating: await this.read(), wrote: true }
+      this.#highWater = nextRevision
+      return { seating: await this.#readNow(), wrote: true }
     }
     // One write at a time, so two quick edits cannot each read the file before the other wrote it.
     const current = this.#writes.then(run, run)

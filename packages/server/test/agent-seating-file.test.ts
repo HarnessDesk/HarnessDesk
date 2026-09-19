@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -352,6 +352,47 @@ test('the seating revision survives a new desk instance and increases on its nex
   assert.equal(((await restartedDesk.read()) as MachineSeating & { readonly revision?: number }).revision, 1)
   const second = await restartedDesk.set('judge', [{ runtime: 'claude-code' }])
   assert.equal((second.seating as MachineSeating & { readonly revision?: number }).revision, 2)
+})
+
+test('a running desk never hands an open window an older revision after seating.json is removed', async () => {
+  const path = join(tempDir('hd-seating-revision-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  await file.set('judge', [{ runtime: 'codex' }])
+  const drawn = (await file.set('reviewer', [{ runtime: 'claude-code' }])).seating
+  assert.equal(drawn.revision, 2, 'control: the window first drew revision 2')
+
+  await rm(path)
+  const removed = await file.read()
+  assert.equal(removed.revision, drawn.revision, 'the removal can clear the drawn entries without rolling its revision back')
+  assert.deepEqual(removed.entries, [])
+
+  const recreated = (await file.set('scout', [{ runtime: 'cursor' }])).seating
+  assert.ok(recreated.revision > drawn.revision, 'the recreated file advances beyond what this desk already handed out')
+  const window = recreated.revision >= drawn.revision ? recreated : drawn
+  assert.deepEqual(window.entries, [{ id: 'scout', seats: [{ runtime: 'cursor' }] }], 'the already-open window draws the recreation')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 3, scout: ['cursor'] })
+})
+
+test('repairing a malformed or revisionless seating.json continues above this desk high-water mark', async () => {
+  const path = join(tempDir('hd-seating-revision-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  await file.set('judge', [{ runtime: 'codex' }])
+  const drawn = (await file.set('reviewer', [{ runtime: 'claude-code' }])).seating
+  assert.equal(drawn.revision, 2, 'control: the window first drew revision 2')
+
+  await writeFile(path, '{ not json', 'utf8')
+  const malformed = await file.read()
+  assert.equal(malformed.revision, drawn.revision, 'even the repair prompt is not handed out under an older revision')
+  assert.equal(malformed.problems.length, 1)
+
+  await writeFile(path, JSON.stringify({ judge: ['cursor'] }), 'utf8')
+  const repaired = (await file.set('reviewer', [{ runtime: 'codex' }])).seating
+  assert.ok(repaired.revision > drawn.revision, 'the repaired file advances beyond what this desk already handed out')
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+    $revision: 3,
+    judge: ['cursor'],
+    reviewer: ['codex'],
+  })
 })
 
 test('onlyIfAbsent decides inside the set queue, after an earlier local set has landed', async () => {
