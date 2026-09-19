@@ -8,6 +8,7 @@ import {
   AlertTitle,
   Banner,
   BannerAction,
+  ActionError,
   Button,
   AgentCard,
   ApprovalDialog,
@@ -366,6 +367,7 @@ const BannerBoard = () => (
           </AlertContent>
         </Alert>
       ))}
+      <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>

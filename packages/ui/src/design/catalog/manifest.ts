@@ -117,7 +117,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'DockPanel', 'PublicationCard', 'RefusedAction',
+  'Popover', 'ChannelMessage', 'AgentCard', 'DockPanel', 'PublicationCard', 'ActionError', 'RefusedAction',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -188,6 +188,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   AgentCard: ['default'],
   DockPanel: ['default'],
   PublicationCard: ['default'],
+  ActionError: ['default'],
   RefusedAction: ['default'],
 }
 
@@ -254,6 +255,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   ChannelMessage: ['default', 'loading', 'success', 'error'],
   AgentCard: ['default', 'active', 'inactive', 'loading'],
   PublicationCard: ['default', 'loading', 'success', 'error'],
+  ActionError: ['error'],
   RefusedAction: ['disabled', 'focus-visible'],
 }
 
@@ -284,6 +286,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   AgentCard: 'packages/ui/src/components/AgentCards.tsx',
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
+  ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
 }
 
@@ -298,6 +301,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
   AgentCard: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
+  ActionError: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
 }
 
@@ -411,6 +415,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['AgentCard', 'group', 'Agent, account and member card anatomy'],
   ['DockPanel', 'panels', 'Docked panel chrome and actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
+  ['ActionError', 'banner', 'Failure and reason for an action just taken'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
 ] as const satisfies readonly ModuleSeed[]
 
