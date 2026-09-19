@@ -130,6 +130,13 @@ class SeatFake extends FakeRuntime {
    * one error and throws it again.
    */
   breakWith: Error | null = null
+  /**
+   * `createSession` itself throws this, before any conversation exists at
+   * all — never `opened`, never a discard, nothing to leave behind. Set to
+   * the same object another candidate's own discard already left a note on
+   * (`breakWith`, above), this proves that note is not read out here too.
+   */
+  breakAtCreate: Error | null = null
   /** Called as each conversation is asked for, before it exists. */
   beforeCreate: (() => void) | null = null
   /**
@@ -167,6 +174,7 @@ class SeatFake extends FakeRuntime {
   }
 
   override async createSession(options: SessionOptions): Promise<AgentSession> {
+    if (this.breakAtCreate) throw this.breakAtCreate
     this.beforeCreate?.()
     const id = sessionId(this.mintAs ?? `seat-${this.opened.length + 1}`)
     this.mintAs = null
@@ -2292,7 +2300,9 @@ for (const [left, words] of [
     'the conversation it opened could not be deleted: “The thread is locked”; archiving it failed, so it may still be listed',
   ],
   [{ kind: 'inUse' }, 'the conversation it opened was used meanwhile, so it was left as it is'],
-  [{ kind: 'alreadyHeld' }, 'the conversation it opened is one the desk already held, so it was left as it is'],
+  // P8 (final Part A review): never "opened" — this candidate opened nothing at all; the runtime
+  // answered with the id of a conversation the desk already had, refused before anything is done to it.
+  [{ kind: 'alreadyHeld' }, 'the conversation it answered with is one the desk already held, so it was left as it is'],
   [
     { kind: 'unasked' },
     'claude was gone before it could be asked to delete the conversation it opened, which may stay in its history',
@@ -2739,6 +2749,43 @@ test('through the host: an error an adapter throws again for the next seat says 
   const [second] = seats.opened
   assert.ok(second)
   assert.deepEqual(seats.deleted, [String(second.id)])
+})
+
+/**
+ * P5 (final Part A review): `createSession` itself sat outside the try block
+ * that notes what a discard left on the failure — so a failure there, before
+ * any conversation exists to discard at all, said nothing of its own. An
+ * adapter that keeps one error object and throws it again for the next seat —
+ * exactly the shape the sibling test above proves for a *later* failure — left
+ * whatever an *earlier* candidate's own discard had already noted on that same
+ * object standing unchanged, read out here as though this seat, too, had
+ * opened something and left it behind.
+ */
+test('through the host: an error thrown by createSession itself, before any conversation exists, is never said to have left one behind', async (t) => {
+  const { harness, seats, client, work } = await desk(t)
+  const keeper = new SeatFake({ id: 'keeper', capabilities: { deleteHistory: false, archiveHistory: false } })
+  harness.host.register(keeper)
+  await keeper.start()
+  // The same error object: the first candidate opens, then fails and is
+  // discarded, which leaves a note on it ("kept, archived here"). The second
+  // never gets that far — `createSession` itself throws it, first thing.
+  const lost = new Error('Seat Fake lost this conversation part-way through opening it')
+  keeper.breakWith = lost
+  seats.breakAtCreate = lost
+  await writeReviewer(harness.stateDir, 'keeper=big/high, seatfake=big/high')
+
+  await assert.rejects(client.call('agent/seat', { id: 'reviewer', cwd: work }), (error: Error) => {
+    assert.equal(
+      error.message,
+      'No seat could be opened for this Agent:\n' +
+        "  keeper=big/high — keeper could not open a conversation: Seat Fake lost this conversation part-way through opening it (the conversation it opened may stay in keeper's own history, which the desk cannot delete from; it is archived here)\n" +
+        '  seatfake=big/high — seatfake could not open a conversation: Seat Fake lost this conversation part-way through opening it',
+    )
+    return true
+  })
+  // Nothing was ever opened on the second runtime — so nothing on it was ever discarded either.
+  assert.deepEqual(seats.opened, [])
+  assert.deepEqual(seats.deleted, [])
 })
 
 test('through the host: a runtime gone before its seat could be deleted is said to be, not taken for one that left nothing', async (t) => {

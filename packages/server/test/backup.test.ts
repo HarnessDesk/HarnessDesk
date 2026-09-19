@@ -8,6 +8,7 @@ import { test, type TestContext } from 'node:test'
 
 import { SEAT_PREFERENCE_LIMIT, type RuntimeId } from '@harnessdesk/protocol'
 
+import { exportAgentFolders } from '../src/agent-files.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX } from '../src/agents.js'
@@ -81,6 +82,30 @@ const transcriptFile = (savedAt: number, text: string) =>
       },
     ],
   })
+
+/**
+ * Whether `text` holds a UTF-16 surrogate half with no partner: a high one
+ * not immediately followed by a low one, or a low one with no high one
+ * before it. `String.prototype.isWellFormed` says the same thing, but is
+ * newer than this project's `lib` target — this is the same check by hand.
+ */
+const hasLoneSurrogate = (text: string): boolean => {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      // `charCodeAt` past the end answers `NaN`, and every comparison with
+      // `NaN` is false — so a high surrogate as the very last character, with
+      // no partner to even ask about, must be caught by a positive range
+      // check on `next`, never by negating two `<`/`>` comparisons against it.
+      const next = text.charCodeAt(index + 1)
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return true
+      index += 1 // the pair is one code point; do not re-examine its low half
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true
+    }
+  }
+  return false
+}
 
 const backupWith = (agentFolders: unknown[], seating?: Readonly<Record<string, unknown>>) => ({
   kind: 'harnessdesk-backup' as const,
@@ -372,6 +397,51 @@ test('export takes AGENT.md first, then files in code-unit order, and warns when
   assert.match(String(reasonFor('absent-brief')), /no AGENT\.md/)
 })
 
+/**
+ * P4 (final Part A review): once a folder's 1 MiB budget is spent, every file
+ * behind it in the walk was still opened and read, only to be discarded once
+ * `take` compared the running total against the budget — 20,000 files behind
+ * a spent budget cost 20,000 wasted opens. The walk now stops opening more
+ * files the moment the budget is gone, the same way it already stops once
+ * `MAX_BUNDLE_FILES` files have been examined.
+ */
+test('export stops opening files once an Agent folder’s byte budget is already spent, rather than opening every file behind it', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-budget-cost-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  await mkdir(join(agents, 'skilled', 'skills'), { recursive: true })
+  await writeFile(join(agents, 'skilled', 'AGENT.md'), 'brief')
+  const chunk = 'x'.repeat(AGENT_FILE_LIMIT)
+  // Spends the whole 1 MiB folder budget, sorting before "skills" the same way the priority test above relies on.
+  for (const name of ['!a.md', '!b.md', '!c.md', '!d.md']) await writeFile(join(agents, 'skilled', name), chunk)
+  // Behind the now-spent budget: files a walk with no cap on examined-vs-opened would still open every one of.
+  const extra = 50
+  for (let index = 0; index < extra; index += 1) {
+    await writeFile(join(agents, 'skilled', 'skills', `m${String(index).padStart(3, '0')}.js`), 'x')
+  }
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    open: (...args: unknown[]) => Promise<unknown>
+  }
+  const realOpen = fsp.open
+  let opened = 0
+  fsp.open = async (...args: unknown[]) => {
+    opened += 1
+    return realOpen(...args)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.open = realOpen
+    syncBuiltinESMExports()
+  })
+
+  const copies = await exportAgentFolders(agents)
+  assert.deepEqual(copies[0]?.files.map((one) => one.path), ['AGENT.md', '!a.md', '!b.md', '!c.md'])
+  // 1 (AGENT.md) + 4 (!a..!d — !d is opened, then rejected, since it is what spends the budget) — never
+  // the 50 files sitting behind it in skills/, which the old walk opened and discarded one by one.
+  assert.ok(opened <= 5, `${opened} files were opened past an Agent folder’s already-spent byte budget`)
+})
+
 test('.git is left out at every depth on export and restore', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-git-metadata-'))
   const restored = await mkdtemp(join(tmpdir(), 'hd-backup-git-restored-'))
@@ -581,7 +651,26 @@ test('restore never examines past the 200th entry, even when every one of the fi
   await assert.rejects(readdir(join(dir, 'agents', 'scout')), { code: 'ENOENT' })
 })
 
-test('restore admits only roster ids and never replaces an existing folder or writes through a link', async (t) => {
+/**
+ * P2 (final Part A review — this pinned test edited, per its brief):
+ * this test's own name said "roster ids" while its body still refused
+ * `Upper`, which the roster (`idsIn`) has always listed — `agentIdOf`, the
+ * *writer's* slug rule for a typed name, was standing in for the roster's
+ * own, looser rule (a safe segment, at most 255 bytes, not `.git`, not the
+ * temp prefix — `isAgentFolderName`, now shared with `idsIn`). `Upper`,
+ * `constructor` and `__proto__` are now expected restored, not skipped:
+ *
+ * Decision, made once here: a reserved id (`constructor`, `__proto__`) is
+ * restored rather than refused. The roster already seats a hand-placed
+ * folder by either name — it keys every entry in a `Map`, where neither
+ * string is special — so refusing to *restore* one made the backup path
+ * stricter than the roster it is restoring into, and silently dropped a real
+ * Agent. `seating.json`'s own reserved-id guard (`agent-seating-file.ts`) is
+ * untouched: that file's keys are a plain JSON object's own properties,
+ * where `__proto__` genuinely is dangerous, which is a fact about that file,
+ * not about an Agent folder's name.
+ */
+test('restore admits every id the roster would list, and never replaces an existing folder or writes through a link', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-agent-ids-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
   const agents = join(dir, 'agents')
@@ -606,12 +695,24 @@ test('restore admits only roster ids and never replaces an existing folder or wr
       folder('valid-agent'),
     ]),
   })
-  assert.deepEqual(report.agentFolders, { restored: 1, skipped: 6 })
+  assert.deepEqual(report.agentFolders, { restored: 4, skipped: 3 })
   assert.equal(await readFile(join(agents, 'existing', 'AGENT.md'), 'utf8'), 'local folder')
   assert.equal(await readFile(join(outside, 'AGENT.md'), 'utf8'), 'linked target')
-  assert.deepEqual((await readdir(agents)).sort(), ['existing', 'linked', 'valid-agent'])
+  assert.deepEqual(
+    (await readdir(agents)).sort(),
+    ['Upper', '__proto__', 'constructor', 'existing', 'linked', 'valid-agent'],
+  )
 })
 
+/**
+ * P2 (final Part A review — this pinned test edited): `Reviewer` was this
+ * test's example of a refused id, refused only because restore was reading
+ * it through `agentIdOf` (the writer's slug rule) instead of the roster's own
+ * rule — which admits `Reviewer` outright, per the fix above. `../climber`
+ * replaces it: a genuine climb, refused under the shared rule for the same
+ * reason (`its id is not a valid Agent id`), so this test still proves what
+ * it always meant to — a refused folder does not refuse its own valid seat.
+ */
 test('restore logs every refused Agent id with a reason and a quoted, capped id', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-refused-id-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
@@ -622,10 +723,10 @@ test('restore logs every refused Agent id with a reason and a quoted, capped id'
   const report = await host.call('backup/import', {
     backup: backupWith(
       [
-        { id: 'Reviewer', files: [{ path: 'AGENT.md', text: 'brief' }] },
+        { id: '../climber', files: [{ path: 'AGENT.md', text: 'brief' }] },
         { id: stranger, files: [{ path: 'AGENT.md', text: 'brief' }] },
       ],
-      { Reviewer: ['codex'] },
+      { '../climber': ['codex'] },
     ),
   })
 
@@ -636,7 +737,7 @@ test('restore logs every refused Agent id with a reason and a quoted, capped id'
     'an Agent folder from a backup was refused',
   ])
   const details = heard.details as { id?: unknown; error?: unknown }[]
-  assert.equal(details[0]?.id, '"Reviewer"')
+  assert.equal(details[0]?.id, '"../climber"')
   assert.match(String(details[0]?.error), /id/i)
   assert.equal(typeof details[1]?.id, 'string')
   assert.ok(String(details[1]?.id).length <= 160, 'the quoted id is capped before it reaches the log')
@@ -661,6 +762,68 @@ test('a control character in a backup id does not smuggle the logged id past its
   const logged = String(details[0]?.id)
   assert.ok(logged.length <= 140, `capped after escaping, not before: got ${logged.length} characters`)
   assert.match(logged, /^".*"$/s, 'still looks like a quoted string')
+})
+
+/**
+ * P9 (final Part A review, "10-m1"): capping the already-quoted text fixed
+ * the cap being smuggled past (above), but slicing the *quoted* string by a
+ * raw character position can itself land inside a six-character `\u0000`
+ * escape, leaving a torn fragment like `\u00` right before the ellipsis. The
+ * cap now truncates the *raw* id first — to a prefix whose own quoted form
+ * plus the ellipsis still fits — and quotes only that, so an escape is
+ * always either whole or entirely absent from what is kept.
+ */
+test('a logged id truncated past its cap never ends with a torn escape', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-log-torn-escape-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+  // Every one of these escapes to six characters once quoted, so the cap
+  // falls inside one of them wherever it lands unless the raw text, not the
+  // quoted text, is what gets cut.
+  const nully = '\0'.repeat(200)
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: nully, files: [{ path: 'AGENT.md', text: 'brief' }] }]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  const details = heard.details as { id?: unknown }[]
+  const logged = String(details[0]?.id)
+  assert.match(logged, /…"$/, 'a truncated id still ends in an ellipsis and a closing quote')
+  // Put a closing quote back where the ellipsis was cut from, and the result
+  // must still be one complete, valid JSON string — never `\u00` with the
+  // rest of its own escape missing.
+  const beforeEllipsis = logged.slice(0, -2)
+  assert.doesNotThrow(() => JSON.parse(`${beforeEllipsis}"`), 'the escape immediately before the ellipsis was torn in half')
+})
+
+/**
+ * P9 (final Part A review, "10-m1"): the same slice-the-quoted-text mistake
+ * can land between the two UTF-16 halves of an astral character's surrogate
+ * pair — JSON.stringify leaves one unescaped, so nothing marks where it is
+ * safe to cut. Truncating the raw id by whole code points first means a pair
+ * is always kept whole or dropped whole, never split.
+ */
+test('a logged id truncated past its cap never splits an astral character’s surrogate pair', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-log-surrogate-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+  // U+1D306, a surrogate pair, repeated well past the cap.
+  const astral = '\u{1d306}'.repeat(80)
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: astral, files: [{ path: 'AGENT.md', text: 'brief' }] }]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  const details = heard.details as { id?: unknown }[]
+  const logged = String(details[0]?.id)
+  assert.match(logged, /…"$/, 'a truncated id still ends in an ellipsis and a closing quote')
+  const inner = logged.slice(1, -2) // drop the opening quote, then the ellipsis and closing quote
+  assert.ok(
+    !hasLoneSurrogate(inner),
+    `a surrogate pair was split by the truncation: ${JSON.stringify(inner.slice(-4))}`,
+  )
 })
 
 test('an existing Agent collision is a quiet skip', async (t) => {

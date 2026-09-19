@@ -149,12 +149,42 @@ const reach = async (path: string, within: string | null): Promise<string | null
   return real !== null && inside(real, within) ? real : null
 }
 
+/**
+ * Whether recursively watching `real` would also cover a project's own
+ * Agents folder — `follow.target`, always inside `follow.within` — from
+ * above: the project root itself, when a link resolves there
+ * (`.harnessdesk/agents -> ..`), or any folder between the root and the
+ * Agents folder still inside the project (`.harnessdesk/agents/x -> ../..`,
+ * a link one level short of the root). `real === follow.target` — the
+ * ordinary case, a real folder or a link to one that is not an ancestor of
+ * itself — is never this: a proper ancestor is what is dangerous, because a
+ * recursive watch there also covers everything else beside the Agents
+ * folder, `node_modules` and `.git` included, at whatever cost that subtree
+ * has to offer on every change in it.
+ *
+ * Always false for this machine's own roots (`follow.within === null`):
+ * there is no shared Agents folder above them to protect, and the person's
+ * own links are trusted wherever they lead, exactly as `reach` already
+ * trusts them.
+ */
+const coversAgentsFolder = (real: string, follow: Follow): boolean =>
+  follow.within !== null && follow.target.startsWith(real + sep)
+
 export class AgentWatch {
   readonly #options: AgentWatchOptions
   readonly #watchers = new Map<string, { readonly scope: string | null; readonly close: () => void }>()
   /** A root's own top-level links, watched at their target: keyed under the root's own key (`linksOf`). */
   readonly #links = new Map<string, { readonly scope: string | null; readonly target: string; readonly close: () => void }>()
   readonly #timers = new Map<string | null, ReturnType<typeof setTimeout>>()
+  /**
+   * A root's own re-scan of its top-level links, still pending: reset on
+   * every accepted event from its recursive watch, so it runs once per
+   * settled burst rather than once per file underneath it. Keyed like
+   * `#watchers` (`keyOf`), not by scope alone — this machine's own roots
+   * share `scope: null` between them, and each root's rescan settles on its
+   * own.
+   */
+  readonly #rescanTimers = new Map<string, { readonly scope: string | null; readonly timer: ReturnType<typeof setTimeout> }>()
   /** A watch that could not be made, waiting on its backoff to retry through `#follow`. */
   readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ReturnType<typeof setTimeout> }>()
   /**
@@ -206,6 +236,8 @@ export class AgentWatch {
     this.#links.clear()
     for (const timer of this.#timers.values()) clearTimeout(timer)
     this.#timers.clear()
+    for (const one of this.#rescanTimers.values()) clearTimeout(one.timer)
+    this.#rescanTimers.clear()
     for (const one of this.#retries.values()) clearTimeout(one.timer)
     this.#retries.clear()
     this.#runs.clear()
@@ -233,6 +265,11 @@ export class AgentWatch {
       clearTimeout(one.timer)
       this.#retries.delete(key)
     }
+    for (const [key, one] of [...this.#rescanTimers]) {
+      if (one.scope !== scope) continue
+      clearTimeout(one.timer)
+      this.#rescanTimers.delete(key)
+    }
     for (const [key, one] of [...this.#runs]) if (one.scope === scope) this.#runs.delete(key)
     for (const [key, one] of [...this.#rescans]) if (one.scope === scope) this.#rescans.delete(key)
     const timer = this.#timers.get(scope)
@@ -259,6 +296,28 @@ export class AgentWatch {
     // cancels it; this only keeps a *live* one from holding the loop open.
     timer.unref?.()
     this.#timers.set(scope, timer)
+  }
+
+  /**
+   * `#rescanLinks`, once per settled burst rather than once per event —
+   * exactly what `#poke` already does for the notice itself, on the same
+   * clock. A root's own recursive watch fires once per change anywhere
+   * beneath it, and reading its top level again on every one of those (a
+   * `readdir`, plus a `reach` — its own `lstat`s and `realpath`s — per link
+   * found there) is a cost a run of writes to an unrelated subtree, a full
+   * `node_modules` included, must never pay once per write.
+   */
+  #scheduleRescan(follow: Follow): void {
+    if (!this.#alive(follow.scope)) return
+    const key = keyOf(follow)
+    const pending = this.#rescanTimers.get(key)
+    if (pending) clearTimeout(pending.timer)
+    const timer = setTimeout(() => {
+      this.#rescanTimers.delete(key)
+      void this.#rescanLinks(follow)
+    }, this.#options.settleMs ?? SETTLE_MS)
+    timer.unref?.()
+    this.#rescanTimers.set(key, { scope: follow.scope, timer })
   }
 
   /** Stops whatever follows this root now, its links with it, and follows it again from wherever it can be seen. */
@@ -342,10 +401,15 @@ export class AgentWatch {
     // Test-only: see `AgentWatchOptions.onFollow`. The host never sets it.
     this.#options.onFollow?.(follow)
     const real = await reach(follow.target, follow.within)
-    if (real !== null) {
+    // A resolution that covers the Agents folder from above — the project
+    // root itself, most of all — is treated exactly like one that leads
+    // nowhere: walked past below, never watched, so a committed
+    // `.harnessdesk/agents -> ..` never turns into a recursive watch on the
+    // whole checkout.
+    if (real !== null && !coversAgentsFolder(real, follow)) {
       this.#watch(follow, real, true, () => {
         this.#poke(follow.scope)
-        void this.#rescanLinks(follow)
+        this.#scheduleRescan(follow)
         // A root that went away, or that now leads somewhere else, is followed afresh from wherever it can be seen.
         void reach(follow.target, follow.within).then((now) => {
           if (now !== real) this.#refollow(follow)
@@ -443,7 +507,11 @@ export class AgentWatch {
     this.#rescans.set(key, { scope: follow.scope, generation })
     const wanted = new Map<string, string>()
     const root = await reach(follow.target, follow.within)
-    if (root !== null) {
+    // A root that resolves above its own Agents folder — the project root
+    // itself, chief among them — has no top level worth reading here: reading
+    // it would mean scanning the *project's* own top level for links to
+    // follow, recursively, wherever an unrelated one of them leads.
+    if (root !== null && !coversAgentsFolder(root, follow)) {
       const entries = await readdir(root, { withFileTypes: true }).catch(() => [])
       await Promise.all(
         entries
@@ -453,9 +521,12 @@ export class AgentWatch {
             // the person put it there themselves. A project's own is followed
             // only where the roster's walk keeps it inside the project; one
             // that leads out, even to come back, stays unwatched exactly as
-            // the roster leaves it unread.
+            // the roster leaves it unread — and one that leads to the project
+            // root, or anything else above the Agents folder, stays unwatched
+            // the same way: recursively watching it would cover the whole
+            // project, not just the folder this link sits in.
             const real = await reach(join(root, entry.name), follow.within)
-            if (real !== null) wanted.set(entry.name, real)
+            if (real !== null && !coversAgentsFolder(real, follow)) wanted.set(entry.name, real)
           }),
       )
     }

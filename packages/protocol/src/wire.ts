@@ -136,6 +136,16 @@ export interface BackupFile {
  * a number here is a verified write, not an attempted one. `skipped` is the
  * merge policy speaking: an agent already registered, or a transcript the
  * local store holds a newer copy of, is left alone.
+ *
+ * `agentFolders` and `seating` fold a second, different cause into the same
+ * `skipped`: an entry refused outright — an id that is not safe to use, seats
+ * that do not parse, a folder that named no files — rather than one merely
+ * left alone because this machine already answers for it. Both counted the
+ * same way because either way nothing was written, but only the refusal is a
+ * fact worth a reason, and that reason is logged (`an Agent folder from a
+ * backup was refused`, and likewise for a seating entry) rather than folded
+ * into this count alone; a plain collision — this machine's own, never a
+ * stranger's — stays quiet by design.
  */
 export interface BackupReport {
   readonly agents: { readonly restored: number; readonly skipped: number }

@@ -299,9 +299,17 @@ export const agentMethods = {
     }
     const machine = await ctx.seating.read()
     const kept = machine.entries.find((one) => one.id === id)
-    // Unless this Save is itself replacing the entry, an older machine entry
-    // would silently win over the `prefer` being written now.
-    if (kept && !(params.to === 'project' && exact)) {
+    // `seating.json` is keyed by id alone, so a kept entry seats every Agent
+    // of this id — a built-in or a user Agent of the same name, in every
+    // other project, included. Writing over it here would silently retarget
+    // them; leaving it in place would silently win over the `prefer` being
+    // written now. The one case that is neither is a project Save whose exact
+    // seat already reads as the entry kept there: `set()` below then writes
+    // nothing, so nothing is retargeted and nothing is overridden.
+    const onlyKeptSeat = kept?.seats.length === 1 ? kept.seats[0] : undefined
+    const keptMatchesExact =
+      params.to === 'project' && exact && onlyKeptSeat !== undefined && sameSeat(onlyKeptSeat, params.seat)
+    if (kept && !keptMatchesExact) {
       throw new Error(
         `This Mac already has seats for “${id}”, and they would win over the one you are saving. Change or clear them on its page first, or pick another name.`,
       )

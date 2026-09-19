@@ -5,8 +5,15 @@ import { basename, dirname, join } from 'node:path'
 import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
 import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
 
-import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, NOTHING_HERE, PROJECT_AGENT_DIR, idsIn, readAtMost } from './agents.js'
-import { isReservedId } from './agent-seating-file.js'
+import {
+  AGENT_FILE_LIMIT,
+  AGENT_TEMP_PREFIX,
+  isAgentFolderName,
+  NOTHING_HERE,
+  PROJECT_AGENT_DIR,
+  idsIn,
+  readAtMost,
+} from './agents.js'
 import { seatSpec, seatWritesCompactly } from './flow.js'
 
 /**
@@ -358,6 +365,20 @@ export const exportAgentFolders = async (
   for (const id of await idsIn(root)) {
     const files: { path: string; text: string }[] = []
     let total = 0
+    // Every file entry looked at, accepted or not — the walk's own cap on
+    // itself, so a run of rejected files (too large, not UTF-8, over an
+    // already-spent budget) costs no more opens than an equally long run of
+    // accepted ones would. `files.length` alone let a flood of rejects walk
+    // on forever, never tripping `MAX_BUNDLE_FILES` because none of them ever
+    // counted.
+    let examined = 0
+    // Set the moment one file is turned away for not fitting what is left of
+    // the folder's own budget: every file after it is skipped without being
+    // opened, because the order files are found in is not sorted by size — a
+    // smaller one after it might technically still fit, but finding out costs
+    // an open per try, which an Agent folder with a spent budget and many
+    // files left to look at must never pay for each one.
+    let budgetSpent = false
     // Why AGENT.md itself, specifically, never made it into `files` — set at
     // whichever point decides that, so the one warning below can carry a
     // cause instead of just a name.
@@ -366,7 +387,17 @@ export const exportAgentFolders = async (
     const take = async (source: string, path: string): Promise<void> => {
       let handle
       try {
-        handle = await open(source, constants.O_RDONLY)
+        // `O_NONBLOCK`, like the roster's own read of an `AGENT.md`
+        // (`agents.ts`'s `READ`): `regularEntries` already checked this path
+        // a moment ago and found a regular file, and opening plainly trusts
+        // that check to still be true. Opened non-blocking, a file swapped
+        // for a pipe with nothing writing to it in that gap is read as empty
+        // rather than left to hang the export — and everyone behind it in
+        // the same libuv threadpool with it. `O_NOFOLLOW` for the same gap
+        // with a link: `regularEntries` already left every link behind, and
+        // a plain open would otherwise follow one dropped into its place,
+        // carrying into the backup whatever that link happens to name.
+        handle = await open(source, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
       } catch (error) {
         log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
         if (path === 'AGENT.md') briefProblem = `it could not be opened — ${messageOf(error)}`
@@ -382,6 +413,7 @@ export const exportAgentFolders = async (
           return
         }
         if (total + bytes.length > BACKUP_FOLDER_LIMIT) {
+          budgetSpent = true
           if (path === 'AGENT.md') briefProblem = 'the folder budget was already spent'
           return
         }
@@ -427,6 +459,11 @@ export const exportAgentFolders = async (
             ? 'AGENT.md is a link, and a link is never carried'
             : 'AGENT.md is not a regular file'
           : 'there is no AGENT.md here'
+        // Nothing under this folder will ever be carried without an
+        // AGENT.md at its top — decided once, here, rather than after
+        // walking however much is underneath it looking for one that is
+        // never coming (a linked git checkout's own history, most of all).
+        return
       }
       const usable = entries.filter((entry) => !isGitDir(entry.name))
       const ordered =
@@ -437,10 +474,13 @@ export const exportAgentFolders = async (
             ]
           : [...usable].sort((a, b) => byCodeUnit(a.name, b.name))
       for (const entry of ordered) {
-        if (files.length >= MAX_BUNDLE_FILES) return
+        if (examined >= MAX_BUNDLE_FILES || budgetSpent) return
         const path = prefix ? `${prefix}/${entry.name}` : entry.name
         if (entry.kind === 'dir') await walk(entry.source, path)
-        else await take(entry.source, path)
+        else {
+          examined += 1
+          await take(entry.source, path)
+        }
       }
     }
 
@@ -489,7 +529,6 @@ const foldedPath = (path: string): string => path.split('/').map(foldedSegment).
 export type AgentFolderRestoreOutcome = { readonly restored: true } | { readonly restored: false; readonly reason: string | null }
 
 const REFUSED_INVALID_ID = 'its id is not a valid Agent id'
-const REFUSED_RESERVED_ID = 'its id is a reserved name no Agent may use'
 const REFUSED_NOT_A_FILE_LIST = 'it names no files'
 const REFUSED_NO_BRIEF = 'it has no AGENT.md once its files were checked'
 
@@ -501,12 +540,21 @@ const REFUSED_NO_BRIEF = 'it has no AGENT.md once its files were checked'
  * `writeAgentFolder`'s own refusal (tagged `AGENT_EXISTS`) rather than a
  * separate `exists()` first: a second check is a second place for the
  * answer to be stale by the time the first one writes.
+ *
+ * The id is checked against `isAgentFolderName` — the roster and export's own
+ * rule, not `agentIdOf`, which slugs a typed *name* into a brand new folder
+ * and was never a reader's rule for a folder already there. A reserved name
+ * (`constructor`, `__proto__`) is deliberately not refused here either: the
+ * roster keys every Agent in a `Map`, where neither is special, so it already
+ * seats a folder by either name without complaint, and refusing to restore
+ * one would only make backup stricter than the roster it restores into —
+ * dropping a real Agent instead of merely declining to write JSON's own
+ * `__proto__` key, which is `agent-seating-file.ts`'s own, different concern.
  */
 export const importAgentFolder = async (root: string, copy: unknown): Promise<AgentFolderRestoreOutcome> => {
   const record = (copy ?? {}) as { id?: unknown; files?: unknown }
   const id = typeof record.id === 'string' ? record.id : ''
-  if (agentIdOf(id) !== id) return { restored: false, reason: REFUSED_INVALID_ID }
-  if (isReservedId(id)) return { restored: false, reason: REFUSED_RESERVED_ID }
+  if (!isAgentFolderName(id)) return { restored: false, reason: REFUSED_INVALID_ID }
   if (!Array.isArray(record.files)) return { restored: false, reason: REFUSED_NOT_A_FILE_LIST }
 
   const files: { path: string; text: string }[] = []

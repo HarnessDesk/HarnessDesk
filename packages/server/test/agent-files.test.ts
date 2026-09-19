@@ -497,7 +497,7 @@ test('through the host: Save may shadow a built-in Agent, and answers the user f
   assert.deepEqual(saved.shadows.map((one) => one.origin), ['builtin'])
 })
 
-test('through the host: Save refuses this Mac’s older seats by name, before writing a competing prefer', async (t) => {
+test('through the host: Save refuses this Mac’s older seats, before writing a competing prefer', async (t) => {
   const { stateDir, client } = await desk(t)
   await client.call('agent/seating/set', {
     id: 'checker',
@@ -513,6 +513,91 @@ test('through the host: Save refuses this Mac’s older seats by name, before wr
     /This Mac already has seats for “checker”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
   )
   assert.equal(await lstat(join(stateDir, 'agents', 'checker')).then(() => true, () => false), false)
+})
+
+/**
+ * P1 (final Part A review): `seating.json` is keyed by id alone, so it seats
+ * every Agent of that id — a built-in on every other project included. A
+ * project Save with an exact seat used to skip the refusal above whenever
+ * `to === 'project' && exact`, whatever this Mac already kept for the id, and
+ * then overwrote that entry outright: saving “Code reviewer” from a
+ * `fake=fake-1` conversation turned this Mac's `code-reviewer` seats from
+ * Claude and Codex into just the fake runtime, for the built-in in every
+ * other project. The refusal now fires whenever a kept entry differs from the
+ * exact seat about to be written, project Saves included; it is skipped only
+ * when the entry already reads as that exact seat, the one case where `set()`
+ * changes nothing.
+ */
+test('through the host: a project Save with an exact seat never overwrites this Mac’s seats for a built-in Agent of the same id', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await client.call('agent/seating/set', {
+    id: 'code-reviewer',
+    seats: [
+      { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
+      { runtime: 'codex', effort: 'high' },
+    ],
+  })
+  const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Code reviewer',
+      permission: 'read',
+      seat: { runtime: 'fake', model: 'fake-1' },
+      to: 'project',
+      project,
+    }),
+    /This Mac already has seats for “code-reviewer”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'code-reviewer')).then(() => true, () => false),
+    false,
+    'the refused save wrote no project folder',
+  )
+  assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'seating.json is byte-identical')
+})
+
+test('through the host: a project Save with an exact seat never overwrites this Mac’s seats for a user Agent of the same id', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  await client.call('agent/create', { name: 'Reviewer', permission: 'read', seat, to: 'user' })
+  await client.call('agent/seating/set', {
+    id: 'reviewer',
+    seats: [{ runtime: 'claude-code', model: 'opus-5', effort: 'high' }],
+  })
+  const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
+  await assert.rejects(
+    client.call('agent/create', {
+      name: 'Reviewer',
+      permission: 'read',
+      seat: { runtime: 'fake', model: 'fake-1' },
+      to: 'project',
+      project,
+    }),
+    /This Mac already has seats for “reviewer”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'reviewer')).then(() => true, () => false),
+    false,
+    'the refused save wrote no project folder',
+  )
+  assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'seating.json is byte-identical')
+})
+
+test('through the host: a project Save with an exact seat that already matches this Mac’s kept entry is not refused', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  const exact = { runtime: 'fake', model: 'fake-1' }
+  await client.call('agent/create', { name: 'Code reviewer', permission: 'read', seat: exact, to: 'project', project })
+  const before = await readFile(join(stateDir, SEATING_FILE), 'utf8')
+  const secondProject = tempDir('hd-agent-files-project-')
+  await client.call('workspace/open', { path: secondProject })
+  const saved = (await client.call('agent/create', {
+    name: 'Code reviewer',
+    permission: 'read',
+    seat: exact,
+    to: 'project',
+    project: secondProject,
+  })) as AgentEntry
+  assert.equal(saved.origin, 'project')
+  assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'the matching re-save left seating.json untouched')
 })
 
 test('a stale-seat refusal does not read runtimes, accounts, catalogues or usage after deciding to refuse', async () => {
