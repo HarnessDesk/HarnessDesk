@@ -12,6 +12,7 @@ import {
   type SeatLeft,
   type SeatPlan,
   type SeatReason,
+  type Session,
   type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
@@ -109,6 +110,44 @@ export const sameSeat = (a: FlowSeat, b: FlowSeat): boolean =>
   (a.model ?? null) === (b.model ?? null) &&
   (a.effort ?? null) === (b.effort ?? null) &&
   Boolean(a.thinking) === Boolean(b.thinking)
+
+/**
+ * The seat a conversation is on, read the way seating reads one back
+ * (`runningOf`, `agent-seating.ts`): its `model`, `effort` and `thinking`
+ * controls, and the model from its settings where it has no model control.
+ * Nothing it was not told is named.
+ */
+export const seatOf = (session: Session): FlowSeat => {
+  const control = (id: string) => session.options?.find((one) => one.id === id)
+  const model = control('model')
+  const effort = control('effort')
+  const thinking = control('thinking')
+  const modelId = model ? String(model.currentValue) : session.settings?.model || null
+  return {
+    runtime: String(session.runtime),
+    ...(modelId ? { model: modelId } : {}),
+    ...(effort ? { effort: String(effort.currentValue) } : {}),
+    ...(thinking?.currentValue === true ? { thinking: true } : {}),
+  }
+}
+
+/** The same seat as a person reads it: the runtime's name, then the labels its controls show. */
+export const seatWordsOf = (session: Session, runtimes: readonly RuntimeInfo[]): string => {
+  const shown = (id: string): string | null => {
+    const control = session.options?.find((one) => one.id === id)
+    if (control?.type !== 'select') return null
+    return control.choices.find((choice) => choice.value === control.currentValue)?.label ?? null
+  }
+  const thinking = session.options?.find((one) => one.id === 'thinking')
+  return [
+    runtimes.find((one) => one.id === session.runtime)?.presentation.name ?? String(session.runtime),
+    shown('model') ?? (session.options?.some((one) => one.id === 'model') ? null : session.settings?.model || null),
+    shown('effort'),
+    thinking?.currentValue === true ? 'thinking' : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join(' · ')
+}
 
 /** A brief's opening paragraph, on one line: what a page shows before *Open in editor*. */
 export const firstParagraph = (brief: string): string =>

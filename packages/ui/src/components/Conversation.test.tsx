@@ -326,3 +326,14 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
   expect(container.querySelector('header')?.textContent).toContain('Checkout review')
   expect(store.readSeatAgent).not.toHaveBeenCalled()
 })
+
+it('the conversation’s menu offers Save as an Agent…', () => {
+  render(rig(session()).store)
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  const item = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
+    one.textContent?.startsWith('Save as an Agent…'),
+  )
+  if (!item) throw new Error('no Save as an Agent… in the menu')
+  act(() => item.click())
+  expect(document.body.querySelector('[role="dialog"][aria-label="Save as an Agent"]')).not.toBeNull()
+})

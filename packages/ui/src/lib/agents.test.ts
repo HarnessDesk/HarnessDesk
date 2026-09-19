@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentEntry, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason } from '@harnessdesk/protocol'
+import type { AgentEntry, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason, Session } from '@harnessdesk/protocol'
 
 import {
   anyBroken,
@@ -23,6 +23,8 @@ import {
   reasonWords,
   refusalOf,
   sameSeat,
+  seatOf,
+  seatWordsOf,
   seatCautions,
   seatTaken,
   shadowWords,
@@ -30,6 +32,34 @@ import {
   wordList,
   wordOf,
 } from './agents'
+
+describe('the seat a conversation is on', () => {
+  const on = (options: unknown[], model = 'fallback-model'): Session =>
+    ({ id: 's', runtime: 'claude-code', cwd: '/w', settings: { cwd: '/w', model }, options }) as unknown as Session
+  const select = (id: string, value: string, label: string) => ({
+    id,
+    label: id,
+    type: 'select',
+    currentValue: value,
+    choices: [{ value, label }],
+  })
+
+  it('is read from its model, effort and thinking controls, as seating reads one back', () => {
+    const session = on([
+      select('model', 'opus-5', 'Opus 5'),
+      select('effort', 'high', 'High'),
+      { id: 'thinking', label: 'Thinking', type: 'boolean', currentValue: true },
+    ])
+    expect(seatOf(session)).toEqual({ runtime: 'claude-code', model: 'opus-5', effort: 'high', thinking: true })
+    const runtimes = [{ id: 'claude-code', presentation: { name: 'Claude' } }] as unknown as RuntimeInfo[]
+    expect(seatWordsOf(session, runtimes)).toBe('Claude · Opus 5 · High · thinking')
+  })
+
+  it('takes the model from the settings where there is no model control, and names nothing it was not told', () => {
+    expect(seatOf(on([]))).toEqual({ runtime: 'claude-code', model: 'fallback-model' })
+    expect(seatOf(on([], ''))).toEqual({ runtime: 'claude-code' })
+  })
+})
 
 /**
  * Agents in words: never a wire id, a seat spec or a digest, and every

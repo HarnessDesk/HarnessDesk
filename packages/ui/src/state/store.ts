@@ -53,6 +53,7 @@ import {
   type TeamState,
   type FlowDryRun,
   type FlowFile,
+  type FlowPermission,
   type FlowRun,
   type FlowSeat,
   type TerminalSize,
@@ -3875,6 +3876,32 @@ export class AppStore {
     const project = this.#snapshot.agentsProject
     await this.transport.request('agent/remove', { id, origin, ...(project ? { project } : {}) })
     void this.loadAgents()
+  }
+
+  /**
+   * *Save as an Agent…*: writes a new Agent — to you, or to the open project —
+   * whose first seat is the one given, and reads the roster again. Answers the
+   * new entry, for its brief to be opened; throws the host's refusal for the
+   * dialog to say.
+   */
+  async saveAsAgent(agent: {
+    readonly name: string
+    readonly description: string
+    readonly permission: FlowPermission
+    readonly seat: FlowSeat
+    readonly to: 'user' | 'project'
+  }): Promise<AgentEntry> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const entry = await this.transport.request('agent/create', {
+      name: agent.name,
+      ...(agent.description ? { description: agent.description } : {}),
+      permission: agent.permission,
+      seat: agent.seat,
+      to: agent.to,
+      ...(project ? { project } : {}),
+    })
+    void this.loadAgents()
+    return entry
   }
 
   /** This machine's seats for its Agents — `seating.json` — as the host reads it. */

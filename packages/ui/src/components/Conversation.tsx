@@ -19,6 +19,7 @@ import { Slot } from '../slots/registry'
 import { Composer } from './Composer'
 import {
   BranchIcon,
+  BriefIcon,
   CheckIcon,
   CommitIcon,
   CompactIcon,
@@ -74,6 +75,7 @@ import { ledBy } from '../lib/agents'
 import { useSeatAgent } from '../state/seat-agent'
 import { PlanMeters } from './PlanMeters'
 import { WindowControls } from './WindowControls'
+import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
 
 /**
@@ -209,6 +211,7 @@ const ConversationMenu = () => {
   const session = useActiveSession()
   const capabilities = runtime.capabilities
   const [confirmUndo, setConfirmUndo] = useState(false)
+  const [saving, setSaving] = useState(false)
   if (!session) return null
   const memoryOn = session.memory === true
 
@@ -216,13 +219,14 @@ const ConversationMenu = () => {
   const several = snapshot.layout.root.kind === 'split'
 
   return (
-    <Popover
-      align="right"
-      title="Conversation"
-      label={<MoreIcon size={15} />}
-    >
-      {(close) => (
-        <>
+    <>
+      <Popover
+        align="right"
+        title="Conversation"
+        label={<MoreIcon size={15} />}
+      >
+        {(close) => (
+          <>
           {capabilities.memory && (
             <PopoverOption
               role="menuitemcheckbox"
@@ -294,7 +298,21 @@ const ConversationMenu = () => {
                 </PopoverOptionBody>
               </PopoverOption>
             ))}
-          {/* Every view of this conversation, so the panel's own tab row is
+            <PopoverOption
+              onClick={() => {
+                setSaving(true)
+                close()
+              }}
+            >
+              <PopoverOptionMark>
+                <BriefIcon size={13} />
+              </PopoverOptionMark>
+              <PopoverOptionBody>
+                <PopoverOptionLabel>Save as an Agent…</PopoverOptionLabel>
+                <PopoverOptionHint>This seat, a brief and a ceiling, under a name to start again.</PopoverOptionHint>
+              </PopoverOptionBody>
+            </PopoverOption>
+            {/* Every view of this conversation, so the panel's own tab row is
               not the only way to reach one — it cannot be seen until the panel
               is open. Changes is the exception: it belongs to the workspace
               chip beside this menu, which carries the file count with it, and
@@ -362,9 +380,12 @@ const ConversationMenu = () => {
               </PopoverOptionBody>
             </PopoverOption>
           )}
-        </>
-      )}
-    </Popover>
+          </>
+        )}
+      </Popover>
+      {/* Outside the menu: the menu closes as the dialog opens. */}
+      {saving && <SaveAsAgentDialog session={session} onClose={() => setSaving(false)} />}
+    </>
   )
 }
 

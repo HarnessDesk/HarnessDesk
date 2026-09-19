@@ -11,6 +11,7 @@ import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { NewSessionChoice } from '../components/NewSessionChoice'
 import { SeatSheet } from '../components/SeatSheet'
+import { SaveAsAgentDialog } from '../components/SaveAsAgent'
 import { Settings, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
@@ -173,7 +174,9 @@ const Preview = () => {
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
-  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet'>('off')
+  const [dialog, setDialog] = useState<
+    'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet' | 'save as agent'
+  >('off')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
@@ -213,7 +216,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent'] as const}
           onChange={setDialog}
         />
       </div>
@@ -234,6 +237,12 @@ const Preview = () => {
           }}
           onClose={() => setDialog('off')}
           onFix={() => setDialog('off')}
+        />
+      )}
+      {dialog === 'save as agent' && (
+        <SaveAsAgentDialog
+          session={store.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!}
+          onClose={() => setDialog('off')}
         />
       )}
       {dialog === 'remove' || dialog === 'bring back' ? (
