@@ -1,10 +1,12 @@
-import type { BoardEvidence, ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
+import type { BoardEvidence, EvidenceRecord, Intent, ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
 import { boardEvidence, RunningChecks } from './board.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
+import type { GhInCheckout } from './forge.js'
+import { Observer, type Look } from './observe.js'
 import { projectOf } from './revision.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
@@ -36,6 +38,8 @@ export interface EvidenceOptions {
   readonly dir: string
   /** `commands-seen.json` in the desk's state directory: what a person has approved on this machine. */
   readonly seenFile: string
+  /** How a branch's pull request is read; the person's own `gh` when absent. */
+  readonly gh?: GhInCheckout
   /** Seals the key the approvals are signed with; the desktop app's is backed by the OS keychain. */
   readonly cipher?: CredentialCipher
   readonly now?: () => number
@@ -49,6 +53,8 @@ export class EvidencePlane {
   readonly running = new RunningChecks()
   /** Runs a project's named checks, once a person has seen them (`check-runs.ts`). */
   readonly checks: CheckRuns
+  /** Looks at a card's branch: its diff, its pull request and the forge's checks (`observe.ts`). */
+  readonly observer: Observer
   readonly #port: EvidencePort
   readonly #now: () => number
   /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
@@ -75,6 +81,12 @@ export class EvidencePlane {
         log: (message, details) => port.log(message, details),
       },
       ...(options.now ? { now: options.now } : {}),
+    })
+    this.observer = new Observer({
+      store: this.store,
+      ...(options.gh ? { gh: options.gh } : {}),
+      ...(options.now ? { now: options.now } : {}),
+      log: (message, details) => port.log(message, details),
     })
   }
 
@@ -160,6 +172,7 @@ export class EvidencePlane {
     const { lines } = await this.store.read(project, 'evidence')
     const checks = await readChecks(project)
     const records = lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+    this.#lookAround(room, board, project, records)
     // One reason per check the file refuses — its first — and the file's own, when nothing in it can be read.
     const refused = new Map<string, string>()
     for (const problem of checks.problems) {
@@ -197,6 +210,67 @@ export class EvidencePlane {
   #nextStamp(): number {
     this.#lastStamp = Math.max(this.#now(), this.#lastStamp + 1)
     return this.#lastStamp
+  }
+
+  /**
+   * A card was finished. While its holder is still on it, the desk looks at
+   * the branch it was finished on, and tells every window when that recorded
+   * something. Never awaited by the board.
+   */
+  settled(room: string, intent: Intent): void {
+    if (intent.state !== 'done' || !intent.claim) return
+    const cwd = this.#port.cwdOf(intent.claim.runtime, intent.claim.sessionId)
+    const board = this.#port.board(room)
+    if (!cwd || !board) return
+    const seat = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null
+    void (async () => {
+      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat }
+      if (await this.observer.observe(look)) this.announce(room)
+    })().catch((error: unknown) =>
+      this.#port.log('a finished card could not be looked at', {
+        room,
+        card: intent.id,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    )
+  }
+
+  /**
+   * On a board read, the cards due another look — each at most once every few
+   * minutes — are looked at in the background, one at a time: a claimed card in
+   * its holder's checkout, a settled one where its latest fact was observed.
+   * A card with neither is not looked at, since there is nowhere to look.
+   */
+  #lookAround(room: string, board: TeamState, project: string, records: readonly EvidenceRecord[]): void {
+    const looks: Look[] = []
+    for (const intent of board.intents) {
+      const holder =
+        intent.state === 'claimed' && intent.claim ? this.#port.cwdOf(intent.claim.runtime, intent.claim.sessionId) : null
+      // Where this desk last observed it: a fact a backup brought never says where to look.
+      const last = [...records]
+        .reverse()
+        .find((one) => !one.restored && one.card?.board === room && one.card.id === intent.id && one.checkout)
+      const cwd = holder ?? last?.checkout?.cwd ?? null
+      if (!cwd || !this.observer.take(room, intent.id)) continue
+      const seat = holder && intent.claim ? (this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null) : null
+      looks.push({ room, card: intent.id, project, cwd, seat })
+    }
+    if (looks.length === 0) return
+    void (async () => {
+      let recorded = false
+      for (const look of looks) {
+        try {
+          recorded = (await this.observer.observe(look)) || recorded
+        } catch (error) {
+          this.#port.log('a card could not be looked at', {
+            room,
+            card: look.card,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      if (recorded) this.announce(room)
+    })()
   }
 
   /**

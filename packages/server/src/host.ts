@@ -84,6 +84,7 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import type { GhInCheckout } from './evidence/forge.js'
 import { flowSeatInput } from './evidence/seats.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
@@ -258,6 +259,8 @@ export const builtinAgentRoot = (): string =>
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
+  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
+  readonly evidence?: { readonly gh?: GhInCheckout }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -588,6 +591,7 @@ export class Host {
       {
         dir: join(this.#state.directory, 'evidence'),
         seenFile: join(this.#state.directory, SEEN_FILE),
+        ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
         cipher: options.credentialCipher ?? plainCipher,
       },
       {
@@ -650,6 +654,7 @@ export class Host {
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
+      settled: (room, intent) => this.#evidence.settled(room, intent),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
