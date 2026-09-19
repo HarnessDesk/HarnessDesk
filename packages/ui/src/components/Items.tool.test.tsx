@@ -85,8 +85,19 @@ const outputs = (): string[] => [
   ...container.querySelectorAll('[data-slot="code-block-body"]'),
 ].map((el) => el.textContent ?? '')
 const json = (): string[] => byClass('json').map((el) => el.textContent ?? '')
+const diffText = (): string[] =>
+  [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
 
 describe('an opened tool step', () => {
+  it('draws a two-line Write with one marker, not a second + in the file text', () => {
+    render(call({
+      tool: 'Write /w/src/new.ts',
+      args: { file_path: '/w/src/new.ts', content: 'export const one = 1\nexport const two = 2' },
+    }))
+
+    expect(diffText()).toEqual(['export const one = 1', 'export const two = 2'])
+  })
+
   it('draws a successful file edit as its diff, without raw arguments or the model-facing reply', () => {
     const item = call({
       tool: 'Edit',
@@ -105,6 +116,27 @@ describe('an opened tool step', () => {
     expect(container.textContent).toContain('const newName = true')
     expect(container.textContent).not.toContain('replace_all')
     expect(container.textContent).not.toContain('updated successfully')
+    expect(diffText()).toEqual(['const oldName = true', 'const newName = true'])
+  })
+
+  it('draws every replacement in a MultiEdit without leaking diff markers into its text', () => {
+    render(call({
+      tool: 'MultiEdit /w/src/app.ts',
+      args: {
+        file_path: '/w/src/app.ts',
+        edits: [
+          { old_string: 'const one = 1', new_string: 'const one = 2' },
+          { old_string: 'const two = 2', new_string: 'const two = 3' },
+        ],
+      },
+    }))
+
+    expect(diffText()).toEqual([
+      'const one = 1',
+      'const one = 2',
+      'const two = 2',
+      'const two = 3',
+    ])
   })
 
   it('keeps a failed file edit error instead of replacing it with a diff', () => {

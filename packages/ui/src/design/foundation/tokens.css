@@ -674,6 +674,11 @@ body {
   --hd-code-text: var(--hd-text-xs);
   --hd-code-line: var(--hd-line-sm);
   --hd-code-max-height: 380px;
+  /* Diff rows sit inside the darker code fill. Resolve their state washes
+     against the page as opaque colours so a gutter does not composite the
+     same alpha twice, and each state's ink keeps its AA pairing. */
+  --hd-code-add-fill: color-mix(in srgb, var(--hd-success) 12%, var(--hd-background));
+  --hd-code-remove-fill: color-mix(in srgb, var(--hd-danger) 12%, var(--hd-background));
 
   /* The button, re-measured in 2026-09 and moved on four counts. Each is one
      line here and reaches both spellings of the

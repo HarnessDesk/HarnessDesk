@@ -279,6 +279,13 @@
   padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3) var(--hd-space-6);
 }
 
+/* A code plate is already the opened step's document. The disclosure body
+   contributes only the icon-column inset; drawing a second surface around it
+   makes one record look like a card nested inside another card. */
+.rowBodyBare {
+  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6);
+}
+
 .json {
   margin: 0;
   padding: var(--hd-space-2-5) var(--hd-space-3);

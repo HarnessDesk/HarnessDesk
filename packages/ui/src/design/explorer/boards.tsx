@@ -1,7 +1,10 @@
 import { useState, type JSX } from 'react'
 
+import type { AgentItem } from '@harnessdesk/protocol'
+
 import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
+import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
 import { StoreProvider } from '../../state/context'
 import { emptySnapshot, type AppStore } from '../../state/store'
@@ -449,6 +452,19 @@ const CATALOGUE_DIFF = [
   ' render(label)',
 ].join('\n')
 
+const CATALOGUE_INLINE_EDIT = {
+  id: 'catalogue-inline-edit',
+  type: 'toolCall',
+  tool: 'Edit src/existing.ts',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: {
+    file_path: '/workspace/src/existing.ts',
+    old_string: 'const label = "Before"',
+    new_string: 'const label = "After"',
+  },
+} as AgentItem
+
 const CodeBoard = () => (
   <div className={styles.stack}>
     <Case label="command, output, and failure">
@@ -473,6 +489,13 @@ const CodeBoard = () => (
     <Case label="two hunks, including a new file">
       <div className="w-full" data-testid="diff-sample">
         <DiffView diff={CATALOGUE_DIFF} />
+      </div>
+    </Case>
+    <Case label="the same plate in an opened step">
+      <div className="w-full" data-testid="inline-diff-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_INLINE_EDIT} root="/workspace" />
+        </StoreProvider>
       </div>
     </Case>
     <p className={styles.rule}>

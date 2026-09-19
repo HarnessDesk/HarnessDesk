@@ -58,21 +58,19 @@
 }
 
 .add {
-  color: var(--hd-success-ink);
-  background: var(--hd-success-dim); /* desk: a colour mix → the AA-paired state tint */
+  background: var(--hd-code-add-fill); /* desk: a transparent green wash → the opaque AA-paired code tint */
 }
 .add .gutter {
   color: var(--hd-success-ink);
-  background: var(--hd-success-dim); /* desk: a stronger colour mix → the AA-paired state tint */
+  background: var(--hd-code-add-fill); /* desk: a stronger transparent wash → the same opaque tint, never composited twice */
 }
 
 .remove {
-  color: var(--hd-danger-ink);
-  background: var(--hd-danger-dim); /* desk: a colour mix → the AA-paired state tint */
+  background: var(--hd-code-remove-fill); /* desk: a transparent red wash → the opaque AA-paired code tint */
 }
 .remove .gutter {
   color: var(--hd-danger-ink);
-  background: var(--hd-danger-dim); /* desk: a stronger colour mix → the AA-paired state tint */
+  background: var(--hd-code-remove-fill); /* desk: a stronger transparent wash → the same opaque tint, never composited twice */
 }
 
 .hunk {

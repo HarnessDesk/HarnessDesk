@@ -209,6 +209,7 @@ const Row = ({
   meta,
   status,
   defaultOpen = false,
+  bareBody = false,
   children,
 }: {
   icon: ReactNode
@@ -217,6 +218,8 @@ const Row = ({
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
+  /** The child draws its own plate, so the disclosure body supplies alignment only. */
+  bareBody?: boolean
   children?: ReactNode
 }) => {
   const [open, setOpen] = useState(defaultOpen)
@@ -245,7 +248,9 @@ const Row = ({
           />
         )}
       </Button>
-      {collapsible && open && <div className={styles.rowBody}>{children}</div>}
+      {collapsible && open && (
+        <div className={bareBody ? styles.rowBodyBare : styles.rowBody}>{children}</div>
+      )}
     </div>
   )
 }
@@ -677,6 +682,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
       }
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
+      bareBody
     >
       <CodeBlock
         command={shellCommandOf(item.command)}
@@ -722,11 +728,10 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
       }
       status={item.status}
       defaultOpen={item.changes.length === 1}
+      bareBody
     >
       {only ? (
-        <div className={styles.fileBody}>
-          <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
-        </div>
+        <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
       ) : (
         <div className={styles.fileList}>
           {item.changes.map((change) => (
@@ -973,14 +978,13 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       }
       status={item.status}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
+      bareBody={Boolean(change) || Boolean(command)}
     >
       {wire && <div className={styles.wireName}>{wire}</div>}
       {item.error ? (
         <CodeBlock output={stripAnsi(item.error)} />
       ) : change ? (
-        <div className={styles.fileBody}>
-          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
-        </div>
+        <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
       ) : (
         <>
           {/* A shell call opens onto the command it ran, the way a command
