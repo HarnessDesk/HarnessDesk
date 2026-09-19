@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 
 type CardProps<T extends React.ElementType = 'div'> = {
   as?: T
-  variant?: 'default' | 'muted'
+  variant?: 'default' | 'muted' | 'flush'
 } & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant'>
 
 const Card = <T extends React.ElementType = 'div'>({
@@ -24,6 +24,7 @@ const Card = <T extends React.ElementType = 'div'>({
       className={cn(
         'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
         variant === 'muted' && 'border-dashed bg-(--hd-muted)',
+        variant === 'flush' && 'gap-0 overflow-hidden py-0',
         className,
       )}
       {...props}

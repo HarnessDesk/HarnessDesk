@@ -124,6 +124,31 @@ test('settings rows contain their labels, descriptions and marks', async ({ page
   }
 })
 
+test('a long tinted identity keeps its icon, edge and ellipsis inside the chip', async ({ page }) => {
+  await page.goto('/design.html?view=state')
+  const chip = page.locator('[data-tint="blue"][title="feat/promo-stacking-for-the-seasonal-storefront"]')
+  await expect(chip).toBeVisible()
+  const box = await chip.evaluate(node => {
+    const chipBox = node.getBoundingClientRect()
+    const iconBox = node.querySelector('svg')!.getBoundingClientRect()
+    const label = node.querySelector<HTMLElement>('[data-slot="chip-words"] > span')!
+    const labelBox = label.getBoundingClientRect()
+    return {
+      width: chipBox.width,
+      iconGap: labelBox.left - iconBox.right,
+      labelRight: labelBox.right,
+      chipRight: chipBox.right,
+      truncated: label.scrollWidth > label.clientWidth,
+      edge: getComputedStyle(node).boxShadow,
+    }
+  })
+  expect(box.width).toBeLessThanOrEqual(190)
+  expect(box.iconGap).toBeGreaterThanOrEqual(4)
+  expect(box.labelRight).toBeLessThan(box.chipRight)
+  expect(box.truncated).toBe(true)
+  expect(box.edge).not.toBe('none')
+})
+
 /**
  * Selection is a fill, never weight (U014), for every role that can be chosen.
  *

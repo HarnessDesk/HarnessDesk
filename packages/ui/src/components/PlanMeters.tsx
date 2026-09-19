@@ -1,4 +1,4 @@
-import { Button, Chip, Progress, Separator, Text, buttonVariants, type Tone } from '../design'
+import { Button, Chip, Progress, Separator, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -129,7 +129,6 @@ const Meter = ({
     title={view.title}
     drop="down"
     align="right"
-    triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
     label={
       <span
         data-slot="plan-meter"
@@ -242,10 +241,10 @@ const Rest = ({
     title={rest.title}
     drop="down"
     align="right"
-    triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
+    tone={rest.tone === 'bad' ? 'alert' : rest.tone === 'warn' ? 'warn' : 'calm'}
     label={
       <span data-slot="plan-meter" className={styles.rest} data-tone={toneOf(rest.tone)} aria-label={rest.title}>
-        <RosterIcon size={13} />
+        <Text role="meta" tone={toneOf(rest.tone)}><RosterIcon size={13} /></Text>
         <Text role="meta" tone={toneOf(rest.tone)} numeric className={styles.figure}>{rest.figure}</Text>
       </span>
     }

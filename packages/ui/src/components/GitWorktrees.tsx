@@ -10,12 +10,19 @@ import type {
 import { useStore } from '../state/context'
 import {
   ActionError,
+  Alert,
   Button,
+  Card,
+  CardContent,
+  Chip,
+  CodeText,
   Dialog,
   Field,
   Input,
   NativeSelect,
+  Note,
   Switch,
+  Text,
 } from '../design'
 import {
   BranchIcon,
@@ -219,13 +226,13 @@ export const WorktreeDialog = ({
       }
     >
       <div className={styles.body}>
-        <p className={styles.lede}>
+        <Note>
           Every folder this repository is checked out in. Each worktree has its own branch and its own working
           tree, so an agent can work in one without touching what another has open.
-        </p>
+        </Note>
 
         {worktrees === null ? (
-          <div className={styles.quiet}>Reading the repository…</div>
+          <Note>Reading the repository…</Note>
         ) : (
           <div className={styles.list}>
             {worktrees.map((entry) => (
@@ -319,55 +326,50 @@ const WorktreeRow = ({
   const name = entry.branch ?? (entry.head ? `detached at ${shortSha(entry.head)}` : 'no commits yet')
 
   return (
-    <div
+    <Card
+      as="article"
+      variant={gone ? 'muted' : undefined}
       className={styles.row}
       {...(entry.isCurrent ? { 'data-here': '' } : {})}
       {...(gone ? { 'data-gone': '' } : {})}
     >
+      <CardContent className={styles.rowContent}>
       <div className={styles.rowHead}>
-        <span className={styles.rowIcon}>
+        <Text role="meta" className={styles.rowIcon}>
           {entry.branch ? <BranchIcon size={14} /> : <CommitIcon size={14} />}
-        </span>
-        <span className={styles.rowName}>{name}</span>
+        </Text>
+        <Text role="row" truncate>{gone ? <s>{name}</s> : name}</Text>
         {entry.isCurrent && (
-          <span className={styles.chip} data-kind="here">
-            here
-          </span>
+          <Chip tone="brand" emphasis>here</Chip>
         )}
         {entry.isMain && (
-          <span className={styles.chip} data-kind="main">
-            main checkout
-          </span>
+          <Chip tint="blue">main checkout</Chip>
         )}
         {entry.managed && (
-          <span className={styles.chip} data-kind="managed" title="HarnessDesk cut this one for a session.">
+          <Chip tint="violet" title="HarnessDesk cut this one for a session.">
             session
-          </span>
+          </Chip>
         )}
         {entry.locked && (
-          <span
-            className={styles.chip}
-            data-kind="locked"
-            title={entry.locked.reason || 'Locked against pruning.'}
-          >
+          <Chip tint="amber" title={entry.locked.reason || 'Locked against pruning.'}>
             <LockIcon size={10} />
             locked
-          </span>
+          </Chip>
         )}
         {gone && (
-          <span className={styles.chip} data-kind="gone" title={entry.prunable?.reason}>
+          <Chip tone="danger" title={entry.prunable?.reason}>
             folder is gone
-          </span>
+          </Chip>
         )}
         {dirty > 0 && (
-          <span className={styles.chip} data-kind="dirty">
+          <Chip tone="neutral">
             {dirty} uncommitted
-          </span>
+          </Chip>
         )}
       </div>
-      <div className={styles.rowPath} title={entry.path}>
-        {ltr(entry.path)}
-      </div>
+      <Text role="meta" className={styles.rowPath} title={entry.path}>
+        <CodeText>{gone ? <s>{ltr(entry.path)}</s> : ltr(entry.path)}</CodeText>
+      </Text>
 
       {ask === null ? (
         <div className={styles.verbs}>
@@ -416,11 +418,11 @@ const WorktreeRow = ({
               </Button>
             </>
           )}
-          {busy && <span className={styles.working}>Working…</span>}
+          {busy && <Text role="meta">Working…</Text>}
         </div>
       ) : ask.kind === 'remove' ? (
-        <div className={styles.ask} data-tone="destructive">
-          <span className={styles.askWhat}>
+        <Alert tone="danger" className={styles.ask}>
+          <Text role="muted" className={styles.askWhat}>
             {ask.failed ? (
               ask.failed
             ) : ask.held === null ? (
@@ -434,14 +436,16 @@ const WorktreeRow = ({
                     : `${lost(ask.held)} would be deleted.`}
                 {entry.branch ? ` The branch ${entry.branch} is kept either way.` : ''}
                 {ask.held.ignoredCount > 0 && (
-                  <span className={styles.askList} title={ask.held.ignored.join('\n')}>
+                  <Text as="span" role="meta" tone="danger" className={styles.dangerCode} title={ask.held.ignored.join('\n')}>
+                    <CodeText>
                     {ask.held.ignored.slice(0, 4).join(', ')}
                     {ask.held.ignoredCount > 4 ? `, and ${ask.held.ignoredCount - 4} more` : ''}
-                  </span>
+                    </CodeText>
+                  </Text>
                 )}
               </>
             )}
-          </span>
+          </Text>
           <span className={styles.askDo}>
             <Button
               size="sm"
@@ -459,9 +463,9 @@ const WorktreeRow = ({
               Cancel
             </Button>
           </span>
-        </div>
+        </Alert>
       ) : ask.kind === 'move' ? (
-        <div className={styles.ask}>
+        <Alert className={styles.ask}>
           <Input
             value={ask.to}
             placeholder={`Where it goes — beside the repository, e.g. ${folderOf(entry.path)}-2`}
@@ -485,9 +489,9 @@ const WorktreeRow = ({
               Cancel
             </Button>
           </span>
-        </div>
+        </Alert>
       ) : (
-        <div className={styles.ask}>
+        <Alert className={styles.ask}>
           <Input
             value={ask.reason}
             placeholder="Why it is pinned — optional, and git remembers it"
@@ -506,9 +510,10 @@ const WorktreeRow = ({
               Cancel
             </Button>
           </span>
-        </div>
+        </Alert>
       )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -639,8 +644,8 @@ export const AddWorktreeDialog = ({
               {...(kind === value ? { 'data-on': '' } : {})}
               onClick={() => setKind(value)}
             >
-              <span className={styles.modeName}>{label}</span>
-              <span className={styles.modeWhat}>{what}</span>
+              <Text role="row">{label}</Text>
+              <Text role="muted">{what}</Text>
             </Button>
           ))}
         </div>
@@ -648,7 +653,7 @@ export const AddWorktreeDialog = ({
         {kind === 'new' && (
           <>
             <label className={styles.field}>
-              <span className={styles.label}>Branch</span>
+              <Text role="row" className={styles.label}>Branch</Text>
               <Input
                 value={branch}
                 placeholder="feature/the-thing"
@@ -661,7 +666,7 @@ export const AddWorktreeDialog = ({
               />
             </label>
             <label className={styles.field}>
-              <span className={styles.label}>From</span>
+              <Text role="row" className={styles.label}>From</Text>
               <NativeSelect
                 variant="filled" controlSize="compact"
                 value={base}
@@ -711,7 +716,7 @@ export const AddWorktreeDialog = ({
 
         {kind === 'detach' && (
           <label className={styles.field}>
-            <span className={styles.label}>Commit</span>
+            <Text role="row" className={styles.label}>Commit</Text>
             <Input
               value={at}
               placeholder="A commit id, a tag, or a branch to read from"
@@ -726,7 +731,7 @@ export const AddWorktreeDialog = ({
         )}
 
         <label className={styles.field}>
-          <span className={styles.label}>Folder</span>
+          <Text role="row" className={styles.label}>Folder</Text>
           <Input
             value={ownFolder ? folder : folder || slug(named)}
             placeholder="A name, beside the repository"
@@ -740,14 +745,14 @@ export const AddWorktreeDialog = ({
             }}
           />
         </label>
-        <span className={styles.note}>
+        <Note>
           A worktree is made beside the repository: a plain name lands next to it, in a folder of its own so
           neither checkout shows up in the other’s status.
-        </span>
+        </Note>
 
         <div className={styles.switchRow}>
           <Switch checked={andOpen} onCheckedChange={setAndOpen} aria-label="Open it as the workspace once it is made" />
-          <span>Open it here once it is made.</span>
+          <Text role="muted">Open it here once it is made.</Text>
         </div>
 
         {error && (

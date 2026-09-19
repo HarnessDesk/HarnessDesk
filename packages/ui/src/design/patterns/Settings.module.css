@@ -55,6 +55,62 @@
   white-space: nowrap;
 }
 
+/* Identity and current-item chips are names rather than sentences. Their
+   icon, words and edge travel as one bounded object, so a long name shortens
+   before it can erase the subject beside it. */
+.chip[data-tint],
+.chip[data-tone='brand'][data-emphasis] {
+  max-width: 190px;
+}
+
+.chipWords {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chipWords > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip[data-tint='blue'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-blue-edge);
+}
+
+.chip[data-tint='green'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-green-edge);
+}
+
+.chip[data-tint='amber'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-amber-edge);
+}
+
+.chip[data-tint='violet'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-violet-edge);
+}
+
+.chip[data-tint='rose'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-rose-edge);
+}
+
+.chip[data-tint='teal'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-teal-edge);
+}
+
+.chip[data-tint='orange'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-orange-edge);
+}
+
+.chip[data-tint='sky'] {
+  box-shadow: inset 0 0 0 1px var(--hd-tint-sky-edge);
+}
+
 .chip[data-state]:not([data-tone]) {
   background: var(--hd-chip-fill);
   color: var(--hd-secondary-foreground);
@@ -78,6 +134,13 @@
 .chip[data-state='broken']:not([data-tone]) {
   background: var(--hd-danger-dim);
   color: var(--hd-danger-ink); /* desk: the fill colour → its readable ink */
+}
+
+/* The emphatic brand chip marks the one current item in a set. Its meaning
+   still comes from the words; the stronger fill makes that item scannable. */
+.chip[data-tone='brand'][data-emphasis] {
+  background: var(--hd-accent);
+  color: var(--hd-accent-foreground);
 }
 
 /* Inside a chip the dot borrows the chip's own ink, so the two never disagree

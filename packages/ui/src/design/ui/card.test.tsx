@@ -27,3 +27,12 @@ it('draws an unavailable card as a quiet dashed surface', () => {
   expect(card?.className).toContain('border-dashed')
   expect(card?.className).toContain('bg-(--hd-muted)')
 })
+
+it('draws a flush card for content that owns its internal rhythm', () => {
+  act(() => root.render(<Card variant="flush">Diff contents</Card>))
+  const card = container.firstElementChild as HTMLElement | null
+  expect(card?.dataset['variant']).toBe('flush')
+  expect(card?.className).toContain('gap-0')
+  expect(card?.className).toContain('py-0')
+  expect(card?.className).toContain('overflow-hidden')
+})

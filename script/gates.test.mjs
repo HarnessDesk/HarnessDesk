@@ -17,6 +17,7 @@ import {
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
+  visualKindUnionsOf,
 } from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
 import { brandsIn } from './brands.mjs'
@@ -632,6 +633,25 @@ test('screen appearance excludes the design system and its named specialized ren
     fs.writeFileSync(file, source)
     assert.deepEqual(screenAppearanceOf(file, fs.readFileSync(file, 'utf8')), [], file)
   }
+})
+
+test('a visual kind prop cannot hide a component catalogue in one string union', () => {
+  assert.deepEqual(
+    visualKindUnionsOf(`
+      type PartKind =
+        | 'surface' | 'toolbar' | 'quiet' | 'meta' | 'path'
+        | 'card' | 'row' | 'label' | 'warning'
+      type PartProps = { kind: PartKind; children?: unknown }
+    `),
+    [{ prop: 'kind', type: 'PartKind', count: 9 }],
+  )
+  assert.deepEqual(
+    visualKindUnionsOf(`
+      type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+      type AlertProps = { tone: Tone }
+    `),
+    [],
+  )
 })
 
 

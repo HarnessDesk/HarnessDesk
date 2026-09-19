@@ -191,6 +191,21 @@ it('says in the token whether anything else is in the way, without being opened'
   )
 })
 
+it('lets meter triggers fit their contents and gives the roster icon its warning tone', () => {
+  mount({
+    runtimes: six,
+    usage: [at('a', 78), spent('b', HOUR)],
+    ...conversationWith('a'),
+  })
+  const meter = bars().find((bar) => bar.textContent === '78%')!
+  const roster = bars().find((bar) => bar.textContent === '1 out')!
+  const meterTrigger = meter.closest('button')!
+  const rosterTrigger = roster.closest('button')!
+  expect(meterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
+  expect(rosterTrigger.className).not.toContain('size-(--hd-btn-h-sm)')
+  expect(rosterTrigger.dataset['tone']).toBe('alert')
+})
+
 it('gives an out-of-quota agent a chip, because the token cannot say who', () => {
   mount({ runtimes: six, usage: [at('a', 70), spent('b', 2 * HOUR)], ...conversationWith('a') })
   expect(bars().map((bar) => bar.textContent)).toEqual(['70%', '2h', '1 out'])

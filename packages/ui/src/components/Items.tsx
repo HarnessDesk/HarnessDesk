@@ -30,7 +30,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { ActionError, Button, CodeBlock, CopyButton, Lightbox, type LightboxImage } from '../design'
+import { ActionError, Button, ChangeStats, CodeBlock, CopyButton, Lightbox, type LightboxImage } from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
@@ -721,10 +721,7 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
       })}
       hoverTitle={only ? relativeTo(only.path, root) : undefined}
       meta={
-        <>
-          <span className={styles.statAdd}>+{totals.added}</span>
-          <span className={styles.statRemove}>−{totals.removed}</span>
-        </>
+        <ChangeStats added={totals.added} removed={totals.removed} />
       }
       status={item.status}
       defaultOpen={item.changes.length === 1}
@@ -767,8 +764,7 @@ const FileEntry = ({
         <span className={styles.filePath} title={change.path}>
           {relativeTo(change.path, root)}
         </span>
-        <span className={`${styles.stat} ${styles.statAdd}`}>+{added}</span>
-        <span className={`${styles.stat} ${styles.statRemove}`}>−{counts.removed}</span>
+        <ChangeStats added={added} removed={counts.removed} />
       </Button>
       {open && (
         <div className={styles.fileBody}>
@@ -968,10 +964,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       hoverTitle={relativePath ?? undefined}
       meta={
         counts ? (
-          <>
-            <span className={styles.statAdd}>+{counts.added}</span>
-            <span className={styles.statRemove}>−{counts.removed}</span>
-          </>
+          <ChangeStats added={counts.added} removed={counts.removed} />
         ) : (
           formatDuration(item.durationMs)
         )

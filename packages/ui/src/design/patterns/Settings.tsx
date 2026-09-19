@@ -8,7 +8,7 @@ import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { inkTone, softTone, type Tone } from '../ui/tone'
+import { inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import styles from './Settings.module.css'
 
 /**
@@ -35,11 +35,13 @@ type ChipBaseProps = {
   stale?: boolean
   unknown?: boolean
   children?: ReactNode
+  title?: string
 }
 
 export type ChipProps = ChipBaseProps & (
-  | { state: Readiness; tone?: never }
-  | { state?: never; tone: Tone }
+  | { state: Readiness; tone?: never; tint?: never; emphasis?: never }
+  | { state?: never; tone: Tone; tint?: never; emphasis?: boolean }
+  | { state?: never; tone?: never; tint: Tint; emphasis?: never }
 )
 
 const READINESS_TONE: Record<Readiness, Tone> = {
@@ -52,24 +54,29 @@ const READINESS_TONE: Record<Readiness, Tone> = {
 
 /**
  * A compact state, said out loud. Readiness keeps its dot and default word;
- * every other fact takes a semantic `tone` and words from `children` or
- * `label`. Stale and unknown facts keep those meanings distinct in both ink
- * and their accessible names.
+ * a judged fact takes a semantic `tone`, while an identity takes a `tint`.
+ * The emphatic brand tone marks the current fact in a set. Stale and unknown
+ * facts keep those meanings distinct in both ink and their accessible names.
  */
 export const Chip = (props: ChipProps) => {
-  const { label, className, stale = false, unknown = false, children } = props
+  const { label, className, stale = false, unknown = false, children, title } = props
   const state = props.state
+  const tint = props.tint
+  const emphasis = props.emphasis
   const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
   const tone = unknown || (stale && requestedTone === 'success') ? 'neutral' : requestedTone
   const words = children ?? label ?? (unknown ? 'Unknown' : state ? READINESS_LABEL[state] : null)
 
   return (
     <span
-      className={cx(styles.chip, tone && softTone({ tone }), className)}
+      className={cx(styles.chip, tone && softTone({ tone }), tint && softTint({ tint }), className)}
       {...(state ? { 'data-state': state } : {})}
       {...(tone ? { 'data-tone': tone } : {})}
+      {...(tint ? { 'data-tint': tint } : {})}
+      {...(emphasis ? { 'data-emphasis': '' } : {})}
       {...(stale ? { 'data-stale': '' } : {})}
       {...(unknown ? { 'data-unknown': '' } : {})}
+      {...(title ? { title } : {})}
     >
       {state && <Dot state={state} />}
       <span className={styles.chipWords} data-slot="chip-words">{words}</span>
@@ -400,14 +407,15 @@ export const Row = ({
   desc,
   control,
   className,
+  ...props
 }: {
   mark?: ReactNode
   title: ReactNode
   desc?: ReactNode
   control?: ReactNode
   className?: string
-}) => (
-  <div className={cx(styles.row, className)}>
+} & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
+  <div className={cx(styles.row, className)} {...props}>
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>

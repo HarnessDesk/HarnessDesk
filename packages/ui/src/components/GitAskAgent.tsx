@@ -3,7 +3,18 @@ import { useMemo, useState } from 'react'
 import type { RuntimeId, UserContent } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { ActionError, Button, Dialog, Textarea } from '../design'
+import {
+  ActionError,
+  Alert,
+  AlertContent,
+  AlertDescription,
+  Button,
+  Dialog,
+  Field,
+  Note,
+  Text,
+  Textarea,
+} from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon, CheckIcon } from './Icons'
 import { troubleHeadline, troublePrompt, type GitTrouble } from '../lib/git-trouble'
@@ -89,7 +100,7 @@ export const AskAgentDialog = ({
       }
     >
       <div className={styles.body}>
-        <p className={styles.headline}>{troubleHeadline(trouble)}</p>
+        <Text as="p" role="subject">{troubleHeadline(trouble)}</Text>
 
         {runtimes.length === 0 ? (
           <ActionError>
@@ -108,33 +119,35 @@ export const AskAgentDialog = ({
                 onClick={() => setRuntime(entry.id)}
               >
                 <RuntimeMark runtime={entry} size={16} />
-                <span className={styles.agentName}>{entry.presentation.name}</span>
+                <Text role="row">{entry.presentation.name}</Text>
                 {runtime === entry.id && (
-                  <span className={styles.agentTick}>
+                  <Text tone="brand">
                     <CheckIcon size={12} />
-                  </span>
+                  </Text>
                 )}
               </Button>
             ))}
           </div>
         )}
 
-        <label className={styles.field}>
-          <span className={styles.label}>What it will be asked — yours to edit</span>
-          <Textarea
-            variant="editor" controlSize="compact" className={styles.prompt}
-            value={prompt}
-            rows={12}
-            spellCheck={false}
-            aria-label="The prompt the agent is sent"
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-        </label>
+        <Field label="What it will be asked — yours to edit">
+          {(control) => (
+            <Textarea
+              {...control}
+              variant="editor" controlSize="compact" className={styles.prompt}
+              value={prompt}
+              rows={12}
+              spellCheck={false}
+              aria-label="The prompt the agent is sent"
+              onChange={(event) => setPrompt(event.target.value)}
+            />
+          )}
+        </Field>
 
-        <span className={styles.note}>
+        <Note>
           A new conversation starts in {folder}, and this is its first message. Nothing is sent to the
           conversation you are in now.
-        </span>
+        </Note>
       </div>
     </Dialog>
   )
@@ -156,13 +169,15 @@ export const TroubleNote = ({
   trouble: GitTrouble | null
   onAsk: (trouble: GitTrouble) => void
 }) => (
-  <div className={styles.trouble}>
-    <span className={styles.troubleWhat}>{message}</span>
+  <Alert tone="danger" role="alert" className={styles.trouble}>
+    <AlertContent className={styles.troubleWhat}>
+      <AlertDescription>{message}</AlertDescription>
+    </AlertContent>
     {trouble && (
       <Button variant="secondary" size="sm" className={styles.troubleDo} onClick={() => onAsk(trouble)}>
         <AgentIcon size={13} />
         Ask an agent to fix this
       </Button>
     )}
-  </div>
+  </Alert>
 )

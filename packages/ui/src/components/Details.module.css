@@ -2,12 +2,11 @@
    row, and the two things you can do with the file it belongs to. Everything
    else about the panel is in Panel.module.css, which every tab shares. */
 
-.inline {
-  padding: 4px 0 8px;
-}
-
 .fileActions {
   display: flex;
   gap: 4px;
-  padding: 0 8px 6px;
+}
+
+.inlineDiff {
+  padding: var(--hd-space-1) 0 var(--hd-space-2); /* desk: 0 8px 6px → 4px 0 8px, the shared diff owns its horizontal inset */
 }

@@ -390,7 +390,7 @@ const Changes = ({
                   tooltip={file.path}
                   trail={<Counts added={count.added} removed={count.removed} />}
                 />
-                <div className={styles.inline}>
+                <div className={styles.inlineDiff}>
                   <DiffView diff={file.diff} />
                 </div>
               </div>
@@ -431,7 +431,7 @@ const Changes = ({
                 {...(count ? { trail: <Counts added={count.added} removed={count.removed} /> } : {})}
               />
               {selected === file.path && (
-                <div className={styles.inline}>
+                <div className={styles.inlineDiff}>
                   <div className={styles.fileActions}>
                     <Button
                       type="button"

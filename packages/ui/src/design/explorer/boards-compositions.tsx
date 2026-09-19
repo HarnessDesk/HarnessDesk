@@ -1007,6 +1007,12 @@ const AdoptedBoard = () => {
               <CardDescription>The object remains present without claiming a figure.</CardDescription>
             </CardHeader>
           </Card>
+          <Card variant="flush" className="w-full">
+            <CardHeader>
+              <CardTitle>Content-owned rhythm</CardTitle>
+              <CardDescription>A flush card lets a table or diff reach its edge.</CardDescription>
+            </CardHeader>
+          </Card>
         </Case>
 
         <Case label="select &mdash; open with pointer or keyboard">

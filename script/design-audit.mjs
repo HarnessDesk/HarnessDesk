@@ -1731,6 +1731,35 @@ const findings = {
   patternClass: [],
   screenAppearance: [],
   screenUnclassified: [],
+  visualKindUnion: [],
+}
+
+/**
+ * A `kind` prop large enough to be a component catalogue rather than one
+ * component's variants. The prop may name a string-literal alias so the rule
+ * follows the public API instead of depending on whether its author wrote the
+ * union inline. Domain unions such as a notice's stored kind are outside the
+ * design directory and are not scanned by the caller below.
+ */
+export const visualKindUnionsOf = (source) => {
+  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+  const aliases = new Map()
+  for (const match of code.matchAll(/\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(\|?\s*['"][^'"]+['"](?:\s*\|\s*['"][^'"]+['"])+)/g)) {
+    aliases.set(match[1], [...match[2].matchAll(/['"]([^'"]+)['"]/g)].map((item) => item[1]))
+  }
+  const found = []
+  for (const match of code.matchAll(/\bkind\??\s*:\s*([A-Za-z_$][\w$]*)/g)) {
+    const values = aliases.get(match[1])
+    if (values && values.length > 8) found.push({ prop: 'kind', type: match[1], count: values.length })
+  }
+  return found
+}
+
+/** The screen families the audit currently knows cross file boundaries. */
+const screenAreaOf = (file) => {
+  const relative = path.relative(UI_SRC, file).split(path.sep).join('/')
+  if (/^components\/(?:Git|Branch|Changes|Details(?:\.|$)|NewWorktree)/.test(relative)) return 'git'
+  return null
 }
 
 /**
@@ -2248,6 +2277,74 @@ for (const file of tsxFiles()) {
     for (const match of codeOf(file).matchAll(ARBITRARY)) {
       findings.arbitraryUtility.push(`${label(file)}: ${match[0]}`)
     }
+    for (const union of visualKindUnionsOf(codeOf(file))) {
+      findings.visualKindUnion.push(
+        `${label(file)}: ${union.prop}: ${union.type} has ${union.count} visual kinds (maximum 8)`,
+      )
+    }
+  }
+}
+
+/** Named values re-exported by the public design entrypoint, by their module. */
+const publicDesignExports = () => {
+  const entry = path.join(UI_SRC, 'design', 'index.ts')
+  const byName = new Map()
+  const source = codeOf(entry)
+  for (const match of source.matchAll(/\bexport\s*\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    const module = path.resolve(path.dirname(entry), `${match[2]}.tsx`)
+    for (const part of match[1].split(',')) {
+      const words = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)
+      const publicName = words.at(-1)?.trim()
+      if (publicName) byName.set(publicName, module)
+    }
+  }
+  return byName
+}
+
+/** Named imports from the public design entrypoint in one screen source. */
+const publicDesignImports = (file) => {
+  const names = []
+  for (const match of codeOf(file).matchAll(/\bimport\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/g)) {
+    const spec = match[2]
+    const resolved = spec.startsWith('@/')
+      ? path.join(UI_SRC, spec.slice(2))
+      : path.resolve(path.dirname(file), spec)
+    if (resolved !== path.join(UI_SRC, 'design')) continue
+    for (const part of match[1].split(',')) {
+      const imported = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim()
+      if (imported) names.push(imported)
+    }
+  }
+  return names
+}
+
+/*
+ * A pattern consumed by one screen family is still screen code when it moves
+ * under `design/`. Count its stylesheet on the same appearance ledger as the
+ * family that owns it. This is a burn-down rather than a blanket refusal:
+ * layout may legitimately live with a typed cross-screen renderer, while its
+ * copied type, ink, ground and inner box remain an honest part of the screen
+ * appearance count.
+ */
+const exportedFrom = publicDesignExports()
+const consumersByModule = new Map()
+for (const file of tsxFiles().filter((candidate) => isScreenSheet(candidate))) {
+  for (const name of publicDesignImports(file)) {
+    const module = exportedFrom.get(name)
+    if (!module) continue
+    consumersByModule.set(module, [...(consumersByModule.get(module) ?? []), file])
+  }
+}
+for (const [module, consumers] of consumersByModule) {
+  const areas = new Set(consumers.map(screenAreaOf))
+  if (areas.size !== 1 || areas.has(null)) continue
+  const sheet = module.replace(/\.tsx$/, '.module.css')
+  if (!tracked.has(sheet)) continue
+  const area = [...areas][0]
+  for (const { property } of declarationsOf(read(sheet)).filter(
+    ({ property, value }) => screenPropertySideOf(property, value) === 'appearance',
+  )) {
+    findings.screenAppearance.push(`${label(sheet)} [${area} screen area]: ${property}`)
   }
 }
 
