@@ -262,3 +262,20 @@ it('shows a connected account once, with its credential home on a line of its ow
     .filter((text) => text === 'Add another account' || text === 'Sign out')
   expect(actions).toEqual(['Add another account', 'Sign out'])
 })
+
+it('composes the shared roster, state and text roles', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: status(
+        [{ kind: 'chatgpt', label: 'ada@example.com', email: 'ada@example.com', planType: 'team' }],
+        ['browser'],
+      ),
+      'codex-7f3a91': status([], ['browser']),
+    },
+  } as never)
+
+  expect(container.querySelector('[data-slot="state-strip"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
+  expect(detail().querySelector('[data-slot="status-summary"]')).not.toBeNull()
+  expect(detail().querySelector('[data-slot="text"][data-role="subject"]')).not.toBeNull()
+})

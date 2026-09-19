@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { BranchIcon, CheckIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -16,6 +16,18 @@ import {
   Banner,
   BannerAction,
   ActionError,
+  AccessCode,
+  AccessDetail,
+  AccessFact,
+  AccessHeader,
+  AccessRail,
+  AccessRailFooter,
+  AccessRailHeader,
+  AccessRailList,
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
   Button,
   Card,
   ChangeStats,
@@ -49,6 +61,7 @@ import {
   LibraryReachMark,
   MetaList,
   Monogram,
+  NavigationGroupHeader,
   Note,
   PublicationCard,
   RefusedAction,
@@ -56,6 +69,8 @@ import {
   Segmented,
   StatePill,
   Spinner,
+  StateStrip,
+  StatusSummary,
   Switch,
   SwitchShape,
   ToggleGroup,
@@ -224,6 +239,31 @@ const StateBoard = () => (
       </Case>
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
+      </Case>
+      <Case label="account-access status">
+        <div className="flex w-full flex-col gap-3">
+          <StateStrip states={['ready', 'signin', 'limit', 'broken']} />
+          <StatusSummary
+            tone="success"
+            icon={<CheckIcon size={16} />}
+            title="Account connected"
+            description="Ready to start a conversation."
+          />
+        </div>
+      </Case>
+      <Case label="account-access sheet anatomy">
+        <div className="grid w-full grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <AccessRail aria-label="Agents">
+            <AccessRailHeader>Your agents</AccessRailHeader>
+            <AccessRailList>Agent rows</AccessRailList>
+            <AccessRailFooter>Credentials stay local.</AccessRailFooter>
+          </AccessRail>
+          <AccessDetail>
+            <AccessHeader>Sign in</AccessHeader>
+            <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
+            <AccessCode>ABCD-EFGH</AccessCode>
+          </AccessDetail>
+        </div>
       </Case>
       <Case label="library reach">
         <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
@@ -430,6 +470,29 @@ const HeadBoard = () => (
   </>
 )
 
+const AppWindowBoard = () => (
+  <>
+    <div className="grid h-72 w-full grid-cols-[15.25rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
+      <AppWindowRail className="flex min-h-0 flex-col">
+        <AppWindowRailTop>
+          <Button variant="navigation" size="navigation" className="w-full">Back to app</Button>
+        </AppWindowRailTop>
+        <AppWindowRailScroll className="flex min-h-0 flex-1 flex-col">
+          <NavigationGroupHeader label="You" />
+          <Button variant="navigation" size="navigation" data-selected className="w-full">Appearance</Button>
+          <Button variant="navigation" size="navigation" className="w-full">Permissions</Button>
+        </AppWindowRailScroll>
+      </AppWindowRail>
+      <AppWindowPage className="overflow-hidden">
+        <PageHead title="Appearance" blurb="The full-window page uses the same reading measure and rail in every destination." />
+      </AppWindowPage>
+    </div>
+    <p className={styles.rule}>
+      A destination window is one surface: a navigation plate and a centred page plate. Base UI owns modality and focus; this pattern owns the visible chrome.
+    </p>
+  </>
+)
+
 const FaceBoard = () => (
   <>
     <div className={styles.stack}>
@@ -464,6 +527,14 @@ const BannerBoard = () => (
           <AlertContent>
             <AlertTitle>{tone}</AlertTitle>
             <AlertDescription>The canonical alert tone, rendered from the CVA contract.</AlertDescription>
+          </AlertContent>
+        </Alert>
+      ))}
+      {ALERT_CATALOG_VARIANTS.map((variant) => (
+        <Alert key={variant} tone="neutral" variant={variant} data-catalog-variant={variant}>
+          <AlertContent>
+            <AlertTitle>{variant} neutral</AlertTitle>
+            <AlertDescription>An ambient hand-off that belongs with the page.</AlertDescription>
           </AlertContent>
         </Alert>
       ))}
@@ -896,6 +967,12 @@ export const BOARDS: Board[] = [
     title: 'PageHead · DetailHead',
     about: 'Naming the screen you are on, and the thing you drilled into.',
     render: HeadBoard,
+  },
+  {
+    id: 'app-window',
+    title: 'AppWindow',
+    about: 'Full-window navigation and page chrome for places a person goes to read.',
+    render: AppWindowBoard,
   },
   {
     id: 'face',

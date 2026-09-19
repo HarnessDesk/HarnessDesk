@@ -10,6 +10,7 @@ import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
+import { IconTile } from '../ui/icon-tile'
 import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import styles from './Settings.module.css'
 
@@ -57,6 +58,164 @@ export const Spinner = ({ className, tone = 'neutral', size = 'default', ...prop
       'inline-block shrink-0 animate-spin rounded-full border border-(--hd-border-emphasis) motion-reduce:animate-none',
       SPINNER_TONE[tone],
       SPINNER_SIZE[size],
+      className,
+    )}
+    {...props}
+  />
+)
+
+const STATE_STRIP_FILL: Record<Readiness, string> = {
+  ready: 'bg-(--hd-success)',
+  signin: 'bg-(--hd-primary)',
+  limit: 'bg-(--hd-warning)',
+  broken: 'bg-(--hd-danger)',
+  available: 'bg-(--hd-border-emphasis)',
+}
+
+/** A compact whole-roster reading: one segment per agent, in readiness order. */
+export const StateStrip = ({ states, className }: { states: readonly Readiness[]; className?: string }) => {
+  const counts = new Map<Readiness, number>()
+  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1)
+  const named = ([
+    ['ready', 'ready'],
+    ['signin', 'needs sign-in'],
+    ['limit', 'at a limit'],
+    ['broken', 'unavailable'],
+    ['available', 'not added'],
+  ] as const)
+    .flatMap(([state, label]) => counts.has(state) ? [`${counts.get(state)} ${label}`] : [])
+    .join(', ')
+  return (
+    <span
+      data-slot="state-strip"
+      role="img"
+      aria-label={`${states.length} agents: ${named}`}
+      className={cx('flex gap-1', className)}
+    >
+      {states.map((state, index) => (
+        <span
+          key={`${state}:${index}`}
+          data-state={state}
+          aria-hidden="true"
+          className={cx('h-1 flex-1 rounded-(--hd-radius-2xs)', STATE_STRIP_FILL[state])}
+        />
+      ))}
+    </span>
+  )
+}
+
+/** One operation or account state: judged mark, title, and the reason beneath it. */
+export const StatusSummary = ({
+  icon,
+  title,
+  description,
+  tone = 'neutral',
+  className,
+}: {
+  icon: ReactNode
+  title: ReactNode
+  description?: ReactNode
+  tone?: Tone
+  className?: string
+}) => (
+  <div data-slot="status-summary" data-tone={tone} className={cx('flex items-center gap-3', className)}>
+    <IconTile size="default" shape="round" tone={tone}>{icon}</IconTile>
+    <span className="flex min-w-0 flex-col gap-px">
+      <span data-slot="status-summary-title" className="text-base font-medium text-(--hd-foreground)">
+        {title}
+      </span>
+      {description != null ? (
+        <span data-slot="status-summary-description" className="text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground)">
+          {description}
+        </span>
+      ) : null}
+    </span>
+  </div>
+)
+
+/** The horizontal title band of an account-access sheet. */
+export const AccessHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-header"
+    className={cx('flex shrink-0 items-center gap-2.5 border-b border-(--hd-border) px-4 py-4', className)}
+    {...props}
+  />
+)
+
+/** The roster column of an account-access sheet. */
+export const AccessRail = ({ className, ...props }: ComponentProps<'nav'>) => (
+  <nav
+    data-slot="access-rail"
+    className={cx('flex min-h-0 flex-col border-r border-(--hd-border) bg-(--hd-sidebar-plate) max-[720px]:border-r-0 max-[720px]:border-b', className)}
+    {...props}
+  />
+)
+
+export const AccessRailHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-rail-header"
+    className={cx('shrink-0 border-b border-(--hd-border) p-3', className)}
+    {...props}
+  />
+)
+
+export const AccessRailList = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-rail-list"
+    className={cx('min-h-0 flex-1 overflow-y-auto p-2', className)}
+    {...props}
+  />
+)
+
+export const AccessRailFooter = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-rail-footer"
+    className={cx('shrink-0 border-t border-(--hd-border) px-3 py-2.5', className)}
+    {...props}
+  />
+)
+
+/** The scrolled work pane beside an access roster. */
+export const AccessDetail = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-detail"
+    className={cx('flex min-h-0 flex-col overflow-y-auto px-6 pb-6 pt-5', className)}
+    {...props}
+  />
+)
+
+/** A labelled path or consequence in an account-access flow. */
+export const AccessFact = ({
+  label,
+  value,
+  children,
+  className,
+}: {
+  label: ReactNode
+  value?: ReactNode
+  children?: ReactNode
+  className?: string
+}) => (
+  <div data-slot="access-fact" className={cx('mb-4 flex max-w-130 flex-col items-start gap-1.5', className)}>
+    <Text role="muted">{label}</Text>
+    {value != null ? (
+      <CodeText
+        as="code"
+        className="max-w-full select-all rounded-(--hd-radius-sm) bg-(--hd-muted) px-2 py-1 text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground) [overflow-wrap:anywhere]"
+      >
+        {value}
+      </CodeText>
+    ) : null}
+    {children != null ? <Text role="muted">{children}</Text> : null}
+  </div>
+)
+
+/** A one-time code: verbatim, selectable, and visually separate from prose. */
+export const AccessCode = ({ className, ...props }: ComponentProps<'div'>) => (
+  <div
+    data-slot="access-code"
+    className={cx(
+      'select-all rounded-(--hd-radius) bg-(--hd-muted) p-4 text-center font-mono text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[0.18em]',
       className,
     )}
     {...props}
@@ -565,6 +724,7 @@ const TEXT_INK = {
   primary: 'text-(--hd-foreground)',
   secondary: 'text-(--hd-secondary-foreground)',
   muted: 'text-(--hd-muted-foreground)',
+  navigation: 'text-(--hd-sidebar-muted-foreground)',
 } as const
 
 export type TextRole = keyof typeof TEXT_ROLE

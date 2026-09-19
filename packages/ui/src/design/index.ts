@@ -36,6 +36,16 @@ export {
   Dot,
   Spinner,
   type SpinnerProps,
+  StateStrip,
+  StatusSummary,
+  AccessHeader,
+  AccessRail,
+  AccessRailHeader,
+  AccessRailList,
+  AccessRailFooter,
+  AccessDetail,
+  AccessFact,
+  AccessCode,
   Chip,
   type ChipProps,
   Search,
@@ -100,6 +110,13 @@ export { ConfirmDialog } from './patterns/ConfirmDialog'
 export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
+export {
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
+  AppWindowSurface,
+} from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
 export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'

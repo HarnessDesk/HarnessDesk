@@ -1,4 +1,16 @@
-import { Button, DialogPopup, DialogPortal, DialogRoot, Search } from '../design'
+import {
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
+  AppWindowSurface,
+  Button,
+  DialogPortal,
+  DialogRoot,
+  NavigationGroupHeader,
+  Search,
+  Text,
+} from '../design'
 import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
 import { Clipped } from '../design'
 
@@ -45,17 +57,17 @@ export const AppWindow = ({ label, children }: { label: string; children: ReactN
       >
         {host && (
           <DialogPortal container={host}>
-            <DialogPopup
+            <AppWindowSurface
               ref={surface}
               className={styles.win}
               aria-label={label}
-              aria-modal={embedded ? undefined : true}
+              modal={!embedded}
               aria-describedby={undefined}
               initialFocus={embedded ? false : surface}
               finalFocus={!embedded}
             >
               <div className={styles.winBody}>{children}</div>
-            </DialogPopup>
+            </AppWindowSurface>
           </DialogPortal>
         )}
       </DialogRoot>
@@ -78,12 +90,12 @@ export const WindowNav = ({
   }
   children: ReactNode
 }) => (
-  <nav className={styles.winNav} data-hd-density="comfortable">
-    <div className={`${styles.winNavTop} hd-drag`}>
+  <AppWindowRail className={styles.winNav} data-hd-density="comfortable">
+    <AppWindowRailTop className={`${styles.winNavTop} hd-drag`}>
       <Button type="button" variant="navigation" size="navigation" className={`${styles.backRow} hd-no-drag`} onClick={onBack}>
-        <span className={styles.backIcon}>
+        <Text role="meta" ink="navigation" className={styles.backIcon}>
           <ArrowLeftIcon size={15} />
-        </span>
+        </Text>
         Back to app
       </Button>
       {search && (
@@ -95,14 +107,14 @@ export const WindowNav = ({
           onChange={search.onChange}
         />
       )}
-    </div>
-    <div className={styles.winNavScroll}>{children}</div>
-  </nav>
+    </AppWindowRailTop>
+    <AppWindowRailScroll className={styles.winNavScroll}>{children}</AppWindowRailScroll>
+  </AppWindowRail>
 )
 
 export const WindowGroup = ({ label, children }: { label: string; children: ReactNode }) => (
   <div className={styles.winGroup}>
-    <div className={styles.winGroupLabel}>{label}</div>
+    <NavigationGroupHeader label={label} />
     {children}
   </div>
 )
@@ -129,13 +141,13 @@ export const WindowNavItem = ({
     {...(selected ? { 'data-selected': '' } : {})}
     onClick={onClick}
   >
-    <span className={styles.winNavIcon}>{icon}</span>
+    <Text role="meta" ink="navigation" className={styles.winNavIcon}>{icon}</Text>
     {/* A nav is a list of equal rows, so the label takes what is left and cuts
         rather than wrapping the row to two lines. The runtime names some of
         these — "Skills & commands" is Claude's and Cursor's word — so the
         longest one is not ours to choose. */}
-    <span className={styles.winNavLabel}>{label}</span>
-    {count !== undefined && <span className={styles.winNavCount}>{count}</span>}
+    <Text role="navigation" className={styles.winNavLabel}>{label}</Text>
+    {count !== undefined && <Text role="meta" ink="navigation" numeric className={styles.winNavCount}>{count}</Text>}
     {trail}
   </Button>
 )
@@ -168,16 +180,16 @@ export const WindowNavIdentity = ({
     onClick={onClick}
   >
     {face}
-    <Clipped className={`${styles.winNavLabel} ${styles.winIdentityLabel}`}>{name}</Clipped>
+    <Clipped className={styles.winNavLabel}><Text role="row">{name}</Text></Clipped>
   </Button>
 )
 
 export const WindowNavEmpty = ({ children }: { children: ReactNode }) => (
-  <div className={styles.winNavEmpty}>{children}</div>
+  <Text as="div" role="muted" ink="navigation" className={styles.winNavEmpty}>{children}</Text>
 )
 
 export const WindowNavCount = ({ children, title }: { children: ReactNode; title?: string }) => (
-  <span className={styles.winNavCount} title={title}>{children}</span>
+  <Text role="meta" ink="navigation" numeric className={styles.winNavCount} title={title}>{children}</Text>
 )
 
 export const WindowNavStateMark = ({ children }: { children: ReactNode }) => (
@@ -194,9 +206,9 @@ export const WindowNavStateMark = ({ children }: { children: ReactNode }) => (
  * line.
  */
 export const WindowPage = ({ wide, children }: { wide?: boolean; children: ReactNode }) => (
-  <div className={styles.page} data-hd-density="comfortable">
+  <AppWindowPage className={styles.page} data-hd-density="comfortable">
     <div className={styles.pageInner} {...(wide ? { 'data-wide': '' } : {})}>
       {children}
     </div>
-  </div>
+  </AppWindowPage>
 )
