@@ -233,8 +233,26 @@ export class MachineSeatingFile {
    * taken before the queue, which a `set()` from somewhere else, landing in
    * the gap between that read and this call's own turn, could make stale by
    * the time this call runs.
+   *
+   * `refuseIfDifferent` is a project Save's compare-and-set, decided the same
+   * way: "write only if this id is still absent, or still reads back exactly
+   * the seat this call is about to write" — the two cases a Save's own
+   * up-front check already treats as fine. A Save reads the file, decides the
+   * id is absent or already its own seat, then awaits a project path walk and
+   * an Agent-folder transaction before ever reaching this call; a different
+   * window's set for the same id can land in that gap, and that read is too
+   * old to still be the answer by the time this call writes. Given the
+   * message to refuse with, this call throws it — rather than silently
+   * keeping what changed (`onlyIfAbsent`'s own answer) or silently overwriting
+   * it — so a Save can roll back the folder it already made and refuse in its
+   * own words, the same ones its up-front check would have refused with had
+   * it seen this file's current answer instead of the one it started from.
    */
-  set(id: string, seats: readonly FlowSeat[] | null, options: { onlyIfAbsent?: boolean } = {}): Promise<SeatingSetOutcome> {
+  set(
+    id: string,
+    seats: readonly FlowSeat[] | null,
+    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string } = {},
+  ): Promise<SeatingSetOutcome> {
     const run = async (): Promise<SeatingSetOutcome> => {
       // Refused before anything is read or written: accepted, this id would
       // read back indistinguishably from a real entry (`parseSeating` above),
@@ -308,6 +326,14 @@ export class MachineSeatingFile {
 
       const before = Object.hasOwn(raw, id) ? raw[id] : undefined
       const after = seats ? pairs.find(([key]) => key === id)?.[1] : undefined
+      // Decided here too, against this same `raw` and inside this same turn:
+      // present and not what this call is about to write is a different
+      // window's choice, made after whatever read led to this call — refused
+      // in the caller's own words, never silently kept (that is
+      // `onlyIfAbsent`'s job) and never silently replaced.
+      if (options.refuseIfDifferent !== undefined && before !== undefined && !sameJson(before, after)) {
+        throw new Error(options.refuseIfDifferent)
+      }
       if (sameJson(before, after)) return { seating: await this.read(), wrote: false }
 
       await mkdir(dirname(this.path), { recursive: true })

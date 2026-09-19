@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { rmSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -278,6 +278,109 @@ test('export uses the roster ids, leaves links inside behind, and carries only b
   const copy = backup.agentFolders?.find((one) => one.id === 'real')
   assert.equal(copy?.files.find((one) => one.path === 'AGENT.md')?.text, brief, 'the brief decodes without loss')
   assert.deepEqual(copy?.files.map((one) => one.path), ['AGENT.md', 'chunk-a.md', 'chunk-b.md', 'chunk-c.md'])
+})
+
+/*
+ * R2 (PR #814 round 1, agent-files.ts:479, regularEntries/take): a folder's
+ * contents are classified with one `lstat`, then read again later, by path —
+ * a folder swapped for a link out of the Agent folder in that gap has its
+ * new target's contents read straight through the very next `readdir`, and
+ * export's own `take()` already opens a file with `O_NOFOLLOW` (so a file
+ * swapped for a *link* is already refused before this fix), but nothing
+ * before this fix checks that a file opened clean is still the very file
+ * `regularEntries` classified — a swap to a different regular file (here, a
+ * hard link to one outside the Agent folder, sharing its inode) opens fine
+ * and reads through, unnoticed.
+ *
+ * `lstat` is patched the same way `agent-seating-file.test.ts` already
+ * patches this same module: the swap lands right after classification
+ * captured the entry, answered with the real, pre-swap result every time, so
+ * classification itself is never wrong.
+ */
+test('export leaves a nested folder out, and carries nothing from outside, when it is swapped for a link out of the Agent folder right after it is classified', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-dir-swap-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  const nested = join(agents, 'scout', 'nested')
+  const outside = join(dir, 'outside')
+  await mkdir(nested, { recursive: true })
+  await mkdir(join(agents, 'good'), { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(join(nested, 'todo.txt'), 'inside, safe')
+  await writeFile(join(agents, 'good', 'AGENT.md'), 'good brief')
+  await mkdir(outside)
+  await writeFile(join(outside, 'secret.txt'), 'OUTSIDE SECRET')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (!swapped && String(args[0]) === nested) {
+      swapped = true
+      await rm(nested, { recursive: true, force: true })
+      await symlink(outside, nested)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  assert.deepEqual(backup.agentFolders?.map((one) => one.id), ['good', 'scout'])
+  const scout = backup.agentFolders?.find((one) => one.id === 'scout')
+  assert.deepEqual(scout?.files, [{ path: 'AGENT.md', text: 'scout brief' }], 'the swapped folder carried nothing')
+  assert.ok(heard.said.includes('a file or folder was left out of an Agent backup'))
+})
+
+test('export leaves a nested file out, and carries nothing from outside, when it is swapped for a hard link to a file outside the Agent folder right after it is classified', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-file-swap-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const agents = join(dir, 'agents')
+  const note = join(agents, 'scout', 'note.txt')
+  const outside = join(dir, 'outside-secret.txt')
+  await mkdir(join(agents, 'scout'), { recursive: true })
+  await writeFile(join(agents, 'scout', 'AGENT.md'), 'scout brief')
+  await writeFile(note, 'inside, safe')
+  await writeFile(outside, 'OUTSIDE SECRET')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (!swapped && String(args[0]) === note) {
+      swapped = true
+      await unlink(note)
+      await link(outside, note)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const backup = await host.call('backup/export', {})
+  const scout = backup.agentFolders?.find((one) => one.id === 'scout')
+  assert.deepEqual(scout?.files, [{ path: 'AGENT.md', text: 'scout brief' }], 'the swapped file carried nothing')
+  assert.ok(heard.said.includes('a file or folder was left out of an Agent backup'))
 })
 
 test('export quietly skips a dangling Agent link and still carries the good Agent beside it', async (t) => {

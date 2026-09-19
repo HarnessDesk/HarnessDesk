@@ -309,10 +309,13 @@ export const agentMethods = {
     const onlyKeptSeat = kept?.seats.length === 1 ? kept.seats[0] : undefined
     const keptMatchesExact =
       params.to === 'project' && exact && onlyKeptSeat !== undefined && sameSeat(onlyKeptSeat, params.seat)
+    // Said once, reused at the write below: a different window's set for
+    // this id, landing after this read and before that write, is refused in
+    // the very words this check would have refused with, had it read that
+    // window's answer instead of this one.
+    const alreadySeatedText = `This Mac already has seats for “${id}”, and they would win over the one you are saving. Change or clear them on its page first, or pick another name.`
     if (kept && !keptMatchesExact) {
-      throw new Error(
-        `This Mac already has seats for “${id}”, and they would win over the one you are saving. Change or clear them on its page first, or pick another name.`,
-      )
+      throw new Error(alreadySeatedText)
     }
     // This machine's seats must be readable before anything is written, when
     // an exact seat would need to be kept there.
@@ -330,7 +333,13 @@ export const agentMethods = {
     const created = await createAgentFolder(root, id, source)
     if (params.to === 'project' && exact) {
       try {
-        const { wrote } = await ctx.seating.set(id, [params.seat])
+        // Decided again here, inside `set()`'s own write queue, against
+        // whatever the file holds the instant before this write — not the
+        // `machine` read all the way back at the top of this call, which
+        // another window's set landing in the gap since could have made
+        // stale. This call's own folder and path walk stay sound either way;
+        // only its choice of seat might no longer be.
+        const { wrote } = await ctx.seating.set(id, [params.seat], { refuseIfDifferent: alreadySeatedText })
         if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
       } catch (error) {
         const left = await rollbackCreatedAgent(created, project ?? '')

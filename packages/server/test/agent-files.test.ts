@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
@@ -183,6 +184,107 @@ test('a copy follows the one link at the top of a linked Agent folder — as the
   assert.equal(await lstat(to2).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
   await createAgentFolder(dirname(to2), 'scout', '---\nname: Scout\n---\nLook.\n')
   assert.equal(await lstat(join(to2, 'AGENT.md')).then(() => true, () => false), true, 'a later Save is not blocked')
+})
+
+/*
+ * R2 (PR #814 round 1, agent-files.ts:256-274): `regularEntries` classifies
+ * an entry with one `lstat`, but `copyTree` reads a classified folder's own
+ * contents later, by path — a folder swapped for a link out of the Agent
+ * folder in that gap has its new target's contents read straight through the
+ * very next `readdir`, and a file swapped the same way is followed straight
+ * through `copyFile`, which has no way to refuse to follow a link.
+ *
+ * `lstat` is patched — through its CommonJS face, pushed into every module's
+ * own binding with `syncBuiltinESMExports`, the way `agent-seating-file.test.ts`
+ * already patches this same module for the same reason — so the swap lands
+ * at the one moment the review names: right after classification captured
+ * the entry, before anything reads or opens it. The patch answers with the
+ * real, pre-swap result every time (so classification itself is never
+ * wrong), and performs the swap on disk once, the first time it sees the
+ * exact path being targeted; every other `lstat`, for every other path,
+ * passes straight through untouched.
+ */
+test('a copy refuses whole, and copies nothing from outside, when a nested folder is swapped for a link out of the Agent folder right after it is classified', async (t) => {
+  const root = tempDir('hd-agent-files-dir-swap-')
+  const from = join(root, 'from', 'scout')
+  const nested = join(from, 'nested')
+  const outside = join(root, 'outside')
+  await mkdir(nested, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(join(nested, 'todo.txt'), 'inside, safe')
+  await mkdir(outside)
+  await writeFile(join(outside, 'secret.txt'), 'OUTSIDE SECRET')
+  // `copyAgentFolder` follows `from` through `realpath` once, at its own top
+  // (its own doc comment says so), before anything under it is classified —
+  // on a machine where the temp root itself sits behind a link (macOS's
+  // `/var` → `/private/var`), that is a different string than `nested`
+  // above, and the patch below must match the one `regularEntries` actually
+  // calls `lstat` with.
+  const realNested = join(await realpath(from), 'nested')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (!swapped && String(args[0]) === realNested) {
+      swapped = true
+      await rm(nested, { recursive: true, force: true })
+      await symlink(outside, nested)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.deepEqual((await readdir(outside)).sort(), ['secret.txt'], 'the outside folder itself was never touched')
+})
+
+test('a copy refuses whole, and copies nothing from outside, when a nested file is swapped for a link out of the Agent folder right after it is classified', async (t) => {
+  const root = tempDir('hd-agent-files-file-swap-')
+  const from = join(root, 'from', 'scout')
+  const note = join(from, 'note.txt')
+  const outside = join(root, 'outside-secret.txt')
+  await mkdir(from, { recursive: true })
+  await writeFile(join(from, 'AGENT.md'), '---\nname: Scout\n---\nLook.\n')
+  await writeFile(note, 'inside, safe')
+  await writeFile(outside, 'OUTSIDE SECRET')
+  // See the folder-swap test above: `copyAgentFolder` reads `from` back
+  // through `realpath` before classifying anything under it.
+  const realNote = join(await realpath(from), 'note.txt')
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    lstat: (...args: unknown[]) => Promise<unknown>
+  }
+  const realLstat = fsp.lstat
+  let swapped = false
+  fsp.lstat = async (...args: unknown[]) => {
+    const result = await realLstat(...args)
+    if (!swapped && String(args[0]) === realNote) {
+      swapped = true
+      await unlink(note)
+      await symlink(outside, note)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.lstat = realLstat
+    syncBuiltinESMExports()
+  })
+
+  const to = join(root, 'to', 'scout')
+  await assert.rejects(() => copyAgentFolder(from, to), /replaced|ELOOP/)
+  assert.equal(await lstat(to).then(() => true, () => false), false, 'nothing was left behind by the refused copy')
+  assert.equal(await readFile(outside, 'utf8'), 'OUTSIDE SECRET', 'the outside file itself was never touched')
 })
 
 /** A host whose Trash and Finder are recorded rather than touched, with a project open. */
@@ -598,6 +700,71 @@ test('through the host: a project Save with an exact seat that already matches t
   })) as AgentEntry
   assert.equal(saved.origin, 'project')
   assert.equal(await readFile(join(stateDir, SEATING_FILE), 'utf8'), before, 'the matching re-save left seating.json untouched')
+})
+
+/*
+ * R1 (PR #814 round 1, agents.ts:300-333): the up-front check reads
+ * seating.json, decides "scratch" is absent, then awaits the project path
+ * walk and the Agent-folder transaction before ever calling `set()`. A
+ * different window's set for the same id landing in that gap must not be
+ * silently replaced by this Save's own write.
+ *
+ * `node:fs/promises`'s `readFile` is patched — through its CommonJS face,
+ * pushed into every module's own binding with `syncBuiltinESMExports`, the
+ * way `agent-seating-file.test.ts` and `backup.test.ts` already patch this
+ * same module — so the *real* `MachineSeatingFile` inside this real `Host`
+ * is what decides the race, not a stand-in for it. The patch fires once, on
+ * the first read of this Mac's own seating.json (Save's up-front
+ * `ctx.seating.read()`): it captures what that read would have answered
+ * before anything else touches the file, only then lands the other
+ * window's `agent/seating/set`, and hands Save's check the pre-race
+ * answer — exactly the gap the review found, made to land every run.
+ */
+test('through the host: a project Save is refused, and rolls back its folder, when another window sets different seats for the same id in the gap between the check and the write', async (t) => {
+  const { stateDir, client, project } = await desk(t)
+  const seatingPath = join(stateDir, SEATING_FILE)
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readFile: (...args: unknown[]) => Promise<unknown>
+  }
+  const realReadFile = fsp.readFile
+  let raced = false
+  fsp.readFile = async (...args: unknown[]) => {
+    if (raced || String(args[0]) !== seatingPath) return realReadFile(...args)
+    raced = true
+    let before: unknown
+    let beforeFailed: unknown
+    try {
+      before = await realReadFile(...args)
+    } catch (error) {
+      beforeFailed = error
+    }
+    // The other window: a direct set for the very id this Save is about to
+    // create, to a seat this Save never named.
+    await client.call('agent/seating/set', { id: 'scratch', seats: [{ runtime: 'codex' }] })
+    if (beforeFailed !== undefined) throw beforeFailed
+    return before
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.readFile = realReadFile
+    syncBuiltinESMExports()
+  })
+
+  await assert.rejects(
+    () => client.call('agent/create', { name: 'Scratch', permission: 'read', seat, to: 'project', project }),
+    /This Mac already has seats for “scratch”, and they would win over the one you are saving\. Change or clear them on its page first, or pick another name\./,
+  )
+  assert.equal(
+    await lstat(join(await realpath(project), PROJECT_AGENT_DIR, 'scratch')).then(() => true, () => false),
+    false,
+    'the folder this Save made was rolled back',
+  )
+  assert.deepEqual(
+    JSON.parse(await readFile(seatingPath, 'utf8')),
+    { scratch: ['codex'] },
+    'seating.json holds the other window’s choice, not this Save’s',
+  )
 })
 
 test('a stale-seat refusal does not read runtimes, accounts, catalogues or usage after deciding to refuse', async () => {

@@ -1,6 +1,7 @@
 import { constants, type Stats } from 'node:fs'
-import { chmod, copyFile, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
+import { pipeline } from 'node:stream/promises'
 
 import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
 import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
@@ -241,6 +242,8 @@ interface RegularEntry {
   readonly name: string
   readonly source: string
   readonly kind: 'file' | 'dir'
+  /** This entry's own identity at the moment it was classified — what a later use is checked against before it is trusted. */
+  readonly identity: Identity
 }
 
 /**
@@ -252,28 +255,98 @@ interface RegularEntry {
  * the folder would carry whatever that link names, decided by wherever it
  * happens to point on this machine rather than by what is in the Agent's own
  * folder.
+ *
+ * `expected` is `dir`'s own identity, as classified one level up — absent
+ * for a walk's own top folder, which no parent's `regularEntries` ever
+ * classified as anything, so a link, a missing target, or a file there is
+ * `readdir`'s own natural refusal to make, exactly as it always was: `idsIn`
+ * and this file's own callers already decide what a dangling or non-folder
+ * top entry means, and this never turns that into the same "replaced" error
+ * a swap gets. Given `expected`, though, `dir` *was* classified as a
+ * directory a moment ago, and is checked without following, once right
+ * before `readdir` and once right after: swapped for a link elsewhere, it
+ * would otherwise have that link's target read straight through it, on the
+ * very next `readdir` — `readdir`, like every plain path lookup but `lstat`
+ * itself, follows a link at the path it is given. The "before" check catches
+ * a swap made any time since classification, which is the gap this exists
+ * for; the "after" check additionally catches one made during `readdir`
+ * itself, which "before" alone cannot, since two syscalls a path apart are
+ * never one atomic look. A mismatch throws rather than returning fewer
+ * entries, so a caller that would otherwise trust an empty or partial
+ * listing refuses or leaves the whole folder out instead (`copyTree`'s and
+ * `exportAgentFolders`'s own catches already do that with whatever this
+ * throws).
  */
-const regularEntries = async (dir: string): Promise<RegularEntry[]> => {
+const regularEntries = async (dir: string, expected?: Identity): Promise<RegularEntry[]> => {
+  if (expected) {
+    const before = await lstat(dir)
+    if (!before.isDirectory() || !sameIdentity(expected, before)) {
+      throw new Error(`${dir} was replaced before its contents could be read, so nothing under it was used.`)
+    }
+  }
+  const entries = await readdir(dir, { withFileTypes: true })
+  if (expected) {
+    const after = await lstat(dir)
+    if (!after.isDirectory() || !sameIdentity(expected, after)) {
+      throw new Error(`${dir} was replaced while its contents were being read, so nothing under it was used.`)
+    }
+  }
   const found: RegularEntry[] = []
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
+  for (const entry of entries) {
     const source = join(dir, entry.name)
     const info = await lstat(source)
     if (info.isSymbolicLink()) continue
-    if (info.isDirectory()) found.push({ name: entry.name, source, kind: 'dir' })
-    else if (info.isFile()) found.push({ name: entry.name, source, kind: 'file' })
+    if (info.isDirectory()) found.push({ name: entry.name, source, kind: 'dir', identity: identityOf(info) })
+    else if (info.isFile()) found.push({ name: entry.name, source, kind: 'file', identity: identityOf(info) })
   }
   return found
 }
 
+/**
+ * Copies one classified file by its own descriptor, never by reopening its
+ * path. Opened without following a last-step link: a file swapped for one
+ * since `regularEntries` classified it is refused outright, the same as a
+ * link there always was. `fstat`-checked against that classification too, so
+ * a file swapped for a *different regular file* — nothing to refuse to
+ * follow, there — is caught the same way: read from the descriptor this
+ * already opened rather than a fresh look at the path, which a second swap
+ * after this check could otherwise still redirect. The destination is made
+ * exclusively, like `copyFile`'s own `COPYFILE_EXCL` before it, and given the
+ * source's own permission bits, which a plain `open()` would otherwise
+ * default away from.
+ */
+const copyRegularFile = async (entry: RegularEntry, destination: string): Promise<void> => {
+  const source = await open(entry.source, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+  try {
+    const info = await source.stat()
+    if (!info.isFile() || !sameIdentity(entry.identity, info)) {
+      throw new Error(`${entry.source} was replaced after it was found there, so nothing was copied from it.`)
+    }
+    const out = await open(destination, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL)
+    try {
+      // Permissions set before the streaming, not after: a write stream
+      // auto-closes its `FileHandle` the moment the pipeline ends, and a
+      // `chmod` after that would find the descriptor already gone. The later
+      // `close()` below is then a harmless no-op on what the stream already closed.
+      await out.chmod(info.mode & 0o777)
+      await pipeline(source.createReadStream(), out.createWriteStream())
+    } finally {
+      await out.close()
+    }
+  } finally {
+    await source.close()
+  }
+}
+
 /** Copies regular files and folders, one by one; links and special files stay behind. */
-const copyTree = async (from: string, to: string): Promise<void> => {
-  for (const entry of await regularEntries(from)) {
+const copyTree = async (from: string, to: string, expected?: Identity): Promise<void> => {
+  for (const entry of await regularEntries(from, expected)) {
     const destination = join(to, entry.name)
     if (entry.kind === 'dir') {
       await mkdir(destination)
-      await copyTree(entry.source, destination)
+      await copyTree(entry.source, destination, entry.identity)
     } else {
-      await copyFile(entry.source, destination, constants.COPYFILE_EXCL)
+      await copyRegularFile(entry, destination)
     }
   }
 }
@@ -384,7 +457,7 @@ export const exportAgentFolders = async (
     // cause instead of just a name.
     let briefProblem: string | null = null
 
-    const take = async (source: string, path: string): Promise<void> => {
+    const take = async (entry: RegularEntry, path: string): Promise<void> => {
       let handle
       try {
         // `O_NONBLOCK`, like the roster's own read of an `AGENT.md`
@@ -397,13 +470,26 @@ export const exportAgentFolders = async (
         // with a link: `regularEntries` already left every link behind, and
         // a plain open would otherwise follow one dropped into its place,
         // carrying into the backup whatever that link happens to name.
-        handle = await open(source, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+        handle = await open(entry.source, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
       } catch (error) {
         log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
         if (path === 'AGENT.md') briefProblem = `it could not be opened — ${messageOf(error)}`
         return
       }
       try {
+        // `O_NOFOLLOW` alone refuses a link swapped in since classification;
+        // it says nothing about a *different regular file* swapped in the
+        // same gap, since there is no link there to refuse to follow. Checked
+        // here, against the very identity `regularEntries` classified —
+        // never a fresh `lstat` of the path, which a second swap after that
+        // check could still redirect just as easily as the first did.
+        const info = await handle.stat()
+        if (!info.isFile() || !sameIdentity(entry.identity, info)) {
+          const reason = 'it was replaced after it was found there'
+          log?.('a file or folder was left out of an Agent backup', { id, path, error: reason })
+          if (path === 'AGENT.md') briefProblem = reason
+          return
+        }
         const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
         if (bytes === null) {
           // Too large: quiet for any other file, exactly as it was before
@@ -434,10 +520,10 @@ export const exportAgentFolders = async (
       }
     }
 
-    const walk = async (dir: string, prefix: string): Promise<void> => {
+    const walk = async (dir: string, prefix: string, expected?: Identity): Promise<void> => {
       let entries: RegularEntry[]
       try {
-        entries = await regularEntries(dir)
+        entries = await regularEntries(dir, expected)
       } catch (error) {
         // At the Agent's own top folder, the caller decides quiet-or-warned:
         // `idsIn` already kept this id only because something is there, so
@@ -476,10 +562,10 @@ export const exportAgentFolders = async (
       for (const entry of ordered) {
         if (examined >= MAX_BUNDLE_FILES || budgetSpent) return
         const path = prefix ? `${prefix}/${entry.name}` : entry.name
-        if (entry.kind === 'dir') await walk(entry.source, path)
+        if (entry.kind === 'dir') await walk(entry.source, path, entry.identity)
         else {
           examined += 1
-          await take(entry.source, path)
+          await take(entry, path)
         }
       }
     }
