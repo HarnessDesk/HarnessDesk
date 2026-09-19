@@ -6,7 +6,7 @@ import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
 import { Menu, MenuItem } from '../patterns/Menu'
 import { Popover } from '../patterns/Popover'
-import { PageHead, Row, Rows } from '../patterns/Settings'
+import { PageHead, Row, RowChoice, Rows } from '../patterns/Settings'
 import {
   Board,
   BoardCard,
@@ -96,6 +96,10 @@ export const PropagationPage = () => {
         <Button variant="choice" size="default">Resting option</Button>
         <Button variant="choice" size="default" data-on="">Option turned on</Button>
         <Button variant="choice" size="default" role="radio" aria-checked="true">Option checked</Button>
+        <Rows>
+          <RowChoice title="Resting answer" selected={false} onClick={() => undefined} />
+          <RowChoice title="Chosen answer" selected onClick={() => undefined} />
+        </Rows>
       </section>
 
       {dialogOpen && (

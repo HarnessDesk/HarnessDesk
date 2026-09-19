@@ -54,6 +54,13 @@ test('in the pane’s opening width the count leaves whole and the search keeps 
   await expect(frame.getByText('0 commits', { exact: true })).toBeHidden()
   const search = await frame.getByRole('searchbox', { name: 'Search history' }).evaluate(node => node.getBoundingClientRect().width)
   expect(search).toBeGreaterThanOrEqual(120)
+  // Everything else still fits on the one 36px line.
+  const row = await frame.getByRole('combobox', { name: 'What the search matches' }).evaluate(node => {
+    let bar = node.parentElement!
+    while (!bar.querySelector('[role="radiogroup"]')) bar = bar.parentElement!
+    return bar.getBoundingClientRect().height
+  })
+  expect(row).toBe(36)
 })
 
 test('with room for it the count stands whole, never cut to a number without its noun', async ({ page }) => {
@@ -75,15 +82,20 @@ test('narrower than its controls, the row wraps and cuts nothing off', async ({ 
   await expect(search).toBeVisible()
   const row = await search.evaluate(node => {
     let bar = node.parentElement!
-    while (!bar.querySelector('[aria-label="What the search matches"]')) bar = bar.parentElement!
+    while (!bar.querySelector('[role="radiogroup"]')) bar = bar.parentElement!
     const edge = bar.getBoundingClientRect()
     const spill = [...bar.children].filter(child => {
       const box = child.getBoundingClientRect()
       return box.width > 0 && (box.right > edge.right + 0.5 || box.left < edge.left - 0.5)
     }).map(child => child.className)
-    return { spill, height: edge.height, search: node.getBoundingClientRect().width }
+    // The qualifier belongs to the field: they share a line, qualifier after.
+    const field = node.getBoundingClientRect()
+    const scope = bar.querySelector('[aria-label="What the search matches"]')!.getBoundingClientRect()
+    const together = Math.abs((field.top + field.bottom) / 2 - (scope.top + scope.bottom) / 2) < 1 && scope.left > field.right
+    return { spill, height: edge.height, search: field.width, together }
   })
   expect(row.spill).toEqual([])
   expect(row.search).toBeGreaterThanOrEqual(120)
   expect(row.height).toBeGreaterThan(36)
+  expect(row.together).toBe(true)
 })

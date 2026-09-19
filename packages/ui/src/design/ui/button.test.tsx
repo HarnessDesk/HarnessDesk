@@ -70,7 +70,7 @@ describe('the canonical button', () => {
      drawn by nothing — the browser contract measures the fills themselves. */
   it('gives every state a caller chooses with a fill of its own', () => {
     const chosen = {
-      row: ['data-[selected]', 'data-[current]', 'data-[on]'],
+      row: ['data-[selected]', 'data-[current]', 'data-[on]', 'aria-checked'],
       navigation: ['data-[selected]', 'data-[current]'],
       choice: ['data-[selected]', 'data-[on]', 'aria-checked'],
     } as const

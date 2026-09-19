@@ -813,25 +813,30 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           value={scope}
           onChange={(next) => { if (next) setScope(next) }}
         />
-        <Search
-          className={styles.historySearch}
-          value={query}
-          placeholder="Search"
-          label="Search history"
-          onChange={setQuery}
-          clear={{ label: 'Clear the search', onClick: () => setQuery('') }}
-        />
-        <NativeSelect
-          variant="filled" className={styles.searchScope}
-          value={search}
-          aria-label="What the search matches"
-          onChange={(event) => setSearch(event.target.value as GitLogSearch)}
-        >
-          <option value="message">Message</option>
-          <option value="author">Author</option>
-          <option value="sha">Commit id</option>
-          <option value="file">File</option>
-        </NativeSelect>
+        {/* The field and the select that says what it matches are one
+            control, so when the row wraps they move to the next line
+            together rather than leaving the qualifier on its own. */}
+        <span className={styles.searchGroup}>
+          <Search
+            className={styles.historySearch}
+            value={query}
+            placeholder="Search"
+            label="Search history"
+            onChange={setQuery}
+            clear={{ label: 'Clear the search', onClick: () => setQuery('') }}
+          />
+          <NativeSelect
+            variant="filled" className={styles.searchScope}
+            value={search}
+            aria-label="What the search matches"
+            onChange={(event) => setSearch(event.target.value as GitLogSearch)}
+          >
+            <option value="message">Message</option>
+            <option value="author">Author</option>
+            <option value="sha">Commit id</option>
+            <option value="file">File</option>
+          </NativeSelect>
+        </span>
         <span className={styles.space} />
         <span className={styles.count}>
           {loading ? 'Reading…' : `${total.toLocaleString()}${hasMore ? '+' : ''} commits`}

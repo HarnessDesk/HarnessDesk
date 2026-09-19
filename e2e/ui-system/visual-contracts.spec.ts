@@ -141,14 +141,17 @@ test('every chosen row, destination and option is filled, and none changes weigh
   const look = (name: string, role: 'button' | 'radio' = 'button') => section.getByRole(role, { name, exact: true })
     .evaluate(node => { const style = getComputedStyle(node); return { fill: style.backgroundColor, weight: style.fontWeight } })
   await page.mouse.move(0, 0)
-  const pairs: [string, string, 'button' | 'radio'][] = [
-    ['Resting page', 'Chosen page', 'button'],
-    ['Resting branch', 'Checked-out branch', 'button'],
-    ['Resting option', 'Option turned on', 'button'],
-    ['Resting option', 'Option checked', 'radio'],
+  type Role = 'button' | 'radio'
+  const pairs: [string, Role, string, Role][] = [
+    ['Resting page', 'button', 'Chosen page', 'button'],
+    ['Resting branch', 'button', 'Checked-out branch', 'button'],
+    ['Resting option', 'button', 'Option turned on', 'button'],
+    ['Resting option', 'button', 'Option checked', 'radio'],
+    // The settings list of answers, as RowChoice draws it.
+    ['Resting answer', 'radio', 'Chosen answer', 'radio'],
   ]
-  for (const [resting, chosen, role] of pairs) {
-    const [rest, pick] = [await look(resting), await look(chosen, role)]
+  for (const [resting, restingRole, chosen, chosenRole] of pairs) {
+    const [rest, pick] = [await look(resting, restingRole), await look(chosen, chosenRole)]
     expect.soft(pick.fill, `${chosen} is filled`).not.toBe(rest.fill)
     expect.soft(pick.weight, `${chosen} keeps the weight of ${resting}`).toBe(rest.weight)
   }
@@ -157,6 +160,9 @@ test('every chosen row, destination and option is filled, and none changes weigh
   await expect.poll(() => look('Resting option').then(style => style.fill)).not.toBe(chosen.fill)
   await section.getByRole('button', { name: 'Option turned on', exact: true }).hover()
   await expect.poll(() => look('Option turned on').then(style => style.fill)).toBe(chosen.fill)
+  const answer = await look('Chosen answer', 'radio')
+  await section.getByRole('radio', { name: 'Chosen answer', exact: true }).hover()
+  await expect.poll(() => look('Chosen answer', 'radio').then(style => style.fill)).toBe(answer.fill)
 })
 
 test('canonical controls retain selected, drop, icon and deferred-send states', async ({ page }) => {

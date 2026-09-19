@@ -575,21 +575,18 @@
 }
 
 /* A row that is itself a button — a plugin, an account — keeps the anatomy and
-   adds the affordance. */
+   adds the affordance. Its ground is the row variant's. A hover rule here
+   outranked the variant's chosen fill, so a checked answer lost its fill
+   under the pointer, and the resting ground was the variant's to say anyway. */
 .rowButton {
   width: 100%;
   border-radius: 0;
   border: none;
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
-  background: none;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.rowButton:hover {
-  background: var(--hd-hover);
 }
 
 /* Column, not row: the title and its description are two lines, and a flex

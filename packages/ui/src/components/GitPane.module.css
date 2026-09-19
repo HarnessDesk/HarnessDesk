@@ -96,8 +96,18 @@
    before anything wraps. */
 .historySearch {
   flex: 1 1 120px; /* desk: 1 → 1 1 120px, it grows from its floor, so it gives way before the row wraps */
+  width: 120px; /* desk: auto → 120px, the width the row measures it at, rather than the input's own default size */
   min-width: 120px; /* desk: 60px → 120px, never narrower than its own words */
   max-width: 260px;
+}
+
+/* The field and its qualifier wrap as one control: the group takes the row's
+   spare width, and the line never breaks between the two. */
+.searchGroup {
+  flex: 1 1 auto; /* desk: 1 → 1 1 auto, the field and its qualifier grow and wrap as one control */
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .searchScope {
