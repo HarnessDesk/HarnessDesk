@@ -65,6 +65,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: 0,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [{ seat: { runtime: 'claude-code' }, label: 'Claude', runtimeName: 'Claude', state: 'taken', reason: null, fix: null }],
     },
   ],
@@ -75,6 +76,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: null,
       blocked: null,
+      ceiling: null,
       candidates: [
         { seat: { runtime: 'cursor' }, label: 'Cursor', runtimeName: 'Cursor', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
       ],

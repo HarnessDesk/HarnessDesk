@@ -95,6 +95,7 @@ const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
   from: 'prefer',
   winner: 1,
   blocked: null,
+  ceiling: { level: 'edit', hold: 'asked' },
   candidates: [
     {
       seat: { runtime: 'cursor' },
@@ -121,6 +122,16 @@ describe('agents in words', () => {
     expect(seatCeilingWords({ level: 'edit', hold: 'asked' })).toBe('Edit · asked')
     expect(ceilingMeaning('read')).toBe('Changes nothing: it reads, searches and reports.')
     expect(ceilingMeaning('edit')).toBe('May change files and commit in its own checkout, and never push.')
+  })
+
+  it('says a runtime that cannot hold a ceiling, and where that is decided', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'read', detail: null }, 'Claude')).toBe(
+      'Claude cannot hold read, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'Sandbox reads back as Full access' }, 'Codex')).toBe(
+      'Codex cannot hold edit: Sandbox reads back as Full access, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(fixWords({ kind: 'ceilings' }, 'Claude')).toBe('Change what happens when a ceiling cannot be held')
   })
 
   it('heads each section by where it was found, the project by its name', () => {

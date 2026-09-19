@@ -48,6 +48,8 @@ export interface SessionSettings {
   readonly briefDigest?: string
   /** The ceiling this conversation runs under and whether its runtime holds it. */
   readonly ceiling?: SeatCeiling
+  /** How the runtime holds it, or why its declared control did not take. */
+  readonly ceilingNote?: string
   /**
    * What the seat runs, as the desk said it when the seat was kept — read
    * back from the conversation, never the request: "Claude · Opus 5 · High".

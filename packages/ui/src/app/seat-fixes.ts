@@ -36,5 +36,7 @@ export const routeFor = (fix: SeatFix, agent: string): SeatFixRoute => {
       return { kind: 'settings', section: 'runtimes', focus: fix.runtime }
     case 'seats':
       return { kind: 'agent', agent, focus: 'seats' }
+    case 'ceilings':
+      return { kind: 'settings', section: 'permissions', focus: 'ceilings' }
   }
 }

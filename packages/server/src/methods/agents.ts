@@ -6,6 +6,7 @@ import {
   AGENT_DESCRIPTION_LIMIT,
   AGENT_NAME_LIMIT,
   BriefNotHandedOverError,
+  isCeilingLevel,
   isBlocked,
   remainingOf,
   SeatRefusedError,
@@ -14,6 +15,7 @@ import {
   type AgentId,
   type AgentOrigin,
   type AgentRuntime,
+  type CeilingLevel,
   type FlowSeat,
   type MachineSeating,
   type ModelInfo,
@@ -37,6 +39,7 @@ import {
   userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
+import { unheldPolicy } from '../ceilings/policy.js'
 import {
   agentOrder,
   blockedPlan,
@@ -52,6 +55,7 @@ import {
   passedFor,
   planSeats,
   standingOf,
+  type CeilingNeed,
   type PassedOver,
   type SeatOffer,
   type SeatWords,
@@ -97,12 +101,18 @@ export const agentMethods = {
   'agent/seat/dry': async (ctx, params) => {
     const roster = await ctx.agents.list(await projectOf(ctx, params.project))
     const machine = await ctx.seating.read()
+    const unheld = unheldPolicy(ctx.state.state.preferences)
     const ids = params.ids ?? roster.map((one) => one.id)
     const weighed = ids.map((id): Weighed => {
       const entry = roster.find((one) => one.id === id)
       if (!entry) return { plan: blockedPlan(id, `No Agent called “${id}”.`) }
       if (!entry.definition || entry.digest === null) return { plan: blockedPlan(id, unusable(entry)) }
-      return { id, list: candidatesFor(entry.definition, machine), prefer: entry.definition.prefer }
+      return {
+        id,
+        list: candidatesFor(entry.definition, machine),
+        prefer: entry.definition.prefer,
+        need: { level: ceilingWithin(entry.definition.ceiling, grantOf(undefined)), unheld },
+      }
     })
     // Every runtime either list names, read once: the Agent's own list is only weighed beside this Mac's.
     const desk = await readDesk(
@@ -112,12 +122,12 @@ export const agentMethods = {
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     return weighed.map((one): SeatPlan => {
       if ('plan' in one) return one.plan
-      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer').candidates
+      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer', one.need).candidates
       if ('refused' in one.list) return { ...blockedPlan(one.id, one.list.refused, 'machine'), own: own() }
       if (one.list.from === 'machine') {
-        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine'), own: own() }
+        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine', one.need), own: own() }
       }
-      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer')
+      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer', one.need)
     })
   },
 
@@ -179,6 +189,7 @@ export const agentMethods = {
     if (!definition || digest === null) throw new Error(unusable(entry))
 
     const level = ceilingWithin(definition.ceiling, grantOf(params.permission))
+    const need: CeilingNeed = { level, unheld: unheldPolicy(ctx.state.state.preferences) }
     const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
     if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
     const candidates = list.seats
@@ -188,7 +199,7 @@ export const agentMethods = {
     const said = (list: readonly PassedOver[]) => list.map((one) => candidateOf(one, words))
     const passed: PassedOver[] = []
     for (let rest = candidates; ; ) {
-      const chosen = chooseSeat(rest, offers)
+      const chosen = chooseSeat(rest, offers, need)
       passed.push(...chosen.passed)
       if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
       const seat = chosen.seat
@@ -197,6 +208,12 @@ export const agentMethods = {
       const opened = await openAsAsked(ctx, seat, { cwd: params.cwd, title: definition.name })
       if ('reason' in opened) {
         passed.push(opened)
+        continue
+      }
+      const held = await ctx.seats.hold(opened.runtime, opened.sessionId, level)
+      if (held.ceiling.hold !== 'held' && need.unheld === 'refuse') {
+        const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
+        passed.push({ ...passedFor(seat, { kind: 'unheld', level, detail: held.why }), left })
         continue
       }
 
@@ -219,7 +236,8 @@ export const agentMethods = {
         standing: standingOf(definition.ceilingFrom, level),
         seatLabel: opened.label,
         passedOver: said(passed),
-        ceiling: { level, hold: 'asked' },
+        ceiling: held.ceiling,
+        ceilingNote: held.how ?? held.why,
       }
       /* Written before the seat is kept, and awaited. A seat whose record could
          not be written is closed, as one whose brief could not be handed over
@@ -695,6 +713,7 @@ type Weighed =
       readonly id: AgentId
       readonly list: CandidateList | { readonly refused: string }
       readonly prefer: readonly FlowSeat[]
+      readonly need: CeilingNeed
     }
 
 /**
@@ -978,6 +997,7 @@ export const offerOf = async (
       signedIn,
       spent: report ? isBlocked(report) : false,
       spentModels: report ? spentScopesOf(report) : [],
+      holds: Object.keys(ctx.runtimes.infoOf(runtime).ceilings ?? {}).filter(isCeilingLevel),
     },
     catalogue,
   }

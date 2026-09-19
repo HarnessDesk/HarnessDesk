@@ -2,6 +2,8 @@ import type { CodexProtocol } from '@harnessdesk/codex'
 import {
   findOption,
   refuseOptionValue,
+  type CeilingControl,
+  type CeilingLevel,
   type ConfigOption,
   type OptionChoice,
   type OptionValue,
@@ -298,6 +300,23 @@ const sandboxKey = (policy: CodexProtocol.v2.SandboxPolicy): string => {
   if (policy.type === 'workspaceWrite') fields['writableRoots'] = [...new Set(policy.writableRoots)].sort()
   return JSON.stringify(Object.keys(fields).sort().map((key) => [key, fields[key]]))
 }
+
+export const CODEX_CEILINGS = {
+  read: {
+    settings: [
+      { option: 'permissions', value: ':read-only' },
+      { option: 'approvalsReviewer', value: 'user' },
+    ],
+    how: 'Read-only sandbox; anything past it asks you',
+  },
+  edit: {
+    settings: [
+      { option: 'permissions', value: ':workspace' },
+      { option: 'approvalsReviewer', value: 'user' },
+    ],
+    how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
+  },
+} as const satisfies Partial<Record<CeilingLevel, CeilingControl>>
 
 // ----------------------------------------------------------------- vocabulary
 

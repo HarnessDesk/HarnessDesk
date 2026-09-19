@@ -126,6 +126,12 @@ export interface SeatOffer {
    * candidate and changes nothing.
    */
   readonly spentModels?: readonly string[]
+  readonly holds?: readonly CeilingLevel[]
+}
+
+export interface CeilingNeed {
+  readonly level: CeilingLevel
+  readonly unheld: 'seat' | 'refuse'
 }
 
 export interface PassedOver {
@@ -160,7 +166,7 @@ export const durationWords = (ms: number): string => {
 }
 
 /** Why this candidate cannot be taken, as a fact a surface can act on, or null when it can. */
-export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): SeatReason | null => {
+export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[], need?: CeilingNeed): SeatReason | null => {
   const offer = offers.find((one) => one.runtime === seat.runtime)
   if (!offer) return { kind: 'notInstalled', added: false }
   if (offer.unknownRuntime) return { kind: 'unknownRuntime' }
@@ -184,6 +190,9 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): Sea
   }
   if (seat.effort && offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
     return { kind: 'noEffort', effort: seat.effort }
+  }
+  if (need?.unheld === 'refuse' && !(offer.holds ?? []).includes(need.level)) {
+    return { kind: 'unheld', level: need.level, detail: null }
   }
   return null
 }
@@ -244,6 +253,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
       return `${runtime} runs it ${reason.differences.map(fragmentOf).join(', and ')}`
+    case 'unheld':
+      return `${runtime} cannot hold ${reason.level}${reason.detail ? ` — ${quoted(reason.detail)}` : ''}, and this Mac refuses a seat whose ceiling is only asked`
   }
 }
 
@@ -274,6 +285,8 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'noEffort':
     case 'openedOtherwise':
       return { kind: 'seats' }
+    case 'unheld':
+      return { kind: 'ceilings' }
   }
 }
 
@@ -288,10 +301,10 @@ export const passedFor = (seat: FlowSeat, reason: SeatReason): PassedOver => ({
  * The first candidate this machine can seat, exactly as it was written, and
  * each one above it with the reason it was passed over.
  */
-export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly SeatOffer[]): Seating => {
+export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly SeatOffer[], need?: CeilingNeed): Seating => {
   const passed: PassedOver[] = []
   for (const seat of candidates) {
-    const reason = reasonAgainst(seat, offers)
+    const reason = reasonAgainst(seat, offers, need)
     if (reason === null) return { seat, passed }
     passed.push(passedFor(seat, reason))
   }
@@ -578,14 +591,20 @@ export const planSeats = (
   offers: readonly SeatOffer[],
   words: SeatWords,
   from: SeatPlan['from'] = 'prefer',
+  need?: CeilingNeed,
 ): SeatPlan => {
-  const chosen = chooseSeat(candidates, offers)
+  const chosen = chooseSeat(candidates, offers, need)
   const winner = chosen.seat === null ? null : chosen.passed.length
+  const taken = chosen.seat ? offers.find((one) => one.runtime === chosen.seat?.runtime) : undefined
   return {
     id,
     from,
     winner,
     blocked: null,
+    ceiling:
+      need && chosen.seat
+        ? { level: need.level, hold: (taken?.holds ?? []).includes(need.level) ? 'held' : 'asked' }
+        : null,
     candidates: candidates.map((seat, index): SeatCandidate => {
       const passed = chosen.passed[index]
       if (passed) return candidateOf(passed, words)
@@ -608,4 +627,5 @@ export const blockedPlan = (id: AgentId, why: string, from: SeatPlan['from'] = '
   candidates: [],
   winner: null,
   blocked: why,
+  ceiling: null,
 })

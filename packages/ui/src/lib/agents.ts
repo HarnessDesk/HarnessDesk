@@ -237,6 +237,8 @@ export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: Mo
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
       return `${runtime} opened it ${reason.differences.map((one) => differenceWords(one, modelLabel)).join(', and ')}`
+    case 'unheld':
+      return `${runtime} cannot hold ${LEVEL_WORD[reason.level].toLowerCase()}${reason.detail ? `: ${reason.detail}` : ''}, and this Mac refuses a seat whose ceiling is only asked`
   }
 }
 
@@ -255,6 +257,8 @@ export const fixWords = (fix: SeatFix, runtime: string): string => {
       return `Open ${runtime} in Settings`
     case 'seats':
       return 'Edit seats for this Mac'
+    case 'ceilings':
+      return 'Change what happens when a ceiling cannot be held'
   }
 }
 

@@ -1,5 +1,6 @@
 import type { ApprovalDecision } from './approval.js'
 import type { AgentEvent } from './events.js'
+import type { CeilingLevel } from './evidence.js'
 import type { ApprovalId, RuntimeId, SessionId, TurnId } from './ids.js'
 import type { UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -399,6 +400,16 @@ export interface InstallInfo {
   readonly checkedAt: number
 }
 
+export interface CeilingSetting {
+  readonly option: string
+  readonly value: OptionValue
+}
+
+export interface CeilingControl {
+  readonly settings: readonly CeilingSetting[]
+  readonly how: string
+}
+
 export interface RuntimeInfo {
   readonly id: RuntimeId
   readonly name: string
@@ -426,6 +437,7 @@ export interface RuntimeInfo {
    */
   readonly install?: InstallInfo | null
   readonly capabilities: RuntimeCapabilities
+  readonly ceilings?: Readonly<Partial<Record<CeilingLevel, CeilingControl>>>
   readonly presentation: RuntimePresentation
   /**
    * `registry` when this runtime exists because the user's agent registry

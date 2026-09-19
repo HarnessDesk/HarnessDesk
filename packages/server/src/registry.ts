@@ -125,6 +125,7 @@ export interface SeatedAs {
    * surface draws it, and how, is phase 3's.
    */
   readonly ceiling: SeatCeiling | null
+  readonly ceilingNote: string | null
 }
 
 /**
@@ -144,17 +145,19 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
       settings.agent === seated.agent &&
       settings.briefDigest === seated.briefDigest &&
       settings.ceiling === (seated.ceiling ?? undefined) &&
+      settings.ceilingNote === (seated.ceilingNote ?? undefined) &&
       settings.seatLabel === seated.seatLabel &&
       settings.passedOver === seated.passedOver
     ) {
       return settings
     }
-    const { ceiling: _theirCeiling, ...rest } = settings
+    const { ceiling: _theirCeiling, ceilingNote: _theirCeilingNote, ...rest } = settings
     return {
       ...rest,
       agent: seated.agent,
       briefDigest: seated.briefDigest,
       ...(seated.ceiling ? { ceiling: seated.ceiling } : {}),
+      ...(seated.ceilingNote ? { ceilingNote: seated.ceilingNote } : {}),
       seatLabel: seated.seatLabel,
       passedOver: seated.passedOver,
     }
@@ -163,6 +166,7 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
     settings.agent === undefined &&
     settings.briefDigest === undefined &&
     settings.ceiling === undefined &&
+    settings.ceilingNote === undefined &&
     settings.seatLabel === undefined &&
     settings.passedOver === undefined
   ) {
@@ -172,6 +176,7 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
     agent: _agent,
     briefDigest: _briefDigest,
     ceiling: _ceiling,
+    ceilingNote: _ceilingNote,
     seatLabel: _seatLabel,
     passedOver: _passedOver,
     ...theirs

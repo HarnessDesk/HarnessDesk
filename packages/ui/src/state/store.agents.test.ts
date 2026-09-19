@@ -46,7 +46,7 @@ const ENTRY: AgentEntry = {
     brief: 'Review.',
   },
 }
-const PLAN: SeatPlan = { id: 'code-reviewer', from: 'prefer', winner: null, blocked: null, candidates: [] }
+const PLAN: SeatPlan = { id: 'code-reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [] }
 const WORKSPACE = { path: '/work/storefront/pkg', name: 'pkg', lastOpenedAt: 1 }
 
 let store: AppStore
@@ -404,6 +404,7 @@ const seatPlan = (winner: number | null): SeatPlan => ({
   from: 'prefer',
   winner,
   blocked: null,
+  ceiling: winner === null ? null : { level: 'edit', hold: 'asked' },
   candidates: [
     {
       seat: { runtime: 'cursor' },

@@ -11,6 +11,7 @@ import {
   type OptionValue,
   type RuntimeInfo,
   type SeatPlan,
+  type SeatCeiling,
   type Session,
   type SessionId,
   type SessionKey,
@@ -656,11 +657,17 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   },
 ]
 
-const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
+const takenOn = (
+  id: string,
+  runtime: string,
+  label: string,
+  ceiling: SeatCeiling = { level: 'read', hold: 'asked' },
+): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
   blocked: null,
+  ceiling,
   candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
@@ -672,6 +679,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: 0,
       blocked: null,
+      ceiling: { level: 'read', hold: 'asked' },
       candidates: [
         {
           seat: { runtime: 'cursor', model: 'gamma-pro' },
@@ -700,7 +708,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
     },
   ],
   ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
-  ['implementer', takenOn('implementer', 'claude', 'Beta')],
+  ['implementer', takenOn('implementer', 'claude', 'Beta', { level: 'edit', hold: 'asked' })],
   [
     'security-reviewer',
     {
@@ -708,6 +716,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: null,
       blocked: null,
+      ceiling: null,
       candidates: [
         { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
         { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
@@ -721,7 +730,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', candidates: [] }],
+  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', ceiling: null, candidates: [] }],
 ])
 
 /** The smallest store the mounted screens call. */

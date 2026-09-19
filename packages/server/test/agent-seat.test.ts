@@ -55,6 +55,7 @@ import type { OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
+import type { SeatHold } from '../src/ceilings/hold.js'
 import type { SeatOpeningInput } from '../src/evidence/seats.js'
 import { seatedSettings, type SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
@@ -672,6 +673,8 @@ const rig = async (
     readonly directory?: AgentDirectory
     /** What `seating.json` holds on this machine, written before the seating; no file when absent. */
     readonly machine?: string
+    readonly preferences?: Readonly<Record<string, unknown>>
+    readonly holds?: (runtime: string, level: CeilingLevel) => SeatHold
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
@@ -724,6 +727,7 @@ const rig = async (
       },
     },
     seating: new MachineSeatingFile(join(root, 'seating.json')),
+    state: { state: { preferences: options.preferences ?? {} } },
     runtimes: {
       get: (id: string) => runtimes.get(id),
       infoOf: (runtime: { info: { id: RuntimeId } }) => {
@@ -768,6 +772,8 @@ const rig = async (
         if (options.orderFails) throw new Error(options.orderFails)
         ordered.push(text)
       },
+      hold: async (runtime: string, _sessionId: string, level: CeilingLevel): Promise<SeatHold> =>
+        options.holds?.(runtime, level) ?? { ceiling: { level, hold: 'asked' }, how: null, why: null },
       retire: async (runtime: string, id: string) => {
         await new Promise((resolve) => setImmediate(resolve))
         alive -= 1
@@ -877,6 +883,7 @@ test("the seat runs under the narrower of the Agent's ceiling and the seating's 
           seatLabel: 'claude',
           passedOver: [],
           ceiling: { level: held, hold: 'asked' },
+          ceilingNote: null,
         },
       ],
       said,
@@ -1217,7 +1224,7 @@ test('beside a runtime this desk has, an id nothing could add is still its own r
   ]
   const { offers } = await readDesk(seen.ctx, candidates)
   assert.deepEqual(offers, [
-    { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false, spentModels: [] },
+    { runtime: 'codex', models: ['gpt-5.5'], efforts: null, signedIn: false, spent: false, spentModels: [], holds: [] },
     { runtime: 'claude', unknownRuntime: true, models: null, efforts: null, signedIn: false, spent: false },
   ])
   assert.deepEqual(fixesFor(candidates, offers), [
@@ -1790,6 +1797,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
         },
       ],
       ceiling: { level: 'edit', hold: 'asked' },
+      ceilingNote: null,
     },
   ])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
@@ -2897,6 +2905,7 @@ test('the dry run says which seat would win here and why not the ones above it, 
       from: 'prefer',
       winner: 1,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [
         {
           seat: { runtime: 'cursor', model: 'gemini-3.8-flash', effort: 'high' },
@@ -2944,7 +2953,7 @@ test('no ids is every Agent in force; one that cannot be weighed says why; one n
     ],
   )
   assert.deepEqual(await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['ghost'] }), [
-    { id: 'ghost', from: 'prefer', candidates: [], winner: null, blocked: 'No Agent called “ghost”.' },
+    { id: 'ghost', from: 'prefer', candidates: [], winner: null, blocked: 'No Agent called “ghost”.', ceiling: null },
   ])
   untouched(seen)
 })
@@ -3223,7 +3232,7 @@ test('an entry this machine cannot read refuses the seating — never the prefer
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   const { own, ...rest } = plan!
-  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why, ceiling: null })
   // The list it replaced here is still weighed, for the Agent's page.
   assert.deepEqual(own?.map((one) => one.label), ['claude · opus-5'])
 })
@@ -3486,7 +3495,7 @@ test('a seating.json that cannot be read at all refuses the seating in one sente
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   const { own, ...rest } = plan!
-  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why, ceiling: null })
   // A whole-file problem still leaves this Agent's own prefer weighed, exactly
   // as one entry that alone cannot be read does — nobody can tell whether the
   // file would have replaced it, so it is treated as if it would.

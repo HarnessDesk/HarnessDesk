@@ -159,6 +159,7 @@ export class EvidencePlane {
       seatLabel: seat.seatLabel,
       passedOver: seat.passedOver,
       ceiling: seat.ceiling,
+      ceilingNote: null,
     }
   }
 

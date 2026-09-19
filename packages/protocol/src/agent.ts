@@ -1,4 +1,4 @@
-import type { CeilingLevel } from './evidence.js'
+import type { CeilingLevel, SeatCeiling } from './evidence.js'
 import type { FlowSeat } from './flow.js'
 
 /**
@@ -188,6 +188,7 @@ export type SeatReason =
   | { readonly kind: 'couldNotOpen'; readonly detail: string }
   /** It opened, and runs something other than the seat asked for: each field that differs, named in `differences`. */
   | { readonly kind: 'openedOtherwise'; readonly differences: readonly SeatDifference[] }
+  | { readonly kind: 'unheld'; readonly level: CeilingLevel; readonly detail: string | null }
 
 /**
  * What removes a reason, as a thing a surface can offer. Never a sentence:
@@ -209,6 +210,7 @@ export type SeatFix =
    * added to it (`unknownRuntime`): this Mac's seats for the Agent.
    */
   | { readonly kind: 'seats' }
+  | { readonly kind: 'ceilings' }
 
 /**
  * What a seat passed over after it opened was left as, wherever that is
@@ -307,6 +309,8 @@ export interface SeatPlan {
    * `candidates` is empty and `winner` null.
    */
   readonly blocked: string | null
+  /** Effective would-be ceiling and whether the chosen runtime declares it held. */
+  readonly ceiling: SeatCeiling | null
   /**
    * The Agent's own `prefer`, weighed against the same readings, when this
    * machine's seats replace it here (`from: 'machine'`) — what its page lists

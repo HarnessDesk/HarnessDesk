@@ -109,6 +109,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: 1,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [
         candidate('cursor', 'Cursor', 'passed', { reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } }),
         candidate('claude-code', 'Claude · Opus 5 · High', 'taken'),
@@ -122,6 +123,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'machine',
       winner: 0,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [candidate('codex', 'Codex · GPT-5.6 Sol', 'taken'), candidate('claude-code', 'Claude', 'untried')],
       own: [candidate('claude-code', 'Claude', 'taken')],
     },
@@ -133,6 +135,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: 1,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [
         candidate('claude-code', 'Claude · Opus 9', 'passed', { reason: { kind: 'noModel', model: 'opus-9' }, fix: { kind: 'seats' } }),
         candidate('claude-code', 'Claude', 'taken'),

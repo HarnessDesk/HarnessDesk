@@ -10,6 +10,7 @@ import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import {
   holderOf,
   isFolderGone,
+  type CeilingLevel,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -66,6 +67,7 @@ import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
+import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
@@ -1338,6 +1340,7 @@ export class Host {
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),
         order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        hold: (runtime, sessionId, level) => this.#holdSeat(runtime, sessionId, level),
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
         discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
         recordAgent: (runtime, sessionId, seated) => {
@@ -2625,6 +2628,14 @@ export class Host {
       noteLeftOnFailure(error, left)
       throw error
     }
+  }
+
+  async #holdSeat(runtime: string, sessionId: string, level: CeilingLevel): Promise<SeatHold> {
+    const found = this.#runtimes.get(runtime as RuntimeId)
+    const control = found ? this.#infoOf(found).ceilings?.[level] : undefined
+    if (!control) return holdCeiling({ options: () => [], setOption: async () => undefined }, level, undefined)
+    const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+    return holdCeiling(live, level, control)
   }
 
   /** Hands a seated conversation its standing order: one message, and the whole job is inside its turn. */

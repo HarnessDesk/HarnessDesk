@@ -64,6 +64,7 @@ import { loginParamsFor, mapAccount, mapLoginStart, signInMethods } from './mapp
 import { mapThrown } from './mapping/errors.js'
 import { mapNotification, mapRateLimits } from './mapping/notifications.js'
 import {
+  CODEX_CEILINGS,
   effortLabel,
   featureNameOf,
   overlayDraftValues,
@@ -332,6 +333,7 @@ export class CodexRuntime implements AgentRuntime {
         : this.#sharesHistory
           ? { ...CAPABILITIES, listHistory: false, searchHistory: false }
           : CAPABILITIES,
+      ...(this.#everStarted ? { ceilings: CODEX_CEILINGS } : {}),
       presentation: {
         ...PRESENTATION,
         install: {
