@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId, sessionId, type HostMethodName, type WireNotification } from '@harnessdesk/protocol'
 
-import { EVIDENCE_BOARD, EVIDENCE_ROOM, PREVIEW_SEAT, PREVIEW_UNSEEN } from '../preview/evidence-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from '../preview/evidence-fixture'
 import { AppStore } from './store'
 
 let store: AppStore
@@ -106,4 +106,10 @@ it("a conversation's Seat record is read from the host as it is", async () => {
   request.mockResolvedValueOnce(PREVIEW_SEAT)
   await expect(store.seatRecord(runtimeId('codex'), sessionId('s1'))).resolves.toBe(PREVIEW_SEAT)
   expect(request).toHaveBeenLastCalledWith('evidence/seat', { runtime: 'codex', sessionId: 's1' })
+})
+
+it("a project's checks are read from the host as they are", async () => {
+  request.mockResolvedValueOnce(PREVIEW_CHECKS)
+  await expect(store.projectChecks('/home/dev/work/storefront')).resolves.toBe(PREVIEW_CHECKS)
+  expect(request).toHaveBeenLastCalledWith('evidence/checks', { project: '/home/dev/work/storefront' })
 })

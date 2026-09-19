@@ -215,7 +215,7 @@ Every task's requirements include these.
 - **The plain path stays plain** (rule 7). A conversation never seated shows no Seat record; a board with no evidence and a project with no `checks.yml` show none of this phase's surfaces; nothing runs until a person asks. Each UI task has a test that renders the plain path and finds none of its surfaces.
 - **No use case is built in** (rule 8). The desk runs whatever a project's `checks.yml` names; nothing ships a check.
 - **No competitor or third-party product names** in code, comments, commit messages, PR titles or PR bodies. Rendered UI text names a runtime only through `RuntimeInfo.presentation` or a name the host supplies (AGENTS.md rule 8 — `pnpm layering` fails a brand name in rendered text).
-- **No real accounts, emails or handles** in fixtures, docs, commit messages or screenshots: `Jane Doe`, `dev@example.com`, or the demo persona **Shane** at `harnessdesk.app` (AGENTS.md rule 13). Every frame comes from the rig, never a real desk.
+- **No real accounts, emails or handles** in fixtures, docs, commit messages or screenshots: `Jane Doe`, `dev@example.com`, or the project's public demo persona at `harnessdesk.app` (AGENTS.md rule 13). Every frame comes from the rig, never a real desk.
 - **Compose, don't draw** (the UI system's rules). Build screens from `packages/ui/src/design`: `Chip`, `stateTone`, `Button`, `KeyValue`, `KeyValueRow`, `EmptyState`, `Dialog`, `ConfirmDialog`, `Popover`, `Menu`, `MenuItem`, `MenuSeparator`, `Rows`, `Row`, `SectionHead`, `Note`, `CodeText`, `Board`, `BoardColumn`, `BoardCard`. No screen stylesheet; a class in a screen carries layout only (flex, grid, gap, wrap, width, position). No raw font size, colour, radius, padding or height. Icons only from `components/Icons.tsx`. **This plan edits no design primitive**; `4382ded9` above is a prerequisite, not a task. Where the design differs from the shipped system, follow the system; the choices still with the owner (selection style, the tertiary grey, one sidebar row, mono for paths and commits, group-label style, tinted or hairline cards) are not decided here — commits and paths are set in the interface face, as the system sets names today.
 - **Verify what renders.** Each UI task adds a fixture to the preview harness (`packages/ui/preview.html` → `src/preview/main.tsx`, `src/preview/harness.tsx`) and runs `node script/design-audit.mjs --strict` and `pnpm test:ui-system`. The preview store answers an unknown method with `undefined`, so every new store method a screen calls is stubbed there.
 - **Committed text never names another app the UI is measured against** — this plan's own numbers and reasons only.
@@ -8212,7 +8212,7 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { PREVIEW_ROOT } from './sidebar-fixture'
+const EVIDENCE_ROOT = '/home/dev/code/HarnessDesk'
 
 /**
  * What the desk observed, in the shapes the host sends: facts on cards, a
@@ -8257,7 +8257,7 @@ export const factView = (
       id: `fact-${minted}`,
       fact,
       card: { board: EVIDENCE_ROOM, id: over.card ?? 1 },
-      checkout: { cwd: PREVIEW_ROOT, branch: 'retry-on-502' },
+      checkout: { cwd: EVIDENCE_ROOT, branch: 'retry-on-502' },
       seat: over.by === null ? null : 'seat-1',
       round: over.round ?? null,
       observedAt: over.observedAt ?? Date.UTC(2026, 8, 18, 14, 5),
@@ -8357,7 +8357,7 @@ export const EVIDENCE_TEAM: TeamState = {
   id: EVIDENCE_ROOM,
   name: 'Checkout hardening',
   updatedAt: at,
-  root: PREVIEW_ROOT,
+  root: EVIDENCE_ROOT,
   members: [sessionKey(runtimeId('codex'), 'c1' as SessionId), sessionKey(runtimeId('claude'), 'k1' as SessionId)],
   messaging: true,
   intents: [
@@ -8427,7 +8427,7 @@ export const PREVIEW_SEAT: SeatRecord = {
   ],
   standing: { kind: 'permission', permission: 'read' },
   ceiling: null,
-  checkout: { cwd: '/home/dev/code/HarnessDesk', project: PREVIEW_ROOT, branch: 'retry-on-502', head: HEAD },
+  checkout: { cwd: EVIDENCE_ROOT, project: EVIDENCE_ROOT, branch: 'retry-on-502', head: HEAD },
   session: { runtime: 'codex', sessionId: 's1' },
   board: EVIDENCE_ROOM,
   role: null,
@@ -8438,8 +8438,8 @@ export const PREVIEW_SEAT: SeatRecord = {
 // ------------------------------------------------------- a project's checks
 
 export const PREVIEW_CHECKS: ProjectChecks = {
-  project: PREVIEW_ROOT,
-  file: `${PREVIEW_ROOT}/.harnessdesk/checks.yml`,
+  project: EVIDENCE_ROOT,
+  file: `${EVIDENCE_ROOT}/.harnessdesk/checks.yml`,
   exists: true,
   at: HEAD,
   uncommitted: false,
@@ -8461,8 +8461,8 @@ export const PREVIEW_CHECKS: ProjectChecks = {
 export const PREVIEW_UNSEEN: CheckUnseen = {
   check: { name: 'lint', run: 'pnpm lint --max-warnings 0', timeout: 600 },
   previous: 'pnpm lint',
-  cwd: PREVIEW_ROOT,
-  file: `${PREVIEW_ROOT}/.harnessdesk/checks.yml`,
+  cwd: EVIDENCE_ROOT,
+  file: `${EVIDENCE_ROOT}/.harnessdesk/checks.yml`,
   digest: sha('c4ec5f1'),
 }
 ```
@@ -11910,9 +11910,9 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    home: '/home/shane',
+    home: '/home/dev',
     activeSessionKey: KEY,
-    sessions: new Map([[KEY, { id: 's1', runtime: 'codex', cwd: '/work/shane/HarnessDesk', turns: [], itemsLoaded: true } as unknown as Session]]),
+    sessions: new Map([[KEY, { id: 's1', runtime: 'codex', cwd: '/home/dev/code/HarnessDesk', turns: [], itemsLoaded: true } as unknown as Session]]),
     teams: new Map([[EVIDENCE_ROOM, { id: EVIDENCE_ROOM, name: 'Checkout hardening' } as unknown as TeamState]]),
   } as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, seatRecord: vi.fn(seatRecord) } as unknown as AppStore
@@ -12260,10 +12260,10 @@ afterEach(() => {
   container.remove()
 })
 
-const ROOT = '/work/shane/HarnessDesk'
+const ROOT = '/home/dev/code/HarnessDesk'
 
 const mount = async (projectChecks: (root: string) => Promise<unknown>) => {
-  const snapshot = { ...emptySnapshot(), status: 'open', home: '/home/shane' } as AppSnapshot
+  const snapshot = { ...emptySnapshot(), status: 'open', home: '/home/dev' } as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, projectChecks: vi.fn(projectChecks) } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -12314,7 +12314,7 @@ it('a project with no checks file shows no section at all', async () => {
 
 it('checks that cannot be read say so, in the host’s words', async () => {
   await mount(async () => {
-    throw new Error('/work/shane/elsewhere is outside every open workspace. Open its folder first.')
+    throw new Error('/home/dev/elsewhere is outside every open workspace. Open its folder first.')
   })
   expect(container.textContent).toContain('Its checks could not be read')
   expect(container.textContent).toContain('is outside every open workspace')

@@ -11,6 +11,7 @@ import {
   type BoardEvidence,
   type CheckUnseen,
   type SeatRecord,
+  type ProjectChecks,
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
@@ -3691,6 +3692,10 @@ export class AppStore {
 
   async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
     return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
+  }
+
+  async projectChecks(project: string): Promise<ProjectChecks> {
+    return (await this.transport.request('evidence/checks', { project })) as ProjectChecks
   }
 
   #keepBoardEvidence(room: string, evidence: BoardEvidence): void {

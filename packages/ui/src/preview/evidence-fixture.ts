@@ -15,10 +15,9 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { PREVIEW_ROOT } from './sidebar-fixture'
-
 /** Synthetic evidence fixtures shared by the preview and renderer tests. */
 export const EVIDENCE_ROOM = 'room-evidence'
+export const EVIDENCE_ROOT = '/home/dev/code/HarnessDesk'
 
 export const FRESH: Freshness = { state: 'fresh' }
 
@@ -45,7 +44,7 @@ export const factView = (
       id: `fact-${minted}`,
       fact,
       card: { board: EVIDENCE_ROOM, id: over.card ?? 1 },
-      checkout: { cwd: PREVIEW_ROOT, branch: 'retry-on-502' },
+      checkout: { cwd: EVIDENCE_ROOT, branch: 'retry-on-502' },
       seat: over.by === null ? null : 'seat-1',
       round: over.round ?? null,
       observedAt: over.observedAt ?? Date.UTC(2026, 8, 18, 14, 5),
@@ -139,7 +138,7 @@ export const EVIDENCE_TEAM: TeamState = {
   id: EVIDENCE_ROOM,
   name: 'Checkout hardening',
   updatedAt: at,
-  root: PREVIEW_ROOT,
+  root: EVIDENCE_ROOT,
   members: [
     sessionKey(runtimeId('codex'), 'c1' as SessionId),
     sessionKey(runtimeId('claude'), 'k1' as SessionId),
@@ -220,7 +219,7 @@ export const PREVIEW_SEAT: SeatRecord = {
   ],
   standing: { kind: 'permission', permission: 'read' },
   ceiling: null,
-  checkout: { cwd: '/home/dev/code/HarnessDesk', project: PREVIEW_ROOT, branch: 'retry-on-502', head: HEAD },
+  checkout: { cwd: EVIDENCE_ROOT, project: EVIDENCE_ROOT, branch: 'retry-on-502', head: HEAD },
   session: { runtime: 'codex', sessionId: 's1' },
   board: EVIDENCE_ROOM,
   role: null,
@@ -229,8 +228,8 @@ export const PREVIEW_SEAT: SeatRecord = {
 }
 
 export const PREVIEW_CHECKS: ProjectChecks = {
-  project: PREVIEW_ROOT,
-  file: `${PREVIEW_ROOT}/.harnessdesk/checks.yml`,
+  project: EVIDENCE_ROOT,
+  file: `${EVIDENCE_ROOT}/.harnessdesk/checks.yml`,
   exists: true,
   at: HEAD,
   uncommitted: false,
@@ -251,7 +250,7 @@ export const PREVIEW_CHECKS: ProjectChecks = {
 export const PREVIEW_UNSEEN: CheckUnseen = {
   check: { name: 'lint', run: 'pnpm lint --max-warnings 0', timeout: 600 },
   previous: 'pnpm lint',
-  cwd: PREVIEW_ROOT,
-  file: `${PREVIEW_ROOT}/.harnessdesk/checks.yml`,
+  cwd: EVIDENCE_ROOT,
+  file: `${EVIDENCE_ROOT}/.harnessdesk/checks.yml`,
   digest: sha('c4ec5f1'),
 }

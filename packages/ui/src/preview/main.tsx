@@ -8,6 +8,7 @@ import { Conversation } from '../components/Conversation'
 import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
+import { ProjectChecks } from '../components/ProjectChecks'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -442,6 +443,11 @@ const Preview = () => {
             >
               <AgentsView />
             </PaneProvider>
+          </div>
+        </Frame>
+        <Frame title="Project — its checks">
+          <div className="p-4">
+            <ProjectChecks root={PREVIEW_ROOT} />
           </div>
         </Frame>
       </div>
