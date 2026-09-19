@@ -1,5 +1,5 @@
 import { constants, type Stats } from 'node:fs'
-import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
@@ -169,6 +169,28 @@ const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
  */
 const openNoFollow = (path: string, flags: number) => open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
 
+/**
+ * Creates text under `writeAgentFolder`'s canonical temporary path, with
+ * plain joins only. Keep open's default 0666 filtered by the process umask,
+ * matching writeFile's mode; write through the descriptor so a later path
+ * replacement cannot redirect the bytes.
+ */
+const writeNewFile = async (path: string, text: string): Promise<void> => {
+  let handle
+  try {
+    handle = await openNoFollow(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL)
+  } catch (error) {
+    throw errnoOf(error) === 'ELOOP'
+      ? new Error(`${path} could not be made there — its folder was replaced, so nothing was written.`)
+      : error
+  }
+  try {
+    await handle.writeFile(text, { encoding: 'utf8' })
+  } finally {
+    await handle.close()
+  }
+}
+
 type CheckedStat = { readonly at: 'found'; readonly info: Stats } | { readonly at: 'missing' } | { readonly at: 'error'; readonly reason: string }
 
 const checkedStat = async (path: string): Promise<CheckedStat> => {
@@ -303,7 +325,7 @@ export const writeAgentFolder = async (
 /** Writes a new Agent's folder and file, or refuses if an Agent by that name is there. */
 export const createAgentFolder = (root: string, id: string, source: string): Promise<CreatedAgentFolder> =>
   writeAgentFolder(root, id, async (temporary) => {
-    await writeFile(join(temporary, 'AGENT.md'), source, { encoding: 'utf8', flag: 'wx' })
+    await writeNewFile(join(temporary, 'AGENT.md'), source)
   })
 
 /** A regular file or folder found directly inside a directory — a link, of any kind, to anything, is not one. */
@@ -400,7 +422,7 @@ const regularEntries = async (dir: string, expected?: Identity): Promise<Regular
  * no such flag to give it — the one thing a live swap can still make land
  * outside is an empty directory a `mkdir` created through it before this
  * open ever ran, never a byte of file content, since every content write
- * goes through here.
+ * uses `openNoFollow`.
  */
 const copyRegularFile = async (entry: RegularEntry, destination: string): Promise<void> => {
   const replaced = `${entry.source} was replaced after it was found there, so nothing was copied from it.`
@@ -789,7 +811,7 @@ export const importAgentFolder = async (root: string, copy: unknown): Promise<Ag
     // First wins: an exact duplicate, a case or Unicode alias of a path
     // already taken, a descendant of a file, or a file where an earlier
     // descendant already made a folder is left out before any write — every
-    // one of those would otherwise reach `writeFile`'s own `wx` flag as an
+    // one of those would otherwise reach `writeNewFile`'s exclusive open as an
     // `EEXIST`, which costs the whole folder, not just the one file.
     if (filePaths.has(key) || folderPaths.has(key) || parents.some((path) => filePaths.has(path))) continue
     files.push({ path: file.path, text: file.text })
@@ -803,8 +825,11 @@ export const importAgentFolder = async (root: string, copy: unknown): Promise<Ag
     await writeAgentFolder(root, id, async (temporary) => {
       for (const file of files) {
         const target = join(temporary, file.path)
+        // Like copyTree's mkdir, a swapped ancestor can leave an empty
+        // directory outside; writeNewFile refuses the link before any file
+        // content follows it.
         await mkdir(dirname(target), { recursive: true })
-        await writeFile(target, file.text, { encoding: 'utf8', flag: 'wx' })
+        await writeNewFile(target, file.text)
       }
     })
   } catch (error) {

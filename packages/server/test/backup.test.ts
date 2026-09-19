@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { rmSync } from 'node:fs'
-import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { chmod, link, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile, type FileHandle } from 'node:fs/promises'
 import { createRequire, syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -845,6 +845,65 @@ test('export and restore preserve a UTF-8 byte-order mark byte for byte', async 
   assert.deepEqual(await readFile(join(restored, 'agents', 'scout', 'AGENT.md')), source)
 })
 
+// The top temporary folder stays unchanged: only a restore subdirectory is
+// swapped, after mkdir returns and immediately before its file is written.
+// A final identity check of the top folder cannot catch this outside write.
+test('restore refuses without writing outside when a subdirectory is swapped for a link before its file is written', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-restore-swap-'))
+  const outside = join(dir, 'outside')
+  await mkdir(outside)
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    mkdtemp: (...args: unknown[]) => Promise<string>
+    mkdir: (...args: unknown[]) => Promise<unknown>
+  }
+  const realMkdtemp = fsp.mkdtemp
+  const realMkdir = fsp.mkdir
+  let temporary: string | undefined
+  let swapped = false
+  fsp.mkdtemp = async (...args: unknown[]) => {
+    temporary = await realMkdtemp(...args)
+    return temporary
+  }
+  fsp.mkdir = async (...args: unknown[]) => {
+    const result = await realMkdir(...args)
+    const path = String(args[0])
+    if (!swapped && temporary && path === join(temporary, 'nested')) {
+      swapped = true
+      await rm(path, { recursive: true, force: true })
+      await symlink(outside, path)
+    }
+    return result
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.mkdtemp = realMkdtemp
+    fsp.mkdir = realMkdir
+    syncBuiltinESMExports()
+  })
+
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: 'scout', files: [
+      { path: 'AGENT.md', text: 'restored brief' },
+      { path: 'nested/note.txt', text: 'restored note' },
+    ] }]),
+  })
+  assert.ok(swapped, 'the swap this test depends on actually fired')
+  const escaped = await readFile(join(outside, 'note.txt'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null
+    throw error
+  })
+  assert.equal(escaped, null, 'no restore bytes land outside the canonical Agent root')
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  assert.deepEqual(await readdir(join(dir, 'agents')), [], 'the refused temporary folder was removed and nothing was renamed into place')
+  assert.deepEqual(heard.said, ['an Agent folder from a backup could not be restored'])
+  assert.match(String((heard.details[0] as { error?: unknown })?.error), /replaced.*nothing was written/)
+})
+
 test("restore refuses '..' instead of writing above the Agent's temporary folder", async (t) => {
   const dir = await restorePathCase(t, '../escape.md')
   assert.deepEqual(await readdir(join(dir, 'agents', 'scout')), ['AGENT.md'])
@@ -1181,18 +1240,23 @@ test('bad files and refused writes are isolated, bounded, and leave no half-writ
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
   const fsp = createRequire(import.meta.url)('node:fs/promises') as {
-    writeFile: (...args: unknown[]) => Promise<unknown>
+    open: (...args: unknown[]) => Promise<FileHandle>
   }
-  const realWriteFile = fsp.writeFile
-  fsp.writeFile = async (...args) => {
+  const realOpen = fsp.open
+  fsp.open = async (...args) => {
+    const handle = await realOpen(...args)
     if (String(args[0]).endsWith('/fault.md')) {
-      throw Object.assign(new Error('injected Agent backup write failure'), { code: 'EIO' })
+      // Agent content is written through the opened descriptor. Fail that
+      // write, preserving coverage of its finally-close and folder cleanup.
+      handle.writeFile = async () => {
+        throw Object.assign(new Error('injected Agent backup write failure'), { code: 'EIO' })
+      }
     }
-    return realWriteFile(...args)
+    return handle
   }
   syncBuiltinESMExports()
   t.after(() => {
-    fsp.writeFile = realWriteFile
+    fsp.open = realOpen
     syncBuiltinESMExports()
   })
   const chunk = 'x'.repeat(AGENT_FILE_LIMIT)

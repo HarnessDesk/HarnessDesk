@@ -741,6 +741,53 @@ test('through the host: an Agent is saved to you with its seat, or to a project 
   )
 })
 
+// Swap after the temporary folder's identity and permissions are captured,
+// immediately before Save's callback writes AGENT.md. Patching chmod keeps
+// the same race in place whether the callback uses writeFile or a descriptor.
+test('through the host: Save refuses without writing outside when its temporary folder is swapped for a link before AGENT.md is written', async (t) => {
+  const { client, project, stateDir } = await desk(t)
+  const outside = tempDir('hd-agent-save-outside-')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    mkdtemp: (...args: unknown[]) => Promise<string>
+    chmod: (...args: unknown[]) => Promise<void>
+  }
+  const realMkdtemp = fsp.mkdtemp
+  const realChmod = fsp.chmod
+  let temporary: string | undefined
+  let swapped = false
+  fsp.mkdtemp = async (...args: unknown[]) => {
+    temporary = await realMkdtemp(...args)
+    return temporary
+  }
+  fsp.chmod = async (...args: unknown[]) => {
+    await realChmod(...args)
+    if (!swapped && temporary && String(args[0]) === temporary) {
+      swapped = true
+      await rm(temporary, { recursive: true, force: true })
+      await symlink(outside, temporary)
+    }
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    fsp.mkdtemp = realMkdtemp
+    fsp.chmod = realChmod
+    syncBuiltinESMExports()
+  })
+
+  const failure = await client.call('agent/create', {
+    name: 'Scout', permission: 'read', seat, to: 'project', project,
+  }).then(() => null, (error: unknown) => error)
+  assert.ok(swapped, 'the swap this test depends on actually fired')
+  const escaped = await readFile(join(outside, 'AGENT.md'), 'utf8').catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null
+    throw error
+  })
+  assert.equal(escaped, null, 'no Save bytes land outside the canonical Agent root')
+  assert.match(String(failure), /replaced.*nothing was written/)
+  assert.equal(await lstat(join(project, PROJECT_AGENT_DIR, 'scout')).then(() => true, () => false), false, 'nothing was renamed into place')
+  assert.equal(await lstat(join(stateDir, SEATING_FILE)).then(() => true, () => false), false, 'a refused Save never writes its seat')
+})
+
 /**
  * Correction 4: a copy that would arrive already shadowed is invisible from
  * the moment it is written — the same mistake `agent/copy` refuses when its
