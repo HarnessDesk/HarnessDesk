@@ -3702,8 +3702,9 @@ export class AppStore {
   #agentsGeneration = 0
   /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
   #agentPlansGeneration = 0
-  /** Shared by seating reads and writes, so an older read can never land over a newer set's answer. */
+  /** Orders seating requests; only a result older than one already drawn is stale. */
   #seatingGeneration = 0
+  #seatingAppliedGeneration = 0
   /**
    * Set the instant a window's first `loadAgents()` call is made, never
    * cleared. `#snapshot.agents` says whether a load has *answered* — it stays
@@ -3935,7 +3936,8 @@ export class AppStore {
       if (generation === this.#seatingGeneration) this.notice('warning', describe(error))
       return
     }
-    if (generation !== this.#seatingGeneration) return
+    if (generation <= this.#seatingAppliedGeneration) return
+    this.#seatingAppliedGeneration = generation
     this.#patch({ seating })
   }
 
@@ -3965,7 +3967,10 @@ export class AppStore {
       seats,
       ...(expected !== undefined ? { expected } : {}),
     })
-    if (generation === this.#seatingGeneration) this.#patch({ seating })
+    if (generation > this.#seatingAppliedGeneration) {
+      this.#seatingAppliedGeneration = generation
+      this.#patch({ seating })
+    }
     void this.loadAgentPlans()
   }
 

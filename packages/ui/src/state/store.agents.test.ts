@@ -130,12 +130,14 @@ it('reloads on a notice naming this window\'s own project, or none — and ignor
 })
 
 /** A deferred promise, so a test can control exactly when a mocked request answers. */
-const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void; reject: (reason: unknown) => void } => {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((r) => {
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((r, j) => {
     resolve = r
+    reject = j
   })
-  return { promise, resolve }
+  return { promise, resolve, reject }
 }
 
 it('never lets an older loadAgents answer draw its project over a newer one', async () => {
@@ -607,6 +609,79 @@ it('never lets a seating read delayed across a write move the state backward', a
   staleRead.resolve(before)
   await read
   expect(store.getSnapshot().seating).toEqual(after)
+})
+
+it('keeps a successful seating write authoritative while its notification reload is pending or fails', async () => {
+  const before = {
+    path: '/u/.harnessdesk/seating.json',
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
+    problems: [],
+  }
+  const after = {
+    ...before,
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
+  }
+  const setAnswer = deferred<typeof after>()
+  const notificationRead = deferred<typeof after>()
+  let reads = 0
+  answering({
+    'agent/seating/read': () => (++reads === 1 ? before : notificationRead.promise),
+    'agent/seating/set': () => {
+      handlers().onNotification({ method: 'agent/changed', params: { project: null } })
+      return setAnswer.promise
+    },
+    'agent/seat/dry': () => [],
+  })
+
+  await store.loadSeating()
+  const write = store.setSeating('code-reviewer', after.entries[0]!.seats, before.entries[0]!.seats)
+  await vi.waitFor(() => expect(reads).toBe(2))
+
+  setAnswer.resolve(after)
+  await write
+  expect(store.getSnapshot().seating).toEqual(after)
+
+  notificationRead.reject(new Error('notification reload failed'))
+  await vi.waitFor(() => expect(store.getSnapshot().notices.at(-1)?.message).toContain('notification reload failed'))
+  expect(store.getSnapshot().seating).toEqual(after)
+})
+
+it('keeps a newer authoritative notification result over an older seating write result', async () => {
+  const before = {
+    path: '/u/.harnessdesk/seating.json',
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
+    problems: [],
+  }
+  const afterWrite = {
+    ...before,
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
+  }
+  const afterNewerChange = {
+    ...before,
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'cursor' }] }],
+  }
+  const setAnswer = deferred<typeof afterWrite>()
+  const notificationRead = deferred<typeof afterNewerChange>()
+  let reads = 0
+  answering({
+    'agent/seating/read': () => (++reads === 1 ? before : notificationRead.promise),
+    'agent/seating/set': () => {
+      handlers().onNotification({ method: 'agent/changed', params: { project: null } })
+      return setAnswer.promise
+    },
+    'agent/seat/dry': () => [],
+  })
+
+  await store.loadSeating()
+  const write = store.setSeating('code-reviewer', afterWrite.entries[0]!.seats, before.entries[0]!.seats)
+  await vi.waitFor(() => expect(reads).toBe(2))
+
+  notificationRead.resolve(afterNewerChange)
+  await vi.waitFor(() => expect(store.getSnapshot().seating).toEqual(afterNewerChange))
+  setAnswer.resolve(afterWrite)
+  await write
+
+  expect(store.getSnapshot().seating).toEqual(afterNewerChange)
 })
 
 /**
