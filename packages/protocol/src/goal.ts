@@ -1,0 +1,193 @@
+import type { CeilingLevel, EvidenceRecord, SeatId, SeatRecord, Sha } from './evidence.js'
+import type { FlowPermission, FlowSeat } from './flow.js'
+import type { Intent, TeamEntry, TeamState } from './team.js'
+
+export type GoalId = string
+export type GoalState = 'open' | 'wrapping' | 'wrapped'
+export type GoalActivity = 'working' | 'needs-you' | 'ready-to-wrap'
+
+export type GoalOrigin =
+  | { kind: 'person' }
+  | { kind: 'legacy'; source: string }
+  | { kind: 'flow'; run: string }
+  | { kind: 'trigger'; trigger: string; event: string }
+
+/** A finishable effort. Its Seats, rather than this document, say who belongs. */
+export interface Goal {
+  readonly id: GoalId
+  readonly root: string
+  readonly cwd: string
+  readonly sentence: string
+  readonly state: GoalState
+  readonly revision: number
+  readonly checkout: 'shared' | 'isolated'
+  readonly dependsOn: readonly GoalId[]
+  readonly origin: GoalOrigin
+  readonly createdAt: number
+  readonly updatedAt: number
+  readonly receipt: string | null
+}
+
+export interface GoalCitation {
+  readonly goal: GoalId
+  readonly receipt: string
+  readonly project: string
+  readonly path: string
+  readonly at: Sha
+}
+
+export interface GoalReceipt {
+  readonly version: 1
+  readonly id: string
+  readonly goal: GoalId
+  readonly sentence: string
+  readonly wrappedAt: number
+  readonly summary: string
+  readonly cards: readonly {
+    id: number
+    resolution: 'finished' | 'dropped'
+    reason: string | null
+  }[]
+  readonly seats: readonly SeatId[]
+  readonly evidence: readonly string[]
+  readonly answers: readonly {
+    seat: SeatId
+    session: SeatRecord['session']
+    turn: string | null
+    text: string
+    partial: boolean
+    stopReason: string | null
+  }[]
+  readonly lanes: readonly {
+    lane: string
+    cwd: string
+    dirty: boolean | null
+    retained: true
+  }[]
+  readonly revisions: readonly {
+    cwd: string
+    head: Sha | null
+    dirty: boolean | null
+  }[]
+  readonly citations: readonly GoalCitation[]
+  readonly gaps: readonly string[]
+}
+
+/** The mutable board payload contains neither members nor a second Plan API. */
+export interface GoalBoard {
+  readonly nextIntent: number
+  readonly messaging: boolean
+  readonly intents: readonly Intent[]
+  readonly channel: readonly TeamEntry[]
+}
+
+export interface GoalView {
+  readonly goal: Goal
+  readonly activity: GoalActivity | null
+  readonly waitingOn: readonly { id: GoalId; sentence: string }[]
+  readonly members: readonly SeatRecord[]
+  readonly board: TeamState
+  readonly receipt: GoalReceipt | null
+  readonly problem: string | null
+}
+
+export interface GoalCreateInput {
+  root: string
+  cwd?: string
+  sentence: string
+  checkout?: 'shared' | 'isolated'
+  dependsOn?: readonly GoalId[]
+  origin?: GoalOrigin
+}
+
+export type SeatGrant =
+  | { kind: 'permission'; permission: FlowPermission }
+  | { kind: 'ceiling'; level: CeilingLevel }
+
+export interface GoalSeatRequest {
+  goal: GoalId
+  agent: string
+  seats?: readonly FlowSeat[]
+  grant?: SeatGrant
+  card?: number
+  isolate?: boolean
+}
+
+export interface WrapChoices {
+  summary: string
+  cards: GoalReceipt['cards']
+}
+
+export interface WrapPreview {
+  stamp: string
+  receipt: Omit<GoalReceipt, 'id' | 'wrappedAt'>
+}
+
+export const membersOf = (goal: Goal, seats: readonly SeatRecord[]): SeatRecord[] =>
+  goal.state === 'wrapped'
+    ? []
+    : seats.filter((seat) => seat.board === goal.id && seat.closed === null && !seat.restored)
+
+/** Validate the proposed graph without changing the caller's array or any Goal. */
+export function checkedDependencies(
+  goal: Pick<Goal, 'id' | 'root'>,
+  ids: readonly string[],
+  all: readonly Goal[],
+): string[] {
+  if (new Set(ids).size !== ids.length || ids.length > 128) {
+    throw new Error('Choose each dependency once, up to 128 Goals.')
+  }
+  const byId = new Map(all.map((one) => [one.id, one]))
+  const visited = new Set<string>()
+  const visiting = new Set<string>([goal.id])
+  const visit = (id: string): void => {
+    if (visiting.has(id)) {
+      throw new Error('These Goals would wait on each other. Remove the circular dependency.')
+    }
+    if (visited.has(id)) return
+    const target = byId.get(id)
+    if (!target || target.root !== goal.root) {
+      throw new Error('Choose an existing Goal in this project.')
+    }
+    visiting.add(id)
+    target.dependsOn.forEach(visit)
+    visiting.delete(id)
+    visited.add(id)
+  }
+  ids.forEach(visit)
+  return [...ids]
+}
+
+/** Evidence placement supplies needsYou and busy; a done note supplies neither. */
+export function activityOf(
+  goal: Goal,
+  input: {
+    needsYou: boolean
+    busy: boolean
+    liveFlow: boolean
+    cards: readonly { state: string }[]
+    dependencies: readonly Goal[]
+  },
+): GoalActivity | null {
+  if (goal.state === 'wrapped') return null
+  if (input.needsYou) return 'needs-you'
+  const waiting = goal.dependsOn.some(
+    (id) => input.dependencies.find((one) => one.id === id)?.state !== 'wrapped',
+  )
+  const settled = input.cards.length > 0 && input.cards.every(
+    (card) => card.state === 'done' || card.state === 'abandoned',
+  )
+  return goal.state === 'open' && !input.busy && !input.liveFlow && !waiting && settled
+    ? 'ready-to-wrap'
+    : 'working'
+}
+
+/** Attribution includes closed Seats. It never spreads an unscoped fact across Goals. */
+export function factsOfGoal(
+  goal: string,
+  seats: readonly SeatRecord[],
+  facts: readonly EvidenceRecord[],
+): EvidenceRecord[] {
+  const ids = new Set(seats.filter((seat) => seat.board === goal).map((seat) => seat.id))
+  return facts.filter((fact) => fact.card?.board === goal || (fact.seat != null && ids.has(fact.seat)))
+}
