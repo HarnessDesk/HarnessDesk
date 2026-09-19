@@ -51,13 +51,14 @@ import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
 import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
 import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
-import type { OpenedSeat } from '../src/host.js'
+import { Host, type OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
 import type { SeatOpeningInput } from '../src/evidence/seats.js'
 import type { SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
+import { StateStore } from '../src/state.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -2079,6 +2080,24 @@ const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   return { harness, client, work, runtime }
 }
 
+/** A Codex desk exercised through Host.call, with no loopback server in front of it. */
+const directCodexDesk = async (t: TestContext, env: Record<string, string>) => {
+  const stateDir = tempDir('hd-agent-seat-state-')
+  const host = new Host({
+    logger: new Heard(),
+    state: new StateStore(join(stateDir, 'state.json')),
+    version: '9.9.9',
+    pickDirectory: async () => stateDir,
+  })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  host.register(runtime)
+  await host.start()
+  t.after(() => host.dispose())
+  const work = tempDir('hd-agent-seat-work-')
+  await host.call('workspace/open', { path: work })
+  return { host, runtime, stateDir, work }
+}
+
 for (const [order, how] of [
   ['answer-first', 'said after the answer, as 0.149.0 says it'],
   ['one-chunk', 'said in the same read as the answer'],
@@ -3541,6 +3560,8 @@ test('an Agent whose own list is the one in force is weighed once', async () => 
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   assert.equal(plan?.from, 'prefer')
   assert.equal(plan !== undefined && 'own' in plan, false)
+})
+
 test('over Codex: the brief opens as a notice too — Codex echoes it back as `userMessage` on its own wire, and the session still does not read it as one', async (t) => {
   const { harness, client, work } = await codexDesk(t, {})
   await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
@@ -3579,6 +3600,60 @@ test('over Codex: a coalesced turn/start answer and opening echo still record th
   const notice = items.find((item) => item.type === 'notice')
   assert.ok(notice, 'the coalesced echo is still recorded as a notice')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: a fuller completion and a cold read cannot turn the recorded brief back into speech', async (t) => {
+  const { host, stateDir, work } = await directCodexDesk(t, {
+    FAKE_CODEX_FULLER_COMPLETION: '1',
+    FAKE_CODEX_PERSIST_TURN: '1',
+  })
+  await writeReviewer(stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const record = host.registry.get(runtimeId('codex'), session.id)
+  const approvalDeadline = Date.now() + 5_000
+  while (record?.approvals.size === 0 && Date.now() < approvalDeadline) {
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  const approval = [...(record?.approvals.values() ?? [])].find(
+    (entry): entry is CommandApproval => entry.type === 'command',
+  )
+  assert.ok(approval, 'the silent order asks for its command approval')
+  await host.call('approval/respond', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    approvalId: approval.id,
+    decision: {
+      type: 'option',
+      optionId: approval.options.find((option) => option.intent === 'approve')!.id,
+    },
+  })
+  const completionDeadline = Date.now() + 5_000
+  while (record?.running.size !== 0 && Date.now() < completionDeadline) {
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  assert.equal(record?.session.turns[0]?.status, 'completed', 'the fuller completion reached the host')
+
+  const transcript = join(stateDir, 'transcripts', 'codex', `${encodeURIComponent(session.id)}.json`)
+  const transcriptDeadline = Date.now() + 5_000
+  while (Date.now() < transcriptDeadline) {
+    if (await readFile(transcript, 'utf8').then(() => true, () => false)) break
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await host.call('session/close', { runtime: session.runtime, sessionId: session.id })
+  host.registry.delete(runtimeId('codex'), session.id)
+
+  const reread = (await host.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = reread.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the persisted Codex opening is still not something a person typed',
+  )
+  assert.equal(items[0]?.type, 'notice', 'the host-restored classification survives without a live Codex session')
 })
 
 test('over Codex: the normal turn after a silent order is speech and supplies the opening preview', async (t) => {

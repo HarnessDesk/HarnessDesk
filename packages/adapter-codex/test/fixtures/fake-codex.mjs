@@ -903,12 +903,20 @@ const finishTurn = () => {
     completedAtMs: nowMs(),
   })
   notify('thread/tokenUsage/updated', { threadId: THREAD, turnId: TURN, tokenUsage: nextUsage() })
+  const completedItems = process.env['FAKE_CODEX_FULLER_COMPLETION'] === '1'
+    ? [
+        openingUserItem(),
+        answered('item-a1', 'Running ls.'),
+        answered('item-a2', 'The command completed.'),
+        answered('item-a3', 'Done.'),
+      ]
+    : []
   notify('turn/completed', {
     threadId: THREAD,
     turn: {
       id: TURN,
-      items: [],
-      itemsView: 'summary',
+      items: completedItems,
+      itemsView: completedItems.length > 0 ? 'full' : 'summary',
       status: 'completed',
       error: null,
       startedAt: turnStartedAt,
@@ -916,6 +924,11 @@ const finishTurn = () => {
       durationMs: 5000,
     },
   })
+  if (process.env['FAKE_CODEX_PERSIST_TURN'] === '1') {
+    const history = historyOf(THREAD)
+    history.stored = true
+    history.turns = [pastTurn(TURN, completedItems.length > 0 ? completedItems : [openingUserItem()], turnStartedAt)]
+  }
   notify('thread/status/changed', { threadId: THREAD, status: { type: 'idle' } })
 }
 

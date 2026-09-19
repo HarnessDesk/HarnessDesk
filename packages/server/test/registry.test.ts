@@ -125,6 +125,38 @@ test('a summary-shaped read never erases a transcript', (t) => {
   assert.equal(summary.turns[0]?.items.length, 4)
 })
 
+test('a fork inherits notice classifications without becoming a seated session', () => {
+  const registry = new SessionRegistry()
+  const opening = itemId('opening')
+  registry.upsert(
+    session([
+      {
+        id: turnId('t-1'),
+        status: 'completed',
+        items: [{ id: opening, type: 'notice', text: 'the standing order' }],
+      },
+    ]),
+    null,
+  )
+
+  const fork = registry.upsert(
+    session(
+      [
+        {
+          id: turnId('t-1'),
+          status: 'completed',
+          items: [{ id: opening, type: 'userMessage', content: [{ type: 'text', text: 'the standing order' }] }],
+        },
+      ],
+      { id: sessionId('fork'), forkedFrom: ID },
+    ),
+    null,
+  ).session
+
+  assert.equal(fork.turns[0]?.items[0]?.type, 'notice')
+  assert.equal(fork.settings?.agent, undefined)
+})
+
 test('a rollback takes the dropped turns out of the host\'s copy as well', () => {
   // #34: only the host's claims on them went, and the turns stayed until the next read.
   const registry = new SessionRegistry()
