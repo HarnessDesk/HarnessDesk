@@ -1355,33 +1355,59 @@ const OptionRows = ({
   return (
     <Rows>
       {dialog}
-      {options.map((option) => (
-        <Row
-          key={option.id}
-          title={option.label}
-          desc={option.description ?? option.disabled}
-          control={
-            option.type === 'boolean' ? (
-              <Switch
-                aria-label={option.label}
-                checked={option.currentValue}
-                disabled={Boolean(option.disabled)}
-                onCheckedChange={(next) => ask(option, next, () => onSet(option.id, next))}
-              />
-            ) : (
-              <Segmented
-                label={option.label}
-                value={String(option.currentValue)}
-                options={option.choices.map((choice) => ({
-                  value: String(choice.value),
-                  label: choice.label,
-                }))}
-                onChange={(value) => onSet(option.id, value)}
-              />
-            )
-          }
-        />
-      ))}
+      {options.map((option) => {
+        const nativeSelect =
+          option.type === 'select' &&
+          (option.choices.length > 3 || option.choices.some((choice) => Boolean(choice.disabled)))
+        return (
+          <Row
+            key={option.id}
+            title={option.label}
+            desc={option.description ?? option.disabled}
+            control={
+              option.type === 'boolean' ? (
+                <Switch
+                  aria-label={option.label}
+                  checked={option.currentValue}
+                  disabled={Boolean(option.disabled)}
+                  onCheckedChange={(next) => ask(option, next, () => onSet(option.id, next))}
+                />
+              ) : nativeSelect ? (
+                <NativeSelect
+                  aria-label={option.label}
+                  value={String(option.currentValue)}
+                  disabled={Boolean(option.disabled)}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    ask(option, value, () => onSet(option.id, value))
+                  }}
+                >
+                  {option.choices.map((choice) => (
+                    <option
+                      key={choice.value}
+                      value={choice.value}
+                      disabled={Boolean(choice.disabled)}
+                    >
+                      {choice.label}
+                      {choice.disabled ? ` — ${choice.disabled}` : ''}
+                    </option>
+                  ))}
+                </NativeSelect>
+              ) : (
+                <Segmented
+                  label={option.label}
+                  value={String(option.currentValue)}
+                  options={option.choices.map((choice) => ({
+                    value: String(choice.value),
+                    label: choice.label,
+                  }))}
+                  onChange={(value) => ask(option, value, () => onSet(option.id, value))}
+                />
+              )
+            }
+          />
+        )
+      })}
     </Rows>
   )
 }

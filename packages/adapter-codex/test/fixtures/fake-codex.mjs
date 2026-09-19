@@ -158,6 +158,7 @@ const settingsState = {
   effort: process.env['FAKE_CODEX_CONFIGURED_EFFORT'] ?? null,
   mode: 'default',
   modelProvider: 'openai',
+  contextWindow: 272000,
   workspaceRoots: ['/w'],
 }
 /**
@@ -167,6 +168,7 @@ const settingsState = {
  * a setting carried across from one that was never lost.
  */
 const CONFIGURED = { ...settingsState }
+const ADDITIONAL_MODEL = process.env['FAKE_CODEX_ADDITIONAL_MODEL'] ?? null
 const sandboxPolicy = () => {
   if (settingsState.permissions) return SANDBOX_FOR_PROFILE[settingsState.permissions] ?? SANDBOX_FOR_PROFILE[':workspace']
   if (settingsState.sandboxPolicy) return settingsState.sandboxPolicy
@@ -233,6 +235,7 @@ const applySettings = (params, { sandboxKey }) => {
   // `sandbox_workspace_write.*` keys in a thread verb's `config` stand in for
   // config.toml's own, as they do in Codex.
   for (const [key, value] of Object.entries(params.config ?? {})) {
+    if (key === 'model_context_window' && typeof value === 'number') settingsState.contextWindow = value
     const field = /^sandbox_workspace_write\.(.+)$/.exec(key)?.[1]
     if (field) settingsState.sandboxConfig = { ...settingsState.sandboxConfig, [field]: value }
   }
@@ -545,7 +548,7 @@ const nextUsage = () => {
   }
   last.totalTokens = last.inputTokens + last.outputTokens
   for (const key of Object.keys(runningTotal)) runningTotal[key] += last[key]
-  return { total: { ...runningTotal }, last, modelContextWindow: 272000 }
+  return { total: { ...runningTotal }, last, modelContextWindow: settingsState.contextWindow }
 }
 
 let turnStartedAt = nowSeconds()
@@ -1773,6 +1776,29 @@ rl.on('line', (line) => {
               defaultServiceTier: null,
               isDefault: true,
             },
+            ...(ADDITIONAL_MODEL
+              ? [{
+                  id: ADDITIONAL_MODEL,
+                  model: ADDITIONAL_MODEL,
+                  upgrade: null,
+                  upgradeInfo: null,
+                  availabilityNux: null,
+                  displayName: process.env['FAKE_CODEX_ADDITIONAL_MODEL_NAME'] ?? ADDITIONAL_MODEL,
+                  description: 'Profile model',
+                  hidden: false,
+                  supportedReasoningEfforts: [
+                    { reasoningEffort: 'low', description: 'fast' },
+                    { reasoningEffort: 'high', description: 'deep' },
+                  ],
+                  defaultReasoningEffort: 'medium',
+                  inputModalities: ['text', 'image'],
+                  supportsPersonality: true,
+                  additionalSpeedTiers: [],
+                  serviceTiers: [],
+                  defaultServiceTier: null,
+                  isDefault: false,
+                }]
+              : []),
             {
               id: 'internal-only',
               model: 'internal-only',

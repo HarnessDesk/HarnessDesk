@@ -16,7 +16,8 @@ import {
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
 
 import { automaticContext } from '../src/capabilities.js'
-import { CodexRuntime } from '../src/index.js'
+import { CodexRuntime, type CodexRuntimeOptions } from '../src/index.js'
+import { CODEX_PROFILE_OPTION_ID } from '../src/profiles.js'
 import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/session.js'
 
 /**
@@ -26,8 +27,11 @@ import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/sessio
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
 
-const makeRuntime = (env: Readonly<Record<string, string>> = {}): CodexRuntime =>
-  new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env })
+const makeRuntime = (
+  env: Readonly<Record<string, string>> = {},
+  options: Omit<CodexRuntimeOptions, 'binaryPath' | 'clientName' | 'env'> = {},
+): CodexRuntime =>
+  new CodexRuntime({ ...options, binaryPath: FAKE, clientName: 'harnessdesk-test', env })
 
 /** Collects the event stream so assertions can look at ordering, not just state. */
 const recorder = (runtime: CodexRuntime) => {
@@ -60,6 +64,9 @@ const baseSession = (id = 'thread-e2e'): Session => ({
   turns: [],
   itemsLoaded: true,
 })
+
+const noticeMessages = (events: readonly AgentEvent[]): string[] =>
+  events.filter((event) => event.type === 'notice').map((event) => event.message)
 
 test('starting the runtime reports Codex as ready with a version', async (t) => {
   const runtime = makeRuntime()
@@ -836,6 +843,94 @@ test("a draft named no folder reads the home folder's configuration, not this pr
   // the app was started — and never this process's working directory.
   assert.notEqual(process.cwd(), homedir())
   assert.deepEqual(await asked(), [`config/read ${homedir()}`, `permissionProfile/list ${homedir()}`])
+})
+
+test('Codex profiles are offered for new sessions while an unselected start stays plain', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  writeFileSync(
+    join(codexHome, 'sol.config.toml'),
+    'model = "gpt-5.6-sol"\nmodel_context_window = 872000\nmodel_auto_compact_token_limit = 550000\n',
+  )
+  const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  const defaults = await runtime.defaultSessionOptions('/w')
+  const profile = defaults.find((option) => option.id === CODEX_PROFILE_OPTION_ID)
+  assert.equal(profile?.type, 'select')
+  assert.deepEqual(
+    profile?.type === 'select' ? profile.choices.map((choice) => [choice.value, choice.label]) : [],
+    [['', 'None'], ['sol', 'sol']],
+  )
+
+  const tape = recorder(runtime)
+  const session = await runtime.createSession({ cwd: '/w' })
+  await tape.until((events) => noticeMessages(events).some((message) => message.startsWith('STARTED ')))
+  const start = JSON.parse(
+    noticeMessages(tape.events).find((message) => message.startsWith('STARTED '))!.slice('STARTED '.length),
+  ) as Record<string, unknown>
+  assert.equal(start['config'], undefined, 'no profile leaves thread/start config alone')
+  assert.ok(!session.options().some((option) => option.id === CODEX_PROFILE_OPTION_ID), 'the unreported profile is start-only')
+})
+
+test('a selected profile reaches thread/start and the context window is read back from usage', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  writeFileSync(
+    join(codexHome, 'sol.config.toml'),
+    'model = "gpt-5.6-sol"\nmodel_context_window = 872000\nmodel_auto_compact_token_limit = 550000\n',
+  )
+  const runtime = makeRuntime(
+    {
+      FAKE_CODEX_ECHO_STARTS: '1',
+      FAKE_CODEX_ADDITIONAL_MODEL: 'gpt-5.6-sol',
+      FAKE_CODEX_ADDITIONAL_MODEL_NAME: 'GPT-5.6 Sol',
+    },
+    { codexHome },
+  )
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  const selected = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'sol' })
+  assert.equal(selected.find((option) => option.id === CODEX_PROFILE_OPTION_ID)?.currentValue, 'sol')
+  assert.equal(selected.find((option) => option.id === 'model')?.currentValue, 'gpt-5.6-sol')
+
+  const tape = recorder(runtime)
+  const session = await runtime.createSession({
+    cwd: '/w',
+    options: { [CODEX_PROFILE_OPTION_ID]: 'sol' },
+  })
+  assert.equal(session.settings().model, 'gpt-5.6-sol', 'the model is read from thread/start response')
+  await tape.until((events) => noticeMessages(events).some((message) => message.startsWith('STARTED ')))
+  const start = JSON.parse(
+    noticeMessages(tape.events).find((message) => message.startsWith('STARTED '))!.slice('STARTED '.length),
+  ) as { config?: Record<string, unknown> }
+  assert.deepEqual(start.config, {
+    model_context_window: 872_000,
+    model_auto_compact_token_limit: 550_000,
+  })
+
+  await session.send([{ type: 'text', text: 'Report the active context window.' }])
+  await tape.until((events) => events.some((event) => event.type === 'approval/requested'))
+  const requested = tape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> => event.type === 'approval/requested',
+  )
+  assert.ok(requested)
+  const approval = requested.approval as Approval
+  const allow = approval.type === 'command' ? approval.options[0] : undefined
+  await session.respondToApproval(approval.id, { type: 'option', optionId: allow?.id ?? 'opt-0' })
+  await tape.until((events) => events.some((event) => event.type === 'usage/updated'))
+  const usage = tape.events.find(
+    (event): event is Extract<AgentEvent, { type: 'usage/updated' }> => event.type === 'usage/updated',
+  )?.usage
+  assert.equal(usage?.contextWindow, 872_000, 'the number is the fake app-server usage report')
 })
 
 test('the install command names the package manager that put this Codex here', async () => {

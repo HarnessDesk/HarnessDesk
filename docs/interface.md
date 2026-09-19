@@ -543,6 +543,12 @@ opened, its declared sign-in methods in its own words when it refused one for
 want of authentication, and nothing at all before either has happened. It is
 never "Needs sign-in" on the strength of an empty list.
 
+The agent page also draws the controls the runtime declares for new sessions.
+Codex includes an optional CLI profile there: choosing one reads its bounded
+model and context settings when the conversation starts, while **None** sends
+no profile overrides. The live conversation and context ring then show only
+the settings and window Codex reports back, not the values the draft expected.
+
 Which pages actually carry anything varies by agent, and the audit of that —
 along with what Settings still does not do — is recorded with the audit.
 

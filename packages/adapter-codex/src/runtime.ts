@@ -53,6 +53,13 @@ import { CodexExtensions } from './extensions.js'
 import { readHistory } from './history.js'
 import { iconDataUri } from './icon-uri.js'
 import { CodexProcesses } from './processes.js'
+import {
+  CODEX_PROFILE_OPTION_ID,
+  listCodexProfiles,
+  profileOption,
+  readCodexProfile,
+  type CodexProfile,
+} from './profiles.js'
 import { CodexTasks } from './tasks.js'
 import { loginParamsFor, mapAccount, mapLoginStart, signInMethods } from './mapping/account.js'
 import { mapThrown } from './mapping/errors.js'
@@ -506,13 +513,21 @@ export class CodexRuntime implements AgentRuntime {
     // was started — `/` from Finder, the checkout under `pnpm dev` — so a
     // project layer found there was a default nobody chose.
     const where = cwd ?? homedir()
-    const [{ config }, catalog] = await Promise.all([
+    const [{ config }, catalog, profiles] = await Promise.all([
       this.#server.request('config/read', { cwd: where }),
       this.#catalog.load(where),
+      listCodexProfiles(this.#codexHome),
     ])
-    let state = stateFromConfig(config, catalog, where)
-    if (values) state = overlayDraftValues(state, values, catalog)
-    return noteUnservedModel(sessionOptions(state, catalog), config.model, catalog)
+    const selected = profileSelection(values)
+    const chosen = profiles.find((entry) => entry.id === selected)?.profile
+    const effective = chosen?.model ? { ...config, model: chosen.model } : config
+    let state = stateFromConfig(effective, catalog, where)
+    const ordinary = withoutProfile(values)
+    if (Object.keys(ordinary).length > 0) state = overlayDraftValues(state, ordinary, catalog)
+    return [
+      ...noteUnservedModel(sessionOptions(state, catalog), effective.model, catalog),
+      profileOption(profiles, selected),
+    ]
   }
 
   async #listFeatures(): Promise<CodexProtocol.v2.ExperimentalFeature[]> {
@@ -848,7 +863,7 @@ export class CodexRuntime implements AgentRuntime {
   async createSession(options: SessionOptions): Promise<AgentSession> {
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: options.cwd })
-    const { start, after } = startParamsFor(options)
+    const { start, after } = await this.#startParamsFor(options)
     const response = await this.#server.request('thread/start', {
       cwd: options.cwd,
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
@@ -912,7 +927,7 @@ export class CodexRuntime implements AgentRuntime {
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     const existing = this.#sessions.get(id)
     if (existing) return existing
-    const { start, after } = startParamsFor(options)
+    const { start, after } = await this.#startParamsFor(options)
     let response: CodexProtocol.v2.ThreadResumeResponse
     try {
       response = await this.#server.request('thread/resume', {
@@ -973,7 +988,7 @@ export class CodexRuntime implements AgentRuntime {
    * are answered with a deprecationNotice.
    */
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
-    const { start, after } = startParamsFor(options)
+    const { start, after } = await this.#startParamsFor(options)
     const response = await this.#server.request('thread/fork', {
       threadId: id,
       ...(options.cwd ? { cwd: options.cwd } : {}),
@@ -1013,6 +1028,16 @@ export class CodexRuntime implements AgentRuntime {
       })
       return []
     }
+  }
+
+  /** Resolves the one start-only option into bounded thread config overrides. */
+  async #startParamsFor(options: Partial<SessionOptions>): Promise<ReturnType<typeof startParamsFor>> {
+    const selected = profileSelection(options.options)
+    const profile = selected ? await readCodexProfile(this.#codexHome, selected) : null
+    return startParamsFor(
+      { ...options, ...(options.options ? { options: withoutProfile(options.options) } : {}) },
+      profile,
+    )
   }
 
   /**
@@ -1411,6 +1436,7 @@ const ROUTE_PROVIDER = 'harnessdesk_route'
 
 const startParamsFor = (
   options: Partial<SessionOptions>,
+  profile: CodexProfile | null = null,
 ): {
   start: StartOptionParams & {
     modelProvider?: string
@@ -1420,14 +1446,33 @@ const startParamsFor = (
 } => {
   const { start, after } = splitStartOptions(options.options ?? {})
   const route = options.route
+  const routed = route ? routeParams(route) : null
+  const config = { ...profile?.config, ...routed?.config }
   return {
     start: {
+      ...(profile?.model ? { model: profile.model } : {}),
       ...(options.model ? { model: options.model } : {}),
       ...start,
-      ...(route ? { ...routeParams(route), ...(route.model ? { model: route.model } : {}) } : {}),
+      ...(routed ? { modelProvider: routed.modelProvider, ...(route?.model ? { model: route.model } : {}) } : {}),
+      ...(Object.keys(config).length > 0 ? { config } : {}),
     },
     after,
   }
+}
+
+const profileSelection = (values: Readonly<Record<string, OptionValue>> | undefined): string => {
+  const selected = values?.[CODEX_PROFILE_OPTION_ID]
+  if (selected === undefined || selected === '') return ''
+  if (typeof selected !== 'string') throw new Error('Profile takes one of its listed values.')
+  return selected
+}
+
+const withoutProfile = (
+  values: Readonly<Record<string, OptionValue>> | undefined,
+): Readonly<Record<string, OptionValue>> => {
+  if (!values || !(CODEX_PROFILE_OPTION_ID in values)) return values ?? {}
+  const { [CODEX_PROFILE_OPTION_ID]: _profile, ...ordinary } = values
+  return ordinary
 }
 
 /**
