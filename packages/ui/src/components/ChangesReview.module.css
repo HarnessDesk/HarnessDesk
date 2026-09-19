@@ -24,9 +24,6 @@
   gap: 10px;
 }
 
-.filePath {
-}
-
 .counts {
   display: inline-flex;
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */

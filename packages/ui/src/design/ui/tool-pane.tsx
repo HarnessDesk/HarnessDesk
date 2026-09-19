@@ -102,7 +102,7 @@ const ToolPaneHeader = ({
       </span>
     )}
     {lead != null ? (
-      <div className="hd-no-drag flex min-w-0 flex-1 items-center">{lead}</div>
+      <div className="flex min-w-0 flex-1 items-center">{lead}</div>
     ) : (
     <div className="flex min-w-0 flex-1 items-baseline gap-2">
       {/* The title truncates rather than holding its width. `shrink-0` here

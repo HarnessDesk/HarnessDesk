@@ -225,7 +225,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                 >
                   <Card as="article" variant="flush">
                     <PatchHeader className={styles.fileHead}>
-                      <Text role="row" truncate className={styles.filePath} title={file.path}>
+                      <Text role="row" truncate title={file.path}>
                         {basename(file.path)}
                       </Text>
                       <Counts added={count.added} removed={count.removed} />

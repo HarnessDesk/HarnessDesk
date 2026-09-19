@@ -224,6 +224,9 @@ it('keeps the windowed commit row borderless and marks the graph column edge', a
   const rows = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
   expect(rows).toHaveLength(2)
   expect(rows.every((row) => row.className.includes('border-0'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
+  expect(rows.every((row) => row.style.paddingRight === 'var(--hd-space-3)')).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
 })
