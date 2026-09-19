@@ -199,6 +199,18 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   readonly #records = new Map<SessionKey, SessionRecord>()
+  /**
+   * Where a conversation seen for the first time learns which Agent it was
+   * seated as, from the desk's durable Seat records — so a restarted desk shows
+   * a seated conversation as its Agent, not as a plain one. Null until the host
+   * gives one (`restoreSeatedAs`); a registry with none restores nothing.
+   */
+  #restore: ((runtime: RuntimeId, id: SessionId) => SeatedAs | null) | null = null
+
+  /** Gives the registry the durable record to restore a conversation's Agent from. Once, by the host. */
+  restoreSeatedAs(restore: (runtime: RuntimeId, id: SessionId) => SeatedAs | null): void {
+    this.#restore = restore
+  }
 
   /**
    * Folds a read of a session — from a runtime's store, or the summary a
@@ -236,9 +248,9 @@ export class SessionRegistry {
       running: new Set(),
       queue: emptyQueue(),
       tasks: [],
-      seatedAs: null,
+      seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
     }
-    record.session = seatedSession(this.#settle(record, session), null)
+    record.session = seatedSession(this.#settle(record, session), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)
     return record
   }

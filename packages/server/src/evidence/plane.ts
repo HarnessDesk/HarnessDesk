@@ -1,5 +1,6 @@
 import type { TeamState, WireNotification } from '@harnessdesk/protocol'
 
+import type { SeatedAs } from '../registry.js'
 import { SeatBook } from './seats.js'
 import { EvidenceStore } from './store.js'
 
@@ -46,6 +47,32 @@ export class EvidencePlane {
   /** Reads what a previous launch recorded. Once, at start. */
   async load(): Promise<void> {
     await this.seats.load()
+  }
+
+  /**
+   * The Agent a conversation was seated as, from the latest Seat this desk
+   * kept for it, in the shape the registry keeps it — or null when that Seat
+   * was no Agent's (a flow's runtime seat), or this desk never seated it.
+   * Closed or not: a conversation seated as an Agent is that Agent's for as
+   * long as it lasts. A Seat a backup brought never answers this: it is history,
+   * and it does not say what a conversation on this desk is.
+   *
+   * `SeatedAs` speaks today's generation of standing order; a Seat whose order
+   * was a `ceiling:` is restored by phase 3, which adds that arm here when it
+   * adds Agents that say only `ceiling:`.
+   */
+  seatedAs(runtime: string, sessionId: string): SeatedAs | null {
+    const seat = this.seats.latestKeptOf(runtime, sessionId)
+    if (!seat?.agent || seat.briefDigest === null || seat.standing.kind !== 'permission') return null
+    return {
+      agent: seat.agent.id,
+      name: seat.agent.name,
+      briefDigest: seat.briefDigest,
+      permission: seat.standing.permission,
+      seatLabel: seat.seatLabel,
+      passedOver: seat.passedOver,
+      ceiling: seat.ceiling,
+    }
   }
 
   /** The desk is closing: this resolves once every record already asked for is on disk. */

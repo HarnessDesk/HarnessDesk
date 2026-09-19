@@ -593,6 +593,8 @@ export class Host {
         log: (message, details) => this.#logger.warn(message, details ?? {}),
       },
     )
+    // A conversation seen for the first time wears the Agent its Seat record names.
+    this.registry.restoreSeatedAs((runtime, id) => this.#evidence.seatedAs(runtime, id))
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -962,6 +964,14 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    /* Before any runtime starts, so the first conversation listed already
+       wears the Agent its Seat record names. Caught like the flow runs above:
+       records that cannot be read cost the restored names, not the desk. */
+    await this.#evidence.load().catch((error: unknown) => {
+      this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
     /* From here on a file changed under any of the roster's roots is one
        notice to every window. Guarded on `#disposed`: everything above this
        point can yield, and a quit landing in one of those gaps must find no
