@@ -18,12 +18,16 @@ import { cn } from '@/lib/utils'
 const KeyValue = ({
   className,
   columns = 1,
+  variant = 'default',
   ...props
-}: React.ComponentProps<'dl'> & { columns?: 1 | 2 }) => (
+}: React.ComponentProps<'dl'> & { columns?: 1 | 2; variant?: 'default' | 'panel' }) => (
   <dl
     data-slot="key-value"
+    data-variant={variant}
     className={cn(
-      'grid gap-x-6 gap-y-2 text-base',
+      'grid',
+      variant === 'default' && 'gap-x-6 gap-y-2 text-base',
+      variant === 'panel' && 'gap-x-2.5 gap-y-0.5 text-sm',
       columns === 2 ? 'grid-cols-[auto_1fr_auto_1fr]' : 'grid-cols-[auto_1fr]',
       className,
     )}
@@ -36,19 +40,22 @@ const KeyValueRow = ({
   label,
   children,
   emphasis,
+  variant = 'default',
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
   label: React.ReactNode
   children: React.ReactNode
   emphasis?: boolean
+  variant?: 'default' | 'panel'
 }) => (
   /* `display: contents` so the pair joins the parent grid's columns; wrapping
      each pair in its own box would give every row its own idea of where the
      value column starts, which is the drift this component exists to stop. */
-  <div data-slot="key-value-row" className={cn('contents', className)} {...props}>
+  <div data-slot="key-value-row" data-variant={variant} className={cn('contents', className)} {...props}>
     <dt
       className={cn(
         'text-(--hd-muted-foreground)',
+        variant === 'panel' && 'text-xs',
         emphasis && 'font-medium text-(--hd-foreground)',
       )}
     >
@@ -56,7 +63,9 @@ const KeyValueRow = ({
     </dt>
     <dd
       className={cn(
-        'min-w-0 text-right tabular-nums',
+        'min-w-0',
+        variant === 'default' && 'text-right tabular-nums',
+        variant === 'panel' && 'text-left text-sm',
         emphasis && 'font-semibold',
       )}
     >

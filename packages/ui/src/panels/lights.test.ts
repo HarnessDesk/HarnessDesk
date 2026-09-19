@@ -5,7 +5,10 @@ import panesCss from '../components/Panes.module.css?raw'
 import sidebarCss from '../components/Sidebar.module.css?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
+import terminalPaneSource from '../components/TerminalPane.tsx?raw'
+import toolPaneHeaderSource from '../components/ToolPaneHeader.tsx?raw'
 import toolPanesCss from '../components/ToolPanes.module.css?raw'
+import toolPaneSystem from '../design/ui/tool-pane.tsx?raw'
 import workbenchCss from './Workbench.module.css?raw'
 import dockPanel from '../design/patterns/DockPanel.tsx?raw'
 import appCss from '../styles/app.css?raw'
@@ -42,8 +45,6 @@ import appCss from '../styles/app.css?raw'
 /** Every row that the layout can put under the window buttons. */
 const CORNER_ROWS: ReadonlyArray<readonly [string, string, string]> = [
   ["a conversation's header", conversationCss, '.header'],
-  ["a tool's header", toolPanesCss, '.header'],
-  ["a terminal's own bar", toolPanesCss, '.terminalBar'],
   // The room draws its own top row and gets no strip above it, so that row is
   // the corner whenever the room is filling the window with the sidebar away.
   ["a room's top row", teamRoomCss, '.bar'],
@@ -60,6 +61,16 @@ describe('the row under the macOS window buttons', () => {
   it.each(CORNER_ROWS)('%s leaves room for them', (_name, css, selector) => {
     const rule = block(css, selector)
     expect(rule).toMatch(/padding[^;]*max\([^;]*var\(--titlebar-inset, 0px\)/)
+  })
+
+  it("a tool's header leaves room for them through the shared corner role", () => {
+    expect(toolPaneHeaderSource).toContain('corner')
+    expect(toolPaneSystem).toContain("corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]'")
+  })
+
+  it("a terminal's own bar leaves room for them through its shared bar variant", () => {
+    expect(terminalPaneSource).toContain('variant="terminal"')
+    expect(toolPaneSystem).toContain("'gap-2 pr-2 pl-[max(var(--hd-space-2-5),var(--titlebar-inset,0px))]")
   })
 
   it("the sidebar's layout-only sheet leaves its title-bar inset on the element", () => {

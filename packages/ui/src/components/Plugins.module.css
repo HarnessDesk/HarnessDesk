@@ -8,6 +8,7 @@
 }
 
 .pageActions {
+  flex-wrap: nowrap;
   gap: var(--hd-space-2);
   margin-top: var(--hd-space-1-5);
 }

@@ -343,7 +343,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
       {plugin.configSchema && (
         <>
           <SectionHead name="Configuration" />
-          <Card>
+          <Card radius="lg">
             <CardContent>
               <SchemaForm
                 schema={plugin.configSchema}

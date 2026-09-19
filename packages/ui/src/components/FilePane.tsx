@@ -4,7 +4,13 @@ import { editorLook } from '../lib/editor-prefs'
 import { useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { useTheme } from '../state/theme'
-import { Button } from '../design'
+import {
+  Button,
+  ToolPane,
+  ToolPaneBody,
+  ToolPaneMessage,
+  ToolPaneNotice,
+} from '../design'
 import { AlertIcon } from './Icons'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -171,7 +177,7 @@ export const FilePane = () => {
   const editable = loaded !== null && !loaded.truncated && loaded.content.length <= MAX_EDITABLE
 
   return (
-    <div className={styles.pane}>
+    <ToolPane variant="integrated">
       <ToolPaneHeader title={path.split('/').pop() ?? path} subtitle={path}>
         {loaded && draft === null && editable && (
           <Button variant="ghost" size="sm" onClick={() => setDraft(loaded.content)}>
@@ -203,9 +209,9 @@ export const FilePane = () => {
       </ToolPaneHeader>
 
       {conflict && (
-        <div className={styles.banner} data-tone="alert">
+        <ToolPaneNotice tone="danger" placement="top">
           <AlertIcon size={13} />
-          <span>
+          <span className="flex-1">
             This file changed on disk since you loaded it — your save was refused so nothing was lost.
           </span>
           <Button
@@ -222,22 +228,22 @@ export const FilePane = () => {
           <Button variant="outline" size="sm" onClick={() => void save(conflict.hash)}>
             Overwrite with mine
           </Button>
-        </div>
+        </ToolPaneNotice>
       )}
       {changedOnDisk && !conflict && (
-        <div className={styles.banner} data-tone="warn">
+        <ToolPaneNotice tone="warning" placement="top">
           <AlertIcon size={13} />
-          <span>Changed on disk while you were editing.</span>
+          <span className="flex-1">Changed on disk while you were editing.</span>
           <Button variant="outline" size="sm" onClick={() => void load().then(() => setDraft(null))}>
             Reload
           </Button>
-        </div>
+        </ToolPaneNotice>
       )}
 
-      <div className={styles.body}>
+      <ToolPaneBody bleed className={styles.body}>
         {error ? (
           missing ? (
-            <div className={styles.message}>
+            <ToolPaneMessage as="div">
               <p style={{ margin: '0 0 10px' }}>{path.split('/').pop()} does not exist yet.</p>
               <Button
                 variant="outline"
@@ -253,12 +259,12 @@ export const FilePane = () => {
               >
                 Create this file
               </Button>
-            </div>
+            </ToolPaneMessage>
           ) : (
-            <p className={styles.message}>{error}</p>
+            <ToolPaneMessage>{error}</ToolPaneMessage>
           )
         ) : !loaded ? (
-          <p className={styles.message}>Loading…</p>
+          <ToolPaneMessage>Loading…</ToolPaneMessage>
         ) : (
           // The fallback is deliberately empty: the chunk arrives in a frame
           // or two off local disk, and a spinner that flashes for one frame
@@ -290,8 +296,8 @@ export const FilePane = () => {
             />
           </Suspense>
         )}
-        {loaded?.truncated && <p className={styles.message}>Showing the first part of a large file.</p>}
-      </div>
-    </div>
+        {loaded?.truncated && <ToolPaneMessage>Showing the first part of a large file.</ToolPaneMessage>}
+      </ToolPaneBody>
+    </ToolPane>
   )
 }

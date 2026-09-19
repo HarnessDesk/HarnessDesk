@@ -80,7 +80,7 @@ const PatchHeader = ({
   className,
   level = 'file',
   ...props
-}: React.ComponentProps<'header'> & { level?: 'file' | 'hunk' }) => (
+}: React.ComponentProps<'header'> & { level?: 'file' | 'hunk' | 'block' }) => (
   <header
     data-slot="patch-header"
     data-level={level}
@@ -88,7 +88,9 @@ const PatchHeader = ({
       'flex items-center',
       level === 'file'
         ? 'gap-2.5 border-b border-(--hd-border-strong) bg-(--hd-card) px-3 py-2'
-        : 'gap-2.5 px-3 py-1',
+        : level === 'block'
+          ? 'gap-2 border-b border-(--hd-border) px-2 py-1 text-xs text-(--hd-muted-foreground)'
+          : 'gap-2.5 px-3 py-1',
       className,
     )}
     {...props}

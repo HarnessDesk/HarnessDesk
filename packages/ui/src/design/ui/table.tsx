@@ -11,7 +11,7 @@ const Table = ({
   ...props
 }: React.ComponentProps<'table'> & {
   containerClassName?: string
-  variant?: 'default' | 'framed'
+  variant?: 'default' | 'framed' | 'panel'
 }) => (
   <div
     data-slot="table-container"
@@ -19,12 +19,13 @@ const Table = ({
     className={cn(
       'relative w-full overflow-x-auto',
       variant === 'framed' && 'rounded-(--hd-radius) shadow-(--hd-hairline)',
+      variant === 'panel' && 'rounded-(--hd-radius-sm) border border-(--hd-border)',
       containerClassName,
     )}
   >
     <table
       data-slot="table"
-      className={cn('w-full caption-bottom border-collapse text-sm', className)}
+      className={cn('w-full caption-bottom border-collapse', variant === 'panel' ? 'text-xs' : 'text-sm', className)}
       {...props}
     />
   </div>
@@ -66,7 +67,7 @@ const TableRow = ({
   interactive = false,
   ...props
 }: React.ComponentProps<'tr'> & {
-  variant?: 'default' | 'matrix'
+  variant?: 'default' | 'matrix' | 'panel'
   interactive?: boolean
 }) => (
   <tr
@@ -91,7 +92,7 @@ const TableHead = ({
   align = 'start',
   ...props
 }: Omit<React.ComponentProps<'th'>, 'align'> & {
-  variant?: 'default' | 'matrix' | 'row' | 'footer'
+  variant?: 'default' | 'matrix' | 'row' | 'footer' | 'panel'
   pinned?: boolean
   align?: 'start' | 'center' | 'end'
 }) => (
@@ -105,6 +106,7 @@ const TableHead = ({
       variant === 'matrix' && 'bg-(--hd-background) px-2.5 py-2 text-left align-middle text-xs font-medium whitespace-nowrap text-(--hd-muted-foreground)',
       variant === 'row' && 'bg-(--hd-background) p-0 text-left align-middle text-sm font-normal text-(--hd-foreground) group-hover/matrix:bg-(--hd-hover) group-data-[state=selected]/matrix:bg-(--hd-hover)',
       variant === 'footer' && 'px-2.5 py-2 text-left text-xs font-medium whitespace-nowrap text-(--hd-muted-foreground)',
+      variant === 'panel' && 'sticky top-0 bg-(--hd-card) px-2 py-1 text-left align-middle text-xs font-semibold whitespace-nowrap text-(--hd-secondary-foreground)',
       pinned && 'bg-(--hd-background)',
       align === 'center' && 'text-center',
       align === 'end' && 'text-right',
@@ -118,7 +120,7 @@ const TableCell = ({
   className,
   variant = 'default',
   ...props
-}: React.ComponentProps<'td'> & { variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' }) => (
+}: React.ComponentProps<'td'> & { variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel' }) => (
   <td
     data-slot="table-cell"
     data-variant={variant}
@@ -128,6 +130,7 @@ const TableCell = ({
       variant === 'flush' && 'bg-(--hd-background) p-0 align-middle',
       variant === 'detail' && 'bg-(--hd-background) px-3 pt-2.5 pb-3 align-middle',
       variant === 'footer' && 'px-1.5 py-2 text-center text-xs tabular-nums whitespace-nowrap text-(--hd-muted-foreground)',
+      variant === 'panel' && 'px-2 py-1 align-top whitespace-normal [overflow-wrap:anywhere]',
       className,
     )}
     {...props}
@@ -138,13 +141,14 @@ const TableCaption = ({
   className,
   variant = 'default',
   ...props
-}: React.ComponentProps<'caption'> & { variant?: 'default' | 'sr-only' }) => (
+}: React.ComponentProps<'caption'> & { variant?: 'default' | 'sr-only' | 'panel' }) => (
   <caption
     data-slot="table-caption"
     data-variant={variant}
     className={cn(
       variant === 'default' && 'text-muted-foreground mt-2 text-sm',
       variant === 'sr-only' && 'sr-only',
+      variant === 'panel' && 'px-2 py-1 text-left text-xs text-(--hd-muted-foreground)',
       className,
     )}
     {...props}

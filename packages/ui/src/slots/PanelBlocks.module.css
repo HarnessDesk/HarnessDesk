@@ -1,111 +1,45 @@
-/*
- * The block vocabulary's own styles.
- *
- * The first four blocks were written as inline style objects, which was fine
- * while a block was a paragraph or a row. Code, tables and trees need
- * pseudo-elements, hover states and sticky headers, and none of those are
- * expressible inline — so the whole set moves here rather than leaving the
- * file half in each idiom.
- *
- * Every colour is a platform or app token. A plugin never sends one: it sends
- * a severity, an alignment, a `done`, and the app decides what those look
- * like. That is the same boundary the block vocabulary itself draws — data in,
- * appearance ours — applied to colour.
- */
+/* Layout owned by the plugin panel renderer; visible roles come from design/. */
 
 .section {
   flex: none;
-  padding: 8px 10px;
-  border-top: 1px solid var(--hd-border);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  /* How tall a panel may stand before its own body scrolls. Set by whoever
-     is hosting it rather than defaulted here: the sidebar column belongs to
-     the session list and lends a panel 320px of it (`--panel-max` in
-     `Sidebar.module.css`), while a docked panel has a whole pane and its own
-     scrollbar and needs no cap at all. */
-  max-height: var(--panel-max, none);
   min-height: 0;
 }
 
-/* The title is the fold: a button, drawn as the label it replaced. */
 .sectionTitle {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--hd-space-1);
   width: 100%;
-
-  text-align: left;
-
 }
 
 .sectionChevron {
   flex: none;
   display: inline-flex;
   margin-left: -3px;
-  transition: transform 120ms ease;
 }
 
-.sectionChevronOpen {
-  transform: rotate(90deg);
-}
-
-/*
- * Where the panel's blocks live, and where a long one scrolls. Without this
- * the Tasks panel simply grew: nine tasks took half the sidebar off the
- * session list, with no scrollbar of its own to say there was more.
- */
 .sectionBody {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-/* ------------------------------------------------------------------- prose */
-
-.markdown {
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  line-height: var(--hd-line-sm);
+  gap: var(--hd-space-2);
 }
 
 .keyValue {
   margin: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 2px 10px;
 }
-
-.keyValueTerm {
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
-.keyValueValue {
-  margin: 0;
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  overflow-wrap: anywhere;
-}
-
-/* -------------------------------------------------------------------- list */
 
 .list {
   margin: 0;
-  padding: 0;
-  list-style: none;
 }
 
 .listItem {
   display: flex;
-  gap: var(--hd-space-2); /* desk: canonical One UI System scale */
+  gap: var(--hd-space-2);
   align-items: flex-start;
-  padding: 2px 0;
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
 }
 
 .listBullet {
@@ -114,217 +48,66 @@
   align-items: center;
   justify-content: center;
   width: 12px;
-  height: 17px;
-  color: var(--hd-muted-foreground);
 }
 
 .listLabel {
   min-width: 0;
 }
 
-.listDone {
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
-.listHint {
-  margin-left: 6px;
-  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
-}
-
-/* ----------------------------------------------------------------- actions */
-
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--hd-space-1-5);
 }
-
-/* -------------------------------------------------------------------- code */
 
 .code {
-  border: 1px solid var(--hd-border);
-  border-radius: 6px;
   overflow: hidden;
-  background: var(--hd-background);
-}
-
-.codeHeader {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--hd-border);
-  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
-}
-
-.codePath {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--hd-font-code);
 }
 
 .codeDirty {
   margin-left: auto;
   flex: none;
-  color: var(--hd-secondary-foreground);
 }
 
-/*
- * The editor scrolls inside the block rather than growing the panel.
- * `--hd-block-code-max` is set inline from `maxLines`, which is the one thing
- * a plugin can say about height — and it says it in lines, not pixels,
- * because the person's own font size decides what a line is worth.
- */
 .codeBody {
-  max-height: var(--hd-block-code-max, 480px);
   overflow: auto;
 }
-
-.codeFallback {
-  margin: 0;
-  padding: 8px;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm); /* desk: 1.55 → 18, its step’s own line */
-  overflow-x: auto;
-  white-space: pre;
-}
-
-/* ---------------------------------------------------------------- document */
 
 .document {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.documentTitle {
-  font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-  margin-bottom: 4px;
-}
-
-.documentSection {
-  border-top: 1px solid var(--hd-border);
-}
-
-.documentSection:first-of-type {
-  border-top: none;
+  gap: var(--hd-space-0-5);
 }
 
 .documentHeading {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--hd-space-1-5);
   width: 100%;
- /* desk: canonical One UI System scale */
-
-  text-align: left;
-
 }
 
 .documentChevron {
   flex: none;
   display: inline-flex;
-  color: var(--hd-muted-foreground);
-  transition: transform 120ms ease;
 }
-
-.documentChevronOpen {
-  transform: rotate(90deg);
-}
-
-.documentBody {
-  padding: 0 0 8px var(--hd-space-5); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  line-height: var(--hd-line-sm);
-}
-
-/* ------------------------------------------------------------------- table */
 
 .tableScroll {
   overflow-x: auto;
-  border: 1px solid var(--hd-border);
-  border-radius: 6px;
 }
-
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--hd-text-xs);
-}
-
-.tableCaption {
-  caption-side: bottom;
-  padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
-  text-align: left;
-}
-
-.tableHeader {
-  position: sticky;
-  top: 0;
-  padding: var(--hd-space-1) 8px; /* desk: canonical One UI System scale */
-  background: var(--hd-card);
-  border-bottom: 1px solid var(--hd-border);
-  font-weight: var(--hd-weight-semibold);
-  color: var(--hd-secondary-foreground);
-  text-align: left;
-  white-space: nowrap;
-}
-
-.tableCell {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--hd-border);
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-
-.tableRow:last-child .tableCell {
-  border-bottom: none;
-}
-
-.alignEnd {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-/* -------------------------------------------------------------------- tree */
 
 .tree {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
 }
 
 .treeChildren {
-  margin: 0;
-  padding-left: var(--hd-space-4); /* desk: canonical One UI System scale */
-  list-style: none;
+  margin: 0 0 0 var(--hd-space-4); /* desk: 0 → 0 0 0 16px, margin carries the tree indent formerly owned by padding */
 }
 
 .treeRow {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
+  gap: var(--hd-space-1);
   width: 100%;
-
-  text-align: left;
-}
-
-.treeRowAction {
-  cursor: pointer;
-}
-
-.treeRowAction:hover {
-  background: var(--hd-hover);
 }
 
 .treeTwisty {
@@ -333,51 +116,18 @@
   align-items: center;
   justify-content: center;
   width: 14px;
-
 }
 
-.treeTwistyOpen {
-  display: inline-flex;
-  transition: transform 120ms ease;
-  transform: rotate(90deg);
-}
-
-/* Keeps a leaf's label on the same column as a parent's. */
 .treeSpacer {
   flex: none;
   width: 14px;
 }
 
-.treeLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .treeHint {
   flex: none;
   margin-left: auto;
-  padding-left: 8px;
-  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
 }
-
-/* -------------------------------------------------------------------- diff */
 
 .diff {
-  border: 1px solid var(--hd-border);
-  border-radius: 6px;
   overflow: hidden;
-}
-
-.diffPath {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--hd-border);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

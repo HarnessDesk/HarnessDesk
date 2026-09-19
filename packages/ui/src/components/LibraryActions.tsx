@@ -292,11 +292,11 @@ export const PlanDialog = ({
                     role="meta"
                     ink="secondary"
                     className={styles.opVerb}
-                    truncate={op.action !== 'refuse' && result?.outcome !== 'failed'}
-                    {...(op.action === 'refuse' || result?.outcome === 'failed' ? { tone: 'warning' as const } : {})}
-                    title={result?.outcome === 'failed' ? result.detail : verbOf(op, columns)}
+                    truncate={op.action !== 'refuse'}
+                    {...(op.action === 'refuse' ? { tone: 'warning' as const } : {})}
+                    title={verbOf(op, columns)}
                   >
-                    {result?.outcome === 'failed' ? result.detail : verbOf(op, columns)}
+                    {verbOf(op, columns)}
                   </Text>
                   {op.targetPath !== undefined && op.targetPath !== '' && (
                     <Text role="meta" className={styles.opPath} title={op.targetPath} truncate align="end" dir="rtl">
@@ -309,6 +309,7 @@ export const PlanDialog = ({
                     </Text>
                   )}
                 </Button>
+                {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
                 {open === op.id && op.preview && (
                   <div className={styles.opBody}>
                     <DiffView diff={op.preview} wrap />

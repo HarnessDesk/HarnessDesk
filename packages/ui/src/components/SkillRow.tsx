@@ -217,7 +217,7 @@ export const SkillRow = ({
               `/name`, and showing only the first leaves the second to
               guesswork. MCP servers get no slash — they are loaded, not
               invoked. */}
-          <Text role="meta">
+          <Text role="muted" ink="muted">
             <CodeText as="code" size="inherit">
               {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
             </CodeText>
@@ -228,7 +228,11 @@ export const SkillRow = ({
       control={
         <>
           {finding && (
-            <Text role="muted" {...(finding.tone === 'warn' ? { tone: 'warning' as const } : {})}>
+            <Text
+              role="muted"
+              ink="muted"
+              {...(finding.tone === 'warn' ? { tone: 'warning' as const } : {})}
+            >
               {finding.text}
             </Text>
           )}
