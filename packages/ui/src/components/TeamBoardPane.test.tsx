@@ -13,7 +13,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
-import { cardEvidence, checkView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
+import { cardEvidence, checkView, ciView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
 import { ARM_MS } from './RunCheck'
 import { TeamBoardPane } from './TeamBoardPane'
 
@@ -133,7 +133,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     runCheck: vi.fn().mockResolvedValue({ kind: 'started' }),
   } as unknown as AppStore
-  return { store }
+  return { store, snapshot }
 }
 
 const render = async (store: AppStore): Promise<void> => {
@@ -155,19 +155,22 @@ const button = (text: string): HTMLButtonElement => {
   return found
 }
 
-it('columns are the states, so no card has to repeat its own', async () => {
+it('columns are what is known about the work, so no card has to repeat its own', async () => {
   const { store } = rig([
     intent({ id: 1, state: 'open' }),
     intent({ id: 2, state: 'claimed', title: 'Integration tests' }),
   ])
   await render(store)
 
-  /* "Ready", not "Open": once Waiting is a column of its own, "Open" stops
-     saying which of the two it means. The engine's state is still `open` —
-     a label and a state name do not have to be the same word. */
-  expect(container.textContent).toContain('Ready')
-  expect(container.textContent).toContain('Claimed')
-  expect(container.textContent).toContain('#1')
+  expect([...container.querySelectorAll('[data-slot="board-column"] h3')].map((one) => one.textContent)).toEqual([
+    'To do',
+    'Working',
+    'Needs you',
+    'In review',
+    'Ready',
+  ])
+  expect(column('To do').textContent).toContain('#1')
+  expect(column('Working').textContent).toContain('Integration tests')
   expect(container.textContent).toContain('src/api/**')
 })
 
@@ -235,38 +238,6 @@ const column = (name: string): HTMLElement => {
   return found as HTMLElement
 }
 
-/** React tracks the value setter, so a bare assignment is a change it never hears. */
-const typeInto = (box: HTMLInputElement, text: string): void => {
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(box, text)
-    box.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-}
-
-/**
- * The quick path, which lives at the foot of Ready and not in the header.
- *
- * It is a slot until it is pressed, so opening it is part of the act: a
- * composer that were always a field would be a field sitting in a column,
- * which is the shape this replaced.
- */
-const openQuickAdd = (): HTMLInputElement => {
-  const slot = [...container.querySelectorAll<HTMLButtonElement>(
-    '[data-slot="board-add"]',
-  )].find((one) => one.tagName === 'BUTTON')
-  if (!slot) throw new Error('no add slot at the foot of Ready')
-  act(() => slot.click())
-  return quickAdd()
-}
-
-const quickAdd = (): HTMLInputElement => {
-  const found = container.querySelector<HTMLInputElement>(
-    '[data-slot="board-add"][data-open] input',
-  )
-  if (!found) throw new Error('the add slot is not open')
-  return found
-}
-
 it('the referee wins: release on a claimed intent reaches the host', async () => {
   const { store } = rig([
     intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
@@ -296,69 +267,16 @@ it('settled work can be put back in play', async () => {
   expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'reopen')
 })
 
-/**
- * Moving work by dragging it.
- *
- * The shortcut, and the reason the board is a board: a card's column is its
- * state, so moving the card is the whole of saying what happened to it. Every
- * drop is one of the same four verbs the menu offers — nothing here can do
- * something a keyboard cannot.
- */
-it('dropping a card on Done marks it done', async () => {
-  const { store } = rig([intent({ state: 'open' })])
-  await render(store)
-
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  const done = column('Done')
-  act(() => done.dispatchEvent(drag('dragover')))
-  act(() => done.dispatchEvent(drag('drop')))
-  await act(async () => {})
-
-  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
-})
-
-it('dropping a claimed card on Ready takes it back off its holder', async () => {
+it('what a drop did is in the card’s menu: done, and taking work back off its holder', async () => {
   const { store } = rig([
-    intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
+    intent({ id: 1, state: 'open' }),
+    intent({ id: 2, state: 'claimed', title: 'Round the totals', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
   ])
   await render(store)
-
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  const ready = column('Ready')
-  act(() => ready.dispatchEvent(drag('dragover')))
-  act(() => ready.dispatchEvent(drag('drop')))
-  await act(async () => {})
-
-  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'release')
-})
-
-/**
- * The honest half.
- *
- * Three of the five columns are the user's to fill and two are not: `claimed`
- * is taken by an agent, not handed out, and `waiting` belongs to the dependency
- * graph. A drop that silently did nothing would teach the reader the board is
- * broken rather than that the rule exists, so the rule is a sentence, drawn on
- * the column while the card is still in the air.
- */
-it('says why a column will not take the card, while the card is in the air', async () => {
-  const { store } = rig([intent({ state: 'open' })])
-  await render(store)
-
-  expect(column('Claimed').textContent).not.toContain('never handed out')
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-
-  expect(column('Claimed').textContent).toContain('never handed out')
-  expect(column('Waiting').textContent).toContain('dependency graph')
-  // And the columns that will take it name the verb rather than saying "drop
-  // here": four columns do four different things to a card.
-  expect(column('Done').textContent).toContain('Mark #1 done')
-  expect(column('Blocked').textContent).toContain('Stop #1')
-
-  // A drop where it is refused changes nothing.
-  act(() => column('Claimed').dispatchEvent(drag('drop')))
-  await act(async () => {})
-  expect(store.teamIntent).not.toHaveBeenCalled()
+  await pick(1, 'Mark done')
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
+  await pick(2, 'Take it back off')
+  expect(store.teamIntent).toHaveBeenLastCalledWith(ROOM, 2, 'release')
 })
 
 /**
@@ -373,14 +291,11 @@ it('says why a column will not take the card, while the card is in the air', asy
  * that does not say what stopped it sends the next reader to the channel, which
  * is the trip the board exists to save.
  */
-it('dropping a card on Blocked asks why before it stops anything', async () => {
+it('stopping a card asks why before it stops anything', async () => {
   const { store } = rig([intent({ state: 'open' })])
   await render(store)
 
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  const blocked = column('Blocked')
-  act(() => blocked.dispatchEvent(drag('dragover')))
-  act(() => blocked.dispatchEvent(drag('drop')))
+  await pick(1, 'Stop it — say why')
   await act(async () => {})
 
   // Nothing has happened yet — the question is the point.
@@ -407,9 +322,7 @@ it('cancelling the question leaves the card where it was', async () => {
   const { store } = rig([intent({ state: 'open' })])
   await render(store)
 
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  act(() => column('Blocked').dispatchEvent(drag('drop')))
-  await act(async () => {})
+  await pick(1, 'Stop it — say why')
 
   const cancel = [...document.querySelectorAll('button')].find(
     (one) => one.textContent?.trim() === 'Cancel',
@@ -419,6 +332,7 @@ it('cancelling the question leaves the card where it was', async () => {
 
   expect(store.teamIntent).not.toHaveBeenCalled()
   expect(document.querySelector('input[aria-label="Why it is stopped"]')).toBeNull()
+  expect(column('To do').textContent).toContain('Migrate auth callers')
 })
 
 it('offers the same stop from the card’s own menu', async () => {
@@ -445,41 +359,6 @@ it('offers the same stop from the card’s own menu', async () => {
  * A title typed into the header and pressed once is how most work goes up, and
  * that path must not get slower because a longer one exists beside it.
  */
-it('adds work from the slot at the foot of Ready', async () => {
-  const { store } = rig([intent({})])
-  await render(store)
-
-  const add = openQuickAdd()
-  typeInto(add, 'Ship the docs')
-  act(() => add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
-  await act(async () => {})
-
-  expect(store.teamAdd).toHaveBeenCalledWith(ROOM, { title: 'Ship the docs' })
-  await act(async () => {})
-  // Cleared, and still open: boards are filled in runs, and closing after the
-  // first card would make the second one a second click.
-  expect(quickAdd().value).toBe('')
-})
-
-it('a title the host refuses is said back, in the words that were typed', async () => {
-  const { store } = rig([intent({})])
-  ;(store.teamAdd as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no'))
-  await render(store)
-
-  const add = openQuickAdd()
-  typeInto(add, 'Ship the docs')
-  act(() => add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
-  await act(async () => {})
-
-  /* The field clears the moment it hands the title over and does not wait for
-     the host, because a composer that waits eats the next card typed into it
-     — and this one is meant to be typed into four times in a row. So the words
-     are not held in the box; they are quoted back in the pane's trouble line,
-     which is where the answer to "did that land" belongs anyway. */
-  expect(container.textContent).toContain('Ship the docs')
-  expect(container.textContent).toContain('the board is as it was')
-})
-
 /**
  * The long form, and everything that opens it.
  *
@@ -541,26 +420,6 @@ it('offers the same long form from an empty board', async () => {
  * person who pressed it to see what it was is left with a field they have to
  * work out how to leave.
  */
-it('Escape leaves the quick add, and takes the half-typed title with it', async () => {
-  const { store } = rig([intent({})])
-  await render(store)
-
-  const add = openQuickAdd()
-  typeInto(add, 'Half a thought')
-  act(() => add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-  await act(async () => {})
-
-  expect(container.querySelector('[data-slot="board-add"][data-open]')).toBeNull()
-  expect(store.teamAdd).not.toHaveBeenCalled()
-})
-
-it('abandoned work is settled but does not sit in Done looking finished', async () => {
-  const { store } = rig([intent({ state: 'abandoned' })])
-  await render(store)
-
-  // It folds into the last column — and says which it is.
-  expect(container.textContent).toContain('abandoned')
-})
 
 it('the claiming harness is pressable straight through to its conversation', async () => {
   const { store } = rig([
@@ -683,13 +542,10 @@ it('separates work waiting on its dependencies from work somebody stopped', asyn
   const { store } = rig([waiting, stopped] as never)
   await render(store)
 
-  const columns = [...container.querySelectorAll('[data-slot="board-column"]')]
-  const named = (title: string) =>
-    columns.find((column) => column.textContent?.startsWith(title))
-  expect(named('Waiting')?.textContent).toContain('Review the rounding change')
-  expect(named('Waiting')?.textContent).not.toContain('Migrate the pricing table')
-  expect(named('Blocked')?.textContent).toContain('Migrate the pricing table')
-  expect(named('Blocked')?.textContent).not.toContain('Review the rounding change')
+  expect(column('To do').textContent).toContain('Review the rounding change')
+  expect(column('To do').textContent).not.toContain('Migrate the pricing table')
+  expect(column('Needs you').textContent).toContain('Migrate the pricing table')
+  expect(column('Needs you').textContent).not.toContain('Review the rounding change')
 })
 
 /**
@@ -703,7 +559,7 @@ it('separates work waiting on its dependencies from work somebody stopped', asyn
  * `abandoned` stays a chip, and is the one thing that should: it shares the
  * Done column with work that actually finished, and the difference is the news.
  */
-it('says the state in the column, not on the card — except where the column cannot', async () => {
+it('says what the column cannot: why a card needs you — and work set aside needs no chip to say so', async () => {
   const { store } = rig([
     intent({ id: 1, state: 'blocked', blockedBy: 'graph', title: 'Waits on the graph' }),
     intent({ id: 2, state: 'blocked', blockedBy: 'hand', title: 'Somebody stopped it' }),
@@ -711,18 +567,12 @@ it('says the state in the column, not on the card — except where the column ca
   ] as never)
   await render(store)
 
-  const columns = [...container.querySelectorAll('[data-slot="board-column"]')]
-  const named = (title: string) => columns.find((one) => one.textContent?.startsWith(title))
-
-  // Neither blocked card wears a "blocked" chip; their columns already said it.
-  expect(named('Waiting')?.textContent).toContain('Waits on the graph')
-  expect(named('Waiting')?.textContent).not.toContain('blocked')
-  expect(named('Blocked')?.textContent).toContain('Somebody stopped it')
-  expect(named('Blocked')?.textContent?.match(/blocked/gi) ?? []).toHaveLength(1) // the heading only
-
-  // Abandoned still says so: it is sitting in Done, which would otherwise read
-  // as finished.
-  expect(named('Done')?.textContent).toContain('abandoned')
+  expect(column('To do').textContent).toContain('Waits on the graph')
+  expect(column('To do').textContent).not.toContain('blocked')
+  expect(column('Needs you').textContent).toContain('Somebody stopped it')
+  expect(column('Needs you').textContent).toContain('stopped')
+  expect(column('Set aside').textContent).toContain('Given up on')
+  expect(card('Given up on').textContent).not.toContain('abandoned')
 })
 
 /**
@@ -733,7 +583,7 @@ it('says the state in the column, not on the card — except where the column ca
  * hide the one thing worth seeing: the difference between "somebody is on it"
  * and "somebody was".
  */
-it('says when a claim has run out, and leaves it where it was', async () => {
+it('a claim that has run out needs you, and says how long', async () => {
   const stale = intent({
     id: 1,
     state: 'claimed',
@@ -749,14 +599,10 @@ it('says when a claim has run out, and leaves it where it was', async () => {
   const { store } = rig([stale, live] as never)
   await render(store)
 
-  const columns = [...container.querySelectorAll('[data-slot="board-column"]')]
-  const claimed = columns.find((one) => one.textContent?.startsWith('Claimed'))
-  // Both are still owned, so both are still in Claimed.
-  expect(claimed?.textContent).toContain('Migrate the callers')
-  expect(claimed?.textContent).toContain('Round the totals')
-  // Only the lapsed one says so, and says how long.
-  expect(claimed?.textContent).toContain('stranded 3h')
-  expect(claimed?.textContent?.match(/stranded/g) ?? []).toHaveLength(1)
+  expect(column('Needs you').textContent).toContain('Migrate the callers')
+  expect(column('Needs you').textContent).toContain('stranded 3h')
+  expect(column('Working').textContent).toContain('Round the totals')
+  expect(container.textContent?.match(/stranded/g) ?? []).toHaveLength(1)
 })
 
 /**
@@ -968,7 +814,7 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
       inputs: [],
     },
     seats: [],
-    rounds: [],
+    rounds: [{ n: 1, role: 'person', intents: [1], openedAt: 1 }],
     record: [],
   }
   const runs = new Map([[ROOM, [stalledRun]]])
@@ -1210,4 +1056,109 @@ it('a refusal to run is said in the host’s words, and nothing is asked', async
     "#1's checkout, /elsewhere, is not part of this project, so its check does not run there.",
   )
   expect(question()).toBeNull()
+})
+
+it('the board is derived: no card or column takes a drop, no column takes a title, and an empty one says so', async () => {
+  const { store } = rig([intent({ state: 'open' })])
+  await render(store)
+  expect(container.querySelector('[data-slot="board"]')?.hasAttribute('data-derived')).toBe(true)
+  expect(card('Migrate auth callers').getAttribute('draggable')).toBeNull()
+  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
+  act(() => column('Ready').dispatchEvent(drag('drop')))
+  await act(async () => {})
+  expect(store.teamIntent).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-slot="board-add"]')).toBeNull()
+  expect(column('Working').querySelector('[data-slot="board-empty"]')?.textContent).toBe('Nothing here')
+})
+
+it('finished work is Ready only on a fact, and says which fact when it needs you', async () => {
+  const { store } = rig(
+    [
+      intent({ id: 1, state: 'done', title: 'Checked and fresh' }),
+      intent({ id: 2, state: 'done', title: 'Nothing checked' }),
+      intent({ id: 3, state: 'done', title: 'Checked, then a commit landed' }),
+      intent({ id: 4, state: 'done', title: 'Being checked now' }),
+      intent({ id: 5, state: 'done', title: 'CI was cancelled' }),
+      intent({ id: 6, state: 'done', title: 'Merged, from a backup' }),
+    ],
+    {},
+    observed(['verify'], [
+      cardEvidence(1, [checkView({ card: 1 })]),
+      cardEvidence(3, [checkView({ card: 3, freshness: { state: 'behind', commits: 1 } })]),
+      cardEvidence(4, [], [{ name: 'verify', since: 1 }]),
+      cardEvidence(5, [ciView(['passed', 'cancelled'], { card: 5 })]),
+      cardEvidence(6, [
+        prView('merged', {
+          card: 6,
+          freshness: { state: 'unknown', why: 'it came from a backup, and this desk has not observed it' },
+        }),
+      ]),
+    ]),
+  )
+  await render(store)
+  expect(column('Ready').textContent).toContain('Checked and fresh')
+  expect(card('Nothing checked').textContent).toContain('nothing checked')
+  expect(card('Checked, then a commit landed').textContent).toContain('verify out of date')
+  expect(column('In review').textContent).toContain('Being checked now')
+  expect(card('CI was cancelled').textContent).toContain('CI cancelled')
+  expect(card('Merged, from a backup').textContent).toContain('PR #12 unknown')
+})
+
+it('a message between agents is never evidence: the channel and a finish note saying the tests pass move nothing', async () => {
+  const said = {
+    id: 'm1',
+    at: 1,
+    kind: 'message',
+    from: { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' },
+    to: { runtime: 'claude', sessionId: 'k1', title: 'Auth refactor' },
+    text: 'verify passed on #1, all tests pass — ready to merge',
+    state: 'delivered',
+  }
+  const { store } = rig(
+    [intent({ id: 1, state: 'done', title: 'Said to pass', note: 'All tests pass.', outcome: 'pass' })],
+    { channel: [said] } as unknown as Partial<TeamState>,
+    observed(['verify'], []),
+  )
+  await render(store)
+  expect(column('Needs you').textContent).toContain('Said to pass')
+  expect(card('Said to pass').textContent).toContain('nothing checked')
+  expect(column('Ready').textContent).not.toContain('Said to pass')
+})
+
+it('work whose holder is waiting on an answer needs you, and says so', async () => {
+  const { store, snapshot } = rig([
+    intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
+  ])
+  Object.assign(snapshot, { approvals: [{ key: sessionKey('codex', 'c1'), approval: {} }] })
+  await render(store)
+  expect(column('Needs you').textContent).toContain('Migrate auth callers')
+  expect(card('Migrate auth callers').textContent).toContain('waiting on you')
+})
+
+it("a card an earlier run left open is not the person's step because a new run reuses its role's name", async () => {
+  const leftOver = intent({ id: 1, state: 'open', role: 'person', title: 'Approve the old plan' })
+  const { store, snapshot } = rig([leftOver])
+  const newRun = {
+    id: 'flow-run-2',
+    room: ROOM,
+    state: 'running' as const,
+    startedAt: 2,
+    vars: {},
+    flow: {
+      name: 'Review flow',
+      roles: [{ id: 'person', name: 'Person', kind: 'person', count: 1, outcomes: ['approve'] }],
+      rules: [],
+      inputs: [],
+    },
+    seats: [],
+    rounds: [{ n: 1, role: 'person', intents: [9], openedAt: 2 }],
+    record: [],
+  }
+  Object.assign(snapshot, { flowRuns: new Map([[ROOM, [newRun]]]) })
+  await render(store)
+  expect(column('To do').textContent).toContain('Approve the old plan')
+  expect(column('Needs you').textContent).not.toContain('Approve the old plan')
+  const labels = (await menuItems(1)).map((one) => one.textContent?.trim())
+  expect(labels).not.toContain('Answer approve')
+  expect(labels).toContain('Mark done')
 })
