@@ -10,7 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { ProjectChecks, SeatRecord } from './evidence.js'
+import type { BoardEvidence, ProjectChecks, SeatRecord } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
@@ -1749,6 +1749,17 @@ export interface HostMethods {
     params: { readonly project: string }
     result: ProjectChecks
   }
+  /**
+   * A room's evidence: for each card that carries any, the latest fact of each
+   * kind the desk observed — each named check apart — and how it stands now
+   * against its branch, with the Seat that produced it in words; the named
+   * checks running for it; and the checks its project names. Read on demand;
+   * every change after is pushed whole, as `evidence/changed`.
+   */
+  'evidence/board': {
+    params: { readonly room: string }
+    result: BoardEvidence
+  }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
   'git/branches': {
@@ -2269,6 +2280,15 @@ export type WireNotification =
        */
       readonly method: 'flow/changed'
       readonly params: { readonly room: string; readonly runs: readonly FlowRun[] }
+    }
+  | {
+      /**
+       * One room's evidence, whole — sent when the desk records a fact for one
+       * of its cards, and when a named check starts or ends — for the reason
+       * the board is sent whole: a new fact can move a card to another column.
+       */
+      readonly method: 'evidence/changed'
+      readonly params: { readonly room: string; readonly evidence: BoardEvidence }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
 

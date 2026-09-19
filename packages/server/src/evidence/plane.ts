@@ -1,7 +1,8 @@
-import type { ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
+import type { BoardEvidence, ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
+import { boardEvidence, RunningChecks } from './board.js'
 import { readChecks } from './checks-file.js'
 import { projectOf } from './revision.js'
 import { SeatBook } from './seats.js'
@@ -43,8 +44,12 @@ export class EvidencePlane {
   readonly store: EvidenceStore
   readonly seats: SeatBook
   readonly seen: CommandsSeen
+  /** Named checks running now, by room and card. */
+  readonly running = new RunningChecks()
   readonly #port: EvidencePort
   readonly #now: () => number
+  /** The last stamp a board read took: each is later than the one before, whatever the clock does. */
+  #lastStamp = 0
 
   constructor(options: EvidenceOptions, port: EvidencePort) {
     this.#port = port
@@ -124,6 +129,58 @@ export class EvidencePlane {
       passedOver: seat.passedOver,
       ceiling: seat.ceiling,
     }
+  }
+
+  /**
+   * A room's evidence, read now: its project's facts for the room's cards, each
+   * against its branch as it stands. Refuses a room the desk does not have.
+   */
+  async board(room: string): Promise<BoardEvidence> {
+    // Taken first, so a read that began later always carries the later stamp.
+    const stamp = this.#nextStamp()
+    const board = this.#port.board(room)
+    if (!board) throw new Error(`There is no room ${room} on this desk.`)
+    const project = await projectOf(board.cwd ?? board.root)
+    const { lines } = await this.store.read(project, 'evidence')
+    const checks = await readChecks(project)
+    const records = lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+    // One reason per check the file refuses — its first — and the file's own, when nothing in it can be read.
+    const refused = new Map<string, string>()
+    for (const problem of checks.problems) {
+      if (problem.check !== undefined && !refused.has(problem.check)) refused.set(problem.check, problem.text)
+    }
+    return boardEvidence({
+      room,
+      stamp,
+      project,
+      records,
+      checks: checks.checks.map((check) => check.name),
+      refused: [...refused].map(([name, why]) => ({ name, why })),
+      unreadable: checks.problems.find((problem) => problem.check === undefined)?.text ?? null,
+      running: this.running.of(room),
+      seatWords: (id) => {
+        const seat = this.seats.byId(id)
+        return seat ? { agent: seat.agent?.name ?? null, seat: seat.seatLabel } : null
+      },
+    })
+  }
+
+  /** Tells every window a room's evidence moved. Never throws: a fact is kept whether or not a window hears of it. */
+  announce(room: string): void {
+    void this.board(room).then(
+      (evidence) => this.#port.push({ method: 'evidence/changed', params: { room, evidence } }),
+      (error: unknown) =>
+        this.#port.log("a room's evidence could not be read to tell the windows", {
+          room,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    )
+  }
+
+  /** A board read's stamp: now, and always later than the last one. */
+  #nextStamp(): number {
+    this.#lastStamp = Math.max(this.#now(), this.#lastStamp + 1)
+    return this.#lastStamp
   }
 
   /** The desk is closing: this resolves once every record already asked for is on disk. */

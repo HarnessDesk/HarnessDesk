@@ -277,3 +277,36 @@ export interface ProjectChecks {
   /** What is wrong with the file, and where (`verify.run`), or `''` for the file as a whole; `check` names the check it is about. */
   readonly problems: readonly { readonly at: string; readonly text: string; readonly check?: string }[]
 }
+/** One fact on a card, as a surface draws it. */
+export interface EvidenceView {
+  readonly record: EvidenceRecord
+  readonly freshness: Freshness
+  /** The Seat that produced it, in words; null when the desk observed it unattended. */
+  readonly by: { readonly agent: string | null; readonly seat: string } | null
+}
+
+/** What one card carries: the latest fact of each kind — each named check apart — and what is running for it. */
+export interface CardEvidence {
+  readonly card: number
+  readonly facts: readonly EvidenceView[]
+  readonly running: readonly { readonly name: string; readonly since: number }[]
+}
+
+/** A board's evidence, whole. */
+export interface BoardEvidence {
+  readonly room: string
+  /**
+   * When the read that made this began, in host milliseconds, strictly
+   * increasing: a surface keeps the answer with the latest stamp, and drops one
+   * that arrives late with an earlier one.
+   */
+  readonly stamp: number
+  /** The checks its project names that can run, by name; empty when it names none. */
+  readonly checks: readonly string[]
+  /** The checks its project names that cannot run, each with why: a card offers them greyed, never hides them. */
+  readonly refused: readonly { readonly name: string; readonly why: string }[]
+  /** Why no check in its project's file can be read at all — it does not parse, it names too many — or null. */
+  readonly unreadable: string | null
+  /** Only the cards that carry anything. */
+  readonly cards: readonly CardEvidence[]
+}
