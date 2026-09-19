@@ -1,6 +1,7 @@
 import { useState, type JSX } from 'react'
 
 import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import markdownStyles from '../../components/Markdown.module.css'
 import {
   Alert,
   AlertContent,
@@ -15,6 +16,8 @@ import {
   ChannelMessage,
   ChannelSignal,
   Chip,
+  CodeBlock,
+  CopyButton,
   ConfirmDialog,
   DetailHead,
   Face,
@@ -419,6 +422,38 @@ const BannerBoard = () => (
   </>
 )
 
+const CodeBoard = () => (
+  <div className={styles.stack}>
+    <Case label="command, output, and failure">
+      <div className="w-full" data-testid="code-block-sample">
+        <CodeBlock
+          command="pnpm --filter @harnessdesk/ui exec vitest run src/components/Items"
+          output={'Tests 1 failed\nDuration 1.8s'}
+          exitCode={1}
+        />
+      </div>
+    </Case>
+    <Case label="the copy control">
+      <CopyButton text="pnpm verify" label="Copy this command" />
+    </Case>
+    <Case label="the same plate in prose">
+      <div className="w-full" data-testid="markdown-code-sample">
+        {/* The renderer's own output under the prose sheet's class. The
+            component reads the app's theme from the store, which this page
+            has not got, and the plate is the sheet's business anyway. */}
+        <div className={markdownStyles.markdown}>
+          <pre><code>const opened = true</code></pre>
+        </div>
+      </div>
+    </Case>
+    <p className={styles.rule}>
+      A command and what it printed are one exact record, so they share one
+      plate and one code register. Prose keeps its horizontal scroll because a
+      source line is not a shell command and should not be reflowed.
+    </p>
+  </div>
+)
+
 const DialogBoard = () => {
   const [open, setOpen] = useState<null | 'plain' | 'confirm' | 'approval' | 'lightbox'>(null)
   return (
@@ -722,6 +757,12 @@ export const BOARDS: Board[] = [
     title: 'Banner',
     about: 'Something the app needs to say that nobody asked for.',
     render: BannerBoard,
+  },
+  {
+    id: 'code',
+    title: 'CodeBlock',
+    about: 'A command and its output, kept together as one exact record.',
+    render: CodeBoard,
   },
   {
     id: 'channel',

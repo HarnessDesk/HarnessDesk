@@ -665,6 +665,16 @@ body {
      A component token that only ever holds one value is noise.
      ========================================================================= */
 
+  /* Verbatim commands and their output are one role wherever they appear: a
+     quiet plate, one code register, and an inner scroll for long output. */
+  --hd-code-fill: var(--hd-muted);
+  --hd-code-edge: var(--hd-hairline);
+  --hd-code-radius: var(--hd-radius);
+  --hd-code-inset: var(--hd-space-3);
+  --hd-code-text: var(--hd-text-xs);
+  --hd-code-line: var(--hd-line-sm);
+  --hd-code-max-height: 380px;
+
   /* The button, re-measured in 2026-09 and moved on four counts. Each is one
      line here and reaches both spellings of the
      button, every screen, and both interfaces.

@@ -30,7 +30,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { ActionError, Button } from '../design'
+import { ActionError, Button, CodeBlock, CopyButton, Lightbox, type LightboxImage } from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
@@ -60,10 +60,8 @@ import {
   AgentIcon,
   AlertIcon,
   BrainIcon,
-  CheckIcon,
   ChevronIcon,
   TeamIcon,
-  CopyIcon,
   DiffIcon,
   ExternalIcon,
   FileIcon,
@@ -83,7 +81,6 @@ import {
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
-import { Lightbox, type LightboxImage } from '../design'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
 import styles from './Items.module.css'
@@ -106,7 +103,7 @@ const ResultImage = ({ url, mimeType }: { url: string; mimeType?: string | undef
   return !failed && drawsAsImage(url, mimeType) ? (
     <img src={url} alt="" style={{ maxWidth: '100%' }} onError={() => setFailed(true)} />
   ) : (
-    <pre className={styles.output}>{unshownImage(url, mimeType)}</pre>
+    <CodeBlock output={unshownImage(url, mimeType)} />
   )
 }
 
@@ -286,52 +283,20 @@ const sentAt = (at: number | undefined): string | null => {
  * Under a sent message: when, copy, edit. Edit puts the text back in the
  * composer as the draft — the quickest way to ask again, differently.
  */
-const CopyButton = ({
-  text,
-  label,
-  inShellRow = false,
-}: {
-  text: string
-  label: string
-  /**
-   * Where it sits, rather than a class to sit by.
-   *
-   * It used to take a `className`, which is how a screen hands a canonical
-   * control its own look — and `ui-architecture` cannot read a prop, so the
-   * one class passed in this way carried a width, a height, a border and a
-   * hover fill past every check. The square is the size's now, and the only
-   * thing left to say is that a shell row pulls it out to its own padding.
-   */
-  inShellRow?: boolean
-}) => {
+
+/** A failed copy, said the way the app says every failure it cannot fix for you. */
+const useCopyFailed = () => {
   const store = useStore()
-  const [copied, setCopied] = useState(false)
-  return (
-    <Button
-      variant="quiet" size="icon-xs" className={inShellRow ? styles.shellCopy : ''}
-      title="Copy"
-      aria-label={label}
-      onClick={() =>
-        void navigator.clipboard
-          .writeText(text)
-          .then(() => {
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1500)
-          })
-          .catch(() => store.notice('warning', 'Could not copy to the clipboard.'))
-      }
-    >
-      {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-    </Button>
-  )
+  return () => store.notice('warning', 'Could not copy to the clipboard.')
 }
 
 const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined }) => {
   const when = sentAt(at)
+  const copyFailed = useCopyFailed()
   return (
     <div className={styles.userFooter}>
       {when && <span className={styles.userTime}>{when}</span>}
-      <CopyButton text={text} label="Copy this message" />
+      <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
         variant="quiet" size="icon-xs"
         title="Edit — puts this message in the composer"
@@ -695,26 +660,8 @@ const describeCommand = (
   }
 }
 
-/**
- * The command itself, wrapped in full and copyable, under a prompt mark.
- *
- * A row's title is a label and ellipsises; this is what actually ran. A
- * command step and a shell tool call both open onto it, so a step never
- * shows output with no sight of what produced it — and a described call,
- * whose row is the agent's sentence, keeps its command exactly one click
- * away rather than glued to the sentence.
- */
-const ShellLine = ({ command }: { command: string }) => (
-  <div className={styles.shellRow}>
-    <span className={styles.shellPrompt} aria-hidden="true">
-      $
-    </span>
-    <code className={styles.shellCommand}>{command}</code>
-    <CopyButton text={command} label="Copy this command" inShellRow />
-  </div>
-)
-
 const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
+  const copyFailed = useCopyFailed()
   const labels = useContext(StepPathLabels)
   const described = describeCommand(item, root, labels)
   return (
@@ -731,17 +678,12 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
     >
-      <ShellLine command={shellCommandOf(item.command)} />
-      <pre className={styles.output}>
-        {[
-          item.output ? stripAnsi(item.output) : item.status === 'inProgress' ? '' : '(no output)',
-          item.exitCode !== null && item.exitCode !== undefined && item.exitCode !== 0
-            ? `exit code ${item.exitCode}`
-            : '',
-        ]
-          .filter(Boolean)
-          .join('\n')}
-      </pre>
+      <CodeBlock
+        command={shellCommandOf(item.command)}
+        output={item.output ? stripAnsi(item.output) : item.status === 'inProgress' ? '' : '(no output)'}
+        exitCode={item.exitCode}
+        onCopyError={copyFailed}
+      />
     </Row>
   )
 }
@@ -942,6 +884,7 @@ const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
  * reader learns a CLI that does not exist.
  */
 const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
+  const copyFailed = useCopyFailed()
   const snapshot = useSnapshot()
   const labels = useContext(StepPathLabels)
   const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
@@ -957,6 +900,15 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const relativePath = path ? relativeTo(path, root) : null
   const target = path ? fileLabel(path, root, labels) : null
   const command = toolCallCommandOf(item)
+  const commandOutputParts = command ? item.result?.map((part) => {
+    if (part.type === 'text') return stripAnsi(part.text)
+    if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
+    return null
+  }) : undefined
+  const commandOutput = commandOutputParts && commandOutputParts.length > 0
+    && commandOutputParts.every((part): part is string => part !== null)
+    ? commandOutputParts.join('\n')
+    : undefined
   const pattern = [record?.['pattern'], record?.['query']].find(
     (value): value is string => typeof value === 'string' && value.trim().length > 0,
   )
@@ -1021,20 +973,22 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     >
       {wire && <div className={styles.wireName}>{wire}</div>}
       {item.error ? (
-        <pre className={styles.output}>{stripAnsi(item.error)}</pre>
+        <CodeBlock output={stripAnsi(item.error)} />
       ) : (
         <>
           {/* A shell call opens onto the command it ran, the way a command
               step does; every other call lists its arguments. The
               description is the row's title and the background flag is the
               panel's business, so neither is repeated here as a field. */}
-          {command ? <ShellLine command={shellCommandOf(command)} /> : <ArgsView args={item.args} root={root} />}
-          {item.result?.map((part, index) => {
+          {command ? (
+            <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
+          ) : (
+            <ArgsView args={item.args} root={root} />
+          )}
+          {commandOutput === undefined && item.result?.map((part, index) => {
             if (part.type === 'text') {
               return (
-                <pre key={index} className={styles.output}>
-                  {stripAnsi(part.text)}
-                </pre>
+                <CodeBlock key={index} output={stripAnsi(part.text)} />
               )
             }
             if (part.type === 'image') {
@@ -1048,9 +1002,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             // quote into \" — the shell transcript arrives as its own source.
             if (typeof part.value === 'string') {
               return (
-                <pre key={index} className={styles.output}>
-                  {stripAnsi(part.value)}
-                </pre>
+                <CodeBlock key={index} output={stripAnsi(part.value)} />
               )
             }
             const todos = findTodos(part.value)
@@ -1112,7 +1064,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
     >
-      {item.prompt && <pre className={styles.output}>{item.prompt}</pre>}
+      {item.prompt && <CodeBlock output={item.prompt} />}
       {item.members.length > 0 && (
         <div className={styles.fileList}>
           {item.members.map((member) => {

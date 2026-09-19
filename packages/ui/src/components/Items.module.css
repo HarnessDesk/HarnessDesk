@@ -110,60 +110,11 @@
 
 .bubbleLink svg {
   flex: none;
-  align-self: center;
+  align-self: center; /* desk: flex-start → center, the link icon sits on the text line */
 }
 
 .bubbleLink span {
   overflow-wrap: anywhere;
-}
-
-/* ------------------------------------------------- an opened command step */
-
-/*
- * The verbatim command, behind a shell prompt, in its own band closed off by a
- * hairline — the same zoning as the wire name and the argument list. The row
- * above it is a label and ellipsises; this is the string a reader compares
- * against what actually ran, so it wraps whole and can be copied.
- *
- * It is set at the size the row above announced it, because the two are the
- * same string and a reader compares them. The output below is a step down:
- * command, then what it printed.
- */
-.shellRow {
-  display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-2) var(--hd-space-3); /* desk: 9 → 8 */
-  border-bottom: 1px solid var(--hd-border);
-}
-
-.shellPrompt {
-  flex: none;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
-  line-height: var(--hd-line); /* desk: 17 → 21 */
-  color: var(--hd-muted-foreground);
-}
-
-.shellCommand {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
-  line-height: var(--hd-line); /* desk: 17 → 21 */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--hd-secondary-foreground);
-}
-
-/* Where it sits, and nothing else: the square is `icon-xs`, which is the icon
-   rung that clears AA on its own. */
-.shellCopy {
-  flex: none;
-  align-self: flex-start;
-  /* Optical: a 24px target centred on the 21px line it sits beside, and pulled
-     out to the band's own padding on the right. */
-  margin: -2px -4px -2px 0; /* desk: -3 → -2, centred on the 21px line the band now sets */
 }
 
 .attachments {
@@ -325,20 +276,7 @@
 }
 
 .rowBody {
-  border-top: 1px solid var(--hd-border);
-}
-
-.output {
-  max-height: 380px;
-  overflow: auto;
-  margin: 0;
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm); /* desk: 19 → 18 */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--hd-secondary-foreground);
+  padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3) var(--hd-space-6);
 }
 
 .json {

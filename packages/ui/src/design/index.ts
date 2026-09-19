@@ -84,6 +84,8 @@ export {
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
+export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
+export { CopyButton } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'

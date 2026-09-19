@@ -261,10 +261,10 @@
 .markdown pre {
   margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
   padding: 0;
-  border-radius: var(--hd-radius);
+  border-radius: var(--hd-code-radius);
   overflow: hidden;
-  background: var(--hd-muted);
-  box-shadow: var(--hd-hairline);
+  background: var(--hd-code-fill);
+  box-shadow: var(--hd-code-edge);
 }
 
 /*
@@ -282,19 +282,19 @@
  * nothing.
  */
 .markdown pre:global(.shiki) {
-  background: var(--hd-muted) !important;
+  background: var(--hd-code-fill) !important;
 }
 
 /* The text inside, from either renderer: shiki's `<code>` is a child of its
    own `pre`, ours is a child of ours, and this reaches both. */
 .markdown pre code {
   display: block;
-  padding: var(--prose-gap, 16px); /* desk: 12px 14px → the gap, on all four sides */
+  padding: var(--hd-code-inset); /* desk: 16 → 12, the shared code-plate inset */
   border-radius: 0;
   background: none;
   box-shadow: none;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
+  font-size: var(--hd-code-text); /* desk: 13 → 12, one code size across prose and steps */
+  line-height: var(--hd-code-line);
   overflow-x: auto;
 }
 

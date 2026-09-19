@@ -73,15 +73,17 @@ const open = (item: AgentItem): void => {
   })
 }
 
-// CSS module class names arrive hashed — `styles.output` is `_output_1a2b3`
-// here exactly as it is in a real build — so they are matched, not compared.
+// CSS module class names arrive hashed here exactly as they do in a real
+// build, so the few screen-owned structures are matched rather than compared.
 const byClass = (name: string): Element[] => [
   ...container.querySelectorAll(`[class*="_${name}_"]`),
 ]
 
 const title = (): string => container.querySelector('button')?.textContent ?? ''
 const wire = (): string | null => byClass('wireName')[0]?.textContent ?? null
-const outputs = (): string[] => byClass('output').map((el) => el.textContent ?? '')
+const outputs = (): string[] => [
+  ...container.querySelectorAll('[data-slot="code-block-body"]'),
+].map((el) => el.textContent ?? '')
 const json = (): string[] => byClass('json').map((el) => el.textContent ?? '')
 
 describe('an opened tool step', () => {
@@ -89,6 +91,26 @@ describe('an opened tool step', () => {
     open(call({ tool: '`ps -p 511 -o pid,ppid,etime`' }))
     expect(title()).toContain('ps -p 511 -o pid,ppid,etime')
     expect(title()).not.toContain('`')
+  })
+
+  it('holds a shell command and its output in one code block', () => {
+    open(call({
+      tool: 'Bash',
+      args: { command: 'pnpm test' },
+      result: [{ type: 'text', text: 'Tests 12 passed' }],
+    }))
+
+    const blocks = container.querySelectorAll('[data-slot="code-block"]')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.querySelector('[data-slot="code-block-command"]')?.textContent).toContain('$pnpm test')
+    expect(blocks[0]?.querySelector('[data-slot="code-block-body"]')?.textContent).toBe('Tests 12 passed')
+  })
+
+  it('does not draw an empty output body for a shell call with no result parts', () => {
+    open(call({ tool: 'Bash', args: { command: 'pnpm test' }, result: [] }))
+
+    expect(container.querySelectorAll('[data-slot="code-block"]')).toHaveLength(1)
+    expect(container.querySelector('[data-slot="code-block-body"]')).toBeNull()
   })
 
   it('does not repeat the title as a wire name', () => {
