@@ -45,12 +45,11 @@ export const App = () => {
   // request naming the page this one already held could not move the window,
   // because nothing here changed and so neither did the prop.
   const [settingsOpen, setSettingsOpen] = useState<false | Section>(false)
-  // One-shot, like `libraryImport`: the page reads it on the render it is
-  // handed, and clearing it on the next commit leaves what it opened open.
+  // The thing the page was opened on. Keep it with the route until a person
+  // chooses another Settings page or closes the window: clearing it in an
+  // effect made the one-shot race the store request that opened the window,
+  // and Strict Mode could mount Workspaces only after the project was gone.
   const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
-  useEffect(() => {
-    if (settingsFocus !== null) setSettingsFocus(null)
-  }, [settingsFocus])
   const openSettingsAt = useCallback((section: Section, focus: string | null) => {
     setSettingsOpen(section)
     setSettingsFocus(focus)
@@ -63,7 +62,14 @@ export const App = () => {
    * it before the window itself exists; Task 13 reads this state and draws it.
    */
   const [agentsOpen, setAgentsOpen] = useState<false | { focus: string | null }>(false)
-  const openAgents = useCallback((focus?: string) => setAgentsOpen({ focus: focus ?? null }), [])
+  const openAgents = useCallback((focus?: string) => {
+    // Top-level destinations replace one another. In particular, a project
+    // Agent row lives inside Settings but opens the app's one Agents window;
+    // leaving Settings underneath made Back return to the page it had left.
+    setSettingsOpen(false)
+    setSettingsFocus(null)
+    setAgentsOpen({ focus: focus ?? null })
+  }, [])
   // One-shot: the import banner routes here, and the Library opens with the
   // import flow already up. Cleared when Settings closes, like any dialog.
   const [libraryImport, setLibraryImport] = useState(false)
@@ -138,7 +144,7 @@ export const App = () => {
           store.setDetailsTab('changes')
           return
         case 'settings':
-          setSettingsOpen('runtimes')
+          openSettingsAt('runtimes', null)
           return
         case 'sign-in':
           setSignInOpen((subject as RuntimeId | undefined) ?? true)
@@ -156,7 +162,7 @@ export const App = () => {
           return
       }
     },
-    [store, snapshot.layout.focused],
+    [store, snapshot.layout.focused, openSettingsAt],
   )
 
   useEffect(() => onShortcut(run), [run])
@@ -329,31 +335,26 @@ export const App = () => {
   }, [])
 
   return (
+    /* One shell, one set of actions — including the app windows mounted
+       beside the workbench. A project page lives in Settings, and its Agent
+       rows must reach the same window as the left menu rather than falling
+       outside the provider into its inert default. */
+    <ShellProvider
+      actions={{
+        chooseProject: chooseFolder,
+        signIn: (runtime) => setSignInOpen(runtime ?? true),
+        openUsage: (runtime) => setUsageOpen(runtime),
+        openRuntimes: () => openSettingsAt('runtimes', null),
+        openAgents,
+      }}
+    >
     <div className="hd-shell">
       <div className="hd-shellBody">
-        {/*
-         * One shell, one set of actions.
-         *
-         * The four callbacks below used to be threaded down through `Panes`,
-         * every pane and the team room to reach a conversation. They are a
-         * context now, which is what lets a feature be mounted in any panel
-         * without somebody first remembering to pass its props along a fourth
-         * path. See `panels/views.tsx`.
-         */}
-        <ShellProvider
-          actions={{
-            chooseProject: chooseFolder,
-            signIn: (runtime) => setSignInOpen(runtime ?? true),
-            openUsage: (runtime) => setUsageOpen(runtime),
-            openRuntimes: () => setSettingsOpen('runtimes'),
-            openAgents,
-          }}
-        >
           <Workbench
             sidebar={
               <Sidebar
-                onOpenSettings={(section) => setSettingsOpen(section ?? 'runtimes')}
-                onOpenPlugins={() => setSettingsOpen('plugins')}
+                onOpenSettings={(section) => openSettingsAt(section ?? 'runtimes', null)}
+                onOpenPlugins={() => openSettingsAt('plugins', null)}
                 onOpenAgents={() => openAgents()}
                 onOpenUsage={(runtime) => setUsageOpen(runtime ?? true)}
                 onBrowseFolders={chooseFolder}
@@ -380,11 +381,10 @@ export const App = () => {
             <ImportOffer
               onReview={() => {
                 setLibraryImport(true)
-                setSettingsOpen('library')
+                openSettingsAt('library', null)
               }}
             />
           </div>
-        </ShellProvider>
       </div>
       <Notices />
       {/* Sonner, from the registry's `toast`. Mounted beside the notice stack
@@ -399,9 +399,10 @@ export const App = () => {
           section={settingsOpen}
           focus={settingsFocus}
           libraryImport={libraryImport}
-          onSection={setSettingsOpen}
+          onSection={(section) => openSettingsAt(section, null)}
           onClose={() => {
             setSettingsOpen(false)
+            setSettingsFocus(null)
             setLibraryImport(false)
           }}
           onSignIn={(runtime) => setSignInOpen(runtime)}
@@ -461,5 +462,6 @@ export const App = () => {
         />
       )}
     </div>
+    </ShellProvider>
   )
 }
