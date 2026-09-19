@@ -42,3 +42,15 @@ Base: `732bd8c0`
 - Full-gate attempt 1: failed in the Node phase with seven leaf failures (eight including the parent suite). Exact causes were a hand-built method context without `Team.flush`, migration errors bypassing the existing startup logger, an unpinned empty-root validator sentence for `goal/create`, and the pre-lane compatibility path no longer cutting isolated flow worktrees. Fixed those exact seams; focused reruns passed 17/17 plus the nine-case room/flow confinement group.
 - Verification scheduling: every subsequent full `pnpm verify` is serialized across phase writers by an owned atomic `/tmp/hd-agents-goals-verify.lock`; the lock records shell PID/worktree, waits for a live owner, recovers only a proven-dead owner, and is released only by its owner in a trap. Focused tests do not hold it.
 - Locked full `TMPDIR=/tmp/hdv pnpm verify`: exit 0, `All checks passed.` The cross-phase lock was acquired atomically, recorded PID/worktree, and released by its owner trap. Complete Node, gate, UI, desktop, layering, reachability, design, interface, docs, CI-parity and protocol-drift checks passed.
+
+### Task 4 — durable lanes and machine preferences
+
+- Red: `pnpm run build:node` exited 1 with missing `goals/lanes.js` and missing `Lane`, `LanePreferences`, and `lanePreferences` exports.
+- Green: production build plus allocation/store/recovery/preferences/listener suites exited 0; 23/23 tests passed. The listener proof ran identical HTTP servers concurrently from distinct managed worktrees and disjoint port blocks, then proved an unrelated listener makes its whole candidate block unavailable and probe sockets close.
+- Mutation, retained ownership: excluded retained leases from `firstBlock`; allocation suite exited 1 with 1 failed / 10 passed and reused `{start:65501,end:65518}` instead of returning no block. Restored.
+- Mutation, write ordering: moved the in-memory registry update before the durable write; store suite exited 1 with 1 failed / 3 passed and exposed `retained` after a failed save instead of durable `reserved`. Restored.
+- Mutation, restored authority: removed the restored-Seat filter during recovery; recovery suite exited 1 with 1 failed / 2 passed and bound `history` instead of leaving the lane unowned. Restored.
+- Plan correction consumed: added `lane/list` as the authorized renderer seam for every retained/failed-unbound descriptor, backed by `LaneAllocator.listLanes`; pinned only until Task 9 connects Workspaces › Lanes.
+- Existing flow isolation assertion now expects the durable opaque `harnessdesk/lane-<uuid>` branch instead of the retired role/run-derived worktree name.
+- Full locked attempt 1: Node/UI/desktop/layering and every other gate passed; reachability alone failed because the three planned Task 9 lane callers (`lane/preferences`, `/set`, `/release`) lacked their temporary named pins. Added those exact pins beside `lane/list`; no implementation or test assertion was weakened.
+- Full locked rerun: exit 0, `All checks passed.` The shared lock was acquired after a live owner finished and released by the matching owner trap.

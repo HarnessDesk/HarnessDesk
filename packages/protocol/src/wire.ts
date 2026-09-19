@@ -558,6 +558,10 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'lane/preferences': { params: Record<string, never>; result: import('./goal.js').LanePreferences }
+  'lane/list': { params: Record<string, never>; result: readonly import('./goal.js').Lane[] }
+  'lane/preferences/set': { params: import('./goal.js').LanePreferences; result: import('./goal.js').LanePreferences }
+  'lane/release': { params: { lane: string }; result: import('./goal.js').Lane }
   'goal/list': { params: { root?: string }; result: readonly GoalView[] }
   'goal/read': { params: { goal: GoalId }; result: GoalView }
   'goal/create': { params: Omit<GoalCreateInput, 'origin'>; result: GoalView }

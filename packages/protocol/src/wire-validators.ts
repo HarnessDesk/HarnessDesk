@@ -1,5 +1,6 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import { lanePreferences } from './goal.js'
 import type {
   ClientToHost,
   GitWorktreeCheckout,
@@ -284,6 +285,13 @@ const goalValidators = {
  * so the table doubles as the host's method allowlist.
  */
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'lane/preferences': goalShape({}),
+  'lane/list': goalShape({}),
+  'lane/preferences/set': (value, path = '') => {
+    try { return lanePreferences(value) }
+    catch (error) { throw new ValidationError(path, error instanceof Error ? error.message : String(error)) }
+  },
+  'lane/release': goalShape({ lane: goalIdentifier }),
   ...goalValidators,
   'host/hello': shape({ clientVersion: isString }),
 

@@ -2211,7 +2211,7 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
     const run = await startFlow(room.id)
     assert.equal(run.state, 'running')
     const held = await holds(opened)
-    assert.match(held.branches.join(' '), /^harnessdesk\/worker-1-[^ ]+$/)
+    assert.match(held.branches.join(' '), /^harnessdesk\/lane-[a-f0-9-]{36}$/)
     assert.deepEqual(held.checkouts, [opened, ...run.seats.map((seat) => seat.cwd)])
   })
 

@@ -9,6 +9,7 @@ import {
 
 import type { SeatOpening } from '../evidence/records.js'
 import { Assignments, Serial } from './assignments.js'
+import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
 import { recoverOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
@@ -47,6 +48,8 @@ export interface GoalPlanePort extends GoalOperationPort {
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
   readonly #assignments: Assignments
+  #lanes: LaneAllocator | null = null
+  #lanePreferences: (() => import('@harnessdesk/protocol').LanePreferences) | null = null
   readonly #activity = new Map<string, NonNullable<GoalView['activity']>>()
 
   constructor(
@@ -62,6 +65,17 @@ export class GoalPlane {
       claimable: (goal, card, session) => port.claimable(goal, card, session),
       commit: (goal, card, session) => this.#assign(goal, card, session),
     }, serial)
+  }
+
+  attachLanes(lanes: LaneAllocator, preferences: () => import('@harnessdesk/protocol').LanePreferences): void {
+    if (this.#lanes && this.#lanes !== lanes) throw new Error('This Goal plane already has its lane allocator.')
+    this.#lanes = lanes
+    this.#lanePreferences = preferences
+  }
+
+  laneFor(seat: SeatId): import('@harnessdesk/protocol').Lane | null {
+    if (!this.#lanes) throw new Error('Read the lane registry before opening a Goal Seat.')
+    return this.#lanes.forSeat(seat)
   }
 
   async list(root?: string): Promise<readonly GoalView[]> {
@@ -224,7 +238,8 @@ export class GoalPlane {
   seat(input: GoalSeatRequest): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
-      const record = await this.port.seatAgent(input, this.store.read(input.goal).goal)
+      const goal = this.store.read(input.goal).goal
+      const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where))
       await this.refresh(input.goal)
       return record
     })
@@ -233,7 +248,8 @@ export class GoalPlane {
   openLegacySeat(input: Parameters<GoalPlanePort['openLegacySeat']>[0]): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
-      const record = await this.port.openLegacySeat(input, this.store.read(input.goal).goal)
+      const goal = this.store.read(input.goal).goal
+      const record = await this.#withLane(goal, input.isolate, (where) => this.port.openLegacySeat(input, where))
       await this.refresh(input.goal)
       return record
     })
@@ -244,7 +260,23 @@ export class GoalPlane {
       for (const document of this.store.list()) {
         if (!document.restored && document.operation) await recoverOperation(document.operation, this.port)
       }
+      if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
     })
+  }
+
+  async #withLane(goal: Goal, isolate: boolean, open: (where: Goal) => Promise<SeatRecord>): Promise<SeatRecord> {
+    if (!isolate) return open(goal)
+    if (!this.#lanes || !this.#lanePreferences) throw new Error('Read the lane settings before seating this Goal.')
+    const lane = await this.#lanes.allocate(goal.id, randomUUID(), this.#lanePreferences())
+    try {
+      const seat = await open({ ...goal, cwd: lane.cwd })
+      if (seat.board !== goal.id || seat.checkout.cwd !== lane.cwd) throw new Error('The recorded Seat did not use its allocated checkout. Finish recovery before dispatching work.')
+      await this.#lanes.bind(lane.id, seat.id)
+      return seat
+    } catch (error) {
+      await this.#lanes.retain(lane.id)
+      throw new Error(`${error instanceof Error ? error.message : String(error)} Lane ${lane.id} was retained for review; its checkout and ports were kept.`)
+    }
   }
 
   async #stage(document: GoalDocument, operation: NonNullable<GoalDocument['operation']>): Promise<void> {

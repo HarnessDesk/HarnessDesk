@@ -9,6 +9,8 @@ import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
   holderOf,
+  DEFAULT_LANE_PREFERENCES,
+  lanePreferences,
   isFolderGone,
   isBusy,
   isSessionBusy,
@@ -102,6 +104,7 @@ import { redactorFor, redactLog } from './diagnostics.js'
 import { Flows, runCheck } from './flows.js'
 import { Serial } from './goals/assignments.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { availablePorts, LaneAllocator, LaneStore } from './goals/lanes.js'
 import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { GoalStore, type GoalDocument } from './goals/store.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
@@ -418,6 +421,8 @@ export class Host {
 
   readonly #extensions: ExtensionHost | null
   readonly #worktrees: Worktrees
+  readonly #laneStore: LaneStore
+  readonly #lanes: LaneAllocator
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
@@ -573,6 +578,26 @@ export class Host {
     this.#state = options.state ?? new StateStore()
     this.#goalStore = new GoalStore(this.#state.directory)
     this.#worktrees = new Worktrees(this.#state.directory)
+    this.#laneStore = new LaneStore(this.#state.directory)
+    this.#lanes = new LaneAllocator({
+      list: () => this.#laneStore.list(),
+      save: (lane) => this.#laneStore.save(lane),
+      available: availablePorts,
+      create: async (id, goal) => {
+        const document = this.#goalStore.read(goal)
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}` })
+        if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
+        return { cwd: checkout.path, branch: checkout.branch }
+      },
+      locate: async (lane) => {
+        const document = this.#goalStore.read(lane.goal)
+        const matches = (await this.#worktrees.list(document.goal.cwd)).filter((checkout) => checkout.branch === `harnessdesk/lane-${lane.id}`)
+        if (matches.length !== 1 || !matches[0]?.branch) return null
+        return { cwd: matches[0].path, branch: matches[0].branch }
+      },
+      active: (lane) => this.#evidence.seats.all().some((seat) => !seat.closed && !seat.restored && (seat.id === lane.seat || seat.board === lane.goal && lane.cwd !== '' && seat.checkout.cwd === lane.cwd)),
+      busy: (lane) => this.registry.all().some((record) => record.session.cwd === lane.cwd && isBusy(record.session)),
+    })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
       options.credentialCipher ?? plainCipher,
@@ -794,9 +819,7 @@ export class Host {
         })).record
       },
       openLegacySeat: async (input, goal) => {
-        const cwd = input.isolate
-          ? (await this.#worktrees.create(goal.cwd, { name: input.lane ?? `${input.role}-${randomBytes(3).toString('hex')}` })).path
-          : goal.cwd
+        const cwd = goal.cwd
         const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
         try {
           const record = await this.#evidence.seats.opened({
@@ -854,6 +877,7 @@ export class Host {
       },
     } satisfies GoalPlanePort
     this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
+    this.#goals.attachLanes(this.#lanes, () => this.#lanePreferences())
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
       log: (message, details) => this.#logger.warn(message, details),
@@ -1071,6 +1095,7 @@ export class Host {
   async start(): Promise<void> {
     this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#laneStore.load()
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
     // holding inbound messages came back accepting them, and every plugin's
@@ -1425,6 +1450,12 @@ export class Host {
 
   // ------------------------------------------------------------------ private
 
+  #lanePreferences() {
+    return lanePreferences(Object.hasOwn(this.#state.state.preferences, 'lanes')
+      ? this.#state.state.preferences['lanes']
+      : DEFAULT_LANE_PREFERENCES)
+  }
+
   #goalState(id: string): TeamState {
     const document = this.#goalStore.read(id)
     return {
@@ -1724,6 +1755,15 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       goals: this.#goals,
+      lanes: this.#lanes,
+      laneSettings: {
+        read: () => this.#lanePreferences(),
+        set: async (value) => {
+          const checked = lanePreferences(value)
+          await this.#state.setPreferences({ lanes: checked })
+          return checked
+        },
+      },
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,

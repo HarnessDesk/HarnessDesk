@@ -83,6 +83,11 @@ export interface HostContext {
   readonly team: Team
   readonly flows: Flows
   readonly goals: GoalPlane
+  readonly lanes: import('../goals/lanes.js').LaneAllocator
+  readonly laneSettings: {
+    read(): import('@harnessdesk/protocol').LanePreferences
+    set(value: import('@harnessdesk/protocol').LanePreferences): Promise<import('@harnessdesk/protocol').LanePreferences>
+  }
   /**
    * The Agent roster: who can be seated, and what each one is for.
    *

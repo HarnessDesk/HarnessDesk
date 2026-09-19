@@ -191,3 +191,33 @@ export function factsOfGoal(
   const ids = new Set(seats.filter((seat) => seat.board === goal).map((seat) => seat.id))
   return facts.filter((fact) => fact.card?.board === goal || (fact.seat != null && ids.has(fact.seat)))
 }
+
+export interface LanePreferences {
+  readonly start: number
+  readonly width: number
+  readonly browserProfile: boolean
+}
+
+export interface Lane {
+  readonly id: string
+  readonly goal: string
+  readonly seat: string | null
+  readonly cwd: string
+  readonly branch: string
+  readonly ports: { readonly start: number; readonly end: number }
+  readonly browserProfile: string | null
+  readonly state: 'reserved' | 'active' | 'retained' | 'released'
+  readonly createdAt: number
+}
+
+export const DEFAULT_LANE_PREFERENCES: LanePreferences = { start: 30000, width: 20, browserProfile: true }
+
+export function lanePreferences(value: unknown): LanePreferences {
+  const bad = (): never => { throw new Error('Use a starting port from 1024 to 65535 and a width from 1 to 1000 that fits below 65536.') }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return bad()
+  const raw = value as Record<string, unknown>
+  if (Object.keys(raw).length !== 3 || typeof raw.start !== 'number' || !Number.isSafeInteger(raw.start) ||
+      typeof raw.width !== 'number' || !Number.isSafeInteger(raw.width) || raw.start < 1024 || raw.start > 65535 ||
+      raw.width < 1 || raw.width > 1000 || raw.start + raw.width - 1 > 65535 || typeof raw.browserProfile !== 'boolean') return bad()
+  return { start: raw.start, width: raw.width, browserProfile: raw.browserProfile }
+}
