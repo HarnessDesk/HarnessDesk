@@ -1640,6 +1640,7 @@ export class Host {
     }
 
     const seating = { restored: 0, skipped: 0 }
+    let seatingRevision: number | undefined
     if (typeof file.seating === 'object' && file.seating !== null) {
       const saved = parseSeating(JSON.stringify(file.seating))
       for (const entry of saved.entries) {
@@ -1650,8 +1651,10 @@ export class Host {
           // own `agent/seating/set` landing in the gap between that read and
           // this call could otherwise have made stale.
           const outcome = await this.#machineSeating.set(entry.id, entry.seats, { onlyIfAbsent: true })
-          if (outcome.wrote) seating.restored += 1
-          else seating.skipped += 1
+          if (outcome.wrote) {
+            seating.restored += 1
+            seatingRevision = outcome.seating.revision
+          } else seating.skipped += 1
         } catch (error) {
           seating.skipped += 1
           this.#logger.warn('a seating entry from a backup could not be restored', {
@@ -1663,7 +1666,10 @@ export class Host {
       seating.skipped += saved.problems.filter((one) => one.id !== null).length
     }
     if (agentFolders.restored > 0 || seating.restored > 0) {
-      this.#push({ method: 'agent/changed', params: { project: null } })
+      this.#push({
+        method: 'agent/changed',
+        params: { project: null, ...(seatingRevision === undefined ? {} : { revision: seatingRevision }) },
+      })
     }
     this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating })
     return { agents, preferences, transcripts, agentFolders, seating }

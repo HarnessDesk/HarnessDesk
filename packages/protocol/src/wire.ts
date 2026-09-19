@@ -2183,7 +2183,11 @@ export type WireNotification =
        * every listing shows.
        */
       readonly method: 'agent/changed'
-      readonly params: { readonly project: string | null }
+      readonly params: {
+        readonly project: string | null
+        /** Present when this notice is for a seating write: the revision that write produced. */
+        readonly revision?: number
+      }
     }
   | {
       /** Base64 output from a terminal. Every client receives it; a pane shows its own. */

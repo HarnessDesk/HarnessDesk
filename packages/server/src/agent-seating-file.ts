@@ -40,6 +40,8 @@ import { asList, asRecord, asText, parseSeatList, sameSeat, seatSpec, seatWrites
  */
 
 export const SEATING_FILE = 'seating.json'
+/** Persisted beside the entries; `$` cannot begin an Agent id. */
+const SEATING_REVISION = '$revision'
 
 const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
@@ -65,22 +67,40 @@ export const reservedIdText = (id: string): string =>
   `"${id}" is not read as an Agent id — every object answers to it on its own, so it is never truly this Agent's; rename it`
 
 /** What one file's text says: the entries that read, in order, and why the others did not. Pure. */
-export const parseSeating = (
-  text: string,
-): { entries: { id: string; seats: readonly FlowSeat[] }[]; problems: SeatingProblem[] } => {
+interface ParsedSeating {
+  readonly revision: number
+  readonly entries: { id: string; seats: readonly FlowSeat[] }[]
+  readonly problems: SeatingProblem[]
+}
+
+const parseSeatingDocument = (text: string): ParsedSeating => {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch (error) {
-    return { entries: [], problems: [{ id: null, at: '', text: `it is not JSON: ${messageOf(error)}` }] }
+    return { revision: 0, entries: [], problems: [{ id: null, at: '', text: `it is not JSON: ${messageOf(error)}` }] }
   }
   const file = asRecord(parsed)
   if (!file) {
-    return { entries: [], problems: [{ id: null, at: '', text: 'it is not an object of Agent ids to lists of seats' }] }
+    return {
+      revision: 0,
+      entries: [],
+      problems: [{ id: null, at: '', text: 'it is not an object of Agent ids to lists of seats' }],
+    }
+  }
+  const storedRevision = file[SEATING_REVISION]
+  const revision = storedRevision === undefined ? 0 : storedRevision
+  if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+    return {
+      revision: 0,
+      entries: [],
+      problems: [{ id: null, at: SEATING_REVISION, text: 'its revision is not a non-negative safe integer' }],
+    }
   }
   const entries: { id: string; seats: readonly FlowSeat[] }[] = []
   const problems: SeatingProblem[] = []
   for (const [id, value] of Object.entries(file)) {
+    if (id === SEATING_REVISION) continue
     if (isReservedId(id)) {
       problems.push({ id, at: '', text: reservedIdText(id) })
       continue
@@ -111,6 +131,14 @@ export const parseSeating = (
     }
     entries.push({ id, seats })
   }
+  return { revision: revision as number, entries, problems }
+}
+
+/** What the Agent entries say; the persisted ordering field is host bookkeeping, not an Agent. */
+export const parseSeating = (
+  text: string,
+): { entries: { id: string; seats: readonly FlowSeat[] }[]; problems: SeatingProblem[] } => {
+  const { entries, problems } = parseSeatingDocument(text)
   return { entries, problems }
 }
 
@@ -190,10 +218,10 @@ export class MachineSeatingFile {
       text = await readFile(this.path, 'utf8')
     } catch (error) {
       // No file is no entries: nobody has chosen seats on this machine yet.
-      if ((error as { code?: unknown }).code === 'ENOENT') return { path: this.path, entries: [], problems: [] }
-      return { path: this.path, entries: [], problems: [{ id: null, at: '', text: unreadable(error) }] }
+      if ((error as { code?: unknown }).code === 'ENOENT') return { revision: 0, path: this.path, entries: [], problems: [] }
+      return { revision: 0, path: this.path, entries: [], problems: [{ id: null, at: '', text: unreadable(error) }] }
     }
-    return { path: this.path, ...parseSeating(text) }
+    return { path: this.path, ...parseSeatingDocument(text) }
   }
 
   /** The file as written for a backup, or null when it is absent or unreadable. */
@@ -227,7 +255,7 @@ export class MachineSeatingFile {
       })
       return null
     }
-    return record
+    return Object.fromEntries(Object.entries(record).filter(([key]) => key !== SEATING_REVISION))
   }
 
   /**
@@ -322,6 +350,13 @@ export class MachineSeatingFile {
         }
         raw = record
       }
+      const storedRevision = raw[SEATING_REVISION]
+      const revision = storedRevision === undefined ? 0 : storedRevision
+      if (!Number.isSafeInteger(revision) || (revision as number) < 0) {
+        throw new Error(
+          `${this.path} was not changed: ${SEATING_REVISION} is not a non-negative safe integer. Fix it or remove it first, so what is in it is not lost.`,
+        )
+      }
 
       // Decided here, against the very `raw` this turn is about to write from
       // and the id this turn already holds the queue for — not against a
@@ -335,6 +370,7 @@ export class MachineSeatingFile {
       const pairs: [string, unknown][] = []
       let placed = false
       for (const [key, value] of Object.entries(raw)) {
+        if (key === SEATING_REVISION) continue
         if (key !== id) {
           pairs.push([key, value])
           continue
@@ -367,7 +403,11 @@ export class MachineSeatingFile {
       await mkdir(dirname(this.path), { recursive: true })
       // Write-then-rename, like every file the host owns.
       const temp = `${this.path}.${process.pid}.tmp`
-      await writeFile(temp, `${JSON.stringify(Object.fromEntries(pairs), null, 2)}\n`)
+      const nextRevision = (revision as number) + 1
+      if (!Number.isSafeInteger(nextRevision)) {
+        throw new Error(`${this.path} was not changed: its revision cannot increase again.`)
+      }
+      await writeFile(temp, `${JSON.stringify(Object.fromEntries([[SEATING_REVISION, nextRevision], ...pairs]), null, 2)}\n`)
       await rename(temp, this.path)
       return { seating: await this.read(), wrote: true }
     }

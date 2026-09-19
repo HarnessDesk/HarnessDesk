@@ -950,6 +950,7 @@ class PreviewStore {
       agentsProject: PREVIEW_ROOT,
       agentPlans: PREVIEW_PLANS,
       seating: {
+        revision: 1,
         path: '/home/u/.harnessdesk/seating.json',
         entries: [
           {

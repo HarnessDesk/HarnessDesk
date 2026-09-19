@@ -3229,9 +3229,10 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
     id: 'reviewer',
     seats: [{ runtime: 'seatfake', model: 'small' }],
   })) as MachineSeating
+  assert.equal(set.revision, 1)
   assert.equal(set.path, join(harness.stateDir, 'seating.json'))
   assert.deepEqual(set.entries, [{ id: 'reviewer', seats: [{ runtime: 'seatfake', model: 'small' }] }])
-  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { reviewer: ['seatfake=small'] })
+  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { $revision: 1, reviewer: ['seatfake=small'] })
   assert.equal(machineNotices(client), 1, "every window told once, of this machine's own seats — not one project's")
   const [plan] = (await client.call('agent/seat/dry', { ids: ['reviewer'], project: work })) as SeatPlan[]
   assert.equal(plan?.from, 'machine')
@@ -3239,9 +3240,17 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
 
   // Cleared: a write too, so every window is told again — once.
   const cleared = (await client.call('agent/seating/set', { id: 'reviewer', seats: null })) as MachineSeating
+  assert.equal(cleared.revision, 2)
   assert.deepEqual(cleared.entries, [])
-  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), {})
+  assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { $revision: 2 })
   assert.equal(machineNotices(client), 2, 'the clear told every window once more')
+  assert.deepEqual(
+    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed'),
+    [
+      { method: 'agent/changed', params: { project: null, revision: 1 } },
+      { method: 'agent/changed', params: { project: null, revision: 2 } },
+    ],
+  )
   assert.deepEqual(await client.call('agent/seating/read', {}), cleared)
 })
 
@@ -3318,26 +3327,30 @@ test('two sets without an expected value started together are two writes and two
     push: (notice: unknown) => pushed.push({ notice, file: JSON.parse(readFileSync(path, 'utf8')) }),
   } as never
   const set = agentMethods['agent/seating/set']
-  const notice = { method: 'agent/changed', params: { project: null } }
-
   const [first, second] = await Promise.all([
     set(ctx, { id: 'reviewer', seats: [{ runtime: 'claude' }] }),
     set(ctx, { id: 'reviewer', seats: [{ runtime: 'codex' }] }),
   ])
   assert.deepEqual(pushed, [
-    { notice, file: { reviewer: ['claude'] } },
-    { notice, file: { reviewer: ['codex'] } },
+    {
+      notice: { method: 'agent/changed', params: { project: null, revision: 1 } },
+      file: { $revision: 1, reviewer: ['claude'] },
+    },
+    {
+      notice: { method: 'agent/changed', params: { project: null, revision: 2 } },
+      file: { $revision: 2, reviewer: ['codex'] },
+    },
   ])
   // Each answers what it wrote, as the wire says: this machine's seats, whole.
-  assert.deepEqual(first, { path, entries: [{ id: 'reviewer', seats: [{ runtime: 'claude' }] }], problems: [] })
-  assert.deepEqual(second, { path, entries: [{ id: 'reviewer', seats: [{ runtime: 'codex' }] }], problems: [] })
+  assert.deepEqual(first, { revision: 1, path, entries: [{ id: 'reviewer', seats: [{ runtime: 'claude' }] }], problems: [] })
+  assert.deepEqual(second, { revision: 2, path, entries: [{ id: 'reviewer', seats: [{ runtime: 'codex' }] }], problems: [] })
 
   // The list already there: nothing written, nothing told.
   await set(ctx, { id: 'reviewer', seats: [{ runtime: 'codex' }] })
   // Refused: nothing written, nothing told.
   await assert.rejects(() => set(ctx, { id: 'reviewer', seats: [] }), /at least one seat/)
   assert.equal(pushed.length, 2, 'still one notice for each of the two writes')
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['codex'] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { $revision: 2, reviewer: ['codex'] })
 })
 
 test('a stale expected value is refused inside the write queue, and the first edit is left unchanged', async () => {
@@ -3364,7 +3377,10 @@ test('a stale expected value is refused inside the write queue, and the first ed
     stale.status === 'rejected' ? String(stale.reason) : '',
     /changed in another window; nothing was saved/,
   )
-  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), { reviewer: ['claude', 'codex', 'cursor'] })
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), {
+    $revision: 1,
+    reviewer: ['claude', 'codex', 'cursor'],
+  })
   assert.equal(pushed.length, 1, 'only the accepted edit wrote and told the windows')
 })
 

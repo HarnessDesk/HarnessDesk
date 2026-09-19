@@ -143,6 +143,7 @@ const PLANS = new Map<string, SeatPlan>([
 const COPY: AgentEntry = { ...ROSTER[2]!, origin: 'user', path: '/Users/dev/.harnessdesk/agents/judge/AGENT.md' }
 
 const SEATING: MachineSeating = {
+  revision: 1,
   path: '/Users/dev/.harnessdesk/seating.json',
   entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }, { runtime: 'claude-code' }] }],
   problems: [],

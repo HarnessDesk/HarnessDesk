@@ -319,6 +319,12 @@ export interface SeatingProblem {
  * An entry replaces its Agent's `prefer` here; it never merges with it.
  */
 export interface MachineSeating {
+  /**
+   * Host order for this whole state. It increases on every write that changes
+   * `seating.json` and is persisted with the file, so renderer windows and a
+   * restarted desk compare answers by the state they carry, not request order.
+   */
+  readonly revision: number
   /** Where the file is: `seating.json` in the desk's state directory. */
   readonly path: string
   readonly entries: readonly { readonly id: AgentId; readonly seats: readonly FlowSeat[] }[]

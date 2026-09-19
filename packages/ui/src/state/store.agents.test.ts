@@ -564,10 +564,10 @@ it('customizing and removing read the roster again, and say why when the host re
 })
 
 it("reads this Mac's seats when asked, keeps what setting them answers, and reads them again when they change", async () => {
-  const seating = { path: '/u/.harnessdesk/seating.json', entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }], problems: [] }
+  const seating = { revision: 1, path: '/u/.harnessdesk/seating.json', entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }], problems: [] }
   answering({
     'agent/seating/read': () => seating,
-    'agent/seating/set': () => ({ ...seating, entries: [] }),
+    'agent/seating/set': () => ({ ...seating, revision: 2, entries: [] }),
     'agent/seat/dry': () => [],
   })
   expect(store.getSnapshot().seating).toBeNull()
@@ -587,12 +587,14 @@ it("reads this Mac's seats when asked, keeps what setting them answers, and read
 
 it('never lets a seating read delayed across a write move the state backward', async () => {
   const before = {
+    revision: 1,
     path: '/u/.harnessdesk/seating.json',
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
     problems: [],
   }
   const after = {
     ...before,
+    revision: 2,
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
   }
   const staleRead = deferred<typeof before>()
@@ -613,12 +615,14 @@ it('never lets a seating read delayed across a write move the state backward', a
 
 it('keeps a successful seating write authoritative while its notification reload is pending or fails', async () => {
   const before = {
+    revision: 1,
     path: '/u/.harnessdesk/seating.json',
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
     problems: [],
   }
   const after = {
     ...before,
+    revision: 2,
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
   }
   const setAnswer = deferred<typeof after>()
@@ -648,16 +652,19 @@ it('keeps a successful seating write authoritative while its notification reload
 
 it('keeps a newer authoritative notification result over an older seating write result', async () => {
   const before = {
+    revision: 1,
     path: '/u/.harnessdesk/seating.json',
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
     problems: [],
   }
   const afterWrite = {
     ...before,
+    revision: 2,
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
   }
   const afterNewerChange = {
     ...before,
+    revision: 3,
     entries: [{ id: 'code-reviewer', seats: [{ runtime: 'cursor' }] }],
   }
   const setAnswer = deferred<typeof afterWrite>()
@@ -684,6 +691,101 @@ it('keeps a newer authoritative notification result over an older seating write 
   expect(store.getSnapshot().seating).toEqual(afterNewerChange)
 })
 
+it('draws a successful seating set after a pre-write external read applied and the write notification reload failed', async () => {
+  const initial = {
+    revision: 3,
+    path: '/u/.harnessdesk/seating.json',
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
+    problems: [],
+  }
+  const before = {
+    ...initial,
+    revision: 4,
+    entries: [...initial.entries, { id: 'scout', seats: [{ runtime: 'cursor' }] }],
+  }
+  const after = {
+    ...before,
+    revision: 5,
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }, before.entries[1]!],
+  }
+  const externalRead = deferred<typeof before>()
+  const setAnswer = deferred<typeof after>()
+  let reads = 0
+  answering({
+    'agent/seating/read': () => {
+      reads += 1
+      if (reads === 1) return initial
+      if (reads === 2) return externalRead.promise
+      throw new Error('the write notification reload failed')
+    },
+    'agent/seating/set': () => setAnswer.promise,
+    'agent/seat/dry': () => [],
+  })
+
+  await store.loadSeating()
+  const write = store.setSeating('code-reviewer', after.entries[0]!.seats, initial.entries[0]!.seats)
+  let writeSettled = false
+  void write.then(() => {
+    writeSettled = true
+  })
+
+  // An unrelated external change asks after the local set, but answers with
+  // the state from before that set reaches the host's serialized file queue.
+  handlers().onNotification({ method: 'agent/changed', params: { project: null, revision: before.revision } })
+  await vi.waitFor(() => expect(reads).toBe(2))
+  externalRead.resolve(before)
+  await vi.waitFor(() => expect(store.getSnapshot().seating).toEqual(before))
+
+  // The set now writes revision 5. Its own notification arrives before its
+  // result, as the host sends it, but that reload fails. The successful set
+  // result is still the authoritative state that must be drawn.
+  handlers().onNotification({ method: 'agent/changed', params: { project: null, revision: after.revision } })
+  await vi.waitFor(() => expect(reads).toBe(3))
+  await Promise.resolve()
+  expect(writeSettled).toBe(false)
+  setAnswer.resolve(after)
+  await write
+
+  expect(writeSettled).toBe(true)
+  expect(store.getSnapshot().seating).toEqual(after)
+})
+
+it('ignores an older seating revision that answers after a newer set result', async () => {
+  const before = {
+    revision: 8,
+    path: '/u/.harnessdesk/seating.json',
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }],
+    problems: [],
+  }
+  const after = {
+    ...before,
+    revision: 9,
+    entries: [{ id: 'code-reviewer', seats: [{ runtime: 'claude-code' }] }],
+  }
+  const olderRead = deferred<typeof before>()
+  const setAnswer = deferred<typeof after>()
+  let reads = 0
+  answering({
+    'agent/seating/read': () => (++reads === 1 ? before : olderRead.promise),
+    'agent/seating/set': () => setAnswer.promise,
+    'agent/seat/dry': () => [],
+  })
+
+  await store.loadSeating()
+  const write = store.setSeating('code-reviewer', after.entries[0]!.seats, before.entries[0]!.seats)
+  handlers().onNotification({ method: 'agent/changed', params: { project: null } })
+  await vi.waitFor(() => expect(reads).toBe(2))
+
+  setAnswer.resolve(after)
+  await write
+  expect(store.getSnapshot().seating).toEqual(after)
+
+  olderRead.resolve(before)
+  await olderRead.promise
+  await Promise.resolve()
+  expect(store.getSnapshot().seating).toEqual(after)
+})
+
 /**
  * Correction 1 (task-16-corrections.md): a real change is not always told by
  * a notice — a second window's set() answers `wrote: false` and pushes
@@ -694,7 +796,7 @@ it('keeps a newer authoritative notification result over an older seating write 
 it('re-reads the plans once its own set answers, without waiting for a notice', async () => {
   let dryRuns = 0
   answering({
-    'agent/seating/set': () => ({ path: '/u/.harnessdesk/seating.json', entries: [], problems: [] }),
+    'agent/seating/set': () => ({ revision: 1, path: '/u/.harnessdesk/seating.json', entries: [], problems: [] }),
     'agent/seat/dry': () => {
       dryRuns += 1
       return []

@@ -234,7 +234,7 @@ export const agentMethods = {
     // A reading taken here before queueing could not tell two sets racing
     // (codex to claude, and back) from one, and told every window only of the
     // first — a window re-reading on it stayed on claude.
-    if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
+    if (wrote) ctx.push({ method: 'agent/changed', params: { project: null, revision: seating.revision } })
     return seating
   },
 
@@ -351,8 +351,8 @@ export const agentMethods = {
         // another window's set landing in the gap since could have made
         // stale. This call's own folder and path walk stay sound either way;
         // only its choice of seat might no longer be.
-        const { wrote } = await ctx.seating.set(id, [params.seat], { refuseIfDifferent: alreadySeatedText })
-        if (wrote) ctx.push({ method: 'agent/changed', params: { project: null } })
+        const { seating, wrote } = await ctx.seating.set(id, [params.seat], { refuseIfDifferent: alreadySeatedText })
+        if (wrote) ctx.push({ method: 'agent/changed', params: { project: null, revision: seating.revision } })
       } catch (error) {
         const left = await rollbackCreatedAgent(created, project ?? '')
         if (left) {

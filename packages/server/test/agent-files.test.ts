@@ -985,7 +985,7 @@ test('through the host: a project Save is refused, and rolls back its folder, wh
   )
   assert.deepEqual(
     JSON.parse(await readFile(seatingPath, 'utf8')),
-    { scratch: ['codex'] },
+    { $revision: 1, scratch: ['codex'] },
     'seating.json holds the other window’s choice, not this Save’s',
   )
 })
@@ -1115,14 +1115,19 @@ test('through the host: a dangling destination link is an existing Agent name, n
 
 test('a project Save that writes this Mac’s exact seat announces both changes', async () => {
   const project = tempDir('hd-agent-notice-project-')
-  const machine: MachineSeating = { path: join(tempDir('hd-agent-notice-state-'), SEATING_FILE), entries: [], problems: [] }
+  const machine: MachineSeating = {
+    revision: 0,
+    path: join(tempDir('hd-agent-notice-state-'), SEATING_FILE),
+    entries: [],
+    problems: [],
+  }
   const { ctx, pushed } = await handlerDesk(project, async (id, seats) => ({
     seating: { ...machine, entries: [{ id, seats: seats ?? [] }] },
     wrote: true,
   }))
   await agentMethods['agent/create'](ctx, { name: 'Scratch', permission: 'read', seat, to: 'project', project })
   assert.deepEqual(pushed, [
-    { method: 'agent/changed', params: { project: null } },
+    { method: 'agent/changed', params: { project: null, revision: 0 } },
     { method: 'agent/changed', params: { project: await realpath(project) } },
   ])
 })

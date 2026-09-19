@@ -237,10 +237,22 @@ test("a backup carries this machine's Agents and seats, and restore only adds wh
   assert.equal(await readFile(join(dirB, 'agents', 'scout', 'skills', 'look.md'), 'utf8'), 'Look closely.')
   assert.equal(await readFile(join(dirB, 'agents', 'keeper', 'AGENT.md'), 'utf8'), 'local copy')
   assert.deepEqual(JSON.parse(await readFile(join(dirB, 'seating.json'), 'utf8')), {
+    $revision: 1,
     judge: ['cursor'],
     scout: ['claude-code=opus-5/high'],
   })
-  assert.ok(notices.length >= 1, 'the explicit restore notice arrived; the watcher may add another')
+  assert.ok(
+    notices.some(
+      (notice) =>
+        typeof notice === 'object' &&
+        notice !== null &&
+        'method' in notice &&
+        notice.method === 'agent/changed' &&
+        'params' in notice &&
+        (notice.params as { revision?: unknown }).revision === 1,
+    ),
+    'the explicit restore notice carried the restored seating revision; the watcher may add another',
+  )
 
   const again = await b.host.call('backup/import', { backup })
   assert.deepEqual(again.agentFolders, { restored: 0, skipped: 1 })
@@ -1303,7 +1315,7 @@ test('bad files and refused writes are isolated, bounded, and leave no half-writ
   }
   assert.equal(await readFile(join(dir, 'agents', 'after', 'AGENT.md'), 'utf8'), 'still restored')
   assert.deepEqual((await readdir(join(dir, 'agents'))).sort(), ['after', 'mixed'], 'the failed transaction left no final or temp folder')
-  assert.deepEqual(JSON.parse(await readFile(join(dir, 'seating.json'), 'utf8')), { later: ['codex'] })
+  assert.deepEqual(JSON.parse(await readFile(join(dir, 'seating.json'), 'utf8')), { $revision: 1, later: ['codex'] })
   assert.ok(heard.said.includes('an Agent folder from a backup could not be restored'))
   assert.ok(heard.said.includes('a seating entry from a backup could not be restored'))
 })

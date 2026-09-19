@@ -374,8 +374,17 @@ export class AppStore {
             const [cwd, id] = JSON.parse(key) as [string, string]
             this.readSeatAgent(cwd, id)
           }
-          // This Mac's seats may be what changed; read them again only where a page has read them.
-          if (this.#snapshot.seating !== null) void this.loadSeating()
+          // This Mac's seats may be what changed; read them again only where a
+          // page has read them. A seating notice says which host revision it
+          // represents, so one already drawn needs no round trip. Roster
+          // notices carry none and preserve the older conservative reload.
+          if (
+            this.#snapshot.seating !== null &&
+            (notification.params.revision === undefined ||
+              notification.params.revision > this.#snapshot.seating.revision)
+          ) {
+            void this.loadSeating()
+          }
         }
         if (notification.method === 'session/removed') {
           this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
@@ -3702,9 +3711,6 @@ export class AppStore {
   #agentsGeneration = 0
   /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
   #agentPlansGeneration = 0
-  /** Orders seating requests; only a result older than one already drawn is stale. */
-  #seatingGeneration = 0
-  #seatingAppliedGeneration = 0
   /**
    * Set the instant a window's first `loadAgents()` call is made, never
    * cleared. `#snapshot.agents` says whether a load has *answered* — it stays
@@ -3928,16 +3934,14 @@ export class AppStore {
 
   /** This machine's seats for its Agents — `seating.json` — as the host reads it. */
   async loadSeating(): Promise<void> {
-    const generation = ++this.#seatingGeneration
     let seating: MachineSeating
     try {
       seating = await this.transport.request('agent/seating/read', {})
     } catch (error) {
-      if (generation === this.#seatingGeneration) this.notice('warning', describe(error))
+      this.notice('warning', describe(error))
       return
     }
-    if (generation <= this.#seatingAppliedGeneration) return
-    this.#seatingAppliedGeneration = generation
+    if (seating.revision < (this.#snapshot.seating?.revision ?? -1)) return
     this.#patch({ seating })
   }
 
@@ -3961,14 +3965,12 @@ export class AppStore {
     seats: readonly FlowSeat[] | null,
     expected?: readonly FlowSeat[] | null,
   ): Promise<void> {
-    const generation = ++this.#seatingGeneration
     const seating = await this.transport.request('agent/seating/set', {
       id,
       seats,
       ...(expected !== undefined ? { expected } : {}),
     })
-    if (generation > this.#seatingAppliedGeneration) {
-      this.#seatingAppliedGeneration = generation
+    if (seating.revision >= (this.#snapshot.seating?.revision ?? -1)) {
       this.#patch({ seating })
     }
     void this.loadAgentPlans()
