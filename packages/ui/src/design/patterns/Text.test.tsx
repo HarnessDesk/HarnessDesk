@@ -33,6 +33,8 @@ it('names its role and carries tone, truncation, and numeric semantics', () => {
   expect(text?.dataset['slot']).toBe('text')
   expect(text?.dataset['role']).toBe('figure')
   expect(text?.dataset['tone']).toBe('warning')
+  expect(text?.className).toContain('text-(--hd-warning-ink)')
+  expect(text?.className).not.toContain('text-(--hd-foreground)')
   expect(text?.className).toContain('truncate')
   expect(text?.className).toContain('tabular-nums')
 })

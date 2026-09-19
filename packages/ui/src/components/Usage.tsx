@@ -473,9 +473,9 @@ const BandHead = ({
     sticky
     className={styles.bandHead}
     name={name}
+    description={note}
     action={
       <>
-        {note != null && <Text role="meta" className={styles.bandNote}>{note}</Text>}
         <span className={styles.fill} />
         {action}
       </>
@@ -526,12 +526,20 @@ const RailRow = ({
     {...(title ? { title } : {})}
     onClick={onClick}
   >
-    <Text className={styles.acctMark} role="meta">{mark}</Text>
+    <Text className={styles.acctMark} role={selected ? 'muted' : 'meta'}>{mark}</Text>
     <Text className={styles.acctName} role="row" truncate>{name}</Text>
     {action ? (
       <Text className={styles.acctAdd} role="meta" tone="brand">{action}</Text>
     ) : (
-      <Text className={styles.acctFigure} role="meta" tone={tone ? paletteTone(tone) : 'neutral'} numeric>
+      /* A selected row sits on the navigation fill, where the warning and
+         error inks fall short of AA; its reading turns neutral there and the
+         meter below keeps the account's tone. */
+      <Text
+        className={styles.acctFigure}
+        role={selected ? 'muted' : 'meta'}
+        {...(selected ? {} : { tone: tone ? paletteTone(tone) : 'neutral' })}
+        numeric
+      >
         {figure}
       </Text>
     )}
@@ -545,7 +553,7 @@ const RailRow = ({
         aria-label={`${name} — what is left`}
       />
     ) : sub ? (
-      <Text className={styles.acctSub} role="meta" truncate>{sub}</Text>
+      <Text className={styles.acctSub} role={selected ? 'muted' : 'meta'} truncate>{sub}</Text>
     ) : null}
   </Button>
 )
@@ -689,7 +697,7 @@ const Card = ({
       <CardContent className={styles.cardBody}>
         <div className={styles.hero}>
           <div className={styles.heroFigure}>
-            <Text role="figure" tone={hero || balance || money ? undefined : 'neutral'}>{figure}</Text>
+            <Text role="figure" tone={hero ? paletteTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
             <span className={styles.fill} />
           {/* The pace sits beside the figure it qualifies, not in the header.

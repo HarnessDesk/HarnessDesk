@@ -172,6 +172,7 @@ describe('ContextUsage', () => {
       windows: [
         { label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt: null },
         { label: 'Weekly', usedPercent: 45, windowMinutes: 10080, resetsAt: null },
+        { label: 'Daily', usedPercent: 100, windowMinutes: 1440, resetsAt: null },
       ],
     }
     const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
@@ -184,6 +185,11 @@ describe('ContextUsage', () => {
     // the other before they could tell the two agreed.
     expect(panelText()).toContain('5-hour46% left')
     expect(panelText()).toContain('Weekly55% left')
+    expect(panelText()).toContain('Daily0% left')
+    const spent = [...document.querySelectorAll<HTMLElement>('[data-slot="text"]')].find((node) =>
+      node.textContent === '0% left',
+    )
+    expect(spent?.dataset['tone']).toBe('danger')
 
     // Not metered: the same limits are somebody else's.
     mount(withSession(runtime('alpha', 'Alpha', false), usage, { limits }))

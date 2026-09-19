@@ -298,31 +298,49 @@ export const PageHead = ({
 
 export const SectionHead = ({
   name,
+  description,
   action,
   sticky,
   className,
 }: {
   name: ReactNode
+  description?: ReactNode
   action?: ReactNode
   sticky?: boolean
   className?: string
 }) => (
   <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
-    <span className={styles.sectionName}>{name}</span>
+    <div className={styles.sectionHeadText}>
+      <h2 className={styles.sectionName} data-slot="section-name">{name}</h2>
+      {description != null && (
+        <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
+      )}
+    </div>
     {action}
   </div>
 )
 
 const TEXT_ROLE = {
   page: 'text-(length:--hd-title) leading-(--hd-line-title) font-normal tracking-[-0.01em]',
-  subject: 'text-base leading-(--hd-line) font-medium text-(--hd-foreground)',
-  row: 'text-sm leading-(--hd-line-sm) font-medium text-(--hd-foreground)',
-  muted: 'text-sm leading-(--hd-line-sm) font-normal text-(--hd-secondary-foreground)',
-  meta: 'text-xs leading-(--hd-line-xs) font-normal text-(--hd-muted-foreground)',
+  subject: 'text-base leading-(--hd-line) font-medium',
+  row: 'text-sm leading-(--hd-line-sm) font-medium',
+  muted: 'text-sm leading-(--hd-line-sm) font-normal',
+  meta: 'text-xs leading-(--hd-line-xs) font-normal',
   figure:
-    'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums text-(--hd-foreground)',
-  metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums text-(--hd-foreground)',
-  value: 'text-base leading-(--hd-line) font-normal tabular-nums text-(--hd-foreground)',
+    'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums',
+  metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums',
+  value: 'text-base leading-(--hd-line) font-normal tabular-nums',
+} as const
+
+const TEXT_ROLE_INK = {
+  page: undefined,
+  subject: 'text-(--hd-foreground)',
+  row: 'text-(--hd-foreground)',
+  muted: 'text-(--hd-secondary-foreground)',
+  meta: 'text-(--hd-muted-foreground)',
+  figure: 'text-(--hd-foreground)',
+  metric: 'text-(--hd-foreground)',
+  value: 'text-(--hd-foreground)',
 } as const
 
 export type TextRole = keyof typeof TEXT_ROLE
@@ -357,7 +375,7 @@ export const Text = ({
       ...(tone ? { 'data-tone': tone } : {}),
       className: cx(
         TEXT_ROLE[role],
-        tone && inkTone({ tone }),
+        tone ? inkTone({ tone }) : TEXT_ROLE_INK[role],
         align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
         truncate && 'truncate',
         numeric && 'tabular-nums',
