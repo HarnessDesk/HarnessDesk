@@ -89,7 +89,7 @@ const routedStore = (focus: string): AppStore => {
 }
 
 it('keeps a project focus through the one-shot route that opens Settings', async () => {
-  const project = '/home/jane/work/storefront'
+  const project = '/home/user/work/storefront'
   await act(async () => {
     root.render(
       <StrictMode>
@@ -106,7 +106,7 @@ it('keeps a project focus through the one-shot route that opens Settings', async
 it('lets a project page in Settings open that Agent in the app shell', async () => {
   await act(async () => {
     root.render(
-      <StoreProvider store={routedStore('/home/jane/work/storefront')}>
+      <StoreProvider store={routedStore('/home/user/work/storefront')}>
         <App />
       </StoreProvider>,
     )
