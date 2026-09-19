@@ -2,7 +2,13 @@ import { createServer, type Server, type Socket } from 'node:net'
 import { chmodSync, mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-import type { CapabilityContribution, ToolResult } from '@harnessdesk/protocol'
+import {
+  runtimeId,
+  sessionId,
+  type CapabilityContribution,
+  type CapabilityRegistry,
+  type ToolResult,
+} from '@harnessdesk/protocol'
 
 /**
  * The tool gateway: plugin tools for out-of-process projections.
@@ -31,6 +37,39 @@ export interface ToolGatewayBackend {
    * whose own bridge already carries the sentence, so nobody hears it twice.
    */
   instructions?(caller?: string): string
+}
+
+/** The conversation a bridge correlation token names. */
+export interface BridgeCaller {
+  readonly runtime: string
+  readonly sessionId: string
+}
+
+/** Invoke one bridge call as the conversation whose opening minted its token. */
+export const invokeForBridge = async (
+  tools: CapabilityRegistry,
+  callers: ReadonlyMap<string, BridgeCaller>,
+  call: { readonly namespace: string; readonly name: string; readonly args: unknown; readonly caller?: string | undefined },
+  log?: (message: string, details: Readonly<Record<string, unknown>>) => void,
+): Promise<ToolResult> => {
+  const listed = tools.list('tool', {})
+  const tool =
+    listed.find((entry) => entry.namespace === call.namespace && entry.name === call.name) ??
+    listed.find((entry) => entry.name === call.name)
+  if (!tool) return { ok: false, error: `No tool named ${call.namespace}/${call.name} is registered.` }
+  const scope = call.caller !== undefined ? callers.get(call.caller) : undefined
+  if (scope) {
+    log?.('tool call scoped to its session', {
+      tool: `${call.namespace}/${call.name}`,
+      runtime: scope.runtime,
+      session: scope.sessionId,
+    })
+  }
+  return tools.invokeTool(
+    tool.id,
+    call.args,
+    scope ? { runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId) } : {},
+  )
 }
 
 interface Request {

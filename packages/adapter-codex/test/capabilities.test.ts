@@ -234,3 +234,32 @@ test('context contributions are folded into the turn, not exposed as tools', asy
   assert.equal(kernel.list('tool').length, 0)
   assert.equal(kernel.list('context').length, 1)
 })
+
+test("a sub-agent's call to a plugin tool is its parent thread's: the scope names the conversation the desk opened", async (t) => {
+  const kernel = new ExtensionKernel()
+  const scopes: unknown[] = []
+  await loadPlugin(kernel, 'demo', (ctx) => {
+    ctx.tools.register({
+      name: 'shout',
+      description: 'Uppercases its input.',
+      inputSchema: { type: 'object' },
+      execute: (args: { text: string }, scope: unknown) => {
+        scopes.push(scope)
+        return args.text.toUpperCase()
+      },
+    })
+  })
+  const { runtime, events } = await start(kernel, 'delegated-tools')
+  t.after(async () => {
+    await runtime.dispose()
+    await kernel.dispose()
+  })
+  const session = await runtime.createSession({ cwd: '/w' })
+  await session.send([{ type: 'text', text: 'delegate it' }])
+  await waitFor(() => notices(events).some((m) => m.startsWith('TOOL_ANSWER')), 'the tool answer')
+  assert.match(notices(events).find((m) => m.startsWith('TOOL_ANSWER')) ?? '', /FROM A SUB-AGENT/)
+  assert.deepEqual(
+    scopes.map((scope) => String((scope as { sessionId?: unknown }).sessionId)),
+    [String(session.id)],
+  )
+})

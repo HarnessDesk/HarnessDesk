@@ -241,6 +241,8 @@ export class CodexRuntime implements AgentRuntime {
   /** The shell sessions a thread has left running; see `RuntimeTasks`. */
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
+  /** Child thread id to the thread that spawned it. */
+  readonly #parents = new Map<string, string>()
   /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
   readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
@@ -1216,6 +1218,17 @@ export class CodexRuntime implements AgentRuntime {
    */
   #track(notification: CodexProtocol.ServerNotification): void {
     switch (notification.method) {
+      case 'thread/started': {
+        const { id, parentThreadId } = notification.params.thread
+        if (parentThreadId && parentThreadId !== id) {
+          this.#parents.set(id, parentThreadId)
+          if (this.#parents.size > 2000) {
+            const oldest = this.#parents.keys().next().value
+            if (oldest !== undefined) this.#parents.delete(oldest)
+          }
+        }
+        return
+      }
       case 'thread/settings/updated':
         this.#sessions
           .get(notification.params.threadId)
@@ -1278,6 +1291,17 @@ export class CodexRuntime implements AgentRuntime {
     }
   }
 
+  /** Walk an announced child thread to the conversation the desk opened. */
+  #rootOf(threadId: string): string {
+    let at = threadId
+    for (let depth = 0; depth < 8; depth += 1) {
+      const parent = this.#parents.get(at)
+      if (parent === undefined) return at
+      at = parent
+    }
+    return at
+  }
+
   #onServerRequest(
     request: CodexProtocol.ServerRequest,
     responder: ServerRequestResponder,
@@ -1312,7 +1336,8 @@ export class CodexRuntime implements AgentRuntime {
     responder: ServerRequestResponder,
   ): Promise<void> {
     const registry = this.#capabilities
-    const session = this.#sessions.get(params.threadId)
+    const root = this.#rootOf(params.threadId)
+    const session = this.#sessions.get(root)
     const label = `${params.namespace ?? ''}/${params.tool}`
 
     if (!registry) {
@@ -1323,7 +1348,7 @@ export class CodexRuntime implements AgentRuntime {
     }
 
     const scope = {
-      sessionId: makeSessionId(params.threadId),
+      sessionId: makeSessionId(root),
       turnId: turnIdOf(params.turnId),
       runtime: this.#id,
       ...(session ? { workspaceRoot: session.settings().cwd } : {}),

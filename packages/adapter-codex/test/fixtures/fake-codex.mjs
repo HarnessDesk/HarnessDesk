@@ -928,6 +928,29 @@ const callDeclaredTool = () => {
   })
 }
 
+/** A child thread calls the first client-declared tool after naming its parent. */
+const callDeclaredToolAsChild = () => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      threadId: child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
+    },
+  })
+}
+
 /**
  * A small filesystem for the `fs/*` and `fuzzyFileSearch` methods. The real
  * app-server serves the host filesystem unsandboxed; the fake serves this
@@ -1924,6 +1947,7 @@ rl.on('line', (line) => {
       }
       if (mode === 'turn') setImmediate(playTurn)
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
+      if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
       return
     }
 

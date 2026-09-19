@@ -6,8 +6,10 @@ import { test, type TestContext } from 'node:test'
 import { ExtensionKernel, type HarnessPlugin } from '@harnessdesk/cordis-host'
 import { builtinPlugins } from '@harnessdesk/plugins'
 import {
+  itemId,
   runtimeId,
   sessionId,
+  turnId,
   type FlowRun,
   type NoticeItem,
   type PluginInstance,
@@ -20,6 +22,7 @@ import {
 
 import { GatedRegistry, refusalOf } from '../src/ceilings/gate.js'
 import { DESK_TOOLS, toolCeiling } from '../src/ceilings/tools.js'
+import { invokeForBridge } from '../src/tool-gateway.js'
 import { Host, StateStore } from '../src/index.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
@@ -127,7 +130,7 @@ const desk = async (t: TestContext) => {
       .flatMap((turn) => turn.items)
       .filter((item): item is NoticeItem => item.type === 'notice')
       .map((item) => item.text)
-  return { host, ran, call, agent, said, work }
+  return { host, runtime, ran, call, agent, said, work, gated }
 }
 
 const scopeOf = (session: Session): ScopeQuery => ({ runtime: runtimeId(String(session.runtime)), sessionId: session.id })
@@ -188,4 +191,42 @@ seed:
   await host.call('flow/stop', { run: run.id })
   assert.equal((await call('pr_create', scope)).ok, true)
   assert.deepEqual(ran, ['git_status', 'pr_create'])
+})
+
+test("through the host: a sub-agent reaching the desk through its parent's bridge is held to the parent's ceiling", async (t) => {
+  const { host, ran, agent, said, work, gated } = await desk(t)
+  await agent('reviewer', 'ceiling: read')
+  const seat = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const callers = new Map([['token-of-the-seat', { runtime: String(seat.runtime), sessionId: String(seat.id) }]])
+  const child = await invokeForBridge(gated, callers, { namespace: 'git', name: 'pr_create', args: {}, caller: 'token-of-the-seat' })
+  assert.equal(child.ok, false)
+  assert.deepEqual(ran, [], 'the desk refused before the tool ran')
+  assert.deepEqual(said(seat), ['Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.'])
+  assert.equal((await invokeForBridge(gated, callers, { namespace: 'git', name: 'pr_create', args: {}, caller: 'forgotten' })).ok, true)
+  assert.deepEqual(ran, ['pr_create'])
+})
+
+test('through the host: a sub-agent the runtime reports with a conversation of its own is held to the seat that spawned it', async (t) => {
+  const { host, runtime, ran, call, agent, said, work } = await desk(t)
+  await agent('reviewer', 'ceiling: read')
+  const seat = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const turn = host.registry.get(FAKE_RUNTIME_ID, seat.id)?.session.turns.at(-1)
+  assert.ok(turn, 'the standing order started a turn')
+  runtime.emit({
+    type: 'item/completed',
+    sessionId: seat.id,
+    turnId: turnId(String(turn.id)),
+    item: {
+      id: itemId('spawn-1'),
+      type: 'subagent',
+      action: 'spawn',
+      status: 'completed',
+      members: [{ sessionId: 'child-1' }],
+    },
+  })
+  const fromChild = await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('child-1') })
+  assert.equal(fromChild.ok, false)
+  assert.deepEqual(ran, [])
+  assert.deepEqual(said(seat), ['Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.'], 'said where the ceiling is held')
+  assert.equal((await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('stranger') })).ok, true)
 })

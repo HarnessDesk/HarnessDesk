@@ -14,7 +14,6 @@ import {
   isFolderGone,
   type CeilingLevel,
   type NoticeItem,
-  type SeatCeiling,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -71,7 +70,7 @@ import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
-import { CeilingGate } from './ceilings/gate.js'
+import { CeilingGate, type GoverningSeat } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
@@ -2051,16 +2050,37 @@ export class Host {
   }
 
   readonly #ceilingGate = new CeilingGate({
-    ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
+    governing: (runtime, sessionId) => this.#governing(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
   })
 
-  /** The Agent or live-flow ceiling this conversation runs under. */
-  #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
+  /** A reported child conversation to the conversation that delegated it. */
+  readonly #delegatedBy = new Map<string, { readonly runtime: string; readonly sessionId: string }>()
+
+  #noteDelegation(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type !== 'item/started' && event.type !== 'item/completed') return
+    if (event.item.type !== 'subagent') return
+    for (const member of event.item.members) {
+      if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
+      this.#delegatedBy.set(String(sessionKey(runtime, makeSessionId(member.sessionId))), {
+        runtime: String(runtime),
+        sessionId: String(event.sessionId),
+      })
+      if (this.#delegatedBy.size > 2000) {
+        const oldest = this.#delegatedBy.keys().next().value
+        if (oldest !== undefined) this.#delegatedBy.delete(oldest)
+      }
+    }
+  }
+
+  /** The Agent or live-flow ceiling governing this conversation or its ancestor. */
+  #governing(runtime: string, sessionId: string, depth = 0): GoverningSeat | null {
     const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
-    if (seated) return seated
+    if (seated) return { ceiling: seated, runtime, sessionId }
     const flowSeat = this.#flows.seatOf(runtime, sessionId)
-    return flowSeat ? { level: ceilingOfPermission(flowSeat.permission), hold: 'asked' } : null
+    if (flowSeat) return { ceiling: { level: ceilingOfPermission(flowSeat.permission), hold: 'asked' }, runtime, sessionId }
+    const parent = this.#delegatedBy.get(String(sessionKey(runtimeId(runtime), makeSessionId(sessionId))))
+    return parent && depth < 8 ? this.#governing(parent.runtime, parent.sessionId, depth + 1) : null
   }
 
   /** Put a desk decision in the conversation's running or latest turn. */
@@ -3052,6 +3072,7 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    this.#noteDelegation(runtime, event)
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.

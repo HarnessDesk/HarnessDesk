@@ -18,8 +18,15 @@ import { TOOL_ACTIONS, toolCeiling } from './tools.js'
 
 /** What the tool gate needs from the host. */
 export interface CeilingGatePort {
-  ceilingOf(runtime: string, sessionId: string): SeatCeiling | null
+  governing(runtime: string, sessionId: string): GoverningSeat | null
   say(runtime: string, sessionId: string, text: string): void
+}
+
+/** The ceiling and the seated conversation that owns it. */
+export interface GoverningSeat {
+  readonly ceiling: SeatCeiling
+  readonly runtime: string
+  readonly sessionId: string
 }
 
 export interface GatedCall {
@@ -44,10 +51,10 @@ export class CeilingGate {
   async admit(call: GatedCall): Promise<Admission> {
     const { runtime, sessionId } = call.scope
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
-    const ceiling = this.port.ceilingOf(String(runtime), String(sessionId))
-    if (!ceiling || reaches(ceiling.level, call.needs)) return { admitted: true }
-    const refusal = refusalOf(call.tool, call.needs, ceiling.level)
-    this.port.say(String(runtime), String(sessionId), refusal)
+    const seat = this.port.governing(String(runtime), String(sessionId))
+    if (!seat || reaches(seat.ceiling.level, call.needs)) return { admitted: true }
+    const refusal = refusalOf(call.tool, call.needs, seat.ceiling.level)
+    this.port.say(seat.runtime, seat.sessionId, refusal)
     return { admitted: false, refusal }
   }
 }
