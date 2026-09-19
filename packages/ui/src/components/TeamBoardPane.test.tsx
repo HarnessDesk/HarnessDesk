@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
   sessionKey,
+  type BoardEvidence,
   type RuntimeInfo,
   type Session,
   type TeamState,
@@ -12,6 +13,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
+import { cardEvidence, checkView, prView } from '../preview/evidence-fixture'
 import { TeamBoardPane } from './TeamBoardPane'
 
 /**
@@ -82,7 +84,7 @@ const state = (intents: readonly unknown[], extra: Partial<TeamState> = {}): Tea
 /* `extra` carries the parts of the board state a test needs to vary — the
    nicknames, so far, because who holds a card is a property of the board and
    there is no other way to write that case. */
-const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
+const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, evidence?: BoardEvidence) => {
   /* `turns` and `itemsLoaded` are not decoration: every real session carries
      them, and anything reading a transcript — `isBusy`, `currentTurn` — reads
      `turns` without asking. A fixture that leaves them out passes until the
@@ -109,6 +111,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
     ] as unknown as RuntimeInfo[],
     sessions: new Map([[sessionKey('codex', 'c1'), held]]),
     teams: new Map([[ROOM, state(intents, extra)]]),
+    boardEvidence: new Map(evidence ? [[ROOM, evidence]] : []),
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -126,6 +129,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
        no card carries a role, nothing here holds one, and the pane behaves
        exactly as it did before flows existed. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   return { store }
 }
@@ -978,4 +982,90 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   const items = await menuItems(1)
   const labels = items.map((one) => one.textContent?.trim())
   expect(labels).toContain('Answer approve')
+})
+
+const observed = (checks: readonly string[], cards: BoardEvidence['cards']): BoardEvidence => ({
+  room: ROOM,
+  stamp: 1,
+  checks,
+  refused: [],
+  unreadable: null,
+  cards,
+})
+
+const chipsOf = (id: number): HTMLButtonElement | null =>
+  container.querySelector<HTMLButtonElement>(`button[aria-label^="What the desk observed on #${id}"]`)
+
+it('a card carries what the desk observed as chips, and they open all of it', async () => {
+  const { store } = rig(
+    [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    {},
+    observed(['verify'], [cardEvidence(1, [checkView(), prView('open')])]),
+  )
+  await render(store)
+  const chips = chipsOf(1)
+  expect(chips?.textContent).toContain('verify ✓ @a1b2c3d')
+  expect(chips?.textContent).toContain('PR #12 open')
+  act(() => chips?.click())
+  await act(async () => {})
+  const dialog = document.querySelector('[role="dialog"]')
+  expect(dialog?.textContent).toContain('What the desk observed on #1')
+  expect(dialog?.textContent).toContain('Scout on Alpha · alpha-max')
+  expect(dialog?.textContent).toContain('Fresh: nothing has landed on its branch since.')
+  expect(dialog?.textContent).toContain('pnpm verify')
+})
+
+it('a stale chip says how far behind it is', async () => {
+  const { store } = rig(
+    [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    {},
+    observed(['verify'], [cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 2 } })])]),
+  )
+  await render(store)
+  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d — 2 commits since (stale)')
+  expect(chipsOf(1)?.getAttribute('aria-label')).toBe(
+    'What the desk observed on #1: verify ✓ @a1b2c3d — 2 commits since (stale)',
+  )
+})
+
+it('the plain board draws no evidence', async () => {
+  const { store } = rig([intent({ state: 'open' })])
+  await render(store)
+  expect(chipsOf(1)).toBeNull()
+  expect(store.loadBoardEvidence).toHaveBeenCalledWith(ROOM)
+})
+
+it('a message between agents is never evidence: the channel saying the tests pass draws no chip', async () => {
+  const said = {
+    id: 'm1',
+    at: 1,
+    kind: 'message',
+    from: { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' },
+    to: { runtime: 'claude', sessionId: 'k1', title: 'Auth refactor' },
+    text: 'verify passed, all tests pass — ready to merge',
+    state: 'delivered',
+  }
+  const { store } = rig(
+    [intent({ state: 'done', note: 'All tests pass.' })],
+    { channel: [said] } as unknown as Partial<TeamState>,
+    observed(['verify'], []),
+  )
+  await render(store)
+  expect(chipsOf(1)).toBeNull()
+  expect(card('Migrate auth callers').textContent).not.toContain('✓')
+})
+
+it('reads what was observed when shown, when the window comes back, and every thirty seconds', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  try {
+    const { store } = rig([intent({ state: 'open' })])
+    await render(store)
+    expect(store.loadBoardEvidence).toHaveBeenCalledTimes(1)
+    act(() => window.dispatchEvent(new Event('focus')))
+    expect(store.loadBoardEvidence).toHaveBeenCalledTimes(2)
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(store.loadBoardEvidence).toHaveBeenCalledTimes(3)
+  } finally {
+    vi.useRealTimers()
+  }
 })

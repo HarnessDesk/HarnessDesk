@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import {
   sessionKey,
+  type CardEvidence,
   type Intent,
   type SessionId,
   type TeamPeerInfo,
@@ -12,6 +13,7 @@ import { runtimeTint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
+import { EvidenceChips } from './EvidenceChips'
 import { HandOut } from './HandOut'
 import { SessionHoverCard } from './AgentCards'
 import { useDismissOverlays } from '../design'
@@ -305,6 +307,18 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   useEffect(() => {
     void store.loadFlowRuns(room)
   }, [store, room])
+
+  useEffect(() => {
+    const read = (): void => void store.loadBoardEvidence(room)
+    read()
+    const timer = setInterval(read, 30_000)
+    window.addEventListener('focus', read)
+    return () => {
+      clearInterval(timer)
+      window.removeEventListener('focus', read)
+    }
+  }, [store, room])
+  const evidence = snapshot.boardEvidence.get(room)
   useEffect(() => {
     let live = true
     void store
@@ -705,6 +719,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       }}
                       now={now}
                       attached={attached}
+                      evidence={evidence?.cards.find((one) => one.card === intent.id)}
                       onOpenHolder={() => openHolder(intent)}
                       onAct={(verb, outcome) =>
                         verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)
@@ -839,6 +854,7 @@ const IntentCard = ({
   dragging,
   now,
   attached,
+  evidence,
   onDragStart,
   onDragEnd,
   onOpenHolder,
@@ -851,6 +867,8 @@ const IntentCard = ({
   now: number
   /** The host's peer list, as a predicate. `null` until it has answered. */
   attached: null | ((claim: { runtime: string; sessionId: string }) => boolean)
+  /** What the desk observed on this card; undefined when nothing. */
+  evidence: CardEvidence | undefined
   onDragStart: () => void
   onDragEnd: () => void
   onOpenHolder: () => void
@@ -1115,6 +1133,7 @@ const IntentCard = ({
       }
       meta={
         <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
+          <EvidenceChips id={intent.id} title={intent.title} card={evidence} />
           {/* How long since anything happened to it. The number a person is
               actually after on a board is "how long has that been sitting
               there", and until now the card could not answer it at all. */}
