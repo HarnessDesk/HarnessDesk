@@ -3,6 +3,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { Card } from './card'
+import { KeyValue, KeyValueRow } from './key-value'
+import { Section, SectionBody } from './section'
 import { Table, TableCaption, TableCell, TableFooter, TableHead, TableRow } from './table'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -36,6 +38,43 @@ it('draws a flush card for content that owns its internal rhythm', () => {
   expect(card?.className).toContain('gap-0')
   expect(card?.className).toContain('py-0')
   expect(card?.className).toContain('overflow-hidden')
+})
+
+it('preserves the larger card radius and compact section inset as named variants', () => {
+  act(() => root.render(
+    <>
+      <Card radius="lg">Configuration</Card>
+      <Section variant="quiet"><SectionBody spacing="compact">Grant</SectionBody></Section>
+    </>,
+  ))
+  const card = container.querySelector<HTMLElement>('[data-slot="card"]')
+  const body = container.querySelector<HTMLElement>('[data-slot="section-body"]')
+  expect(card?.dataset['radius']).toBe('lg')
+  expect(card?.className).toContain('rounded-(--hd-radius-lg)')
+  expect(body?.dataset['spacing']).toBe('compact')
+  expect(body?.className).toContain('py-3')
+  expect(body?.className).toContain('px-3')
+})
+
+it('offers the small system radius for compact code and diff plates', () => {
+  act(() => root.render(<Card variant="flush" radius="sm">Patch</Card>))
+  const card = container.querySelector<HTMLElement>('[data-slot="card"]')
+  expect(card?.dataset['radius']).toBe('sm')
+  expect(card?.className).toContain('rounded-(--hd-radius-sm)')
+})
+
+it('owns the compact panel section and key-value readings', () => {
+  act(() => root.render(
+    <Section variant="panel">
+      <KeyValue variant="panel">
+        <KeyValueRow variant="panel" label="Branch">main</KeyValueRow>
+      </KeyValue>
+    </Section>,
+  ))
+  expect(container.querySelector('[data-slot="section"]')?.getAttribute('data-variant')).toBe('panel')
+  expect(container.querySelector('[data-slot="section"]')?.className).toContain('border-t')
+  expect(container.querySelector('[data-slot="key-value"]')?.getAttribute('data-variant')).toBe('panel')
+  expect(container.querySelector('[data-slot="key-value-row"]')?.getAttribute('data-variant')).toBe('panel')
 })
 
 it('offers the framed matrix table anatomy without changing the default table', () => {
@@ -77,4 +116,17 @@ it('offers the framed matrix table anatomy without changing the default table', 
   expect(container.querySelector('[data-slot="table-head"][data-variant="row"]')?.className).toContain('group-hover/matrix:bg-(--hd-hover)')
   expect(container.querySelector('[data-slot="table-cell"][data-variant="detail"]')?.className).toContain('px-3')
   expect(container.querySelector('[data-slot="table-footer"]')?.getAttribute('data-variant')).toBe('plain')
+})
+
+it('owns the compact plugin-panel table variant', () => {
+  act(() => root.render(
+    <Table variant="panel">
+      <TableCaption variant="panel">Files</TableCaption>
+      <tbody><TableRow variant="panel"><TableCell variant="panel">src/app.ts</TableCell></TableRow></tbody>
+    </Table>,
+  ))
+  expect(container.querySelector('[data-slot="table-container"]')?.getAttribute('data-variant')).toBe('panel')
+  expect(container.querySelector('[data-slot="table-caption"]')?.getAttribute('data-variant')).toBe('panel')
+  expect(container.querySelector('[data-slot="table-cell"]')?.getAttribute('data-variant')).toBe('panel')
+  expect(container.querySelector('[data-slot="table-row"]')?.getAttribute('data-variant')).toBe('panel')
 })

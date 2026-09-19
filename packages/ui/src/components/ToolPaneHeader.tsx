@@ -1,8 +1,11 @@
 import type { ReactNode } from 'react'
 
+import {
+  ToolPaneHeader as SystemToolPaneHeader,
+  ToolPaneHeaderDivider,
+} from '../design'
 import { useMountControls } from '../panels/mount'
 import { PanelActions } from '../panels/PanelActions'
-import styles from './ToolPanes.module.css'
 
 /**
  * Text pinned to left-to-right inside a right-to-left box. The pane subtitles
@@ -44,35 +47,29 @@ export const ToolPaneHeader = ({
 }) => {
   const panel = useMountControls()
   return (
-    <header className={`${styles.header} hd-drag`} title={hint} aria-label={title}>
-      {/* A lead is interactive — the browser's tab strip — so it needs the
-          same real no-drag box the controls on the right get, for the same
-          reason: inside the drag rect a click moves the window. A plain
-          title needs no such thing, and gets none. */}
-      {lead ? <div className={`${styles.lead} hd-no-drag`}>{lead}</div> : <span className={styles.title}>{title}</span>}
-      {subtitle && (
-        <span className={styles.subtitle} title={subtitle}>
-          {ltr(subtitle)}
-        </span>
+    <SystemToolPaneHeader
+      variant="window"
+      corner
+      className="hd-drag"
+      title={title}
+      lead={lead}
+      subtitle={subtitle ? ltr(subtitle) : undefined}
+      hint={hint ?? subtitle}
+      aria-label={title}
+      actions={(
+        /* A real box, not `display: contents`: app-region is a property of a
+           box, and a boxless wrapper leaves its buttons inside the drag region,
+           where a click moves the window instead of pressing them. */
+        <div className="hd-no-drag flex items-center gap-0.5">
+          {children}
+          {/* The panel's verbs, drawn here only when this view is the whole
+              panel: a browser alone in its stack has no strip above it, so its
+              own header is where "expand", "move" and "close" have to live.
+              Sharing a stack, the strip carries them and this draws nothing. */}
+          {panel?.chrome === 'own' && children != null && <ToolPaneHeaderDivider />}
+          <PanelActions />
+        </div>
       )}
-      <span style={{ flex: 1 }} />
-      {/* A real box, not `display: contents`: app-region is a property of a
-          box, and a boxless wrapper leaves its buttons inside the drag region,
-          where a click moves the window instead of pressing them. */}
-      <div className="hd-no-drag" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        {children}
-        {/* The panel's verbs, drawn here only when this view is the whole
-            panel: a browser alone in its stack has no strip above it, so its
-            own header is where "expand", "move" and "close" have to live.
-            Sharing a stack, the strip carries them and this draws nothing —
-            which is the difference between one row of controls and two.
-
-            The rule keeps them one row; the divider keeps them two *groups*.
-            Without it a browser's own ⋯ sits against the panel's ⋯ — same
-            glyph, different subject, and nothing saying which is which. */}
-        {panel?.chrome === 'own' && children != null && <span className={styles.headerDivider} />}
-        <PanelActions />
-      </div>
-    </header>
+    />
   )
 }

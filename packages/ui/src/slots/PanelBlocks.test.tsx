@@ -134,6 +134,8 @@ describe('table', () => {
     const headers = [...container.querySelectorAll('th')]
     expect(headers.map((header) => header.getAttribute('scope'))).toEqual(['col', 'col'])
     expect(container.querySelector('caption')?.textContent).toBe('Two of them')
+    expect(container.querySelector('[data-slot="table"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="table-container"]')?.getAttribute('data-variant')).toBe('panel')
   })
 
   it('renders an extra key the columns do not name as nothing at all', () => {
@@ -220,6 +222,8 @@ describe('diff', () => {
     ])
     expect(text()).toContain('src/a.ts')
     expect(text()).toContain('const a = 2')
+    expect(container.querySelector('[data-slot="card"]')?.getAttribute('data-variant')).toBe('flush')
+    expect(container.querySelector('[data-slot="patch-header"]')).not.toBeNull()
   })
 })
 
@@ -227,6 +231,7 @@ describe('code', () => {
   it('shows its text before the editor chunk has resolved', () => {
     mount([{ type: 'code', text: 'const a = 1', language: 'typescript' }])
     expect(text()).toContain('const a = 1')
+    expect(container.querySelector('[data-slot="card"]')?.getAttribute('data-variant')).toBe('flush')
   })
 
   it('does not offer to edit when nothing would receive what was typed', () => {

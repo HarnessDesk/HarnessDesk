@@ -116,6 +116,12 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  ToolPane,
+  ToolPaneBar,
+  ToolPaneBody,
+  ToolPaneHeader,
+  ToolPaneMessage,
+  ToolPaneNotice,
   Toaster,
   Tooltip,
   TooltipContent,
@@ -128,7 +134,19 @@ import {
   ToolbarGap,
   toast,
 } from '../ui'
-import { Text } from '../patterns/Settings'
+import {
+  Counts,
+  GroupLine,
+  PanelBody,
+  PanelFilter,
+  PanelFooter,
+  PanelFrame,
+  PanelRow,
+  PanelTools,
+  RunDot,
+} from '../patterns/InspectorPanel'
+import { PatchHeader } from '../patterns/Change'
+import { CodeText, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -185,9 +203,15 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
+const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel'] as const
+const KEY_VALUE_CATALOG_SIZES = ['default'] as const
+const KEY_VALUE_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+const TOOL_PANE_CATALOG_VARIANTS = ['default', 'integrated'] as const
+const TOOL_PANE_CATALOG_SIZES = ['default'] as const
+const TOOL_PANE_CATALOG_STATES = ['default', 'loading', 'empty', 'error'] as const
 const STAT_CATALOG_VARIANTS = ['plain', 'bordered', 'tinted'] as const
 const STAT_CATALOG_SIZES = ['default'] as const
 const STAT_CATALOG_STATES = ['default', 'loading', 'error'] as const
@@ -366,6 +390,9 @@ const SectionBoard = () => (
           is a box someone forgot to delete.
         </SectionBody>
       </Section>
+      <Section variant="quiet">
+        <SectionBody spacing="compact">Compact inset for a short grant or summary.</SectionBody>
+      </Section>
       <Section variant="plain">
         <SectionHeader>
           <SectionTitle>Plain</SectionTitle>
@@ -531,15 +558,26 @@ const ListBoard = () => (
 
 const KeyValueBoard = () => (
   <>
-    <div className={styles.matrix}>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={KEY_VALUE_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={KEY_VALUE_CATALOG_SIZES.join(' ')}
+      data-catalog-states={KEY_VALUE_CATALOG_STATES.join(' ')}
+    >
       <Case label="one column, with a total">
-        <KeyValue className="w-full">
+        <KeyValue className="w-full" data-catalog-variant="default">
           <KeyValueRow label="Prompt">5.9M</KeyValueRow>
           <KeyValueRow label="Completion">2.5M</KeyValueRow>
           <KeyValueRow label="Cached">−1.8M</KeyValueRow>
           <KeyValueRow label="Charged" emphasis>
             $212.40
           </KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="compact panel facts">
+        <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
+          <KeyValueRow variant="panel" label="Branch">main</KeyValueRow>
+          <KeyValueRow variant="panel" label="Status">Ready</KeyValueRow>
         </KeyValue>
       </Case>
       <Case label="progress, as a reading">
@@ -582,6 +620,64 @@ const KeyValueBoard = () => (
     </Rule>
   </>
 )
+
+const ToolPaneBoard = () => {
+  const [filter, setFilter] = useState('')
+  return (
+    <>
+      <div
+        className={styles.matrix}
+        data-catalog-variants={TOOL_PANE_CATALOG_VARIANTS.join(' ')}
+        data-catalog-sizes={TOOL_PANE_CATALOG_SIZES.join(' ')}
+        data-catalog-states={TOOL_PANE_CATALOG_STATES.join(' ')}
+      >
+        <Case label="standalone frame">
+          <ToolPane className="h-56 w-full" data-catalog-variant="default">
+            <ToolPaneHeader title="Terminal" subtitle="/work/project" />
+            <ToolPaneBody>
+              <CodeText>$ pnpm verify</CodeText>
+            </ToolPaneBody>
+          </ToolPane>
+        </Case>
+        <Case label="integrated tool">
+          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-variant="integrated">
+            <ToolPaneHeader variant="window" title="Browser" subtitle="https://example.com" />
+            <ToolPaneBar variant="address">example.com</ToolPaneBar>
+            <ToolPaneNotice tone="warning">The page is still loading.</ToolPaneNotice>
+            <ToolPaneBody bleed>
+              <ToolPaneMessage>Waiting for the page.</ToolPaneMessage>
+            </ToolPaneBody>
+          </ToolPane>
+        </Case>
+        <Case label="inspector panel">
+          <PanelFrame>
+            <PanelTools>
+              <PanelFilter value={filter} placeholder="Filter changes" onChange={setFilter} />
+            </PanelTools>
+            <PanelBody>
+              <GroupLine left="Today" right="2" />
+              <PanelRow title="src/app.ts" sub="Modified" selected trail={<Counts added={4} removed={2} />} />
+              <PanelRow mark={<RunDot />} title="Run checks" sub="In progress" />
+            </PanelBody>
+            <PanelFooter left="2 changes" right="Running" />
+          </PanelFrame>
+        </Case>
+        <Case label="panel blocks">
+          <Section variant="panel" className="w-full">
+            <Card variant="flush">
+              <PatchHeader level="block"><CodeText>src/app.ts</CodeText></PatchHeader>
+              <ToolPaneMessage>Block content reaches the card edge.</ToolPaneMessage>
+            </Card>
+          </Section>
+        </Case>
+      </div>
+      <Rule>
+        A tool owns one frame whether it is freestanding or fills a dock. Inspectors use the same
+        row, filter, state and facts roles, so selection remains a fill and running remains a dot.
+      </Rule>
+    </>
+  )
+}
 
 // --- input ------------------------------------------------------------------
 
@@ -1014,6 +1110,12 @@ const AdoptedBoard = () => {
               <CardDescription>A flush card lets a table or diff reach its edge.</CardDescription>
             </CardHeader>
           </Card>
+          <Card radius="lg" className="w-full">
+            <CardContent>Large-radius configuration surface.</CardContent>
+          </Card>
+          <Card variant="flush" radius="sm" className="w-full">
+            <CardContent className="py-2">Small-radius code or diff plate.</CardContent>
+          </Card>
         </Case>
 
         <Case label="select &mdash; open with pointer or keyboard">
@@ -1183,6 +1285,10 @@ const AdoptedBoard = () => {
                 </TableRow>
               </TableBody>
             </Table>
+            <Table variant="panel" data-catalog-variant="panel">
+              <TableHeader><TableRow variant="panel"><TableHead variant="panel">Panel fact</TableHead></TableRow></TableHeader>
+              <TableBody><TableRow variant="panel"><TableCell variant="panel">Compact value</TableCell></TableRow></TableBody>
+            </Table>
           </SectionBody>
           <DataTablePagination
             className="border-t-0"
@@ -1287,6 +1393,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'KeyValue · Progress',
     about: 'Facts about one thing, and how far along it is.',
     render: KeyValueBoard,
+  },
+  {
+    id: 'tool-pane',
+    title: 'ToolPane · InspectorPanel',
+    about: 'The shared frame, bars, messages and inspector anatomy around live tools.',
+    render: ToolPaneBoard,
   },
   {
     id: 'field',

@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -51,6 +51,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   panels: 'packages/ui/src/design/explorer/Explorer.tsx',
   propagation: 'packages/ui/src/design/explorer/Explorer.tsx',
   tools: 'packages/ui/src/design/explorer/Explorer.tsx',
+  'tool-pane': 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
@@ -82,7 +83,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   textarea: 'packages/ui/src/components/Composer.tsx',
   toast: 'packages/ui/src/app/App.tsx',
   'toggle-group': 'packages/ui/src/components/Library.tsx',
-  'tool-pane': 'packages/ui/src/components/TeamBoardPane.tsx',
+  'tool-pane': 'packages/ui/src/components/BrowserPane.tsx',
   tone: 'packages/ui/src/components/Usage.tsx',
   tooltip: 'packages/ui/src/components/Sidebar.tsx',
 }
@@ -119,6 +120,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
+  'InspectorPanel',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -151,7 +153,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'icon-tile': ['default'],
   input: ['default', 'quiet', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
-  'key-value': ['default'],
+  'key-value': ['default', 'panel'],
   label: ['default'],
   'list-row': ['default'],
   marker: ['default', 'border', 'separator'],
@@ -162,19 +164,19 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   rail: ['default'],
   'resize-handle': ['default'],
   'scroll-area': ['default'],
-  section: ['card', 'plain', 'quiet'],
+  section: ['card', 'plain', 'quiet', 'panel'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
   spark: ['default'],
   stat: ['plain', 'bordered', 'tinted'],
   stepper: ['default'],
   switch: ['default'],
-  table: ['default', 'framed'],
+  table: ['default', 'framed', 'panel'],
   tabs: ['default', 'line'],
   textarea: ['default', 'editor', 'inline', 'composer'],
   toast: ['default'],
   'toggle-group': ['default', 'outline'],
-  'tool-pane': ['default'],
+  'tool-pane': ['default', 'integrated'],
   tone: ['default'],
   turn: ['default'],
   tooltip: ['default'],
@@ -194,6 +196,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   ActionError: ['default'],
   Change: ['default'],
   RefusedAction: ['default'],
+  InspectorPanel: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -264,6 +267,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   ActionError: ['error'],
   Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
+  InspectorPanel: ['default', 'selected', 'empty', 'running'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -298,6 +302,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
   Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
+  InspectorPanel: 'packages/ui/src/components/Panel.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -316,6 +321,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   ActionError: 'packages/ui/src/design/explorer/boards.tsx',
   Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
+  InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -411,7 +417,7 @@ export const CANONICAL_UI_MODULES = [
   ['textarea', 'field', 'Multiline text input'],
   ['toast', 'banner', 'Transient notification host'],
   ['toggle-group', 'control', 'Segmented and multi-toggle behavior'],
-  ['tool-pane', 'tools', 'Shared tool-pane chrome'],
+  ['tool-pane', 'tool-pane', 'Shared tool-pane chrome'],
   ['tone', 'foundation', 'Typed semantic tone mapping'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
 ] as const satisfies readonly ModuleSeed[]
@@ -433,6 +439,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['ActionError', 'banner', 'Failure and reason for an action just taken'],
   ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
+  ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

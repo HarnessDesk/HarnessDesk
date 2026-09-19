@@ -55,6 +55,14 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
+  "adopted/table/variant/panel": {
+    "h": 49,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "adopted/textarea/size/compact": {
     "h": 32,
     "text": 13,
@@ -559,6 +567,22 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
+  "readings/key-value/variant/default": {
+    "h": 108,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "readings/key-value/variant/panel": {
+    "h": 38,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "section/section/variant/card": {
     "h": 88,
     "text": 14,
@@ -566,6 +590,14 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 10
+  },
+  "section/section/variant/panel": {
+    "h": 111,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "8 10 8 10",
+    "radius": 0
   },
   "section/section/variant/plain": {
     "h": 86,
@@ -630,5 +662,21 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 6
+  },
+  "tool-pane/tool-pane/variant/default": {
+    "h": 224,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "tool-pane/tool-pane/variant/integrated": {
+    "h": 224,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
   }
 }

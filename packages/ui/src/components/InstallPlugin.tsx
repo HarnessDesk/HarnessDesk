@@ -134,7 +134,7 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
           </Text>
 
           <Section variant="quiet" className={styles.grant}>
-            <SectionBody>
+            <SectionBody spacing="compact">
               <Text as="div" role="muted">This plugin will be able to</Text>
               <div className={styles.permissions} role="list">
                 {inspected.permissions.map((line) => (

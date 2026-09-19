@@ -36,4 +36,15 @@ describe('change presentation', () => {
     expect(host.querySelector('[data-slot="patch-section"]')).not.toBeNull()
     expect(host.querySelector('[data-slot="patch-header"]')?.textContent).toBe('src/a.ts')
   })
+
+  it('owns the compact header above embedded code and diffs', () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const root = createRoot(host)
+    act(() => root.render(<PatchHeader level="block">src/a.ts</PatchHeader>))
+    const header = host.querySelector<HTMLElement>('[data-slot="patch-header"]')
+    expect(header?.dataset['level']).toBe('block')
+    expect(header?.className).toContain('border-b')
+    expect(header?.className).toContain('py-1')
+  })
 })
