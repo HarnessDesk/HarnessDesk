@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { BranchIcon, CheckIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, GripIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -36,6 +36,9 @@ import {
   ChannelMessage,
   ChannelSignal,
   Chip,
+  ComposerChip,
+  ComposerDropHint,
+  ComposerShell,
   CodeBlock,
   CodeText,
   CopyButton,
@@ -61,9 +64,17 @@ import {
   LibraryReachMark,
   MetaList,
   Monogram,
+  MessageQueueActions,
+  MessageQueueFrame,
+  MessageQueueGrip,
+  MessageQueueHeader,
+  MessageQueueList,
+  MessageQueueRow,
+  MessageQueueTiming,
   NavigationGroupHeader,
   Note,
   PublicationCard,
+  PopoverSurface,
   RefusedAction,
   SectionHead,
   Segmented,
@@ -71,6 +82,7 @@ import {
   Spinner,
   StateStrip,
   StatusSummary,
+  Text,
   Switch,
   SwitchShape,
   ToggleGroup,
@@ -598,6 +610,42 @@ const BannerBoard = () => (
   </>
 )
 
+const QueueBoard = () => (
+  <>
+    <div className={styles.stack}>
+      <MessageQueueFrame paused>
+        <MessageQueueHeader>
+          <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
+          <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
+          <Button variant="quiet" size="sm">Send now</Button>
+        </MessageQueueHeader>
+        <MessageQueueList>
+          <MessageQueueRow>
+            <MessageQueueGrip><GripIcon size={12} /></MessageQueueGrip>
+            <Text role="meta">1</Text>
+            <Text role="navigation" className="min-w-0 flex-1 truncate">Run the focused tests again</Text>
+            <MessageQueueTiming tone="next">next</MessageQueueTiming>
+            <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
+          </MessageQueueRow>
+        </MessageQueueList>
+      </MessageQueueFrame>
+      <PopoverSurface limit="trigger">
+        <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
+        <Button variant="navigation" size="navigation" className="w-full">/review</Button>
+      </PopoverSurface>
+      <ComposerShell className="relative min-h-20">
+        <ComposerChip tone="brand" removeLabel="Remove report.pdf" onRemove={() => {}}>report.pdf</ComposerChip>
+        <ComposerDropHint>Drop images to attach</ComposerDropHint>
+      </ComposerShell>
+    </div>
+    <p className={styles.rule}>
+      The queue is one held-work surface: warning belongs to the paused header, order stays quiet in
+      its rows, and the controls arrive only at the row being handled. Trigger pickers use the same
+      floating plate as anchored menus.
+    </p>
+  </>
+)
+
 /* The prose renderer reads the app's theme through the store, and this page
    has none; it gets the empty desk's snapshot, kept in one place so the store
    hands back the same object each time it is asked. */
@@ -938,6 +986,12 @@ const REVIEW_TEXT = `Reviewed your 86e1bdb fix. Verdict: correct and complete.
 One-line fix, right target, no regressions. Ship it.`
 
 export const BOARDS: Board[] = [
+  {
+    id: 'queue',
+    title: 'MessageQueue · Trigger picker',
+    about: 'Work waiting beside the composer, and the list that inserts into it.',
+    render: QueueBoard,
+  },
   {
     id: 'button',
     title: 'Button · icon size',

@@ -1,0 +1,36 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it } from 'vitest'
+
+import { RowChoice, Text } from './Settings'
+
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let container: HTMLDivElement
+let root: Root
+
+beforeEach(() => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+})
+
+it('can preserve the end of a truncated path', () => {
+  act(() => root.render(<Text truncateFrom="start">packages/ui/src/Composer.tsx</Text>))
+  const text = container.querySelector('[data-slot="text"]')
+  expect(text?.getAttribute('data-truncate-from')).toBe('start')
+  expect(text?.className).toContain('[direction:rtl]')
+  expect(text?.className).toContain('text-left')
+})
+
+it('lets a narrow choice deliver its consequence whole', () => {
+  act(() => root.render(
+    <RowChoice title="Summary" desc="The goal, exchanges, files and tasks." wrapDesc selected onClick={() => {}} />,
+  ))
+  expect(container.querySelector('[data-wrap="true"]')?.textContent).toContain('files and tasks')
+})

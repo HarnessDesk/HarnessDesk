@@ -1,4 +1,4 @@
-import { createElement, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -241,6 +241,21 @@ export const PopoverGroupLabel = ({
     {children}
   </div>
 )
+
+/** The floating plate shared by anchored menus and inline trigger pickers. */
+export const PopoverSurface = forwardRef<
+  HTMLDivElement,
+  HTMLAttributes<HTMLDivElement> & { limit?: 'trigger' }
+>(({ className, limit, ...props }, ref) => (
+  <div
+    ref={ref}
+    {...props}
+    data-slot="popover-surface"
+    {...(limit ? { 'data-limit': limit } : {})}
+    className={`${styles.panel}${className ? ` ${className}` : ''}`}
+  />
+))
+PopoverSurface.displayName = 'PopoverSurface'
 
 export const PopoverOption = ({
   as = 'button',

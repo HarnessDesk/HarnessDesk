@@ -1,4 +1,4 @@
-import { Button } from '../design'
+import { Button, Chip, CodeText, PopoverGroupLabel, PopoverSurface, Text } from '../design'
 import { useEffect, useRef, type ReactNode } from 'react'
 
 import { CheckIcon, FileIcon, SessionIcon, SlashIcon, SparkIcon } from './Icons'
@@ -61,8 +61,8 @@ export const TriggerMenu = ({
   }, [activeIndex])
 
   return (
-    <div className={styles.menu} ref={container} role="listbox">
-      {title && <div className={styles.header}>{title}</div>}
+    <PopoverSurface className={styles.menu} ref={container} role="listbox" limit="trigger">
+      {title && <PopoverGroupLabel>{title}</PopoverGroupLabel>}
       {items.length === 0 && <div className="hd-empty-line">{emptyLabel ?? 'No matches'}</div>}
       {items.map((item, index) => (
         <Button
@@ -74,9 +74,9 @@ export const TriggerMenu = ({
           onMouseEnter={() => onHover(index)}
           onClick={() => onPick(item)}
         >
-          <span className={styles.check}>{item.selected && <CheckIcon size={13} />}</span>
+          <Text role="meta" tone="brand" className={styles.check}>{item.selected && <CheckIcon size={13} />}</Text>
           {item.mark ? (
-            <span className={styles.mark}>{item.mark}</span>
+            <Text role="meta" ink="secondary" className={styles.mark}>{item.mark}</Text>
           ) : item.pathStyle ? (
             <FileIcon size={13} />
           ) : item.badge === 'skill' ? (
@@ -86,22 +86,30 @@ export const TriggerMenu = ({
           ) : item.mono && item.name.startsWith('/') ? (
             <SlashIcon size={13} />
           ) : null}
-          <span className={`${styles.name} ${item.mono ? styles.nameMono : ''}`}>{item.name}</span>
+          <Text role="row" className={styles.name}>
+            {item.mono ? <CodeText size="inherit">{item.name}</CodeText> : item.name}
+          </Text>
           {item.hint && (
-            <span className={`${styles.hint} ${item.pathStyle ? styles.hintPath : ''}`}>
-              {item.hint}
-            </span>
+            <Text role="muted" {...(item.pathStyle ? { truncateFrom: 'start' as const } : { truncate: true })} className={styles.hint}>
+              {item.pathStyle ? <CodeText size="inherit">{item.hint}</CodeText> : item.hint}
+            </Text>
           )}
           {item.badge && (
-            <span
-              className={styles.badge}
-              {...(item.badgeTone && item.badgeTone !== 'accent' ? { 'data-tone': item.badgeTone } : {})}
+            <Chip
+              size="sm"
+              tone={item.badgeTone === 'live'
+                ? 'success'
+                : item.badgeTone === 'warn'
+                  ? 'warning'
+                  : item.badgeTone === 'muted'
+                    ? 'neutral'
+                    : 'brand'}
             >
               {item.badge}
-            </span>
+            </Chip>
           )}
         </Button>
       ))}
-    </div>
+    </PopoverSurface>
   )
 }

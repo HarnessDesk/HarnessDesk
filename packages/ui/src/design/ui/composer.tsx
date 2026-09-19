@@ -3,6 +3,18 @@ import type * as React from 'react'
 import { CrossIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
 
+/** The reading-column inset that keeps the composer aligned with the transcript. */
+const ComposerDock = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div
+    data-slot="composer-dock"
+    className={cn(
+      'shrink-0 px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))] pb-(--hd-space-5)',
+      className,
+    )}
+    {...props}
+  />
+)
+
 /**
  * The box you type into, wherever you are typing.
  *
@@ -38,6 +50,7 @@ const ComposerShell = ({ className, ...props }: React.ComponentProps<'div'>) => 
     className={cn(
       'flex flex-col rounded-(--hd-radius-lg) bg-(--hd-card)',
       'shadow-(--hd-shadow-xs) ring-1 ring-(--hd-border-emphasis) ring-inset',
+      'data-[dropping]:shadow-(--hd-shadow-raised) data-[dropping]:ring-2 data-[dropping]:ring-(--hd-primary)',
       // The focused shadow carries `--hd-composer-ring` ahead of it, exactly as
       // the module does. Under Desk that token is `none` and this is one
       // shadow; under Studio it is the app's focus ring, and without it here
@@ -71,7 +84,7 @@ const ComposerText = ({ className, rows = 1, ...props }: React.ComponentProps<'t
     data-slot="composer-text"
     rows={rows}
     className={cn(
-      'field-sizing-content max-h-(--hd-composer-max) min-h-(--hd-composer-min) w-full resize-none bg-transparent px-3.5 pt-3.5 pb-1.5 text-base leading-(--hd-composer-line) outline-none focus-visible:outline-none placeholder:text-(--hd-muted-foreground)',
+      'field-sizing-content max-h-(--hd-composer-max) min-h-(--hd-composer-min) w-full resize-none bg-transparent px-4 pt-4 pb-1.5 text-base leading-(--hd-composer-line) outline-none focus-visible:outline-none placeholder:text-(--hd-muted-foreground)',
       className,
     )}
     {...props}
@@ -131,7 +144,7 @@ const ComposerSend = ({ className, ...props }: React.ComponentProps<'button'>) =
          Composer.module.css was written to prevent. A different hue is what
          makes "this will go when the turn ends" read as a state rather than
          as an unavailable button. */
-      'inline-grid size-7.5 place-items-center rounded-full bg-(--hd-solid) text-(--hd-solid-foreground)',
+      'inline-grid size-7.5 shrink-0 place-items-center rounded-full bg-(--hd-solid) text-(--hd-solid-foreground)',
       'transition-[background,transform] hover:bg-(--hd-solid-hover) active:scale-90',
       'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-(--hd-solid)',
       'data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)]',
@@ -160,13 +173,21 @@ const ComposerGap = ({ className, ...props }: React.ComponentProps<'div'>) => (
 const ComposerChip = ({
   className,
   onRemove,
+  removeLabel = 'Remove',
+  tone = 'neutral',
   children,
   ...props
-}: React.ComponentProps<'span'> & { onRemove?: () => void }) => (
+}: React.ComponentProps<'span'> & {
+  onRemove?: () => void
+  removeLabel?: string
+  tone?: 'neutral' | 'brand'
+}) => (
   <span
     data-slot="composer-chip"
+    data-tone={tone}
     className={cn(
       'inline-flex h-(--hd-chip-h) items-center gap-1 rounded-full bg-(--hd-muted) pl-2 text-xs',
+      tone === 'brand' && 'bg-(--hd-accent-dim) text-(--hd-primary-ink)',
       onRemove ? 'pr-0.5' : 'pr-2',
       className,
     )}
@@ -177,13 +198,27 @@ const ComposerChip = ({
       <button
         type="button"
         onClick={onRemove}
-        aria-label="Remove"
+        aria-label={removeLabel}
         className="inline-flex size-4 items-center justify-center rounded-full text-(--hd-muted-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) [&_svg]:size-3"
       >
         <CrossIcon />
       </button>
     )}
   </span>
+)
+
+/** The whole composer becomes the drop target while an image is over it. */
+const ComposerDropHint = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div
+    data-slot="composer-drop-hint"
+    aria-hidden="true"
+    className={cn(
+      'pointer-events-none absolute inset-0 z-6 flex items-center justify-center gap-2 rounded-[inherit]',
+      'bg-(--hd-accent-dim) text-base font-medium text-(--hd-primary-ink)',
+      className,
+    )}
+    {...props}
+  />
 )
 
 const ComposerChips = ({ className, ...props }: React.ComponentProps<'div'>) => (
@@ -195,6 +230,7 @@ const ComposerChips = ({ className, ...props }: React.ComponentProps<'div'>) => 
 )
 
 export {
+  ComposerDock,
   ComposerShell,
   ComposerText,
   ComposerTools,
@@ -202,4 +238,5 @@ export {
   ComposerSend,
   ComposerChip,
   ComposerChips,
+  ComposerDropHint,
 }

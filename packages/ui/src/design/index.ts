@@ -153,10 +153,20 @@ export {
   PopoverOptionMark,
   PopoverStrong,
   PopoverUpdateNote,
+  PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
   type DismissDetail,
 } from './patterns/Popover'
+export {
+  MessageQueueActions,
+  MessageQueueFrame,
+  MessageQueueGrip,
+  MessageQueueHeader,
+  MessageQueueList,
+  MessageQueueRow,
+  MessageQueueTiming,
+} from './patterns/MessageQueue'
 export * from './ui'
 export {
   ChannelMessage,
