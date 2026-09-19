@@ -18,7 +18,7 @@
   flex-direction: column;
   gap: 8px;
   overflow-y: auto;
-  max-height: 380px;
+  max-height: min(380px, 60vh);
 }
 
 .row {

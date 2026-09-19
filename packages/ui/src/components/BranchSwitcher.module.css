@@ -15,7 +15,7 @@
 
 .list {
   overflow-y: auto;
-  max-height: 260px;
+  max-height: min(260px, 50vh);
 }
 
 .create {

@@ -13,6 +13,12 @@ import { buttonVariants } from './button'
  */
 
 describe('the canonical button', () => {
+  it('leaves the one focus ring to the platform rule', () => {
+    const base = buttonVariants({})
+    expect(base).not.toContain('outline-none')
+    expect(base).not.toMatch(/focus-visible:(?:border|shadow)-/)
+  })
+
   it('the shadcn Button draws every number from the component tokens', () => {
     const base = buttonVariants({})
     expect(base).toContain('h-(--hd-btn-h)')

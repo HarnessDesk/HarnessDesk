@@ -61,7 +61,7 @@ it('keeps the wordmark and navigation-name roles distinct from page and row titl
   expect(navigation?.className).not.toContain('truncate')
 })
 
-it('sets page titles on the same type step and weight as the wordmark', () => {
+it('keeps page titles at 24px regular while the wordmark alone stays 20px semibold', () => {
   act(() =>
     root.render(
       <>
@@ -72,12 +72,12 @@ it('sets page titles on the same type step and weight as the wordmark', () => {
   )
 
   const pageRole = container.querySelector<HTMLElement>('[data-role="page"]')
-  expect(pageRole?.className).toContain('text-(length:--hd-heading)')
-  expect(pageRole?.className).toContain('leading-(--hd-line-heading)')
-  expect(pageRole?.className).toContain('font-semibold')
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-heading\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-heading\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
+  expect(pageRole?.className).toContain('text-(length:--hd-title)')
+  expect(pageRole?.className).toContain('leading-(--hd-line-title)')
+  expect(pageRole?.className).toContain('font-normal')
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-title\)/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-title\)/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-normal\)/s)
 })
 
 it('owns the keycap and matched-text roles used by search surfaces', () => {
