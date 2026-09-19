@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionKey, type ConfigOption } from '@harnessdesk/protocol'
+import { sessionKey, type AgentEntry, type ConfigOption, type SeatPlan } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -50,6 +50,8 @@ const rig = (
     history?: readonly unknown[]
     teams?: ReadonlyMap<string, unknown>
     listPrefs?: Record<string, unknown>
+    agents?: readonly AgentEntry[]
+    plans?: readonly SeatPlan[]
   } = {},
 ) => {
   const snapshot = {
@@ -72,6 +74,9 @@ const rig = (
     newSessionDefaultsFor: vi.fn().mockResolvedValue(options),
     setNewSessionDefault: vi.fn().mockResolvedValue(options),
     newSession: vi.fn().mockResolvedValue(sessionKey('claude-code', 's1')),
+    agentsIn: vi.fn().mockResolvedValue(world.agents ?? []),
+    plansIn: vi.fn().mockResolvedValue(world.plans ?? []),
+    startAsAgent: vi.fn().mockResolvedValue(sessionKey('claude-code', 's2')),
     joinRoom: vi.fn().mockResolvedValue(undefined),
     toggleCollapsed: vi.fn(),
   } as unknown as AppStore
@@ -110,7 +115,7 @@ it('offers the agents, and the options that agent declares', async () => {
   const { store } = rig()
   await render(store)
 
-  expect([...select('Agent').options].map((one) => one.textContent)).toEqual([
+  expect([...select('Runtime').options].map((one) => one.textContent)).toEqual([
     'Claude Code',
     'Codex',
   ])
@@ -343,4 +348,75 @@ it('keeps the dialog open and says why when the agent will not start', async () 
 
   expect(onClose).not.toHaveBeenCalled()
   expect(document.body.textContent).toContain('signed in')
+})
+
+const agent = (id: string, name: string): AgentEntry => ({
+  id,
+  origin: 'builtin',
+  path: `/app/agents/${id}/AGENT.md`,
+  digest: 'd',
+  shadows: [],
+  problems: [],
+  definition: { id, name, description: null, permission: 'read', answers: [], produces: [], skills: [], prefer: [{ runtime: 'claude-code' }], brief: 'Work.' },
+})
+
+const PLANS: readonly SeatPlan[] = [
+  {
+    id: 'code-reviewer',
+    from: 'prefer',
+    winner: 0,
+    blocked: null,
+    candidates: [{ seat: { runtime: 'claude-code' }, label: 'Claude Code · Opus 5 · High', runtimeName: 'Claude Code', state: 'taken', reason: null, fix: null }],
+  },
+  {
+    id: 'judge',
+    from: 'prefer',
+    winner: null,
+    blocked: null,
+    candidates: [{ seat: { runtime: 'cursor' }, label: 'Cursor', runtimeName: 'Cursor', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } }],
+  },
+]
+
+const WITH_AGENTS = { agents: [agent('code-reviewer', 'Code reviewer'), agent('judge', 'Judge')], plans: PLANS }
+
+it('opens on the project’s Agents, each with the seat it would take here, and seats one in the room', async () => {
+  const { store } = rig([MODELS], WITH_AGENTS)
+  const onClose = await render(store)
+  expect(store.agentsIn).toHaveBeenCalledWith('/repo')
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('Claude Code · Opus 5 · High')
+  expect(text).toContain("Can't seat here · Cursor is signed out")
+
+  press('Add to room')
+  await act(async () => {
+    await Promise.resolve()
+  })
+  // Seated in the room's folder without taking the screen, then put in the room.
+  expect(store.startAsAgent).toHaveBeenCalledWith('code-reviewer', { cwd: '/repo', reveal: false })
+  expect(store.joinRoom).toHaveBeenCalledWith('room-1', 'claude-code', 's2')
+  expect(store.newSession).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('offers an Agent that cannot be seated here all the same — trying it opens nothing and adds nothing', async () => {
+  const { store } = rig([MODELS], WITH_AGENTS)
+  ;(store.startAsAgent as ReturnType<typeof vi.fn>).mockResolvedValue(null)
+  const onClose = await render(store)
+  act(() => document.querySelector<HTMLElement>('[aria-label="Judge"]')?.click())
+  press('Add to room')
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge', { cwd: '/repo', reveal: false })
+  expect(store.joinRoom).not.toHaveBeenCalled()
+  expect(onClose).not.toHaveBeenCalled()
+})
+
+it('a project with no Agents opens on a runtime, as before, and says why the Agent door is shut', async () => {
+  const { store } = rig()
+  await render(store)
+  const door = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((one) => one.textContent?.includes('An Agent'))
+  expect(door?.disabled).toBe(true)
+  expect(door?.title).toBe('This project has no Agents to seat yet.')
+  expect(select('Runtime')).not.toBeNull()
 })

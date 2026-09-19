@@ -3777,6 +3777,11 @@ export class AppStore {
     return this.transport.request('agent/list', { project })
   }
 
+  /** Which seat each of one project's Agents would take here — a dry run for that project, opening nothing. Throws. */
+  async plansIn(project: string): Promise<readonly SeatPlan[]> {
+    return this.transport.request('agent/seat/dry', { project })
+  }
+
   /**
    * Opens a conversation as an Agent in the open folder — or in `cwd`, a
    * room's — and shows it; or, when nothing can seat it there, opens nothing

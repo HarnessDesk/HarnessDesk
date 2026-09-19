@@ -106,6 +106,12 @@ export interface SessionRecord {
  */
 export interface SeatedAs {
   readonly agent: string
+  /**
+   * The Agent's name when it was seated — what a room calls the member. Not
+   * laid over the conversation's settings: a renderer reads the Agent itself
+   * (`agent/read`) for what it is called now.
+   */
+  readonly name: string
   readonly briefDigest: string
   readonly permission: FlowPermission
   readonly seatLabel: string

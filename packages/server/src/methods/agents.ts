@@ -206,6 +206,7 @@ export const agentMethods = {
       }
       return ctx.seats.recordAgent(opened.runtime, opened.sessionId, {
         agent: definition.id,
+        name: definition.name,
         briefDigest: digest,
         permission,
         seatLabel: opened.label,

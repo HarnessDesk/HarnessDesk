@@ -36,6 +36,7 @@ import {
   type SessionId,
   type SessionOptions,
   type SessionSettings,
+  type TeamPeerInfo,
   type TeamState,
   type TurnId,
   type UsageReport,
@@ -841,7 +842,7 @@ test("the seat is told the narrower of the Agent's ceiling and the seating's gra
     assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
     assert.deepEqual(
       seen.recorded,
-      [{ agent: 'reviewer', briefDigest: digestOf(seen.source), permission: held, seatLabel: 'claude', passedOver: [] }],
+      [{ agent: 'reviewer', name: 'Reviewer', briefDigest: digestOf(seen.source), permission: held, seatLabel: 'claude', passedOver: [] }],
       said,
     )
     assert.equal(session.settings?.permission, held, said)
@@ -1504,6 +1505,18 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.deepEqual(held?.passedOver, [])
 })
 
+test('through the host: a member seated as an Agent goes by its name in a room, numbered like any other name', async (t) => {
+  const { harness, client, work } = await desk(t)
+  await writeReviewer(harness.stateDir, 'seatfake=big/high')
+  const room = (await client.call('team/room/create', { root: work, name: 'Review' })) as TeamState
+  for (let n = 0; n < 2; n += 1) {
+    const seated = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+    await client.call('team/room/join', { room: room.id, runtime: 'seatfake', sessionId: String(seated.id) })
+  }
+  const peers = (await client.call('team/peers', { room: room.id })) as TeamPeerInfo[]
+  assert.deepEqual(peers.map((one) => one.nickname).sort(), ['Reviewer', 'Reviewer 2'])
+})
+
 test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {
   const { harness, seats, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=small/high+thinking')
@@ -1725,6 +1738,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
   assert.deepEqual(seen.recorded, [
     {
       agent: 'reviewer',
+      name: 'Reviewer',
       briefDigest: digestOf(seen.source),
       permission: 'read',
       seatLabel: 'claude',

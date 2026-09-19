@@ -3105,6 +3105,8 @@ export class Host {
            conversations on one agent and one account are told apart by the one
            thing that actually differs between them. */
         model: sessionModel(record.session),
+        /* A conversation seated as an Agent is called that in a room. */
+        ...(record.seatedAs ? { seatedAs: record.seatedAs.name } : {}),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */

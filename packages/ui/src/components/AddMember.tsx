@@ -3,17 +3,21 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   sessionKey,
   splitSessionKey,
+  type AgentEntry,
   type ConfigOption,
   type OptionValue,
   type RuntimeId,
+  type SeatPlan,
   type SessionKey,
 } from '@harnessdesk/protocol'
 
 import { Button, Dialog, NativeSelect, RadioGroup, RadioGroupItem, Switch } from '../design'
+import { agentName, firstReason, inForce, markFor, seatTaken } from '../lib/agents'
 import { groupByProject } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
+import { BriefIcon } from './Icons'
 import styles from './AddMember.module.css'
 
 /**
@@ -88,7 +92,43 @@ export const AddMember = ({
     )
   }, [root, snapshot.history, snapshot.teams, snapshot.workspace, snapshot.workspaces])
 
-  const [mode, setMode] = useState<'new' | 'running'>('new')
+  /* The room's project's own roster, and which seat each would take there —
+     read for the room's folder, which need not be the one the window has
+     open. Null while it is read. */
+  const [roster, setRoster] = useState<readonly AgentEntry[] | null>(null)
+  const [plans, setPlans] = useState<ReadonlyMap<string, SeatPlan>>(new Map())
+  const [agentId, setAgentId] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    store.agentsIn(root).then(
+      (list) => {
+        if (live) setRoster(inForce(list))
+      },
+      () => {
+        if (live) setRoster([])
+      },
+    )
+    store.plansIn(root).then(
+      (list) => {
+        if (live) setPlans(new Map(list.map((plan) => [plan.id, plan])))
+      },
+      () => undefined,
+    )
+    return () => {
+      live = false
+    }
+  }, [store, root])
+  /* The one chosen, or the first that can be seated here, or the first. */
+  const agentChoice =
+    (agentId && roster?.some((one) => one.id === agentId) ? agentId : null) ??
+    roster?.find((one) => seatTaken(plans.get(one.id)) !== null)?.id ??
+    roster?.[0]?.id ??
+    null
+
+  /* An Agent first, a runtime second — and until somebody picks, the Agents
+     whenever the project has any, which is not known until they are read. */
+  const [chosenMode, setMode] = useState<'agent' | 'new' | 'running' | null>(null)
+  const mode = chosenMode ?? (roster === null || roster.length > 0 ? 'agent' : 'new')
   const [picked, setPicked] = useState<SessionKey | null>(null)
   /* What is actually selected, which is not the same as what was clicked.
      `picked` outlived the row it names: put that conversation in another room
@@ -167,6 +207,29 @@ export const AddMember = ({
     onClose()
   }
 
+  /** Seats an Agent in the room's folder and puts it in the room — or, refused, leaves the sheet to say why. */
+  const addAgent = async (): Promise<void> => {
+    if (!agentChoice) return
+    setBusy(true)
+    setProblem(null)
+    // `reveal: false`, as for a runtime: main is a slot, and this room is in it.
+    const key = await store.startAsAgent(agentChoice, { cwd: root, reveal: false })
+    if (!key) {
+      // Nothing was opened: the refusal sheet lists every seat and its fix, or a notice says what failed.
+      setBusy(false)
+      return
+    }
+    const { runtime: started, id } = splitSessionKey(key)
+    try {
+      await store.joinRoom(room, started, id)
+    } catch (error) {
+      setBusy(false)
+      setProblem(error instanceof Error ? error.message : 'It was seated, but the room would not take it.')
+      return
+    }
+    onClose()
+  }
+
   const chosen = agents.find((one) => one.id === runtime)
 
   return (
@@ -178,10 +241,10 @@ export const AddMember = ({
         <>
           <Button
             variant="default"
-            disabled={busy || (mode === 'new' ? !runtime : !choice)}
-            onClick={() => void (mode === 'new' ? add() : join())}
+            disabled={busy || (mode === 'agent' ? !agentChoice : mode === 'new' ? !runtime : !choice)}
+            onClick={() => void (mode === 'agent' ? addAgent() : mode === 'new' ? add() : join())}
           >
-            {busy ? (mode === 'new' ? 'Starting…' : 'Adding…') : 'Add to room'}
+            {busy ? (mode === 'running' ? 'Adding…' : mode === 'agent' ? 'Seating…' : 'Starting…') : 'Add to room'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
@@ -191,8 +254,20 @@ export const AddMember = ({
     >
       <div className={styles.body}>
         <div className={styles.field}>
-          <span className={styles.label}>Which agent</span>
-          <div className={styles.modes} role="radiogroup" aria-label="Which agent">
+          <span className={styles.label}>Who joins</span>
+          <div className={styles.modes} role="radiogroup" aria-label="Who joins">
+            <Button
+              type="button"
+              role="radio"
+              aria-checked={mode === 'agent'}
+              variant="choice" size="row" className={styles.mode}
+              disabled={roster !== null && roster.length === 0}
+              title={roster !== null && roster.length === 0 ? 'This project has no Agents to seat yet.' : undefined}
+              onClick={() => setMode('agent')}
+            >
+              An Agent
+              {roster && roster.length > 0 && <span className={styles.count}>{roster.length}</span>}
+            </Button>
             <Button
               type="button"
               role="radio"
@@ -200,7 +275,7 @@ export const AddMember = ({
               variant="choice" size="row" className={styles.mode}
               onClick={() => setMode('new')}
             >
-              Start a new one
+              A runtime
             </Button>
             <Button
               type="button"
@@ -227,7 +302,38 @@ export const AddMember = ({
           )}
         </div>
 
-        {mode === 'running' ? (
+        {mode === 'agent' ? (
+          <div className={styles.field}>
+            <span className={styles.label}>Its Agents, and the seat each would take here</span>
+            {roster === null ? (
+              <p className={styles.note}>Reading this project’s Agents…</p>
+            ) : (
+              <RadioGroup
+                className={styles.picker}
+                value={agentChoice ?? ''}
+                onValueChange={(value) => setAgentId(String(value))}
+              >
+                {roster.map((entry) => {
+                  const plan = plans.get(entry.id)
+                  const seat = seatTaken(plan)
+                  const reason = plan && !seat ? firstReason(plan) : null
+                  const name = agentName(entry)
+                  return (
+                    <label key={entry.id} className={styles.candidate} {...(reason ? { 'data-refused': '' } : {})}>
+                      <RadioGroupItem value={entry.id} aria-label={name} />
+                      {seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />}
+                      <span className={styles.candidateName}>{name}</span>
+                      <span className={reason ? `${styles.candidateAgent} text-(--hd-warning-ink)` : styles.candidateAgent}>
+                        {seat ? seat.label : reason ? `Can't seat here · ${reason}` : 'Checking…'}
+                      </span>
+                    </label>
+                  )
+                })}
+              </RadioGroup>
+            )}
+            <p className={styles.note}>It is seated in this room’s folder, joins as soon as it is, and goes by the Agent’s name.</p>
+          </div>
+        ) : mode === 'running' ? (
           <div className={styles.field}>
             <span className={styles.label}>In this project, in no room</span>
             <RadioGroup
@@ -263,9 +369,9 @@ export const AddMember = ({
         ) : (
           <>
         <label className={styles.field}>
-          <span className={styles.label}>Agent</span>
+          <span className={styles.label}>Runtime</span>
           <NativeSelect
-            aria-label="Agent"
+            aria-label="Runtime"
             value={runtime ?? ''}
             onChange={(event) => setRuntime(event.target.value as RuntimeId)}
           >
