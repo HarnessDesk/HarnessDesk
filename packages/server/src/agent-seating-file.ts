@@ -246,6 +246,11 @@ export class MachineSeatingFile {
 
   /** The file as written for a backup, or null when it is absent or unreadable. */
   async raw(): Promise<Record<string, unknown> | null> {
+    // An export that starts after a local edit must include that edit, even
+    // while its atomic rename is still in flight. Keep this public read on
+    // the same ordering boundary as read(); set() uses #readNow() internally
+    // so its own queued turn never waits on itself.
+    await this.#writes
     let text: string
     try {
       text = await readFile(this.path, 'utf8')

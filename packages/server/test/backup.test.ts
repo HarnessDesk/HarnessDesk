@@ -260,6 +260,75 @@ test("a backup carries this machine's Agents and seats, and restore only adds wh
   assert.deepEqual(await readdir(join(dirB, 'agents', 'scout')), ['AGENT.md', 'skills'])
 })
 
+test('backup export waits for a seating edit that was already queued', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-queue-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const { host } = await hostAt(dir)
+  t.after(() => host.dispose())
+  await host.call('agent/seating/set', { id: 'judge', seats: [{ runtime: 'codex' }] })
+
+  const path = join(dir, 'seating.json')
+  const before = await readFile(path, 'utf8')
+  const fsp = createRequire(import.meta.url)('node:fs/promises') as {
+    readFile: (...args: unknown[]) => Promise<unknown>
+    rename: (...args: unknown[]) => Promise<void>
+  }
+  const { readFile: realRead, rename: realRename } = fsp
+  let releaseRename!: () => void
+  const renameReleased = new Promise<void>((resolve) => {
+    releaseRename = resolve
+  })
+  let enterRename!: () => void
+  const renameEntered = new Promise<void>((resolve) => {
+    enterRename = resolve
+  })
+  let writeHeld = false
+  let observeBackupRead!: () => void
+  const backupRead = new Promise<void>((resolve) => {
+    observeBackupRead = resolve
+  })
+  fsp.readFile = async (...args) => {
+    if (String(args[0]) === path && writeHeld) {
+      observeBackupRead()
+      return before
+    }
+    return realRead(...args)
+  }
+  fsp.rename = async (...args) => {
+    if (String(args[1]) === path) {
+      writeHeld = true
+      enterRename()
+      await renameReleased
+      writeHeld = false
+    }
+    return realRename(...args)
+  }
+  syncBuiltinESMExports()
+  t.after(() => {
+    releaseRename()
+    fsp.readFile = realRead
+    fsp.rename = realRename
+    syncBuiltinESMExports()
+  })
+
+  const set = host.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: 'cursor' }] })
+  await renameEntered
+  const backup = host.call('backup/export', {})
+  const crossedWrite = await Promise.race([
+    backupRead.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+  ])
+  if (crossedWrite) await backup
+  releaseRename()
+
+  const [exported] = await Promise.all([backup, set])
+  assert.equal(crossedWrite, false, 'the export did not read seating.json across the in-flight local write')
+  assert.deepEqual(exported.seating, {
+    judge: ['codex'],
+    reviewer: ['cursor'],
+  })
+})
+
 test('restoring seating into a removed file advances beyond the revision an open client drew', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-seating-revision-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
