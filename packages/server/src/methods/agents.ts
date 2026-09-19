@@ -433,11 +433,21 @@ export const agentMethods = {
  * File verbs match `id` against the roster and then `listedAgentPath` checks
  * that the matched entry is one folder name at the exact tier path before any
  * path is acted on. The unread-project placeholder is deliberately not one.
+ *
+ * A folder inside a checkout is read as that checkout's top (`topLevel`),
+ * because that is where a project keeps its Agents.
  */
 const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
   if (project === undefined) return undefined
   if (!isAbsolute(project)) throw new Error(`${project} is not an absolute path.`)
-  return ctx.workspaces.confineGitRoot(project)
+  const confined = await ctx.workspaces.confineGitRoot(project)
+  /* A project keeps its Agents at the top of its checkout, and a person often
+     opens a folder inside it — so a folder is read as the checkout it is in: a
+     subfolder as its repository's top, a linked worktree as its own. The top
+     is held to the same rule the folder was, so this never reaches a
+     repository nobody opened part of. */
+  const top = await ctx.workspaces.topLevel(confined)
+  return top === null || top === confined ? confined : ctx.workspaces.confineGitRoot(top)
 }
 
 /** Why an entry cannot be seated: its first error, where it is, in the file's own terms. */

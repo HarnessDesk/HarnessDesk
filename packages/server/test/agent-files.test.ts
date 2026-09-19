@@ -227,7 +227,8 @@ const handlerDesk = async (
       read: async () => ({ path: join(state, SEATING_FILE), entries, problems: [] }),
       set,
     },
-    workspaces: { confineGitRoot: async () => confinedProject },
+    // Not a real checkout, so the project it was handed is its own top.
+    workspaces: { confineGitRoot: async () => confinedProject, topLevel: async () => null },
     options: {},
     push: (notice: unknown) => void pushed.push(notice),
   } as unknown as HostContext

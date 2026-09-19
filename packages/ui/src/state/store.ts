@@ -8,6 +8,7 @@ import {
   type ExtensionEvent,
   type PluginInstance,
   type BackgroundTask,
+  type AgentEntry,
   type AgentEvent,
   type AgentItem,
   type ApprovalDecision,
@@ -26,6 +27,7 @@ import {
   type ScopeQuery,
   type RuntimeCatalog,
   type RuntimePlugin,
+  type SeatPlan,
   type LedgerQuery,
   type LedgerReport,
   type RateLimits,
@@ -308,6 +310,8 @@ export class AppStore {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
           }
           void this.loadAccounts()
+          // A runtime just added may be exactly what an Agent's `prefer` names.
+          if (this.#snapshot.agents !== null) void this.loadAgentPlans()
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
@@ -331,9 +335,30 @@ export class AppStore {
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
             historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
+          // Whatever a plan had it seated on may no longer be offered at all.
+          if (this.#snapshot.agents !== null) void this.loadAgentPlans()
         }
         if (notification.method === 'session/removed') {
           this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
+        }
+        if (notification.method === 'agent/changed') {
+          /* A file under the roster moved, or this machine's seats did. Read
+             again only what this window has read — one that never showed an
+             Agent has nothing drawn from the roster to go stale — and only
+             for a project this window shows: `null` is this machine's roster
+             or `seating.json`, either of which touches every open project;
+             a named one is the watched project root, which for a folder
+             opened inside its repository is that repository's top rather
+             than the folder itself — so both spellings of "this window's
+             project" are checked. The dry run asks every runtime a question,
+             so a notice for a project nobody here is looking at is not worth
+             that. */
+          const { project } = notification.params
+          const open = this.#snapshot.workspace?.path ?? null
+          const top = this.#snapshot.workspace?.repo?.root ?? null
+          if (this.#snapshot.agents !== null && (project === null || project === open || project === top)) {
+            void this.loadAgents()
+          }
         }
         if (notification.method === 'usage/updated') {
           // One account at a time, so a slow source never holds up a fast one.
@@ -3637,6 +3662,65 @@ export class AppStore {
     this.#patch({ settingsFor: section })
   }
 
+  // ------------------------------------------------------------------ agents
+
+  /**
+   * Numbered against overlapping reads: a workspace switch, an `agent/changed`
+   * push and a sign-in can each start one of these while an earlier one is
+   * still in flight, and the answer that resolves last must not be the one
+   * that started last — an older `agent/list` landing after a newer one would
+   * draw the previous project's roster back over the current one. Bumped at
+   * the call, checked once the read returns, on the same pattern as
+   * `#accountsGeneration`.
+   */
+  #agentsGeneration = 0
+  /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
+  #agentPlansGeneration = 0
+
+  /**
+   * Reads the Agent roster for the folder that is open, and then which seat
+   * each would take here. Two reads, because the listing is a few files and
+   * the dry run asks every runtime a question: the list draws first. The host
+   * reads the folder as the checkout it is in, so an open subfolder still
+   * lists its repository's Agents.
+   */
+  async loadAgents(): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const generation = ++this.#agentsGeneration
+    let agents: readonly AgentEntry[]
+    try {
+      agents = await this.transport.request('agent/list', project ? { project } : {})
+    } catch (error) {
+      if (generation === this.#agentsGeneration) this.notice('warning', describe(error))
+      return
+    }
+    // A newer load started while this one was in flight: its answer, not this one, belongs on screen.
+    if (generation !== this.#agentsGeneration) return
+    this.#patch({ agents, agentsProject: project })
+    await this.loadAgentPlans()
+  }
+
+  /**
+   * Which seat each listed Agent would take here — a dry run, which opens
+   * nothing. Applied only when it is both the latest dry run asked for and
+   * still the project the roster on screen is for: a roster for project A
+   * must never be shown seated by a dry run that answered for project B.
+   */
+  async loadAgentPlans(): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const generation = ++this.#agentPlansGeneration
+    let plans: readonly SeatPlan[]
+    try {
+      plans = await this.transport.request('agent/seat/dry', project ? { project } : {})
+    } catch (error) {
+      if (generation === this.#agentPlansGeneration) this.notice('warning', describe(error))
+      return
+    }
+    if (generation !== this.#agentPlansGeneration) return
+    if (project !== this.#snapshot.agentsProject) return
+    this.#patch({ agentPlans: new Map(plans.map((plan) => [plan.id, plan])) })
+  }
+
   async loadWorktrees(): Promise<void> {
     const root = this.#snapshot.workspace?.path
     if (!root) {
@@ -4439,6 +4523,8 @@ export class AppStore {
       if (this.#layouts) this.#restoreLayout(workspace.path)
       await this.loadWorkspaces()
       void this.loadDraftOptions()
+      // Another folder is another project's Agents.
+      if (this.#snapshot.agents !== null) void this.loadAgents()
     } catch (error) {
       this.notice('error', describe(error))
     }
@@ -5019,6 +5105,8 @@ export class AppStore {
     if (event.type === 'account/changed') {
       void this.loadAccounts()
       void this.refreshRuntime()
+      // A sign-in is exactly what moves a candidate from passed over to taken.
+      if (this.#snapshot.agents !== null) void this.loadAgentPlans()
       return
     }
     if (event.type === 'catalog/changed') {

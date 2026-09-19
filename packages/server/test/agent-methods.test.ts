@@ -104,6 +104,8 @@ const confinedRig = async () => {
         if (project === spelled) return open
         throw new Error(`${project} is outside every open workspace. Open its folder first to read from it.`)
       },
+      // Nothing here is a real checkout, so the folder that was handed is its own top.
+      topLevel: async () => null,
     },
   } as never
   return { ctx, asked, handed, open, spelled, elsewhere }
@@ -308,4 +310,31 @@ test('built-in Agents are looked for at the root of the server package', async (
   assert.equal(basename(root), 'agents')
   const manifest = JSON.parse(await readFile(join(dirname(root), 'package.json'), 'utf8')) as { name?: unknown }
   assert.equal(manifest.name, '@harnessdesk/server')
+})
+
+/*
+ * The renderer names the folder it has open; a project keeps its Agents at the
+ * top of its checkout. So a folder is read as the checkout it is in: a
+ * subfolder as its repository's top, a linked worktree as its own top — the
+ * branch's Agents, which is what a branch is for.
+ */
+test('a folder inside a repository reads the Agents at the top of its checkout, and a worktree its own', async (t) => {
+  const client = await connected(t)
+  const repo = tempDir('hd-agent-methods-top-')
+  const git = (...args: string[]) => run('git', ['-C', repo, '-c', 'user.email=dev@example.com', '-c', 'user.name=Jane Doe', ...args])
+  await run('git', ['init', '-q', repo])
+  await git('commit', '-q', '--allow-empty', '-m', 'root')
+  await writeAgent(join(repo, '.harnessdesk', 'agents'), 'reviewer', 'Repository reviewer')
+  await mkdir(join(repo, 'pkg'))
+  await client.call('workspace/open', { path: join(repo, 'pkg') })
+  assert.deepEqual(idsOf(await client.call('agent/list', { project: join(repo, 'pkg') })), [
+    ['reviewer', 'project', 'Repository reviewer'],
+  ])
+
+  const tree = join(tempDir('hd-agent-methods-tree-'), 'tree')
+  await git('worktree', 'add', '-q', '-b', 'side', tree)
+  await writeAgent(join(tree, '.harnessdesk', 'agents'), 'scout', 'Branch scout')
+  await client.call('workspace/open', { path: tree })
+  // The worktree's checkout, not the main one: the reviewer is untracked there and so is not in this branch.
+  assert.deepEqual(idsOf(await client.call('agent/list', { project: tree })), [['scout', 'project', 'Branch scout']])
 })

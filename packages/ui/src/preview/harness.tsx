@@ -3,8 +3,10 @@ import type { ReactNode } from 'react'
 import {
   runtimeId,
   sessionKey,
+  type AgentEntry,
   type OptionValue,
   type RuntimeInfo,
+  type SeatPlan,
   type Session,
   type SessionId,
   type SessionKey,
@@ -591,6 +593,90 @@ Measure, don't guess.
 Report the delta with its variance. A single run is an anecdote.`,
 }
 
+/**
+ * The roster every Agent screen below is drawn from: a project Agent that
+ * shadows a shipped one, one of yours, the shipped ones, and a file that will
+ * not parse — the four shapes a roster row has — with a dry run in which one
+ * Agent cannot be seated here.
+ */
+const agentEntry = (
+  id: string,
+  name: string,
+  origin: AgentEntry['origin'],
+  description: string,
+  permission: 'read' | 'publish' = 'read',
+  shadows: AgentEntry['shadows'] = [],
+): AgentEntry => ({
+  id,
+  origin,
+  path:
+    origin === 'project'
+      ? `${PREVIEW_ROOT}/.harnessdesk/agents/${id}/AGENT.md`
+      : origin === 'user'
+        ? `/home/u/.harnessdesk/agents/${id}/AGENT.md`
+        : `/app/agents/${id}/AGENT.md`,
+  digest: `digest-${id}`,
+  shadows,
+  problems: [],
+  definition: {
+    id,
+    name,
+    description,
+    permission,
+    answers: permission === 'read' ? ['approve', 'request-changes'] : [],
+    produces: ['review'],
+    skills: [],
+    prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
+    brief: `You review a change somebody else wrote.\n\n## How to report\n\nEvery finding, then a verdict.\n\n## What you never do\n\nNever push.`,
+  },
+})
+
+const PREVIEW_AGENTS: readonly AgentEntry[] = [
+  agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
+    { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
+  ]),
+  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.'),
+  agentEntry('implementer', 'Implementer', 'builtin', 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.', 'publish'),
+  agentEntry('security-reviewer', 'Security reviewer', 'builtin', 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'),
+  {
+    id: 'draft',
+    origin: 'user',
+    path: '/home/u/.harnessdesk/agents/draft/AGENT.md',
+    digest: 'digest-draft',
+    shadows: [],
+    problems: [{ level: 'error', at: 'permission', text: '"admin" is not a permission — it is read, publish or merge' }],
+    definition: null,
+  },
+]
+
+const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
+  id,
+  from: 'prefer',
+  winner: 0,
+  blocked: null,
+  candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
+})
+
+const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
+  ['code-reviewer', takenOn('code-reviewer', 'claude', 'Beta · Opus · High')],
+  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
+  ['implementer', takenOn('implementer', 'claude', 'Beta')],
+  [
+    'security-reviewer',
+    {
+      id: 'security-reviewer',
+      from: 'machine',
+      winner: null,
+      blocked: null,
+      candidates: [
+        { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
+        { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
+      ],
+    },
+  ],
+  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', candidates: [] }],
+])
+
 /** The smallest store the mounted screens call. */
 class PreviewStore {
   #snapshot: AppSnapshot
@@ -801,6 +887,9 @@ class PreviewStore {
           } as unknown as Session,
         ],
       ]),
+      agents: PREVIEW_AGENTS,
+      agentsProject: PREVIEW_ROOT,
+      agentPlans: PREVIEW_PLANS,
       ...seed,
     } as AppSnapshot
     this.#watchWindowWidth()

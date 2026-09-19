@@ -255,6 +255,8 @@ export interface HostContext {
     fileRoots(mode: 'read' | 'write'): string[]
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
+    /** The top of the checkout a folder is in — a linked worktree's own — or null outside git. */
+    topLevel(path: string): Promise<string | null>
     /**
      * Refuses a folder for a room, where it works and where its flows are read
      * from, unless it is in a folder or a repository opened here, links

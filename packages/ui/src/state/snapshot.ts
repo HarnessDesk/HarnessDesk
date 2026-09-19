@@ -2,6 +2,7 @@ import type {
   AccountStatus,
   CapabilityContribution,
   PluginInstance,
+  AgentEntry,
   AgentError,
   BackgroundTask,
   Approval,
@@ -16,6 +17,7 @@ import type {
   RuntimeHealth,
   RuntimeId,
   RuntimeInfo,
+  SeatPlan,
   Session,
   SessionQueue,
   SkillInfo,
@@ -358,6 +360,17 @@ export interface AppSnapshot {
    */
   readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
   /**
+   * The Agent roster for `agentsProject`: that project's own Agents, then this
+   * machine's, then the ones that ship, one per id, each carrying what it
+   * shadowed and anything wrong with its file. Null until a surface that lists
+   * Agents asks, so a window that never shows one never reads a file for it.
+   */
+  readonly agents: readonly AgentEntry[] | null
+  /** The folder the roster above was read for — the open workspace — or null for none. */
+  readonly agentsProject: string | null
+  /** Which seat each listed Agent would take here, by Agent id: one dry run of the whole roster. */
+  readonly agentPlans: ReadonlyMap<string, SeatPlan>
+  /**
    * The repository a new worktree is being set up for, or null.
    *
    * Dialog state in the store, because three places raise this one dialog —
@@ -645,6 +658,9 @@ const EMPTY: AppSnapshot = {
   worktrees: [],
   teams: new Map(),
   flowRuns: new Map(),
+  agents: null,
+  agentsProject: null,
+  agentPlans: new Map(),
   newWorktreeFor: null,
   settingsFor: null,
   workspaces: [],
@@ -694,4 +710,5 @@ export const emptySnapshot = (): AppSnapshot => ({
   tasks: new Map(),
   foldersGone: new Map(),
   loadingSessions: new Set(),
+  agentPlans: new Map(),
 })
