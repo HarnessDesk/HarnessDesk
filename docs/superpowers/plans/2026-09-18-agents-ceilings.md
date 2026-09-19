@@ -3402,7 +3402,8 @@ diff --git a/packages/server/src/agent-files.ts b/packages/server/src/agent-file
 +  agentFolderAt(await realpath(project), [...PROJECT_AGENT_DIR.split('/'), id])
 +
 +/** One of this machine's Agents' folder, under the roster's own root. */
-+export const userAgentFolder = (root: string, id: string): Promise<string> => agentFolderAt(root, [id])
++export const userAgentFolder = async (root: string, id: string): Promise<string> =>
++  agentFolderAt(await realpath(root), [id])
 +
 +/**
 + * Rewrites an Agent's `AGENT.md` in place — *Update…*'s one write.

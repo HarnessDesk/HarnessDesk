@@ -1,5 +1,7 @@
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
+import { digestOf } from '@harnessdesk/agent-inventory'
+
 import {
   AGENT_DESCRIPTION_LIMIT,
   AGENT_NAME_LIMIT,
@@ -20,7 +22,7 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 
-import { parseAgentDefinition } from '../agent-def.js'
+import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
 import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
@@ -28,8 +30,11 @@ import {
   copyAgentFolder,
   createAgentFolder,
   projectAgentDir,
+  projectAgentFolder,
   readAgentSource,
+  rewriteAgentFile,
   rollbackCreatedAgent,
+  userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
 import {
@@ -393,6 +398,25 @@ export const agentMethods = {
     return found(await ctx.agents.read(id, project), { id, origin: params.to, path: created.path })
   },
 
+  'agent/ceiling/preview': async (ctx, params) => {
+    const { path, folder } = await updatable(ctx, params)
+    const source = await readAgentSource(join(folder, 'AGENT.md'))
+    const edit = ceilingEdit(source, params.level)
+    if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
+    return { path, digest: digestOf(source), line: edit.line, before: edit.before, after: edit.after, diff: edit.diff }
+  },
+
+  'agent/ceiling/write': async (ctx, params) => {
+    const { path, folder, project } = await updatable(ctx, params)
+    await rewriteAgentFile(folder, params.digest, (source) => {
+      const edit = ceilingEdit(source, params.level)
+      if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
+      return edit.next
+    })
+    ctx.push({ method: 'agent/changed', params: { project: params.origin === 'project' ? (project ?? null) : null } })
+    return found(await ctx.agents.read(params.id, project), { id: params.id, origin: params.origin, path })
+  },
+
   /**
    * *Customize…*: copies the Agent found at `from` to this machine or to a
    * project, where the copy shadows it, and answers the copy's entry.
@@ -602,6 +626,22 @@ const listedAgentPath = (
           : null
   if (!root || path !== join(root, entry.id, 'AGENT.md')) return { at: 'invalid' }
   return { at: 'found', path }
+}
+
+const updatable = async (
+  ctx: HostContext,
+  params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string },
+): Promise<{ readonly path: string; readonly folder: string; readonly project: string | undefined }> => {
+  const project = await projectOf(ctx, params.project)
+  const entry = await ctx.agents.read(params.id, project)
+  const looked = entry ? listedAgentPath(ctx, entry, params.origin, project) : ({ at: 'missing' } as const)
+  if (looked.at === 'missing') throw new Error(`There is no ${originAgent(params.origin)} Agent called “${params.id}” to update.`)
+  if (looked.at === 'invalid') throw new Error(`“${params.id}” is not a real Agent folder, so it cannot be updated.`)
+  const folder =
+    params.origin === 'project'
+      ? await projectAgentFolder(project ?? '', params.id)
+      : await userAgentFolder(ctx.agents.roots.user, params.id)
+  return { path: looked.path, folder, project }
 }
 
 /** Where a new or copied Agent goes: this machine's roster, or the project's own, made inside it. */

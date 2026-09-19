@@ -255,3 +255,79 @@ const ceilingOf = (
   }
   return narrowest
 }
+
+export interface CeilingEdit {
+  readonly next: string
+  readonly line: number
+  readonly before: string | null
+  readonly after: string
+  readonly diff: string
+}
+
+const FENCE = /^---[ \t]*\r?$/
+const CEILING_KEY = /^ceiling[ \t]*:/
+const PERMISSION_KEY = /^permission[ \t]*:/
+const ONE_WORD = /^permission[ \t]*:[ \t]*(?:read|publish|merge)([ \t]+#.*?)?\r?$/
+const CONTINUED = /^(?:[ \t]+\S|[ \t]*-)/
+const shown = (line: string): string => line.replace(/\r$/, '')
+
+/** Build exactly one ceiling-line edit while preserving every unrelated byte. */
+export const ceilingEdit = (source: string, level: CeilingLevel): CeilingEdit | { readonly refused: string } => {
+  const bom = source.startsWith('﻿') ? '﻿' : ''
+  const text = source.slice(bom.length)
+  const eol = text.match(/\r?\n/)?.[0] ?? '\n'
+  const lines = text.split(eol)
+  const after = `ceiling: ${level}`
+  const joined = (next: readonly string[]): string => `${bom}${next.join(eol)}`
+
+  if (!FENCE.test(lines[0] ?? '')) {
+    const next = ['---', after, '---', ...lines]
+    return {
+      next: joined(next),
+      line: 2,
+      before: null,
+      after,
+      diff: `@@ -1,1 +1,4 @@\n+---\n+${after}\n+---\n ${shown(lines[0] ?? '')}\n`,
+    }
+  }
+  const close = lines.findIndex((line, index) => index > 0 && FENCE.test(line))
+  if (close === -1) return { refused: 'its front matter opens with "---" and is never closed' }
+  const front = lines.slice(1, close)
+  const ceilingAt = front.findIndex((line) => CEILING_KEY.test(line))
+  const permissionAt = front.findIndex((line) => PERMISSION_KEY.test(line))
+  if (ceilingAt !== -1 && permissionAt !== -1) {
+    return { refused: 'it says both ceiling: and permission: — keep one of the two lines by hand' }
+  }
+  if (ceilingAt !== -1) return { refused: 'it already says ceiling:, so there is nothing to update' }
+
+  if (permissionAt === -1) {
+    const next = [...lines.slice(0, close), after, ...lines.slice(close)]
+    return {
+      next: joined(next),
+      line: close + 1,
+      before: null,
+      after,
+      diff: `@@ -${close},2 +${close},3 @@\n ${shown(lines[close - 1] ?? '')}\n+${after}\n ${shown(lines[close] ?? '')}\n`,
+    }
+  }
+
+  const at = permissionAt + 1
+  const before = lines[at] ?? ''
+  const word = ONE_WORD.exec(before)
+  if (!word || (at + 1 < close && CONTINUED.test(lines[at + 1] ?? ''))) {
+    return { refused: 'its permission: is not one plain word on one line — rewrite it by hand' }
+  }
+  const written = `${after}${word[1] ?? ''}`
+  const next = [...lines.slice(0, at), written, ...lines.slice(at + 1)]
+  const start = at - 1
+  const end = Math.min(lines.length - 1, at + 1)
+  const context = (from: number, to: number): string =>
+    lines.slice(from, to).map((line) => ` ${shown(line)}\n`).join('')
+  return {
+    next: joined(next),
+    line: at + 1,
+    before: shown(before),
+    after: written,
+    diff: `@@ -${start + 1},${end - start + 1} +${start + 1},${end - start + 1} @@\n${context(start, at)}-${shown(before)}\n+${written}\n${context(at + 1, end + 1)}`,
+  }
+}

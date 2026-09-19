@@ -537,6 +537,19 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     to: literalUnion('user', 'project'),
     project: optional(isString),
   }),
+  'agent/ceiling/preview': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    level: ceilingValidator,
+  }),
+  'agent/ceiling/write': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    level: ceilingValidator,
+    digest: isFilled,
+  }),
   'agent/copy': shape({
     id: isFilled,
     from: literalUnion('project', 'user', 'builtin'),

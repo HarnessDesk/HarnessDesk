@@ -1,4 +1,4 @@
-import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
+import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -1727,6 +1727,25 @@ export interface HostMethods {
       readonly seat: FlowSeat
       readonly to: 'user' | 'project'
       readonly project?: string
+    }
+    result: AgentEntry
+  }
+  'agent/ceiling/preview': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly level: CeilingLevel
+    }
+    result: CeilingUpdate
+  }
+  'agent/ceiling/write': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly level: CeilingLevel
+      readonly digest: string
     }
     result: AgentEntry
   }

@@ -101,6 +101,16 @@ export interface AgentEntry {
  */
 export const SEAT_PREFERENCE_LIMIT = 8
 
+/** The one-line `ceiling:` update shown before an Agent file is changed. */
+export interface CeilingUpdate {
+  readonly path: string
+  readonly digest: string
+  readonly line: number
+  readonly before: string | null
+  readonly after: string
+  readonly diff: string
+}
+
 /** One thing wrong with a definition, and where. */
 export interface AgentProblem {
   readonly level: 'error' | 'warning'
