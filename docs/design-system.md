@@ -831,6 +831,30 @@ of the text, not as a claim the desk makes about it.
 
 A running operation whose words live beside it.
 
+### `LibraryReachMark`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One state in the Library matrix, distinguished by shape before colour.
+
+### `LibraryReachFace`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+An agent's identity mark, with reach expressed only by the plate around it.
+
+### `LibraryOperationList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The list's floor keeps a one-change plan reading as a composed preview.
+
+### `LibraryOperationMark`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One planned operation or result, using the glyph the Library already taught.
+
 ### `Chip`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -980,6 +1004,18 @@ sessions run as …"), so the title is decided as the pointer arrives, from
 whether the text overflows its box right then. The ellipsis is the
 caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
 
+### `Monogram`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Initials inside a row's neutral mark. They identify the thing without becoming its name.
+
+### `MetaList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Compact facts whose dot separators belong to the role, not to each caller.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -992,7 +1028,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 1 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 1696 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `screenAppearance` | 1389 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

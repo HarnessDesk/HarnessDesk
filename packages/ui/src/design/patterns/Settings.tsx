@@ -1,8 +1,10 @@
 import { Button } from '../ui/button'
 import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode } from 'react'
 
+import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
+
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, FilterIcon, SearchIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
@@ -61,6 +63,120 @@ export const Spinner = ({ className, tone = 'neutral', size = 'default', ...prop
   />
 )
 
+const REACH_INK: Partial<Record<ReachState, string>> = {
+  hollow: 'text-(--hd-warning-ink)',
+  rejected: 'text-(--hd-warning-ink)',
+  differs: 'text-(--hd-warning-ink)',
+  unscanned: 'text-(--hd-warning-ink)',
+  unhostable: 'text-(--hd-muted-foreground)',
+}
+
+/** One state in the Library matrix, distinguished by shape before colour. */
+export const LibraryReachMark = ({
+  state,
+  label,
+  placement = 'inline',
+  className,
+  ...props
+}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
+  state: ReachState
+  label: string
+  placement?: 'inline' | 'cell'
+}) => {
+  let mark: ReactNode
+  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
+  else if (state === 'differs') mark = <DiffIcon size={13} />
+  else if (state === 'unhostable') mark = <CrossIcon size={13} />
+  else if (state === 'unscanned') mark = <span className="size-2 rounded-full border border-(--hd-warning-ink)" />
+  else if (state === 'stale') mark = <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
+  else if (state === 'reaches') mark = <span className="size-1.5 rounded-full bg-(--hd-success)" />
+  else if (state === 'off') {
+    mark = (
+      <span className="relative inline-flex size-3 items-center justify-center">
+        <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
+        <span className="absolute h-px w-3 bg-(--hd-muted-foreground)" />
+      </span>
+    )
+  } else mark = <span className="h-px w-2 bg-(--hd-border-emphasis)" />
+
+  return (
+    <span
+      {...props}
+      data-slot="library-reach-mark"
+      data-state={state}
+      data-placement={placement}
+      role="img"
+      aria-label={label}
+      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'h-(--hd-control-h) w-full' : 'size-3.5'} ${REACH_INK[state] ?? 'text-(--hd-muted-foreground)'} ${className ?? ''}`}
+    >
+      {mark}
+    </span>
+  )
+}
+
+/** An agent's identity mark, with reach expressed only by the plate around it. */
+export const LibraryReachFace = ({
+  state,
+  label,
+  children,
+  className,
+  ...props
+}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
+  state: ReachState
+  label: string
+  children?: ReactNode
+}) => (
+  <span
+    {...props}
+    data-slot="skill-reach"
+    data-state={state}
+    {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
+    role="img"
+    aria-label={label}
+    className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-(--hd-muted-foreground) opacity-40 data-[state=reaches]:bg-(--hd-muted) data-[state=reaches]:text-(--hd-foreground) data-[state=reaches]:opacity-100 data-[problem]:bg-(--hd-warning-dim) data-[problem]:text-(--hd-warning-ink) data-[problem]:opacity-100 ${className ?? ''}`}
+  >
+    {children}
+  </span>
+)
+
+type LibraryOperationState = 'planned' | 'refuse' | 'done' | 'failed' | 'skipped'
+
+/** The list's floor keeps a one-change plan reading as a composed preview. */
+export const LibraryOperationList = ({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    {...props}
+    data-slot="library-operation-list"
+    role="list"
+    className={`flex min-h-18 flex-col ${className ?? ''}`}
+  >
+    {children}
+  </div>
+)
+
+/** One planned operation or result, using the glyph the Library already taught. */
+export const LibraryOperationMark = ({ state }: { state: LibraryOperationState }) => {
+  const mark =
+    state === 'refuse' ? <AlertIcon size={13} />
+      : state === 'done' ? <CheckIcon size={13} />
+        : state === 'failed' ? <CrossIcon size={13} />
+          : state === 'skipped' ? <span className="opacity-60">·</span>
+            : <span className="size-1.5 rounded-full bg-current opacity-70" />
+  return (
+    <span
+      data-slot="library-operation-mark"
+      data-state={state}
+      aria-hidden="true"
+      className="inline-flex w-4 shrink-0 items-center justify-center self-center text-(--hd-muted-foreground) data-[state=done]:text-(--hd-success) data-[state=failed]:text-(--hd-warning-ink) data-[state=refuse]:text-(--hd-warning-ink)"
+    >
+      {mark}
+    </span>
+  )
+}
+
 type ChipBaseProps = {
   label?: ReactNode
   className?: string
@@ -69,6 +185,7 @@ type ChipBaseProps = {
   children?: ReactNode
   title?: string
   size?: 'default' | 'sm'
+  variant?: 'default' | 'outline'
 }
 
 export type ChipProps = ChipBaseProps & (
@@ -92,7 +209,16 @@ const READINESS_TONE: Record<Readiness, Tone> = {
  * facts keep those meanings distinct in both ink and their accessible names.
  */
 export const Chip = (props: ChipProps) => {
-  const { label, className, stale = false, unknown = false, children, title, size = 'default' } = props
+  const {
+    label,
+    className,
+    stale = false,
+    unknown = false,
+    children,
+    title,
+    size = 'default',
+    variant = 'default',
+  } = props
   const state = props.state
   const tint = props.tint
   const emphasis = props.emphasis
@@ -104,6 +230,7 @@ export const Chip = (props: ChipProps) => {
     <span
       className={cx(styles.chip, tone && softTone({ tone }), tint && softTint({ tint }), className)}
       data-size={size}
+      data-variant={variant}
       {...(state ? { 'data-state': state } : {})}
       {...(tone ? { 'data-tone': tone } : {})}
       {...(tint ? { 'data-tint': tint } : {})}
@@ -236,7 +363,7 @@ export const Field = ({
   const noteId = `${id}-note`
   const note = error ?? hint
   return (
-    <div className={styles.formField}>
+    <div className={styles.formField} data-slot="form-field">
       <label className={styles.formLabel} htmlFor={id}>
         {label}
       </label>
@@ -264,15 +391,31 @@ export const FormStack = ({ children }: { children: ReactNode }) => (
 )
 
 /** The short paragraph that belongs to a group of rows rather than to one of them. */
-export const Note = ({ children, tone }: { children: ReactNode; tone?: 'warn' | 'bad' }) => (
+export const Note = ({
+  children,
+  tone,
+  ink = 'secondary',
+  icon,
+  className,
+}: {
+  children: ReactNode
+  tone?: 'warn' | 'bad'
+  ink?: 'secondary' | 'muted'
+  icon?: ReactNode
+  className?: string
+}) => (
   /* A note that says something went wrong is spoken, not only shown: it
      arrives after a press, when a reader is listening for the outcome. */
   <p
-    className={styles.note}
+    className={cx(styles.note, className)}
+    data-slot="note"
+    data-ink={ink}
+    {...(icon ? { 'data-icon': '' } : {})}
     {...(tone ? { 'data-tone': tone } : {})}
     {...(tone === 'bad' ? { role: 'alert' } : {})}
   >
-    {children}
+    {icon}
+    {icon ? <span>{children}</span> : children}
   </p>
 )
 
@@ -418,14 +561,22 @@ const TEXT_ROLE_INK = {
   value: 'text-(--hd-foreground)',
 } as const
 
+const TEXT_INK = {
+  primary: 'text-(--hd-foreground)',
+  secondary: 'text-(--hd-secondary-foreground)',
+  muted: 'text-(--hd-muted-foreground)',
+} as const
+
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'h2'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'summary' | 'label'
   children: ReactNode
   role?: TextRole
   tone?: Tone
   /** Identity colour, kept separate from a tone that judges state. */
   tint?: Tint
+  /** Preserve a role's size and weight while selecting one of the three ink tiers. */
+  ink?: keyof typeof TEXT_INK
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
   /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
@@ -440,6 +591,7 @@ export const Text = ({
   role = 'muted',
   tone,
   tint,
+  ink,
   align = 'start',
   truncate,
   fade,
@@ -455,9 +607,16 @@ export const Text = ({
       'data-role': role,
       ...(tone ? { 'data-tone': tone } : {}),
       ...(tint ? { 'data-tint': tint } : {}),
+      ...(ink ? { 'data-ink': ink } : {}),
       className: cx(
         TEXT_ROLE[role],
-        tone ? inkTone({ tone }) : tint ? inkTint({ tint }) : TEXT_ROLE_INK[role],
+        tone
+          ? inkTone({ tone })
+          : tint
+            ? inkTint({ tint })
+            : ink
+              ? TEXT_INK[ink]
+              : TEXT_ROLE_INK[role],
         align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
         truncate && 'truncate',
         fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
@@ -742,13 +901,30 @@ export const SectionToggle = ({ children, className }: { children: ReactNode; cl
 
 export const CodeText = ({
   as = 'span',
+  size = 'default',
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: 'span' | 'code' | 'pre'
+  size?: 'default' | 'inherit'
   children: ReactNode
-}) => createElement(as, { ...props, className: cx(styles.mono, className) }, children)
+}) => createElement(as, {
+  ...props,
+  'data-slot': 'code-text',
+  'data-size': size,
+  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, className),
+}, children)
+
+/** Initials inside a row's neutral mark. They identify the thing without becoming its name. */
+export const Monogram = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span data-slot="monogram" className={cx(styles.monogram, className)}>{children}</span>
+)
+
+/** Compact facts whose dot separators belong to the role, not to each caller. */
+export const MetaList = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span data-slot="meta-list" className={cx(styles.metaList, className)}>{children}</span>
+)
 
 export const WireText = ({ children, className }: { children: ReactNode; className?: string }) => (
   <span className={cx(styles.wire, className)}>{children}</span>

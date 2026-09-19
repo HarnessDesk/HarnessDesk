@@ -570,6 +570,7 @@ const KeyValueBoard = () => (
           <Text role="row">Weekly allowance</Text>
           <Text role="muted">Resets in four days</Text>
           <Text role="meta">Read 2m ago</Text>
+          <Text role="meta" ink="secondary">Operation detail</Text>
           <Text role="figure">74%</Text>
         </div>
       </Case>
@@ -1166,6 +1167,20 @@ const AdoptedBoard = () => {
                     <TableCell className="text-right tabular-nums">${one.spend}</TableCell>
                   </TableRow>
                 ))}
+              </TableBody>
+            </Table>
+            <Table variant="framed" data-catalog-variant="framed">
+              <TableHeader>
+                <TableRow variant="matrix">
+                  <TableHead variant="matrix" pinned>Name</TableHead>
+                  <TableHead variant="matrix" align="center">Agent</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow variant="matrix" interactive data-state="selected">
+                  <TableHead variant="row" pinned>code-review</TableHead>
+                  <TableCell variant="matrix">Loaded</TableCell>
+                </TableRow>
               </TableBody>
             </Table>
           </SectionBody>

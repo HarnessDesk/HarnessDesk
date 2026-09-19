@@ -25,6 +25,7 @@ import {
   ChannelSignal,
   Chip,
   CodeBlock,
+  CodeText,
   CopyButton,
   ConfirmDialog,
   DetailHead,
@@ -42,6 +43,13 @@ import {
   RowChoice,
   Rows,
   Lightbox,
+  LibraryOperationList,
+  LibraryOperationMark,
+  LibraryReachFace,
+  LibraryReachMark,
+  MetaList,
+  Monogram,
+  Note,
   PublicationCard,
   RefusedAction,
   SectionHead,
@@ -181,6 +189,9 @@ const StateBoard = () => (
         <Chip tone="danger">Danger</Chip>
         <Chip tone="info">Info</Chip>
       </Case>
+      <Case label="outline tag">
+        <Chip tone="neutral" size="sm" variant="outline" emphasis>Loaded first</Chip>
+      </Case>
       <Case label="chip identity tints">
         <Chip tint="blue">Branch</Chip>
         <Chip tint="amber">Tag</Chip>
@@ -213,6 +224,29 @@ const StateBoard = () => (
       </Case>
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
+      </Case>
+      <Case label="library reach">
+        <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
+        <LibraryReachMark state="off" label="Switched off" />
+        <LibraryReachMark state="unscanned" label="Not scanned" />
+        <LibraryReachMark state="hollow" label="Empty on disk" />
+        <LibraryReachFace state="reaches" label="Agent A: reaches">A</LibraryReachFace>
+        <LibraryReachFace state="hollow" label="Agent B: empty on disk">B</LibraryReachFace>
+      </Case>
+      <Case label="library operations">
+        <LibraryOperationList>
+          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="planned" />Planned</div>
+          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="done" />Done</div>
+          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="failed" />Failed</div>
+        </LibraryOperationList>
+      </Case>
+      <Case label="library row facts">
+        <Monogram>CR</Monogram>
+        <MetaList><span>3 copies</span><span>Last Tuesday</span></MetaList>
+        <CodeText as="code" size="inherit">~/skills/code-review</CodeText>
+      </Case>
+      <Case label="supporting note with icon">
+        <Note ink="muted" icon={<FolderIcon size={13} />}>Manifest required</Note>
       </Case>
     </div>
     <p className={styles.rule}>
