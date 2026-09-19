@@ -816,7 +816,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         <Search
           className={styles.historySearch}
           value={query}
-          placeholder="Search history"
+          placeholder="Search"
           label="Search history"
           onChange={setQuery}
           clear={{ label: 'Clear the search', onClick: () => setQuery('') }}

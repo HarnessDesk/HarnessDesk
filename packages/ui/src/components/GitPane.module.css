@@ -86,9 +86,11 @@
   border-bottom: 1px solid var(--hd-border);
 }
 
+/* The search keeps room for its own words; in a narrow pane the count gives
+   way first, because it is the one thing on this bar nobody acts on. */
 .historySearch {
-  flex: 1;
-  min-width: 60px;
+  flex: 1 1 140px; /* desk: 1 → 1 1 140px, a basis the placeholder fits in */
+  min-width: 120px; /* desk: 60px → 120px, never narrower than its own words */
   max-width: 260px;
 }
 
@@ -102,7 +104,10 @@
 }
 
 .count {
-  flex: none;
+  flex: 0 1 auto; /* desk: none → 0 1 auto, the count gives way before the search does */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--hd-text-xs);
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
