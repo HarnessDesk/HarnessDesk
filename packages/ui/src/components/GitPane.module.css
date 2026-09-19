@@ -79,18 +79,23 @@
 .tools {
   flex: none;
   display: flex;
+  flex-wrap: wrap; /* desk: nowrap → wrap, a pane narrower than the controls stacks them rather than cutting the last */
+  align-content: center; /* desk: normal → center, one line of controls sits centred in the row as it did */
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 10px;
+  gap: 4px 8px; /* desk: 8px → 4px 8px, the same 8px across, and 4px between wrapped lines */
+  min-height: 36px; /* desk: height 36px → min-height 36px, one line is still 36px and two lines grow */
+  padding: 2px 10px; /* desk: 0 10px → 2px 10px, an inset around a second line; one line still centres in 36px */
   border-bottom: 1px solid var(--hd-border);
   container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
 }
 
 /* The search keeps room for its own words; in a narrow pane the count gives
-   way first, because it is the one thing on this bar nobody acts on. */
+   way first, because it is the one thing on this bar nobody acts on, and
+   narrower still the row wraps rather than cutting off the select. The
+   search grows from its floor, so it has already given up its extra width
+   before anything wraps. */
 .historySearch {
-  flex: 1 1 140px; /* desk: 1 → 1 1 140px, a basis the placeholder fits in */
+  flex: 1 1 120px; /* desk: 1 → 1 1 120px, it grows from its floor, so it gives way before the row wraps */
   min-width: 120px; /* desk: 60px → 120px, never narrower than its own words */
   max-width: 260px;
 }

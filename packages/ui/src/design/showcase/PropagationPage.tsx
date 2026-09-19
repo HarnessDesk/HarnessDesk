@@ -85,6 +85,19 @@ export const PropagationPage = () => {
         <span data-register="light"><Button variant="quiet" size="row">Transcript step</Button></span>
       </section>
 
+      {/* Each selectable role at rest beside each way it can be chosen, so the
+          contract compares like with like: a fill that differs, and a weight
+          that does not. */}
+      <section className={styles.actions} data-testid="selection-contracts">
+        <Button variant="navigation" size="navigation">Resting page</Button>
+        <Button variant="navigation" size="navigation" data-selected="">Chosen page</Button>
+        <Button variant="row" size="row">Resting branch</Button>
+        <Button variant="row" size="row" data-current="">Checked-out branch</Button>
+        <Button variant="choice" size="default">Resting option</Button>
+        <Button variant="choice" size="default" data-on="">Option turned on</Button>
+        <Button variant="choice" size="default" role="radio" aria-checked="true">Option checked</Button>
+      </section>
+
       {dialogOpen && (
         <Dialog
           title="Add a workspace"

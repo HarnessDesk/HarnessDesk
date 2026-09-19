@@ -62,4 +62,28 @@ test('with room for it the count stands whole, never cut to a number without its
   await expect(count).toBeVisible()
   const cut = await count.evaluate(node => node.scrollWidth > node.clientWidth)
   expect(cut).toBe(false)
+  // One line of controls is still the 36px row it always was.
+  expect(await count.evaluate(node => node.parentElement!.getBoundingClientRect().height)).toBe(36)
+})
+
+/* A split can make the pane narrower than the row's controls. The row then
+   takes a second line; it never pushes a control past its own edge, where the
+   pane would cut it off, and the search still keeps room for its words. */
+test('narrower than its controls, the row wraps and cuts nothing off', async ({ page }) => {
+  const frame = await mount(page, 380)
+  const search = frame.getByRole('searchbox', { name: 'Search history' })
+  await expect(search).toBeVisible()
+  const row = await search.evaluate(node => {
+    let bar = node.parentElement!
+    while (!bar.querySelector('[aria-label="What the search matches"]')) bar = bar.parentElement!
+    const edge = bar.getBoundingClientRect()
+    const spill = [...bar.children].filter(child => {
+      const box = child.getBoundingClientRect()
+      return box.width > 0 && (box.right > edge.right + 0.5 || box.left < edge.left - 0.5)
+    }).map(child => child.className)
+    return { spill, height: edge.height, search: node.getBoundingClientRect().width }
+  })
+  expect(row.spill).toEqual([])
+  expect(row.search).toBeGreaterThanOrEqual(120)
+  expect(row.height).toBeGreaterThan(36)
 })

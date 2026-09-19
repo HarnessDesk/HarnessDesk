@@ -124,22 +124,45 @@ test('settings rows contain their labels, descriptions and marks', async ({ page
   }
 })
 
+/**
+ * Selection is a fill, never weight (U014), for every role that can be chosen.
+ *
+ * Each chosen instance is compared with a resting instance of its own role,
+ * because a sidebar destination and a branch row start from different grounds
+ * and comparing across them proves nothing. A choice is chosen three ways —
+ * `data-selected`, `data-on`, or a radio's `aria-checked` — and each must fill.
+ * Pointing at an option must not look like choosing it: hover takes the plain
+ * hover fill, and a chosen option keeps its own fill under the pointer.
+ */
+test('every chosen row, destination and option is filled, and none changes weight', async ({ page }) => {
+  await page.goto('/design.html?view=propagation')
+  const section = page.getByTestId('selection-contracts')
+  await expect(section).toBeVisible()
+  const look = (name: string, role: 'button' | 'radio' = 'button') => section.getByRole(role, { name, exact: true })
+    .evaluate(node => { const style = getComputedStyle(node); return { fill: style.backgroundColor, weight: style.fontWeight } })
+  await page.mouse.move(0, 0)
+  const pairs: [string, string, 'button' | 'radio'][] = [
+    ['Resting page', 'Chosen page', 'button'],
+    ['Resting branch', 'Checked-out branch', 'button'],
+    ['Resting option', 'Option turned on', 'button'],
+    ['Resting option', 'Option checked', 'radio'],
+  ]
+  for (const [resting, chosen, role] of pairs) {
+    const [rest, pick] = [await look(resting), await look(chosen, role)]
+    expect.soft(pick.fill, `${chosen} is filled`).not.toBe(rest.fill)
+    expect.soft(pick.weight, `${chosen} keeps the weight of ${resting}`).toBe(rest.weight)
+  }
+  const chosen = await look('Option turned on')
+  await section.getByRole('button', { name: 'Resting option', exact: true }).hover()
+  await expect.poll(() => look('Resting option').then(style => style.fill)).not.toBe(chosen.fill)
+  await section.getByRole('button', { name: 'Option turned on', exact: true }).hover()
+  await expect.poll(() => look('Option turned on').then(style => style.fill)).toBe(chosen.fill)
+})
+
 test('canonical controls retain selected, drop, icon and deferred-send states', async ({ page }) => {
   await page.goto('/design.html?view=propagation')
   const states = page.getByTestId('state-contracts')
   await expect(states).toBeVisible()
-  const selectedPage = states.getByRole('button', { name: 'Selected page' })
-  const restingRow = states.getByRole('button', { name: 'Current branch' })
-  const selectedStyle = await selectedPage.evaluate(node => {
-    const style = getComputedStyle(node)
-    return { fill: style.backgroundColor, weight: style.fontWeight }
-  })
-  const restingStyle = await restingRow.evaluate(node => {
-    const style = getComputedStyle(node)
-    return { fill: style.backgroundColor, weight: style.fontWeight }
-  })
-  expect.soft(selectedStyle.fill).not.toBe(restingStyle.fill)
-  expect.soft(selectedStyle.weight).toBe(restingStyle.weight)
   await expect.soft(states.getByRole('button', { name: 'Drop target' })).not.toHaveCSS('box-shadow', 'none')
   expect.soft(await states.getByRole('textbox', { name: 'Icon input' }).evaluate(node => parseFloat(getComputedStyle(node).paddingLeft))).toBeGreaterThanOrEqual(24)
   await expect(states.getByRole('button', { name: 'Avatar mark' }).locator('svg')).toHaveCSS('width', '32px')

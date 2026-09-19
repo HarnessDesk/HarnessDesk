@@ -83,12 +83,19 @@ const buttonVariants = cva(
         /* Product surfaces select a semantic role; they never redraw the
            control from a screen stylesheet. These roles are deliberately
            opinionated rather than an `unstyled` escape hatch. */
+        /* Every state that marks one row among its neighbours — picked,
+           open, on, or the current branch in a list of branches — is the
+           same fill; none of them changes the weight. */
         row:
-          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
+          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
         navigation:
           'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))]',
+        /* A chosen option is filled whichever way its caller says so:
+           `data-selected`, `data-on`, or the radio's own `aria-checked`.
+           Hover takes the plain hover fill, so pointing at an option never
+           reads as having chosen it. */
         choice:
-          'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-accent-dim) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) aria-checked:border-(--hd-ring) data-[hard]:data-[on]:border-(--hd-danger)',
+          'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim)',
         quiet:
           'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-pressed:bg-(--hd-hover) data-[on]:bg-(--hd-active) data-[on]:text-(--hd-foreground) data-[active]:bg-(--hd-accent-dim) data-[active]:text-(--hd-accent) data-[live]:bg-(--hd-success-dim) data-[live]:text-(--hd-success-ink)',
         muted:
