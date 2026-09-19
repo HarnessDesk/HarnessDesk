@@ -2075,7 +2075,7 @@ const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   harness.host.register(runtime)
   await runtime.start()
   t.after(() => runtime.dispose())
-  return { harness, client, work }
+  return { harness, client, work, runtime }
 }
 
 for (const [order, how] of [
@@ -3558,4 +3558,66 @@ test('over Codex: the brief opens as a notice too — Codex echoes it back as `u
   const notice = items.find((item) => item.type === 'notice')
   assert.ok(notice, 'the brief is still recorded, just not as speech')
   assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: a coalesced turn/start answer and opening echo still record the brief as a notice', async (t) => {
+  const { harness, client, work } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the synchronous opening echo cannot overtake the silent-turn marker',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the coalesced echo is still recorded as a notice')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: the normal turn after a silent order is speech and supplies the opening preview and name', async (t) => {
+  const { harness, client, work, runtime } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  await client.until(
+    () => client.events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
+    5_000,
+    'the silent order to finish',
+  )
+  const request = 'Continue with the person\'s request.'
+  await client.call('turn/send', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    input: [
+      { type: 'text', text: '<context source="Git">\nStatus: ## main\n</context>' },
+      { type: 'text', text: request },
+    ],
+  })
+  await client.until(
+    () => client.events.some((event) => event.type === 'session/title' && event.sessionId === session.id && event.title === request),
+    5_000,
+    'the normal opening message to name the session',
+  )
+
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const spoken = read.turns
+    .flatMap((turn) => turn.items)
+    .filter((item) => item.type === 'userMessage')
+  assert.equal(spoken.length, 1, 'only the person\'s follow-up is speech')
+  const spokenText = spoken.flatMap((item) =>
+    item.type === 'userMessage' ? item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])) : [],
+  )
+  assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
+  const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
+  assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
+  assert.equal(summary?.title, request, 'the normal turn still drives the naming call')
 })

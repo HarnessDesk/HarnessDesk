@@ -553,24 +553,36 @@ const nextUsage = () => {
 
 let turnStartedAt = nowSeconds()
 
-const playTurn = () => {
-  turnStartedAt = nowSeconds()
-  notify('turn/started', {
-    threadId: THREAD,
-    turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: turnStartedAt },
-  })
-  notify('thread/status/changed', { threadId: THREAD, status: { type: 'active', activeFlags: [] } })
+const openingUserItem = () => ({
+  type: 'userMessage',
+  id: 'item-u1',
+  content:
+    Array.isArray(lastInput) && lastInput.length > 0
+      ? lastInput.map((part) => (part.type === 'text' ? { ...part, text_elements: part.text_elements ?? [] } : part))
+      : [{ type: 'text', text: 'List the files here.', text_elements: [] }],
+})
 
-  const userItem = {
-    type: 'userMessage',
-    id: 'item-u1',
-    content:
-      Array.isArray(lastInput) && lastInput.length > 0
-        ? lastInput.map((part) => (part.type === 'text' ? { ...part, text_elements: part.text_elements ?? [] } : part))
-        : [{ type: 'text', text: 'List the files here.', text_elements: [] }],
+const turnOpening = () => {
+  turnStartedAt = nowSeconds()
+  const userItem = openingUserItem()
+  return [
+    {
+      method: 'turn/started',
+      params: {
+        threadId: THREAD,
+        turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null, startedAt: turnStartedAt },
+      },
+    },
+    { method: 'thread/status/changed', params: { threadId: THREAD, status: { type: 'active', activeFlags: [] } } },
+    { method: 'item/started', params: { threadId: THREAD, turnId: TURN, item: userItem, startedAtMs: nowMs() } },
+    { method: 'item/completed', params: { threadId: THREAD, turnId: TURN, item: userItem, completedAtMs: nowMs() } },
+  ]
+}
+
+const playTurn = (openingAlreadySent = false) => {
+  if (!openingAlreadySent) {
+    for (const message of turnOpening()) send(message)
   }
-  notify('item/started', { threadId: THREAD, turnId: TURN, item: userItem, startedAtMs: nowMs() })
-  notify('item/completed', { threadId: THREAD, turnId: TURN, item: userItem, completedAtMs: nowMs() })
 
   const message = { type: 'agentMessage', id: 'item-a1', text: '', phase: 'commentary', memoryCitation: null }
   notify('item/started', { threadId: THREAD, turnId: TURN, item: message, startedAtMs: nowMs() })
@@ -1891,7 +1903,7 @@ rl.on('line', (line) => {
       THREAD = params.threadId
       TURN = `turn-${THREAD}`
       lastInput = params.input ?? null
-      send({ id, result: { turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null } } })
+      const response = { id, result: { turn: { id: TURN, items: [], itemsView: 'full', status: 'inProgress', error: null } } }
       const said = (params.input ?? [])
         .filter((part) => part.type === 'text')
         .map((part) => part.text)
@@ -1899,6 +1911,7 @@ rl.on('line', (line) => {
         .trim()
       const background = /^(bg|failbg|endbg)\s+(.+)$/.exec(said)
       if (background) {
+        send(response)
         setImmediate(() => {
           notify('turn/started', {
             threadId: THREAD,
@@ -1918,6 +1931,17 @@ rl.on('line', (line) => {
       // of them, so a person typing `verify …` in the app reaches this too.
       const words = said.replace(/<context source=[^>]*>[\s\S]*?<\/context>/g, '').trim()
       const verify = /^verify\s+(.+)$/.exec(words)
+      /* FAKE_CODEX_TURN_START_ORDER=one-chunk reproduces a real app-server
+         stdout read that carries the turn/start answer, turn/started and both
+         opening-item notifications together. The client's synchronous decode
+         loop therefore sees every notification before an awaiting send() can
+         resume on its promise microtask. */
+      if (mode === 'turn' && !background && !verify && process.env['FAKE_CODEX_TURN_START_ORDER'] === 'one-chunk') {
+        process.stdout.write(`${[response, ...turnOpening()].map((message) => JSON.stringify(message)).join('\n')}\n`)
+        setImmediate(() => playTurn(true))
+        return
+      }
+      send(response)
       if (verify) {
         setImmediate(() => askVerification(verify[1]))
         return

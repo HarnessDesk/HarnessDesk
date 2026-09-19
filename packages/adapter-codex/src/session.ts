@@ -128,6 +128,13 @@ export class CodexSession implements AgentSession {
    * instead. Cleared once the turn ends: only its opening item needs this.
    */
   readonly #silentTurnIds = new Set<string>()
+  /**
+   * A silent `turn/start` whose id is not known yet. Armed before the request
+   * is written, then consumed by `noteTurnStarted`: the app-server can put its
+   * response and opening notifications in one stdout chunk, whose synchronous
+   * dispatch runs before the request promise resumes.
+   */
+  #pendingSilentOrder = false
   /** Tool count Codex was told about at thread/start, for staleness detection. */
   readonly #projectedTools: number
   /**
@@ -429,6 +436,10 @@ export class CodexSession implements AgentSession {
   /** Called by the runtime as turns open and close on this thread. */
   noteTurnStarted(turnId: string): void {
     this.#currentTurnId = turnId
+    if (this.#pendingSilentOrder) {
+      this.#silentTurnIds.add(turnId)
+      this.#pendingSilentOrder = false
+    }
   }
 
   noteTurnEnded(turnId: string): void {
@@ -449,15 +460,21 @@ export class CodexSession implements AgentSession {
     const overrides = this.#pendingOverrides
     this.#pendingOverrides = {}
     const enriched = await this.#withContext(input)
-    const response = await this.deps.server.request('turn/start', {
-      threadId: this.id,
-      input: enriched.map(toCodexInput),
-      ...overrides,
-    })
+    const silent = opts?.recordAs === 'notice'
+    if (silent) this.#pendingSilentOrder = true
+    let response: CodexProtocol.v2.TurnStartResponse
+    try {
+      response = await this.deps.server.request('turn/start', {
+        threadId: this.id,
+        input: enriched.map(toCodexInput),
+        ...overrides,
+      })
+    } catch (error) {
+      if (silent) this.#pendingSilentOrder = false
+      throw error
+    }
     this.#currentTurnId = response.turn.id
-    if (opts?.recordAs === 'notice') {
-      this.#silentTurnIds.add(response.turn.id)
-    } else {
+    if (!silent) {
       // What the person sent, not what the adapter put in front of it: a hand-off to Codex was called "Git" (review of #231).
       // Skipped for a standing order: it is not what opened this conversation for a person, and must not name the row after it.
       this.#noteOpening(input)
