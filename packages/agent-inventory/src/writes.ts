@@ -968,21 +968,20 @@ const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
  * `applyLibrary` catches per op.
  */
 /**
- * A skill bundle relative path must stay strictly inside the bundle:
- * no traversal segments (..), no empty segments, no absolute paths (POSIX or Windows),
- * no drive letters (C:), and no UNC prefixes (\\server\share).
+ * A skill bundle relative path must stay strictly inside the bundle: no
+ * traversal or `.` segments, no empty segments, no NUL, no absolute paths
+ * (POSIX or Windows), no drive letters (C:), and no UNC prefixes
+ * (\\server\share). A bundle may be authored on either platform, so both
+ * `/` and `\` are read as separators — the one difference from
+ * `isSafePathSegment`'s own callers, which is why this splits on both before
+ * handing each piece to that same one rule, rather than folding its own
+ * near-copy of it back in.
  */
 export const isSafeSkillRelativePath = (relative: string): boolean => {
-  if (
-    isAbsolute(relative) ||
-    /^[A-Za-z]:[\\/]/.test(relative) ||
-    relative.startsWith('\\\\') ||
-    relative.startsWith('//') ||
-    relative.split(/[/\\]/).some((part) => part === '..' || part === '')
-  ) {
+  if (isAbsolute(relative) || /^[A-Za-z]:[\\/]/.test(relative) || relative.startsWith('\\\\') || relative.startsWith('//')) {
     return false
   }
-  return true
+  return relative.split(/[/\\]/).every(isSafePathSegment)
 }
 
 const applyOne = async (

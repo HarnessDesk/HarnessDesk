@@ -342,6 +342,9 @@ test('export takes AGENT.md first, then files in code-unit order, and warns when
   await symlink(join(dir, 'outside-brief'), join(agents, 'linked-brief', 'AGENT.md'))
   await mkdir(join(agents, 'binary-brief'))
   await writeFile(join(agents, 'binary-brief', 'AGENT.md'), Buffer.from([0xff]))
+  await mkdir(join(agents, 'oversized-brief'))
+  await writeFile(join(agents, 'oversized-brief', 'AGENT.md'), 'x'.repeat(AGENT_FILE_LIMIT + 1))
+  await mkdir(join(agents, 'absent-brief'))
   const heard = new Heard()
   const { host } = await hostAt(dir, { logger: heard })
   t.after(() => host.dispose())
@@ -359,7 +362,14 @@ test('export takes AGENT.md first, then files in code-unit order, and warns when
     'Z.md',
     'a.md',
   ])
-  assert.equal(heard.said.filter((message) => message === 'an Agent was left out of the backup').length, 2)
+  assert.equal(heard.said.filter((message) => message === 'an Agent was left out of the backup').length, 4)
+  // Each omission carries why, not just that it happened.
+  const details = heard.details as { id?: unknown; error?: unknown }[]
+  const reasonFor = (id: string) => details.find((one) => one.id === id)?.error
+  assert.match(String(reasonFor('linked-brief')), /link/)
+  assert.match(String(reasonFor('binary-brief')), /UTF-8/)
+  assert.match(String(reasonFor('oversized-brief')), /larger than 256 KiB/)
+  assert.match(String(reasonFor('absent-brief')), /no AGENT\.md/)
 })
 
 test('.git is left out at every depth on export and restore', async (t) => {
@@ -392,6 +402,46 @@ test('.git is left out at every depth on export and restore', async (t) => {
           { path: 'AGENT.md', text: 'brief' },
           { path: '.git/config', text: 'top token' },
           { path: 'skills/.git/config', text: 'nested token' },
+          { path: 'skills/safe.md', text: 'safe' },
+        ],
+      },
+    ]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 1, skipped: 0 })
+  assert.deepEqual(await readdir(join(restored, 'agents', 'scout')), ['AGENT.md', 'skills'])
+  assert.deepEqual(await readdir(join(restored, 'agents', 'scout', 'skills')), ['safe.md'])
+})
+
+test('.git is left out at every depth however its case is spelled — a case-insensitive volume reads .GIT as .git', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-git-case-'))
+  const restored = await mkdtemp(join(tmpdir(), 'hd-backup-git-case-restored-'))
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true })
+    await rm(restored, { recursive: true, force: true })
+  })
+  const agent = join(dir, 'agents', 'scout')
+  await mkdir(join(agent, '.GIT'), { recursive: true })
+  await mkdir(join(agent, 'skills', '.GiT'), { recursive: true })
+  await writeFile(join(agent, 'AGENT.md'), 'brief')
+  await writeFile(join(agent, '.GIT', 'config'), 'https://token@example.com/repo')
+  await writeFile(join(agent, 'skills', '.GiT', 'config'), 'nested token')
+  await writeFile(join(agent, 'skills', 'safe.md'), 'safe')
+  const source = await hostAt(dir)
+  t.after(() => source.host.dispose())
+
+  const backup = await source.host.call('backup/export', {})
+  assert.deepEqual(backup.agentFolders?.[0]?.files.map((one) => one.path), ['AGENT.md', 'skills/safe.md'])
+
+  const target = await hostAt(restored)
+  t.after(() => target.host.dispose())
+  const report = await target.host.call('backup/import', {
+    backup: backupWith([
+      {
+        id: 'scout',
+        files: [
+          { path: 'AGENT.md', text: 'brief' },
+          { path: '.GIT/config', text: 'top token' },
+          { path: 'skills/.GiT/config', text: 'nested token' },
           { path: 'skills/safe.md', text: 'safe' },
         ],
       },
@@ -515,6 +565,22 @@ test('export and restore cap an Agent folder at 200 files even when the extras a
   assert.deepEqual(missingBrief.agentFolders, { restored: 0, skipped: 1 })
 })
 
+test('restore never examines past the 200th entry, even when every one of the first 200 is invalid', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-invalid-flood-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const { host } = await hostAt(dir)
+  t.after(() => host.dispose())
+  // None of these 205 can ever be accepted — each climbs above the Agent
+  // folder — so the old "cap accepted files" guard never triggered on them
+  // at all, and a late AGENT.md right behind them was still read.
+  const invalid = Array.from({ length: 205 }, (_, index) => ({ path: `../escape-${index}.md`, text: '' }))
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: 'scout', files: [...invalid, { path: 'AGENT.md', text: 'too late' }] }]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  await assert.rejects(readdir(join(dir, 'agents', 'scout')), { code: 'ENOENT' })
+})
+
 test('restore admits only roster ids and never replaces an existing folder or writes through a link', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-backup-agent-ids-'))
   t.after(async () => rm(dir, { recursive: true, force: true }))
@@ -575,6 +641,26 @@ test('restore logs every refused Agent id with a reason and a quoted, capped id'
   assert.equal(typeof details[1]?.id, 'string')
   assert.ok(String(details[1]?.id).length <= 160, 'the quoted id is capped before it reaches the log')
   assert.match(String(details[1]?.id), /^".*"$/s, 'the capped id remains a JSON-quoted string')
+})
+
+test('a control character in a backup id does not smuggle the logged id past its cap', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-control-char-id-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const heard = new Heard()
+  const { host } = await hostAt(dir, { logger: heard })
+  t.after(() => host.dispose())
+  // Each NUL escapes to six characters (U+0000 spelled out): 140 raw characters —
+  // already at the cap before any escaping — read back as an 842-character
+  // JSON string if the cap is taken before `JSON.stringify` rather than after.
+  const nully = '\0'.repeat(140)
+  const report = await host.call('backup/import', {
+    backup: backupWith([{ id: nully, files: [{ path: 'AGENT.md', text: 'brief' }] }]),
+  })
+  assert.deepEqual(report.agentFolders, { restored: 0, skipped: 1 })
+  const details = heard.details as { id?: unknown }[]
+  const logged = String(details[0]?.id)
+  assert.ok(logged.length <= 140, `capped after escaping, not before: got ${logged.length} characters`)
+  assert.match(logged, /^".*"$/s, 'still looks like a quoted string')
 })
 
 test('an existing Agent collision is a quiet skip', async (t) => {

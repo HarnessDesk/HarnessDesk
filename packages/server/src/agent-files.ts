@@ -319,6 +319,16 @@ const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 /** A linked git checkout's own metadata — never carried, at any depth: its `config` can hold a remote's token. */
 const GIT_DIR = '.git'
 
+/**
+ * A path segment, folded so a case or Unicode alias of one already taken —
+ * or of `.git` itself, on a case-insensitive volume the default on macOS —
+ * reads as the same segment.
+ */
+const foldedSegment = (segment: string): string => segment.normalize('NFC').toLowerCase()
+
+/** Whether a segment is a git checkout's own metadata folder, however its case was spelled. */
+const isGitDir = (name: string): boolean => foldedSegment(name) === GIT_DIR
+
 /** A plain, total order no locale can read differently on a different machine. */
 const byCodeUnit = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -348,6 +358,10 @@ export const exportAgentFolders = async (
   for (const id of await idsIn(root)) {
     const files: { path: string; text: string }[] = []
     let total = 0
+    // Why AGENT.md itself, specifically, never made it into `files` — set at
+    // whichever point decides that, so the one warning below can carry a
+    // cause instead of just a name.
+    let briefProblem: string | null = null
 
     const take = async (source: string, path: string): Promise<void> => {
       let handle
@@ -355,23 +369,34 @@ export const exportAgentFolders = async (
         handle = await open(source, constants.O_RDONLY)
       } catch (error) {
         log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
+        if (path === 'AGENT.md') briefProblem = `it could not be opened — ${messageOf(error)}`
         return
       }
       try {
         const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
-        // Too large, or the folder's own budget is spent: quiet, exactly as
-        // it was before this file was ever looked at — this is not a failure.
-        if (bytes === null || total + bytes.length > BACKUP_FOLDER_LIMIT) return
+        if (bytes === null) {
+          // Too large: quiet for any other file, exactly as it was before
+          // this file was ever looked at — but AGENT.md's own absence still
+          // needs a reason, since nothing else will explain it.
+          if (path === 'AGENT.md') briefProblem = `it is larger than ${AGENT_FILE_LIMIT / 1024} KiB`
+          return
+        }
+        if (total + bytes.length > BACKUP_FOLDER_LIMIT) {
+          if (path === 'AGENT.md') briefProblem = 'the folder budget was already spent'
+          return
+        }
         let text: string
         try {
           text = utf8.decode(bytes)
         } catch {
+          if (path === 'AGENT.md') briefProblem = 'it is not valid UTF-8'
           return // not UTF-8: quiet, the same as an oversized file
         }
         total += bytes.length
         files.push({ path, text })
       } catch (error) {
         log?.('a file or folder was left out of an Agent backup', { id, path, error: messageOf(error) })
+        if (path === 'AGENT.md') briefProblem = `it could not be read — ${messageOf(error)}`
       } finally {
         await handle.close()
       }
@@ -391,7 +416,19 @@ export const exportAgentFolders = async (
         log?.('a file or folder was left out of an Agent backup', { id, path: prefix, error: messageOf(error) })
         return
       }
-      const usable = entries.filter((entry) => entry.name !== GIT_DIR)
+      if (prefix === '' && !entries.some((entry) => entry.name === 'AGENT.md')) {
+        // Nothing named AGENT.md survived `regularEntries`' regular-files-only
+        // rule: either there is truly nothing there, or something is but it
+        // is a link or a folder — never followed or read either way, so the
+        // reason is read straight off `lstat` rather than guessed at.
+        const raw = await lstat(join(dir, 'AGENT.md')).catch(() => null)
+        briefProblem = raw
+          ? raw.isSymbolicLink()
+            ? 'AGENT.md is a link, and a link is never carried'
+            : 'AGENT.md is not a regular file'
+          : 'there is no AGENT.md here'
+      }
+      const usable = entries.filter((entry) => !isGitDir(entry.name))
       const ordered =
         prefix === ''
           ? [
@@ -417,7 +454,7 @@ export const exportAgentFolders = async (
     }
 
     if (!files.some((one) => one.path === 'AGENT.md')) {
-      log?.('an Agent was left out of the backup', { id })
+      log?.('an Agent was left out of the backup', { id, error: briefProblem ?? 'its AGENT.md could not be carried' })
       continue
     }
     copies.push({ id, files })
@@ -434,8 +471,7 @@ export const exportAgentFolders = async (
  * this long already fails on most filesystems (`ENAMETOOLONG`) — dropped
  * here, before the write, one long name no longer costs the whole folder.
  */
-const isSegment = (name: string): boolean =>
-  isSafePathSegment(name) && name !== GIT_DIR && Buffer.byteLength(name, 'utf8') <= 255
+const isSegment = (name: string): boolean => isSafePathSegment(name) && !isGitDir(name) && Buffer.byteLength(name, 'utf8') <= 255
 
 /**
  * Whether a whole relative path is safe to write under a temporary Agent
@@ -445,9 +481,6 @@ const isSegment = (name: string): boolean =>
  * not a second guard.
  */
 const isBackupPath = (path: string): boolean => !/^[A-Za-z]:\//.test(path) && path.split('/').every(isSegment)
-
-/** A path segment, folded so a case or Unicode alias of one already taken reads as the same segment. */
-const foldedSegment = (segment: string): string => segment.normalize('NFC').toLowerCase()
 
 /** A whole relative path, folded segment by segment — the separator itself never changes case or normal form. */
 const foldedPath = (path: string): string => path.split('/').map(foldedSegment).join('/')
@@ -480,11 +513,11 @@ export const importAgentFolder = async (root: string, copy: unknown): Promise<Ag
   const filePaths = new Set<string>()
   const folderPaths = new Set<string>()
   let total = 0
-  for (const one of record.files) {
-    // Past the cap, nothing more is even looked at — the guard against a
-    // backup naming tens of thousands of empty files is not spending less
-    // per file, it is never opening them.
-    if (files.length >= MAX_BUNDLE_FILES) break
+  // Sliced before anything about an entry is even looked at: the cap bounds
+  // what is *examined*, not what is *accepted* — a backup naming thousands
+  // of entries that fail validation must cost no more than this one slice,
+  // not an unbounded walk that only gives up once 200 have been accepted.
+  for (const one of record.files.slice(0, MAX_BUNDLE_FILES)) {
     const file = (one ?? {}) as { path?: unknown; text?: unknown }
     if (typeof file.path !== 'string' || typeof file.text !== 'string' || !isBackupPath(file.path)) continue
     const bytes = Buffer.byteLength(file.text, 'utf8')

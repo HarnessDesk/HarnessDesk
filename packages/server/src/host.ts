@@ -3748,14 +3748,24 @@ const describeError = (error: unknown): string =>
 const backupCopyId = (copy: unknown): unknown =>
   typeof copy === 'object' && copy !== null && 'id' in copy ? (copy as { id: unknown }).id : null
 
+/** The most a logged id is ever allowed to cost, quotes and all. */
+const LOGGED_ID_LIMIT = 140
+
 /**
  * A backup's own id, safe to put in a log: quoted like any other logged
  * value, and capped — nothing here says a stranger's string is short,
- * printable, or even a string at all.
+ * printable, or even a string at all. Capped *after* `JSON.stringify`, not
+ * before: a control character or anything else JSON expands to several
+ * characters (a NUL becomes six characters, U+0000 spelled out) would otherwise
+ * smuggle a short raw string into a long escaped one, past the very cap this
+ * exists to hold it under.
  */
 const loggedId = (id: unknown): string => {
   const text = typeof id === 'string' ? id : String(id)
-  return JSON.stringify(text.length > 140 ? `${text.slice(0, 140)}…` : text)
+  const quoted = JSON.stringify(text)
+  if (quoted.length <= LOGGED_ID_LIMIT) return quoted
+  // The opening quote survives in the slice; the closing one is put back by hand.
+  return `${quoted.slice(0, LOGGED_ID_LIMIT - 2)}…"`
 }
 
 /**
