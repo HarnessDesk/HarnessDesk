@@ -128,13 +128,22 @@ test('canonical controls retain selected, drop, icon and deferred-send states', 
   await page.goto('/design.html?view=propagation')
   const states = page.getByTestId('state-contracts')
   await expect(states).toBeVisible()
-  await states.evaluate(node => node.style.setProperty('--hd-nav-weight-selected', '600'))
-  await expect.soft(states.getByRole('button', { name: 'Selected page' })).toHaveCSS('font-weight', '600')
+  const selectedPage = states.getByRole('button', { name: 'Selected page' })
+  const restingRow = states.getByRole('button', { name: 'Current branch' })
+  const selectedStyle = await selectedPage.evaluate(node => {
+    const style = getComputedStyle(node)
+    return { fill: style.backgroundColor, weight: style.fontWeight }
+  })
+  const restingStyle = await restingRow.evaluate(node => {
+    const style = getComputedStyle(node)
+    return { fill: style.backgroundColor, weight: style.fontWeight }
+  })
+  expect.soft(selectedStyle.fill).not.toBe(restingStyle.fill)
+  expect.soft(selectedStyle.weight).toBe(restingStyle.weight)
   await expect.soft(states.getByRole('button', { name: 'Drop target' })).not.toHaveCSS('box-shadow', 'none')
   expect.soft(await states.getByRole('textbox', { name: 'Icon input' }).evaluate(node => parseFloat(getComputedStyle(node).paddingLeft))).toBeGreaterThanOrEqual(24)
   await expect(states.getByRole('button', { name: 'Avatar mark' }).locator('svg')).toHaveCSS('width', '32px')
   await expect.soft(states.getByRole('button', { name: 'Avatar mark' })).toHaveCSS('box-shadow', 'none')
-  await expect(states.getByRole('button', { name: 'Current branch' })).toHaveCSS('font-weight', '600')
   await expect.soft(states.getByRole('button', { name: 'Background tasks' })).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   await expect.soft(states.getByRole('button', { name: 'Transcript step' })).toHaveCSS('padding-left', '2px')
   await expect.soft(states.getByRole('button', { name: 'Transcript step' })).toHaveCSS('padding-right', '6px')

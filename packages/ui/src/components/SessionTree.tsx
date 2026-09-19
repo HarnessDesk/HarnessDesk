@@ -629,6 +629,7 @@ const RoomRow = ({
     <div>
       <Button
         render={<div role="button" />}
+        nativeButton={false}
         variant="navigation"
         size="navigation"
         className={styles.roomRow}
