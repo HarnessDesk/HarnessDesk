@@ -11,6 +11,7 @@ import {
   type Approval,
   runtimeId,
   type Session,
+  type SessionOptions,
   wrapContext,
 } from '@harnessdesk/protocol'
 import { ExtensionKernel } from '@harnessdesk/cordis-host'
@@ -931,6 +932,86 @@ test('a selected profile reaches thread/start and the context window is read bac
     (event): event is Extract<AgentEvent, { type: 'usage/updated' }> => event.type === 'usage/updated',
   )?.usage
   assert.equal(usage?.contextWindow, 872_000, 'the number is the fake app-server usage report')
+})
+
+test('a profile outside the bounded discovery set cannot be started by a retained selection', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  for (let index = 64; index >= 0; index -= 1) {
+    writeFileSync(join(codexHome, `p${String(index).padStart(2, '0')}.config.toml`), 'model = "gpt-profile"\n')
+  }
+  const runtime = makeRuntime({}, { codexHome })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  const selected = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'p64' })
+  const option = selected.find((entry) => entry.id === CODEX_PROFILE_OPTION_ID)
+  assert.match(
+    option?.type === 'select' ? (option.choices.find((choice) => choice.value === 'p64')?.disabled ?? '') : '',
+    /not available/,
+  )
+  await assert.rejects(
+    () => runtime.createSession({ cwd: '/w', options: { [CODEX_PROFILE_OPTION_ID]: 'p64' } }),
+    /not an available profile/,
+  )
+})
+
+test('start model precedence is route, ordinary option, legacy option, then profile', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
+  writeFileSync(join(codexHome, 'sol.config.toml'), 'model = "profile-model"\n')
+  const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const tape = recorder(runtime)
+  const profile = { [CODEX_PROFILE_OPTION_ID]: 'sol' }
+  const cases: readonly { readonly options: SessionOptions; readonly model: string }[] = [
+    { options: { cwd: '/w', options: profile }, model: 'profile-model' },
+    { options: { cwd: '/w', model: 'legacy-model', options: profile }, model: 'legacy-model' },
+    {
+      options: { cwd: '/w', model: 'legacy-model', options: { ...profile, model: 'ordinary-model' } },
+      model: 'ordinary-model',
+    },
+    {
+      options: {
+        cwd: '/w',
+        model: 'legacy-model',
+        options: { ...profile, model: 'ordinary-model' },
+        route: {
+          id: 'route-1',
+          name: 'Gateway',
+          endpoint: 'http://127.0.0.1:9/t/example',
+          wireProtocol: 'responses',
+          token: 'example',
+          model: 'route-model',
+        },
+      },
+      model: 'route-model',
+    },
+  ]
+
+  const starts: Record<string, unknown>[] = []
+  for (const entry of cases) {
+    const before = noticeMessages(tape.events).filter((message) => message.startsWith('STARTED ')).length
+    const session = await runtime.createSession(entry.options)
+    await tape.until(
+      (events) => noticeMessages(events).filter((message) => message.startsWith('STARTED ')).length > before,
+    )
+    starts.push(
+      JSON.parse(
+        noticeMessages(tape.events).filter((message) => message.startsWith('STARTED ')).at(-1)!.slice('STARTED '.length),
+      ) as Record<string, unknown>,
+    )
+    await session.close()
+  }
+  assert.deepEqual(starts.map((start) => start['model']), cases.map((entry) => entry.model))
+  assert.equal(starts.at(-1)?.['modelProvider'], 'harnessdesk_route')
 })
 
 test('the install command names the package manager that put this Codex here', async () => {

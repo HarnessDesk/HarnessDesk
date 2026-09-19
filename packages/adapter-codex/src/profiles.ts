@@ -96,13 +96,19 @@ export const listCodexProfiles = async (home: string | null): Promise<readonly C
       if (!entry.name.endsWith(PROFILE_SUFFIX)) continue
       const id = entry.name.slice(0, -PROFILE_SUFFIX.length)
       if (!PROFILE_NAME.test(id)) continue
-      names.push(id)
-      if (names.length === MAX_PROFILE_FILES) break
+      // Directory iteration order is filesystem-specific. Keep only the
+      // lexicographically first 64 names while bounding retained memory.
+      if (names.length < MAX_PROFILE_FILES) {
+        names.push(id)
+        names.sort(compareNames)
+      } else if (id < names[names.length - 1]!) {
+        names[names.length - 1] = id
+        names.sort(compareNames)
+      }
     }
   } finally {
     await directory.close().catch(() => {})
   }
-  names.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   return Promise.all(
     names.map(async (id): Promise<CodexProfileEntry> => {
       try {
@@ -133,11 +139,12 @@ export const profileOption = (
     })),
   ]
   if (selected && !entries.some((entry) => entry.id === selected)) {
+    const refusal = `${selected}${PROFILE_SUFFIX} is not available.`
     choices.push({
       value: selected,
       label: selected,
-      description: `${selected}${PROFILE_SUFFIX} no longer exists.`,
-      disabled: `${selected}${PROFILE_SUFFIX} no longer exists.`,
+      description: refusal,
+      disabled: refusal,
     })
   }
   return {
@@ -154,21 +161,25 @@ export const profileOption = (
 const parseProfile = (id: string, filename: string, text: string): CodexProfile => {
   const found = new Map<string, string>()
   let root = true
+  let multiline: MultilineQuote = null
   for (const raw of text.split(/\r?\n/)) {
-    const line = withoutComment(raw).trim()
+    const scanned = rootLine(raw, multiline)
+    multiline = scanned.multiline
+    const line = scanned.text.trim()
     if (!line) continue
     if (line.startsWith('[')) {
       root = false
       continue
     }
     if (!root) continue
-    const assignment = /^([A-Za-z0-9_-]+)\s*=\s*(.*)$/.exec(line)
+    const assignment = /^(?:([A-Za-z0-9_-]+)|"([A-Za-z0-9_-]+)"|'([A-Za-z0-9_-]+)')\s*=\s*(.*)$/.exec(line)
     if (!assignment) continue
-    const key = assignment[1]!
+    const key = assignment[1] ?? assignment[2] ?? assignment[3]!
     if (!['model', 'model_context_window', 'model_auto_compact_token_limit'].includes(key)) continue
     if (found.has(key)) throw new Error(`${filename} sets ${key} more than once.`)
-    found.set(key, assignment[2]!.trim())
+    found.set(key, assignment[4]!.trim())
   }
+  if (multiline) throw new Error(`${filename} has an unterminated multiline string.`)
   if (found.size === 0) {
     throw new Error(`${filename} has no supported model or context settings.`)
   }
@@ -216,8 +227,19 @@ const parseTokens = (filename: string, key: string, raw: string): number => {
   return value
 }
 
-/** Removes a TOML comment without treating a hash inside a quoted value as one. */
-const withoutComment = (line: string): string => {
+const compareNames = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+type MultilineQuote = '"""' | "'''" | null
+
+/**
+ * Returns only the part of a physical TOML line that can contain a root key.
+ * Multiline string bodies are deliberately inert, including table-looking
+ * text: this small parser recognizes only the three scalar settings above.
+ */
+const rootLine = (line: string, multiline: MultilineQuote): { text: string; multiline: MultilineQuote } => {
+  if (multiline) {
+    return { text: '', multiline: multilineEnd(line, 0, multiline) < 0 ? multiline : null }
+  }
   let quote: '"' | "'" | null = null
   let escaped = false
   for (let index = 0; index < line.length; index += 1) {
@@ -230,11 +252,29 @@ const withoutComment = (line: string): string => {
       escaped = true
       continue
     }
+    if (quote === null && (line.startsWith('"""', index) || line.startsWith("'''", index))) {
+      const delimiter = line.slice(index, index + 3) as Exclude<MultilineQuote, null>
+      return {
+        text: line.slice(0, index),
+        multiline: multilineEnd(line, index + 3, delimiter) < 0 ? delimiter : null,
+      }
+    }
     if (char === '"' || char === "'") {
       quote = quote === char ? null : quote ?? char
       continue
     }
-    if (char === '#' && quote === null) return line.slice(0, index)
+    if (char === '#' && quote === null) return { text: line.slice(0, index), multiline: null }
   }
-  return line
+  return { text: line, multiline: null }
+}
+
+const multilineEnd = (line: string, from: number, delimiter: Exclude<MultilineQuote, null>): number => {
+  let index = line.indexOf(delimiter, from)
+  while (index >= 0 && delimiter === '"""') {
+    let slashes = 0
+    for (let cursor = index - 1; cursor >= 0 && line[cursor] === '\\'; cursor -= 1) slashes += 1
+    if (slashes % 2 === 0) break
+    index = line.indexOf(delimiter, index + delimiter.length)
+  }
+  return index
 }

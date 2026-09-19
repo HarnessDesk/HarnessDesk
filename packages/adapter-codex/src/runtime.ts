@@ -57,7 +57,6 @@ import {
   CODEX_PROFILE_OPTION_ID,
   listCodexProfiles,
   profileOption,
-  readCodexProfile,
   type CodexProfile,
 } from './profiles.js'
 import { CodexTasks } from './tasks.js'
@@ -1033,7 +1032,14 @@ export class CodexRuntime implements AgentRuntime {
   /** Resolves the one start-only option into bounded thread config overrides. */
   async #startParamsFor(options: Partial<SessionOptions>): Promise<ReturnType<typeof startParamsFor>> {
     const selected = profileSelection(options.options)
-    const profile = selected ? await readCodexProfile(this.#codexHome, selected) : null
+    let profile: CodexProfile | null = null
+    if (selected) {
+      const entry = (await listCodexProfiles(this.#codexHome)).find((candidate) => candidate.id === selected)
+      if (!entry?.profile) {
+        throw new Error(entry?.error ?? `${selected}.config.toml is not an available profile.`)
+      }
+      profile = entry.profile
+    }
     return startParamsFor(
       { ...options, ...(options.options ? { options: withoutProfile(options.options) } : {}) },
       profile,
