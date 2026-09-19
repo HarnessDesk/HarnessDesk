@@ -5,6 +5,7 @@ import type {
   RateLimits,
   RuntimeId,
   SpendSummary,
+  UnverifiedUsage,
   UsageLane,
   UsageReport,
 } from '@harnessdesk/protocol'
@@ -192,6 +193,9 @@ export class UsageService {
     let fetchedAt = this.#now()
     let staleAfterMs = DEFAULT_STALE_AFTER_MS
     let error: UsageReport['error'] = null
+    let unverified: UnverifiedUsage | null = null
+    // Another sign-in's source failing, kept apart from the agent's own error.
+    let unverifiedFailure: string | null = null
 
     // The runtime first: it is the only source that can be live.
     if (runtime.info.capabilities.metered) {
@@ -216,32 +220,70 @@ export class UsageService {
     let answered = false
     const take = async (candidate: UsageMeter | null): Promise<void> => {
       if (!candidate || lanes.length > 0) return
-      const reading = await this.#readMeter(id, candidate)
+      const read = await this.#readMeter(id, candidate)
+      // A meter that fails keeps the reading it had, below — but only one it
+      // had. With nothing before it, a failure is still silence rather than a
+      // card of its own, as it always was. The failure belongs to whoever the
+      // figures belong to: the agent's own, or the other sign-in's.
+      if ('failure' in read) {
+        if (previous && previous.lanes.length > 0) error = { message: read.failure }
+        else if (previous?.unverified) unverifiedFailure = read.failure
+        return
+      }
+      const reading = read.reading
       if (!reading) return
       answered = true
+      source = candidate.source
+      fetchedAt = reading.fetchedAt
+      staleAfterMs = reading.staleAfterMs
+      error = null
+      // Figures the source cannot tie to the account the agent runs as are
+      // filed beside the report, never in `lanes`, so nothing that decides
+      // whether the agent can run reads them — and the agent's own account
+      // label stays its own rather than being lent to another sign-in's quota.
+      if (reading.unverified !== undefined) {
+        unverified = {
+          whose: reading.unverified,
+          lanes: reading.lanes,
+          reached: reading.reached,
+          fetchedAt: reading.fetchedAt,
+          staleAfterMs: reading.staleAfterMs,
+        }
+        return
+      }
       lanes = reading.lanes
       plan = reading.plan
       account = reading.account
       credits = reading.credits
       reached = reading.reached
-      source = candidate.source
-      fetchedAt = reading.fetchedAt
-      staleAfterMs = reading.staleAfterMs
-      error = null
     }
 
     await take(meter)
 
+    // Another sign-in's source failing keeps its last figures with the failure
+    // on them, and leaves the agent's own standing — and its error — alone.
+    if (unverifiedFailure !== null && previous?.unverified && lanes.length === 0) {
+      const kept: UsageReport = {
+        ...previous,
+        spend,
+        error,
+        unverified: { ...previous.unverified, error: { message: unverifiedFailure } },
+      }
+      this.#cache.set(id, kept)
+      if (!this.#disposed) this.#options.onReport(kept)
+      return kept
+    }
+
     // One provider being down does not blank a card. The last good reading
     // stands with its own age, and the failure is shown beside it.
-    if (lanes.length === 0 && error && previous && previous.lanes.length > 0) {
+    if (lanes.length === 0 && !unverified && error && previous && (previous.lanes.length > 0 || previous.unverified)) {
       const kept: UsageReport = { ...previous, spend, error }
       this.#cache.set(id, kept)
       if (!this.#disposed) this.#options.onReport(kept)
       return kept
     }
 
-    if (lanes.length === 0 && !credits && !spend && !error) {
+    if (lanes.length === 0 && !credits && !spend && !error && !unverified) {
       // Nothing to say about this agent. A card with no content is worse than
       // no card, and the screen names the roster from the runtimes anyway. A
       // balance counts as something: pay-as-you-go has no window to run out
@@ -268,23 +310,27 @@ export class UsageService {
       fetchedAt,
       staleAfterMs,
       error,
+      ...(unverified ? { unverified } : {}),
     }
     this.#cache.set(id, report)
     if (!this.#disposed) this.#options.onReport(report)
     return report
   }
 
-  /** A meter that throws is logged and treated as silence, never as a card. */
-  async #readMeter(id: RuntimeId, meter: UsageMeter): Promise<MeterReading | null> {
+  /**
+   * A meter that throws is logged, and its failure handed back so a reading
+   * the card already has can stand beside it. It is never a card of its own.
+   */
+  async #readMeter(
+    id: RuntimeId,
+    meter: UsageMeter,
+  ): Promise<{ readonly reading: MeterReading | null } | { readonly failure: string }> {
     try {
-      return await meter.read()
+      return { reading: await meter.read() }
     } catch (cause) {
-      this.#options.log?.('a usage meter failed', {
-        runtime: id,
-        meter: meter.id,
-        error: cause instanceof Error ? cause.message : String(cause),
-      })
-      return null
+      const failure = cause instanceof Error ? cause.message : String(cause)
+      this.#options.log?.('a usage meter failed', { runtime: id, meter: meter.id, error: failure })
+      return { failure }
     }
   }
 

@@ -7,9 +7,11 @@ import type { AgentEvent } from '@harnessdesk/protocol'
 import { CodexRuntime } from '../src/index.js'
 
 /**
- * The per-conversation verbs — rollback, compact, memory, review — each map to
- * a Codex request. The point worth a test is that they reach the right method
- * with the right shape; the fake echoes the call so it is observable.
+ * The per-conversation verbs — compact, memory, review — each map to a Codex
+ * request. The point worth a test is that they reach the right method with the
+ * right shape; the fake echoes the call so it is observable. Rollback is
+ * `history.test.ts`'s, since its verb depends on how the thread keeps its
+ * history.
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -43,12 +45,6 @@ test('every session verb the runtime declares is implemented', async (t) => {
   assert.ok(capabilities.review && typeof session.review === 'function')
 })
 
-test('rollback sends the turn count', async (t) => {
-  const { session, events, until } = await start(t)
-  await session.rollback!(2)
-  await until(() => notices(events).includes('ROLLBACK 2'))
-})
-
 test('memory mode maps on and off to Codex enabled/disabled', async (t) => {
   const { session, events, until } = await start(t)
   await session.setMemoryMode!(true)
@@ -63,10 +59,11 @@ test('compaction reaches Codex and surfaces its own marker', async (t) => {
   await until(() => notices(events).some((message) => /compacted/i.test(message)))
 })
 
-test('review passes the target kind and delivery through', async (t) => {
+test('review passes the target kind through, and asks Codex only for inline reviews', async (t) => {
   const { session, events, until } = await start(t)
   await session.review!({ type: 'uncommitted', delivery: 'detached' })
-  await until(() => notices(events).includes('REVIEW uncommittedChanges detached'))
+  await until(() => notices(events).includes('REVIEW uncommittedChanges inline'))
   await session.review!({ type: 'commit', sha: 'abc' })
-  await until(() => notices(events).includes('REVIEW commit default'))
+  await until(() => notices(events).includes('REVIEW commit inline'))
+  assert.ok(!notices(events).some((message) => message.includes('detached')))
 })

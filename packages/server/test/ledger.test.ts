@@ -403,7 +403,15 @@ test('a chunk boundary that lands between the CR and the LF is still one line br
   assert.equal(chunks[1]?.at(0), 0x0a, 'and the LF opens the second')
 
   const result = await scanClaudeTranscript(target, 0, [])
-  assert.equal(result.rows[0]?.requests, 2, 'both records survive the split terminator')
+  /* Counted across rows: the padded cwd and the plain one are two folders,
+     and so two projects. This read `rows[0]` once, and passed only because
+     the project memo filed every folder with no repository under the first
+     one it saw, which merged the two into a single row. */
+  assert.equal(
+    result.rows.reduce((sum, row) => sum + row.requests, 0),
+    2,
+    'both records survive the split terminator',
+  )
   assert.equal(result.offset, statSync(path).size)
 })
 

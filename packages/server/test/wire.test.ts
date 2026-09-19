@@ -15,10 +15,13 @@ import {
   sessionId,
   turnId,
   type AgentEvent,
+  type FlowRun,
   type HostMethodName,
   type HostParams,
   type HostToClient,
   type Session,
+  type SessionSummary,
+  type TeamState,
 } from '@harnessdesk/protocol'
 import WebSocket from 'ws'
 
@@ -159,6 +162,30 @@ test('a full turn streams to the client and folds into session state', async (t)
   // The person's words, echoed.
   assert.equal(items[1]?.type === 'assistantMessage' ? items[1].text : '', 'echo: hello')
   assert.equal(record!.session.turns[0]?.status, 'completed')
+})
+
+test('a review on a side thread answers with its conversation, which the host already holds', async (t) => {
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  const session = (await client.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: '/w' } })) as Session
+  const review = (delivery?: 'detached') =>
+    client.call('session/review', {
+      runtime: FAKE_RUNTIME_ID,
+      sessionId: session.id,
+      target: { type: 'uncommitted', ...(delivery ? { delivery } : {}) },
+    }) as Promise<Session | null>
+
+  assert.equal(await review(), null, 'a review that runs here answers with no other conversation')
+  const side = await review('detached')
+  assert.ok(side && side.id !== session.id, 'a review on a side thread answers with the conversation it runs in')
+  assert.equal(side.cwd, '/w')
+
+  // Held from the first word: the window that opens it sends straight to it.
+  const resumes = harness.runtime.resumes
+  await client.call('turn/send', { runtime: FAKE_RUNTIME_ID, sessionId: side.id, input: [{ type: 'text', text: 'and?' }] })
+  assert.equal(harness.runtime.resumes, resumes, 'nothing was reopened to send to it')
 })
 
 /**
@@ -1573,6 +1600,797 @@ test('git RPCs refuse a relative root, even one that leads into an open reposito
       })
     })
   }
+})
+
+/**
+ * What each worktree verb is handed in the test below, spelled relative: the
+ * open repository for the two that take a folder of it, and a worktree
+ * HarnessDesk made of it for the three that take a worktree.
+ *
+ * Keyed by every `worktree/*` verb on the wire, so a verb added without a line
+ * here fails the build rather than going untested. Against a host that admits
+ * the path, every ask that would change something is turned down after the
+ * fact — a base that names no commit, a worktree holding a file nobody
+ * committed — so the repository and its worktree end as they began.
+ */
+const RELATIVE_WORKTREE_ASKS: {
+  readonly [M in Extract<HostMethodName, `worktree/${string}`>]: {
+    readonly names: 'repository' | 'worktree'
+    readonly ask: (spelled: string) => HostParams<M>
+  }
+} = {
+  'worktree/list': { names: 'repository', ask: (root) => ({ root }) },
+  'worktree/create': { names: 'repository', ask: (root) => ({ root, name: 'made-relative', base: 'not-a-commit' }) },
+  'worktree/changes': { names: 'worktree', ask: (path) => ({ path }) },
+  'worktree/remove': { names: 'worktree', ask: (path) => ({ path }) },
+  'worktree/bringHome': { names: 'worktree', ask: (path) => ({ path }) },
+}
+
+test('worktree RPCs refuse a relative path, even one that leads into an open repository', async (t) => {
+  // `git -C` reads a relative path against the host's working directory, as
+  // `resolve` and `realpath` do, and the worktree verbs handed theirs to git
+  // before anything confined it. So each path below is the relative spelling
+  // that would be let in: from this process's working directory, which is the
+  // host's, to a repository opened here or to a worktree HarnessDesk made of
+  // it. Anything but the refusal — an answer, or a refusal made after the path
+  // was let in — is that spelling admitted.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const repo = await mkdtemp(join(tmpdir(), 'hd-worktree-relative-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await writeFile(join(repo, 'a.txt'), 'one\n')
+  await gitIn(repo, 'add', '.')
+  await gitIn(repo, 'commit', '-qm', 'root commit')
+  await client.call('workspace/open', { path: repo })
+  const side = ((await client.call('worktree/create', { root: repo, name: 'side' })) as { path: string }).path
+  // A file nobody committed, so that removing the worktree or bringing it home
+  // is refused for the dirty tree once the path is let in, and nothing moves.
+  await writeFile(join(side, 'draft.txt'), 'not yet\n')
+
+  const spelled = { repository: relative(process.cwd(), repo), worktree: relative(process.cwd(), side) }
+  // The controls: both spellings are relative, each leads from the host's
+  // working directory where it should, and spelled absolutely the repository
+  // and the worktree are both answered — so a refusal below can only be about
+  // the spelling.
+  assert.equal(isAbsolute(spelled.repository), false)
+  assert.equal(isAbsolute(spelled.worktree), false)
+  assert.equal(await realpath(spelled.repository), await realpath(repo))
+  assert.equal(await realpath(spelled.worktree), await realpath(side))
+  assert.equal(((await client.call('worktree/list', { root: repo })) as readonly unknown[]).length, 2)
+  assert.equal(((await client.call('worktree/changes', { path: side })) as { untracked: number }).untracked, 1)
+
+  for (const [verb, { names, ask }] of Object.entries(RELATIVE_WORKTREE_ASKS)) {
+    await t.test(verb, async () => {
+      await assert.rejects(() => client.call(verb as HostMethodName, ask(spelled[names])), {
+        message: `${spelled[names]} is not an absolute path.`,
+      })
+    })
+  }
+})
+
+/** The keys a params type names, and none for an open record such as `Record<string, never>`. */
+type NamedKeys<P> = string extends keyof P ? never : keyof P
+
+/** What a params type's `options` hold, when it has them. */
+type OptionsOf<P> = P extends { readonly options?: infer O } ? NonNullable<O> : never
+
+/** Every method whose `options` name the folder a conversation works in. */
+type ConversationFolderMethod = {
+  [M in HostMethodName]: 'options' extends NamedKeys<HostParams<M>>
+    ? 'cwd' extends NamedKeys<OptionsOf<HostParams<M>>>
+      ? M
+      : never
+    : never
+}[HostMethodName]
+
+/**
+ * What each verb that names a conversation's folder is asked in the test
+ * below: to start one there, or to reopen or fork `held` into it.
+ *
+ * Keyed by every method whose `options` carry a cwd, so a verb added with one
+ * and without a line here fails the build rather than going untested.
+ */
+const RELATIVE_CONVERSATION_ASKS: {
+  readonly [M in ConversationFolderMethod]: (held: Session['id'], cwd: string) => HostParams<M>
+} = {
+  'session/create': (_held, cwd) => ({ runtime: FAKE_RUNTIME_ID, options: { cwd } }),
+  'session/resume': (held, cwd) => ({ runtime: FAKE_RUNTIME_ID, sessionId: held, options: { cwd } }),
+  'session/fork': (held, cwd) => ({ runtime: FAKE_RUNTIME_ID, sessionId: held, options: { cwd } }),
+}
+
+test('a conversation is not started, reopened or forked in a relative folder, even one that leads into a repository', async (t) => {
+  // `session/create` handed its cwd to the runtime as it was spelled, and the
+  // adapters pass it on as given. A conversation's cwd is then an open root,
+  // which every confinement check trusts and reads against the host's working
+  // directory: a repository nobody opened answered `git/status` and
+  // `worktree/list` once a conversation had been started in its relative
+  // spelling. The folder below is that spelling, from this process's working
+  // directory, which is the host's, into a repository nobody opened. The empty
+  // string is refused beside it: Codex reads it as its own working directory,
+  // which is the host's, and that is `/` when the app is started from Finder.
+  // Anything but the refusal is the spelling handed on.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const repo = await mkdtemp(join(tmpdir(), 'hd-session-relative-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  // A conversation to reopen and to fork, working in a folder of its own.
+  const held = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: harness.stateDir },
+  })) as Session
+  const resumes = harness.runtime.resumes
+
+  const spelled = relative(process.cwd(), repo)
+  // The controls: the spelling is relative, it leads from the host's working
+  // directory into the repository, and nothing has opened that repository.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(repo))
+  await assert.rejects(() => client.call('git/status', { root: repo }), /outside every open workspace/)
+
+  for (const [verb, ask] of Object.entries(RELATIVE_CONVERSATION_ASKS)) {
+    await t.test(verb, async () => {
+      for (const cwd of [spelled, '']) {
+        await assert.rejects(() => client.call(verb as HostMethodName, ask(held.id, cwd)), {
+          message: `${cwd} is not an absolute path.`,
+        })
+      }
+    })
+  }
+
+  // The runtime was handed none of them, and nothing was opened: the
+  // repository is still refused. Spelled absolutely, the same folder starts a
+  // conversation and is open from then on, so what was refused was the
+  // spelling.
+  assert.equal(harness.runtime.lastCreateOptions?.cwd, harness.stateDir)
+  assert.equal(harness.runtime.resumes, resumes)
+  await assert.rejects(() => client.call('git/status', { root: repo }), /outside every open workspace/)
+  const started = (await client.call('session/create', {
+    runtime: FAKE_RUNTIME_ID,
+    options: { cwd: repo },
+  })) as Session
+  assert.equal(started.cwd, repo)
+  assert.equal(((await client.call('git/status', { root: repo })) as { branch?: string | null }).branch, 'main')
+})
+
+test('a folder is an open root only when it is absolute, whoever reports it', async (t) => {
+  // The wire refuses a relative folder before it can become an open root, but
+  // not every root arrives as a request. A conversation's cwd is whatever its
+  // agent reports, and one read or reopened from the agent's store carries the
+  // folder the agent wrote down; the workspaces come back from the state file.
+  // Every check that holds a path to the open roots reads a relative one
+  // against the host's working directory, so each spelling below is the one
+  // that would open the repository: from this process's working directory,
+  // which is the host's, into a repository nobody opened.
+  const repo = await mkdtemp(join(tmpdir(), 'hd-root-relative-'))
+  t.after(() => rm(repo, { recursive: true, force: true }))
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  const spelled = relative(process.cwd(), repo)
+  // The controls: the spelling is relative, and it leads from the host's
+  // working directory into the repository.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(repo))
+  const branchOf = async (client: Client): Promise<string | null | undefined> =>
+    ((await client.call('git/status', { root: repo })) as { branch?: string | null }).branch
+
+  await t.test('a conversation its agent keeps in a relative folder', async (t) => {
+    const harness = await start()
+    t.after(() => stop(harness))
+    const client = await Client.connect(harness.server)
+    t.after(() => client.close())
+    const kept = (id: string, cwd: string): SessionSummary => ({
+      id: sessionId(id),
+      runtime: FAKE_RUNTIME_ID,
+      title: id,
+      preview: null,
+      cwd,
+      status: { type: 'idle' },
+      createdAt: 1,
+      updatedAt: 2,
+    })
+    harness.runtime.history.push(kept('kept-relative', spelled), kept('kept-absolute', repo))
+
+    // Read, it is held with the folder its agent reported, and that opens nothing.
+    const read = (await client.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: 'kept-relative' })) as Session
+    assert.equal(read.cwd, spelled)
+    await assert.rejects(() => branchOf(client), /outside every open workspace/)
+    // Reported absolutely, the same folder is open.
+    await client.call('session/read', { runtime: FAKE_RUNTIME_ID, sessionId: 'kept-absolute' })
+    assert.equal(await branchOf(client), 'main')
+  })
+
+  await t.test('a workspace the state file remembers by a relative path', async (t) => {
+    const at = await mkdtemp(join(tmpdir(), 'harnessdesk-test-'))
+    await writeFile(join(at, 'state.json'), JSON.stringify({ workspaces: [{ path: spelled }] }))
+    const harness = await start({}, at)
+    t.after(() => stop(harness))
+    const client = await Client.connect(harness.server)
+    t.after(() => client.close())
+
+    await assert.rejects(() => branchOf(client), /outside every open workspace/)
+    // Opened absolutely, the same folder is open.
+    await client.call('workspace/open', { path: repo })
+    assert.equal(await branchOf(client), 'main')
+  })
+})
+
+/** Every method that names the folder it is about as its `cwd`. */
+type FolderMethod = {
+  [M in HostMethodName]: 'cwd' extends NamedKeys<HostParams<M>> ? M : never
+}[HostMethodName]
+
+/**
+ * What each method that takes a cwd is asked in the test below, beside that
+ * folder.
+ *
+ * Keyed by every method whose params carry one, so a method added with a cwd
+ * and without a line here fails the build rather than going untested.
+ */
+const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => HostParams<M> } = {
+  'session/list': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/sessionDefaults': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/skills': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/hooks': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/catalog': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/mcp/list': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'runtime/imports/detect': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
+  'library/read': (cwd) => ({ cwd }),
+  'library/definition': (cwd) => ({ kind: 'skill', name: 'hd-probe', path: '/nowhere/hd-probe', cwd }),
+  'library/plan': (cwd) => ({ cwd, intents: [] }),
+  'library/apply': (cwd) => ({ cwd, ops: [] }),
+  'terminal/open': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd, size: { rows: 24, cols: 80 } }),
+  'agent/seat': (cwd) => ({ id: 'hd-probe', cwd }),
+}
+
+/**
+ * The empty folder, where a method's wire shape asks for a filled one: refused
+ * before its handler runs, in the shape's own words, and handed to nothing.
+ */
+const EMPTY_CWD_SHAPE_REFUSALS: { readonly [M in FolderMethod]?: string } = {
+  'agent/seat': 'message.params.cwd: expected a non-empty string',
+}
+
+test('a cwd is refused when it is relative, whichever method it is handed to', async (t) => {
+  // Each of these hands its cwd to something that reads a relative one
+  // against the host's working directory. The library resolves it there
+  // itself, for the scans and for the roots its writes are held to. Codex is
+  // spawned with the host's working directory, and its skills, hooks, config
+  // layers and import detection answered for a relative folder from there. An
+  // ACP agent opens its draft probe in it. The rest filter by it or pass it
+  // on, and what an agent makes of a relative one is the agent's business, so
+  // none of them is handed one. The spelling below is the one that would reach
+  // a folder nobody opened, from this process's working directory, which is
+  // the host's; the empty string is refused beside it.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // What the runtime's own surfaces were handed, so a refusal is told apart
+  // from a runtime that took the folder and ignored it.
+  const handed: string[] = []
+  const heard = <T>(cwd: string | undefined, answer: T): T => {
+    if (cwd !== undefined) handed.push(cwd)
+    return answer
+  }
+  const runtime = harness.runtime
+  const defaults = runtime.defaultSessionOptions.bind(runtime)
+  runtime.defaultSessionOptions = (cwd, values) => heard(cwd, defaults(cwd, values))
+  const listSessions = runtime.listSessions.bind(runtime)
+  runtime.listSessions = (query) => heard(query?.cwd, listSessions(query))
+  Object.assign(runtime, {
+    listSkills: async (cwd?: string) => heard(cwd, []),
+    listHooks: async (cwd?: string) => heard(cwd, []),
+    extensions: {
+      catalog: async (cwd?: string) => heard(cwd, { plugins: [], marketplaces: [], loadErrors: [], featured: [] }),
+      mcpServers: async (cwd?: string) => heard(cwd, []),
+      detectImports: async (cwd?: string) => heard(cwd, []),
+    },
+  })
+
+  // A folder nobody opened, with a skill of its own for the library to find.
+  const folder = await mkdtemp(join(tmpdir(), 'hd-cwd-relative-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  await mkdir(join(folder, '.agents', 'skills', 'hd-probe'), { recursive: true })
+  await writeFile(
+    join(folder, '.agents', 'skills', 'hd-probe', 'SKILL.md'),
+    '---\nname: hd-probe\ndescription: A skill only this folder has.\n---\n',
+  )
+
+  const spelled = relative(process.cwd(), folder)
+  // The controls: the spelling is relative, and it leads from the host's
+  // working directory to the folder.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(folder))
+
+  for (const [method, ask] of Object.entries(RELATIVE_FOLDER_ASKS)) {
+    await t.test(method, async () => {
+      for (const cwd of [spelled, '']) {
+        await assert.rejects(() => client.call(method as HostMethodName, ask(cwd)), {
+          message:
+            (cwd === '' ? EMPTY_CWD_SHAPE_REFUSALS[method as FolderMethod] : undefined) ??
+            `${cwd} is not an absolute path.`,
+        })
+      }
+    })
+  }
+
+  // No surface was handed either spelling, and agent/seat opened no
+  // conversation. Spelled absolutely, the same folder is handed on, and the
+  // library finds its skill there, so what was refused was the spelling.
+  assert.deepEqual(handed, [])
+  assert.equal(harness.runtime.lastCreateOptions, null)
+  await client.call('runtime/skills', { runtime: FAKE_RUNTIME_ID, cwd: folder })
+  assert.deepEqual(handed, [folder])
+  const library = (await client.call('library/read', { cwd: folder })) as {
+    entries: readonly { name: string; copies: readonly { path: string }[] }[]
+  }
+  assert.deepEqual(
+    library.entries.find((entry) => entry.name === 'hd-probe')?.copies.map((copy) => copy.path),
+    [join(folder, '.agents', 'skills', 'hd-probe')],
+  )
+})
+
+test('worktree/list refuses a repository nobody opened, and answers for one opened through any of its checkouts', async (t) => {
+  // It ran `git worktree list` wherever it was pointed, so an absolute path to
+  // a repository nobody opened was answered with every checkout's path, branch
+  // and HEAD commit. It is held to the repositories opened here, as the verbs
+  // that read or change one worktree are, rather than to open folders, as the
+  // git pane's verbs are: after a refused bring-back the store asks it of the
+  // main checkout, which is outside every open folder when the folder open is
+  // one of its linked worktrees.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-worktree-list-'))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repo = join(scratch, 'repo')
+  const linked = join(scratch, 'linked')
+  await mkdir(repo)
+  await gitIn(repo, 'init', '-q', '-b', 'main')
+  await gitIn(repo, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  await gitIn(repo, 'worktree', 'add', '-q', '-b', 'linked', linked)
+
+  await t.test('a repository nobody opened is refused, through any of its checkouts', async () => {
+    await assert.rejects(() => client.call('worktree/list', { root: repo }), /not a project opened here/)
+    await assert.rejects(() => client.call('worktree/list', { root: linked }), /not a project opened here/)
+  })
+
+  await t.test('opened as a linked worktree alone, its main checkout answers', async () => {
+    await client.call('workspace/open', { path: linked })
+    const listed = (await client.call('worktree/list', { root: repo })) as readonly { path: string }[]
+    assert.deepEqual(
+      listed.map((entry) => entry.path),
+      [await realpath(repo), await realpath(linked)],
+    )
+  })
+
+  await t.test('a folder in no repository answers an empty list, not a failed call', async () => {
+    // An ordinary workspace, and the store asks each time one opens.
+    const plain = join(scratch, 'plain')
+    await mkdir(plain)
+    await client.call('workspace/open', { path: plain })
+    assert.deepEqual(await client.call('worktree/list', { root: plain }), [])
+  })
+})
+
+test('worktree/create refuses a repository reached through a link in an open folder, and cuts one in any folder opened here', async (t) => {
+  // It checked the root as it was spelled, and a link has no spelling of its
+  // own: with one repository open, a link in it to another read as inside it,
+  // and `git -C` followed the link, so a repository nobody opened was given a
+  // worktree under the state directory and a branch.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so that nothing but the link below stands between
+  // the open repository and the other one.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-worktree-create-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repository = async (path: string): Promise<void> => {
+    await mkdir(path)
+    await gitIn(path, 'init', '-q', '-b', 'main')
+    await gitIn(path, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+  }
+  const opened = join(scratch, 'opened')
+  const other = join(scratch, 'other')
+  await repository(opened)
+  await repository(other)
+  const link = join(opened, 'elsewhere')
+  await symlink(other, link)
+  await client.call('workspace/open', { path: opened })
+
+  // What a repository holds of HarnessDesk's: its branches, and its checkouts
+  // as git lists them.
+  const holds = async (repo: string): Promise<{ branches: string[]; checkouts: string[] }> => ({
+    branches: (await gitIn(repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/harnessdesk/'))
+      .split('\n')
+      .filter((line) => line.length > 0),
+    checkouts: (await gitIn(repo, 'worktree', 'list', '--porcelain'))
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length)),
+  })
+  const untouched = { branches: [], checkouts: [other] }
+  const outside = `${other} is outside every open workspace. Open its folder first to read from it.`
+
+  await t.test('named directly, a repository nobody opened is refused', async () => {
+    await assert.rejects(() => client.call('worktree/create', { root: other, name: 'direct' }), { message: outside })
+    assert.deepEqual(await holds(other), untouched)
+  })
+
+  await t.test('reached through a link in the open one, it is refused as well, and nothing is made in it', async () => {
+    // The control: the link leads to that repository, so a refusal is about
+    // where the path leads and not about a path that leads nowhere.
+    assert.equal(await realpath(link), other)
+    const answer = await client
+      .call('worktree/create', { root: link, name: 'through-link' })
+      .then((created) => ({ created }), (error: Error) => ({ refused: error.message }))
+    // Read before the answer, so a call that was let in fails on what it made
+    // there rather than only on having been answered.
+    assert.deepEqual(await holds(other), untouched)
+    assert.deepEqual(answer, { refused: outside })
+  })
+
+  await t.test('the open repository still gets its worktree', async () => {
+    const created = (await client.call('worktree/create', { root: opened, name: 'ordinary' })) as {
+      path: string
+      branch: string
+    }
+    assert.equal(created.branch, 'harnessdesk/ordinary')
+    assert.deepEqual(await holds(opened), { branches: ['harnessdesk/ordinary'], checkouts: [opened, created.path] })
+  })
+
+  await t.test('so does a submodule opened on its own', async () => {
+    // Why this verb is held to open folders rather than to open repositories,
+    // as the other worktree verbs are: git lists a submodule's own checkout as
+    // its git directory, inside the superproject's `.git`, and that rule judges
+    // those checkouts, so it refuses the submodule while it is the folder open.
+    const library = join(scratch, 'library')
+    const superproject = join(scratch, 'superproject')
+    await repository(library)
+    await repository(superproject)
+    await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'vendored')
+    const vendored = join(superproject, 'vendored')
+    assert.deepEqual((await holds(vendored)).checkouts, [join(superproject, '.git', 'modules', 'vendored')])
+    await client.call('workspace/open', { path: vendored })
+    const created = (await client.call('worktree/create', { root: vendored, name: 'in-vendored' })) as {
+      branch: string
+    }
+    assert.equal(created.branch, 'harnessdesk/in-vendored')
+    assert.deepEqual((await holds(vendored)).branches, ['harnessdesk/in-vendored'])
+  })
+})
+
+/** The flow the room test below starts: one agent, in a worktree of its own. */
+const ISOLATING_FLOW = `name: Probe
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    isolate: true
+    outcomes: [done]
+seed: { role: worker, title: "Do it" }
+`
+
+/** The same agent in the room's own folder, for a folder no worktree can be cut from. */
+const SEATING_FLOW = `name: Probe
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    outcomes: [done]
+seed: { role: worker, title: "Do it" }
+`
+
+test('team/room/create refuses a repository nobody opened, flow/start refuses a room whose folder was closed, and a room in any folder or repository opened here still starts its flow', async (t) => {
+  // The team plane took a room's root as it came, and the host's `isolate`
+  // hands a room's folder straight to the worktree service, past the handler
+  // that holds `worktree/create` to what is open. So with one repository open,
+  // a room could be made in another, and a flow started in it cut a branch and
+  // a worktree there.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so that nothing but what each subtest sets up
+  // stands between the open repository and the others.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-room-root-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const repository = async (path: string): Promise<string> => {
+    await mkdir(path)
+    await gitIn(path, 'init', '-q', '-b', 'main')
+    await gitIn(path, 'commit', '-q', '--allow-empty', '-m', 'root commit')
+    return path
+  }
+  // What a repository holds of HarnessDesk's: its branches, and its checkouts
+  // as git lists them.
+  const holds = async (repo: string): Promise<{ branches: string[]; checkouts: string[] }> => ({
+    branches: (await gitIn(repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/harnessdesk/'))
+      .split('\n')
+      .filter((line) => line.length > 0),
+    checkouts: (await gitIn(repo, 'worktree', 'list', '--porcelain'))
+      .split('\n')
+      .filter((line) => line.startsWith('worktree '))
+      .map((line) => line.slice('worktree '.length)),
+  })
+  const untouched = (repo: string) => ({ branches: [], checkouts: [repo] })
+  const refused = (folder: string): string =>
+    `${folder} is outside every folder and repository opened here. Open it first.`
+  const startFlow = (room: string): Promise<FlowRun> =>
+    client.call('flow/start', { room, source: ISOLATING_FLOW }) as Promise<FlowRun>
+  // A room made there and its flow started, the way the room dialog does both,
+  // or the refusal of the room.
+  const attempt = async (root: string, name: string): Promise<unknown> => {
+    let room: TeamState
+    try {
+      room = (await client.call('team/room/create', { root, name })) as TeamState
+    } catch (error) {
+      return { refused: (error as Error).message }
+    }
+    return startFlow(room.id).then(
+      (run) => ({ room: room.root, flow: run.state }),
+      (error: Error) => ({ room: room.root, flow: error.message }),
+    )
+  }
+
+  const opened = await repository(join(scratch, 'opened'))
+  await client.call('workspace/open', { path: opened })
+
+  await t.test('a room in a repository nobody opened is refused, and nothing is cut there', async () => {
+    const other = await repository(join(scratch, 'other'))
+    const answer = await attempt(other, 'elsewhere')
+    // Read before the answer, so a room that was let in fails on what its flow
+    // cut there rather than only on having been made.
+    assert.deepEqual(await holds(other), untouched(other))
+    assert.deepEqual(answer, { refused: refused(other) })
+    assert.deepEqual(await client.call('team/rooms', { root: other }), [])
+  })
+
+  await t.test('reached through a link in the open one, it is refused as well', async () => {
+    const behind = await repository(join(scratch, 'behind'))
+    const link = join(opened, 'elsewhere')
+    await symlink(behind, link)
+    // The control: the link leads to that repository, so a refusal is about
+    // where the path leads and not about a path that leads nowhere.
+    assert.equal(await realpath(link), behind)
+    const answer = await attempt(link, 'through the link')
+    assert.deepEqual(await holds(behind), untouched(behind))
+    assert.deepEqual(answer, { refused: refused(behind) })
+  })
+
+  await t.test('spelled relative, a root is refused, even one that leads into a repository opened here', async () => {
+    // A relative path names no folder until something resolves it, and what
+    // resolved this one was the host's working directory, wherever the app
+    // was started. So the root below is the one relative spelling that
+    // resolution would admit: from this process's working directory, which is
+    // the host's, into a repository opened here.
+    const near = await repository(join(scratch, 'near'))
+    await client.call('workspace/open', { path: near })
+    const spelled = relative(process.cwd(), near)
+    // The controls: the spelling is relative, and it leads there.
+    assert.equal(isAbsolute(spelled), false)
+    assert.equal(await realpath(spelled), near)
+    const answer = await attempt(spelled, 'relative')
+    assert.deepEqual(await holds(near), untouched(near))
+    assert.deepEqual(answer, { refused: `${spelled} is not an absolute path.` })
+  })
+
+  await t.test('a room whose folder is no longer open starts no flow, and nothing is cut there', async () => {
+    // A room outlives its folder being open: forgetting the folder leaves the
+    // room, and so does every launch after it.
+    const closed = await repository(join(scratch, 'closed'))
+    await client.call('workspace/open', { path: closed })
+    const room = (await client.call('team/room/create', { root: closed, name: 'was open' })) as TeamState
+    await client.call('workspace/forget', { path: closed })
+    const answer = await startFlow(room.id).then(
+      (run) => ({ flow: run.state }),
+      (error: Error) => ({ refused: error.message }),
+    )
+    assert.deepEqual(await holds(closed), untouched(closed))
+    assert.deepEqual(answer, { refused: refused(closed) })
+  })
+
+  await t.test('a room in the open repository still isolates its flow', async () => {
+    const room = (await client.call('team/room/create', { root: opened, name: 'here' })) as TeamState
+    const run = await startFlow(room.id)
+    assert.equal(run.state, 'running')
+    const held = await holds(opened)
+    assert.match(held.branches.join(' '), /^harnessdesk\/worker-1-[^ ]+$/)
+    assert.deepEqual(held.checkouts, [opened, ...run.seats.map((seat) => seat.cwd)])
+  })
+
+  await t.test('so does one made from a linked worktree, at its main checkout', async () => {
+    // What the room dialog asks for there: `projectRootOf` names a linked
+    // worktree's main checkout, which is outside every open folder while only
+    // the worktree is open. The repository is open, and that is what admits it.
+    const main = await repository(join(scratch, 'main'))
+    const linked = join(scratch, 'linked')
+    await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
+    await client.call('workspace/open', { path: linked })
+    await assert.rejects(() => client.call('git/status', { root: main }), /outside every open workspace/)
+    const room = (await client.call('team/room/create', { root: main, name: 'from the worktree' })) as TeamState
+    assert.equal(room.root, main)
+    assert.equal((await startFlow(room.id)).state, 'running')
+    assert.equal((await holds(main)).branches.length, 1)
+  })
+
+  await t.test('and so does one in a submodule opened on its own', async () => {
+    // A folder opened here, whatever git lists as its repository's main
+    // checkout: its git directory, inside the superproject's `.git`.
+    const library = await repository(join(scratch, 'library'))
+    const superproject = await repository(join(scratch, 'superproject'))
+    await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'vendored')
+    const vendored = join(superproject, 'vendored')
+    await client.call('workspace/open', { path: vendored })
+    const room = (await client.call('team/room/create', { root: vendored, name: 'vendored' })) as TeamState
+    assert.equal((await startFlow(room.id)).state, 'running')
+    assert.equal((await holds(vendored)).branches.length, 1)
+  })
+
+  await t.test('and a room in a folder in no repository still seats its flow there', async () => {
+    // The folder rule's own case: the repository rule has nothing to say
+    // about a folder git knows nothing of.
+    const plain = join(scratch, 'plain')
+    await mkdir(plain)
+    await client.call('workspace/open', { path: plain })
+    const room = (await client.call('team/room/create', { root: plain, name: 'plain' })) as TeamState
+    const run = (await client.call('flow/start', { room: room.id, source: SEATING_FLOW })) as FlowRun
+    assert.equal(run.state, 'running')
+    assert.deepEqual(
+      run.seats.map((seat) => seat.cwd),
+      [plain],
+    )
+  })
+})
+
+test('flow/list and flow/read refuse a folder nobody opened, and read the flows of any folder or repository opened here', async (t) => {
+  // They took their root as it came: with one folder open, any other folder's
+  // `.harnessdesk/flows` was listed and its files read. The room dialog asks
+  // them about the root it will make its room at, so they answer to the rule
+  // a room does.
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+
+  // Real paths throughout, so that nothing but the link below stands between
+  // the open folder and the other one.
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'hd-flow-files-')))
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+  const flowFile = (name: string): string => `name: ${name}
+roles:
+  worker:
+    kind: agent
+    seat: fake
+    outcomes: [done]
+seed: { role: worker, title: "Do it" }
+`
+  // A folder with one flow in it, and nothing git knows about.
+  const folder = async (path: string, file: string, name: string): Promise<string> => {
+    await mkdir(join(path, '.harnessdesk', 'flows'), { recursive: true })
+    await writeFile(join(path, '.harnessdesk', 'flows', file), flowFile(name))
+    return path
+  }
+  const opened = await folder(join(scratch, 'opened'), 'here.yml', 'Here')
+  const other = await folder(join(scratch, 'other'), 'secret.yml', 'Only in the other folder')
+  await client.call('workspace/open', { path: opened })
+
+  const outside = (path: string): string =>
+    `${path} is outside every folder and repository opened here. Open it first.`
+  // Each call's answer, or its refusal, so a call that was let in fails on
+  // what it read.
+  const list = (root: string): Promise<unknown> =>
+    client.call('flow/list', { root }).then(
+      (files) => ({ listed: (files as readonly { path: string; name: string }[]).map((file) => [file.path, file.name]) }),
+      (error: Error) => ({ refused: error.message }),
+    )
+  const read = (root: string, path: string): Promise<unknown> =>
+    client.call('flow/read', { root, path }).then(
+      (text) => ({ read: text }),
+      (error: Error) => ({ refused: error.message }),
+    )
+
+  await t.test('a flow in a folder nobody opened is not read', async () => {
+    assert.deepEqual(await read(other, '.harnessdesk/flows/secret.yml'), { refused: outside(other) })
+  })
+
+  await t.test('and that folder’s flows are not listed', async () => {
+    assert.deepEqual(await list(other), { refused: outside(other) })
+  })
+
+  await t.test('reached through a link in the open folder, it is refused as well', async () => {
+    const link = join(opened, 'elsewhere')
+    await symlink(other, link)
+    // The control: the link leads to that folder.
+    assert.equal(await realpath(link), other)
+    assert.deepEqual(await read(link, '.harnessdesk/flows/secret.yml'), { refused: outside(other) })
+    assert.deepEqual(await list(link), { refused: outside(other) })
+  })
+
+  await t.test('spelled relative, even into the open folder, it is refused', async () => {
+    const spelled = relative(process.cwd(), opened)
+    assert.equal(isAbsolute(spelled), false)
+    assert.equal(await realpath(spelled), opened)
+    assert.deepEqual(await list(spelled), { refused: `${spelled} is not an absolute path.` })
+    assert.deepEqual(await read(spelled, '.harnessdesk/flows/here.yml'), {
+      refused: `${spelled} is not an absolute path.`,
+    })
+  })
+
+  await t.test('the folder opened here still lists and reads its flows', async () => {
+    // A folder in no repository, which only the folder rule admits.
+    assert.deepEqual(await list(opened), { listed: [['.harnessdesk/flows/here.yml', 'Here']] })
+    assert.deepEqual(await read(opened, '.harnessdesk/flows/here.yml'), { read: flowFile('Here') })
+  })
+
+  await t.test('and so does a linked worktree’s main checkout, the root the room dialog asks with', async () => {
+    // Outside every open folder while only the worktree is open: the
+    // repository is open, and that is what admits it.
+    const main = await folder(join(scratch, 'main'), 'main.yml', 'In the main checkout')
+    await gitIn(main, 'init', '-q', '-b', 'main')
+    await gitIn(main, 'add', '.')
+    await gitIn(main, 'commit', '-q', '-m', 'root commit')
+    const linked = join(scratch, 'linked')
+    await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
+    await client.call('workspace/open', { path: linked })
+    assert.deepEqual(await list(main), { listed: [['.harnessdesk/flows/main.yml', 'In the main checkout']] })
+    assert.deepEqual(await read(main, '.harnessdesk/flows/main.yml'), { read: flowFile('In the main checkout') })
+  })
+})
+
+test('a folder is not opened by a relative path, whether the wire or the picker names it', async (t) => {
+  // `describeWorkspace` resolved what it was handed, so a relative path opened
+  // whatever it led to from the host's working directory, and that folder then
+  // counted as open for every confinement check after it. The path below is
+  // the spelling that resolution would open: from this process's working
+  // directory, which is the host's, to a folder nothing has opened.
+  const scratch = await mkdtemp(join(tmpdir(), 'hd-open-relative-'))
+  const spelled = relative(process.cwd(), scratch)
+  // The native picker answers with an absolute path, but the host is the
+  // boundary, and `workspace/pick` opens what it is handed as
+  // `workspace/open` does.
+  const harness = await start({ pickDirectory: async () => spelled })
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  t.after(() => rm(scratch, { recursive: true, force: true }))
+
+  // The controls: the spelling is relative, and it leads from the host's
+  // working directory to the folder.
+  assert.equal(isAbsolute(spelled), false)
+  assert.equal(await realpath(spelled), await realpath(scratch))
+
+  await t.test('workspace/open', async () => {
+    await assert.rejects(() => client.call('workspace/open', { path: spelled }), {
+      message: `${spelled} is not an absolute path.`,
+    })
+  })
+  await t.test('workspace/pick', async () => {
+    await assert.rejects(() => client.call('workspace/pick', {}), {
+      message: `${spelled} is not an absolute path.`,
+    })
+  })
+
+  // Neither refusal opened it: nothing is remembered, and a read of it is
+  // still refused. Spelled absolutely, it opens, so what was refused was the
+  // spelling.
+  assert.deepEqual(await client.call('workspace/recent', {}), [])
+  await assert.rejects(() => client.call('git/status', { root: scratch }), /outside every open workspace/)
+  assert.equal(((await client.call('workspace/open', { path: scratch })) as { path: string }).path, scratch)
 })
 
 test('a git root that is not there yet is judged by the folder it would be in, links and all', async (t) => {

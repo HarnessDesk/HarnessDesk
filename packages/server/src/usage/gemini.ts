@@ -96,6 +96,21 @@ export const geminiAccount = (idToken: string | undefined): string | null => {
 }
 
 export interface GeminiMeterOptions {
+  /**
+   * The environment the CLI runs in. `GEMINI_CLI_HOME` stands in for the home
+   * folder, so a row that sets it holds another account, and its sign-in is
+   * read from there — the same place its chat logs are (`corpusRoot`).
+   */
+  readonly env?: NodeJS.ProcessEnv
+  /**
+   * The row's own home, when it moves the account with a bare `HOME` rather
+   * than `GEMINI_CLI_HOME` — the more ordinary way to isolate an agent, and
+   * what the row's own process would resolve `homedir()` to. Read from
+   * `env['HOME']` when not given (review round 5: this fell back straight to
+   * the desk's own `homedir()`, so a `HOME`-only row's sign-in and spend were
+   * read from the desk's account).
+   */
+  readonly home?: string
   readonly credentialsPath?: string
   readonly loadEndpoint?: string
   readonly quotaEndpoint?: string
@@ -113,7 +128,9 @@ export class GeminiMeter implements UsageMeter {
   readonly #now: () => number
 
   constructor(options: GeminiMeterOptions = {}) {
-    this.#path = options.credentialsPath ?? join(homedir(), CREDENTIALS)
+    const env = options.env ?? process.env
+    const home = options.home || env['HOME']?.trim() || homedir()
+    this.#path = options.credentialsPath ?? join(env['GEMINI_CLI_HOME']?.trim() || home, CREDENTIALS)
     this.#load = options.loadEndpoint ?? LOAD
     this.#quota = options.quotaEndpoint ?? QUOTA
     this.#fetch = options.fetch ?? globalThis.fetch

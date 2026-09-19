@@ -21,7 +21,7 @@ import { nameFromMessage, mapSummary, stripContext } from '../src/mapping/sessio
 
 /**
  * End-to-end through a real child process: spawn, handshake, thread start, turn
- * streaming, approval round-trip, interrupt, history paging.
+ * streaming, approval round-trip, interrupt, history.
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
@@ -354,15 +354,17 @@ test('deleteSession closes and removes live session from in-memory registry (#41
   )
 })
 
-test('reading a session pages through every turn item', async (t) => {
+test('reading a session brings every turn item', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())
   await runtime.start()
 
+  // The fake plays 0.149.0 here, whose threads are read whole; paged history
+  // is `history.test.ts`'s.
   const session = await runtime.readSession(sessionId('thread-e2e'))
   assert.equal(session.itemsLoaded, true)
   const items = allItems(session)
-  assert.equal(items.length, 2, 'both pages were fetched')
+  assert.equal(items.length, 2, 'both items of the stored turn')
   assert.deepEqual(
     items.map((item) => item.type),
     ['userMessage', 'assistantMessage'],
@@ -799,6 +801,41 @@ test('defaultSessionOptions declares the next session before one exists', async 
   } finally {
     await runtime.dispose()
   }
+})
+
+test("a draft named no folder reads the home folder's configuration, not this process's", async (t) => {
+  const { mkdtempSync, readFileSync, rmSync } = await import('node:fs')
+  const { homedir, tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'codex-draft-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const folders = join(dir, 'folders.jsonl')
+  const runtime = makeRuntime({ FAKE_CODEX_FOLDERS: folders })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  // Which folder each configuration read made for one draft was asked about.
+  const asked = async (cwd?: string): Promise<string[]> => {
+    const read = (): string[] => {
+      try {
+        return readFileSync(folders, 'utf8').split('\n').filter(Boolean)
+      } catch {
+        return []
+      }
+    }
+    const before = read().length
+    await runtime.defaultSessionOptions(cwd)
+    return read()
+      .slice(before)
+      .map((line) => JSON.parse(line) as { method: string; cwd: string | null })
+      .map((entry) => `${entry.method} ${entry.cwd}`)
+      .sort()
+  }
+  // The control: a folder named is the folder asked about.
+  assert.deepEqual(await asked('/tmp/repo'), ['config/read /tmp/repo', 'permissionProfile/list /tmp/repo'])
+  // Named none, the project layers are the home folder's — the same however
+  // the app was started — and never this process's working directory.
+  assert.notEqual(process.cwd(), homedir())
+  assert.deepEqual(await asked(), [`config/read ${homedir()}`, `permissionProfile/list ${homedir()}`])
 })
 
 test('the install command names the package manager that put this Codex here', async () => {

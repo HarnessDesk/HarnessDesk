@@ -5,7 +5,52 @@ update. If a change does not alter what the app does, shows, or refuses, it
 does not earn a line here: a refactor, a build-config tidy or a documentation
 move is real work and is not news to a person weighing an upgrade.
 
-## 0.2.2 — 2026-09-17
+## 0.2.4 — 2026-09-18
+
+Usage now reflects what each agent actually keeps and reports, so balances and
+spend no longer disappear behind a generic unsupported state or get described
+as public-price estimates when they came from the agent itself.
+
+- **Usage cards now cover five more agents** — Amp's credit balance, Cline's
+  account balance and billed session spend, Gemini CLI and Qwen Code's
+  transcript-derived spend, and OpenCode's recorded session cost now appear in
+  the Dashboard and account surfaces.
+- **Usage provenance is visible and honest** — totals distinguish public list
+  prices from agent-recorded costs, spent balances explain whether they need a
+  top-up or reset, and free models remain visibly free instead of being treated
+  as unpriced.
+- **Foreign usage databases are read safely** — HarnessDesk reads another
+  agent's records without writing beside, locking, or modifying the agent's
+  own files, including when a database is using WAL mode.
+
+Conversations now keep more of the history the agents expose, while the desk
+gets clearer about which folder and build it is actually using. Alongside it,
+the catalogue, usage views and interaction details gained the last pieces
+needed for the next agent-focused release.
+
+- **Codex conversations can be read, forked and undone through the desk** —
+  history now follows Codex's own conversation model, side-thread reviews no
+  longer rely on deprecated detached delivery, and the interface can keep a
+  review's held state visible while it runs.
+- **A folder only opens when the desk has its full path** — relative roots and
+  folders that are not present are refused explicitly instead of being
+  interpreted against the host's working directory or mistaken for an empty
+  folder.
+- **The desk's update notice follows the build it measured** — an update
+  prompt no longer points at a release whose version can change underneath
+  the check.
+- **Menus and motion behave consistently with keyboard and accessibility
+  input** — flyouts stay open while the pointer travels to them, menu focus
+  leaves through the real next target, Escape closes row menus, reduced motion
+  avoids transitions that were never declared, and the approval surface stays
+  above its own backdrop.
+- **Usage and catalogue state are more truthful** — Antigravity usage comes
+  from its own usage endpoint, spent model groups are skipped, every catalogue
+  tab represents a shipped module, and the Codex protocol is refreshed for
+  0.155.0.
+- **Agents and goals have a documented foundation** — the reusable agent
+  definition and seating model establish the next way to configure who can
+  work in a room and what each seat is allowed to do.
 
 One canonical UI system replaces the parallel implementations that had begun
 to disagree with each other — a shared type scale, a neutral grey ramp, one

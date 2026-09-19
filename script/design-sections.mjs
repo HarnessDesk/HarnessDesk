@@ -37,6 +37,18 @@ export const SECTIONS = [
     'Compose the pattern instead of re-declaring it: Row/Rows, ListRow/ListRows, EmptyState, Section, PageHead/SectionHead, Note, Field — all exported from packages/ui/src/design. This category is a burn-down: its ceiling may only fall.',
   ],
   [
+    'screenAppearance',
+    'Appearance drawn in a screen stylesheet',
+    'A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind.',
+    'Compose the role from packages/ui/src/design: Row/Rows, PageHead/SectionHead, Search/Field, Alert, EmptyState, Chip, Card, KeyValue, Table, StatePill. Keep only layout in the screen sheet, and add a component to the design system when the role has none. Markdown.module.css keeps prose\'s ratio ladder and Diff.module.css is a specialized renderer; those two sheets are exempt. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'screenUnclassified',
+    'Properties outside the screen boundary',
+    'An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total.',
+    'Classify the property in APPEARANCE_PROPERTIES or LAYOUT_BEHAVIOUR_PROPERTIES in script/design-audit.mjs. A screen declaration must be on exactly one side of the boundary.',
+  ],
+  [
     'wrongVariant',
     'Controls in a slot the design system has a rule for',
     'The same slot ends up drawn four different ways, one screen at a time.',

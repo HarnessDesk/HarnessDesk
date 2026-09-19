@@ -24,16 +24,19 @@
  *   node script/shots/shoot.mjs --survey          # what is on screen
  *   node script/shots/shoot.mjs --scene board     # one scene, both themes
  *   node script/shots/shoot.mjs --all             # every scene, both themes
+ *   node script/shots/shoot.mjs --scene session-hover --reduced-motion
+ *                                                 # as a reader who asked for less motion sees it
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
-import { CAST, REPOS, rigRuntimeId } from './cast.mjs'
+import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
+import { runScene } from './scene.mjs'
 import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
@@ -98,6 +101,13 @@ const q = (value) => JSON.stringify(value)
 
 try {
   await cdp.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 2, mobile: false })
+  /* app.css answers `prefers-reduced-motion` with a rule of its own, and the
+     media query reads the system setting, which is this machine's rather than
+     the take's. Emulated here, for the window alone. */
+  if (has('reduced-motion')) {
+    await cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+    say('motion reduced')
+  }
   await sleep(2500)
   await dismissNotices(cdp).catch(() => {})
 
@@ -560,7 +570,7 @@ rules:
     /** One conversation, mid-work: reasoning, a plan and tool calls. */
     conversation: { leaveOverlay: true, expect: 'Worked for', run: async () => {
       // Native Codex remains available for the terminal smoke. Its adapter
-      // fixture deliberately reports /w, so the camera conversation uses ACP
+      // fixture plays every turn in /w, so the camera conversation uses ACP
       // and the real staged repository instead.
       const runtime = process.env['HD_SHOTS_NATIVE_CODEX'] === '1' ? rigRuntimeId('claude-code') : 'codex'
       const key = await seat(cdp, { work: REPO, runtime, picks: {} })
@@ -579,6 +589,21 @@ rules:
     dashboard: { expect: 'What is left', run: async () => {
       if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
       await sleep(1600)
+    } },
+
+    /**
+     * One agent whose figures are another sign-in's: Antigravity, scoped from
+     * the rail. The card is headed by that sign-in and keeps the agent's own
+     * chip; the rail row beside it stays the agent's, with nothing measured.
+     */
+    /* Waits for the page's own sentence, not only the card's heading: the
+       sentence is what said "Antigravity's own numbers" over another sign-in's
+       figures until review round 1 of #769. */
+    'dashboard-antigravity': { expect: "Its plan figures are the agy CLI sign-in's", run: async () => {
+      if (!(await click('Dashboard'))) throw new Error('no Dashboard row in the sidebar')
+      await sleep(1600)
+      if (!(await click('Antigravity'))) throw new Error('no Antigravity row in the Dashboard rail')
+      await sleep(1200)
     } },
 
     /** The rebuilt settings patterns, reached through the same store request features use. */
@@ -810,6 +835,173 @@ rules:
     if (!opened) throw new Error('composer model trigger missing: ' + await cdp.eval(`JSON.stringify([...document.querySelectorAll('button')].map(e => e.title).filter(Boolean))`))
     await sleep(600)
   } }
+  /*
+    The composer's reasoning flyout, reached the two ways a person reaches it.
+    Only the built-in Codex adapter, on its fixture, offers reasoning levels —
+    the rig's ACP cast declares models and modes and nothing to think with —
+    so these run in the native-Codex rig (HD_SHOTS_NATIVE_CODEX=1).
+
+    The pointer scene walks a real path, in short steps a frame apart: from
+    where a hand rests on the row, sideways out of it at the row's own height
+    — which the flyout always spans, and where Base UI keeps no clock on the
+    way across — then along the flyout to its first level. (A diagonal spends
+    its middle over the menu's other rows, where Base UI closes a flyout the
+    pointer has not reached within 40ms, so a slow machine would lose it.) The
+    flyout is the subject, so the pointer stays where it ended rather than
+    being parked in the corner for the frame (keepPointer). The keyboard scene
+    opens the menu with Enter, walks down to the row and steps in with →.
+  */
+  const MODEL_TRIGGER = `[...document.querySelectorAll('button')].find(e => /model and reasoning/i.test(e.title))`
+  const REASONING_ROW = `[...document.querySelectorAll('[role="menuitem"]')].find(e => /^Reasoning effort/.test(e.textContent ?? ''))`
+  const FIRST_LEVEL = `document.querySelector('[data-slot="dropdown-menu-sub-content"] [role="menuitemradio"]')`
+  const box = (expression) => cdp.json(`(() => {
+    const node = ${expression}
+    if (!node) return null
+    const rect = node.getBoundingClientRect()
+    return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+  })()`)
+  const glide = async (from, to) => {
+    const steps = Math.max(1, Math.round(Math.hypot(to.x - from.x, to.y - from.y) / 8))
+    for (let step = 1; step <= steps; step += 1) {
+      const x = from.x + ((to.x - from.x) * step) / steps
+      const y = from.y + ((to.y - from.y) * step) / steps
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
+      await sleep(8)
+    }
+  }
+  const pressKey = async (key, { shift = false } = {}) => {
+    const code = { Tab: 9, Enter: 13, ArrowDown: 40, ArrowRight: 39, ContextMenu: 93 }[key]
+    const base = { key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers: shift ? 8 : 0 }
+    await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...base })
+    if (key === 'Enter') await cdp.send('Input.dispatchKeyEvent', { type: 'char', ...base, text: '\r' })
+    await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...base })
+    await sleep(250)
+  }
+  const stageCodexComposer = async () => {
+    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') {
+      throw new Error('this scene needs HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, offers reasoning levels and a build to update')
+    }
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+    await waitForSnapshot(() => box(MODEL_TRIGGER), Boolean)
+    await sleep(800)
+  }
+  SCENES['composer-reasoning'] = { leaveOverlay: true, keepPointer: true, expect: 'How hard the model thinks', run: async () => {
+    await stageCodexComposer()
+    const trigger = await box(MODEL_TRIGGER)
+    const at = { x: trigger.x + trigger.width / 2, y: trigger.y + trigger.height / 2 }
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...at })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...at, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...at, button: 'left', clickCount: 1 })
+    await waitForSnapshot(() => box(REASONING_ROW), Boolean)
+    await sleep(400)
+    const row = await box(REASONING_ROW)
+    const rest = { x: row.x + row.width - 40, y: row.y + row.height / 2 }
+    await glide({ x: rest.x, y: rest.y - 30 }, rest)
+    await waitForSnapshot(() => cdp.eval(`${REASONING_ROW}?.hasAttribute('data-popup-open') ?? false`), Boolean)
+    await sleep(300)
+    const level = await box(FIRST_LEVEL)
+    const flyout = await box(`document.querySelector('[data-slot="dropdown-menu-sub-content"]')`)
+    const inside = { x: Math.min(Math.max(rest.x, flyout.x + 24), flyout.x + flyout.width - 24), y: rest.y }
+    await glide(rest, inside)
+    await glide(inside, { x: level.x + 40, y: level.y + level.height / 2 })
+    await sleep(300)
+    if (!await cdp.eval(`Boolean(${FIRST_LEVEL}?.matches(':hover'))`)) {
+      throw new Error('composer-reasoning: the pointer did not reach the flyout')
+    }
+  } }
+  SCENES['composer-reasoning-keys'] = { leaveOverlay: true, expect: 'How hard the model thinks', run: async () => {
+    await stageCodexComposer()
+    await cdp.eval(`${MODEL_TRIGGER}.focus(); true`)
+    await pressKey('Enter')
+    await waitForSnapshot(() => box(REASONING_ROW), Boolean)
+    for (let step = 0; step < 12 && !await cdp.eval(`${REASONING_ROW} === document.activeElement`); step += 1) {
+      await pressKey('ArrowDown')
+    }
+    await pressKey('ArrowRight')
+    await waitForSnapshot(() => cdp.eval(`${FIRST_LEVEL} === document.activeElement`), Boolean)
+  } }
+  /*
+    Tab and Shift+Tab leave a menu. From a row of the model menu, Tab closes
+    it and moves on to what follows the trigger, and Shift+Tab closes it back
+    onto the trigger; a session's context menu, opened with the context-menu
+    key, gives the focus back to its row on Tab. Each scene checks only that
+    its key left from a row, so it photographs any build: where the focus
+    went is the frame's to show, by its ring, and the specs' to assert
+    (e2e/ui-system/menu-tab.spec.ts). The scene says where it went in its own
+    log line as well, because the ring is missing from a frame for the very
+    reason the frame is taken; and one that cannot stage its row names what
+    it was waiting for.
+  */
+  const reach = async (scene, what, read) => {
+    try {
+      await waitForSnapshot(read, Boolean)
+    } catch {
+      throw new Error(`${scene}: never reached ${what}`)
+    }
+  }
+  const focusLine = () => cdp.eval(`(() => {
+    const held = document.activeElement
+    if (!held || held === document.body) return 'the page'
+    const name = (held.getAttribute('aria-label') ?? held.getAttribute('title') ?? held.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 40)
+    return held.tagName.toLowerCase() + (name ? ' “' + name + '”' : '')
+      + (held.hasAttribute('data-base-ui-focus-guard') ? ' — an invisible focus guard' : '')
+      + (held.closest('[role="menu"]') ? ' — in a menu that is still open' : '')
+      + (held.matches(':focus-visible') ? '' : ' — no focus ring')
+  })()`)
+  /* What a menu does on its way out — and a context menu on its way in —
+     waits for frames, which a window the rig cannot see (behind another, on
+     another space) is not given: measured `visibilityState` hidden, no
+     animation frame in 300ms, the focus still on the session row after the
+     key, and a Popover not yet gone from under the focus it will give back.
+     A capture draws one. */
+  const drawFrames = async (count) => {
+    for (let frame = 0; frame < count; frame += 1) {
+      await cdp.send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 } })
+      await sleep(16)
+    }
+  }
+  const onModelRow = async (scene) => {
+    await stageCodexComposer()
+    // A task in the composer turns its send button on, and that button is
+    // the stop after the trigger: Tab from the menu lands beside it, where
+    // its ring can be seen. (Empty, the trigger is the window's last stop.)
+    if (!await cdp.eval(`document.querySelector('textarea')?.value ?? ''`)) {
+      await cdp.eval(`document.querySelector('textarea').focus(); true`)
+      await cdp.send('Input.insertText', { text: 'Retry the checkout call on a 502' })
+    }
+    await cdp.eval(`${MODEL_TRIGGER}.focus(); true`)
+    await pressKey('Enter')
+    await reach(scene, 'the model menu', () => box(REASONING_ROW))
+    await pressKey('ArrowDown')
+    await reach(scene, 'a row of the model menu', () => cdp.eval(`/^menuitem/.test(document.activeElement?.getAttribute('role') ?? '')`))
+  }
+  SCENES['composer-model-tab'] = { leaveOverlay: true, run: async () => {
+    await onModelRow('composer-model-tab')
+    await pressKey('Tab')
+    await drawFrames(30)
+    say(`Tab from a row: the focus is on ${await focusLine()}`)
+  } }
+  SCENES['composer-model-shift-tab'] = { leaveOverlay: true, run: async () => {
+    await onModelRow('composer-model-shift-tab')
+    await pressKey('Tab', { shift: true })
+    await drawFrames(30)
+    say(`Shift+Tab from a row: the focus is on ${await focusLine()}`)
+  } }
+  const SESSION_ROW = `document.querySelector('[class*="rowWrap"] [data-slot="button"][data-variant="navigation"]')`
+  SCENES['session-menu-tab'] = { leaveOverlay: true, run: async () => {
+    await SCENES.desk.run()
+    await reach('session-menu-tab', 'a session row in the sidebar', () => cdp.eval(`Boolean(${SESSION_ROW})`))
+    await cdp.eval(`${SESSION_ROW}.focus(); true`)
+    await pressKey('ContextMenu')
+    await reach('session-menu-tab', 'a row of the context menu', async () => {
+      await drawFrames(1)
+      return cdp.eval(`document.activeElement?.getAttribute('role') === 'menuitem'`)
+    })
+    await pressKey('Tab')
+    await drawFrames(30)
+    say(`Tab from a row of the context menu: the focus is on ${await focusLine()}`)
+  } }
   SCENES['composer-agent-menu'] = { leaveOverlay: true, run: async () => {
     await SCENES.conversation.run()
     const opened = await cdp.eval(`(() => {
@@ -895,10 +1087,458 @@ rules:
     const selector = '[class*="rowWrap"]:has([class*="rowGone"]) button[aria-haspopup="menu"]'
     await hover(selector)
   } }
+  /**
+   * "Review uncommitted changes", on the native Codex adapter over its
+   * fixture, which plays a review notification for notification as Codex
+   * 0.155.0 does and answers the deprecated detached delivery as 0.155.0
+   * does. The camera cast's `codex` row is an ACP stand-in that reviews
+   * nothing, so these need HD_SHOTS_NATIVE_CODEX=1.
+   *
+   * The same scenes photograph a build from before the change: point
+   * HD_SHOTS_APP at a checkout of it, and the click is answered as it used to
+   * be. FAKE_CODEX_REVIEW_MS holds the review open for a frame of it working.
+   */
+  let reviewed = null
+  const stageReview = async () => {
+    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') throw new Error('the review scenes need HD_SHOTS_NATIVE_CODEX=1')
+    // One conversation for both scenes, put back on screen for the second.
+    if (reviewed) {
+      await cdp.eval(`${STORE}.openSession(${q(splitKey(reviewed).sessionId)}, { runtime: 'codex' })`, 60_000)
+      await sleep(900)
+      return reviewed
+    }
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+    const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+    // The fixture's turn asks before it lists the folder, and ends once answered.
+    await waitForSnapshot(() => cdp.eval(`${STORE}.getSnapshot().approvals.length`), (pending) => pending > 0)
+    await answerApprovals(cdp)
+    await waitForSnapshot(
+      () => cdp.eval(`${STORE}.getSnapshot().sessions.get(${q(key)})?.turns.at(-1)?.status ?? null`),
+      (status) => status === 'completed',
+    )
+    // The fixture reports its own bookkeeping as warnings; none of it is the app's.
+    await dismissNotices(cdp)
+    await sleep(600)
+    reviewed = key
+    return key
+  }
+  /**
+   * The fixture's echoes of what it was asked — `TOOLS_DECLARED …`,
+   * `REVIEW …` — which exist for its tests and arrive as warnings. Only
+   * those: a toast the app raised is what these frames are about.
+   */
+  const dismissFixtureEchoes = () => cdp.eval(`(() => {
+    const store = ${STORE}
+    for (const notice of store.getSnapshot().notices ?? []) {
+      if (/^(TOOLS_DECLARED|REVIEW) /.test(notice.message)) store.dismissNotice(notice.id)
+    }
+    return true
+  })()`)
+  /**
+   * A person's click: trusted mouse events at the middle of the element, the
+   * events a pointer sends — where `click` calls the element's own `click()`.
+   * Found by a selector, or by the text it starts with.
+   */
+  const press = async ({ selector = null, text = null }, { wait = 4000 } = {}) => {
+    const locate = () => cdp.json(`(() => {
+      const wanted = ${q(text)}
+      const all = ${selector ? `[...document.querySelectorAll(${q(selector)})]` : `[...document.querySelectorAll('button, [role="button"], [role="menuitem"]')].filter((e) => (e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)`}
+      const shown = all.filter((e) => {
+        if (e.closest('[aria-hidden="true"], [inert]')) return false
+        const r = e.getBoundingClientRect()
+        return r.width > 0 && r.height > 0 && e.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2))
+      })
+      // A selector names its element: the first one, in document order. Text
+      // is matched by the smallest element carrying it, as \`click\` does.
+      const el = ${selector ? 'shown[0]' : 'shown.sort((a, b) => (a.textContent ?? \'\').length - (b.textContent ?? \'\').length)[0]'}
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    })()`)
+    let point = await locate()
+    for (let waited = 0; !point && waited < wait; waited += 200) {
+      await sleep(200)
+      point = await locate()
+    }
+    if (!point) return false
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 })
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 })
+    await sleep(900)
+    return true
+  }
+  const openGitMenu = async () => {
+    if (!(await press({ selector: 'header button[title*=" — "]' }))) throw new Error('no git control in the conversation header')
+  }
+  /**
+   * What the store holds once the item is chosen, checked beside the frame:
+   * the conversation it was chosen in exactly as it was, and — on this
+   * build — the review's own conversation, named for it, on screen, holding
+   * the review. A build from before the change is checked for the opposite.
+   */
+  const reviewState = () => cdp.json(`(() => {
+    const s = ${STORE}.getSnapshot()
+    const original = s.sessions.get(${q(reviewed)})
+    const side = s.activeSessionKey !== ${q(reviewed)} ? s.sessions.get(s.activeSessionKey) : null
+    const said = (turn) => turn.items.map((item) => item.type === 'review' ? 'review ' + item.phase : item.type)
+    return {
+      original: original ? original.turns.map((turn) => ({ status: turn.status, items: said(turn) })) : null,
+      side: side ? { title: side.title ?? null, turns: side.turns.map((turn) => ({ status: turn.status, items: said(turn) })) } : null,
+      notices: (s.notices ?? []).map((notice) => notice.level + ': ' + notice.message),
+    }
+  })()`)
+  let untouched = null
+  const checkReview = (settled) => async () => {
+    const state = await reviewState()
+    say(`store  ${JSON.stringify(state)}`)
+    if (JSON.stringify(state.original) !== untouched) throw new Error('the conversation the review was asked from changed')
+    if (process.env['HD_SHOTS_REVIEW_EXPECT']) {
+      if (state.side) throw new Error('a build from before the change opened a conversation for the review')
+      return
+    }
+    if (state.side?.title !== 'Review of uncommitted changes') throw new Error('the review did not open a conversation of its own')
+    const [turn] = state.side.turns
+    if (state.side.turns.length !== 1 || turn.items[0] !== 'review entered' || !settled.includes(turn.status)) {
+      throw new Error(`the review's conversation does not hold one review turn that is ${settled.join(' or ')}`)
+    }
+    if (state.notices.some((notice) => /deprecat|detached|review\/start/.test(notice))) throw new Error('a toast still names the wire')
+  }
+  /** The menu, with the item on it. */
+  SCENES['review-menu'] = { leaveOverlay: true, expect: 'Review uncommitted changes', run: async () => {
+    await stageReview()
+    await openGitMenu()
+  } }
+  /**
+   * What choosing it does: the review in a conversation of its own, and what
+   * it found — or, held open by FAKE_CODEX_REVIEW_MS, the review working.
+   * HD_SHOTS_REVIEW_EXPECT names what a build from before the change shows
+   * instead.
+   */
+  SCENES.review = {
+    leaveOverlay: true,
+    expect: process.env['HD_SHOTS_REVIEW_EXPECT'] ?? 'Review of uncommitted changes',
+    run: async () => {
+      await stageReview()
+      untouched = JSON.stringify((await reviewState()).original)
+      await openGitMenu()
+      if (!(await press({ text: 'Review uncommitted changes' }))) throw new Error('no "Review uncommitted changes" in the git menu')
+      await sleep(1500)
+      await dismissFixtureEchoes()
+      // Unfolded, as the conversation scene is: the review's steps are the point.
+      await click('Worked', null, { wait: 1500 })
+    },
+    verify: checkReview(['completed', 'inProgress']),
+  }
+  /**
+   * Stopped halfway, which is Codex's own check to pass: the stop has to name
+   * the reviewer's turn, which the desk never shows. Needs the review held
+   * open (FAKE_CODEX_REVIEW_MS) long enough to be stopped.
+   */
+  SCENES['review-stopped'] = {
+    leaveOverlay: true,
+    expect: 'Review was interrupted',
+    run: async () => {
+      await SCENES.review.run()
+      if (!(await press({ text: 'Stop' }))) throw new Error('no Stop button while the review runs — is FAKE_CODEX_REVIEW_MS set?')
+      await sleep(1200)
+    },
+    verify: checkReview(['interrupted']),
+  }
+
+  /**
+   * A command waiting on its answer, on the native Codex adapter over its
+   * fixture, whose first turn asks before it lists the folder.
+   *
+   * What a frame cannot say is whether the answers take a pointer, and that
+   * went unseen for two days: the dialog's own scrim was painted over its
+   * buttons, so a click on Allow, Allow for this session or Deny landed on
+   * `dialog-overlay` while the digit keys answered everything. jsdom does no
+   * hit-testing and this rig answered approvals through the store, so nothing
+   * could see it. These scenes ask the window. HD_SHOTS_APPROVAL_EXPECT=covered
+   * names what a build from before the fix shows instead: the same read, with
+   * every answer under the scrim.
+   */
+  const askApproval = async () => {
+    if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') throw new Error('the approval scenes need HD_SHOTS_NATIVE_CODEX=1: only the built-in Codex adapter, on its fixture, asks')
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+    const key = await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+    await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+    await waitForSnapshot(() => cdp.eval(`${STORE}.getSnapshot().approvals.filter((entry) => entry.key === ${q(key)}).length`), (pending) => pending > 0)
+    // The store holds the ask a commit before the dialog is drawn.
+    await waitForSnapshot(
+      () => cdp.eval(`document.querySelector('[data-slot="approval-dialog-scope"] [role="dialog"] button') !== null`),
+      Boolean,
+    )
+    // The fixture's own bookkeeping arrives as a warning over the pane.
+    await sleep(600)
+    await dismissFixtureEchoes()
+    return key
+  }
+  /** What a pointer at the middle of each answer would land on. */
+  const approvalAnswers = () => cdp.json(`(() => {
+    const dialog = document.querySelector('[data-slot="approval-dialog-scope"] [role="dialog"]')
+    return [...(dialog?.querySelectorAll('button') ?? [])].map((button) => {
+      const box = button.getBoundingClientRect()
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      const shortcut = button.querySelector('[class*="shortcut"]')
+      return {
+        answer: [...button.childNodes].filter((node) => node !== shortcut).map((node) => node.textContent).join('').trim(),
+        reachable: button.contains(hit),
+        lands: hit?.getAttribute('data-slot') ?? hit?.tagName.toLowerCase() ?? null,
+      }
+    })
+  })()`)
+  const checkAnswers = async () => {
+    const answers = await approvalAnswers()
+    say(`answers ${answers.map((one) => `${one.answer} → ${one.lands}`).join(' · ')}`)
+    // Codex offers three: accept, accept for the session, decline.
+    if (answers.length !== 3) throw new Error(`the approval offers ${answers.length} answers, not Allow, Allow for this session and Deny`)
+    if (process.env['HD_SHOTS_APPROVAL_EXPECT'] === 'covered') {
+      if (answers.some((one) => one.reachable)) throw new Error('a build from before the fix let a pointer reach an answer')
+      return
+    }
+    const covered = answers.filter((one) => !one.reachable)
+    if (covered.length) throw new Error(`a pointer cannot reach ${covered.map((one) => `${one.answer} (it lands on ${one.lands})`).join(', ')}`)
+  }
+  /** The dialog waiting, with every answer under a pointer. */
+  SCENES.approval = {
+    leaveOverlay: true,
+    expect: 'Run this command?',
+    run: async () => { await askApproval() },
+    verify: checkAnswers,
+  }
+  /**
+   * And answered the way a person answers it: a trusted click at the middle
+   * of Deny. The store is read beside the frame — the question gone, the turn
+   * over — because a click that reached the scrim leaves the question where
+   * it was.
+   */
+  SCENES['approval-denied'] = {
+    leaveOverlay: true,
+    expect: 'ls -la',
+    run: async () => {
+      const key = await askApproval()
+      if (!(await press({ text: 'Deny' }))) throw new Error('no Deny under a pointer: something is painted over the answers')
+      await waitForSnapshot(() => cdp.eval(`${STORE}.getSnapshot().approvals.filter((entry) => entry.key === ${q(key)}).length`), (pending) => pending === 0)
+      await waitForSnapshot(
+        () => cdp.eval(`${STORE}.getSnapshot().sessions.get(${q(key)})?.turns.at(-1)?.status ?? null`),
+        (status) => status === 'completed',
+      )
+      await dismissNotices(cdp)
+      // Unfolded, as the conversation scene is: the step that was refused is the point.
+      await click('Worked', null, { wait: 1500 })
+    },
+  }
+
+  /**
+   * The model menu's footer when the build it names is behind a published one,
+   * and after "Refresh models" has moved Codex onto that build. The footer once
+   * kept its notice — "Codex 0.155.0 is available" under "Codex 0.155.0" —
+   * because the notice was measured once, before the move.
+   *
+   * The fixture is upgraded the way a person upgrades Codex under an open
+   * app: the file FAKE_CODEX_VERSION_FILE names is written with the newest
+   * published release, which the app's own notice names, and the next check
+   * finds it. Needs HD_SHOTS_NATIVE_CODEX=1, and the npm registry to answer:
+   * without a notice to start from the scene stops rather than photograph
+   * nothing. HD_SHOTS_UPDATE_EXPECT=stale is what a build from before the
+   * change shows after the refresh: the notice still there.
+   */
+  const codexFooter = () => cdp.json(`(() => {
+    const codex = ${STORE}.getSnapshot().runtimes.find((runtime) => runtime.id === 'codex')
+    const lines = document.body.innerText.split('\\n').filter((line) => /^Codex \\d/.test(line) || / is available\\./.test(line))
+    return { version: codex?.version ?? null, notice: codex?.update?.version ?? null, footer: lines, page: document.visibilityState }
+  })()`)
+  const MODEL_CONTROL = 'button[title$="odel and reasoning"]'
+  /**
+   * Open is what the control says, with the menu's rows on the page. The rows
+   * alone are not enough: a menu that has been closed stays in the page until
+   * its exit transition ends, and a window nobody can see — behind others, on
+   * another desktop — runs no transitions, so it stays as long as that lasts.
+   */
+  const menuOpen = () => cdp.eval(`(() => {
+    const control = document.querySelector(${q(MODEL_CONTROL)})
+    const row = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? ''))
+    return control?.getAttribute('aria-expanded') === 'true' && Boolean(row)
+  })()`)
+  const openModelMenu = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (!(await menuOpen())) {
+        if (!(await press({ selector: MODEL_CONTROL }))) throw new Error('composer model trigger missing')
+        await waitForSnapshot(menuOpen, Boolean)
+      }
+      await sleep(500)
+      if (await menuOpen()) return
+    }
+    throw new Error(`the model menu would not stay open (the page is ${await cdp.eval('document.visibilityState')})`)
+  }
+  /**
+   * "Refresh models", pointed at when the row can be. In a window nobody can
+   * see the menu's open transition never ends, and until it does the menu
+   * takes no pointer — the row is on the page and cannot be hit — so the
+   * click is the row's own then. What is photographed is the same either way.
+   */
+  const refreshModels = async () => {
+    if (await press({ text: 'Refresh models' }, { wait: 1500 })) return
+    const clicked = await cdp.eval(`(() => {
+      const row = [...document.querySelectorAll('[role="menuitem"]')].find((e) => /^Refresh models/.test(e.textContent ?? ''))
+      if (!row) return false
+      row.click()
+      return true
+    })()`)
+    if (!clicked) throw new Error('no "Refresh models" in the model menu')
+    await sleep(900)
+  }
+  let behind = null
+  let installed = null
+  const stageUpdateNotice = async () => {
+    if (behind) return behind
+    await stageCodexComposer()
+    // The check answers a beat after the runtime is up, and asks the registry.
+    behind = await waitForSnapshot(codexFooter, (state) => state.notice !== null, { attempts: 300 }).catch((error) => {
+      throw new Error(`no update notice to start from — does the npm registry answer? ${error.message}`)
+    })
+    return behind
+  }
+  SCENES['model-menu-update'] = {
+    leaveOverlay: true,
+    expect: ' is available.',
+    run: async () => {
+      await stageUpdateNotice()
+      await openModelMenu()
+    },
+    verify: async () => {
+      const state = await codexFooter()
+      say(`footer ${JSON.stringify(state)}`)
+      if (state.footer.length < 2) throw new Error('the footer does not name the build and the newer one')
+    },
+  }
+  SCENES['model-menu-updated'] = {
+    leaveOverlay: true,
+    expect: 'models checked',
+    run: async () => {
+      const { notice: latest } = await stageUpdateNotice()
+      installed = latest
+      writeFileSync(SHOT_ENV.FAKE_CODEX_VERSION_FILE, `${latest}\n`)
+      await openModelMenu()
+      await refreshModels()
+      await waitForSnapshot(codexFooter, (state) => state.version?.includes(latest), { attempts: 300 })
+      // A beat for the notice to be measured against the build it is on now.
+      await sleep(1500)
+      // The refresh closes the menu; it is opened again onto the footer, which
+      // has to be on screen — an empty footer would prove nothing about the notice.
+      await openModelMenu()
+      await waitForSnapshot(codexFooter, (state) => state.footer.some((line) => line.startsWith(`Codex ${latest}`)), { attempts: 100 })
+    },
+    verify: async () => {
+      const state = await codexFooter()
+      say(`footer ${JSON.stringify(state)}`)
+      if (process.env['HD_SHOTS_UPDATE_EXPECT'] === 'stale') {
+        if (state.notice === null) throw new Error('a build from before the change was expected to keep its notice')
+        return
+      }
+      if (!state.footer.some((line) => line.startsWith(`Codex ${installed}`))) {
+        throw new Error(`the footer does not name the build it is on: ${JSON.stringify(state)}`)
+      }
+      if (state.notice !== null || state.footer.some((line) => / is available\./.test(line))) {
+        throw new Error('the footer still says a newer build is available, under the build it names')
+      }
+    },
+  }
+
   SCENES['settings-extensions'] = { expect: 'MCP servers', run: async () => {
     await cdp.eval(`${STORE}.askSettings('extensions'); true`)
     await sleep(1200)
   } }
+
+  /* ------------------------------------ when an agent's own history is wrong */
+
+  /**
+   * Three scenes for what the desk says when an agent's history cannot be
+   * trusted. None of them writes the sentence itself: each flips a file beside
+   * the agent's store, which `agent.mjs` reads on every listing, so the frame
+   * is the real adapter and host answering a real error. A scene puts the file
+   * back in `finish`, so the next scene, and the next take, start whole.
+   *
+   * The first two leave a banner on screen, so each is shot in a take of its
+   * own: an error stays until it is put away, and would ride along in the
+   * frame of whatever is shot after it.
+   */
+  const storeOf = (agent) => join(HOME, 'stores', `${agent}.json`)
+  const switchFile = (agent, suffix) => storeOf(agent).replace(/\.json$/, `.${suffix}`)
+
+  /**
+   * A sidebar row whose agent has since stopped listing it, clicked. The app
+   * will not reopen a conversation in a folder nobody vouched for, and says
+   * which conversation, and why.
+   */
+  let forgotten = null
+  SCENES['resume-refused'] = {
+    leaveOverlay: true,
+    expect: 'so the folder it worked in is not known',
+    run: async () => {
+      await SCENES.desk.run()
+      const title = 'Pin the flaky inventory test'
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes(${q(title)})`), Boolean)
+      // History cleared in another window: the sidebar still has the row, the agent no longer does.
+      forgotten = readFileSync(storeOf('claude-code'), 'utf8')
+      const rows = JSON.parse(forgotten)
+      delete rows['claude-code-1']
+      writeFileSync(storeOf('claude-code'), JSON.stringify(rows, null, 1))
+      if (!(await click(title))) throw new Error(`no "${title}" row in the sidebar`)
+    },
+    finish: () => {
+      if (forgotten) writeFileSync(storeOf('claude-code'), forgotten)
+      forgotten = null
+    },
+  }
+
+  /**
+   * The agent the sidebar is listing cannot answer. The sidebar keeps the
+   * history it had and says why, where it used to show only what was open.
+   */
+  const listAgain = async () => {
+    await cdp.eval(`${STORE}.loadHistory({ reset: true })`, 60_000)
+    await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('could not list its conversations')`), Boolean, { attempts: 60 })
+  }
+  SCENES['history-list-failed'] = {
+    expect: 'could not list its conversations',
+    run: async () => {
+      await SCENES.desk.run()
+      await cdp.eval(`${STORE}.selectRuntime(${q(rigRuntimeId('claude-code'))})`, 60_000)
+      writeFileSync(switchFile('claude-code', 'list-fails'), '')
+      await listAgain()
+    },
+    // A warning fades on its own; each theme's frame asks again if it has.
+    verify: async () => {
+      if (!(await cdp.eval(`document.body.innerText.includes('could not list its conversations')`))) await listAgain()
+    },
+    finish: () => rmSync(switchFile('claude-code', 'list-fails'), { force: true }),
+  }
+
+  /**
+   * Every agent answering one row a page, as ACP allows. The sidebar lists
+   * whole what an agent has; taken against a build from before the change, it
+   * lists the first page of each and nothing after it.
+   */
+  SCENES['history-paged'] = {
+    expect: 'Make the webhook receiver',
+    run: async () => {
+      for (const agent of CAST) writeFileSync(switchFile(agent.id, 'page'), '1')
+      await SCENES.desk.run()
+      await cdp.eval(`${STORE}.loadHistory({ reset: true })`, 60_000)
+      await sleep(1500)
+    },
+    verify: async () => {
+      say(`conversations listed: ${await cdp.eval(`${STORE}.getSnapshot().history.length`)} of ${Object.values(CONVERSATIONS).flat().length}`)
+    },
+    finish: () => {
+      for (const agent of CAST) rmSync(switchFile(agent.id, 'page'), { force: true })
+    },
+  }
 
   /* Every `--scene` on the line, not just the first: a take is usually two or
      three scenes, and silently shooting only one of them is the kind of miss
@@ -923,22 +1563,24 @@ rules:
     const scene = SCENES[name]
     if (!scene) throw new Error(`no scene "${name}" — have ${Object.keys(SCENES).join(', ')}`)
     say(`— ${name}`)
-    if (scene.leaveOverlay) await leaveOverlay()
-    await scene.run()
-    for (const theme of THEMES) {
-      await setTheme(theme)
-      if (!scene.hover) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
-      if (scene.hover) {
-        await hover(scene.hover)
-        if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
-          throw new Error(name + ': pointer did not hover the target: ' + await cdp.eval(`(() => {
-            const node = document.querySelector(${q(scene.hover)}), r = node.getBoundingClientRect()
-            return JSON.stringify({ rect: r.toJSON(), hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.className, pointer: getComputedStyle(node).pointerEvents, hovered: [...document.querySelectorAll(':hover')].map(node => node.className), scale: visualViewport.scale })
-          })()`))
+    await runScene(scene, {
+      leaveOverlay,
+      themes: THEMES,
+      photograph: async (theme) => {
+        await setTheme(theme)
+        if (!scene.hover && !scene.keepPointer) await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: WIDTH - 1, y: HEIGHT - 1 })
+        if (scene.hover) {
+          await hover(scene.hover)
+          if (!await cdp.eval(`document.querySelector(${q(scene.hover)})?.matches(':hover')`)) {
+            throw new Error(name + ': pointer did not hover the target: ' + await cdp.eval(`(() => {
+              const node = document.querySelector(${q(scene.hover)}), r = node.getBoundingClientRect()
+              return JSON.stringify({ rect: r.toJSON(), hit: document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)?.className, pointer: getComputedStyle(node).pointerEvents, hovered: [...document.querySelectorAll(':hover')].map(node => node.className), scale: visualViewport.scale })
+            })()`))
+          }
         }
-      }
-      await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
-    }
+        await shoot(`${name}-${theme}`, scene.expect ?? null, scene.verify ?? null)
+      },
+    })
   }
   if (has('interactive')) {
     say('Isolated app ready for native interaction. Press Return here to close it.')

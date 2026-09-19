@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -76,7 +76,7 @@ import { CredentialBroker, plainCipher, type CredentialCipher } from './credenti
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
-import { Worktrees, repositoryOf } from './worktree.js'
+import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
@@ -486,8 +486,18 @@ export class Host {
     roots: () => this.#openRoots(),
     push: (notification) => this.#push(notification),
   })
-  /** Update advisories found so far, overlaid on each runtime's own `info`. */
-  readonly #updates = new Map<string, RuntimeUpdate>()
+  /**
+   * Update advisories found so far, each with the version it was measured
+   * against, overlaid on each runtime's own `info` — but only beside that
+   * version. See `#updateFor`.
+   */
+  readonly #updates = new Map<string, { readonly against: string | null; readonly update: RuntimeUpdate | null }>()
+  /**
+   * Runtimes whose advisory is being measured now, so a burst of reads measures
+   * once. The runtime itself, not its id: one registered in its place is
+   * another runtime, and its measurement is its own.
+   */
+  readonly #measuringUpdates = new WeakSet<AgentRuntime>()
   readonly #catalogs: CatalogRefresher
   /** Local sources bound to a runtime by the wiring; see `bindUsage`. */
   readonly #meters = new Map<RuntimeId, UsageMeter>()
@@ -649,6 +659,11 @@ export class Host {
           at: Date.now(),
         })
       },
+      confine: (folder) => this.#confineRoom(folder),
+      /* Straight to the service, not through `worktree/create`'s rule: the
+         room's folder was judged by `confine` before the first seat, on the
+         room's rule, and the folder rule alone would refuse a room made from
+         a linked worktree, which works in the main checkout. */
       isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
       run: (command, where) => runCheck(command, where),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
@@ -758,6 +773,7 @@ export class Host {
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
+      this.#updates.delete(id)
     }
     this.#runtimes.set(id, runtime)
     this.#catalogs.watch(runtime)
@@ -816,11 +832,13 @@ export class Host {
    */
   bindUsage(
     runtime: RuntimeId,
-    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind'] },
+    binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string },
   ): void {
     if (binding.meter) this.#meters.set(runtime, binding.meter)
     if (binding.corpus) {
-      const [spec] = defaultCorpora([{ id: runtime, kind: binding.corpus }])
+      const [spec] = binding.root
+        ? [{ runtime, kind: binding.corpus, root: binding.root }]
+        : defaultCorpora([{ id: runtime, kind: binding.corpus }])
       if (spec) this.#corpora.push(spec)
     }
   }
@@ -1313,6 +1331,7 @@ export class Host {
         openRoots: () => this.#openRoots(),
         fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
@@ -1389,15 +1408,23 @@ export class Host {
    * Where the renderer may read: the workspaces the user opened and the
    * working directories of sessions it is looking at. Everything else is
    * refused before any reader is asked.
+   *
+   * Only those spelled absolutely. Every check that holds a path to these —
+   * `confine`, `#confineGitRoot`, `openRepositoryRoot` — reads a relative one
+   * against this process's working directory, which is no folder anybody
+   * opened. The wire refuses one before it can become a root, but a
+   * conversation's cwd is whatever its agent reports, and one read or reopened
+   * from the agent's store carries the folder the agent wrote down; the
+   * workspaces come back from the state file.
    */
   #openRoots(): string[] {
     return [
       ...this.#state.state.workspaces
         .map((entry) => entry?.path)
-        .filter((path): path is string => typeof path === 'string' && path.length > 0),
+        .filter((path): path is string => typeof path === 'string' && isAbsolute(path)),
       ...this.registry.snapshot()
         .map((session) => session.cwd)
-        .filter((cwd): cwd is string => typeof cwd === 'string' && cwd.length > 0),
+        .filter((cwd): cwd is string => typeof cwd === 'string' && isAbsolute(cwd)),
     ]
   }
 
@@ -1450,6 +1477,31 @@ export class Host {
       }
       throw refusal
     }
+  }
+
+  /**
+   * Where a room may work: in a folder opened here or in a repository opened
+   * here, by the folder rule above or by the repository rule the worktree
+   * verbs answer to, whichever admits it. A room's folder is where its flows
+   * are read from, and where they seat agents and cut worktrees.
+   *
+   * The room dialog asks for both kinds. It names the project of the folder
+   * open (`projectRootOf`), which for a linked worktree is its main checkout:
+   * outside every open folder while only the worktree is open, so the folder
+   * rule refuses it although its repository is open. And a room can be made in
+   * a folder in no repository, which the repository rule has nothing to say
+   * about. Neither rule admits a folder the desk does not already let the
+   * renderer branch in or check out, and both see through links.
+   */
+  async #confineRoom(folder: string): Promise<void> {
+    assertAbsolute(folder)
+    if (await this.#confineGitRoot(folder).then(() => true, () => false)) return
+    if ((await openRepositoryRoot(folder, this.#openRoots()).catch(() => null)) !== null) return
+    // Where it leads, as the folder rule says it: a link in an open folder
+    // otherwise reads as a folder inside it.
+    throw new Error(
+      `${await this.#realPath(folder)} is outside every folder and repository opened here. Open it first.`,
+    )
   }
 
   /**
@@ -3636,20 +3688,31 @@ export class Host {
     return name === null ? row : { ...row, title: name }
   }
 
+  /**
+   * The version a runtime is shown with: its own, or — for a direct agent
+   * (no drives) whose self-reported version is missing or a placeholder —
+   * the one the install service chose (#354). The update advisory is
+   * measured against this same number, so the notice never argues with the
+   * build line above it.
+   */
+  #versionOf(runtime: AgentRuntime): string | null | undefined {
+    const info = runtime.info
+    const placeholder =
+      info.version === null ||
+      info.version === undefined ||
+      /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(info.version.trim())
+    if (info.drives || !placeholder) return info.version
+    return this.options.installs?.last(String(info.id))?.chosen?.version ?? info.version
+  }
+
   #infoOf(runtime: AgentRuntime): RuntimeInfo {
-    const update = this.#updates.get(runtime.info.id)
     const catalogCheckedAt = this.#catalogs.lastChecked(runtime.info.id)
     const accounts = this.options.accounts
     const slot = accounts?.slotOf(runtime.info) ?? null
     const install = this.options.installs?.last(String(runtime.info.id))
     const info = runtime.info
-
-    // For a direct agent (no drives) whose self-reported version is missing or placeholder,
-    // fall back to the install service's chosen version if available (#354).
-    const version =
-      !info.drives && (info.version === null || info.version === undefined || /^(?:0\.0\.0(?:-dev)?|dev|unknown)$/i.test(info.version.trim()))
-        ? install?.chosen?.version ?? info.version
-        : info.version
+    const version = this.#versionOf(runtime)
+    const update = this.#updateFor(runtime, version)
 
     return {
       ...info,
@@ -3682,25 +3745,65 @@ export class Host {
   }
 
   /**
-   * Asks the update source about a runtime that has just come up, and tells
-   * connected clients when the answer changes what they should show. Runs
-   * after `start()` resolves, never on its critical path: an offline machine
-   * must not wait on a registry to open a window.
+   * The advisory for the version a runtime is shown with, or null.
+   *
+   * Only ever one measured against that version. A runtime moves while the
+   * app is open — "Refresh models" restarts an idle one onto a build it
+   * finds on disk, and an app-server can come back up on a new binary — and
+   * an advisory measured before the move is about a build that has gone: it
+   * once put "Codex 0.155.0 is available" under "Codex 0.155.0". So a
+   * version that has not been measured shows nothing, and is measured now;
+   * `#checkForUpdate` tells open windows when the answer differs from what
+   * they were shown.
+   */
+  #updateFor(runtime: AgentRuntime, version: string | null | undefined): RuntimeUpdate | null {
+    if (!this.options.updates) return null
+    const known = this.#updates.get(runtime.info.id)
+    if (known?.against === (version ?? null)) return known.update
+    void this.#checkForUpdate(runtime)
+    return null
+  }
+
+  /**
+   * Measures a runtime's advisory against the version it is shown with, and
+   * tells connected clients when the answer changes what they were shown.
+   * Runs after `start()` resolves and whenever that version moves, never on
+   * a critical path: an offline machine must not wait on a registry to open
+   * a window.
    */
   async #checkForUpdate(runtime: AgentRuntime): Promise<void> {
-    if (!this.options.updates) return
+    const updates = this.options.updates
     const id = runtime.info.id
+    if (!updates || this.#measuringUpdates.has(runtime)) return
+    this.#measuringUpdates.add(runtime)
     try {
-      const update = await this.options.updates.updateFor(runtime.info)
-      const before = this.#updates.get(id)
-      if (update) this.#updates.set(id, update)
-      else this.#updates.delete(id)
-      if (before?.version !== update?.version) {
-        this.#logger.info('runtime update available', { runtime: id, running: runtime.info.version, latest: update?.version ?? null })
-        this.#push({ method: 'runtime/infoChanged', params: { runtime: id, info: this.#infoOf(runtime) } })
+      // A runtime that moves while it is being measured is measured again, a
+      // few times at most: the answer is only worth keeping for the build
+      // it describes. One that is still moving after the last try keeps
+      // nothing, so no notice can be about a build it has left; the version it
+      // ended on is measured by the next read of its description, as any
+      // version not yet measured is.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const against = this.#versionOf(runtime) ?? null
+        const update = await updates.updateFor({ ...runtime.info, version: against })
+        // Removed, or replaced under the same id, while the registry answered.
+        if (this.#runtimes.get(id) !== runtime) return
+        if ((this.#versionOf(runtime) ?? null) !== against) continue
+        const before = this.#updates.get(id)
+        this.#updates.set(id, { against, update })
+        // What a window was shown for this version: the old answer only if it
+        // was measured against it too — otherwise nothing, see `#updateFor`.
+        const shown = before?.against === against ? before.update : null
+        if (shown?.version !== update?.version) {
+          this.#logger.info('runtime update available', { runtime: id, running: against, latest: update?.version ?? null })
+          this.#push({ method: 'runtime/infoChanged', params: { runtime: id, info: this.#infoOf(runtime) } })
+        }
+        return
       }
     } catch (error) {
       this.#logger.debug('update check failed', { runtime: id, error: String(error) })
+    } finally {
+      this.#measuringUpdates.delete(runtime)
     }
   }
 

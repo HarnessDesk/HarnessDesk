@@ -78,6 +78,22 @@ test('a spent lane is passed over', () => {
   assert.match(chosen.passed[0]?.why ?? '', /spent/)
 })
 
+test('a model whose own window is spent is passed over, and the runtime still seats another', () => {
+  // Gemini CLI reports a lane per model, scoped by the model id. With no
+  // account-wide lane that runtime is not spent while another model has room,
+  // so the candidate asking for the spent one has to be told here (#769).
+  const offers = [offer('gemini', { models: ['gemini-2.5-pro', 'gemini-2.5-flash'], spentModels: ['gemini-2.5-pro'] })]
+  const chosen = chooseSeat([seat('gemini', 'gemini-2.5-pro'), seat('gemini', 'gemini-2.5-flash')], offers)
+  assert.equal(chosen.seat?.model, 'gemini-2.5-flash')
+  assert.equal(chosen.passed[0]?.why, "gemini's window for gemini-2.5-pro is spent")
+  // A scope that is not a model id — a group of models — asks nothing of a candidate.
+  const byGroup = chooseSeat([seat('antigravity', 'm1')], [offer('antigravity', { spentModels: ['Gemini Models'] })])
+  assert.equal(byGroup.seat?.runtime, 'antigravity')
+  // And a candidate that names no model is not judged by one.
+  const unnamed = chooseSeat([seat('gemini')], offers)
+  assert.equal(unnamed.seat?.runtime, 'gemini')
+})
+
 test('a model the runtime does not offer is passed over, and the model is named', () => {
   const chosen = chooseSeat([seat('cursor', 'gone', 'high'), seat('claude', 'm1', 'high')], [offer('cursor'), offer('claude')])
   assert.equal(chosen.seat?.runtime, 'claude')
@@ -342,7 +358,7 @@ test('a seat that asks for thinking off is held to it — the allowance for a mo
 
 test('every reason carries what removes it, and the sentence is unchanged', () => {
   const chosen = chooseSeat(
-    ['ghost=m1', 'gone=m1', 'old=m1', 'mute=m1', 'out=m1', 'spent=m1', 'unread=m1', 'cursor=nope', 'cursor=m1/xhigh'].map(
+    ['ghost=m1', 'gone=m1', 'old=m1', 'mute=m1', 'out=m1', 'spent=m1', 'window=m1', 'unread=m1', 'cursor=nope', 'cursor=m1/xhigh'].map(
       written,
     ),
     [
@@ -351,6 +367,7 @@ test('every reason carries what removes it, and the sentence is unchanged', () =
       offer('mute', { silent: 30 }),
       offer('out', { signedIn: false }),
       offer('spent', { spent: true }),
+      offer('window', { spentModels: ['m1'] }),
       offer('unread', { models: null }),
       offer('cursor'),
     ],
@@ -365,6 +382,7 @@ test('every reason carries what removes it, and the sentence is unchanged', () =
       [{ kind: 'noAnswer', after: 30 }, { kind: 'runtime', runtime: 'mute' }],
       [{ kind: 'signedOut' }, { kind: 'signIn', runtime: 'out' }],
       [{ kind: 'spent' }, { kind: 'usage', runtime: 'spent' }],
+      [{ kind: 'spentModel', model: 'm1' }, { kind: 'usage', runtime: 'window' }],
       [{ kind: 'modelsUnread', model: 'm1' }, { kind: 'runtime', runtime: 'unread' }],
       [{ kind: 'noModel', model: 'nope' }, { kind: 'seats' }],
       [{ kind: 'noEffort', effort: 'xhigh' }, { kind: 'seats' }],
@@ -380,6 +398,7 @@ test('every reason carries what removes it, and the sentence is unchanged', () =
       'mute did not answer within 30 ms when asked whether it is signed in',
       'out is signed out',
       "spent's window is spent",
+      "window's window for m1 is spent",
       'cannot tell whether unread offers m1: its model list could not be read',
       'cursor does not offer nope',
       'cursor does not offer xhigh effort',

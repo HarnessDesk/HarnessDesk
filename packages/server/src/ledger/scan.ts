@@ -1,10 +1,12 @@
-import { createReadStream, existsSync } from 'node:fs'
-import { readdir, stat } from 'node:fs/promises'
+import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
+import type { DatabaseSync } from 'node:sqlite'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
+import { readForeignDatabase } from './foreign-db.js'
 import type { UsageRow } from './store.js'
 
 /**
@@ -25,14 +27,37 @@ import type { UsageRow } from './store.js'
  * - **Claude** reports per-message usage with cache counts *beside* input
  *   rather than inside it — and writes the same message id on more than one
  *   line. Summing without dedup double-counts a large share of every session.
+ * - **Qwen Code** appends one record per model call, Claude-style, with the
+ *   Gemini API's `usageMetadata` on it — whose prompt count *includes* the
+ *   cached part, as Codex's does.
+ *
+ * Three more agents keep their records in a shape that is rewritten rather
+ * than appended to, and those are read whole each time they change, their
+ * rows replaced — see `wholeFile`:
+ *
+ * - **Gemini CLI** writes a JSONL log per chat in which a message is written
+ *   again as it fills in, and a rewind hides messages without un-spending them.
+ * - **OpenCode** keeps a SQLite database with each session's tokens and the
+ *   cost it priced them at.
+ * - **Cline** keeps a SQLite database with each session's usage and the cost
+ *   Cline billed for it.
  */
+
+/** Which agent's own records a runtime's spend is read from, and so how they are read. */
+export type CorpusKind = 'codex' | 'claude' | 'gemini' | 'qwen' | 'opencode' | 'cline'
+
+/**
+ * Formats an agent rewrites rather than appends to. Each changed file is read
+ * from its start and its rows replaced, which the file-keyed rows make safe.
+ */
+export const wholeFile = (kind: CorpusKind): boolean => kind === 'gemini' || kind === 'opencode' || kind === 'cline'
 
 export interface ScanTarget {
   readonly runtime: string
   readonly path: string
   readonly size: number
   readonly mtime: number
-  readonly kind: 'codex' | 'claude'
+  readonly kind: CorpusKind
 }
 
 export interface ScanResult {
@@ -53,38 +78,45 @@ const TAIL = 64
  * session and the repository root the next — and grouping on it splits one
  * project into a dozen rows nobody recognises. The nearest enclosing
  * repository is what a person means by "project", the same rule the sidebar
- * already follows.
+ * already follows; a folder with no repository above it is its own project.
  *
  * Memoised for the life of the process: a scan asks about the same few
- * directories thousands of times.
+ * directories thousands of times. What is remembered for each folder walked is
+ * the repository at or above it, or that there is none — never the answer for
+ * the folder the walk began at. Remembering that answer for the ancestors too,
+ * as this once did, filed every later folder with no repository under the first
+ * such folder seen: `/work/a` then `/work/b` both came back `/work/a`, because
+ * the walk from `b` stopped at `/work` and took what was cached there.
  */
-const roots = new Map<string, string>()
+const repositories = new Map<string, string | null>()
 
-export const projectRootOf = (cwd: string): string => {
-  if (cwd === '') return ''
-  const known = roots.get(cwd)
-  if (known !== undefined) return known
-  let dir = cwd
+const repositoryAbove = (start: string): string | null => {
   const walked: string[] = []
+  let dir = start
+  let found: string | null
   for (;;) {
-    const cached = roots.get(dir)
+    const cached = repositories.get(dir)
     if (cached !== undefined) {
-      for (const step of walked) roots.set(step, cached)
-      return cached
+      found = cached
+      break
     }
     walked.push(dir)
-    if (existsSync(join(dir, '.git'))) break
+    if (existsSync(join(dir, '.git'))) {
+      found = dir
+      break
+    }
     const parent = dirname(dir)
     if (parent === dir) {
-      // No repository above it: the directory is its own project.
-      for (const step of walked) roots.set(step, cwd)
-      return cwd
+      found = null
+      break
     }
     dir = parent
   }
-  for (const step of walked) roots.set(step, dir)
-  return dir
+  for (const step of walked) repositories.set(step, found)
+  return found
 }
+
+export const projectRootOf = (cwd: string): string => (cwd === '' ? '' : (repositoryAbove(cwd) ?? cwd))
 
 const startOfDay = (at: number): number => {
   const date = new Date(at)
@@ -103,12 +135,23 @@ const add = (
   at: number,
   model: string,
   project: string,
-  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number },
+  tokens: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    reasoning: number
+    /** What the agent itself says these requests cost, when it says. */
+    vendorCost?: number | null
+  },
 ): void => {
   const day = startOfDay(at)
+  const vendorCost = tokens.vendorCost ?? null
   // A separator that cannot occur in a model id or a path, so two rows
-  // never collide on a key.
-  const key = `${day}\u0000${model}\u0000${project}`
+  // never collide on a key. Requests the agent priced and requests it did not
+  // never share a row either: a sum of both has no honest cost, and would call
+  // the unpriced ones the agent's own.
+  const key = `${day}\u0000${model}\u0000${project}\u0000${vendorCost === null ? 0 : 1}`
   const existing = into.rows.get(key)
   if (existing) {
     into.rows.set(key, {
@@ -119,6 +162,7 @@ const add = (
       cacheWrite: existing.cacheWrite + tokens.cacheWrite,
       reasoning: existing.reasoning + tokens.reasoning,
       requests: existing.requests + 1,
+      vendorCost: sumCost(existing.vendorCost ?? null, vendorCost),
     })
     return
   }
@@ -134,8 +178,13 @@ const add = (
     cacheWrite: tokens.cacheWrite,
     reasoning: tokens.reasoning,
     requests: 1,
+    vendorCost,
   })
 }
+
+/** Null only when neither side was priced by the agent. */
+export const sumCost = (a: number | null, b: number | null): number | null =>
+  a === null && b === null ? null : (a ?? 0) + (b ?? 0)
 
 const positive = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
@@ -403,14 +452,377 @@ export const scanClaudeTranscript = async (
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
 }
 
-export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[]): Promise<ScanResult> =>
-  target.kind === 'codex' ? scanCodexRollout(target, offset, tail) : scanClaudeTranscript(target, offset, tail)
+/** The Gemini API's own counts, which Qwen Code records as it received them. */
+interface GeminiUsage {
+  readonly promptTokenCount?: number
+  readonly candidatesTokenCount?: number
+  readonly cachedContentTokenCount?: number
+  readonly thoughtsTokenCount?: number
+  readonly toolUsePromptTokenCount?: number
+}
+
+interface QwenRecord {
+  readonly uuid?: string
+  readonly type?: string
+  readonly timestamp?: string
+  readonly cwd?: string
+  readonly model?: string
+  readonly usageMetadata?: GeminiUsage
+}
+
+/**
+ * The Gemini API's arithmetic, as both Qwen Code and Gemini CLI inherit it:
+ * the prompt count *includes* the cached part, thinking is counted apart from
+ * the answer and billed as output, and a tool-use prompt is counted apart from
+ * the prompt and billed as input.
+ */
+const fromGeminiCounts = (counts: {
+  prompt: number
+  cached: number
+  answer: number
+  thoughts: number
+  tool: number
+}): { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number } => ({
+  input: Math.max(0, counts.prompt - counts.cached) + counts.tool,
+  cacheRead: Math.min(counts.cached, counts.prompt),
+  cacheWrite: 0,
+  output: counts.answer + counts.thoughts,
+  reasoning: counts.thoughts,
+})
+
+export const scanQwenTranscript = async (
+  target: ScanTarget,
+  offset: number,
+  tail: readonly string[],
+): Promise<ScanResult> => {
+  const into: Accumulator = { rows: new Map() }
+  const seen = new Set<string>(tail)
+  const order: string[] = [...tail]
+  const consumed = await readLines(target.path, offset, (raw) => {
+    const record = raw as QwenRecord
+    if (record.type !== 'assistant') return
+    const usage = record.usageMetadata
+    if (!usage) return
+    // One record per model call; a resumed or rewound session writes new
+    // records rather than repeating old ones, but a split scan must not count
+    // the one at its seam twice.
+    const id = record.uuid
+    if (typeof id === 'string' && id !== '') {
+      if (seen.has(id)) return
+      seen.add(id)
+      order.push(id)
+    }
+    const at = parseTime(record.timestamp)
+    if (at === null) return
+    const model = record.model
+    if (typeof model !== 'string' || model === '') return
+    add(
+      into,
+      target.path,
+      target.runtime,
+      at,
+      model,
+      projectRootOf(record.cwd ?? ''),
+      fromGeminiCounts({
+        prompt: positive(usage.promptTokenCount),
+        cached: positive(usage.cachedContentTokenCount),
+        answer: positive(usage.candidatesTokenCount),
+        thoughts: positive(usage.thoughtsTokenCount),
+        tool: positive(usage.toolUsePromptTokenCount),
+      }),
+    )
+  })
+  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
+}
+
+interface GeminiMessage {
+  readonly id?: string
+  readonly type?: string
+  readonly timestamp?: string
+  readonly model?: string
+  readonly tokens?: {
+    readonly input?: number
+    readonly output?: number
+    readonly cached?: number
+    readonly thoughts?: number
+    readonly tool?: number
+  }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object'
+
+/**
+ * The folder Gemini CLI keeps a project's chats in names that project in a
+ * `.project_root` file beside `chats/` — the path itself, not a hash of it.
+ */
+const geminiProjects = new Map<string, string>()
+
+const geminiProjectOf = (chatFile: string): string => {
+  const folder = dirname(dirname(chatFile))
+  const known = geminiProjects.get(folder)
+  if (known !== undefined) return known
+  let project = ''
+  try {
+    const root = readFileSync(join(folder, '.project_root'), 'utf8').trim()
+    if (root !== '') project = projectRootOf(root)
+  } catch {
+    // An older layout, or a chat moved by hand: the spend still counts.
+  }
+  geminiProjects.set(folder, project)
+  return project
+}
+
+/**
+ * One Gemini CLI chat, read whole.
+ *
+ * Measured on Gemini CLI 0.59 and 0.60 (`chatRecordingService.ts`): the log is
+ * JSONL, but a message is written again each time it fills in — the reply
+ * first, its token counts when the call completes — so the last record of an
+ * id is the one that counts. A `$rewindTo` record hides messages from the
+ * conversation, and a `$set` with `messages` is a checkpoint that restates
+ * them; neither un-spends a call that was made, so both are read as more
+ * copies of messages already seen and nothing is subtracted.
+ */
+export const scanGeminiChat = async (target: ScanTarget): Promise<ScanResult> => {
+  const text = await readFile(target.path, 'utf8')
+  const calls = new Map<string, GeminiMessage>()
+  const note = (message: unknown): void => {
+    if (!isRecord(message)) return
+    const candidate = message as GeminiMessage
+    if (candidate.type !== 'gemini' || !isRecord(candidate.tokens)) return
+    if (typeof candidate.id !== 'string' || candidate.id === '') return
+    calls.set(candidate.id, candidate)
+  }
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    let record: unknown
+    try {
+      record = JSON.parse(trimmed)
+    } catch {
+      // A half-written last line; the next change rereads the whole file.
+      continue
+    }
+    if (!isRecord(record)) continue
+    const set = record['$set']
+    if (isRecord(set) && Array.isArray(set['messages'])) {
+      for (const message of set['messages']) note(message)
+      continue
+    }
+    note(record)
+  }
+  const into: Accumulator = { rows: new Map() }
+  const project = geminiProjectOf(target.path)
+  for (const call of calls.values()) {
+    const at = parseTime(call.timestamp)
+    if (at === null) continue
+    if (typeof call.model !== 'string' || call.model === '') continue
+    const tokens = call.tokens ?? {}
+    add(
+      into,
+      target.path,
+      target.runtime,
+      at,
+      call.model,
+      project,
+      fromGeminiCounts({
+        prompt: positive(tokens.input),
+        cached: positive(tokens.cached),
+        answer: positive(tokens.output),
+        thoughts: positive(tokens.thoughts),
+        tool: positive(tokens.tool),
+      }),
+    )
+  }
+  return { rows: [...into.rows.values()], offset: target.size, tail: [] }
+}
+
+/** The columns a query needs, or a reason the table is not the shape measured. */
+const requireColumns = (
+  database: { prepare(sql: string): { all(): unknown[] } },
+  table: string,
+  columns: readonly string[],
+): void => {
+  const present = new Set(
+    (database.prepare(`PRAGMA table_info("${table}")`).all() as { name?: unknown }[]).map((column) => column.name),
+  )
+  const missing = columns.filter((column) => !present.has(column))
+  if (missing.length > 0) throw new Error(`${table} has no ${missing.join(', ')}: not the shape this reads`)
+}
+
+/**
+ * One consistent read of another application's database — see
+ * `readForeignDatabase` for what makes it consistent and why nothing is written
+ * beside it. A file that is not one throws here, so a scan fails loudly and
+ * keeps its previous rows rather than replacing them with nothing.
+ */
+const readForeign = <T>(path: string, read: (database: DatabaseSync) => T): T => {
+  const value = readForeignDatabase(path, read)
+  if (value === null) throw new Error('the database could not be opened for reading')
+  return value
+}
+
+const OPENCODE_COLUMNS = [
+  'directory',
+  'model',
+  'cost',
+  'tokens_input',
+  'tokens_output',
+  'tokens_reasoning',
+  'tokens_cache_read',
+  'tokens_cache_write',
+  'time_updated',
+] as const
+
+interface OpencodeSession {
+  readonly directory: string | null
+  readonly model: string | null
+  readonly cost: number | null
+  readonly tokens_input: number | null
+  readonly tokens_output: number | null
+  readonly tokens_reasoning: number | null
+  readonly tokens_cache_read: number | null
+  readonly tokens_cache_write: number | null
+  readonly time_updated: number | null
+}
+
+/** OpenCode stores the model as `{"id":"big-pickle","providerID":"opencode"}`. */
+const opencodeModel = (value: string | null): string => {
+  if (typeof value !== 'string' || value === '') return 'unknown'
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (isRecord(parsed) && typeof parsed['id'] === 'string' && parsed['id'] !== '') return parsed['id']
+  } catch {
+    // A bare id, as older rows may have it.
+  }
+  return value
+}
+
+/**
+ * OpenCode's sessions, read from its own database.
+ *
+ * Measured on OpenCode 1.18 (`opencode.db`): the `session` table carries each
+ * session's totals — tokens and the `cost` OpenCode priced them at — beside its
+ * model and folder. OpenCode's input excludes the cache and its output excludes
+ * reasoning, both counted apart; reasoning is billed as output, so it is added
+ * back. The cost is OpenCode's, including the zero of a free model, and is
+ * kept as that rather than re-priced. A session's spend falls on the day it was
+ * last touched: the table keeps totals, not calls.
+ */
+export const scanOpencodeDatabase = async (target: ScanTarget): Promise<ScanResult> => {
+  const sessions = readForeign(target.path, (database) => {
+    requireColumns(database, 'session', OPENCODE_COLUMNS)
+    return database.prepare(`SELECT ${OPENCODE_COLUMNS.join(', ')} FROM session`).all() as unknown as OpencodeSession[]
+  })
+  const into: Accumulator = { rows: new Map() }
+  for (const session of sessions) {
+    const at = typeof session.time_updated === 'number' && session.time_updated > 0 ? session.time_updated : null
+    if (at === null) continue
+    const reasoning = positive(session.tokens_reasoning)
+    const tokens = {
+      input: positive(session.tokens_input),
+      output: positive(session.tokens_output) + reasoning,
+      cacheRead: positive(session.tokens_cache_read),
+      cacheWrite: positive(session.tokens_cache_write),
+      reasoning,
+    }
+    const cost = typeof session.cost === 'number' && Number.isFinite(session.cost) && session.cost >= 0 ? session.cost : null
+    if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0 && !cost) continue
+    add(into, target.path, target.runtime, at, opencodeModel(session.model), projectRootOf(session.directory ?? ''), {
+      ...tokens,
+      vendorCost: cost,
+    })
+  }
+  return { rows: [...into.rows.values()], offset: target.size, tail: [] }
+}
+
+const CLINE_COLUMNS = ['model', 'cwd', 'workspace_root', 'started_at', 'updated_at', 'metadata_json'] as const
+
+interface ClineSession {
+  readonly model: string | null
+  readonly cwd: string | null
+  readonly workspace_root: string | null
+  readonly started_at: string | null
+  readonly updated_at: string | null
+  readonly metadata_json: string | null
+}
+
+interface ClineUsage {
+  readonly inputTokens?: number
+  readonly outputTokens?: number
+  readonly cacheReadTokens?: number
+  readonly cacheWriteTokens?: number
+  readonly totalCost?: number
+}
+
+/**
+ * Cline's sessions, read from its own database.
+ *
+ * Measured on Cline CLI 3.0.62 (`<data>/db/sessions.db`): each session's
+ * `metadata_json` carries its own `usage` — tokens and the `totalCost` Cline
+ * billed — and an `aggregateUsage` that adds its subagents'. Subagents are
+ * sessions of their own in the same table, so only `usage` is read, or every
+ * subagent would count twice. Like OpenCode's, the figure is a session total,
+ * and falls on the day the session was last touched.
+ */
+export const scanClineDatabase = async (target: ScanTarget): Promise<ScanResult> => {
+  const sessions = readForeign(target.path, (database) => {
+    requireColumns(database, 'sessions', CLINE_COLUMNS)
+    return database.prepare(`SELECT ${CLINE_COLUMNS.join(', ')} FROM sessions`).all() as unknown as ClineSession[]
+  })
+  const into: Accumulator = { rows: new Map() }
+  for (const session of sessions) {
+    let usage: ClineUsage = {}
+    try {
+      const metadata: unknown = JSON.parse(session.metadata_json ?? '{}')
+      if (isRecord(metadata) && isRecord(metadata['usage'])) usage = metadata['usage'] as ClineUsage
+    } catch {
+      continue
+    }
+    const at = parseTime(session.updated_at ?? undefined) ?? parseTime(session.started_at ?? undefined)
+    if (at === null) continue
+    const tokens = {
+      input: positive(usage.inputTokens),
+      output: positive(usage.outputTokens),
+      cacheRead: positive(usage.cacheReadTokens),
+      cacheWrite: positive(usage.cacheWriteTokens),
+      reasoning: 0,
+    }
+    const cost =
+      typeof usage.totalCost === 'number' && Number.isFinite(usage.totalCost) && usage.totalCost >= 0 ? usage.totalCost : null
+    if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0 && !cost) continue
+    const model = typeof session.model === 'string' && session.model !== '' ? session.model : 'unknown'
+    add(into, target.path, target.runtime, at, model, projectRootOf(session.workspace_root || session.cwd || ''), {
+      ...tokens,
+      vendorCost: cost,
+    })
+  }
+  return { rows: [...into.rows.values()], offset: target.size, tail: [] }
+}
+
+export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[]): Promise<ScanResult> => {
+  switch (target.kind) {
+    case 'codex':
+      return scanCodexRollout(target, offset, tail)
+    case 'claude':
+      return scanClaudeTranscript(target, offset, tail)
+    case 'qwen':
+      return scanQwenTranscript(target, offset, tail)
+    case 'gemini':
+      return scanGeminiChat(target)
+    case 'opencode':
+      return scanOpencodeDatabase(target)
+    case 'cline':
+      return scanClineDatabase(target)
+  }
+}
 
 /** Every `.jsonl` under a root, with the stats a cursor needs. */
 const walkJsonl = async (
   root: string,
   limit: number,
   unreadable: (folder: string, error: unknown) => void,
+  keep: (path: string) => boolean = () => true,
 ): Promise<{ path: string; size: number; mtime: number }[]> => {
   const found: { path: string; size: number; mtime: number }[] = []
   const visit = async (dir: string, depth: number): Promise<void> => {
@@ -438,7 +850,7 @@ const walkJsonl = async (
         await visit(full, depth + 1)
         continue
       }
-      if (!entry.name.endsWith('.jsonl')) continue
+      if (!entry.name.endsWith('.jsonl') || !keep(full)) continue
       try {
         const info = await stat(full)
         found.push({ path: full, size: info.size, mtime: Math.round(info.mtimeMs) })
@@ -453,20 +865,66 @@ const walkJsonl = async (
 
 export interface CorpusSpec {
   readonly runtime: string
+  /** A folder of transcripts, or — for a database-backed kind — the database file. */
   readonly root: string
-  readonly kind: 'codex' | 'claude'
+  readonly kind: CorpusKind
 }
 
-/** Where each agent keeps its own transcripts. Roots, not credentials. */
-export const defaultCorpora = (runtimes: readonly { id: string; kind: 'codex' | 'claude' }[]): CorpusSpec[] =>
-  runtimes.map(({ id, kind }) => ({
-    runtime: id,
-    kind,
-    root:
-      kind === 'codex'
-        ? join(process.env['CODEX_HOME'] ?? join(homedir(), '.codex'), 'sessions')
-        : join(process.env['CLAUDE_CONFIG_DIR'] ?? homedir(), '.claude', 'projects'),
-  }))
+/** Where each agent keeps its own records. Roots, not credentials, and each one the agent's own override moves. */
+export const corpusRoot = (kind: CorpusKind, env: NodeJS.ProcessEnv = process.env, home = homedir()): string => {
+  const set = (name: string): string | null => {
+    const value = env[name]?.trim()
+    return value ? value : null
+  }
+  switch (kind) {
+    case 'codex':
+      return join(set('CODEX_HOME') ?? join(home, '.codex'), 'sessions')
+    case 'claude':
+      return join(set('CLAUDE_CONFIG_DIR') ?? home, '.claude', 'projects')
+    case 'gemini':
+      // `GEMINI_CLI_HOME` stands in for the home folder, not for `.gemini`.
+      return join(set('GEMINI_CLI_HOME') ?? home, '.gemini', 'tmp')
+    case 'qwen':
+      return join(set('QWEN_HOME') ?? join(home, '.qwen'), 'projects')
+    case 'opencode':
+      return join(set('XDG_DATA_HOME') ?? join(home, '.local', 'share'), 'opencode', 'opencode.db')
+    case 'cline': {
+      const data = set('CLINE_DATA_DIR') ?? join(set('CLINE_DIR') ?? join(home, '.cline'), 'data')
+      return join(set('CLINE_DB_DATA_DIR') ?? join(data, 'db'), 'sessions.db')
+    }
+  }
+}
+
+export const defaultCorpora = (runtimes: readonly { id: string; kind: CorpusKind }[]): CorpusSpec[] =>
+  runtimes.map(({ id, kind }) => ({ runtime: id, kind, root: corpusRoot(kind) }))
+
+/** Both agents that write chat logs keep them in a `chats` folder, beside files that are not chats. */
+const inChats = (path: string): boolean => basename(dirname(path)) === 'chats'
+
+/**
+ * A database-backed corpus is one target whose size and time cover its
+ * write-ahead log too: a WAL database takes its writes there, and the main
+ * file can sit unchanged for as long as its owner runs.
+ */
+const databaseTarget = async (path: string): Promise<{ path: string; size: number; mtime: number } | null> => {
+  let main
+  try {
+    main = await stat(path)
+  } catch {
+    return null
+  }
+  if (!main.isFile()) return null
+  let size = main.size
+  let mtime = main.mtimeMs
+  try {
+    const wal = await stat(`${path}-wal`)
+    size += wal.size
+    mtime = Math.max(mtime, wal.mtimeMs)
+  } catch {
+    // No log: every write is in the main file.
+  }
+  return { path, size, mtime: Math.round(mtime) }
+}
 
 export const listTargets = async (
   corpora: readonly CorpusSpec[],
@@ -480,7 +938,13 @@ export const listTargets = async (
   const unreadable = options.unreadable ?? (() => {})
   const targets: ScanTarget[] = []
   for (const corpus of corpora) {
-    for (const file of await walkJsonl(corpus.root, limit, unreadable)) {
+    if (corpus.kind === 'opencode' || corpus.kind === 'cline') {
+      const database = await databaseTarget(corpus.root)
+      if (database) targets.push({ runtime: corpus.runtime, kind: corpus.kind, ...database })
+      continue
+    }
+    const keep = corpus.kind === 'gemini' || corpus.kind === 'qwen' ? inChats : undefined
+    for (const file of await walkJsonl(corpus.root, limit, unreadable, keep)) {
       targets.push({ runtime: corpus.runtime, kind: corpus.kind, ...file })
     }
   }

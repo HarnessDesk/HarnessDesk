@@ -806,5 +806,7 @@ export class AgentDirectory {
 
 export interface AgentUsageBinding {
   readonly meter?: import('./usage/meter.js').UsageMeter
-  readonly corpus?: 'codex' | 'claude'
+  readonly corpus?: import('./ledger/scan.js').CorpusKind
+  /** Where the corpus is, when the agent's own environment moved it. */
+  readonly root?: string
 }

@@ -741,6 +741,9 @@ export const GitControl = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  // This control's own conversation — a room column's member, not whichever
+  // one the window has focused — so a review is of the changes it names.
+  const key = useSessionKey()
   const runtime = useRuntime()
   // A draft pointed at a worktree will start there, and one armed with a new
   // worktree will start in the one it cuts — so that is where this says it
@@ -894,12 +897,12 @@ export const GitControl = ({
               onSelect={onRemoveWorktree}
             />
           )}
-          {session && runtime.capabilities.review && (
+          {session && key && runtime.capabilities.review && (
             <MenuItem
               icon={<ReviewIcon size={16} />}
               label="Review uncommitted changes"
               title="On a side thread, leaving this one as it is."
-              onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' })}
+              onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
             />
           )}
           {session && (

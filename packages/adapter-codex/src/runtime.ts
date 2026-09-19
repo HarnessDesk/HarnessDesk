@@ -1,4 +1,5 @@
 import { realpathSync } from 'node:fs'
+import { homedir } from 'node:os'
 import {
   CodexAppServer,
   CodexError,
@@ -32,6 +33,7 @@ import {
   type OptionValue,
   type Page,
   type RateLimits,
+  type ResolvedModelRoute,
   type RuntimeHealth,
   type RuntimeId,
   type RuntimeInfo,
@@ -48,6 +50,7 @@ import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse 
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
 import { CodexExtensions } from './extensions.js'
+import { readHistory } from './history.js'
 import { iconDataUri } from './icon-uri.js'
 import { CodexProcesses } from './processes.js'
 import { CodexTasks } from './tasks.js'
@@ -70,6 +73,7 @@ import {
   type ThreadState,
 } from './mapping/options.js'
 import { CODEX_RUNTIME_ID, mapSession, mapSummary } from './mapping/session.js'
+import { ReviewTurns } from './review-turns.js'
 import { salvageSession } from './salvage.js'
 import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
@@ -230,6 +234,8 @@ export class CodexRuntime implements AgentRuntime {
   /** The shell sessions a thread has left running; see `RuntimeTasks`. */
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
+  /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
+  readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #version: string | null = null
@@ -286,8 +292,12 @@ export class CodexRuntime implements AgentRuntime {
 
     this.#disposeServer.push(
       this.#server.onNotification((notification) => {
-        this.#track(notification)
-        for (const event of mapNotification(notification, this.#id)) this.#emit(event)
+        // A review's turn is told as any other turn is before anything reads
+        // it; see `ReviewTurns`.
+        for (const seen of this.#reviewTurns.see(notification)) {
+          this.#track(seen)
+          for (const event of mapNotification(seen, this.#id)) this.#emit(event)
+        }
       }),
       this.#server.onServerRequest((request, responder) =>
         this.#onServerRequest(request, responder),
@@ -491,7 +501,11 @@ export class CodexRuntime implements AgentRuntime {
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
   ): Promise<readonly ConfigOption[]> {
-    const where = cwd ?? process.cwd()
+    // Named no folder, the draft is read as the user's own, as the ACP
+    // adapter's is. This process's working directory depends on how the app
+    // was started — `/` from Finder, the checkout under `pnpm dev` — so a
+    // project layer found there was a default nobody chose.
+    const where = cwd ?? homedir()
     const [{ config }, catalog] = await Promise.all([
       this.#server.request('config/read', { cwd: where }),
       this.#catalog.load(where),
@@ -766,18 +780,17 @@ export class CodexRuntime implements AgentRuntime {
   /**
    * Reads a full transcript without making the session live.
    *
-   * `thread/read` returns turns but may leave their items unloaded, so any turn
-   * that comes back short is paged through explicitly. Real threads reach
-   * several hundred items, well past one page.
+   * The thread first, without its turns, for how it keeps its history; then
+   * its history, read the way that says (`readHistory`). Reading it whole in
+   * one call is what Codex deprecated for a paginated thread — every thread
+   * it has started since 0.151.0 — and each one opened here raised the
+   * deprecation as a toast.
    */
   async readSession(id: SessionId): Promise<Session> {
     let thread: CodexProtocol.v2.Thread
     try {
-      const response = await this.#server.request('thread/read', {
-        threadId: id,
-        includeTurns: true,
-      })
-      thread = response.thread
+      const { thread: head } = await this.#server.request('thread/read', { threadId: id })
+      thread = { ...head, turns: await readHistory(this.#server, head) }
     } catch (error) {
       // Codex refuses a whole thread over one item it cannot deserialize — a
       // rollout saved by a newer build. The file itself still reads line by
@@ -791,46 +804,18 @@ export class CodexRuntime implements AgentRuntime {
       }
       throw error
     }
-    const turns: CodexProtocol.v2.Turn[] = []
-    for (const turn of thread.turns) {
-      if (turn.itemsView === 'full') {
-        turns.push(turn)
-        continue
-      }
-      turns.push({ ...turn, items: await this.#loadTurnItems(id, turn.id), itemsView: 'full' })
-    }
-    return mapSession(
-      { ...thread, turns },
-      {
-        runtime: this.#id,
-        skip: this.#automatic(),
-        itemsLoaded: true,
-        // Codex answers `thread/read` with no token figures whatsoever, so the
-        // last ones it reported are carried across from the live session — the
-        // read path `AcpSession` already has. A thread this process never
-        // opened has none, and the ring stays off until its next turn.
-        usage: this.#sessions.get(id)?.usage ?? null,
-      },
-    )
-  }
-
-  async #loadTurnItems(
-    id: SessionId,
-    turn: string,
-  ): Promise<CodexProtocol.v2.ThreadItem[]> {
-    const items: CodexProtocol.v2.ThreadItem[] = []
-    let cursor: string | null = null
-    do {
-      const page: CodexProtocol.v2.ThreadItemsListResponse = await this.#server.request(
-        'thread/items/list',
-        { threadId: id, turnId: turn, cursor, limit: 200 },
-      )
-      // 0.149.0 pages entries rather than bare items, each tagged with the turn
-      // it belongs to; the request is already scoped to one turn.
-      items.push(...page.data.map((entry) => entry.item))
-      cursor = page.nextCursor
-    } while (cursor)
-    return items
+    return mapSession(thread, {
+      runtime: this.#id,
+      skip: this.#automatic(),
+      // Whole by construction when paged. A turn read whole says for itself,
+      // and no Codex measured has answered one short.
+      itemsLoaded: thread.turns.every((turn) => turn.itemsView === 'full'),
+      // Codex answers `thread/read` with no token figures whatsoever, so the
+      // last ones it reported are carried across from the live session — the
+      // read path `AcpSession` already has. A thread this process never
+      // opened has none, and the ring stays off until its next turn.
+      usage: this.#sessions.get(id)?.usage ?? null,
+    })
   }
 
   async archiveSession(id: SessionId, archived: boolean): Promise<void> {
@@ -872,8 +857,56 @@ export class CodexRuntime implements AgentRuntime {
       ...this.#developerInstructions(),
       ...start,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, true)
+    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
+      created: true,
+      route: options.route ?? null,
+    })
     return this.#applyAfterStart(session, after)
+  }
+
+  /**
+   * A new thread set up like `like`, for work that has to leave `like` as it
+   * is — the review on a side thread (`CodexSession.review`).
+   *
+   * Started as a new conversation is: this desk's plugin tools and standing
+   * instruction, and registered here, so its turns, approvals and settings
+   * reach the interface like any other thread's. It is set up with what Codex
+   * last said of `like`, and with `like`'s route when it has one; both speak
+   * in `config`, the sandbox its details and the route its provider. A
+   * sandbox the start could not say follows as a settings update, and so do
+   * mode and effort, each only where the new thread does not already have it
+   * — judged just before it is sent, because a mode brings an effort with it,
+   * so an effort that matched at the start may not once the mode has moved.
+   * One Codex refuses closes the thread and says why, as a new
+   * conversation's would.
+   */
+  async #startBeside(like: CodexSession): Promise<CodexSession> {
+    const { start, route, sandbox, after } = like.startLike()
+    const projection = new ToolProjection()
+    const dynamicTools = this.#projectTools(projection, { workspaceRoot: start.cwd })
+    const routed = route ? routeParams(route) : null
+    const response = await this.#server.request('thread/start', {
+      ...start,
+      ...(routed ? { modelProvider: routed.modelProvider } : {}),
+      ...(start.config || routed ? { config: { ...start.config, ...routed?.config } } : {}),
+      ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
+      ...this.#developerInstructions(),
+    })
+    const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
+      created: true,
+      route,
+    })
+    try {
+      if (sandbox) await session.setSandbox(sandbox)
+      for (const [id, value] of after) {
+        if (findOption(session.options(), id)?.currentValue === value) continue
+        await session.setOption(id, value)
+      }
+    } catch (error) {
+      await session.close()
+      throw error
+    }
+    return session
   }
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
@@ -887,6 +920,8 @@ export class CodexRuntime implements AgentRuntime {
         ...(options.cwd ? { cwd: options.cwd } : {}),
         ...this.#developerInstructions(),
         ...start,
+        // The caller reads the transcript itself (`readSession`), and asked
+        // for here a paginated thread's turns draw a deprecationNotice.
         excludeTurns: true,
       })
     } catch (error) {
@@ -895,7 +930,9 @@ export class CodexRuntime implements AgentRuntime {
     // `dynamicTools` is only accepted on thread/start, so a resumed thread keeps
     // whatever tool set it was created with. The session reports that as stale
     // rather than pretending newly loaded plugins are available.
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
+    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
+      route: options.route ?? null,
+    })
     return this.#applyAfterStart(session, after)
   }
 
@@ -928,6 +965,13 @@ export class CodexRuntime implements AgentRuntime {
     )
   }
 
+  /**
+   * Forks a thread, arriving with the history it copied: the fork is shown
+   * from the turns its `session/started` carries, and nothing reads it again.
+   * Those turns are read the way the fork keeps them (`readHistory`), not
+   * taken from `thread/fork` itself — asked for there, a paginated source's
+   * are answered with a deprecationNotice.
+   */
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
     const { start, after } = startParamsFor(options)
     const response = await this.#server.request('thread/fork', {
@@ -935,9 +979,40 @@ export class CodexRuntime implements AgentRuntime {
       ...(options.cwd ? { cwd: options.cwd } : {}),
       ...this.#developerInstructions(),
       ...start,
+      excludeTurns: true,
     })
-    const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection())
+    const session = await this.#register(
+      { ...response.thread, turns: await this.#forkedHistory(response.thread) },
+      stateFromStartResponse(response),
+      new ToolProjection(),
+      { route: options.route ?? null },
+    )
     return this.#applyAfterStart(session, after)
+  }
+
+  /**
+   * The turns a fork was made with. The fork exists whether or not they can
+   * be read, so one that cannot is opened without them, which its
+   * `session/started` already calls unloaded. Nothing reads a fork again on
+   * its own, and an empty pane reads as a new conversation, so the person is
+   * told what loads it: choosing it in the sidebar, which reads it
+   * (`openSession`), even while it is the conversation on screen.
+   */
+  async #forkedHistory(fork: CodexProtocol.v2.Thread): Promise<CodexProtocol.v2.Turn[]> {
+    try {
+      return await readHistory(this.#server, fork)
+    } catch (error) {
+      this.#logger?.warn?.(`codex could not read the history of fork ${fork.id}`, {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      this.#emit({
+        type: 'notice',
+        sessionId: makeSessionId(fork.id),
+        level: 'warning',
+        message: 'The branch was made, but its history could not be read. Choose it in the sidebar to load it.',
+      })
+      return []
+    }
   }
 
   /**
@@ -972,8 +1047,16 @@ export class CodexRuntime implements AgentRuntime {
     thread: CodexProtocol.v2.Thread,
     state: ThreadState,
     projection: ToolProjection,
-    created = false,
+    opened: {
+      /** Started here rather than resumed or forked — see `CodexSessionDeps.created`. */
+      readonly created?: boolean
+      /** The model route it was opened on, which a thread set up like it needs again. */
+      readonly route?: ResolvedModelRoute | null
+    } = {},
   ): Promise<CodexSession> {
+    const created = opened.created ?? false
+    // Whatever was heard of this thread before it was opened here is over.
+    this.#reviewTurns.forget(thread.id)
     const catalog = await this.#catalog.load(state.cwd)
     const session = new CodexSession({
       runtime: this.#id,
@@ -984,10 +1067,14 @@ export class CodexRuntime implements AgentRuntime {
       catalog,
       projection,
       created,
+      route: opened.route ?? null,
+      startBeside: (like) => this.#startBeside(like),
+      interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
       ...(this.#capabilities ? { capabilities: this.#capabilities } : {}),
       onClosed: (id) => {
         this.#sessions.delete(id)
+        this.#reviewTurns.forget(id)
         this.tasks.forget(id)
       },
       emit: (event) => this.#emit(event),
@@ -1265,6 +1352,7 @@ export class CodexRuntime implements AgentRuntime {
       // never arrive. The catalogue goes too: the new process asks its vendor
       // afresh, and may be answered differently — or be a different binary.
       this.#sessions.clear()
+      this.#reviewTurns.clear()
       this.tasks.dispose()
       this.#catalog.invalidate()
       this.#catalog.forgetWarning()
@@ -1336,27 +1424,31 @@ const startParamsFor = (
     start: {
       ...(options.model ? { model: options.model } : {}),
       ...start,
-      // A model route becomes a provider defined only for this thread, via
-      // thread/start's dotted config overrides — the user's own config.toml
-      // is never written (probed working: script/probe/appserver-inject.mjs).
-      // The gateway token rides the base URL, so the provider needs no
-      // env_key and nothing lands in this process's environment.
-      ...(route
-        ? {
-            modelProvider: ROUTE_PROVIDER,
-            ...(route.model ? { model: route.model } : {}),
-            config: {
-              [`model_providers.${ROUTE_PROVIDER}.name`]: route.name,
-              [`model_providers.${ROUTE_PROVIDER}.base_url`]: route.endpoint,
-              [`model_providers.${ROUTE_PROVIDER}.wire_api`]: route.wireProtocol,
-              [`model_providers.${ROUTE_PROVIDER}.request_max_retries`]: 1,
-              [`model_providers.${ROUTE_PROVIDER}.stream_max_retries`]: 1,
-            },
-          }
-        : {}),
+      ...(route ? { ...routeParams(route), ...(route.model ? { model: route.model } : {}) } : {}),
     },
     after,
   }
 }
+
+/**
+ * A model route as thread-verb fields: a provider defined only for this
+ * thread, via thread/start's dotted config overrides — the user's own
+ * config.toml is never written (probed working:
+ * script/probe/appserver-inject.mjs). The gateway token rides the base URL,
+ * so the provider needs no env_key and nothing lands in this process's
+ * environment.
+ */
+const routeParams = (
+  route: ResolvedModelRoute,
+): { modelProvider: string; config: Record<string, string | number> } => ({
+  modelProvider: ROUTE_PROVIDER,
+  config: {
+    [`model_providers.${ROUTE_PROVIDER}.name`]: route.name,
+    [`model_providers.${ROUTE_PROVIDER}.base_url`]: route.endpoint,
+    [`model_providers.${ROUTE_PROVIDER}.wire_api`]: route.wireProtocol,
+    [`model_providers.${ROUTE_PROVIDER}.request_max_retries`]: 1,
+    [`model_providers.${ROUTE_PROVIDER}.stream_max_retries`]: 1,
+  },
+})
 
 export { makeSessionId }

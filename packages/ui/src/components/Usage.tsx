@@ -19,11 +19,15 @@ import {
   byUrgency,
   coverageLabel,
   describeReport,
+  drawnReport,
   formatAge,
   formatCountdown,
   formatMoney,
   planLabel,
   provenanceLabel,
+  costClause,
+  pricedNote,
+  spendHint,
   runway,
   type LaneView,
   type ReportView,
@@ -287,6 +291,22 @@ export const Usage = ({
 
   const scoped = scope === null ? null : (byId.get(scope) ?? null)
 
+  /* The page's own sentence says whose numbers these are, and a card of
+     another sign-in's figures (`report.unverified`: Antigravity's, read through
+     the separately signed-in `agy` CLI) is not "the agent's own". Claiming it
+     there would undo, one line above, what the card's heading says (#769,
+     review round 1). */
+  const borrowed = reports.find(
+    (report) => report.lanes.length === 0 && (report.unverified?.lanes.length ?? 0) > 0,
+  )
+  const blurb = scoped
+    ? borrowed?.unverified
+      ? `One agent's plans, spend and history, read on this machine. Its plan figures are the ${borrowed.unverified.whose}'s, which may not be the account ${scoped.presentation.name} runs as.`
+      : `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
+    : borrowed
+      ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine. A card headed by another sign-in shows that sign-in’s.`
+      : `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
+
   return (
     <AppWindow label="Dashboard">
       <WindowNav onBack={onClose}>
@@ -337,14 +357,7 @@ export const Usage = ({
       </WindowNav>
 
       <WindowPage wide>
-        <PageHead
-          title={scoped ? scoped.presentation.name : 'Dashboard'}
-          blurb={
-            scoped
-              ? `One agent's plans, spend and history, read from ${scoped.presentation.name}'s own numbers on this machine.`
-              : 'What every plan has left, what the work cost at public rates, and where it went, read from each agent’s own numbers on this machine.'
-          }
-        />
+        <PageHead title={scoped ? scoped.presentation.name : 'Dashboard'} blurb={blurb} />
 
         <div className={styles.body}>
           <section className={styles.band} aria-label="What is left">
@@ -519,16 +532,22 @@ const AccountRow = ({
   onClick: () => void
 }) => {
   // No lanes below the headline: the rail asks one question of each account.
+  // It is asked of the agent's own lanes and nothing else: the rail names the
+  // agent, so another sign-in's figures (`report.unverified`) beside that
+  // name would read as the agent's. They are on the card, under their own.
   const view = describeReport(report, { now, maxLanes: 0, preference })
   const left = view.hero?.remainingPercent ?? null
+  // An account whose whole standing is a prepaid balance (Amp, Cline) has
+  // that to say here, not a dash: it is what is left, in the unit it is kept.
+  const balance = left === null && !view.hero ? balanceOf(report.credits) : null
   const agent = info?.presentation.name ?? String(report.runtime)
   return (
     <RailRow
       mark={info ? <RuntimeMark runtime={info} size={15} /> : <UsageIcon size={14} />}
       name={agent}
       {...(report.account ? { title: `${agent} · ${report.account}` } : {})}
-      figure={left === null ? '—' : `${left}%`}
-      {...(view.hero ? { tone: view.hero.tone } : {})}
+      figure={left !== null ? `${left}%` : balance ? amount(balance.remaining, balance.unit) : '—'}
+      {...(view.hero ? { tone: view.hero.tone } : balance && balance.remaining <= 0 ? { tone: 'bad' as const } : {})}
       percent={left}
       {...(left === null && report.account ? { sub: report.account } : {})}
       selected={selected}
@@ -569,13 +588,20 @@ const Card = ({
   onRefresh: () => void
   onStopTracking: () => void
 }) => {
-  const view: ReportView = describeReport(report, { now, maxLanes: 3, preference })
+  // Another sign-in's figures are drawn, under its name; the chip is still the
+  // agent's own, read from the report itself, so a spent `agy` account can
+  // never put "Limit" on an agent that may be running as somebody else — and
+  // a failing `agy` cannot put "Unavailable" on it either: that failure is
+  // `report.unverified.error`, drawn in the note, never `report.error`.
+  const drawn = drawnReport(report)
+  const borrowed = drawn !== report
+  const view: ReportView = describeReport(drawn, { now, maxLanes: 3, preference })
   const plan = planLabel(report.plan)
   const spend = report.spend
   // A prepaid balance is something to say, so an agent that has one is not
   // "not metered" — it is an account with nothing to run out of.
   const balance = balanceOf(report.credits)
-  const state = stateOf(report, view)
+  const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
   const agent = info?.presentation.name ?? String(report.runtime)
 
@@ -600,7 +626,13 @@ const Card = ({
         : money
           ? `spent in ${spend?.windowDays ?? 0}d`
           : 'not metered'
-  const note = noteOf(report, view, balance, Boolean(spend))
+  const note =
+    borrowed && !drawn.error && view.blocked
+      ? {
+          text: `Everything is spent on the ${drawn.account ?? 'other sign-in'} — ${agent} may be signed in as another account`,
+          tone: 'warn' as const,
+        }
+      : noteOf(drawn, view, balance, Boolean(spend))
 
   return (
     <article
@@ -613,8 +645,8 @@ const Card = ({
             <RuntimeMark runtime={info} size={15} />
           </span>
         )}
-        <span className={styles.cardName}>{report.account ?? agent}</span>
-        {report.account && <span className={styles.cardAgent}>{agent}</span>}
+        <span className={styles.cardName}>{drawn.account ?? agent}</span>
+        {drawn.account && <span className={styles.cardAgent}>{agent}</span>}
         <span className={styles.fill} />
         <Chip state={state} {...(plan ? { label: plan } : {})} />
       </div>
@@ -1025,14 +1057,19 @@ export const noteGlyph = (tone: Tone | undefined): ReactNode =>
     <AlertIcon size={13} />
   )
 
-const noteOf = (
+export const noteOf = (
   report: UsageReport,
   view: ReportView,
   balance: Balance | null,
   hasSpend: boolean,
 ): { text: string; tone?: Tone } | null => {
   if (report.error) return { text: report.error.message, tone: 'bad' }
-  if (view.blocked) return { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
+  if (view.blocked) {
+    // A prepaid balance does not come back on its own; a window does.
+    return !view.hero && balance && balance.remaining <= 0
+      ? { text: 'The balance is spent — new turns will fail until it is topped up', tone: 'bad' }
+      : { text: 'Reached — new turns will fail until it resets', tone: 'bad' }
+  }
   const gated = view.all.find((lane) => lane.gatedUntil !== null)
   if (gated) {
     return {
@@ -1183,8 +1220,7 @@ const Spend = ({
             <div>
               <ChartTitle>{headline}</ChartTitle>
               <ChartHint>
-                Last {ledger?.days ?? range} days — what these tokens would have cost at public
-                API rates. Not a bill.
+                Last {ledger?.days ?? range} days — {spendHint(ledger?.provenance)}
               </ChartHint>
             </div>
           </ChartHead>
@@ -1411,11 +1447,7 @@ const Ranked = ({
           second row — a badge that repeats down a column stops reading as a
           warning and starts reading as a category. */}
       <div className={styles.footnote}>
-        {unpriced === 0
-          ? 'Every call in this window has a public price, so these figures are exact.'
-          : unpriced === 1
-            ? 'One of these rows includes a model with no public price, so its cost is lower than shown.'
-            : `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`}
+        {pricedNote(unpriced, ledger.provenance)}
       </div>
     </>
   )

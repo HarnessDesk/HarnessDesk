@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 
-import { isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
 import { Button, Dialog, Input, Textarea } from '../design'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
@@ -208,8 +208,13 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const acceptsImages = runtime.capabilities.imageInput
   // Whether this agent can take a message into a turn already running. Only
   // some can; the ones that cannot say so by refusing, so the shortcut is
-  // offered by capability rather than tried and apologised for.
-  const canSteer = runtime.capabilities.steer
+  // offered by capability rather than tried and apologised for. A review is
+  // a turn nobody can add to — Codex refuses ("cannot steer a review turn"),
+  // and a refused steer has already emptied the box — so while one runs, a
+  // message waits for it like any other.
+  const reviewing =
+    busy && session !== null && (currentTurn(session)?.items.some((item) => item.type === 'review' && item.phase === 'entered') ?? false)
+  const canSteer = runtime.capabilities.steer && !reviewing
   const agentName = brandOf(runtime.name)
   const images = useMemo(() => attachments.filter((entry) => entry.kind === 'image'), [attachments])
   const addContext = useCallback((provider: (typeof chipProviders)[number], ref?: string) => {

@@ -110,6 +110,14 @@ export interface SeatOffer {
    * binds one model only is not this: the runtime still answers on the others.
    */
   readonly spent: boolean
+  /**
+   * Models whose own window is spent: a lane scoped to exactly that model id,
+   * the way Gemini CLI reports its quota. The runtime still answers on its
+   * other models, so only a candidate asking for one of these is passed over.
+   * A scope that is not a model id ("Opus", "Gemini Models") matches no
+   * candidate and changes nothing.
+   */
+  readonly spentModels?: readonly string[]
 }
 
 export interface PassedOver {
@@ -164,6 +172,7 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): Sea
   if (seat.model) {
     if (offer.models === null) return { kind: 'modelsUnread', model: seat.model }
     if (!offer.models.includes(seat.model)) return { kind: 'noModel', model: seat.model }
+    if (offer.spentModels?.includes(seat.model)) return { kind: 'spentModel', model: seat.model }
   }
   if (seat.effort && offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
     return { kind: 'noEffort', effort: seat.effort }
@@ -215,6 +224,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
       return `${runtime} is signed out`
     case 'spent':
       return `${runtime}'s window is spent`
+    case 'spentModel':
+      return `${runtime}'s window for ${reason.model} is spent`
     case 'modelsUnread':
       return `cannot tell whether ${runtime} offers ${reason.model}: its model list could not be read`
     case 'noModel':
@@ -243,6 +254,7 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'signedOut':
       return { kind: 'signIn', runtime }
     case 'spent':
+    case 'spentModel':
       return { kind: 'usage', runtime }
     case 'unavailable':
     case 'noAnswer':

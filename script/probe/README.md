@@ -86,6 +86,53 @@ carrying the injected `env_key` as its bearer token. That is what lets
 HarnessDesk route a conversation to another model without ever writing to the
 user's `~/.codex/config.toml`.
 
+## `review-side-thread.mjs`
+
+A review on a side thread without Codex's `"detached"` delivery, which 0.155.0
+deprecates: `thread/start` with the reviewed conversation's settings, then
+`review/start` with `delivery: "inline"` on the new thread. It serves its own
+fake Responses endpoint, so it needs nothing but a `codex` binary.
+
+```bash
+node script/probe/review-side-thread.mjs --codex <path to codex>
+```
+
+Every check is a call the Codex adapter makes, or something it relies on, so
+running it against the oldest supported Codex (`MINIMUM_CODEX_VERSION`, 0.145.0)
+and the newest says whether both take the route. Expect `21/21 checks passed`.
+Measured on 0.145.0 and 0.155.0:
+
+- the review's items and its `turn/completed` carry the turn `review/start`
+  answered with, and Codex never announces that turn: the only `turn/started`
+  is the reviewer sub-agent's, under another id, after the review's first
+  item — which is why the adapter opens a review's turn itself
+  (`packages/adapter-codex/src/review-turns.ts`);
+- `turn/interrupt` naming the review's own turn is refused, and the refusal
+  names the reviewer's ("expected active turn id … but found …", the words
+  Codex's own terminal client reads to try again); naming the reviewer's stops
+  the review. Before the reviewer has started, naming the review's turn is
+  refused with "no active turn to interrupt", and a stop naming no turn at
+  all (`turnId: ""`, Codex's "startup interrupt", which its terminal client
+  sends when it knows no turn) stops it. Either way the review ends under its
+  own turn, `interrupted`;
+- a thread with no turn is not listed, named or not;
+- a thread whose sandbox came from `config.toml`, with no profile active, is
+  reproduced by starting another on that `sandbox` mode — network access and
+  writable roots included — and not by the profile named after the mode,
+  which drops both (the adapter's `ThreadState.sandbox`);
+- a workspace sandbox the configuration does not give is reproduced exactly by
+  its mode and `config.toml`'s `sandbox_workspace_write.*` keys in the start's
+  `config`, beside a route's provider keys too; `thread/settings/update` is no
+  way to it, since it adds the configuration's writable roots to the ones it
+  is given. What no start can say — a read-only sandbox's network access, an
+  external sandbox — `thread/settings/update` sets as given.
+
+The last lines are the control, a detached review on the same app-server:
+0.145.0 takes it silently; 0.155.0 sends the `deprecationNotice` and then
+refuses it — "paginated threads do not support detached review" — because
+every thread 0.155.0 starts has paginated history. `--shapes` prints the
+review's notifications whole, the shapes the Codex fixture copies.
+
 ## Re-checking the wire constraint
 
 ```bash
@@ -95,3 +142,46 @@ codex exec -c model_providers.x.wire_api=chat ...
 
 If that ever stops erroring, [the gateway decision](../../docs/decisions.md#other-models-reach-codex-through-a-gateway-never-a-fork)
 should be revisited.
+
+## `paginated-history.mjs`
+
+How a conversation's history is read, forked and undone against a real
+`codex app-server`, the way the Codex adapter does each
+(`packages/adapter-codex/src/history.ts`), and whether Codex says anything
+about it. It serves its own fake Responses endpoint, so it needs nothing but a
+`codex` binary.
+
+```bash
+node script/probe/paginated-history.mjs --codex <path to codex>
+```
+
+Since 0.151.0 Codex keeps a new thread's history in pages
+(`historyMode: "paginated"`) and deprecates reading one whole: `thread/read`
+with `includeTurns`, and `thread/fork` or `thread/resume` without
+`excludeTurns`, each draw a `deprecationNotice`, which the desk showed as a
+toast naming those methods. Each "no notice" check has a control: the
+deprecated call on the same thread, which must draw one. Measured on 0.155.0
+(27/27) and 0.145.0 (18/18; 14/14 with `--history paginated`, a conversation a
+newer Codex started, opened after a downgrade):
+
+- a paginated thread reads in pages — `thread/turns/list`, then
+  `thread/items/list` filed under each item's turn — to exactly what a whole
+  read gives, and silently. A legacy thread (every thread before 0.151.0, and
+  any an older Codex started) is refused `thread/items/list` and read whole,
+  which draws nothing;
+- `thread/revert` before the Nth turn from the end undoes a paginated thread,
+  silently, followed by `thread/reverted`. `thread/rollback` is refused one
+  ("paginated threads do not support thread/rollback") after its notice, so
+  Undo failed there under two toasts;
+- a legacy thread is refused `thread/revert` ("only supports paginated
+  threads") and undone by `thread/rollback`, which still draws "thread/rollback
+  is deprecated and will be removed soon". Codex has nothing else for a legacy
+  thread, so that notice stays;
+- `thread/fork` and `thread/resume` with `excludeTurns: true` draw nothing, and
+  a fork keeps its source's history mode;
+- a thread with no first message yet is refused its turns, as "… is
+  unavailable before first user message" — which the adapter reads as none, as
+  Codex's own terminal client does — or, on 0.155.0, sometimes as "list_turns
+  is not supported yet", which it leaves to the transcript the host holds;
+- 0.145.0 has no `thread/revert` (0.148.0 added it). It pages a paginated
+  thread but refuses to read one whole, and refuses to fork one.

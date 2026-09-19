@@ -725,6 +725,13 @@ A HarnessDesk menu level. Base UI owns item collection, roving focus,
 selection, Escape and submenu coordination; this wrapper carries the
 product-level close callback used by async actions.
 
+Tab and Shift+Tab leave a menu and close every level of it (WAI-ARIA APG,
+menu pattern). The menu stands in the tab order just after its trigger,
+where Base UI places a Popover: Tab moves on to what follows the trigger,
+and Shift+Tab goes back to the trigger, as Escape does. A panel of plain
+buttons in a menu keeps Tab for going from one to the next, and leaves by
+it after the last.
+
 ### `MenuToggle`
 
 `packages/ui/src/design/patterns/Menu.tsx`
@@ -942,7 +949,10 @@ list only goes down, except when the audit learns to see something it was blind 
 | finding | count | what it costs |
 | --- | --- | --- |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
+| `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 3 | Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line. |
+| `screenAppearance` | 2783 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |
 | `forkedToken` | 0 | Forks the source of truth: the generated doc and the token snapshot both miss it. |
@@ -951,10 +961,9 @@ list only goes down, except when the audit learns to see something it was blind 
 | `looseIcon` | 0 | Makes "change the icon set" a search across the app instead of one edit. |
 | `danglingToken` | 0 | A silent no-op: the declaration does nothing. |
 | `crossImport` | 0 | Rebuilding one screen changes another. |
-| `rawZIndex` | 0 | Two layers claim the same plane, and the one that wins is the one written later. |
 | `rawRadius` | 0 | Will not follow a shape change. |
 | `offGrid` | 0 | Will not follow a density change. |
+| `rawZIndex` | 0 | Two layers claim the same plane, and the one that wins is the one written later. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 

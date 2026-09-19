@@ -123,7 +123,7 @@ export interface HostContext {
     register(runtime: AgentRuntime): void
     unregister(id: RuntimeId): Promise<void>
     start(runtime: AgentRuntime): Promise<void>
-    bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind'] }): void
+    bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string }): void
   }
 
   readonly sessions: {
@@ -249,12 +249,19 @@ export interface HostContext {
   }
 
   readonly workspaces: {
-    /** Every folder a path may be confined to: open workspaces and live conversations' cwds. */
+    /** Every folder a path may be confined to: open workspaces and live conversations' cwds. Absolute paths only. */
     openRoots(): string[]
     /** Where a file may be read or written by path: the open roots and the roster's own folders (`#fileRoots`). */
     fileRoots(mode: 'read' | 'write'): string[]
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
+    /**
+     * Refuses a folder for a room, where it works and where its flows are read
+     * from, unless it is in a folder or a repository opened here, links
+     * resolved. A relative one is refused.
+     */
+    confineRoom(folder: string): Promise<void>
+    /** Opens a folder, which becomes one of the open roots. A relative path is refused. */
     open(path: string): Promise<HostResult<'workspace/open'>>
     repoOf(cwd: string): Promise<RepoInfo | null>
     boardRootOf(cwd: string): Promise<string | null>

@@ -47,7 +47,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * that has reached the floor is an ordinary category, and holding it at a
  * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['patternClass'])
+const BURN_DOWN = new Set(['patternClass', 'screenAppearance'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -1729,6 +1729,8 @@ const findings = {
   rawType: [],
   rawWeight: [],
   patternClass: [],
+  screenAppearance: [],
+  screenUnclassified: [],
 }
 
 /**
@@ -1756,7 +1758,116 @@ const findings = {
 const PATTERN_STEMS = new Set(['empty'])
 
 /** A screen's own stylesheet, as opposed to the system's. */
-const isScreenSheet = (file) => /\/(components|slots|panels)\//.test(file)
+const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
+
+/**
+ * Specialized renderers whose appearance is their content rather than a role.
+ *
+ * Markdown keeps a prose ladder made from ratios of the body size, as
+ * `docs/design.md` specifies, so a heading and the paragraph it belongs to
+ * must scale together rather than take unrelated system steps. A diff viewer
+ * is a specialized renderer: its ink, rows and marks describe source changes,
+ * not a reusable screen role. Naming both here makes adding another boundary
+ * a deliberate change to the gate rather than an accidental path omission.
+ */
+const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
+  'components/Markdown.module.css',
+  'components/Diff.module.css',
+])
+
+const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)
+const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '')
+
+/**
+ * A height that describes where a box sits rather than what the role is: a
+ * share of its container, a share of the viewport, or a keyword that lets the
+ * content or the layout decide. Zero is the flex/grid shrink reset in every
+ * unit spelling, not a role metric. Everything else — a non-zero length, a
+ * token, a `calc()` of either — is the role's own metric, and counts.
+ */
+const ZERO_HEIGHT = /^[+-]?(?:0+(?:\.0*)?|\.0+)(?:e[+-]?\d+)?(?:[a-z]+|%)?$/i
+const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i)|cq(?:h|w|i|b|min|max))\b|^(?:auto|none|stretch|fit-content|min-content|max-content|inherit|initial|unset|revert|revert-layer)$|^fit-content\(/i
+
+/**
+ * The appearance side of the screen boundary: type, ink and ground, edges,
+ * and a role's inner box. Families are stems because CSS may add or the app
+ * may adopt another longhand without that spelling becoming invisible.
+ */
+const APPEARANCE_PROPERTIES = {
+  exact: new Set([
+    'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-underline-offset', 'text-shadow',
+    'color', 'fill', 'caret-color', 'accent-color', 'filter', 'backdrop-filter', 'mix-blend-mode',
+    'box-shadow', 'height', 'min-height', 'max-height',
+  ]),
+  families: ['font', 'text-decoration', 'background', 'stroke', 'mask', 'border', 'outline', 'padding'],
+}
+
+/**
+ * The layout and behaviour side of the screen boundary. It names geometry,
+ * flow, interaction and motion explicitly; the last group are descriptors or
+ * specialized properties that the app's screen sheets currently use.
+ */
+const LAYOUT_BEHAVIOUR_PROPERTIES = {
+  exact: new Set([
+    'display', 'gap', 'row-gap', 'column-gap', 'position', 'top', 'right', 'bottom', 'left',
+    'width', 'min-width', 'max-width', 'block-size', 'min-block-size', 'max-block-size',
+    'inline-size', 'min-inline-size', 'max-inline-size', 'z-index', 'order', 'float', 'box-sizing',
+    'aspect-ratio', 'isolation', 'visibility', 'opacity', 'cursor', 'pointer-events', 'user-select',
+    'will-change', 'content', 'white-space', 'text-overflow', 'text-align', 'vertical-align',
+    'word-break', 'hyphens', 'table-layout', 'resize', 'appearance', 'app-region',
+    'box-orient', 'caption-side', 'clip-path', 'direction', 'line-clamp', 'touch-action', 'unicode-bidi',
+    'syntax', 'inherits', 'initial-value',
+  ]),
+  families: [
+    'flex', 'grid', 'align', 'justify', 'place', 'inset', 'margin', 'overflow', 'object', 'transform',
+    'contain', 'container', 'transition', 'animation', 'list-style', 'scroll', 'overscroll', 'scrollbar',
+  ],
+}
+
+const inPropertyTable = (name, table) =>
+  table.exact.has(name) || table.families.some((family) => name === family || name.startsWith(`${family}-`))
+
+const screenPropertySideOf = (property, value) => {
+  if (property.startsWith('--')) return 'custom'
+  const name = unprefixedProperty(property)
+  if (inPropertyTable(name, APPEARANCE_PROPERTIES)) {
+    if (name === 'height' || name === 'min-height' || name === 'max-height') {
+      const metric = value.replace(/\s*!important\s*$/i, '').trim()
+      if (ZERO_HEIGHT.test(metric) || LAYOUT_HEIGHT.test(metric)) return 'layout'
+    }
+    return 'appearance'
+  }
+  if (inPropertyTable(name, LAYOUT_BEHAVIOUR_PROPERTIES)) return 'layout'
+  return 'unclassified'
+}
+
+/**
+ * Appearance a screen draws for itself instead of composing from the system.
+ *
+ * Type, ink, ground, edges and a role's inner box are owned by the component
+ * that names that role, so every declaration of one here is a copy a system
+ * change cannot reach. Every ordinary property is matched against the two
+ * explicit tables above; one on neither side is a separate strict finding,
+ * rather than silently becoming layout. Custom properties define values
+ * rather than draw either side and remain outside the split. Height and its
+ * minimum and maximum constraints use one value rule: a non-zero fixed length
+ * or token is a control metric, while zero, a percentage, an intrinsic size,
+ * or a viewport/container share describes layout.
+ *
+ * Markdown is exempt because prose keeps its own ratio ladder, and Diff is
+ * exempt because a diff viewer is a specialized renderer. Both boundaries
+ * are named above rather than hidden in the directory walk.
+ */
+export const screenAppearanceOf = (file, css) => {
+  if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
+  return declarationsOf(css).filter(({ property, value }) => screenPropertySideOf(property, value) === 'appearance')
+}
+
+/** Ordinary declarations in a screen sheet that are on neither explicit side. */
+export const screenUnclassifiedOf = (file, css) => {
+  if (!isScreenSheet(file) || SCREEN_APPEARANCE_EXEMPTIONS.has(screenAppearanceName(file))) return []
+  return declarationsOf(css).filter(({ property, value }) => screenPropertySideOf(property, value) === 'unclassified')
+}
 
 /**
  * Controls sitting in a slot whose meaning the design system has fixed.
@@ -1878,6 +1989,12 @@ for (const file of cssFiles()) {
       if (stem && PATTERN_STEMS.has(stem)) declared.add(stem)
     }
     for (const stem of [...declared].sort()) findings.patternClass.push(`${name}: .${stem}*`)
+    for (const { property } of screenAppearanceOf(file, read(file))) {
+      findings.screenAppearance.push(`${name}: ${property}`)
+    }
+    for (const { property } of screenUnclassifiedOf(file, read(file))) {
+      findings.screenUnclassified.push(`${name}: ${property}`)
+    }
   }
 
   // Spacing that is not a step of the scale.
@@ -2304,7 +2421,16 @@ if (isMain) {
     const list = findings[key]
     console.log(`${String(list.length).padStart(4)}  ${title}`)
     console.log(`      ${why}`)
-    if (verbose) for (const line of list) console.log(`        ${line}`)
+    if (verbose && key === 'screenAppearance') {
+      const bySheet = new Map()
+      for (const line of list) {
+        const sheet = line.slice(0, line.lastIndexOf(': '))
+        bySheet.set(sheet, (bySheet.get(sheet) ?? 0) + 1)
+      }
+      for (const [sheet, count] of [...bySheet].sort(([a, ac], [b, bc]) => bc - ac || a.localeCompare(b))) {
+        console.log(`        ${sheet}: ${count}`)
+      }
+    } else if (verbose) for (const line of list) console.log(`        ${line}`)
     else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
     if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
     console.log('')

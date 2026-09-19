@@ -3936,10 +3936,20 @@ export class AppStore {
     }
   }
 
+  /**
+   * Asks for a review of `key`'s changes. One that runs in a conversation of
+   * its own comes back as that conversation, and is opened the way a fork
+   * is: it takes the screen, and the conversation it was asked from waits in
+   * the sidebar exactly as it was — one ← away.
+   */
   async review(target: ReviewRequest, key = this.#snapshot.activeSessionKey): Promise<void> {
     if (!key) return
     try {
-      await this.transport.request('session/review', { ...address(key), target })
+      const side = await this.transport.request('session/review', { ...address(key), target })
+      if (!side) return
+      this.#setSession(side)
+      this.#showInPane(sessionKey(side.runtime, side.id))
+      void this.loadHistory({ reset: true })
     } catch (error) {
       this.notice('error', describe(error))
     }

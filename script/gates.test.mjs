@@ -12,6 +12,8 @@ import {
   NAMED_COLOURS,
   rawColours,
   rawZIndexes,
+  screenAppearanceOf,
+  screenUnclassifiedOf,
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
@@ -40,7 +42,7 @@ const zeroes = () => Object.fromEntries(SECTIONS.map(([key]) => [key, 0]))
 import { createSteps } from './lib/steps.mjs'
 import { removeTemporaryDirectory } from './lib/temporary-directory.mjs'
 import { leadComment } from './design-doc.mjs'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -436,24 +438,29 @@ test('compareBaseline requires a complete numeric zero baseline and zero current
 })
 
 
-test('a burn-down category is gated on a ceiling that may only fall', () => {
+test('each burn-down category is gated on a ceiling that may only fall', () => {
   const clean = zeroes()
-  const ceiling = { ...clean, patternClass: 126 }
 
-  // At the ceiling: the debt is recorded, so the gate is quiet.
-  const held = compareBaseline({ ...clean, patternClass: 126 }, ceiling)
-  assert.equal(held.worse, false, 'sitting at the recorded ceiling must pass')
+  for (const key of ['patternClass', 'screenAppearance']) {
+    const ceiling = { ...clean, [key]: 126 }
 
-  // Above it: a screen just re-declared another pattern.
-  const grown = compareBaseline({ ...clean, patternClass: 127 }, ceiling)
-  assert.equal(grown.worse, true)
-  assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+    // At the ceiling: the debt is recorded, so the gate is quiet.
+    const held = compareBaseline({ ...clean, [key]: 126 }, ceiling)
+    assert.equal(held.worse, false, `${key} sitting at the recorded ceiling must pass`)
 
-  // Below it: the work was done and the ceiling has to follow, or the debt can
-  // silently come back to 126 without the gate ever noticing.
-  const paid = compareBaseline({ ...clean, patternClass: 125 }, ceiling)
-  assert.equal(paid.worse, true)
-  assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+    // Above it: a screen just drew another piece of a role for itself.
+    const grown = compareBaseline({ ...clean, [key]: 127 }, ceiling)
+    assert.equal(grown.worse, true)
+    assert.ok(grown.problems.some((p) => p.message.includes('may only fall')))
+
+    // Below it: the work was done and the ceiling has to follow, or the debt can
+    // silently come back to 126 without the gate ever noticing.
+    const paid = compareBaseline({ ...clean, [key]: 125 }, ceiling)
+    assert.equal(paid.worse, true)
+    assert.ok(paid.problems.some((p) => p.message.includes('Tighten the ceiling')))
+  }
+
+  const ceiling = { ...clean, patternClass: 126, screenAppearance: 126 }
 
   // A non-zero ceiling is still refused for every other category.
   const smuggled = compareBaseline(clean, { ...ceiling, offGrid: 5 })
@@ -463,9 +470,168 @@ test('a burn-down category is gated on a ceiling that may only fall', () => {
   // And a category that has burned down to nothing leaves the ratchet: type
   // sizes reached zero, so a single literal coming back is refused outright
   // rather than measured against a ceiling of nought.
-  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126 }, ceiling)
+  const returned = compareBaseline({ ...clean, rawType: 1, patternClass: 126, screenAppearance: 126 }, ceiling)
   assert.equal(returned.worse, true)
   assert.ok(returned.problems.some((p) => p.key === 'rawType'))
+})
+
+test('screen property families have one explicit appearance or layout boundary', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const components = path.join(root, 'packages/ui/src/components')
+  fs.mkdirSync(components, { recursive: true })
+  const file = path.join(components, 'Example.module.css')
+  const cases = [
+    // Type.
+    ['font', 'inherit', true],
+    ['font-variant-numeric', 'tabular-nums', true],
+    ['line-height', 'var(--hd-line)', true],
+    ['letter-spacing', '0.01em', true],
+    ['word-spacing', '0.01em', true],
+    ['text-transform', 'uppercase', true],
+    ['text-decoration-thickness', '1px', true],
+    ['text-underline-offset', '2px', true],
+    ['text-shadow', '0 1px black', true],
+    // Ink and ground.
+    ['color', 'var(--hd-foreground)', true],
+    ['background-image', 'linear-gradient(red, blue)', true],
+    ['fill', 'currentColor', true],
+    ['stroke-dasharray', '2 2', true],
+    ['caret-color', 'currentColor', true],
+    ['accent-color', 'currentColor', true],
+    ['filter', 'blur(1px)', true],
+    ['backdrop-filter', 'blur(1px)', true],
+    ['mix-blend-mode', 'multiply', true],
+    ['mask-image', 'linear-gradient(black, transparent)', true],
+    // Edge and inner box.
+    ['border-image-source', 'linear-gradient(red, blue)', true],
+    ['outline-offset', '2px', true],
+    ['box-shadow', 'var(--hd-shadow-sm)', true],
+    ['padding-inline', 'var(--hd-space-2)', true],
+    // Layout and behaviour.
+    ['display', 'grid', false],
+    ['flex-basis', 'auto', false],
+    ['grid-template-columns', '1fr 1fr', false],
+    ['gap', 'var(--hd-space-2)', false],
+    ['align-items', 'center', false],
+    ['position', 'absolute', false],
+    ['inset-inline', '0', false],
+    ['width', '30px', false],
+    ['margin-inline', 'auto', false],
+    ['overflow-y', 'auto', false],
+    ['z-index', 'var(--hd-z-popover)', false],
+    ['order', '1', false],
+    ['float', 'inline-start', false],
+    ['box-sizing', 'border-box', false],
+    ['aspect-ratio', '1', false],
+    ['object-fit', 'cover', false],
+    ['transform', 'translateX(1px)', false],
+    ['contain', 'layout', false],
+    ['isolation', 'isolate', false],
+    ['visibility', 'hidden', false],
+    ['opacity', '0', false],
+    ['cursor', 'pointer', false],
+    ['pointer-events', 'none', false],
+    ['user-select', 'none', false],
+    ['transition-duration', '100ms', false],
+    ['animation-name', 'pulse', false],
+    ['will-change', 'transform', false],
+    ['content', '"ready"', false],
+    ['white-space', 'nowrap', false],
+    ['text-overflow', 'ellipsis', false],
+    ['text-align', 'center', false],
+    ['vertical-align', 'middle', false],
+    ['word-break', 'break-word', false],
+    ['overflow-wrap', 'anywhere', false],
+    ['hyphens', 'auto', false],
+    ['list-style-type', 'none', false],
+    ['table-layout', 'fixed', false],
+    ['resize', 'both', false],
+    ['scroll-margin-top', '1rem', false],
+    ['appearance', 'none', false],
+    ['-webkit-app-region', 'drag', false],
+  ]
+
+  for (const [property, value, counts] of cases) {
+    const css = `.role { ${property}: ${value}; }`
+    const found = screenAppearanceOf(file, css)
+    assert.equal(found.length, counts ? 1 : 0, `${property} ${counts ? 'counts' : 'does not count'}`)
+    assert.deepEqual(screenUnclassifiedOf(file, css), [], `${property} is classified`)
+  }
+})
+
+test('screen appearance uses one boundary for height, min-height and max-height', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-height-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const file = path.join(root, 'packages/ui/src/components/Example.module.css')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const cases = [
+    ['30px', true],
+    ['2rem', true],
+    ['var(--hd-nav-h)', true],
+    ['calc(var(--hd-nav-h) + 2px)', true],
+    ['220px', true],
+    ['0', false],
+    ['0px', false],
+    ['100%', false],
+    ['calc(100% - 2px)', false],
+    ['100vh', false],
+    ['10dvh', false],
+    ['50svw', false],
+    ['100cqh', false],
+    ['20cqmin', false],
+    ['auto', false],
+    ['none', false],
+    ['fit-content', false],
+    ['fit-content(10rem)', false],
+    ['min-content', false],
+    ['max-content', false],
+    ['inherit', false],
+  ]
+
+  for (const property of ['height', 'min-height', 'max-height']) {
+    for (const [value, counts] of cases) {
+      const css = `.role { ${property}: ${value}; }`
+      assert.equal(
+        screenAppearanceOf(file, css).length,
+        counts ? 1 : 0,
+        `${property}: ${value} ${counts ? 'counts' : 'does not count'}`,
+      )
+    }
+  }
+})
+
+test('an unclassified screen property fails --strict and names the property and sheet', () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const file = path.join(root, 'packages/ui/src/components/AppWindow.module.css')
+  const original = fs.readFileSync(file, 'utf8')
+  try {
+    fs.writeFileSync(file, `${original}\n.unclassifiedGateProbe { speak: never; }\n`)
+    const result = spawnSync(process.execPath, ['script/design-audit.mjs', '--strict'], {
+      cwd: root,
+      encoding: 'utf8',
+    })
+    assert.notEqual(result.status, 0, 'an unclassified property must fail the strict audit')
+    assert.match(`${result.stdout}\n${result.stderr}`, /AppWindow\.module\.css: speak/)
+  } finally {
+    fs.writeFileSync(file, original)
+  }
+})
+
+test('screen appearance excludes the design system and its named specialized renderers', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-appearance-scope-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const source = '.role { color: var(--hd-foreground); padding: var(--hd-space-2); }'
+  const files = [
+    path.join(root, 'packages/ui/src/design/patterns/Role.module.css'),
+    path.join(root, 'packages/ui/src/components/Markdown.module.css'),
+    path.join(root, 'packages/ui/src/components/Diff.module.css'),
+  ]
+  for (const file of files) {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, source)
+    assert.deepEqual(screenAppearanceOf(file, fs.readFileSync(file, 'utf8')), [], file)
+  }
 })
 
 

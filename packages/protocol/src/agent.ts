@@ -166,6 +166,8 @@ export type SeatReason =
   | { readonly kind: 'signedOut' }
   /** An account-wide window is used up. */
   | { readonly kind: 'spent' }
+  /** One model's own window is spent, while the runtime still has others to offer. */
+  | { readonly kind: 'spentModel'; readonly model: string }
   /** The seat names a model and the runtime's model list could not be read, so whether it offers it is unknown. */
   | { readonly kind: 'modelsUnread'; readonly model: string }
   | { readonly kind: 'noModel'; readonly model: string }

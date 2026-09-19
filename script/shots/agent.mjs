@@ -19,8 +19,14 @@
  *   SHOT_STORE        conversation store, in `seed.mjs`'s shape
  *   SHOT_MODELS       `id:Name,id:Name` — the composer's model picker
  *   SHOT_TURN         which of the four scripted turns this seat plays
+ *
+ * Two files beside the store, read on every listing rather than at start, so a
+ * scene can bend the history while the app runs and put it back:
+ *   <store>.list-fails   `session/list` fails as an agent whose index is locked does
+ *   <store>.page         a number: `session/list` answers that many rows a page
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
 const NAME = process.env['SHOT_AGENT_NAME'] ?? 'agent'
@@ -36,6 +42,18 @@ const readStore = () => {
     return JSON.parse(readFileSync(STORE, 'utf8'))
   } catch {
     return {}
+  }
+}
+
+/** A file beside the store, named for it: `claude-code.json` has `claude-code.page`. */
+const beside = (suffix) => (STORE ? join(dirname(STORE), `${basename(STORE, '.json')}.${suffix}`) : null)
+const readPage = () => {
+  const file = beside('page')
+  if (!file) return 0
+  try {
+    return Number(readFileSync(file, 'utf8'))
+  } catch {
+    return 0
   }
 }
 
@@ -220,15 +238,24 @@ const handlers = {
     })
   },
 
-  'session/list': (id) => {
-    const store = readStore()
+  'session/list': (id, params) => {
+    const failing = beside('list-fails')
+    if (failing && existsSync(failing)) {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the index is locked' } } })
+    }
+    const rows = Object.values(readStore()).map((entry) => ({
+      sessionId: entry.sessionId,
+      cwd: entry.cwd,
+      title: entry.title,
+      updatedAt: entry.updatedAt,
+    }))
+    const perPage = readPage()
+    if (!(perPage > 0)) return reply(id, { sessions: rows })
+    // ACP's paging: a page, and a cursor for the next one while there is one.
+    const from = Number(params?.cursor ?? 0)
     reply(id, {
-      sessions: Object.values(store).map((entry) => ({
-        sessionId: entry.sessionId,
-        cwd: entry.cwd,
-        title: entry.title,
-        updatedAt: entry.updatedAt,
-      })),
+      sessions: rows.slice(from, from + perPage),
+      ...(from + perPage < rows.length ? { nextCursor: String(from + perPage) } : {}),
     })
   },
 
