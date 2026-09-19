@@ -1,7 +1,5 @@
-import { Button, Input } from '../design'
+import { Button, Search } from '../design'
 import { createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
-
-import { SearchIcon } from './Icons'
 
 import styles from './Panel.module.css'
 
@@ -135,16 +133,13 @@ export const PanelFilter = ({
   placeholder: string
   onChange: (next: string) => void
 }) => (
-  <label className={styles.findBox}>
-    <SearchIcon size={13} />
-    <Input
-      value={value}
-      placeholder={placeholder}
-      spellCheck={false}
-      aria-label={placeholder}
-      onChange={(event) => onChange(event.target.value)}
-    />
-  </label>
+  <Search
+    className={styles.filterLayout}
+    value={value}
+    placeholder={placeholder}
+    label={placeholder}
+    onChange={onChange}
+  />
 )
 
 export const PanelPill = ({

@@ -66,13 +66,13 @@
   min-height: var(--hd-row-h);
   padding: var(--hd-space-1) 10px;
   border: none;
-  border-radius: var(--hd-radius-sm);
+  border-radius: var(--hd-nav-radius); /* desk: var(--hd-radius-sm) → var(--hd-nav-radius), menus and rails use one row shape */
   background: none;
   color: var(--hd-foreground);
   cursor: pointer;
   text-align: left;
-  font-size: var(--hd-text);
-  line-height: var(--hd-line);
+  font-size: var(--hd-text-sm); /* desk: var(--hd-text) → var(--hd-text-sm), menu rows use the chrome step */
+  line-height: var(--hd-line-sm); /* desk: var(--hd-line) → var(--hd-line-sm), the line follows its type step */
 }
 
 .row:hover,
