@@ -548,6 +548,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
 
   'evidence/seat': shape({ runtime: isFilled, sessionId: isFilled }),
+  'evidence/checks': shape({ project: isFilled }),
 
   'git/status': shape({ root: isString }),
   'git/branches': shape({ root: isString }),

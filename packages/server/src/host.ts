@@ -85,6 +85,7 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { flowSeatInput } from './evidence/seats.js'
+import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
@@ -584,7 +585,11 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details),
     })
     this.#evidence = new EvidencePlane(
-      { dir: join(this.#state.directory, 'evidence') },
+      {
+        dir: join(this.#state.directory, 'evidence'),
+        seenFile: join(this.#state.directory, SEEN_FILE),
+        cipher: options.credentialCipher ?? plainCipher,
+      },
       {
         board: (room) => (this.#team.hasRoom(room) ? this.#team.stateFor(room) : null),
         cwdOf: (runtime, sessionId) =>

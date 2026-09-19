@@ -10,7 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { SeatRecord } from './evidence.js'
+import type { ProjectChecks, SeatRecord } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
@@ -1736,6 +1736,18 @@ export interface HostMethods {
   'evidence/seat': {
     params: { readonly runtime: string; readonly sessionId: string }
     result: SeatRecord | null
+  }
+  /**
+   * A project's named checks — `.harnessdesk/checks.yml` at the top of its main
+   * checkout, as committed at its `HEAD` — each command verbatim, with whether
+   * this machine has approved it for this generation of the file, whether the
+   * working copy differs from what is committed, and every problem with the
+   * file, where it is. Reads; never runs anything. `project` is held to the
+   * folders the person opened.
+   */
+  'evidence/checks': {
+    params: { readonly project: string }
+    result: ProjectChecks
   }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }

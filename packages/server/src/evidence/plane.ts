@@ -1,7 +1,11 @@
-import type { TeamState, WireNotification } from '@harnessdesk/protocol'
+import type { ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
 
+import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
+import { readChecks } from './checks-file.js'
+import { projectOf } from './revision.js'
 import { SeatBook } from './seats.js'
+import { CommandsSeen, incarnationOf } from './seen.js'
 import { EvidenceStore } from './store.js'
 
 /**
@@ -28,12 +32,17 @@ export interface EvidencePort {
 export interface EvidenceOptions {
   /** `evidence/` in the desk's state directory. */
   readonly dir: string
+  /** `commands-seen.json` in the desk's state directory: what a person has approved on this machine. */
+  readonly seenFile: string
+  /** Seals the key the approvals are signed with; the desktop app's is backed by the OS keychain. */
+  readonly cipher?: CredentialCipher
   readonly now?: () => number
 }
 
 export class EvidencePlane {
   readonly store: EvidenceStore
   readonly seats: SeatBook
+  readonly seen: CommandsSeen
   readonly #port: EvidencePort
   readonly #now: () => number
 
@@ -42,11 +51,53 @@ export class EvidencePlane {
     this.#now = options.now ?? Date.now
     this.store = new EvidenceStore(options.dir, (message, details) => port.log(message, details))
     this.seats = new SeatBook(this.store, options.now)
+    this.seen = new CommandsSeen(options.seenFile, {
+      ...(options.cipher ? { cipher: options.cipher } : {}),
+      ...(options.now ? { now: options.now } : {}),
+    })
   }
 
   /** Reads what a previous launch recorded. Once, at start. */
   async load(): Promise<void> {
     await this.seats.load()
+  }
+
+  /**
+   * A project's checks, each with whether this machine has approved its
+   * command as the file is now: `changed` when it approved another command
+   * under that name before the file changed. `folder` may be anywhere in the
+   * project; the file is read as committed at the top of its main checkout,
+   * and nowhere else. Reading it drops every approval the file no longer
+   * holds (`CommandsSeen.reconcile`).
+   */
+  async projectChecks(folder: string): Promise<ProjectChecks> {
+    const project = await projectOf(folder)
+    const read = await readChecks(project)
+    const checks: ProjectChecks['checks'][number][] = []
+    if (read.digest !== null) {
+      const scope = { project, incarnation: await incarnationOf(project), digest: read.digest }
+      await this.seen.reconcile(
+        scope,
+        read.checks.map((check) => check.name),
+      )
+      for (const check of read.checks) {
+        const seen = (await this.seen.approved(scope, check))
+          ? 'yes'
+          : (await this.seen.previous(scope, check.name, check.run)) !== null
+            ? 'changed'
+            : 'no'
+        checks.push({ ...check, seen })
+      }
+    }
+    return {
+      project,
+      file: read.file,
+      exists: read.exists,
+      at: read.at,
+      uncommitted: read.uncommitted,
+      checks,
+      problems: read.problems,
+    }
   }
 
   /**

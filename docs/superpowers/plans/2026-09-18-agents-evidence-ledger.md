@@ -3800,6 +3800,15 @@ test('a command that went A, then B, then A again asks each time: an old answer 
   assert.equal(await seen.previous(scope('blob-a'), 'verify', A.run), B.run)
 })
 
+test('an approval does not come back when the file returns to an earlier generation without another answer', async () => {
+  const { seen } = seenAt()
+  await seen.approve(scope('blob-a'), VERIFY)
+  await seen.reconcile(scope('blob-b'), ['verify'])
+  assert.equal(await seen.approved(scope('blob-b'), VERIFY), false)
+  await seen.reconcile(scope('blob-a'), ['verify'])
+  assert.equal(await seen.approved(scope('blob-a'), VERIFY), false)
+})
+
 test('a check removed and added again asks again, and a file changed only elsewhere still asks for every check in it', async () => {
   const { seen } = seenAt()
   await seen.approve(scope('d1'), VERIFY)
@@ -4435,12 +4444,12 @@ import { projectOf } from './revision.js'
 - [ ] **Step 6: Run the tests to see them pass**
 
 Run: `pnpm run build:node && node --test --test-reporter=spec packages/server/dist/test/evidence-seen.test.js packages/server/dist/test/evidence-project-checks.test.js packages/server/dist/test/evidence-seats.test.js`
-Expected: PASS — 8, 3 and 8 tests.
+Expected: PASS — 9, 3 and 8 tests.
 
 - [ ] **Step 7: Prove the tests can fail**
 
 1. In `approved`, drop `one.digest === scope.digest &&`: `an approval is one command, under one name, in one project, as one generation of its file says it` fails on `another generation of the file asks`. Restore it.
-2. In `reconcile`, change `one.digest === scope.digest && current.has(one.name)` to `current.has(one.name)`: `a command that went A, then B, then A again asks each time: an old answer never comes back` fails. Restore it.
+2. In `reconcile`, change `one.digest === scope.digest && current.has(one.name)` to `current.has(one.name)`: `an approval does not come back when the file returns to an earlier generation without another answer` fails. Restore it.
 3. In `#verify`, return `true`: `a file edited by hand, or copied from another machine, approves nothing` fails. Restore it.
 4. In `approved`, drop `one.incarnation === scope.incarnation &&`: `…as one generation of its file says it` fails on `another repository at the path asks`. Restore it.
 5. In `#read`, return `{ seen: …, key, refused: null }` for a newer format instead of the refusal: `a file a newer build wrote is never written over…` fails. Restore it.

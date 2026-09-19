@@ -262,3 +262,18 @@ export interface NamedCheck {
   /** Seconds before it is stopped. */
   readonly timeout: number
 }
+/** A project's checks, and whether this machine has seen each command as it is written now. */
+export interface ProjectChecks {
+  readonly project: string
+  /** `.harnessdesk/checks.yml` at the top of the project, absolute. */
+  readonly file: string
+  readonly exists: boolean
+  /** The commit the file was read at: checks run as committed. Null when there is none. */
+  readonly at: string | null
+  /** The working copy differs from what is committed, and that is not what runs. */
+  readonly uncommitted: boolean
+  /** `changed`: this machine saw another command under this name, and has not seen this one. */
+  readonly checks: readonly (NamedCheck & { readonly seen: 'yes' | 'no' | 'changed' })[]
+  /** What is wrong with the file, and where (`verify.run`), or `''` for the file as a whole; `check` names the check it is about. */
+  readonly problems: readonly { readonly at: string; readonly text: string; readonly check?: string }[]
+}
