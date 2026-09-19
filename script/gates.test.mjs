@@ -487,22 +487,10 @@ test('screen appearance counts role declarations and leaves layout to screens', 
     '  font-size: var(--hd-text);',
     '  border-radius: var(--hd-radius);',
     '  box-shadow: var(--hd-shadow-sm);',
-    '  height: 30px;',
     '  display: grid;',
     '  gap: var(--hd-space-2);',
     '  margin: var(--hd-space-2);',
     '  width: 30px;',
-    '  height: 100%;',
-    '  min-height: calc(var(--hd-nav-h) + 2px);',
-    '  max-height: 220px;',
-    '  max-height: var(--hd-dialog-max-h);',
-    '  max-height: calc(var(--hd-line-sm) * 4);',
-    '  height: calc(100% - 2px);',
-    '  height: 10dvh;',
-    '  height: fit-content;',
-    '  max-height: 100%;',
-    '  max-height: 10dvh;',
-    '  max-height: max-content;',
     '  --role-ground: var(--hd-surface);',
     '  background: ;',
     '}',
@@ -510,8 +498,47 @@ test('screen appearance counts role declarations and leaves layout to screens', 
 
   assert.deepEqual(
     screenAppearanceOf(file, fs.readFileSync(file, 'utf8')).map(({ property }) => property),
-    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow', 'height', 'min-height', 'max-height', 'max-height', 'max-height'],
+    ['color', 'padding', 'font-size', 'border-radius', 'box-shadow'],
   )
+})
+
+test('screen appearance uses one boundary for height, min-height and max-height', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-height-'))
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const file = path.join(root, 'packages/ui/src/components/Example.module.css')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const cases = [
+    ['30px', true],
+    ['2rem', true],
+    ['var(--hd-nav-h)', true],
+    ['calc(var(--hd-nav-h) + 2px)', true],
+    ['220px', true],
+    ['100%', false],
+    ['calc(100% - 2px)', false],
+    ['100vh', false],
+    ['10dvh', false],
+    ['50svw', false],
+    ['100cqh', false],
+    ['20cqmin', false],
+    ['auto', false],
+    ['none', false],
+    ['fit-content', false],
+    ['fit-content(10rem)', false],
+    ['min-content', false],
+    ['max-content', false],
+    ['inherit', false],
+  ]
+
+  for (const property of ['height', 'min-height', 'max-height']) {
+    for (const [value, counts] of cases) {
+      const css = `.role { ${property}: ${value}; }`
+      assert.equal(
+        screenAppearanceOf(file, css).length,
+        counts ? 1 : 0,
+        `${property}: ${value} ${counts ? 'counts' : 'does not count'}`,
+      )
+    }
+  }
 })
 
 test('screen appearance excludes the design system and its named specialized renderers', (t) => {

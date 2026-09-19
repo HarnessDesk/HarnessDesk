@@ -1782,7 +1782,7 @@ const unprefixedProperty = (property) => property.replace(/^-(?:webkit|moz)-/, '
  * content or the layout decide. Everything else — a length, a token, a `calc()`
  * of either — is the role's own metric, and counts.
  */
-const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i))\b|^(?:auto|none|stretch|fit-content|min-content|max-content|inherit|initial|unset|revert|revert-layer)$|^fit-content\(/i
+const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i)|cq(?:h|w|i|b|min|max))\b|^(?:auto|none|stretch|fit-content|min-content|max-content|inherit|initial|unset|revert|revert-layer)$|^fit-content\(/i
 const TYPE_APPEARANCE = new Set([
   'font', 'font-family', 'font-size', 'font-style', 'font-weight', 'line-height', 'letter-spacing',
   'text-transform', 'text-decoration', 'text-decoration-color',
