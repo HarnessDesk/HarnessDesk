@@ -471,6 +471,7 @@ const BandHead = ({
 }) => (
   <SectionHead
     sticky
+    level="heading"
     className={styles.bandHead}
     name={name}
     description={note}

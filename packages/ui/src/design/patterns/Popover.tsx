@@ -94,6 +94,9 @@ export const Popover = ({
   title,
   drop = 'down',
   align = 'right',
+  side,
+  sideAlign,
+  sideOffset = 6,
   tone = 'calm',
   fullWidth = false,
   triggerClassName,
@@ -111,7 +114,13 @@ export const Popover = ({
   tone?: 'calm' | 'warn' | 'alert'
   /** `up` for controls near the bottom of the window, like the composer. */
   drop?: 'up' | 'down'
+  /** Places a popup beside its trigger when the owning surface needs that relationship. */
+  side?: 'top' | 'right' | 'bottom' | 'left'
   align?: 'left' | 'right'
+  /** Aligns along the chosen side; otherwise the existing left/right contract decides. */
+  sideAlign?: 'start' | 'center' | 'end'
+  /** Leaves room between the trigger and the floating surface. */
+  sideOffset?: number
   children: (close: () => void) => ReactNode
 }) => {
   const [open, setOpenState] = useState(false)
@@ -190,9 +199,9 @@ export const Popover = ({
         <PopoverPortal>
           <PopoverPositioner
             positionMethod="fixed"
-            side={drop === 'up' ? 'top' : 'bottom'}
-            align={align === 'left' ? 'start' : 'end'}
-            sideOffset={6}
+            side={side ?? (drop === 'up' ? 'top' : 'bottom')}
+            align={sideAlign ?? (align === 'left' ? 'start' : 'end')}
+            sideOffset={sideOffset}
             collisionPadding={8}
             className={styles.positioner}
           >
@@ -216,8 +225,21 @@ export const Popover = ({
   )
 }
 
-export const PopoverGroupLabel = ({ children }: { children: ReactNode }) => (
-  <div className={styles.groupLabel}>{children}</div>
+export const PopoverGroupLabel = ({
+  children,
+  inset = true,
+}: {
+  children: ReactNode
+  /** False when a containing row already owns the label's inset. */
+  inset?: boolean
+}) => (
+  <div
+    data-slot="group-label"
+    data-inset={String(inset)}
+    className={styles.groupLabel}
+  >
+    {children}
+  </div>
 )
 
 export const PopoverOption = ({

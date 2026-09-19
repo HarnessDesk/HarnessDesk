@@ -825,6 +825,12 @@ and the opening of its description exactly as GitHub holds them, which is
 how the signature at the end of a short description appears here — as part
 of the text, not as a claim the desk makes about it.
 
+### `Spinner`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A running operation whose words live beside it.
+
 ### `Chip`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -904,6 +910,12 @@ The page's name, one line saying what it is for, and anything it acts on.
 
 The interface's named text roles, including dashboard readouts.
 
+### `NavigationGroupHeader`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The label line above navigation rows, including the controls that act on that list.
+
 ### `Rows`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -979,8 +991,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | --- | --- | --- |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
-| `patternClass` | 2 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 2022 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `patternClass` | 1 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
+| `screenAppearance` | 1696 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

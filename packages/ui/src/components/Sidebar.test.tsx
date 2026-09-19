@@ -125,11 +125,13 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(newSessionBtn).not.toBeNull()
     expect(newSessionBtn?.disabled).toBe(true)
 
-    const worktreeHelp = container.querySelector<HTMLElement>('[aria-label*="Connect an agent"]')
+    const worktreeHelp = container.querySelector<HTMLButtonElement>('[data-slot="refused-action"]')
     expect(worktreeHelp).not.toBeNull()
     expect(worktreeHelp?.tabIndex).toBe(0)
-    const worktreeBtn = worktreeHelp?.querySelector<HTMLButtonElement>('button')
-    expect(worktreeBtn?.disabled).toBe(true)
+    expect(worktreeHelp?.getAttribute('aria-disabled')).toBe('true')
+    const reasonId = worktreeHelp?.getAttribute('aria-describedby')
+    expect(reasonId).not.toBeNull()
+    expect(document.getElementById(reasonId!)?.textContent).toContain('Connect an agent')
 
     const empty = container.querySelector('p[class*="empty"]')
     expect(empty).not.toBeNull()

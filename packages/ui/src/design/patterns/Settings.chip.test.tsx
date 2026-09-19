@@ -89,3 +89,9 @@ it('defaults an unknown fact to Unknown and the neutral tone', () => {
   expect(chip.className).toContain('bg-(--hd-muted)')
   expect(chip.className).not.toContain('bg-(--hd-danger-dim)')
 })
+
+it('offers the compact tag size without inheriting the full chip height', () => {
+  const chip = draw(<Chip tone="neutral" size="sm">Local</Chip>)
+  expect(chip.dataset['size']).toBe('sm')
+  expect(css).toMatch(/\.chip\[data-size='sm'\]\s*\{[^}]*height:\s*18px[^}]*padding:\s*0 var\(--hd-space-1-5\)[^}]*border-radius:\s*var\(--hd-radius-sm\)/s)
+})

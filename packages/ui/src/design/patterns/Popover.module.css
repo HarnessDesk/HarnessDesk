@@ -77,9 +77,12 @@
 }
 
 .groupLabel {
-  padding: 8px 8px 4px;
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
+}
+
+.groupLabel[data-inset='true'] {
+  padding: 8px 8px 4px;
 }
 
 .option {

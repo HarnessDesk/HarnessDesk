@@ -34,9 +34,12 @@
  */
 export {
   Dot,
+  Spinner,
+  type SpinnerProps,
   Chip,
   type ChipProps,
   Search,
+  NavigationGroupHeader,
   Field,
   type FieldControl,
   FormStack,

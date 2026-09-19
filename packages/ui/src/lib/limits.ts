@@ -31,6 +31,10 @@ export type Tone = 'good' | 'warn' | 'bad'
 export const paletteTone = (tone: Tone): 'neutral' | 'warning' | 'danger' =>
   tone === 'bad' ? 'danger' : tone === 'warn' ? 'warning' : 'neutral'
 
+/** A plain reading takes no judgement colour; only low and spent are claims. */
+export const usageReadingTone = (tone: Tone | undefined): 'warning' | 'danger' | undefined =>
+  tone === 'bad' ? 'danger' : tone === 'warn' ? 'warning' : undefined
+
 export interface UsageSummary {
   /** "4% left" */
   readonly label: string

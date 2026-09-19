@@ -141,7 +141,7 @@ it('a conversation with work still running in the background wears a green glyph
     if (!found) throw new Error(`no row called ${title}`)
     return found as HTMLButtonElement
   }
-  const glyph = (title: string): HTMLElement | null => row(title).querySelector('[class*="statusGlyph"]')
+  const glyph = (title: string): HTMLElement | null => row(title).querySelector('[data-slot="dot"]')
   expect(glyph('Busy one')?.hasAttribute('data-tasks')).toBe(true)
   expect(row('Busy one').title).toContain('running in the background')
   // Finished work is not a reason to look: only running work earns the dot.

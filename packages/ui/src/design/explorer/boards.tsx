@@ -47,6 +47,7 @@ import {
   SectionHead,
   Segmented,
   StatePill,
+  Spinner,
   Switch,
   SwitchShape,
   ToggleGroup,
@@ -161,6 +162,7 @@ const StateBoard = () => (
         <Dot state="signin" />
         <Dot state="limit" />
         <Dot state="broken" />
+        <Dot state="signin" pulse />
       </Case>
       <Case label="chip">
         <Chip state="ready" />
@@ -208,6 +210,9 @@ const StateBoard = () => (
           const { label, tone } = stateTone(state)
           return <Chip key={state} tone={tone}>{label}</Chip>
         })}
+      </Case>
+      <Case label="running operation">
+        <Spinner size="sm" tone="brand" aria-label="Loading" />
       </Case>
     </div>
     <p className={styles.rule}>
@@ -384,9 +389,9 @@ const HeadBoard = () => (
       />
     </div>
     <p className={styles.rule}>
-      20px and 600 weight name the app and a sheet; a page title is 16px at 500. That is the whole
-      heading scale — a screen that wants a third size is asking for a size the system does not
-      have.
+      20px and 600 weight name the app and a page; subjects use the reading step at medium. That is
+      the whole heading scale — a screen that wants a third size is asking for a size the system
+      does not have.
     </p>
   </>
 )
