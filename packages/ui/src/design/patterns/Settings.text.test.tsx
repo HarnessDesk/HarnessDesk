@@ -41,3 +41,10 @@ it('keeps a short list of note details semantically grouped', () => {
   expect(list?.tagName).toBe('UL')
   expect(list?.textContent).toContain('unknown role')
 })
+
+it('lets the named text role carry list-item semantics', () => {
+  act(() => root.render(<Text as="li" role="value">Run the checks</Text>))
+  const text = container.querySelector('[data-slot="text"]')
+  expect(text?.tagName).toBe('LI')
+  expect(text?.getAttribute('data-role')).toBe('value')
+})

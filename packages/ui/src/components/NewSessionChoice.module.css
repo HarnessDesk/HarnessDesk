@@ -16,23 +16,6 @@
 
 }
 
-.mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-tint-blue-fill);
-  color: var(--hd-tint-blue-ink);
-}
-
-.mark[data-tone='team'] {
-  background: var(--hd-tint-violet-fill);
-  color: var(--hd-tint-violet-ink);
-}
-
 .text {
   display: flex;
   flex-direction: column;
@@ -40,25 +23,8 @@
   min-width: 0;
 }
 
-.name {
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  color: var(--hd-foreground);
-}
-
-.note {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
 .naming {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-2);
-}
-
-.problem {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-danger-ink);
 }

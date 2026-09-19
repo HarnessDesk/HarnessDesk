@@ -15,7 +15,6 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  background: var(--hd-background);
 
   /*
    * How big each dock currently is.
@@ -83,7 +82,6 @@
   overflow: hidden;
   /* No edge: the column is already its own surface, and a rule beside a
      surface change says the same thing twice. */
-  background: var(--hd-sidebar-plate);
   transition: width var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
@@ -264,43 +262,9 @@
 }
 
 .splitSeam {
-  flex: none;
   /* Above the halves either side, so the place to grab below wins there. */
   position: relative;
   z-index: 1;
-  background: var(--hd-border);
-}
-
-/* A wider place to grab than the line it draws: 9px, centred on the seam, as
-   the pane split's handle has one (`Panes.module.css`). The seam alone was a
-   one-pixel target, measured with `elementFromPoint` in the app (review of
-   #183, round 7; #202). */
-.splitSeam::after {
-  content: '';
-  position: absolute;
-}
-
-.split[data-direction='row'] > .splitSeam::after {
-  inset: 0 -4px;
-}
-
-.split[data-direction='column'] > .splitSeam::after {
-  inset: -4px 0;
-}
-
-.split[data-direction='row'] > .splitSeam {
-  width: var(--hd-border-width);
-  cursor: col-resize;
-}
-
-.split[data-direction='column'] > .splitSeam {
-  height: var(--hd-border-width);
-  cursor: row-resize;
-}
-
-.splitSeam:hover,
-.splitSeam[data-dragging] {
-  background: var(--hd-accent);
 }
 
 /* While this split is being dragged, so the halves do not chase the pointer
@@ -370,20 +334,6 @@
 }
 
 /* A band along an empty edge, only while a drag it would take is in flight. */
-.edgeDrop {
-  position: relative;
-  flex: none;
-  align-self: stretch;
-}
-
-.edgeDrop[data-area='right'] {
-  width: 180px;
-}
-
-.edgeDrop[data-area='bottom'] {
-  height: 120px;
-}
-
 /* ------------------------------------------------------------- docking */
 
 /*
@@ -392,42 +342,6 @@
  * window full of glowing rectangles the moment a drag begins tells the person
  * less than one rectangle under their pointer.
  */
-.drop {
-  position: absolute;
-  inset: 0;
-  z-index: var(--hd-z-drawer);
-  display: grid;
-  place-items: center;
-  border: 2px dashed transparent;
-  border-radius: var(--hd-radius);
-  transition:
-    background var(--hd-duration-fast) var(--hd-ease),
-    border-color var(--hd-duration-fast) var(--hd-ease);
-}
-
-.drop[data-over] {
-  border-color: var(--hd-accent);
-  background: var(--hd-accent-dim);
-}
-
-.dropLabel {
-  /* The label must not be a drag target of its own: the pointer crossing onto
-     it fired `dragleave` on the zone underneath, and the highlight flickered
-     as you moved toward the middle of the very area you were aiming at. */
-  pointer-events: none;
-  padding: var(--hd-space-1) var(--hd-space-2);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
-  opacity: 0;
-}
-
-.drop[data-over] .dropLabel {
-  opacity: 1;
-}
-
 /* -------------------------------------------------------- narrow windows
  *
  * Below `NARROW_WINDOW` (state/workbench.ts) a column beside the conversation
@@ -461,7 +375,6 @@
 .shell[data-narrow] .sidebar[data-floating] {
   transform: none;
   visibility: visible;
-  box-shadow: var(--hd-shadow-lg);
   transition: transform var(--hd-duration-slow) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
@@ -480,16 +393,10 @@
 
 /* Focus is put on the surface from code, so there is somewhere to start from;
    a ring round the whole column would be the app talking to itself. */
-.sidebar[data-floating]:focus,
-.sidebar[data-floating]:focus-visible {
-  outline: none;
-}
-
 .scrim {
   position: absolute;
   inset: 0;
   z-index: var(--hd-z-drawer);
-  background: var(--hd-scrim);
   /* Hidden once it has faded, not as it starts to: until then it is still
      drawn over the conversation, and a press on it must land on it. A press
      straight after Escape reached the composer it was still dimming. */

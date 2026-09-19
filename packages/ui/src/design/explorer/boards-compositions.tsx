@@ -40,6 +40,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardViewport,
   Checkbox,
   ChoiceRow,
   DataTableColumnHeader,
@@ -146,6 +147,14 @@ import {
   RunDot,
 } from '../patterns/InspectorPanel'
 import { PatchHeader } from '../patterns/Change'
+import {
+  DockDropEdge,
+  DockDropTarget,
+  PaneSurface,
+  WorkbenchCanvas,
+  WorkbenchRail,
+  WorkbenchScrim,
+} from '../patterns/DockPanel'
 import { CodeText, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
@@ -666,10 +675,25 @@ const ToolPaneBoard = () => {
         <Case label="panel blocks">
           <Section variant="panel" className="w-full">
             <Card variant="flush">
-              <PatchHeader level="block"><CodeText>src/app.ts</CodeText></PatchHeader>
-              <ToolPaneMessage>Block content reaches the card edge.</ToolPaneMessage>
+              <CardViewport size="editor" className="h-24">
+                <PatchHeader level="block"><CodeText>src/app.ts</CodeText></PatchHeader>
+                <ToolPaneMessage>Block content reaches the card edge.</ToolPaneMessage>
+              </CardViewport>
             </Card>
           </Section>
+        </Case>
+        <Case label="workbench chrome and drop target">
+          <WorkbenchCanvas className="relative flex h-56 w-full overflow-hidden">
+            <WorkbenchRail data-floating className="w-28 p-3">Rail</WorkbenchRail>
+            <ResizeHandle appearance="line" orientation="vertical" value={0.35} onChange={() => {}} />
+            <PaneSurface className="relative flex-1 p-3">
+              Pane
+              <DockDropEdge area="bottom" className="absolute inset-x-0 bottom-0">
+                <DockDropTarget active label="Dock in Bottom" />
+              </DockDropEdge>
+            </PaneSurface>
+            <WorkbenchScrim className="pointer-events-none absolute inset-0 opacity-20" />
+          </WorkbenchCanvas>
         </Case>
       </div>
       <Rule>

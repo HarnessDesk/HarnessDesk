@@ -1,6 +1,8 @@
 import { expect, it } from 'vitest'
 
 import host from './Workbench.module.css?raw'
+import workbench from './Workbench.tsx?raw'
+import resizeHandle from '../design/ui/resize-handle.tsx?raw'
 
 /**
  * How a panel hides the views that are not in front.
@@ -105,11 +107,7 @@ it('collapses a panel to its tabs in the sidebar only (review of #183, rounds 5 
 })
 
 it('the seam has a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {
-  const hitArea = (sheet: string) =>
-    [...flat(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
-      .filter((rule) => (rule[1] ?? '').includes('.splitSeam::after'))
-      .map((rule) => `${(rule[1] ?? '').trim()} { ${(rule[2] ?? '').trim().replace(/\s+/g, ' ')} }`)
-  expect(hitArea(host)).toHaveLength(3)
-  expect(hitArea(host).join('\n')).toContain('inset: 0 -4px')
-  expect(hitArea(host).join('\n')).toContain('inset: -4px 0')
+  expect(workbench).toContain('appearance="line"')
+  expect(resizeHandle).toContain("after:-inset-x-1")
+  expect(resizeHandle).toContain("after:-inset-y-1")
 })

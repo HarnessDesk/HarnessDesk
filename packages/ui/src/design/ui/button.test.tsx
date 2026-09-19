@@ -37,7 +37,9 @@ describe('the canonical button', () => {
     expect(primary).toContain('text-(--hd-btn-primary-foreground)')
     expect(primary).toContain('hover:bg-(--hd-btn-primary-hover)')
 
-    expect(buttonVariants({ variant: 'outline' })).toContain('border-(--hd-btn-border)')
+    const outline = buttonVariants({ variant: 'outline' })
+    expect(outline).toContain('border-(--hd-btn-border)')
+    expect(outline.split(/\s+/)).toContain('text-(--hd-foreground)')
 
     /* The destructive button is the one both spellings used to draw
        differently — solid red here, soft danger-ink in Kit. It is soft in

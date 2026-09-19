@@ -16,9 +16,6 @@
    to the rows: it is an aside about the heading, not a row of the card. */
 .note {
   margin: -4px 0 10px;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-muted-foreground);
 }
 
 /* The agent's mark on its heading, pulled onto the text's centre line — the

@@ -81,7 +81,7 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * the caller knows whether the keyboard reaches this row here or through
    * something inside it.
    */
-  as?: 'div' | 'button'
+  as?: 'div' | 'button' | 'label'
 }
 
 const ListRow = ({
@@ -143,7 +143,7 @@ const ListRow = ({
     )}
     {...props}
   >
-    {lead != null && <span className="shrink-0">{lead}</span>}
+    {lead != null && <span data-slot="list-row-lead" className="inline-flex shrink-0 items-center gap-2">{lead}</span>}
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         className={cn(
