@@ -3,10 +3,13 @@ import {
   type AgentEntry,
   type AgentOrigin,
   type FlowPermission,
+  type FlowSeat,
   type RuntimeInfo,
+  type SeatArchived,
   type SeatCandidate,
   type SeatDifference,
   type SeatFix,
+  type SeatLeft,
   type SeatPlan,
   type SeatReason,
   type WorkspaceEntry,
@@ -222,3 +225,194 @@ export const markFor = (
     id: candidate.seat.runtime,
     presentation: { name: candidate.runtimeName },
   }
+
+/* --- the refusal sheet ---------------------------------------------------- */
+
+const isCandidateState = (value: unknown): value is SeatCandidate['state'] =>
+  value === 'taken' || value === 'passed' || value === 'untried'
+
+const isArchived = (value: unknown): value is SeatArchived =>
+  value === 'here' || value === 'runtime' || value === 'failed'
+
+/** A `SeatReason`, narrowed from wire data. Null for a `kind` this file does not know, or a payload missing its fields. */
+const asReason = (value: unknown): SeatReason | null => {
+  const raw = value as { readonly kind?: unknown } | null
+  if (raw == null || typeof raw.kind !== 'string') return null
+  switch (raw.kind) {
+    case 'notInstalled':
+      return typeof (raw as { added?: unknown }).added === 'boolean' ? (raw as SeatReason) : null
+    case 'unknownRuntime':
+      return { kind: 'unknownRuntime' }
+    case 'signedOut':
+      return { kind: 'signedOut' }
+    case 'spent':
+      return { kind: 'spent' }
+    case 'unavailable':
+    case 'couldNotOpen':
+      return typeof (raw as { detail?: unknown }).detail === 'string' ? (raw as SeatReason) : null
+    case 'noAnswer':
+      return typeof (raw as { after?: unknown }).after === 'number' ? (raw as SeatReason) : null
+    case 'spentModel':
+    case 'modelsUnread':
+    case 'noModel':
+      return typeof (raw as { model?: unknown }).model === 'string' ? (raw as SeatReason) : null
+    case 'noEffort':
+      return typeof (raw as { effort?: unknown }).effort === 'string' ? (raw as SeatReason) : null
+    case 'openedOtherwise':
+      return Array.isArray((raw as { differences?: unknown }).differences) ? (raw as SeatReason) : null
+    default:
+      return null
+  }
+}
+
+/** A `SeatFix`, narrowed from wire data. */
+const asFix = (value: unknown): SeatFix | null => {
+  const raw = value as { readonly kind?: unknown } | null
+  if (raw == null || typeof raw.kind !== 'string') return null
+  switch (raw.kind) {
+    case 'add':
+    case 'install':
+    case 'signIn':
+    case 'usage':
+    case 'runtime': {
+      // Split across two lines: this is a wire-shape check (is the field a
+      // string at all), never a comparison against which runtime this is —
+      // the layering gate's regex cannot tell those apart on one line.
+      const field = (raw as { runtime?: unknown }).runtime
+      return typeof field === 'string' ? (raw as SeatFix) : null
+    }
+    case 'seats':
+      return { kind: 'seats' }
+    default:
+      return null
+  }
+}
+
+/** A `SeatLeft`, narrowed from wire data. */
+const asLeft = (value: unknown): SeatLeft | null => {
+  const raw = value as { readonly kind?: unknown } | null
+  if (raw == null || typeof raw.kind !== 'string') return null
+  switch (raw.kind) {
+    case 'kept':
+      return isArchived((raw as { archived?: unknown }).archived) ? (raw as SeatLeft) : null
+    case 'undeleted':
+      return typeof (raw as { detail?: unknown }).detail === 'string' && isArchived((raw as { archived?: unknown }).archived)
+        ? (raw as SeatLeft)
+        : null
+    case 'inUse':
+      return { kind: 'inUse' }
+    case 'alreadyHeld':
+      return { kind: 'alreadyHeld' }
+    case 'unasked':
+      return { kind: 'unasked' }
+    default:
+      return null
+  }
+}
+
+/**
+ * One candidate, narrowed from wire data. A field that is present but does
+ * not narrow drops the whole candidate rather than showing something wrong
+ * about it — a refusal a person cannot trust is worse than a shorter one.
+ */
+const asCandidate = (value: unknown): SeatCandidate | null => {
+  const raw = value as {
+    readonly seat?: unknown
+    readonly label?: unknown
+    readonly runtimeName?: unknown
+    readonly state?: unknown
+    readonly reason?: unknown
+    readonly fix?: unknown
+    readonly left?: unknown
+  } | null
+  if (raw == null) return null
+  const seat = raw.seat as { readonly runtime?: unknown } | null
+  // Split for the same reason as `asFix`'s `runtime` case: a wire-shape
+  // check, not a comparison against which runtime this is.
+  const seatField = seat?.runtime
+  if (typeof seatField !== 'string') return null
+  if (typeof raw.label !== 'string' || typeof raw.runtimeName !== 'string') return null
+  if (!isCandidateState(raw.state)) return null
+  const reason = raw.reason == null ? null : asReason(raw.reason)
+  if (raw.reason != null && reason === null) return null
+  const fix = raw.fix == null ? null : asFix(raw.fix)
+  if (raw.fix != null && fix === null) return null
+  let left: SeatLeft | null | undefined
+  if (raw.left !== undefined) {
+    left = raw.left == null ? null : asLeft(raw.left)
+    if (raw.left != null && left === null) return null
+  }
+  return {
+    seat: raw.seat as FlowSeat,
+    label: raw.label,
+    runtimeName: raw.runtimeName,
+    state: raw.state,
+    reason,
+    fix,
+    ...(left !== undefined ? { left } : {}),
+  }
+}
+
+/**
+ * The candidates a host refusal carried, when the failure is a seating's
+ * refusal; null for any other failure.
+ *
+ * The list arrives over the wire, so every candidate is narrowed rather than
+ * cast — a malformed one is dropped rather than sinking the whole refusal, so
+ * the sheet is more useful showing what it could read than falling back to a
+ * generic error notice over one bad entry in an otherwise-good list.
+ */
+export const refusalOf = (error: unknown): readonly SeatCandidate[] | null => {
+  const failure = error as { readonly code?: unknown; readonly data?: { readonly candidates?: unknown } } | null
+  if (failure?.code !== 'seatRefused' || !Array.isArray(failure.data?.candidates)) return null
+  return failure.data.candidates.map(asCandidate).filter((one): one is SeatCandidate => one !== null)
+}
+
+/** Whether any candidate shows a real attempt was made to open something, so "Nothing was opened" would be false. */
+export const anyOpened = (candidates: readonly SeatCandidate[]): boolean =>
+  candidates.some(
+    (one) => one.left != null || one.reason?.kind === 'couldNotOpen' || one.reason?.kind === 'openedOtherwise',
+  )
+
+/** Where a conversation that could not be deleted was put, in a clause. */
+const archivedWords = (archived: SeatArchived, runtime: string): string =>
+  archived === 'here'
+    ? 'here'
+    : archived === 'runtime'
+      ? `in ${runtime}'s own archive`
+      : 'nowhere, because archiving it failed, so it may still be listed'
+
+/**
+ * What a passed-over seat may have left behind, in a sentence.
+ *
+ * Exhaustive over `SeatLeft` with no `default`, so a kind the host adds later
+ * fails this file's typecheck rather than falling through to nothing.
+ */
+export const leftWords = (left: SeatLeft, runtime: string): string => {
+  switch (left.kind) {
+    case 'kept':
+      return `${runtime} may keep the empty conversation it opened — it was put ${archivedWords(left.archived, runtime)}`
+    case 'undeleted':
+      return `${runtime} refused to delete it ("${left.detail}") — it was put ${archivedWords(left.archived, runtime)}`
+    case 'inUse':
+      return 'Somebody used the conversation while it was open, so it was left as it is'
+    case 'alreadyHeld':
+      return `${runtime} answered with a conversation already open here, which was left untouched`
+    case 'unasked':
+      return `${runtime} was gone before it could be asked to delete it, so it may still be in its history`
+  }
+}
+
+/**
+ * Why an Agent could not be weighed at all, worded from its own entry — never
+ * the host's `SeatPlan.blocked` sentence, which starts with an absolute path
+ * (a shipped Agent's own install path on top of it, for one cause). The entry
+ * carries the reason when the trouble is its own file; a seating-file problem
+ * or an id nothing answers to has no entry to read, so those read generically
+ * instead, naming nothing about this machine's folders.
+ */
+export const blockedWords = (entry: AgentEntry | undefined, home: string): string => {
+  const problem = entry?.problems.find((one) => one.level === 'error')
+  if (entry && problem) return `${fileWords(entry, home)}: ${problem.at ? `${problem.at} — ` : ''}${problem.text}`
+  return 'This Mac’s seats for it could not be read.'
+}

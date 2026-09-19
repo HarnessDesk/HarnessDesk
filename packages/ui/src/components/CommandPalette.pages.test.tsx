@@ -43,11 +43,12 @@ const mount = async (patch: Partial<AppSnapshot> = {}): Promise<{ openSettings: 
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadAgents: async () => {},
     transport: { request },
     openSession: vi.fn(async () => {}),
   } as unknown as AppStore
   const openSettings = vi.fn()
-  const host = { close: () => {}, chooseFolder: () => {}, openSettings, openUsage: () => {} }
+  const host = { close: () => {}, chooseFolder: () => {}, openSettings, openUsage: () => {}, openAgents: () => {} }
   await act(async () => {
     root.render(
       <StoreProvider store={store}>

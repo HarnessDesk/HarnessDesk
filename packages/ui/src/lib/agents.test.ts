@@ -1,19 +1,23 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentEntry, RuntimeInfo, SeatPlan, SeatReason } from '@harnessdesk/protocol'
+import type { AgentEntry, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason } from '@harnessdesk/protocol'
 
 import {
   anyBroken,
+  anyOpened,
+  blockedWords,
   bySection,
   ceilingWords,
   fileWords,
   firstParagraph,
   firstReason,
   fixWords,
+  leftWords,
   markFor,
   originWords,
   projectName,
   reasonWords,
+  refusalOf,
   seatTaken,
 } from './agents'
 
@@ -253,5 +257,117 @@ describe('agents in words', () => {
       'openedOtherwise',
     ]
     expect(new Set(kinds).size).toBe(kinds.length)
+  })
+
+  /*
+   * `refusalOf` reads a wire refusal, so every candidate is narrowed rather
+   * than cast — the Task 5 review's carry-forward for this file.
+   */
+  it('reads a seatRefused error’s candidates, and only a seatRefused error’s', () => {
+    const candidate = {
+      seat: { runtime: 'cursor' },
+      label: 'Cursor',
+      runtimeName: 'Cursor',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'cursor' },
+    }
+    expect(refusalOf({ code: 'seatRefused', data: { candidates: [candidate] } })).toEqual([candidate])
+    // Not that code: not a refusal, whatever shape `data` has.
+    expect(refusalOf({ code: 'notFound', data: { candidates: [candidate] } })).toBeNull()
+    expect(refusalOf(new Error('boom'))).toBeNull()
+    expect(refusalOf(null)).toBeNull()
+  })
+
+  it('drops a malformed candidate rather than sinking the whole refusal', () => {
+    const good = {
+      seat: { runtime: 'codex' },
+      label: 'Codex',
+      runtimeName: 'Codex',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'codex' },
+    }
+    const missingRuntime = { ...good, seat: {} }
+    const unknownReasonKind = { ...good, reason: { kind: 'somethingNew' } }
+    const badLeft = { ...good, left: { kind: 'kept' } } // no `archived`
+    for (const bad of [missingRuntime, unknownReasonKind, badLeft]) {
+      expect(refusalOf({ code: 'seatRefused', data: { candidates: [bad, good] } })).toEqual([good])
+    }
+    // Never the error's own message: that is the host's sentence, with a runtime id and a seat spec in it.
+    expect(refusalOf({ code: 'seatRefused', message: 'seat cursor=opus-5 refused', data: { candidates: [good] } })).toEqual([good])
+  })
+
+  /*
+   * Every `SeatLeft` kind (`packages/protocol/src/agent.ts`), and every
+   * `SeatArchived` value where a kind carries one.
+   */
+  it('words what a passed-over seat may have left behind, for every kind and every archived value', () => {
+    expect(leftWords({ kind: 'kept', archived: 'here' }, 'Codex')).toBe(
+      'Codex may keep the empty conversation it opened — it was put here',
+    )
+    expect(leftWords({ kind: 'kept', archived: 'runtime' }, 'Codex')).toBe(
+      "Codex may keep the empty conversation it opened — it was put in Codex's own archive",
+    )
+    expect(leftWords({ kind: 'kept', archived: 'failed' }, 'Codex')).toBe(
+      'Codex may keep the empty conversation it opened — it was put nowhere, because archiving it failed, so it may still be listed',
+    )
+    expect(leftWords({ kind: 'undeleted', detail: 'no permission', archived: 'here' }, 'Cursor')).toBe(
+      'Cursor refused to delete it ("no permission") — it was put here',
+    )
+    expect(leftWords({ kind: 'undeleted', detail: 'no permission', archived: 'runtime' }, 'Cursor')).toBe(
+      'Cursor refused to delete it ("no permission") — it was put in Cursor\'s own archive',
+    )
+    expect(leftWords({ kind: 'undeleted', detail: 'no permission', archived: 'failed' }, 'Cursor')).toBe(
+      'Cursor refused to delete it ("no permission") — it was put nowhere, because archiving it failed, so it may still be listed',
+    )
+    expect(leftWords({ kind: 'inUse' }, 'Claude')).toBe('Somebody used the conversation while it was open, so it was left as it is')
+    expect(leftWords({ kind: 'alreadyHeld' }, 'Claude')).toBe(
+      'Claude answered with a conversation already open here, which was left untouched',
+    )
+    expect(leftWords({ kind: 'unasked' }, 'Gemini CLI')).toBe(
+      'Gemini CLI was gone before it could be asked to delete it, so it may still be in its history',
+    )
+  })
+
+  it('keeps the exhaustive switch honest: every SeatLeft kind is a case above', () => {
+    const kinds: readonly SeatLeft['kind'][] = ['kept', 'undeleted', 'inUse', 'alreadyHeld', 'unasked']
+    expect(new Set(kinds).size).toBe(kinds.length)
+  })
+
+  it('says whether a candidate shows a real attempt, never from the dry run alone', () => {
+    const passedOver: SeatCandidate = {
+      seat: { runtime: 'cursor' },
+      label: 'Cursor',
+      runtimeName: 'Cursor',
+      state: 'passed',
+      reason: { kind: 'signedOut' },
+      fix: { kind: 'signIn', runtime: 'cursor' },
+    }
+    expect(anyOpened([passedOver])).toBe(false)
+    expect(anyOpened([{ ...passedOver, left: { kind: 'kept', archived: 'here' } }])).toBe(true)
+    expect(anyOpened([{ ...passedOver, reason: { kind: 'couldNotOpen', detail: 'timed out' } }])).toBe(true)
+    expect(
+      anyOpened([{ ...passedOver, reason: { kind: 'openedOtherwise', differences: [{ field: 'model', asked: 'a', running: 'b' }] } }]),
+    ).toBe(true)
+  })
+
+  /*
+   * `plan.blocked` is never shown raw (the test above, on `firstReason`) —
+   * this is the sheet's own, roomier wording, read from the entry rather
+   * than the host's sentence.
+   */
+  it('words why an Agent could not be weighed at all, from its own entry — never the host’s path', () => {
+    const broken = entry('draft', {
+      origin: 'user',
+      path: '/Users/dev/.harnessdesk/agents/draft/AGENT.md',
+      problems: [{ level: 'error', at: 'prefer[1]', text: '"cursor=" names no seat after the equals sign' }],
+    })
+    expect(blockedWords(broken, '/Users/dev')).toBe(
+      '~/.harnessdesk/agents/draft/AGENT.md: prefer[1] — "cursor=" names no seat after the equals sign',
+    )
+    // A seating-file problem, or an id nothing answers to, has no entry to read: generic, and names no folder.
+    expect(blockedWords(undefined, '/Users/dev')).not.toMatch(/\/Users|~\//)
+    expect(blockedWords(entry('clean'), '/Users/dev')).not.toMatch(/\/Users|~\//)
   })
 })

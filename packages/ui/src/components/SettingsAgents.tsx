@@ -1798,7 +1798,14 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
 /* --- the page ------------------------------------------------------------ */
 
 
-export const RuntimesSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) => void }) => {
+export const RuntimesSection = ({
+  onSignIn,
+  focus = null,
+}: {
+  onSignIn: (runtime: RuntimeId) => void
+  /** The thing inside the page to open, once — the refusal sheet's "Add Codex", "Open Cursor in Settings". */
+  focus?: string | null
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [view, setView] = useState<View>({ kind: 'list' })
@@ -1818,6 +1825,15 @@ export const RuntimesSection = ({ onSignIn }: { onSignIn: (runtime: RuntimeId) =
   useEffect(() => {
     void store.loadAccounts()
   }, [store])
+
+  // Opened on a thing inside the page — the refusal sheet's "Add Codex", its
+  // "Open Cursor in Settings" — rather than on the list.
+  useEffect(() => {
+    if (focus === 'add') setView({ kind: 'add' })
+    else if (focus && snapshot.runtimes.some((entry) => entry.id === focus)) {
+      setView({ kind: 'agent', runtime: focus as RuntimeId })
+    }
+  }, [focus, snapshot.runtimes])
 
   const back = (): void => setView({ kind: 'list' })
 

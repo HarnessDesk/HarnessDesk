@@ -16,6 +16,8 @@ import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
 import { resolveSection, Settings, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
+import { SeatSheet } from '../components/SeatSheet'
+import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
 import { Usage } from '../components/Usage'
@@ -42,6 +44,25 @@ export const App = () => {
   // request naming the page this one already held could not move the window,
   // because nothing here changed and so neither did the prop.
   const [settingsOpen, setSettingsOpen] = useState<false | Section>(false)
+  // One-shot, like `libraryImport`: the page reads it on the render it is
+  // handed, and clearing it on the next commit leaves what it opened open.
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
+  useEffect(() => {
+    if (settingsFocus !== null) setSettingsFocus(null)
+  }, [settingsFocus])
+  const openSettingsAt = useCallback((section: Section, focus: string | null) => {
+    setSettingsOpen(section)
+    setSettingsFocus(focus)
+  }, [])
+  /**
+   * The Agents window (Task 13's owner decision: the roster lives in the left
+   * menu, never in Settings) — `false`, or open on the Agent named by `focus`
+   * (`null` for the overview). Set here because the refusal sheet's *Edit
+   * seats for this Mac* and the palette's *Open <Agent>* both need a door to
+   * it before the window itself exists; Task 13 reads this state and draws it.
+   */
+  const [agentsOpen, setAgentsOpen] = useState<false | { focus: string | null }>(false)
+  const openAgents = useCallback((focus?: string) => setAgentsOpen({ focus: focus ?? null }), [])
   // One-shot: the import banner routes here, and the Library opens with the
   // import flow already up. Cleared when Settings closes, like any dialog.
   const [libraryImport, setLibraryImport] = useState(false)
@@ -144,9 +165,24 @@ export const App = () => {
   // closing the window does not reopen it.
   useEffect(() => {
     if (!snapshot.settingsFor) return
-    setSettingsOpen(resolveSection(snapshot.settingsFor))
+    openSettingsAt(resolveSection(snapshot.settingsFor), snapshot.settingsFocus)
     store.askSettings(null)
-  }, [snapshot.settingsFor, store])
+  }, [snapshot.settingsFor, snapshot.settingsFocus, store, openSettingsAt])
+
+  // A fix asked for from anywhere — the refusal sheet, an Agent's page, a
+  // name card — goes where it is fixed, from here, where the sign-in, the
+  // usage window and Settings live (and, once Task 13 lands, the Agents
+  // window).
+  useEffect(() => {
+    const asked = snapshot.seatFix
+    if (!asked) return
+    store.askSeatFix(null)
+    const route = routeFor(asked.fix, asked.agent)
+    if (route.kind === 'signIn') setSignInOpen(route.runtime)
+    else if (route.kind === 'usage') setUsageOpen(route.runtime)
+    else if (route.kind === 'agent') openAgents(route.agent)
+    else openSettingsAt(route.section, route.focus)
+  }, [snapshot.seatFix, store, openSettingsAt, openAgents])
 
   // A clicked macOS notification lands on the conversation it was about.
   useEffect(
@@ -309,6 +345,7 @@ export const App = () => {
             signIn: (runtime) => setSignInOpen(runtime ?? true),
             openUsage: (runtime) => setUsageOpen(runtime),
             openRuntimes: () => setSettingsOpen('runtimes'),
+            openAgents,
           }}
         >
           <Workbench
@@ -358,6 +395,7 @@ export const App = () => {
       {settingsOpen && (
         <Settings
           section={settingsOpen}
+          focus={settingsFocus}
           libraryImport={libraryImport}
           onSection={setSettingsOpen}
           onClose={() => {
@@ -384,13 +422,26 @@ export const App = () => {
           onClose={() => store.askNewWorktree(null)}
         />
       )}
+      {/* One mount for the sheet every door that starts an Agent can raise. */}
+      {snapshot.seatRefusal && (
+        <SeatSheet
+          refusal={snapshot.seatRefusal}
+          onClose={() => store.dismissSeatRefusal()}
+          onFix={(fix) => {
+            const agent = snapshot.seatRefusal?.agent ?? ''
+            store.dismissSeatRefusal()
+            store.askSeatFix(fix, agent)
+          }}
+        />
+      )}
       {paletteOpen && (
         <CommandPalette
           host={{
             close: () => setPaletteOpen(false),
             chooseFolder,
-            openSettings: (section) => setSettingsOpen(section),
+            openSettings: (section, focus) => openSettingsAt(section, focus ?? null),
             openUsage: () => setUsageOpen(true),
+            openAgents,
           }}
         />
       )}

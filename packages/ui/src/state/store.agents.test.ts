@@ -1,6 +1,15 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, type AgentEntry, type HostMethodName, type SeatPlan, type WorkspaceEntry } from '@harnessdesk/protocol'
+import {
+  runtimeId,
+  sessionId,
+  sessionKey,
+  type AgentEntry,
+  type HostMethodName,
+  type SeatPlan,
+  type Session,
+  type WorkspaceEntry,
+} from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
 
@@ -364,4 +373,131 @@ it('never lets an older dry run for the same project overwrite a newer one that 
   older.resolve([oldPlan])
   await olderCall
   expect(store.getSnapshot().agentPlans.get(PLAN.id)).toEqual(newPlan)
+})
+
+/**
+ * `store.startAsAgent`: a fresh dry run for the one Agent (a sign-in since
+ * the menu was drawn changes the answer), seated in the open folder when it
+ * allows one, or the refusal sheet raised — never opening anything — when it
+ * does not. A refusal only an open seat could find arrives from the host's
+ * own `seatRefused` list instead.
+ */
+
+const SEATED: Session = {
+  id: sessionId('s1'),
+  runtime: runtimeId('claude-code'),
+  cwd: WORKSPACE.path,
+  title: 'Code reviewer',
+  status: { type: 'idle' },
+  createdAt: 0,
+  updatedAt: 0,
+  turns: [],
+  itemsLoaded: true,
+}
+
+const seatPlan = (winner: number | null): SeatPlan => ({
+  id: 'code-reviewer',
+  from: 'prefer',
+  winner,
+  blocked: null,
+  candidates: [
+    {
+      seat: { runtime: 'cursor' },
+      label: 'Cursor',
+      runtimeName: 'Cursor',
+      state: winner === null ? 'passed' : 'taken',
+      reason: winner === null ? { kind: 'signedOut' } : null,
+      fix: winner === null ? { kind: 'signIn', runtime: 'cursor' } : null,
+    },
+  ],
+})
+
+const answering = (answers: Partial<Record<HostMethodName, (params: unknown) => unknown>>) =>
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    asked.push({ method, params })
+    if (method === 'workspace/open') return WORKSPACE
+    if (method === 'workspace/recent') return [WORKSPACE]
+    const answer = answers[method]
+    return answer ? answer(params) : null
+  }) as never)
+
+it('a start the plan already refuses opens nothing, and raises the sheet with every candidate', async () => {
+  answering({ 'agent/seat/dry': () => [seatPlan(null)] })
+  await store.openWorkspace(WORKSPACE.path)
+  expect(await store.startAsAgent('code-reviewer')).toBeNull()
+  expect(asked.some((one) => one.method === 'agent/seat')).toBe(false)
+  expect(store.getSnapshot().seatRefusal?.candidates.map((one) => one.reason)).toEqual([{ kind: 'signedOut' }])
+  // The dry run alone never opens anything.
+  expect(store.getSnapshot().seatRefusal?.opened).toBe(false)
+  store.dismissSeatRefusal()
+  expect(store.getSnapshot().seatRefusal).toBeNull()
+})
+
+it('a start the plan allows is seated in the open folder, and shown', async () => {
+  answering({ 'agent/seat/dry': () => [seatPlan(0)], 'agent/seat': () => SEATED })
+  await store.openWorkspace(WORKSPACE.path)
+  const key = await store.startAsAgent('code-reviewer')
+  expect(key).toBe(sessionKey(runtimeId('claude-code'), SEATED.id))
+  expect(asked.find((one) => one.method === 'agent/seat')?.params).toEqual({
+    id: 'code-reviewer',
+    cwd: WORKSPACE.path,
+    project: WORKSPACE.path,
+  })
+  expect(store.getSnapshot().sessions.has(key!)).toBe(true)
+  expect(store.getSnapshot().seatRefusal).toBeNull()
+})
+
+it('a fix asked for from deep inside is held until the shell takes it where it is fixed', () => {
+  store.askSeatFix({ kind: 'signIn', runtime: 'cursor' }, 'code-reviewer')
+  expect(store.getSnapshot().seatFix).toEqual({ fix: { kind: 'signIn', runtime: 'cursor' }, agent: 'code-reviewer' })
+  store.askSeatFix(null)
+  expect(store.getSnapshot().seatFix).toBeNull()
+})
+
+it('a refusal only an open seat could find raises the same sheet, from the host’s own list — and says a seat was tried', async () => {
+  answering({
+    'agent/seat/dry': () => [seatPlan(0)],
+    'agent/seat': () => {
+      throw Object.assign(new Error('No seat could be opened for this Agent'), {
+        code: 'seatRefused',
+        data: {
+          candidates: [
+            {
+              ...seatPlan(null).candidates[0],
+              reason: { kind: 'openedOtherwise', differences: [{ field: 'effort', asked: 'high', running: 'low' }] },
+              fix: { kind: 'seats' },
+            },
+          ],
+        },
+      })
+    },
+  })
+  await store.openWorkspace(WORKSPACE.path)
+  expect(await store.startAsAgent('code-reviewer')).toBeNull()
+  expect(store.getSnapshot().seatRefusal?.candidates[0]?.reason).toEqual({
+    kind: 'openedOtherwise',
+    differences: [{ field: 'effort', asked: 'high', running: 'low' }],
+  })
+  // It tried a seat before this failed — "Nothing was opened" would be false.
+  expect(store.getSnapshot().seatRefusal?.opened).toBe(true)
+})
+
+it('a seat opened and its brief could not be handed over says so in a sentence naming the Agent, never the host’s', async () => {
+  answering({
+    'agent/list': () => [ENTRY],
+    'agent/seat/dry': () => [seatPlan(0)],
+    'agent/seat': () => {
+      throw Object.assign(new Error('Code reviewer was seated on Claude · Opus 5 · High, and its brief could not be handed over, so the conversation was closed: disk full'), {
+        code: 'briefNotHandedOver',
+      })
+    },
+  })
+  await store.openWorkspace(WORKSPACE.path)
+  await store.loadAgents()
+  expect(await store.startAsAgent('code-reviewer')).toBeNull()
+  // No refusal sheet: this is not a list of candidates, and nothing about a seat spec reaches the UI.
+  expect(store.getSnapshot().seatRefusal).toBeNull()
+  const notice = store.getSnapshot().notices.at(-1)
+  expect(notice?.message).toContain('Code reviewer')
+  expect(notice?.message).not.toContain('Opus 5 · High')
 })

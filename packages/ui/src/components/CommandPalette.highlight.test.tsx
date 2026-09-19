@@ -68,6 +68,7 @@ const mount = async () => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadAgents: async () => {},
     transport: { request },
     openSession,
   } as unknown as AppStore
@@ -77,6 +78,7 @@ const mount = async () => {
     chooseFolder: () => {},
     openSettings,
     openUsage: () => {},
+    openAgents: () => {},
   }
   await act(async () => {
     root.render(

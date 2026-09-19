@@ -61,8 +61,6 @@ const UNREACHED = {
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
   'agent/read':
     'the roster in Settings that calls this is a later phase of the agents plan',
-  'agent/seat':
-    'likewise — seating an Agent from that roster is the same later phase',
   'agent/seating/read':
     "likewise — an Agent's page reads this machine's seats for it, in the second half of the same phase",
   'agent/seating/set': 'likewise — the same page edits them',

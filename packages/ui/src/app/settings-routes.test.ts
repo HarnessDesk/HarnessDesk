@@ -60,10 +60,16 @@ const DOORS: readonly RegExp[] = [
 /**
  * The files allowed to call `openAgents`, the Agents window's own door — not
  * a door to Settings, which never legitimately opens on the retired roster
- * id. Empty until Task 13 builds the window; each task that gives a surface
- * a genuine door to it names the file here, with the door in its own commit.
+ * id. Each task that gives a surface a genuine door to it names the file
+ * here, with the door in its own commit.
  */
-const ROSTER_DOORS: readonly string[] = []
+const ROSTER_DOORS: readonly string[] = [
+  // The shell action itself (`ShellActions.openAgents`), and the effect that
+  // takes a seat's fix where it is fixed.
+  'app/App.tsx',
+  // "Open <Agent>".
+  'components/CommandPalette.tsx',
+]
 
 describe('the Settings route split', () => {
   it('opens on Runtimes by default, and the retired agents route redirects there for good', () => {

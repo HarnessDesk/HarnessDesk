@@ -44,6 +44,7 @@ const mount = async (history: readonly SessionSummary[]): Promise<void> => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadAgents: async () => {},
     transport: { request },
     openSession: vi.fn(async () => {}),
   } as unknown as AppStore
@@ -52,6 +53,7 @@ const mount = async (history: readonly SessionSummary[]): Promise<void> => {
     chooseFolder: () => {},
     openSettings: () => {},
     openUsage: () => {},
+    openAgents: () => {},
   }
   await act(async () => {
     root.render(

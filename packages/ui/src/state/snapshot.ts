@@ -17,6 +17,8 @@ import type {
   RuntimeHealth,
   RuntimeId,
   RuntimeInfo,
+  SeatCandidate,
+  SeatFix,
   SeatPlan,
   Session,
   SessionQueue,
@@ -47,6 +49,32 @@ import type { PlanEdit } from '../lib/plan-edits'
 import type { ConnectionStatus } from '../lib/transport'
 
 import { emptyLayout, panes, type Layout } from './layout'
+
+/**
+ * An Agent that could not be seated, and why each seat it would take could
+ * not be — what the refusal sheet draws. Store state, like `newWorktreeFor`,
+ * because every door that starts an Agent can raise it and the door is
+ * usually gone by the time it is read.
+ */
+export interface SeatRefusal {
+  /** The Agent's id — where *Edit seats for this Mac* goes. */
+  readonly agent: string
+  readonly name: string
+  readonly candidates: readonly SeatCandidate[]
+  /**
+   * Why it could not be weighed at all, worded from its own entry
+   * (`blockedWords`, `lib/agents.ts`) — never the host's sentence, which
+   * starts with an absolute path. Null otherwise.
+   */
+  readonly blocked: string | null
+  /**
+   * Whether a seat actually opened before this failed. A dry-run refusal
+   * opens nothing, so this is always false there; a `seatRefused` from
+   * `agent/seat` may have opened, tried and closed or kept several seats
+   * first, so "Nothing was opened" would be false for it.
+   */
+  readonly opened: boolean
+}
 
 import { emptyWorkbench, type Workbench } from './workbench'
 
@@ -384,6 +412,16 @@ export interface AppSnapshot {
    * is two components away from the state that opens windows.
    */
   readonly settingsFor: string | null
+  /** The thing inside that page to open — an Agent's id, a runtime's, `add` — until the shell opens it. */
+  readonly settingsFocus: string | null
+  /** The refusal sheet, while it is up. */
+  readonly seatRefusal: SeatRefusal | null
+  /**
+   * A fix for a seat, asked for from somewhere deep — the refusal sheet, an
+   * Agent's page, a name card — until the shell, which holds the sign-in, the
+   * usage window and Settings, takes it where it is fixed.
+   */
+  readonly seatFix: { readonly fix: SeatFix; readonly agent: string } | null
 
   readonly workspaces: readonly WorkspaceEntry[]
   readonly workspace: WorkspaceEntry | null
@@ -663,6 +701,9 @@ const EMPTY: AppSnapshot = {
   agentPlans: new Map(),
   newWorktreeFor: null,
   settingsFor: null,
+  settingsFocus: null,
+  seatRefusal: null,
+  seatFix: null,
   workspaces: [],
   workspace: null,
   skills: [],

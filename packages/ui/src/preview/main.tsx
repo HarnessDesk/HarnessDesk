@@ -8,6 +8,8 @@ import { Conversation } from '../components/Conversation'
 import { ChangesView, TrajectoryView } from '../components/Details'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
+import { NewSessionChoice } from '../components/NewSessionChoice'
+import { SeatSheet } from '../components/SeatSheet'
 import { Settings, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
@@ -24,6 +26,7 @@ import {
   Boundary,
   EDGE_ROOM,
   EMPTY_ROOM,
+  PREVIEW_PLANS,
   PREVIEW_ROOM,
   PREVIEW_SESSION_KEY,
   runtime,
@@ -169,7 +172,7 @@ const Preview = () => {
   // The whole `Section`, not just the dial's shortlist: the sheet's own nav
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
-  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in'>('off')
+  const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet'>('off')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
       <div className="mb-4 flex flex-wrap items-center gap-3">
@@ -207,7 +210,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet'] as const}
           onChange={setDialog}
         />
       </div>
@@ -216,9 +219,23 @@ const Preview = () => {
           screen here that is *only* ever a dialog — so at a narrow window
           nothing else on the page shows what it does. */}
       {dialog === 'sign in' && <SignIn onClose={() => setDialog('off')} />}
-      {dialog !== 'off' && dialog !== 'sign in' && (
-        <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
+      {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'seat sheet' && (
+        <SeatSheet
+          refusal={{
+            agent: 'security-reviewer',
+            name: 'Security reviewer',
+            blocked: null,
+            opened: false,
+            candidates: PREVIEW_PLANS.get('security-reviewer')?.candidates ?? [],
+          }}
+          onClose={() => setDialog('off')}
+          onFix={() => setDialog('off')}
+        />
       )}
+      {dialog === 'remove' || dialog === 'bring back' ? (
+        <WorktreeDialogs which={dialog} onClose={() => setDialog('off')} />
+      ) : null}
       {/* The board, in a pane of its own — which is one of the two shapes it
           really has (the other is the room's right half, further down). It is
           first here because it is the widest surface the token layer touches:

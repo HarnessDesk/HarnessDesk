@@ -657,7 +657,7 @@ const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
   candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
-const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
+export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
   ['code-reviewer', takenOn('code-reviewer', 'claude', 'Beta · Opus · High')],
   ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
   ['implementer', takenOn('implementer', 'claude', 'Beta')],

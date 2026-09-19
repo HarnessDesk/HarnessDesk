@@ -1757,6 +1757,7 @@ const matches = (entry: NavEntry, query: string): boolean => {
  */
 export const Settings = ({
   section = 'runtimes',
+  focus = null,
   libraryImport = false,
   onSection,
   onClose,
@@ -1764,6 +1765,8 @@ export const Settings = ({
 }: {
   /** The page on show. Owned by the caller, so any route can redirect it. */
   section?: Section
+  /** The thing inside the page to open — handed down once, as it arrives. */
+  focus?: string | null
   /** Open the Library with its import flow already up — the banner's route in. */
   libraryImport?: boolean
   /** The nav rail's clicks, and the redirect off a page an agent has lost. */
@@ -2042,7 +2045,7 @@ export const Settings = ({
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'workspaces' && <WorkspacesSection />}
             {section === 'archive' && <ArchiveSection />}
-            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} />}
+            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} />}
             {section === 'models' && <ModelsSection />}
             {section === 'plugins' && <PluginsSection />}
             {section === 'extensions' && hasExtensions && <ExtensionsSection />}

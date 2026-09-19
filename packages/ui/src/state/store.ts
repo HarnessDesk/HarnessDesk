@@ -27,6 +27,7 @@ import {
   type ScopeQuery,
   type RuntimeCatalog,
   type RuntimePlugin,
+  type SeatFix,
   type SeatPlan,
   type LedgerQuery,
   type LedgerReport,
@@ -75,6 +76,7 @@ import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
+import { anyOpened, blockedWords, refusalOf } from '../lib/agents'
 import {
   afterDismiss,
   readNoticePolicy,
@@ -200,6 +202,7 @@ import {
   type PendingApproval,
   type PolicyRule,
   type RouteInfo,
+  type SeatRefusal,
   type StoredCredential,
 } from './snapshot'
 
@@ -213,6 +216,7 @@ export type {
   PendingApproval,
   PolicyRule,
   RouteInfo,
+  SeatRefusal,
   StoredCredential,
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
@@ -3659,9 +3663,14 @@ export class AppStore {
     await this.transport.request('team/room/leave', { room, runtime, sessionId })
   }
 
-  /** Asks the shell to open a settings page, or clears the request once it has. */
-  askSettings(section: string | null): void {
-    this.#patch({ settingsFor: section })
+  /** Asks the shell to open a settings page — and a thing inside it — or clears the request once it has. */
+  askSettings(section: string | null, focus: string | null = null): void {
+    this.#patch({ settingsFor: section, settingsFocus: section ? focus : null })
+  }
+
+  /** Asks the shell to take a seat's fix where it is fixed (`app/seat-fixes.ts`), or clears the request once it has. */
+  askSeatFix(fix: SeatFix | null, agent = ''): void {
+    this.#patch({ seatFix: fix ? { fix, agent } : null })
   }
 
   // ------------------------------------------------------------------ agents
@@ -3737,6 +3746,88 @@ export class AppStore {
     if (generation !== this.#agentPlansGeneration) return
     if (project !== this.#snapshot.agentsProject) return
     this.#patch({ agentPlans: new Map(plans.map((plan) => [plan.id, plan])) })
+  }
+
+  /**
+   * Opens a conversation as an Agent in the open folder — or in `cwd`, a
+   * room's — and shows it; or, when nothing can seat it there, opens nothing
+   * and raises the refusal sheet with every candidate, its reason and its fix.
+   *
+   * The plan is asked again first, for this one Agent: a sign-in since the
+   * menu was drawn changes the answer, and a plan that already takes no seat
+   * refuses without asking the host to open anything. A refusal the host finds
+   * only once a seat is open arrives as `seatRefused`, with its own list — that
+   * path may have opened, tried and closed or kept a seat before failing, so
+   * `opened` carries whether "Nothing was opened" is still true. The folder is
+   * also the project the Agent is read for, because that is whose Agents a
+   * conversation there should get.
+   */
+  async startAsAgent(
+    id: string,
+    options: { readonly cwd?: string; readonly reveal?: boolean } = {},
+  ): Promise<SessionKey | null> {
+    const cwd = options.cwd ?? this.#snapshot.workspace?.path
+    // As `newSession`: a folder this app has proof is gone is never where a conversation starts.
+    if (!cwd || this.#snapshot.foldersGone.has(cwd)) {
+      this.notice('warning', 'Choose a project folder before starting a conversation.')
+      return null
+    }
+    const entry = this.#snapshot.agents?.find((one) => one.id === id)
+    const name = entry?.definition?.name ?? id
+    let plan: SeatPlan | undefined
+    try {
+      ;[plan] = await this.transport.request('agent/seat/dry', { ids: [id], project: cwd })
+    } catch (error) {
+      this.notice('error', describe(error))
+      return null
+    }
+    // The fresher answer replaces the one the menus drew — for the roster this window holds, not another folder's.
+    if (plan && cwd === this.#snapshot.agentsProject) {
+      this.#patch({ agentPlans: new Map(this.#snapshot.agentPlans).set(id, plan) })
+    }
+    if (!plan || plan.winner === null) {
+      this.#patch({
+        seatRefusal: {
+          agent: id,
+          name,
+          candidates: plan?.candidates ?? [],
+          blocked: plan?.blocked ? blockedWords(entry, this.#snapshot.home) : null,
+          opened: false,
+        },
+      })
+      return null
+    }
+    try {
+      const session = await this.transport.request('agent/seat', { id, cwd, project: cwd })
+      this.#setSession(session)
+      const key = sessionKey(session.runtime, session.id)
+      if (options.reveal !== false) this.#showInPane(key)
+      void this.loadHistory({ reset: true })
+      return key
+    } catch (error) {
+      const candidates = refusalOf(error)
+      if (candidates) {
+        this.#patch({ seatRefusal: { agent: id, name, candidates, blocked: null, opened: anyOpened(candidates) } })
+        return null
+      }
+      // The conversation opened and was closed again because handing its
+      // brief over failed — worded here, never `describe(error)`'s host
+      // sentence, which carries the seat it ran on. Read the same way every
+      // other wire code is read on this side of the wire (`refusalOf` above):
+      // `rejectionFor` (`lib/transport.ts`) puts the host's code on `.code`,
+      // never `.wireCode`, which is the host-side check on the class itself.
+      if ((error as { code?: unknown } | null)?.code === 'briefNotHandedOver') {
+        this.notice('error', `${name} was seated, and its brief could not be handed over, so the conversation was closed.`)
+        return null
+      }
+      this.notice('error', describe(error))
+      return null
+    }
+  }
+
+  /** Puts the refusal sheet away. */
+  dismissSeatRefusal(): void {
+    this.#patch({ seatRefusal: null })
   }
 
   async loadWorktrees(): Promise<void> {
