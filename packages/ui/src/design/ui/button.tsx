@@ -170,12 +170,18 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   className?: string
   variant?: NonNullable<ButtonVariants['variant']>
   size?: NonNullable<ButtonVariants['size']>
+  /** Remove the canonical hairline when adjoining content has to meet the control edge. */
+  bordered?: boolean
+  /** Selection rows may keep the platform cursor while retaining button semantics. */
+  cursor?: 'default' | 'pointer'
 }
 
 const Button = ({
   className,
   variant = 'default',
   size = 'default',
+  bordered = true,
+  cursor = 'pointer',
   type,
   render,
   ...props
@@ -183,7 +189,11 @@ const Button = ({
   <ButtonPrimitive
     data-slot="button"
     data-variant={variant}
-    className={cn(buttonVariants({ variant, size, className }))}
+    className={cn(
+      buttonVariants({ variant, size, className }),
+      !bordered && 'border-0',
+      cursor === 'default' && 'cursor-default',
+    )}
     /* A bare <button> submits the form around it; nothing in this app means
        that, so the default is the safe one — the same rule Kit's Btn holds.
        Skipped when `render` is given, because the element being rendered may

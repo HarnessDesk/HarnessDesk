@@ -52,7 +52,9 @@ export const ToolPaneHeader = ({
       corner
       className="hd-drag"
       title={title}
-      lead={lead}
+      lead={lead ? (
+        <div className="hd-no-drag flex min-w-0 flex-1 items-center">{lead}</div>
+      ) : undefined}
       subtitle={subtitle ? ltr(subtitle) : undefined}
       hint={hint ?? subtitle}
       aria-label={title}

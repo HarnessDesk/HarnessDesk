@@ -1674,8 +1674,10 @@ const CommitRow = ({
       type="button"
       variant="row"
       size="content"
-      className={`${styles.row} border-0`}
-      style={{ top, height: ROW }}
+      bordered={false}
+      cursor="default"
+      className={styles.row}
+      style={{ top, height: ROW, paddingRight: 'var(--hd-space-3)' }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
       role="option"

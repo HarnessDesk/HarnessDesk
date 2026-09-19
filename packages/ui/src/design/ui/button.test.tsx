@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import tokenSheet from '../foundation/tokens.css?raw'
 import checkboxSource from './checkbox.tsx?raw'
 import radioSource from './radio-group.tsx?raw'
 import switchSource from './switch.tsx?raw'
 import buttonSource from './button.tsx?raw'
-import { buttonVariants } from './button'
+import { Button, buttonVariants } from './button'
 
 /**
  * One button implementation, with every visual decision sourced from the
@@ -110,6 +111,15 @@ describe('the canonical button', () => {
     expect(navigation).toContain('data-[insert=after]:shadow-')
     expect(navigation).toContain('data-[dragging]:opacity-40')
     expect(navigation).toContain('[&_[data-chevron][data-open]]:rotate-90')
+  })
+
+  it('owns borderless and default-cursor row postures without a feature override', () => {
+    const markup = renderToStaticMarkup(
+      <Button variant="row" bordered={false} cursor="default">History row</Button>,
+    )
+    expect(markup).toContain('border-0')
+    expect(markup).toContain('cursor-default')
+    expect(markup).toContain('select-none')
   })
 
 })

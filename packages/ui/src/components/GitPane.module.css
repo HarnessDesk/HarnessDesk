@@ -202,9 +202,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  cursor: default;
-  user-select: none;
-  padding-right: var(--hd-space-3);
 }
 
 .gutter {
