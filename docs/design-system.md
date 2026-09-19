@@ -967,7 +967,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 3 | Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 2722 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `screenAppearance` | 2664 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |

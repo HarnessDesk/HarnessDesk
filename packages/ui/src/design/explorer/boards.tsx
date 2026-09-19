@@ -1,7 +1,9 @@
 import { useState, type JSX } from 'react'
 
 import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
-import markdownStyles from '../../components/Markdown.module.css'
+import { Markdown } from '../../components/Markdown'
+import { StoreProvider } from '../../state/context'
+import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   Alert,
   AlertContent,
@@ -422,6 +424,12 @@ const BannerBoard = () => (
   </>
 )
 
+/* The prose renderer reads the app's theme through the store, and this page
+   has none; it gets the empty desk's snapshot, kept in one place so the store
+   hands back the same object each time it is asked. */
+const catalogueSnapshot = emptySnapshot()
+const catalogueStore = { subscribe: () => () => {}, getSnapshot: () => catalogueSnapshot } as unknown as AppStore
+
 const CodeBoard = () => (
   <div className={styles.stack}>
     <Case label="command, output, and failure">
@@ -438,12 +446,9 @@ const CodeBoard = () => (
     </Case>
     <Case label="the same plate in prose">
       <div className="w-full" data-testid="markdown-code-sample">
-        {/* The renderer's own output under the prose sheet's class. The
-            component reads the app's theme from the store, which this page
-            has not got, and the plate is the sheet's business anyway. */}
-        <div className={markdownStyles.markdown}>
-          <pre><code>const opened = true</code></pre>
-        </div>
+        <StoreProvider store={catalogueStore}>
+          <Markdown text={'```ts\nconst opened = true\n```'} />
+        </StoreProvider>
       </div>
     </Case>
     <p className={styles.rule}>
