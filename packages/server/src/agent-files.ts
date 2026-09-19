@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
 import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
-import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
+import type { CeilingLevel, FlowSeat } from '@harnessdesk/protocol'
 
 import {
   AGENT_FILE_LIMIT,
@@ -72,14 +72,14 @@ const seatLines = (seat: FlowSeat): string[] =>
 export const agentSource = (agent: {
   readonly name: string
   readonly description: string | null
-  readonly permission: FlowPermission
+  readonly ceiling: CeilingLevel
   readonly prefer: readonly FlowSeat[]
 }): string =>
   [
     '---',
     `name: ${quoted(agent.name)}`,
     ...(agent.description ? [`description: ${quoted(agent.description)}`] : []),
-    `permission: ${agent.permission}`,
+    `ceiling: ${agent.ceiling}`,
     'prefer:',
     ...agent.prefer.flatMap(seatLines),
     '---',

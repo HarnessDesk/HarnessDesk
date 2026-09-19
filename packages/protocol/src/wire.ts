@@ -10,7 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { BoardEvidence, ProjectChecks, SeatRecord } from './evidence.js'
+import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatRecord } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
@@ -1722,7 +1722,8 @@ export interface HostMethods {
     params: {
       readonly name: string
       readonly description?: string
-      readonly permission: FlowPermission
+      /** Written as `ceiling:`; `permission:` is read only for compatibility. */
+      readonly ceiling: CeilingLevel
       readonly seat: FlowSeat
       readonly to: 'user' | 'project'
       readonly project?: string

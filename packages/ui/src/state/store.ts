@@ -54,7 +54,7 @@ import {
   type TeamState,
   type FlowDryRun,
   type FlowFile,
-  type FlowPermission,
+  type CeilingLevel,
   type FlowRun,
   type FlowSeat,
   type TerminalSize,
@@ -3915,7 +3915,7 @@ export class AppStore {
   async saveAsAgent(agent: {
     readonly name: string
     readonly description: string
-    readonly permission: FlowPermission
+    readonly ceiling: CeilingLevel
     readonly seat: FlowSeat
     readonly to: 'user' | 'project'
   }): Promise<AgentEntry> {
@@ -3923,7 +3923,7 @@ export class AppStore {
     const entry = await this.transport.request('agent/create', {
       name: agent.name,
       ...(agent.description ? { description: agent.description } : {}),
-      permission: agent.permission,
+      ceiling: agent.ceiling,
       seat: agent.seat,
       to: agent.to,
       ...(project ? { project } : {}),

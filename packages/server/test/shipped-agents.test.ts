@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readdir } from 'node:fs/promises'
 import { test, type TestContext } from 'node:test'
 
-import { ceilingOfPermission, runtimeId, type FlowPermission, type SeatPlan, type Session } from '@harnessdesk/protocol'
+import { narrower, runtimeId, type CeilingLevel, type SeatPlan, type Session } from '@harnessdesk/protocol'
 
 import { Agents } from '../src/agents.js'
 import { builtinAgentRoot } from '../src/host.js'
@@ -20,20 +20,20 @@ import { tempDir } from './scratch.js'
 
 /** What a shipped Agent is pinned to: the ceiling this phase gives it, and the words the flows that use it branch on. */
 interface Shipped {
-  readonly permission: FlowPermission
+  readonly ceiling: CeilingLevel
   readonly answers: readonly string[]
 }
 
 const SHIPPED: Readonly<Record<string, Shipped>> = {
-  'api-reviewer': { permission: 'read', answers: ['approve', 'request-changes'] },
-  'code-reviewer': { permission: 'read', answers: ['approve', 'request-changes'] },
-  implementer: { permission: 'publish', answers: [] },
-  judge: { permission: 'read', answers: ['picked', 'neither'] },
-  'performance-reviewer': { permission: 'read', answers: ['approve', 'request-changes'] },
-  'requirements-analyst': { permission: 'read', answers: ['agreed', 'disagree', 'met', 'not-met'] },
-  researcher: { permission: 'read', answers: ['gathered'] },
-  'security-reviewer': { permission: 'read', answers: ['approve', 'request-changes'] },
-  'test-reviewer': { permission: 'read', answers: ['approve', 'request-changes'] },
+  'api-reviewer': { ceiling: 'read', answers: ['approve', 'request-changes'] },
+  'code-reviewer': { ceiling: 'read', answers: ['approve', 'request-changes'] },
+  implementer: { ceiling: 'publish', answers: [] },
+  judge: { ceiling: 'read', answers: ['picked', 'neither'] },
+  'performance-reviewer': { ceiling: 'edit', answers: ['approve', 'request-changes'] },
+  'requirements-analyst': { ceiling: 'edit', answers: ['agreed', 'disagree', 'met', 'not-met'] },
+  researcher: { ceiling: 'edit', answers: ['gathered'] },
+  'security-reviewer': { ceiling: 'read', answers: ['approve', 'request-changes'] },
+  'test-reviewer': { ceiling: 'edit', answers: ['approve', 'request-changes'] },
 }
 
 /** No shipped Agent's description or brief may name a vendor, a product or a model — only `prefer` names runtimes. */
@@ -49,14 +49,15 @@ test('the nine ship, and nothing else does', async () => {
 
 test('each parses with nothing wrong, names runtimes and not models, and says how it reports and what it never does', async () => {
   const agents = new Agents({ user: tempDir('hd-shipped-user-'), builtin: builtinAgentRoot() })
-  for (const [id, { permission: ceiling, answers }] of Object.entries(SHIPPED)) {
+  for (const [id, { ceiling, answers }] of Object.entries(SHIPPED)) {
     const entry = await agents.read(id)
     assert.ok(entry, `${id} is listed`)
     assert.deepEqual(entry.problems, [], `${id} has nothing wrong with it`)
     assert.equal(entry.origin, 'builtin')
     const definition = entry.definition
     assert.ok(definition, `${id} parsed`)
-    assert.equal(definition.ceiling, ceilingOfPermission(ceiling), `${id}'s ceiling`)
+    assert.equal(definition.ceiling, ceiling, `${id}'s ceiling`)
+    assert.equal(definition.ceilingFrom, 'ceiling', `${id} is written with the key this build writes`)
     assert.deepEqual(
       definition.prefer,
       [{ runtime: 'claude-code' }, { runtime: 'codex' }, { runtime: 'cursor' }],
@@ -124,7 +125,7 @@ test('each would sit on the first runtime it names, and seats there, holding rea
     assert.equal(session.settings?.agent, id)
     assert.equal(String(session.runtime), 'claude-code')
     // Seated with no grant, so each holds edit here whatever its ceiling: a ceiling is never a grant.
-    assert.deepEqual(session.settings?.ceiling, { level: 'edit', hold: 'asked' })
+    assert.deepEqual(session.settings?.ceiling, { level: narrower(SHIPPED[id]!.ceiling, 'edit'), hold: 'asked' })
   }
   assert.equal(fakes[0]?.sessions.size, Object.keys(SHIPPED).length)
 })

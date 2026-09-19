@@ -1,14 +1,12 @@
 import { useState } from 'react'
 
-import type { FlowPermission, Session } from '@harnessdesk/protocol'
+import { CEILING_LEVELS, type CeilingLevel, type Session } from '@harnessdesk/protocol'
 
 import { Button, Dialog, Field, FormStack, Input, Note, RowChoice, Rows, SectionHead } from '../design'
 import { ceilingMeaning, ceilingWords, projectName, seatOf, seatWordsOf } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { BriefIcon } from './Icons'
-
-const CEILINGS: readonly FlowPermission[] = ['read', 'publish', 'merge']
 
 /**
  * *Save as an Agent…*: this conversation's seat, kept under a name, with what
@@ -24,7 +22,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
   const snapshot = useSnapshot()
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
-  const [permission, setPermission] = useState<FlowPermission>('read')
+  const [ceiling, setCeiling] = useState<CeilingLevel>('read')
   const [to, setTo] = useState<'user' | 'project'>(snapshot.workspace ? 'project' : 'user')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -40,7 +38,7 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
       const entry = await store.saveAsAgent({
         name: name.trim(),
         description: description.trim(),
-        permission,
+        ceiling,
         seat: seatOf(session),
         to,
       })
@@ -89,13 +87,13 @@ export const SaveAsAgentDialog = ({ session, onClose }: { readonly session: Sess
         </Field>
         <SectionHead name="The most it may do" />
         <Rows role="radiogroup" aria-label="The most it may do">
-          {CEILINGS.map((one) => (
+              {CEILING_LEVELS.map((one) => (
             <RowChoice
               key={one}
               title={ceilingWords(one)}
               desc={<span className="whitespace-normal">{ceilingMeaning(one)}</span>}
-              selected={permission === one}
-              onClick={() => setPermission(one)}
+                  selected={ceiling === one}
+                  onClick={() => setCeiling(one)}
             />
           ))}
         </Rows>

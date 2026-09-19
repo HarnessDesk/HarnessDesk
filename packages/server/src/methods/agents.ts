@@ -4,7 +4,6 @@ import {
   AGENT_DESCRIPTION_LIMIT,
   AGENT_NAME_LIMIT,
   BriefNotHandedOverError,
-  ceilingOfPermission,
   isBlocked,
   remainingOf,
   SeatRefusedError,
@@ -313,7 +312,7 @@ export const agentMethods = {
     const source = agentSource({
       name: params.name,
       description: params.description ?? null,
-      permission: params.permission,
+      ceiling: params.ceiling,
       prefer,
     })
     if (Buffer.byteLength(source, 'utf8') > AGENT_FILE_LIMIT) {
@@ -327,7 +326,7 @@ export const agentMethods = {
     const unreadable = parsed.problems.find((one) => one.level === 'error')
     if (unreadable) throw new Error(`“${params.name}” cannot be saved: ${unreadable.at} — ${unreadable.text}`)
     const mismatched = parsed.agent
-      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, ceilingOfPermission(params.permission), prefer)
+      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.ceiling, prefer)
       : 'definition'
     if (mismatched) {
       throw new Error(`“${params.name}” cannot be saved because its ${mismatched} does not read back exactly as given.`)

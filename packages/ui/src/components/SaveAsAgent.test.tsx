@@ -100,9 +100,10 @@ it('says the seat in words, each Agent ceiling, and what saving to the project k
   mount()
   const text = document.body.textContent ?? ''
   expect(text).toContain('Claude · Opus 5 · High')
-  expect(text).toContain('Read')
-  expect(text).toContain('Publish')
-  expect(text).toContain('Merge')
+  expect(choice('Read').textContent).toContain('Changes nothing: it reads, searches and reports.')
+  expect(choice('Edit').textContent).toContain('May change files and commit in its own checkout, and never push.')
+  expect(choice('Publish').textContent).toContain('May push its own branch and open a pull request, and never merge.')
+  expect(choice('Merge').textContent).toContain('May merge what it is asked to merge.')
   expect(choice('For storefront').textContent).toContain('seating.json')
   // Never the spec.
   expect(text).not.toContain('opus-5')
@@ -120,7 +121,7 @@ it('saves the conversation’s seat under a name, with a description and a ceili
   expect(saveAsAgent).toHaveBeenCalledWith({
     name: 'Checkout reviewer',
     description: 'Reads checkout changes against our rules.',
-    permission: 'publish',
+    ceiling: 'publish',
     seat: { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
     to: 'user',
   })

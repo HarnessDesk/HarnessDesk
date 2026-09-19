@@ -1,7 +1,7 @@
 ---
 name: Security reviewer
 description: Reads a change it did not write for the ways it could be abused, and says how to close each one.
-permission: read
+ceiling: read
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]
