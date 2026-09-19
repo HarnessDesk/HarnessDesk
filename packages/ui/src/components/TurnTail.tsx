@@ -1,4 +1,4 @@
-import { Button } from '../design'
+import { ActionError, Alert, AlertContent, AlertDescription, Button } from '../design'
 import { useMemo } from 'react'
 
 import type { Session, Turn } from '@harnessdesk/protocol'
@@ -204,18 +204,23 @@ export const TurnTail = ({
           )}
         </div>
       )}
+      {/* Drawn as a failure, but announced politely: nothing the person did
+          was refused, and the turn is over, so there is nothing to interrupt. */}
       {silent && (
-        <div className={styles.turnError} role="status">
-          The agent finished this turn without any output.
-        </div>
+        <Alert tone="danger" role="status" className={styles.turnError}>
+          <AlertIcon />
+          <AlertContent>
+            <AlertDescription>The agent finished this turn without any output.</AlertDescription>
+          </AlertContent>
+        </Alert>
       )}
       {/* A failed turn says why, in the transcript, where the reader is —
           not only as a toast that has already faded by the time they look. */}
       {turn.status === 'failed' && turn.error && (
-        <div className={styles.turnError} role="alert">
+        <ActionError className={styles.turnError}>
           {turn.error.message}
           {turn.error.retrying ? ' Retrying…' : ''}
-        </div>
+        </ActionError>
       )}
       {(parts.length > 0 || actions) && (
         <div className={styles.turnTail}>

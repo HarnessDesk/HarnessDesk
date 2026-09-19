@@ -205,16 +205,12 @@
 }
 
 /* Inside the reading column with everything else: a notice that runs the
-   full width of the pane reads as a page-level alarm, not as this turn's. */
+   full width of the pane reads as a page-level alarm, not as this turn's.
+   The alert draws itself; a reason can be one long path, so it may break
+   anywhere rather than push the column wide. */
 .turnError {
   max-width: var(--hd-column);
   margin: 6px auto 2px;
-  padding: 8px 12px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
   overflow-wrap: anywhere;
 }
 
