@@ -1,6 +1,7 @@
 import {
   emptyQueue,
   mergeRead,
+  preserveNoticeItems,
   reduceSession,
   sessionKey,
   type AgentEvent,
@@ -149,6 +150,24 @@ export const seatedSession = (session: Session, seated: SeatedAs | null): Sessio
 export const QUEUE_LIMIT = 25
 export const QUEUE_CHAR_LIMIT = 100_000
 
+/**
+ * A fork copies history under a new session id. Carry only the source's
+ * notice classifications into that copied history: the fork itself is not a
+ * seated Agent, and its next message must remain ordinary speech.
+ */
+const noticesFromFork = (fork: Session, source: Session | undefined): Session => {
+  if (!source) return fork
+  const held = source.turns.flatMap((turn) => turn.items)
+  let changed = false
+  const turns = fork.turns.map((turn) => {
+    const items = preserveNoticeItems(turn.items, held)
+    if (items === turn.items) return turn
+    changed = true
+    return { ...turn, items }
+  })
+  return changed ? { ...fork, turns } : fork
+}
+
 const charsOf = (input: readonly UserContent[]): number =>
   input.reduce((total, part) => total + (part.type === 'text' ? part.text.length : 0), 0)
 
@@ -185,8 +204,11 @@ export class SessionRegistry {
       }
       return existing
     }
+    const inherited = session.forkedFrom
+      ? noticesFromFork(session, this.get(session.runtime, session.forkedFrom)?.session)
+      : session
     const record: SessionRecord = {
-      session,
+      session: inherited,
       runtime: session.runtime,
       live,
       detached: false,
@@ -198,7 +220,7 @@ export class SessionRegistry {
       tasks: [],
       seatedAs: null,
     }
-    record.session = seatedSession(this.#settle(record, session), null)
+    record.session = seatedSession(this.#settle(record, inherited), null)
     this.#records.set(sessionKey(session.runtime, session.id), record)
     return record
   }

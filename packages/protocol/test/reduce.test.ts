@@ -249,6 +249,33 @@ test('turn/completed keeps streamed items when the summary is thinner', () => {
   assert.equal(currentTurn(session)?.status, 'completed')
 })
 
+test('turn/completed cannot turn a streamed notice back into a user message when its list is fuller', () => {
+  const opening = itemId('opening')
+  let session = reduceAll(baseSession(), [
+    openTurn(),
+    {
+      type: 'item/started',
+      sessionId: SESSION,
+      turnId: TURN,
+      item: { id: opening, type: 'notice', text: 'the standing order' },
+    },
+  ])
+  session = reduceSession(session, {
+    type: 'turn/completed',
+    sessionId: SESSION,
+    turn: {
+      id: TURN,
+      status: 'completed',
+      items: [
+        { id: opening, type: 'userMessage', content: [{ type: 'text', text: 'the standing order' }] },
+        { id: itemId('answer'), type: 'assistantMessage', text: 'done' },
+      ],
+    },
+  })
+
+  assert.deepEqual(allItems(session).map((entry) => entry.type), ['notice', 'assistantMessage'])
+})
+
 // --------------------------------------------------------------- mergeRead
 
 const readOf = (turns: Session['turns'], itemsLoaded = true): Session => ({
@@ -272,6 +299,25 @@ test('a read brings new turns and corrects settled ones', () => {
   assert.equal(merged.turns[0]?.items.length, 1)
   assert.equal(merged.turns[0]?.diff, 'a diff')
   assert.equal(allItems(merged).length, 2)
+})
+
+test('a fuller read cannot turn a held notice back into a user message', () => {
+  const opening = itemId('opening')
+  const held = readOf([
+    { id: turnId('t1'), status: 'completed', items: [{ id: opening, type: 'notice', text: 'the standing order' }] },
+  ])
+  const read = readOf([
+    {
+      id: turnId('t1'),
+      status: 'completed',
+      items: [
+        { id: opening, type: 'userMessage', content: [{ type: 'text', text: 'the standing order' }] },
+        { id: itemId('answer'), type: 'assistantMessage', text: 'done' },
+      ],
+    },
+  ])
+
+  assert.deepEqual(allItems(mergeRead(held, read)).map((entry) => entry.type), ['notice', 'assistantMessage'])
 })
 
 test('a plan the read is silent about is the one we watched arrive', () => {
