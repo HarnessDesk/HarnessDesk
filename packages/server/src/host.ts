@@ -712,7 +712,7 @@ export class Host {
          room's rule, and the folder rule alone would refuse a room made from
          a linked worktree, which works in the main checkout. */
       isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
-      run: (command, where) => runCheck(command, where),
+      run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })

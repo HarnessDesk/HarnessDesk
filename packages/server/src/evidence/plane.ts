@@ -7,7 +7,8 @@ import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
 import { Observer, type Look } from './observe.js'
-import { projectOf } from './revision.js'
+import { mintId } from './records.js'
+import { projectOf, revisionOf } from './revision.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
 import { EvidenceStore } from './store.js'
@@ -272,6 +273,67 @@ export class EvidencePlane {
       if (recorded) this.announce(room)
     })()
   }
+
+  /**
+   * A flow's check step, run as the flow engine always runs one — its command
+   * was shown verbatim in the flow's dry run and named in its start dialog
+   * before anything was seated — and, when it is for a card, recorded as that
+   * card's check evidence, bound to the commit it started at, in its round.
+   * The flow's runner keeps no output and does not tell a timeout from a
+   * command that never started; phase 6 moves flows onto `run.ts`.
+   */
+  async flowCheck(
+    command: string,
+    where: {
+      readonly cwd: string
+      readonly timeoutSec: number
+      readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
+    },
+    run: (command: string, where: { readonly cwd: string; readonly timeoutSec: number }) => Promise<{ readonly status: number | null }>,
+  ): Promise<{ readonly status: number | null }> {
+    const card = where.card
+    const revision = card ? await revisionOf(where.cwd) : null
+    const result = await run(command, { cwd: where.cwd, timeoutSec: where.timeoutSec })
+    const board = card ? this.#port.board(card.room) : null
+    if (!card || !revision || !board) return result
+    const project = await projectOf(board.cwd ?? board.root)
+    await this.store
+      .append(project, 'evidence', [
+        {
+          type: 'evidence',
+          record: {
+            id: mintId(),
+            fact: {
+              kind: 'check',
+              name: card.name,
+              run: command,
+              exit: result.status,
+              timedOut: result.status === null,
+              at: revision.head,
+              dirty: revision.dirty,
+              tail: '',
+            },
+            card: { board: card.room, id: card.intent },
+            checkout: { cwd: where.cwd, branch: revision.branch },
+            seat: null,
+            round: card.round,
+            observedAt: this.#now(),
+            posted: null,
+          },
+        },
+      ])
+      .then(
+        () => this.announce(card.room),
+        (error: unknown) =>
+          this.#port.log("a flow check's result could not be recorded", {
+            room: card.room,
+            card: card.intent,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+      )
+    return result
+  }
+
 
   /**
    * The desk is closing: every check still running is stopped — it leaves no

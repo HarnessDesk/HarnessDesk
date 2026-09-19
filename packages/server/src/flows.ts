@@ -119,10 +119,18 @@ export interface FlowPort {
   confine(folder: string): Promise<void>
   /** A worktree of its own, on a branch of its own, for a role that isolates. */
   isolate(root: string, name: string): Promise<string>
-  /** Runs a check's command. Resolves with its exit status, or null if it ran over. */
+  /**
+   * Runs a check's command. Resolves with its exit status, or null if it ran
+   * over. `card` says which card and round it is for, so the desk can record
+   * what it observed as that card's check evidence.
+   */
   run(
     command: string,
-    where: { readonly cwd: string; readonly timeoutSec: number },
+    where: {
+      readonly cwd: string
+      readonly timeoutSec: number
+      readonly card?: { readonly room: string; readonly intent: number; readonly name: string; readonly round: number }
+    },
   ): Promise<{ readonly status: number | null }>
   /** One room's runs, to every window. */
   changed(room: string, runs: readonly FlowRun[]): void
@@ -1125,7 +1133,11 @@ export class Flows implements TeamFlows {
       if (!current || current.state !== 'running') return
       const card = board.intents.find((c) => c.id === intent)
       if (card && (card.state === 'done' || card.state === 'abandoned')) continue
-      const { status } = await this.#port.run(check.run, { cwd, timeoutSec: check.timeout })
+      const { status } = await this.#port.run(check.run, {
+        cwd,
+        timeoutSec: check.timeout,
+        card: { room: run.room, intent, name: role.id, round: round.n },
+      })
       const outcome = status === null ? check.otherwise : (check.exits[String(status)] ?? check.otherwise)
       const note =
         status === null
