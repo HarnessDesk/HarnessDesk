@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import css from './Approvals.module.css?raw'
+import css from '../design/patterns/ApprovalDialog.module.css?raw'
 
 /**
  * An approval's answers in a narrow pane, read as text.
@@ -29,13 +29,13 @@ const blockAfter = (opening: string): string => {
 
 describe("an approval's answers in a narrow pane", () => {
   it('are sized by the pane the card sits in', () => {
-    expect(blockAfter('.backdrop {')).toMatch(/container:\s*hd-approval\s*\/\s*inline-size/)
+    expect(blockAfter('.viewport {\n  z-index')).toMatch(/container:\s*hd-approval\s*\/\s*inline-size/)
   })
 
   it('wrap below 460px and share their lines, with nothing holding them apart', () => {
     const narrow = blockAfter('@container hd-approval (max-width: 460px)')
     expect(narrow).toMatch(/\.footer\s*\{[^}]*flex-wrap:\s*wrap/)
     expect(narrow).toMatch(/\.spacer\s*\{[^}]*display:\s*none/)
-    expect(narrow).toMatch(/\.button\s*\{[^}]*flex:\s*1 1 auto/)
+    expect(narrow).toMatch(/\.action\s*\{[^}]*flex:\s*1 1 auto/)
   })
 })

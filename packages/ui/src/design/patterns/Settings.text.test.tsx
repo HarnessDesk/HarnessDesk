@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { RowChoice, Text } from './Settings'
+import { NoteList, RowChoice, Text } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -33,4 +33,11 @@ it('lets a narrow choice deliver its consequence whole', () => {
     <RowChoice title="Summary" desc="The goal, exchanges, files and tasks." wrapDesc selected onClick={() => {}} />,
   ))
   expect(container.querySelector('[data-wrap="true"]')?.textContent).toContain('files and tasks')
+})
+
+it('keeps a short list of note details semantically grouped', () => {
+  act(() => root.render(<NoteList><li>flow.yaml — unknown role</li></NoteList>))
+  const list = container.querySelector('[data-slot="note-list"]')
+  expect(list?.tagName).toBe('UL')
+  expect(list?.textContent).toContain('unknown role')
 })

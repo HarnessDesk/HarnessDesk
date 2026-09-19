@@ -32,7 +32,10 @@ import {
   Card,
   ChangeStats,
   AgentCard,
+  ApprovalCode,
   ApprovalDialog,
+  ApprovalMeta,
+  ApprovalReason,
   ChannelMessage,
   ChannelSignal,
   Chip,
@@ -47,6 +50,7 @@ import {
   Face,
   FileState,
   Input,
+  Keycap,
   Dialog,
   Dot,
   NativeSelect,
@@ -73,10 +77,12 @@ import {
   MessageQueueTiming,
   NavigationGroupHeader,
   Note,
+  NoteList,
   PublicationCard,
   PopoverSurface,
   RefusedAction,
   SectionHead,
+  SearchMatch,
   Segmented,
   StatePill,
   Spinner,
@@ -633,6 +639,10 @@ const QueueBoard = () => (
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
       </PopoverSurface>
+      <Text role="muted" as="div">
+        Press <Keycap>esc</Keycap> to close; “Set<SearchMatch>tings</SearchMatch>” shows the matched text.
+      </Text>
+      <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
       <ComposerShell className="relative min-h-20">
         <ComposerChip tone="brand" removeLabel="Remove report.pdf" onRemove={() => {}}>report.pdf</ComposerChip>
         <ComposerDropHint>Drop images to attach</ComposerDropHint>
@@ -778,7 +788,9 @@ const DialogBoard = () => {
             { id: 'run', label: 'Run once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
           ]}
         >
-          <code>pnpm verify</code> runs in the current workspace.
+          <ApprovalReason>Runs the repository's complete verification gate.</ApprovalReason>
+          <ApprovalCode>pnpm verify</ApprovalCode>
+          <ApprovalMeta label="in">/workspace</ApprovalMeta>
         </ApprovalDialog>
       )}
       {open === 'lightbox' && (

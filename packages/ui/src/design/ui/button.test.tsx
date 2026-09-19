@@ -65,6 +65,12 @@ describe('the canonical button', () => {
     }
   })
 
+  it('keeps every row and a wrapped consequence left aligned', () => {
+    for (const variant of ['row', 'navigation', 'choice'] as const) {
+      expect(buttonVariants({ variant })).toContain('text-left')
+    }
+  })
+
   /* The weight left, so the fill is now the only mark a chosen row has. Each
      state a caller uses to choose one must carry a fill, or that choice is
      drawn by nothing — the browser contract measures the fills themselves. */

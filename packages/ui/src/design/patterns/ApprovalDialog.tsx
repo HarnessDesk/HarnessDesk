@@ -1,4 +1,4 @@
-import { forwardRef, useLayoutEffect, useState, type ReactNode } from 'react'
+import { forwardRef, useLayoutEffect, useState, type ComponentProps, type ReactNode } from 'react'
 
 import { Button } from '../ui/button'
 import {
@@ -21,6 +21,46 @@ export type ApprovalDialogAction = {
   tone?: 'default' | 'destructive'
   onSelect: () => void
 }
+
+/** Explanatory copy inside an approval. */
+export const ApprovalReason = ({ className, ...props }: ComponentProps<'p'>) => (
+  <p data-slot="approval-reason" className={`${styles.reason} ${className ?? ''}`} {...props} />
+)
+
+/** Verbatim command, input or schema text inside an approval. */
+export const ApprovalCode = ({ className, ...props }: ComponentProps<'pre'>) => (
+  <pre data-slot="approval-code" className={`${styles.code} ${className ?? ''}`} {...props} />
+)
+
+/** A compact labelled value that locates an approved action. */
+export const ApprovalMeta = ({ label, className, children, ...props }: ComponentProps<'div'> & {
+  label: ReactNode
+}) => (
+  <div data-slot="approval-meta" className={`${styles.meta} ${className ?? ''}`} {...props}>
+    <span className={styles.metaLabel}>{label}</span>
+    <span className={styles.metaValue}>{children}</span>
+  </div>
+)
+
+/** A file named by an approval, as a copyable path rather than prose. */
+export const ApprovalFilePath = ({ className, ...props }: ComponentProps<'div'>) => (
+  <div data-slot="approval-file-path" className={`${styles.filePath} ${className ?? ''}`} {...props} />
+)
+
+/** Files or hosts covered by a permission request. */
+export const ApprovalPermissionList = ({ className, ...props }: ComponentProps<'ul'>) => (
+  <ul data-slot="approval-permission-list" className={`${styles.permissionList} ${className ?? ''}`} {...props} />
+)
+
+/** The question an approval asks before its choice rows. */
+export const ApprovalQuestionText = ({ className, ...props }: ComponentProps<'p'>) => (
+  <p data-slot="approval-question" className={`${styles.questionText} ${className ?? ''}`} {...props} />
+)
+
+/** The consequence that earns a second line under an approval choice. */
+export const ApprovalChoiceHint = ({ className, ...props }: ComponentProps<'span'>) => (
+  <span data-slot="approval-choice-hint" className={`${styles.choiceHint} ${className ?? ''}`} {...props} />
+)
 
 /**
  * The pane-local approval surface. Base UI owns focus containment, Escape,

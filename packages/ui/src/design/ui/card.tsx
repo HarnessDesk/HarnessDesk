@@ -9,13 +9,15 @@ type CardProps<T extends React.ElementType = 'div'> = {
   as?: T
   variant?: 'default' | 'muted' | 'flush'
   radius?: 'sm' | 'default' | 'lg'
-} & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius'>
+  spacing?: 'default' | 'compact'
+} & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius' | 'spacing'>
 
 const Card = <T extends React.ElementType = 'div'>({
   as,
   className,
   variant,
   radius = 'default',
+  spacing = 'default',
   ...props
 }: CardProps<T>) => {
   const Component = as ?? 'div'
@@ -24,12 +26,14 @@ const Card = <T extends React.ElementType = 'div'>({
       data-slot="card"
       data-variant={variant ?? 'default'}
       data-radius={radius}
+      data-spacing={spacing}
       className={cn(
         'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
         variant === 'muted' && 'border-dashed bg-(--hd-muted)',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
         radius === 'sm' && 'rounded-(--hd-radius-sm)',
         radius === 'lg' && 'rounded-(--hd-radius-lg)',
+        spacing === 'compact' && 'gap-2 p-3',
         className,
       )}
       {...props}

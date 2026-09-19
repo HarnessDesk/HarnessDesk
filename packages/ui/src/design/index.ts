@@ -49,11 +49,15 @@ export {
   Chip,
   type ChipProps,
   Search,
+  NavigationList,
+  Keycap,
+  SearchMatch,
   NavigationGroupHeader,
   Field,
   type FieldControl,
   FormStack,
   Note,
+  NoteList,
   Segmented,
   PageHead,
   SectionHead,
@@ -122,7 +126,14 @@ export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue 
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
+  ApprovalChoiceHint,
+  ApprovalCode,
   ApprovalDialog,
+  ApprovalFilePath,
+  ApprovalMeta,
+  ApprovalPermissionList,
+  ApprovalQuestionText,
+  ApprovalReason,
   type ApprovalDialogAction,
 } from './patterns/ApprovalDialog'
 export {

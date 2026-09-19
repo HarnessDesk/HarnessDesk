@@ -1,4 +1,15 @@
-import { Button, Input } from '../design'
+import {
+  Button,
+  DialogContent,
+  DialogRoot,
+  Keycap,
+  NavigationList,
+  PopoverGroupLabel,
+  Search,
+  SearchMatch,
+  Separator,
+  Text,
+} from '../design'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/protocol'
@@ -20,7 +31,6 @@ import {
   LibraryIcon,
   PluginIcon,
   PlusIcon,
-  SearchIcon,
   SessionIcon,
   SidebarIcon,
   SlashIcon,
@@ -31,7 +41,6 @@ import {
 import { RuntimeMark } from './BrandIcons'
 import { summonable } from '../panels/views'
 import type { Section } from './Settings'
-import { DialogContent, DialogRoot } from '../design'
 
 /**
  * Every settings page ⌘K can open, by the name on its nav row, except the
@@ -529,15 +538,13 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         showCloseButton={false}
       >
         <div className={styles.inputRow}>
-          <SearchIcon size={15} className={styles.inputIcon} />
-          <Input
-            ref={input}
-            variant="filled" className={styles.input}
+          <Search
+            inputRef={input}
+            className={styles.input}
             autoFocus
             placeholder="Search sessions, files, agents, commands, actions…"
             value={query}
-            spellCheck={false}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={setQuery}
             onKeyDown={(event) => {
               if (event.key === 'ArrowDown') {
                 event.preventDefault()
@@ -554,16 +561,17 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
               }
             }}
           />
-          <kbd className={styles.kbd}>esc</kbd>
+          <Keycap>esc</Keycap>
         </div>
-        <div className={styles.list} ref={list} role="listbox">
+        <Separator />
+        <NavigationList className={styles.list} ref={list} role="listbox">
           {shown.length === 0 && <div className="hd-empty-line">Nothing matches “{query}”.</div>}
           {shown.map((entry, index) => {
             const header = entry.group !== lastGroup ? entry.group : null
             lastGroup = entry.group
             return (
               <div key={entry.id}>
-                {header && <div className={styles.group}>{header}</div>}
+                {header && <PopoverGroupLabel>{header}</PopoverGroupLabel>}
                 <Button
                   type="button"
                   role="option"
@@ -573,25 +581,25 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                   onMouseEnter={() => setActiveId(entry.id)}
                   onClick={() => run(index)}
                 >
-                  <span className={styles.rowIcon}>{entry.icon}</span>
+                  <Text role="meta" className={styles.rowIcon}>{entry.icon}</Text>
                   <span className={styles.rowLabel}>{entry.label}</span>
-                  {entry.hint && <span className={styles.rowHint}>{entry.hint}</span>}
+                  {entry.hint && <Text role="muted" ink="muted" className={styles.rowHint}>{entry.hint}</Text>}
                   {entry.matchLine && (
-                    <span className={styles.rowMatch}>
+                    <Text role="meta" className={styles.rowMatch}>
                       {entry.matchStart != null && entry.matchEnd != null ? (
                         <>
                           {entry.matchLine.slice(0, entry.matchStart)}
-                          <mark className={styles.mark}>{entry.matchLine.slice(entry.matchStart, entry.matchEnd)}</mark>
+                          <SearchMatch>{entry.matchLine.slice(entry.matchStart, entry.matchEnd)}</SearchMatch>
                           {entry.matchLine.slice(entry.matchEnd)}
                         </>
                       ) : entry.matchLine}
-                    </span>
+                    </Text>
                   )}
                 </Button>
               </div>
             )
           })}
-        </div>
+        </NavigationList>
       </DialogContent>
     </DialogRoot>
   )

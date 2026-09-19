@@ -568,6 +568,48 @@ The full-window destination shell shared by Settings and Dashboard.
 Base UI still owns focus and modality; this pattern owns the window ground
 and the two plates that meet inside it.
 
+### `ApprovalReason`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+Explanatory copy inside an approval.
+
+### `ApprovalCode`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+Verbatim command, input or schema text inside an approval.
+
+### `ApprovalMeta`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+A compact labelled value that locates an approved action.
+
+### `ApprovalFilePath`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+A file named by an approval, as a copyable path rather than prose.
+
+### `ApprovalPermissionList`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+Files or hosts covered by a permission request.
+
+### `ApprovalQuestionText`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+The question an approval asks before its choice rows.
+
+### `ApprovalChoiceHint`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+The consequence that earns a second line under an approval choice.
+
 ### `ApprovalDialog`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -936,6 +978,24 @@ Every list that grows past a screen gets one of these, and before this each
 drew its own — some with the glyph, some without, at three heights. One
 shape, so "this narrows the list below" reads the same on every page.
 
+### `NavigationList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The inset around a list of destination rows.
+
+### `Keycap`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A keyboard name shown as a physical key rather than explanatory copy.
+
+### `SearchMatch`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The exact part of a search result that matched the query.
+
 ### `Field`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -963,6 +1023,12 @@ Fields, stacked — the body of a dialog that asks for more than one thing.
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The short paragraph that belongs to a group of rows rather than to one of them.
+
+### `NoteList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Short supporting facts that belong to a notice or note.
 
 ### `Segmented`
 
@@ -1090,7 +1156,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 1 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 817 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `screenAppearance` | 697 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

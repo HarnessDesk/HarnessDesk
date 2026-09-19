@@ -23,6 +23,22 @@
     "pad": "4 4 4 4",
     "radius": 6
   },
+  "adopted/card/size/compact": {
+    "h": 68,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "12 12 12 12",
+    "radius": 6
+  },
+  "adopted/card/size/default": {
+    "h": 146,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "16 0 16 0",
+    "radius": 10
+  },
   "adopted/marker/variant/border": {
     "h": 30,
     "text": 12,
