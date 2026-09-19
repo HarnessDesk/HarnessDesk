@@ -17,6 +17,7 @@ import {
   type AgentSession,
   type ApprovalDecision,
   type ApprovalId,
+  type CommandApproval,
   type ConfigOption,
   type FlowPermission,
   type FlowRun,
@@ -1516,6 +1517,32 @@ test('over Codex: the normal turn after a silent order is speech and supplies th
   await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
 
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          event.approval.sessionId === session.id &&
+          event.approval.type === 'command',
+      ),
+    5_000,
+    'the silent order approval',
+  )
+  const approval = client.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> & { approval: CommandApproval } =>
+      event.type === 'approval/requested' &&
+      event.approval.sessionId === session.id &&
+      event.approval.type === 'command',
+  )!
+  await client.call('approval/respond', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    approvalId: approval.approval.id,
+    decision: {
+      type: 'option',
+      optionId: approval.approval.options.find((option) => option.intent === 'approve')!.id,
+    },
+  })
   await client.until(
     () => client.events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
     5_000,
