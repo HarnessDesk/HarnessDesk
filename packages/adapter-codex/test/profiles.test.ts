@@ -99,9 +99,12 @@ test('TOML basic and literal strings use TOML escapes exactly', () => {
     parseTomlString(String.raw`"backspace\b tab\t newline\n formfeed\f return\r quote\" slash\\ lower\u0041 upper\U0001F40B"`),
     'backspace\b tab\t newline\n formfeed\f return\r quote" slash\\ lowerA upper🐋',
   )
+  assert.equal(parseTomlString(String.raw`"\U0010FFFF"`), String.fromCodePoint(0x10ffff))
   assert.equal(parseTomlString("'literal\\u0041'"), String.raw`literal\u0041`)
   assert.throws(() => parseTomlString(String.raw`"gpt\/profile"`), /invalid TOML string/i)
+  assert.throws(() => parseTomlString(String.raw`"\U00110000"`), /invalid TOML string/i)
   assert.throws(() => parseTomlString(String.raw`"gpt\uD800"`), /invalid TOML string/i)
+  assert.throws(() => parseTomlString(String.raw`"gpt\uDFFF"`), /invalid TOML string/i)
   assert.throws(() => parseTomlString("'gpt'broken'"), /invalid TOML string/i)
 })
 
@@ -139,6 +142,22 @@ test('profile discovery stops consuming entries at its scan budget', async () =>
   assert.equal(consumed, 1_024)
   assert.equal(names.length, 64)
   assert.deepEqual(names.slice(0, 3), ['p0000', 'p0001', 'p0002'])
+})
+
+test('profile discovery closes its iterator when the scan budget stops it early', async () => {
+  let cleanedUp = false
+  async function* entries(): AsyncGenerator<{ readonly name: string }> {
+    try {
+      for (let index = 0; index < 4_096; index += 1) {
+        yield { name: `p${String(index).padStart(4, '0')}.config.toml` }
+      }
+    } finally {
+      cleanedUp = true
+    }
+  }
+
+  await boundedProfileNames(entries())
+  assert.equal(cleanedUp, true)
 })
 
 test('profile bytes, encoding, names and related context settings are bounded', async (t) => {
