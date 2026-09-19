@@ -207,7 +207,9 @@ const parseModel = (filename: string, raw: string): string => {
   let value: string
   try {
     if (raw.startsWith('"') && raw.endsWith('"')) value = JSON.parse(raw) as string
-    else if (raw.startsWith("'") && raw.endsWith("'")) value = raw.slice(1, -1)
+    else if (raw.startsWith("'") && raw.endsWith("'") && !raw.slice(1, -1).includes("'")) {
+      value = raw.slice(1, -1)
+    }
     else throw new Error('not a string')
   } catch {
     throw new Error(`${filename} has an invalid model string.`)

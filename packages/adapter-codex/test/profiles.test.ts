@@ -74,6 +74,7 @@ test('malformed and non-file profiles are refused while a slot’s regular-file 
   const dir = home(t)
   writeFileSync(join(dir, 'broken.config.toml'), 'model_context_window = 100\nmodel_context_window = 200\n')
   writeFileSync(join(dir, 'huge.config.toml'), 'model_context_window = 10_000_001\n')
+  writeFileSync(join(dir, 'literal.config.toml'), "model = 'gpt'broken'\n")
   writeFileSync(join(dir, 'unterminated.config.toml'), 'model = "gpt-profile"\ninstructions = """\nnever ends\n')
   writeFileSync(join(dir, 'outside.toml'), 'model = "outside"\n')
   symlinkSync(join(dir, 'outside.toml'), join(dir, 'linked.config.toml'))
@@ -83,7 +84,7 @@ test('malformed and non-file profiles are refused while a slot’s regular-file 
   const option = profileOption(entries, 'broken')
   assert.equal(option.id, CODEX_PROFILE_OPTION_ID)
   assert.equal(option.currentValue, 'broken')
-  for (const id of ['broken', 'huge', 'unterminated', 'folder']) {
+  for (const id of ['broken', 'huge', 'literal', 'unterminated', 'folder']) {
     const choice = option.choices.find((entry) => entry.value === id)
     assert.ok(choice?.disabled, `${id} is listed with its refusal`)
   }
