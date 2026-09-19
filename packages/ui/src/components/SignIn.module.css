@@ -1,46 +1,12 @@
-/* Signing in.
-   The rail is the settings window's column at the same width, so moving
-   between the two never asks the eye to re-find where things live. */
-
-/* The sheet stays its own thing — a two-pane window at 980×820, not a dialog —
-   but the ground it floats on and the surface it is cut from are the system's.
-   Its scrim used to be a hand-written rgba(0, 0, 0, 0.32) while every other
-   overlay in the app used 0.24: nobody chose that, the app just had two. */
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--hd-z-sheet);
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: var(--hd-scrim);
-}
+/* Sign-in composes its appearance from the access, list, text, alert and
+   control roles. This sheet only places those roles in the two-pane flow. */
 
 .dialog {
   display: flex;
   flex-direction: column;
   width: min(980px, 100%);
   height: min(820px, 100%);
-  border-radius: var(--hd-surface-radius);
-  background: var(--hd-surface-fill);
-  box-shadow: var(--hd-surface-shadow);
   overflow: hidden;
-}
-
-.head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: var(--hd-space-4) 16px; /* desk: canonical One UI System scale */
-  border-bottom: 1px solid var(--hd-border);
-}
-
-.headTitle {
-  font-size: var(--hd-heading);
-  line-height: var(--hd-line-heading); /* desk: 26 → 28, the line the 20px step is set on */
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-  letter-spacing: -0.01em;
 }
 
 .fill {
@@ -54,378 +20,61 @@
   grid-template-columns: 244px minmax(0, 1fr);
 }
 
-/*
- * Below this the rail stops being a column.
- *
- * 244px is a fixed track, so on a narrow window it took what it wanted and
- * left the pane beside it whatever remained — 172px inside a 456px dialog,
- * where the detail's heading was cut mid-address and its closing card came
- * out one word per line. A rail is a way of reaching the pane; when there is
- * not room for both, the pane is the one with work in it, so the rail goes
- * above and keeps its own scroll.
- */
 @media (max-width: 720px) {
   .split {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(88px, 0.9fr) minmax(0, 1.4fr);
   }
-
-  .roster {
-    border-right: none;
-    border-bottom: var(--hd-border-width) solid var(--hd-border);
-  }
-}
-
-/* --- the rail ------------------------------------------------------------ */
-
-.roster {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: 1px solid var(--hd-border);
-  background: var(--hd-sidebar-plate);
-}
-
-.railHead {
-  flex: none;
-  padding: 12px 12px var(--hd-space-3); /* desk: canonical One UI System scale */
-  border-bottom: 1px solid var(--hd-border);
-}
-
-.railTitle {
-  font-size: var(--hd-text-lg);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  margin-bottom: 8px;
 }
 
 .spineCount {
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-  margin-bottom: var(--hd-space-2); /* desk: canonical One UI System scale */
+  margin-bottom: var(--hd-space-2);
 }
 
-/* One bar per agent: the roster's answer before you have read the roster. */
-.segs {
-  display: flex;
-  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
-}
-
-.seg {
-  flex: 1;
-  height: 4px;
-  border-radius: var(--hd-radius-2xs);
-  background: var(--hd-border-strong);
-}
-
-.seg[data-state='ready'] {
-  background: var(--hd-success);
-}
-
-.seg[data-state='signin'] {
-  background: var(--hd-accent);
-}
-
-.seg[data-state='limit'] {
-  background: var(--hd-warning);
-}
-
-.seg[data-state='broken'] {
-  background: var(--hd-danger);
-}
-
-.railScroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 8px;
-}
-
-.rosterRow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-
-  text-align: left;
-
-}
-
-.rosterMark {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  color: var(--hd-secondary-foreground);
-}
-
-.rosterRow[data-selected] .rosterMark {
-  color: var(--hd-foreground);
-}
-
-.rosterText {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-
-.rosterName {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rosterDetail {
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs);
-  color: var(--hd-muted-foreground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rosterDetail[data-state='signin'] {
-  color: var(--hd-accent);
-}
-
-.rosterDetail[data-state='limit'] {
-  color: var(--hd-warning);
-}
-
-/* --- the ACP registry, below the roster ---------------------------------- */
-
-.railSection {
-  margin: 16px 8px 4px;
-  padding-top: 10px;
-  border-top: 1px solid var(--hd-border);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: var(--hd-muted-foreground);
-}
-
-/* The look belongs to the canonical field; this only sits it in the rail. */
 .railFilter {
   width: 100%;
-  margin: 2px 0 6px;
-  font-size: var(--hd-text-sm);
+  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5);
 }
 
 .railNote {
-  padding: 4px 8px 6px;
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs);
-  color: var(--hd-muted-foreground);
+  margin: var(--hd-space-1) var(--hd-space-2) var(--hd-space-1-5);
 }
 
-/* An entry this machine cannot run stays listed — its pane says why — but
-   the rail already tells you not to expect much of it. */
-.rosterRow[data-blocked] .rosterName {
-  color: var(--hd-muted-foreground);
-  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
+.next {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-3); /* desk: 10px → 12px, the hand-off keeps its established mark-to-copy gap */
+  margin-top: var(--hd-space-6);
+  max-width: 520px;
 }
 
-.whoMeta {
-  margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  white-space: nowrap;
-}
-
-.rosterFoot {
+.nextMark,
+.whoMark {
   flex: none;
-  padding: 10px 12px;
-  border-top: 1px solid var(--hd-border);
+  display: inline-grid;
+  place-items: center;
 }
 
-.rosterFootText {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-/* --- detail -------------------------------------------------------------- */
-
-.detail {
-  min-height: 0;
-  overflow-y: auto;
-  padding: 20px 24px 24px;
-  display: flex;
-  flex-direction: column;
+.nextText {
+  flex: 1 1 14ch;
+  min-width: 14ch;
 }
 
 .who {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 4px;
+  gap: var(--hd-space-2-5); /* desk: 12px → 10px, the subject keeps its established mark-to-name gap */
+  margin-bottom: var(--hd-space-1);
 }
 
-.whoMark {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  color: var(--hd-secondary-foreground);
-}
-
-/* The subject step — the name of the thing this pane is about — and it gives
-   way rather than running off the edge, which is what an address did at a
-   narrow width. */
-.whoName {
-  min-width: 0;
-  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
-  line-height: var(--hd-line);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  overflow: hidden;
-  text-overflow: ellipsis;
+.whoMeta {
+  margin-left: auto;
   white-space: nowrap;
 }
 
 .blurb {
-  margin: 0 0 var(--hd-space-5); /* desk: canonical One UI System scale */
-  max-width: 66ch;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
+  margin-bottom: var(--hd-space-5);
 }
-
-.groupLabel {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 22px;
-  margin-bottom: 8px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-/* --- the ways in --------------------------------------------------------- */
-
-.methods {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 520px;
-}
-
-.method {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-3); /* desk: canonical One UI System scale */
-  width: 100%;
- /* desk: canonical One UI System scale */
-
-  text-align: left;
-
-}
-
-.methodIcon {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  color: var(--hd-secondary-foreground);
-}
-
-.method:hover .methodIcon {
-  color: var(--hd-accent);
-}
-
-.methodText {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.methodName {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-}
-
-.methodHint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.methodGo {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  color: var(--hd-muted-foreground);
-}
-
-.note {
-  margin: var(--hd-space-4) 0 0; /* desk: canonical One UI System scale */
-  max-width: 66ch;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.note code {
-  padding: 1px 4px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-  font-family: var(--hd-font-code);
-  font-size: 0.875em;
-  /* A credential home is an absolute path with no spaces in it. Left to the
-     normal rules it sets as one word, overruns the column and is clipped
-     mid-segment — which is what a path in this dialog actually looked like. */
-  overflow-wrap: anywhere;
-}
-
-/* --- where the credential lives ------------------------------------------ */
-
-.where {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  margin: 0 0 16px;
-  max-width: 520px;
-}
-
-.whereLabel {
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.wherePath {
-  max-width: 100%;
-  padding: 4px 8px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-  /* Metadata, not a headline: a path is here to be checked and copied, and
-     at full ink a long one is the loudest thing on a card about an account. */
-  color: var(--hd-secondary-foreground);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  /* See `.note code`: paths wrap where they must rather than run out. */
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-
-.whereNote {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-/*
- * A way in the app cannot drive, under the ones it can. Set apart, because
- * without the gap it reads as a caption on the buttons above it.
- */
-.aside {
-  margin-top: 20px;
-}
-
-/* --- what happens next --------------------------------------------------- */
 
 .waiting {
   display: flex;
@@ -433,180 +82,72 @@
   max-width: 520px;
 }
 
-.state {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: var(--hd-space-4); /* desk: canonical One UI System scale */
-}
-
-.stateIcon {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
-}
-
-.stateIcon[data-tone='wait'] {
-  background: var(--hd-accent-dim);
-  color: var(--hd-accent);
-}
-
-.stateIcon[data-tone='good'] {
-  background: var(--hd-success-dim); /* desk: a forked literal → the token it was a copy of */
-  color: var(--hd-success);
-}
-
-.stateIcon[data-tone='bad'] {
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-}
-
-.stateText {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.stateTitle {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-}
-
-.stateHint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.code {
-  margin: 4px 0 var(--hd-space-4); /* desk: canonical One UI System scale */
-  padding: var(--hd-space-4); /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius);
-  background: var(--hd-muted);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-heading);
-  line-height: var(--hd-line-heading);
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-  letter-spacing: 0.18em;
-  text-align: center;
-  user-select: all;
-}
-
-.spinner {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 1.5px solid var(--hd-border-strong);
-  border-top-color: var(--hd-accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.waiting > :where([data-slot='status-summary'], [data-slot='alert']) {
+  margin-bottom: var(--hd-space-4);
 }
 
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--hd-space-2);
 }
 
-/*
- * The card's actions, on one line.
- *
- * Wrapping rather than shrinking, because the confirm state puts a sentence
- * in this row and a narrow dialog would otherwise squeeze the buttons it is
- * asking about.
- */
+.methods {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1-5); /* desk: 8px → 6px, compact choices keep their established separation */
+  max-width: 520px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  margin-top: 2px;
+  gap: var(--hd-space-2); /* desk: 12px → 8px, adjacent actions keep the control rhythm */
+  margin-top: var(--hd-space-0-5); /* desk: 24px → 2px, actions stay attached to the state they answer */
   max-width: 520px;
 }
 
-.rowNote {
-  flex: 1;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
+.aside {
+  margin-top: var(--hd-space-5);
 }
 
-/* The hand-off: the agent you have not signed in yet, offered once this one
-   is done, so four sign-ins are one errand rather than four visits. */
-.next {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  margin-top: var(--hd-space-6); /* desk: canonical One UI System scale */
-  padding: 12px var(--hd-space-3); /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius);
-  background: var(--hd-muted);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  max-width: 520px;
+.note {
+  margin: var(--hd-space-4) 0 0;
+  max-width: 66ch;
 }
 
-.nextMark {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  color: var(--hd-secondary-foreground);
+.noteFlush {
+  margin: 0;
 }
 
-/* `min-width: 0` alone let this reach zero: the mark and the button are both
-   `flex: none`, so at a narrow width there was nothing left for the words and
-   the sentence came out one to a line. A floor plus a wrapping row puts the
-   button underneath instead, which is a shape the words survive. */
-.nextText {
-  flex: 1 1 14ch; /* desk: a basis, so the row wraps rather than crushing */
-  min-width: 14ch; /* desk: 0 → 14ch, a floor the words survive */
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.actionError {
+  margin-bottom: var(--hd-space-4);
 }
-
-.nextTitle {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-}
-
-.nextHint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-/* --- the key field ------------------------------------------------------- */
 
 .keyRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--hd-space-2);
 }
 
 .keyIcon {
   position: absolute;
-  margin-left: var(--hd-space-2); /* desk: canonical One UI System scale */
+  margin-left: var(--hd-space-2);
   display: inline-grid;
   place-items: center;
-  color: var(--hd-secondary-foreground);
   pointer-events: none;
 }
 
 .keyInput {
   flex: 1;
   min-width: 0;
+}
 
+.rowNote {
+  flex: 1;
+}
+
+.code {
+  margin: var(--hd-space-1) 0 var(--hd-space-4);
 }

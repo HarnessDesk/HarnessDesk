@@ -141,7 +141,7 @@ const ListRow = ({
     {...props}
   >
     {lead != null && <span className="shrink-0">{lead}</span>}
-    <div className="min-w-0 flex-1">
+    <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         className={cn(
           'truncate leading-(--hd-line)',

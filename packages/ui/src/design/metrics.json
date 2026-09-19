@@ -167,6 +167,22 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
+  "banner/alert/variant/default": {
+    "h": 61,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 12 10 12",
+    "radius": 10
+  },
+  "banner/alert/variant/soft": {
+    "h": 61,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 12 10 12",
+    "radius": 10
+  },
   "button/button/size/chip": {
     "h": 24,
     "text": 12,
