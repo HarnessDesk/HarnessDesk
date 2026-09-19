@@ -1554,7 +1554,7 @@ const count = (n: number, noun: string): string => `${n} ${n === 1 ? noun : `${n
  * already registered and conversations with a newer local copy are left
  * alone, and the sentence under the row afterwards counts what happened.
  */
-const BackupRows = () => {
+export const BackupRows = () => {
   const store = useStore()
   const [busy, setBusy] = useState<'export' | 'restore' | false>(false)
   const [outcome, setOutcome] = useState<string | null>(null)
