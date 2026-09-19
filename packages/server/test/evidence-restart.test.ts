@@ -28,7 +28,7 @@ test('after a restart, a closed conversation still has its Seat record, and stil
   const reopened = (await second.host.call('session/resume', { runtime: runtimeId('fake'), sessionId: session.id })) as Session
   assert.equal(reopened.settings?.agent, 'scout')
   assert.equal(reopened.settings?.briefDigest, before.briefDigest)
-  assert.equal(reopened.settings?.permission, 'read')
+  assert.deepEqual(reopened.settings?.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(reopened.settings?.seatLabel, before.seatLabel)
 })
 

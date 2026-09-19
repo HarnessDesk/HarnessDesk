@@ -8,7 +8,6 @@ import {
   type Approval,
   type ApprovalId,
   type BackgroundTask,
-  type FlowPermission,
   type QueuedMessage,
   type RuntimeId,
   type SeatCandidate,
@@ -18,6 +17,7 @@ import {
   type SessionKey,
   type SessionQueue,
   type SessionSettings,
+  type StandingOrder,
   type Turn,
   type TurnId,
   type UserContent,
@@ -114,7 +114,8 @@ export interface SeatedAs {
    */
   readonly name: string
   readonly briefDigest: string
-  readonly permission: FlowPermission
+  /** The order in the vocabulary its Agent file used. */
+  readonly standing: StandingOrder
   readonly seatLabel: string
   readonly passedOver: readonly SeatCandidate[]
   /**
@@ -139,25 +140,29 @@ export interface SeatedAs {
  */
 export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | null): SessionSettings => {
   if (seated) {
-    return settings.agent === seated.agent &&
+    if (
+      settings.agent === seated.agent &&
       settings.briefDigest === seated.briefDigest &&
-      settings.permission === seated.permission &&
+      settings.ceiling === (seated.ceiling ?? undefined) &&
       settings.seatLabel === seated.seatLabel &&
       settings.passedOver === seated.passedOver
-      ? settings
-      : {
-          ...settings,
-          agent: seated.agent,
-          briefDigest: seated.briefDigest,
-          permission: seated.permission,
-          seatLabel: seated.seatLabel,
-          passedOver: seated.passedOver,
-        }
+    ) {
+      return settings
+    }
+    const { ceiling: _theirCeiling, ...rest } = settings
+    return {
+      ...rest,
+      agent: seated.agent,
+      briefDigest: seated.briefDigest,
+      ...(seated.ceiling ? { ceiling: seated.ceiling } : {}),
+      seatLabel: seated.seatLabel,
+      passedOver: seated.passedOver,
+    }
   }
   if (
     settings.agent === undefined &&
     settings.briefDigest === undefined &&
-    settings.permission === undefined &&
+    settings.ceiling === undefined &&
     settings.seatLabel === undefined &&
     settings.passedOver === undefined
   ) {
@@ -166,7 +171,7 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
   const {
     agent: _agent,
     briefDigest: _briefDigest,
-    permission: _permission,
+    ceiling: _ceiling,
     seatLabel: _seatLabel,
     passedOver: _passedOver,
     ...theirs

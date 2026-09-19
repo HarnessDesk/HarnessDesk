@@ -53,7 +53,8 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], over: Par
     id,
     name,
     description: `${name} does the work.`,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: ['approve', 'request-changes'],
     produces: ['review'],
     skills: ['checkout-rules'],
@@ -243,10 +244,10 @@ it('opens on the Agent Settings was asked for, and goes back to the roster', () 
   expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
 })
 
-it('says its ceiling is asked, and lists each seat with its state here and the fix for one that fails', () => {
+it('says its ceiling and lists each seat with its state here and the fix for one that fails', () => {
   const { store } = mount({ focus: 'judge' })
   const text = container.textContent ?? ''
-  expect(text).toContain('Read · asked')
+  expect(text).toContain('May change files and commit in its own checkout, and never push.')
   expect(text).toContain('Cursor is signed out')
   expect(text).toContain('The seat it takes here')
   act(() => button('Sign in to Cursor').click())

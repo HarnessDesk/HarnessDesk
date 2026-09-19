@@ -48,7 +48,8 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], folder: s
     id,
     name,
     description: `${name} does the work.`,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: [],
     produces: [],
     skills: [],
@@ -125,7 +126,7 @@ it('each folder opens its project’s page, which lists the project’s own Agen
   expect(button('Workspaces')).toBeDefined()
   const text = agentsText()
   expect(text).toContain('Code reviewer')
-  expect(text).toContain('Read · asked')
+  expect(text).toContain('Edit')
   expect(text).toContain('~/work/storefront/.harnessdesk/agents')
   // Only its own: what ships and what is yours are not the project's.
   expect(text).not.toContain('Judge')

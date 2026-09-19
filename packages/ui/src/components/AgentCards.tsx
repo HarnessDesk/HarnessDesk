@@ -24,7 +24,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { accountIdentity, accountKey, accountName, runtimeTint } from '../lib/accounts'
-import { ceilingWords, originWords, passedWords, projectOfAgent, seatCautions } from '../lib/agents'
+import { originWords, passedWords, projectOfAgent, seatCautions, seatCeilingWords } from '../lib/agents'
 import { elapsedSince } from '../lib/clock'
 import { describeContext, formatTokens } from '../lib/context-usage'
 import { formatElapsed } from '../lib/turn-view'
@@ -817,7 +817,7 @@ const seatedOf = (
   return {
     agent: {
       name: seated.name,
-      ceiling: ceilingWords(settings?.permission ?? definition?.permission ?? 'read'),
+      ceiling: seatCeilingWords(settings?.ceiling ?? { level: definition?.ceiling ?? 'read', hold: 'asked' }),
       description: definition?.description ?? null,
       origin: seated.entry ? originWords(seated.entry.origin, projectOfAgent(seated.entry)) : null,
       seat: settings?.seatLabel ?? null,

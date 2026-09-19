@@ -2,11 +2,12 @@ import {
   effortWord,
   type AgentEntry,
   type AgentOrigin,
-  type FlowPermission,
+  type CeilingLevel,
   type FlowSeat,
   type RuntimeInfo,
   type SeatArchived,
   type SeatCandidate,
+  type SeatCeiling,
   type SeatDifference,
   type SeatFix,
   type SeatLeft,
@@ -28,23 +29,26 @@ import { shortPath } from './paths'
  * drift apart. Pure: no store, no React.
  */
 
-const PERMISSION_WORD: Readonly<Record<FlowPermission, string>> = { read: 'Read', publish: 'Publish', merge: 'Merge' }
+const LEVEL_WORD: Readonly<Record<CeilingLevel, string>> = { read: 'Read', edit: 'Edit', publish: 'Publish', merge: 'Merge' }
 
 /**
  * A ceiling as every surface says it in this phase: its word, and that it is
  * asked rather than held — the seat is told it, and nothing stops it yet.
  */
-export const ceilingWords = (permission: FlowPermission): string => `${PERMISSION_WORD[permission]} · asked`
+export const ceilingWords = (level: CeilingLevel): string => LEVEL_WORD[level]
+
+/** A seat's effective ceiling and whether its runtime holds it. */
+export const seatCeilingWords = (ceiling: SeatCeiling): string => `${LEVEL_WORD[ceiling.level]} · ${ceiling.hold}`
 
 /** What a ceiling tells a seat, for a title: the rule, and that nothing holds it to the rule. */
-export const ceilingMeaning = (permission: FlowPermission): string =>
-  `${
-    permission === 'read'
-      ? 'Told it may edit and commit in its own checkout, and never push or merge.'
-      : permission === 'publish'
-        ? 'Told it may push its own branch and open a pull request, and never merge.'
-        : 'Told it may merge what it is asked to merge.'
-  } Asked, not held: nothing enforces it yet.`
+export const ceilingMeaning = (level: CeilingLevel): string =>
+  level === 'read'
+    ? 'Changes nothing: it reads, searches and reports.'
+    : level === 'edit'
+      ? 'May change files and commit in its own checkout, and never push.'
+      : level === 'publish'
+        ? 'May push its own branch and open a pull request, and never merge.'
+        : 'May merge what it is asked to merge.'
 
 /** Where an Agent was found, as its section is headed. */
 export const originWords = (origin: AgentOrigin, project: string | null): string =>

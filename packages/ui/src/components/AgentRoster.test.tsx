@@ -46,7 +46,8 @@ const agent = (
     id,
     name,
     description: `${name} does the work.`,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: [],
     produces: [],
     skills: [],
@@ -149,7 +150,7 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   const project = sectionText('In storefront')
   expect(project).toContain('Storefront reviewer')
   expect(project).toContain('Storefront reviewer does the work.')
-  expect(project).toContain('Read · asked')
+  expect(project).toContain('Edit')
   expect(project).toContain('Claude · Opus 5 · High')
   // No wire: never the spec, never the digest.
   expect(container.textContent).not.toContain('claude-code')

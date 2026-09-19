@@ -226,7 +226,7 @@ export const AgentPage = ({
         <>
           <SectionHead name="Ceiling" />
           <Rows>
-            <Row title={ceilingWords(definition.permission)} desc={ceilingMeaning(definition.permission)} />
+            <Row title={ceilingWords(definition.ceiling)} desc={ceilingMeaning(definition.ceiling)} />
           </Rows>
 
           <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />

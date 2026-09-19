@@ -4,6 +4,7 @@ import {
   AGENT_DESCRIPTION_LIMIT,
   AGENT_NAME_LIMIT,
   BriefNotHandedOverError,
+  ceilingOfPermission,
   isBlocked,
   remainingOf,
   SeatRefusedError,
@@ -36,15 +37,17 @@ import {
   agentOrder,
   blockedPlan,
   candidateOf,
+  ceilingWithin,
   chooseSeat,
   describeSeat,
   differencesOf,
   effortWord,
   explainRefusal,
+  grantOf,
   leftOnFailure,
   passedFor,
-  permissionWithin,
   planSeats,
+  standingOf,
   type PassedOver,
   type SeatOffer,
   type SeatWords,
@@ -171,7 +174,7 @@ export const agentMethods = {
     // trusted, so the compiler holds that reasoning and not a comment.
     if (!definition || digest === null) throw new Error(unusable(entry))
 
-    const permission = permissionWithin(definition.permission, params.permission ?? 'read')
+    const level = ceilingWithin(definition.ceiling, grantOf(params.permission))
     const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
     if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
     const candidates = list.seats
@@ -194,7 +197,7 @@ export const agentMethods = {
       }
 
       try {
-        await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
+        await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, level, params.cwd))
       } catch (error) {
         await ctx.seats.retire(opened.runtime, opened.sessionId)
         // In the seat's own words, never its spec (`SeatCandidate.seat`'s "never
@@ -205,17 +208,14 @@ export const agentMethods = {
           `${definition.name} was seated on ${describeSeat(seat, words)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
         )
       }
-      /* `ceiling` is the one value phase 3 changes here: the ceiling this seat
-         actually runs under, and whether the runtime holds it. Null until then,
-         on the record the host keeps and on the durable one alike. */
       const seated: SeatedAs = {
         agent: definition.id,
         name: definition.name,
         briefDigest: digest,
-        permission,
+        standing: standingOf(definition.ceilingFrom, level),
         seatLabel: opened.label,
         passedOver: said(passed),
-        ceiling: null,
+        ceiling: { level, hold: 'asked' },
       }
       /* Written before the seat is kept, and awaited. A seat whose record could
          not be written is closed, as one whose brief could not be handed over
@@ -227,9 +227,7 @@ export const agentMethods = {
           seat,
           seatLabel: seated.seatLabel,
           passedOver: seated.passedOver,
-          // Today's generation of standing order, as the Agent's file said it. Phase 3
-          // writes `{ kind: 'ceiling', level }` here for an Agent that says only `ceiling:`.
-          standing: { kind: 'permission', permission },
+          standing: seated.standing,
           ceiling: seated.ceiling,
           cwd: params.cwd,
           session: { runtime: opened.runtime, sessionId: opened.sessionId },
@@ -329,7 +327,7 @@ export const agentMethods = {
     const unreadable = parsed.problems.find((one) => one.level === 'error')
     if (unreadable) throw new Error(`“${params.name}” cannot be saved: ${unreadable.at} — ${unreadable.text}`)
     const mismatched = parsed.agent
-      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.permission, prefer)
+      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, ceilingOfPermission(params.permission), prefer)
       : 'definition'
     if (mismatched) {
       throw new Error(`“${params.name}” cannot be saved because its ${mismatched} does not read back exactly as given.`)
@@ -632,12 +630,12 @@ const savedFieldMismatch = (
   definition: AgentDefinition,
   name: string,
   description: string | null,
-  permission: AgentDefinition['permission'],
+  ceiling: AgentDefinition['ceiling'],
   prefer: readonly FlowSeat[],
-): 'name' | 'description' | 'permission' | 'preferred seats' | null => {
+): 'name' | 'description' | 'ceiling' | 'preferred seats' | null => {
   if (definition.name !== name) return 'name'
   if ((definition.description ?? null) !== description) return 'description'
-  if (definition.permission !== permission) return 'permission'
+  if (definition.ceiling !== ceiling) return 'ceiling'
   if (definition.prefer.length !== prefer.length) return 'preferred seats'
   if (!definition.prefer.every((seat, index) => sameSeat(seat, prefer[index]!))) return 'preferred seats'
   return null

@@ -179,7 +179,7 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
       {...(definition.description ? { desc: definition.description } : {})}
       control={
         <span className={`${styles.facts} text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-secondary-foreground)`}>
-          <span title={ceilingMeaning(definition.permission)}>{ceilingWords(definition.permission)}</span>
+          <span title={ceilingMeaning(definition.ceiling)}>{ceilingWords(definition.ceiling)}</span>
           {seat ? (
             <span className={`${styles.seat} text-(--hd-foreground)`}>
               <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />

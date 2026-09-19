@@ -307,8 +307,8 @@ it('leaves the composer alone when the folder is where it always was', () => {
 })
 
 it('a conversation seated as an Agent is headed by it — once, while its title is the Agent’s name', () => {
-  const settings = { cwd: '/repo', model: 'gpt-5.6-sol', agent: 'code-reviewer', briefDigest: 'd', permission: 'read' as const, seatLabel: 'Codex', passedOver: [] }
-  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
+  const settings = { cwd: '/repo', model: 'gpt-5.6-sol', agent: 'code-reviewer', briefDigest: 'd', ceiling: { level: 'edit' as const, hold: 'asked' as const }, seatLabel: 'Codex', passedOver: [] }
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
   const over = { seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]) }
   const header = (): string => container.querySelector('header')?.textContent ?? ''
 

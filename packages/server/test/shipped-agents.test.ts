@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readdir } from 'node:fs/promises'
 import { test, type TestContext } from 'node:test'
 
-import { runtimeId, type FlowPermission, type SeatPlan, type Session } from '@harnessdesk/protocol'
+import { ceilingOfPermission, runtimeId, type FlowPermission, type SeatPlan, type Session } from '@harnessdesk/protocol'
 
 import { Agents } from '../src/agents.js'
 import { builtinAgentRoot } from '../src/host.js'
@@ -56,7 +56,7 @@ test('each parses with nothing wrong, names runtimes and not models, and says ho
     assert.equal(entry.origin, 'builtin')
     const definition = entry.definition
     assert.ok(definition, `${id} parsed`)
-    assert.equal(definition.permission, ceiling, `${id}'s ceiling`)
+    assert.equal(definition.ceiling, ceilingOfPermission(ceiling), `${id}'s ceiling`)
     assert.deepEqual(
       definition.prefer,
       [{ runtime: 'claude-code' }, { runtime: 'codex' }, { runtime: 'cursor' }],
@@ -123,8 +123,8 @@ test('each would sit on the first runtime it names, and seats there, holding rea
     const session = (await client.call('agent/seat', { id, cwd: work })) as Session
     assert.equal(session.settings?.agent, id)
     assert.equal(String(session.runtime), 'claude-code')
-    // Seated with no grant, so each holds read here whatever its ceiling: a ceiling is never a grant.
-    assert.equal(session.settings?.permission, 'read')
+    // Seated with no grant, so each holds edit here whatever its ceiling: a ceiling is never a grant.
+    assert.deepEqual(session.settings?.ceiling, { level: 'edit', hold: 'asked' })
   }
   assert.equal(fakes[0]?.sessions.size, Object.keys(SHIPPED).length)
 })

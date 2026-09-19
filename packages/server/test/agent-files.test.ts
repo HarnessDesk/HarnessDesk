@@ -50,7 +50,7 @@ test('a new AGENT.md reads back as what was saved, a model the spec cannot carry
   assert.deepEqual(problems, [])
   assert.equal(agent?.name, 'Careful "reviewer"')
   assert.equal(agent?.description, 'Reads twice.')
-  assert.equal(agent?.permission, 'read')
+  assert.equal(agent?.ceiling, 'edit')
   assert.deepEqual(agent?.prefer, [
     { runtime: 'claude-code', model: 'opus-5', effort: 'high' },
     { runtime: 'cursor', model: 'vendor/model-1' },

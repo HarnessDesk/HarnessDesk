@@ -135,7 +135,7 @@ test('through the host: an Agent seated leaves its Seat record before the call a
   assert.deepEqual(record.seat, { runtime: 'fake' })
   assert.equal(record.seatLabel, session.settings?.seatLabel)
   assert.deepEqual(record.standing, { kind: 'permission', permission: 'read' })
-  assert.equal(record.ceiling, null, 'null until phase 3 fills it')
+  assert.deepEqual(record.ceiling, { level: 'edit', hold: 'asked' })
   assert.deepEqual(record.session, { runtime: 'fake', sessionId: String(session.id) })
   assert.equal(record.checkout.branch, 'main')
   assert.equal(record.board, null)

@@ -12,6 +12,7 @@ import {
   findOption,
   refuseOptionValue,
   runtimeId,
+  type CeilingLevel,
   sessionId,
   turnId,
   type AgentEvent,
@@ -47,15 +48,15 @@ import {
 import { AcpRegistry } from '../src/acp-registry.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
-import { chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
+import { CEILING_RULES, chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
 import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
-import { GIT_RULES, renderFlowTemplate } from '../src/flow.js'
+import { renderFlowTemplate } from '../src/flow.js'
 import type { OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
 import type { SeatOpeningInput } from '../src/evidence/seats.js'
-import type { SeatedAs } from '../src/registry.js'
+import { seatedSettings, type SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
@@ -550,17 +551,17 @@ seed:
 
 // ------------------------------------------------------ the method, by itself
 
-/** An Agent file as a person writes one, with the candidates it prefers and its ceiling. */
-const agentFile = (prefer: string, permission: FlowPermission = 'read'): string =>
-  `---\nname: Reviewer\npermission: ${permission}\nprefer: [${prefer}]\n---\nRead the diff.\n`
+/** An Agent file, with `permission: read` unless a test writes another ceiling line. */
+const agentFile = (prefer: string, ceilingLine = 'permission: read'): string =>
+  `---\nname: Reviewer\n${ceilingLine}\nprefer: [${prefer}]\n---\nRead the diff.\n`
 
 /**
  * What a seat on this Agent is handed, working in `cwd`: the brief as written,
  * then the rule of the permission it holds — the flow's own sentence for it,
  * `GIT_RULES`, filled in as a flow seat's is.
  */
-const orderFor = (permission: FlowPermission, cwd: string): string =>
-  `Read the diff.\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`
+const orderFor = (level: CeilingLevel, cwd: string): string =>
+  `Read the diff.\n\n${renderFlowTemplate(CEILING_RULES[level], { repo: cwd })}`
 
 /** What one runtime on the pretend desk says about itself. Honest and ready unless a test says otherwise. */
 interface Pretend {
@@ -653,8 +654,8 @@ const rig = async (
     /** Why opening this seat fails, or null when it opens. */
     readonly openFails?: (seat: FlowSeat) => string | null
     readonly orderFails?: string
-    /** The Agent's ceiling, as its file declares it. */
-    readonly permission?: FlowPermission
+    /** The line of its file that says the Agent's ceiling. */
+    readonly ceilingLine?: string
     /** Asked for usage, the desk never answers. */
     readonly usageHangs?: boolean
     /** Asked for usage, the desk fails outright rather than staying silent. */
@@ -675,7 +676,7 @@ const rig = async (
 ) => {
   const root = tempDir('hd-agent-seat-')
   const user = join(root, 'user')
-  const source = agentFile(prefer, options.permission)
+  const source = agentFile(prefer, options.ceilingLine)
   await mkdir(join(user, 'reviewer'), { recursive: true })
   await writeFile(join(user, 'reviewer', 'AGENT.md'), source, 'utf8')
   if (options.machine !== undefined) await writeFile(join(root, 'seating.json'), options.machine, 'utf8')
@@ -788,7 +789,7 @@ const rig = async (
           status: { type: 'idle' },
           createdAt: 0,
           updatedAt: 0,
-          settings: { cwd: '/tmp/x', model: 'opus-5', ...seated },
+          settings: seatedSettings({ cwd: '/tmp/x', model: 'opus-5' }, seated),
           turns: [],
           itemsLoaded: true,
         }
@@ -828,38 +829,43 @@ test('it seats the first candidate this machine can offer', async () => {
   assert.deepEqual(titles, ['Reviewer'], 'the conversation is named for the Agent')
 })
 
-test('the brief is handed over as the standing order, once, with the rule of the permission it holds', async () => {
+test('the brief is handed over as the standing order, once, with the one line its ceiling is given', async () => {
   const { ctx, ordered } = await rig('claude=opus-5/high')
   await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.equal(ordered.length, 1)
   assert.match(ordered[0] ?? '', /^Read the diff\.\n\n/, 'the brief as written, first')
-  // The flow's own sentence for `read`, filled with where the seat works — not
-  // a second wording of it.
-  assert.match(ordered[0] ?? '', /- Stay inside \/tmp\/x\. .*never push, never merge/)
-  assert.equal(ordered[0], orderFor('read', '/tmp/x'))
+  assert.match(ordered[0] ?? '', /^- Your ceiling is edit: you may change files and commit in \/tmp\/x, and you never push/m)
+  assert.equal((ordered[0] ?? '').split('\n').filter((line) => line.startsWith('- ')).length, 1, 'one line')
+  assert.equal(ordered[0], orderFor('edit', '/tmp/x'))
 })
 
-test("the seat is told the narrower of the Agent's ceiling and the seating's grant, in the flow's words, and it is recorded", async () => {
-  const cases: readonly (readonly [FlowPermission, FlowPermission | undefined, FlowPermission])[] = [
-    ['read', undefined, 'read'],
-    // No step, so no grant but the one the call makes: read, whatever the ceiling.
-    ['merge', undefined, 'read'],
+test("the seat runs under the narrower of the Agent's ceiling and the seating's grant, is told it, and it is recorded in its file's words", async () => {
+  const cases: readonly (readonly [string, FlowPermission | undefined, CeilingLevel])[] = [
+    ['permission: read', undefined, 'edit'],
+    ['permission: merge', undefined, 'edit'],
     // A grant never reaches past the ceiling…
-    ['read', 'merge', 'read'],
-    ['publish', 'merge', 'publish'],
+    ['permission: read', 'merge', 'edit'],
+    ['permission: publish', 'merge', 'publish'],
     // …and a ceiling never widens a grant.
-    ['merge', 'publish', 'publish'],
-    ['merge', 'merge', 'merge'],
+    ['permission: merge', 'publish', 'publish'],
+    ['permission: merge', 'merge', 'merge'],
+    ['ceiling: read', undefined, 'read'],
+    ['ceiling: read', 'merge', 'read'],
+    ['ceiling: publish', undefined, 'edit'],
+    ['description: says nothing of what it may do', 'merge', 'read'],
   ]
-  for (const [ceiling, grant, held] of cases) {
-    const said = `a ${ceiling} Agent seated with ${grant ?? 'no'} grant`
-    const seen = await rig('claude=opus-5/high', undefined, { permission: ceiling })
+  for (const [line, grant, held] of cases) {
+    const said = `an Agent whose file says "${line}", seated with ${grant ?? 'no'} grant`
+    const seen = await rig('claude=opus-5/high', undefined, { ceilingLine: line })
     const session = await agentMethods['agent/seat'](seen.ctx, {
       id: 'reviewer',
       cwd: '/tmp/x',
       ...(grant ? { permission: grant } : {}),
     })
     assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
+    const standing = line.startsWith('permission:')
+      ? { kind: 'permission' as const, permission: held === 'edit' ? ('read' as const) : (held as 'publish' | 'merge') }
+      : { kind: 'ceiling' as const, level: held }
     assert.deepEqual(
       seen.recorded,
       [
@@ -867,15 +873,15 @@ test("the seat is told the narrower of the Agent's ceiling and the seating's gra
           agent: 'reviewer',
           name: 'Reviewer',
           briefDigest: digestOf(seen.source),
-          permission: held,
+          standing,
           seatLabel: 'claude',
           passedOver: [],
-          ceiling: null,
+          ceiling: { level: held, hold: 'asked' },
         },
       ],
       said,
     )
-    assert.equal(session.settings?.permission, held, said)
+    assert.deepEqual(session.settings?.ceiling, { level: held, hold: 'asked' }, said)
   }
 })
 
@@ -1492,27 +1498,27 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
-  assert.equal(session.settings?.permission, 'read')
+  assert.deepEqual(session.settings?.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(session.settings?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(session.settings?.passedOver, [])
 
   const opened = seats.opened[0]
   assert.ok(opened)
   assert.equal(String(opened.id), String(session.id))
-  assert.deepEqual(opened.sent, [orderFor('read', work)], 'the brief, once, and the rule it works under')
+  assert.deepEqual(opened.sent, [orderFor('edit', work)], 'the brief, once, and the one line of its ceiling')
   // The same seating a flow's seat gets: the picks in, the inherited switches off.
   assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, 'max-mode': false })
   assert.equal(opened.title, 'Reviewer')
   assert.equal(opened.closed, false)
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'every window is told')
-  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
+  assert.deepEqual(settingsSeen(client, String(session.id))?.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
 
   // The runtime re-announces its settings whole — a model change does — and
   // has never heard of the Agent. The record stands, in the host and in what
   // every window is sent — seatLabel and passedOver survive it exactly as
-  // agent, briefDigest and permission do, not only the three fields Task 5
+  // agent, briefDigest and the ceiling do, not only the three fields Task 5
   // first laid over settings.
   await client.call('session/options/set', {
     runtime: 'seatfake',
@@ -1523,14 +1529,14 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   await client.until(() => settingsSeen(client, String(session.id))?.model === 'small', 5_000, 'the model change')
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
-  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
+  assert.deepEqual(settingsSeen(client, String(session.id))?.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
   const held = harness.host.registry.get(runtimeId('seatfake'), session.id)?.session.settings
   assert.equal(held?.model, 'small')
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
-  assert.equal(held?.permission, 'read')
+  assert.deepEqual(held?.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(held?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(held?.passedOver, [])
 })
@@ -1587,7 +1593,7 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   const forged = {
     agent: 'forged',
     briefDigest: 'forged',
-    permission: 'merge',
+    ceiling: { level: 'merge', hold: 'held' },
     seatLabel: 'forged',
     passedOver: [
       {
@@ -1606,18 +1612,18 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   })) as Session
   const theirs = harness.runtime.sessions.get(String(session.id))?.settings()
   assert.deepEqual(
-    [theirs?.agent, theirs?.briefDigest, theirs?.permission, theirs?.seatLabel, theirs?.passedOver],
-    [forged.agent, forged.briefDigest, forged.permission, forged.seatLabel, forged.passedOver],
+    [theirs?.agent, theirs?.briefDigest, theirs?.ceiling, theirs?.seatLabel, theirs?.passedOver],
+    [forged.agent, forged.briefDigest, forged.ceiling, forged.seatLabel, forged.passedOver],
     'the runtime really opened it on the forgery — the rest of this only means something if it did',
   )
   const hostOnly = (settings: SessionSettings | undefined) => ({
     agent: settings?.agent,
     briefDigest: settings?.briefDigest,
-    permission: settings?.permission,
+    ceiling: settings?.ceiling,
     seatLabel: settings?.seatLabel,
     passedOver: settings?.passedOver,
   })
-  const none = { agent: undefined, briefDigest: undefined, permission: undefined, seatLabel: undefined, passedOver: undefined }
+  const none = { agent: undefined, briefDigest: undefined, ceiling: undefined, seatLabel: undefined, passedOver: undefined }
   // Not in the answer, which is the record the host keeps (`SessionRegistry.upsert`)…
   assert.deepEqual(hostOnly(session.settings), none, 'the conversation the call answers')
   assert.deepEqual(
@@ -1633,18 +1639,18 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   await client.call('session/settings', {
     runtime: FAKE_RUNTIME_ID,
     sessionId: session.id,
-    patch: { agent: 'forged', briefDigest: 'forged', permission: 'merge', seatLabel: 'forged', passedOver: [] },
+    patch: { agent: 'forged', briefDigest: 'forged', ceiling: { level: 'merge', hold: 'held' }, seatLabel: 'forged', passedOver: [] },
   })
   await client.until(() => settingsSeen(client, String(session.id)) !== undefined, 5_000, 'the echoed settings')
   assert.equal(settingsSeen(client, String(session.id))?.agent, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, undefined)
-  // Least of all what it may do: a permission a renderer could write is a permission anybody could.
-  assert.equal(settingsSeen(client, String(session.id))?.permission, undefined)
+  // Least of all what it may do: a ceiling a renderer could write is a ceiling anybody could raise.
+  assert.equal(settingsSeen(client, String(session.id))?.ceiling, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.passedOver, undefined)
   const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
   assert.equal(held?.agent, undefined)
-  assert.equal(held?.permission, undefined)
+  assert.equal(held?.ceiling, undefined)
 })
 
 test('a renderer cannot overwrite what an already-seated conversation is recorded as, either', async (t) => {
@@ -1686,7 +1692,7 @@ test('a renderer cannot overwrite what an already-seated conversation is recorde
       model: 'fake-2',
       agent: 'forged',
       briefDigest: 'forged',
-      permission: 'merge',
+      ceiling: { level: 'merge', hold: 'held' },
       seatLabel: 'forged',
       passedOver: forged,
     },
@@ -1694,7 +1700,7 @@ test('a renderer cannot overwrite what an already-seated conversation is recorde
   await client.until(() => settingsSeen(client, String(session.id))?.model === 'fake-2', 5_000, 'the patch lands')
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'the real Agent, not the forged one')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
-  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read', 'the real permission, never the forged one')
+  assert.deepEqual(settingsSeen(client, String(session.id))?.ceiling, { level: 'edit', hold: 'asked' }, 'the real ceiling, never the forged one')
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Fake Runtime · Fake One')
   assert.notDeepEqual(settingsSeen(client, String(session.id))?.passedOver, forged)
   assert.equal(settingsSeen(client, String(session.id))?.passedOver?.length, 1)
@@ -1706,7 +1712,7 @@ test('a renderer cannot overwrite what an already-seated conversation is recorde
   const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
-  assert.equal(held?.permission, 'read')
+  assert.deepEqual(held?.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(held?.seatLabel, 'Fake Runtime · Fake One')
   assert.notDeepEqual(held?.passedOver, forged)
   assert.equal(held?.passedOver?.length, 1)
@@ -1732,7 +1738,7 @@ test('the wire refuses a grant that is no permission, and more seats than an Age
     seats: nine.slice(1),
     permission: 'merge',
   })) as Session
-  assert.equal(session.settings?.permission, 'read')
+  assert.deepEqual(session.settings?.ceiling, { level: 'edit', hold: 'asked' })
 })
 
 // ------------------------------------------------------ down the preference list
@@ -1764,13 +1770,13 @@ test('a seat that runs another effort than asked is closed, and the next candida
   ])
   assert.deepEqual(seen.retired, ['claude s1'], 'the first was closed')
   assert.equal(String(session.id), 's2')
-  assert.deepEqual(seen.ordered, [orderFor('read', '/tmp/x')], 'the brief went once, to the seat that was kept')
+  assert.deepEqual(seen.ordered, [orderFor('edit', '/tmp/x')], 'the brief went once, to the seat that was kept')
   assert.deepEqual(seen.recorded, [
     {
       agent: 'reviewer',
       name: 'Reviewer',
       briefDigest: digestOf(seen.source),
-      permission: 'read',
+      standing: { kind: 'permission', permission: 'read' },
       seatLabel: 'claude',
       passedOver: [
         {
@@ -1783,7 +1789,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
           fix: { kind: 'seats' },
         },
       ],
-      ceiling: null,
+      ceiling: { level: 'edit', hold: 'asked' },
     },
   ])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
@@ -1847,7 +1853,7 @@ test('through the host: one seat at a time — each that fails is closed and let
   assert.deepEqual([held(lost), held(other)], [null, null], 'the host holds only the seat it kept')
   assert.ok(held(kept))
   assert.equal(String(kept.id), String(session.id))
-  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], [orderFor('read', work)]])
+  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], [orderFor('edit', work)]])
   assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, 'max-mode': false })
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))

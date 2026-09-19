@@ -1,21 +1,27 @@
-import type {
-  AgentId,
-  ConfigOption,
-  FlowPermission,
-  FlowSeat,
-  SeatArchived,
-  SeatCandidate,
-  SeatDifference,
-  SeatFix,
-  SeatLeft,
-  SeatPlan,
-  SeatReason,
-  SessionSettings,
+import {
+  ceilingOfPermission,
+  narrower,
+  permissionOfCeiling,
+  type AgentDefinition,
+  type AgentId,
+  type CeilingLevel,
+  type ConfigOption,
+  type FlowPermission,
+  type FlowSeat,
+  type SeatArchived,
+  type SeatCandidate,
+  type SeatDifference,
+  type SeatFix,
+  type SeatLeft,
+  type SeatPlan,
+  type SeatReason,
+  type SessionSettings,
+  type StandingOrder,
 } from '@harnessdesk/protocol'
 
 import { effortWord } from '@harnessdesk/protocol'
 
-import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
+import { renderFlowTemplate, seatSpec } from './flow.js'
 
 /**
  * Which seat an Agent takes here, and why not the ones above it — then, once it
@@ -475,8 +481,9 @@ export const openedOtherwise = (asked: FlowSeat, running: SeatRunning): string |
 
 // ------------------------------------------------------------ what it may do
 
-/** How far each permission reaches. Keyed by the union, so a fourth has to be placed before it compiles. */
-const REACH: Readonly<Record<FlowPermission, number>> = { read: 0, publish: 1, merge: 2 }
+/** The old seating grant translated onto the ceiling ladder. */
+export const grantOf = (permission: FlowPermission | undefined): CeilingLevel =>
+  permission === undefined ? 'edit' : ceilingOfPermission(permission)
 
 /**
  * What a seat may do: the narrower of the Agent's ceiling and what the seating
@@ -484,8 +491,23 @@ const REACH: Readonly<Record<FlowPermission, number>> = { read: 0, publish: 1, m
  * told to — and a grant never reaches past the ceiling, so writing needs the
  * Agent and whoever seats it to agree.
  */
-export const permissionWithin = (ceiling: FlowPermission, grant: FlowPermission): FlowPermission =>
-  REACH[grant] < REACH[ceiling] ? grant : ceiling
+export const ceilingWithin = (ceiling: CeilingLevel, grant: CeilingLevel): CeilingLevel => narrower(ceiling, grant)
+
+/** Record the standing order in the vocabulary the Agent file used. */
+export const standingOf = (from: AgentDefinition['ceilingFrom'], level: CeilingLevel): StandingOrder => {
+  const permission = from === 'permission' ? permissionOfCeiling(level) : null
+  return permission ? { kind: 'permission', permission } : { kind: 'ceiling', level }
+}
+
+/** One line of role guidance per level; enforcement is supplied elsewhere. */
+export const CEILING_RULES: Readonly<Record<CeilingLevel, string>> = {
+  read: '- Your ceiling is read: you change nothing, in {{repo}} or anywhere else — no edits, no commits, no pushes. Anything you hand to a sub-agent or a background agent is held to it too.',
+  edit: '- Your ceiling is edit: you may change files and commit in {{repo}}, and you never push, merge, reset or force anything. Anything you hand to a sub-agent or a background agent is held to it too.',
+  publish:
+    '- Your ceiling is publish: you may commit in {{repo}}, push your own branch and open a pull request for it, and you never merge, reset or force anything. Anything you hand to a sub-agent or a background agent is held to it too.',
+  merge:
+    '- Your ceiling is merge: you may merge what you are asked to merge, and you never reset or force anything. Anything you hand to a sub-agent or a background agent is held to it too.',
+}
 
 /**
  * The standing order an Agent's seat is handed: the brief as its author wrote
@@ -499,8 +521,8 @@ export const permissionWithin = (ceiling: FlowPermission, grant: FlowPermission)
  * Told, not enforced. This is all a seat's permission is today, a flow seat's
  * included: nothing at the tool surface holds it to the rule yet.
  */
-export const agentOrder = (brief: string, permission: FlowPermission, cwd: string): string =>
-  `${brief}\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`
+export const agentOrder = (brief: string, level: CeilingLevel, cwd: string): string =>
+  `${brief}\n\n${renderFlowTemplate(CEILING_RULES[level], { repo: cwd })}`
 
 // ------------------------------------------------------------ in words
 

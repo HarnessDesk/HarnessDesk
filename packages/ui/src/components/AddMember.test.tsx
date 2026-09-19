@@ -357,7 +357,7 @@ const agent = (id: string, name: string): AgentEntry => ({
   digest: 'd',
   shadows: [],
   problems: [],
-  definition: { id, name, description: null, permission: 'read', answers: [], produces: [], skills: [], prefer: [{ runtime: 'claude-code' }], brief: 'Work.' },
+  definition: { id, name, description: null, ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [{ runtime: 'claude-code' }], brief: 'Work.' },
 })
 
 const PLANS: readonly SeatPlan[] = [

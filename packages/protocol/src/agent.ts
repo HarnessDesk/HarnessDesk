@@ -1,4 +1,5 @@
-import type { FlowPermission, FlowSeat } from './flow.js'
+import type { CeilingLevel } from './evidence.js'
+import type { FlowSeat } from './flow.js'
 
 /**
  * An Agent: **who** does the work, as opposed to which runtime runs it.
@@ -16,11 +17,12 @@ export interface AgentDefinition {
   readonly name: string
   readonly description?: string | null
   /**
-   * A **ceiling**, never a grant. A Seat gets the narrower of this and the
-   * step's grant, and a step grants `read` unless it says otherwise — so
-   * writing needs the Agent and the step to agree.
+   * A **ceiling**, never a grant, on `read < edit < publish < merge`. A Seat
+   * gets the narrower of this and what its seating grants.
    */
-  readonly permission: FlowPermission
+  readonly ceiling: CeilingLevel
+  /** The key that supplied the ceiling, so legacy and missing definitions can be flagged. */
+  readonly ceilingFrom: 'ceiling' | 'permission' | 'none'
   /** The only words this Agent may report. Empty means the step decides. */
   readonly answers: readonly string[]
   /** Evidence kinds it must leave behind. */
@@ -102,7 +104,7 @@ export const SEAT_PREFERENCE_LIMIT = 8
 /** One thing wrong with a definition, and where. */
 export interface AgentProblem {
   readonly level: 'error' | 'warning'
-  /** `permission`, `prefer[1]`, `brief` — where to look. */
+  /** `ceiling`, `prefer[1]`, `brief` — where to look. */
   readonly at: string
   readonly text: string
 }
