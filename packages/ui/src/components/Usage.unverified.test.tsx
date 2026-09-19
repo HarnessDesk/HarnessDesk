@@ -133,6 +133,33 @@ const railRow = async (report: UsageReport): Promise<string> => {
 }
 
 describe("another sign-in's figures", () => {
+  it('carries spent readings and model warnings into the text tone', async () => {
+    await render(reportWith([group('gemini-weekly', 'Gemini Models', 100)], 'gemini-weekly'))
+    let article = [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')].find((node) =>
+      node.textContent?.includes('Antigravity'),
+    )
+    const headline = [...(article?.querySelectorAll<HTMLElement>('[data-slot="text"]') ?? [])].find(
+      (node) => node.dataset['role'] === 'figure' && node.textContent === '0%',
+    )
+
+    expect(headline?.dataset['tone']).toBe('danger')
+
+    await render(
+      reportWith(
+        [group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 0)],
+        'gemini-weekly',
+      ),
+    )
+    article = [...document.querySelectorAll<HTMLElement>('[data-slot="card"]')].find((node) =>
+      node.textContent?.includes('Antigravity'),
+    )
+    const warning = [...(article?.querySelectorAll<HTMLElement>('[data-slot="text"]') ?? [])].find((node) =>
+      node.textContent?.includes('Gemini Models is spent — other models still work'),
+    )
+
+    expect(warning?.dataset['tone']).toBe('warning')
+  })
+
   it('are drawn under that sign-in, with the agent’s own chip', async () => {
     const text = await card(
       reportWith([group('gemini-weekly', 'Gemini Models', 100), group('3p-weekly', 'Claude and GPT models', 0)], 'gemini-weekly'),

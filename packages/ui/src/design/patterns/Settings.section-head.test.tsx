@@ -20,9 +20,20 @@ afterEach(() => {
   container.remove()
 })
 
-it('owns the opaque sticky group-label surface', () => {
-  act(() => root.render(<SectionHead name="What is left" action={<button>Range</button>} sticky />))
+it('owns the opaque sticky section-heading surface and its inline description', () => {
+  act(() =>
+    root.render(
+      <SectionHead
+        name="What is left"
+        description="Gemini is out of quota."
+        action={<button>Range</button>}
+        sticky
+      />,
+    ),
+  )
   const head = container.firstElementChild as HTMLElement | null
   expect(head?.dataset['sticky']).toBe('')
-  expect(head?.textContent).toBe('What is leftRange')
+  expect(head?.textContent).toBe('What is leftGemini is out of quota.Range')
+  expect(head?.querySelector('[data-slot="section-name"]')?.tagName).toBe('H2')
+  expect(head?.querySelector('[data-slot="section-description"]')?.previousElementSibling?.textContent).toBe('What is left')
 })

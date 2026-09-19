@@ -540,15 +540,34 @@
   background: var(--hd-card);
 }
 
-/* The word over a card: a label, not a heading. It stood at 16px in primary
-   ink, one step under the page title, so every page read as a stack of
-   headings; the reference sets it as a 13px grey label, which is what lets
-   the rows under it be the thing you read. */
-.sectionName {
+.sectionHeadText {
+  display: flex;
   flex: 1;
-  font-size: var(--hd-text-sm); /* desk: 16 → 13, a label over a card */
-  font-weight: var(--hd-weight-normal); /* desk: medium → regular, a group label does not name a subject */
-  color: var(--hd-secondary-foreground); /* desk: primary → secondary ink */
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--hd-space-2);
+  min-width: 0;
+}
+
+/* A section's own name is the heading step. Small labels over navigation
+   groups belong to WindowGroup; using that role here flattened a page's
+   hierarchy into the rows beneath it. */
+.sectionName {
+  flex: none;
+  margin: 0;
+  font-size: var(--hd-heading);
+  line-height: var(--hd-line-heading);
+  font-weight: var(--hd-weight-semibold);
+  letter-spacing: -0.01em;
+  color: var(--hd-foreground);
+}
+
+.sectionDescription {
+  min-width: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  font-weight: var(--hd-weight-normal);
+  color: var(--hd-muted-foreground);
 }
 
 /*

@@ -204,10 +204,20 @@ export const Ring = ({ fill, size, label }: { fill: ContextFill | null; size: nu
   />
 )
 
-const Row = ({ label, value, hint }: { label: ReactNode; value: ReactNode; hint?: ReactNode | null }) => (
+const Row = ({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: ReactNode
+  value: ReactNode
+  hint?: ReactNode | null
+  tone?: Tone
+}) => (
   <KeyValue className={styles.row}>
     <KeyValueRow label={label}>
-      <span className={styles.rowReading}>{value}</span>
+      <Text role="value" tone={tone} className={styles.rowReading}>{value}</Text>
       {hint != null && hint !== '' && <Text role="meta" align="end">{hint}</Text>}
     </KeyValueRow>
   </KeyValue>
@@ -229,7 +239,12 @@ const WindowRow = ({ window }: { window: UsageWindow }) => {
   const reset = formatReset(window.resetsAt)
   return (
     <div className={styles.window}>
-      <Row label={window.label} value={`${left}% left`} hint={reset ? `resets ${reset}` : null} />
+      <Row
+        label={window.label}
+        value={`${left}% left`}
+        hint={reset ? `resets ${reset}` : null}
+        tone={toneOf(tone)}
+      />
       <Progress
         className={styles.windowProgress}
         value={left}

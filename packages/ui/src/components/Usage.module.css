@@ -17,7 +17,6 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--usage-strip) + var(--hd-space-1-5));
-  margin-top: calc(var(--usage-strip) + var(--hd-space-2));
 }
 
 .band {
@@ -31,10 +30,6 @@
   top: calc(-1 * var(--usage-strip));
   z-index: 1;
   margin: calc(-1 * var(--usage-strip)) 0 0;
-}
-
-.bandNote {
-  min-width: 0;
 }
 
 .cards {
