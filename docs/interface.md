@@ -159,9 +159,9 @@ top-left, the workbench marks it, and every row that can land there starts
 after `--titlebar-inset`. The browser build sets no such mark and indents
 nothing, having no window buttons to clear.
 
-**⌘K** is the way through the app without more chrome: actions, agents,
-sessions, files (through the runtime's own search), and slash commands,
-grouped in a fixed order and scored within each group.
+**⌘K** is the way through the app without more chrome: actions, Agents to
+start as, runtimes, sessions, files (through the runtime's own search), and
+slash commands, grouped in a fixed order and scored within each group.
 
 **⌘[ and ⌘] step back and forward** through what the middle has shown — a
 conversation or a room — and `/back` and `/forward` are the same pair in the
@@ -181,11 +181,14 @@ Three slots at the top, because that space is the most valuable in the app and
 only what a person reaches for *while working* earns a place in it:
 
 - **New session**: clicking the button opens a choice between a solo session and
-  a collaborative room for several agents; ⌘N goes straight to a session. The
-  small branch button at the row's end opens the **Worktrees** menu for this
-  project: a new worktree, or one it already has. Either opens a draft pointed
-  at it — the composer's **Work in** control then says so — and nothing is made
-  on disk until that draft's first message.
+  a collaborative room for several agents. The solo choice lists Agents first,
+  each with the mark of the runtime it would sit on here — one that cannot be
+  seated here stays, greyed with its reason — and then the runtime's own
+  session; ⌘N goes straight to a session. The small branch button at the row's
+  end opens the **Worktrees** menu for this project: a new worktree, or one it
+  already has. Either opens a draft pointed at it — the composer's **Work in**
+  control then says so — and nothing is made on disk until that draft's first
+  message.
 - **Dashboard**: opens plan usage and limits, wearing an amber warning count
   only when an agent needs attention.
 - **Plugins**: lists live extensions and their contributed tools and panels.
@@ -337,6 +340,17 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
   to the git control right beside this menu, where it carries the file count, and
   a second copy would duplicate it. The open view wears a check in the accent
   gutter instead of its icon. ⌘K offers the same views as *Show …* commands.
+- **Save as an Agent…** is in ⋮ too: a name, what it is for and a ceiling,
+  with the seat this conversation is on as the Agent's first; it is written to
+  you or to the project and its brief opens in the editor
+  ([agents.md](agents.md)).
+
+**A conversation seated as an Agent is headed by it.** The header and the
+sidebar row lead with the Agent's name — once, while the conversation's title
+is still that name — the composer's agent chip names the Agent and the seat it
+took, and the name card adds an *Agent* band: what it is for, its ceiling
+(*Read · asked*), where it came from, the seat and every seat passed over, and
+*The brief has changed since this started* once its file has moved on.
 
 **A worktree comes back as a branch.** "Bring it back to the main checkout"
 checks the worktree's branch out in the main checkout and removes the worktree
@@ -463,7 +477,8 @@ in [extending.md](extending.md).
 - **The agent chip** names who reads the next message. For a conversation that
   is the agent it belongs to, and the menu offers to hand the conversation to
   another agent — summary, full transcript, or files changed. For a draft it
-  switches which agent starts it.
+  switches which agent starts it. A conversation seated as an Agent names the
+  Agent here, and the seat it took, even on a desk with one runtime.
 - **Model, effort, permissions and mode** are controls, not chips: they shape
   *how* the message is read, not what it says. Beside the model sits the
   context ring — how full the window is for whichever agent this pane talks to
@@ -512,7 +527,7 @@ every group — and that row opens your profile.
 | --- | --- |
 | **General** | General · Appearance · Notifications · Keyboard shortcuts |
 | **Conversations** | Workspaces · Archive |
-| **Agents** | Agents · Models · Skills · Extensions |
+| **Agents** | Runtimes · Models · Skills · Extensions |
 | **Capabilities** | Library · Plugins |
 | **Access** | Permissions · Browser |
 
@@ -526,24 +541,37 @@ where they are created rather than on a page of their own; and workspaces,
 backup and support sit under General and Workspaces, because none of them is a
 behaviour. Older route names still land on the right page.
 
-Every form — a custom endpoint, a permission rule, a custom agent, a gateway
+Every form — a custom endpoint, a permission rule, a custom runtime, a gateway
 account, a preset — is a dialog with labelled fields, never a stack of
 placeholder-only inputs inline in the page; and every removal confirms in a
 dialog whose red button is the step that cannot be taken back. Appearance
 leads with three theme cards and a live code sample, so the rows under it need
 no sentence explaining what they would do.
 
-**Agents** is a roster: every registered agent with its accounts beneath it,
-and a page per agent (health, update, the agent's own runtime-wide options) or
-per account. Extensions appears only for an agent with a store or MCP servers
-to show, which today means Codex alone. An agent whose sign-in the desk cannot
-ask about — an ACP agent with no status command and no stored key — is
-described by what its own answers showed: "Signed in" once a conversation has
-opened, its declared sign-in methods in its own words when it refused one for
-want of authentication, and nothing at all before either has happened. It is
-never "Needs sign-in" on the strength of an empty list.
+**Agents** is a top-level window of its own, opened from the sidebar or ⌘K: the
+open project's own Agents, yours, and the ones that ship. Its overview names
+the folder each section reads; each row is an Agent's name and what it is for,
+with its ceiling and the seat it would take here, or *Can't seat here* and why.
+A row opens the Agent's page, and *On this Mac* on that page is where this
+machine's seats for it are chosen. See [agents.md](agents.md).
 
-Which pages actually carry anything varies by agent, and the audit of that —
+**Runtimes** is every registered runtime with its accounts beneath it, and a
+page per runtime (health, update, the runtime's own options) or per account;
+*Add a runtime* is where a registry entry or a custom one is added. Extensions
+appears only for a runtime with a store or MCP servers to show, which today
+means Codex alone. A runtime whose sign-in the desk cannot ask about — an ACP
+agent with no status command and no stored key — is described by what its own
+answers showed: "Signed in" once a conversation has opened, its declared
+sign-in methods in its own words when it refused one for want of
+authentication, and nothing at all before either has happened. It is never
+"Needs sign-in" on the strength of an empty list. ⌘, opens this page.
+
+**Workspaces** lists every folder opened, each a way into its project's page —
+*Project settings* in the sidebar's project menu opens the same page — which
+lists the project's own Agents and the folder they are read from, with *Open*
+and *Forget* for a project that is not the one open.
+
+Which pages actually carry anything varies by runtime, and the audit of that —
 along with what Settings still does not do — is recorded with the audit.
 
 ## Out-of-band messages
