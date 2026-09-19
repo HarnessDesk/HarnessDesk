@@ -5,8 +5,10 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
 import {
+  boundedProfileNames,
   CODEX_PROFILE_OPTION_ID,
   listCodexProfiles,
+  parseTomlString,
   profileOption,
   readCodexProfile,
 } from '../src/profiles.js'
@@ -92,6 +94,27 @@ test('malformed and non-file profiles are refused while a slot’s regular-file 
   assert.equal((await readCodexProfile(dir, 'linked')).model, 'outside')
 })
 
+test('TOML basic and literal strings use TOML escapes exactly', () => {
+  assert.equal(
+    parseTomlString(String.raw`"backspace\b tab\t newline\n formfeed\f return\r quote\" slash\\ lower\u0041 upper\U0001F40B"`),
+    'backspace\b tab\t newline\n formfeed\f return\r quote" slash\\ lowerA upper🐋',
+  )
+  assert.equal(parseTomlString("'literal\\u0041'"), String.raw`literal\u0041`)
+  assert.throws(() => parseTomlString(String.raw`"gpt\/profile"`), /invalid TOML string/i)
+  assert.throws(() => parseTomlString(String.raw`"gpt\uD800"`), /invalid TOML string/i)
+  assert.throws(() => parseTomlString("'gpt'broken'"), /invalid TOML string/i)
+})
+
+test('a malformed TOML model refuses only that profile', async (t) => {
+  const dir = home(t)
+  writeFileSync(join(dir, 'broken.config.toml'), String.raw`model = "gpt\/profile"`)
+  writeFileSync(join(dir, 'valid.config.toml'), String.raw`model = "gpt\\profile"`)
+
+  const entries = await listCodexProfiles(dir)
+  assert.match(entries.find((entry) => entry.id === 'broken')?.error ?? '', /invalid model string/)
+  assert.equal(entries.find((entry) => entry.id === 'valid')?.profile?.model, String.raw`gpt\profile`)
+})
+
 test('profile discovery is capped before the directory can become an unbounded option list', async (t) => {
   const dir = home(t)
   for (let index = 69; index >= 0; index -= 1) {
@@ -101,6 +124,21 @@ test('profile discovery is capped before the directory can become an unbounded o
     (await listCodexProfiles(dir)).map((entry) => entry.id),
     Array.from({ length: 64 }, (_, index) => `p${String(index).padStart(2, '0')}`),
   )
+})
+
+test('profile discovery stops consuming entries at its scan budget', async () => {
+  let consumed = 0
+  async function* entries(): AsyncGenerator<{ readonly name: string }> {
+    for (let index = 0; index < 4_096; index += 1) {
+      consumed += 1
+      yield { name: `p${String(index).padStart(4, '0')}.config.toml` }
+    }
+  }
+
+  const names = await boundedProfileNames(entries())
+  assert.equal(consumed, 1_024)
+  assert.equal(names.length, 64)
+  assert.deepEqual(names.slice(0, 3), ['p0000', 'p0001', 'p0002'])
 })
 
 test('profile bytes, encoding, names and related context settings are bounded', async (t) => {

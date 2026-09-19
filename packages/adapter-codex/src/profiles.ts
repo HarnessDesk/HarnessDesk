@@ -10,6 +10,7 @@ export const CODEX_PROFILE_OPTION_ID = 'codexProfile'
 const PROFILE_SUFFIX = '.config.toml'
 const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
 const MAX_PROFILE_FILES = 64
+const MAX_PROFILE_SCAN_ENTRIES = 1024
 const MAX_PROFILE_BYTES = 64 * 1024
 const MAX_MODEL_BYTES = 128
 const MIN_TOKENS = 1
@@ -90,22 +91,9 @@ export const listCodexProfiles = async (home: string | null): Promise<readonly C
   } catch {
     return []
   }
-  const names: string[] = []
+  let names: readonly string[]
   try {
-    for await (const entry of directory) {
-      if (!entry.name.endsWith(PROFILE_SUFFIX)) continue
-      const id = entry.name.slice(0, -PROFILE_SUFFIX.length)
-      if (!PROFILE_NAME.test(id)) continue
-      // Directory iteration order is filesystem-specific. Keep only the
-      // lexicographically first 64 names while bounding retained memory.
-      if (names.length < MAX_PROFILE_FILES) {
-        names.push(id)
-        names.sort(compareNames)
-      } else if (id < names[names.length - 1]!) {
-        names[names.length - 1] = id
-        names.sort(compareNames)
-      }
-    }
+    names = await boundedProfileNames(directory)
   } finally {
     await directory.close().catch(() => {})
   }
@@ -118,6 +106,35 @@ export const listCodexProfiles = async (home: string | null): Promise<readonly C
       }
     }),
   )
+}
+
+/** Retains at most 64 names while consuming at most 1,024 home entries. */
+export const boundedProfileNames = async (
+  entries: AsyncIterable<{ readonly name: string }>,
+): Promise<readonly string[]> => {
+  const names: string[] = []
+  const iterator = entries[Symbol.asyncIterator]()
+  try {
+    for (let scanned = 0; scanned < MAX_PROFILE_SCAN_ENTRIES; scanned += 1) {
+      const entry = await iterator.next()
+      if (entry.done) break
+      if (!entry.value.name.endsWith(PROFILE_SUFFIX)) continue
+      const id = entry.value.name.slice(0, -PROFILE_SUFFIX.length)
+      if (!PROFILE_NAME.test(id)) continue
+      // Directory iteration order is filesystem-specific. Keep only the
+      // lexicographically first 64 names within the bounded scan.
+      if (names.length < MAX_PROFILE_FILES) {
+        names.push(id)
+        names.sort(compareNames)
+      } else if (id < names[names.length - 1]!) {
+        names[names.length - 1] = id
+        names.sort(compareNames)
+      }
+    }
+  } finally {
+    await iterator.return?.()
+  }
+  return names
 }
 
 /** The start-only option added to the runtime's ordinary new-session list. */
@@ -206,11 +223,7 @@ const parseProfile = (id: string, filename: string, text: string): CodexProfile 
 const parseModel = (filename: string, raw: string): string => {
   let value: string
   try {
-    if (raw.startsWith('"') && raw.endsWith('"')) value = JSON.parse(raw) as string
-    else if (raw.startsWith("'") && raw.endsWith("'") && !raw.slice(1, -1).includes("'")) {
-      value = raw.slice(1, -1)
-    }
-    else throw new Error('not a string')
+    value = parseTomlString(raw)
   } catch {
     throw new Error(`${filename} has an invalid model string.`)
   }
@@ -219,6 +232,56 @@ const parseModel = (filename: string, raw: string): string => {
   }
   return value
 }
+
+/** Parses the single-line TOML basic and literal strings accepted for model. */
+export const parseTomlString = (raw: string): string => {
+  if (raw.startsWith("'") && raw.endsWith("'")) {
+    const value = raw.slice(1, -1)
+    if (value.includes("'") || hasForbiddenTomlControl(value)) throw new Error('Invalid TOML string.')
+    return value
+  }
+  if (!raw.startsWith('"') || !raw.endsWith('"')) throw new Error('Invalid TOML string.')
+
+  const value: string[] = []
+  for (let index = 1; index < raw.length - 1; index += 1) {
+    const char = raw[index]!
+    if (char === '"' || hasForbiddenTomlControl(char)) throw new Error('Invalid TOML string.')
+    if (char !== '\\') {
+      value.push(char)
+      continue
+    }
+
+    const escape = raw[index + 1]
+    if (!escape || index + 1 >= raw.length - 1) throw new Error('Invalid TOML string.')
+    const escaped = TOML_ESCAPES[escape]
+    if (escaped !== undefined) {
+      value.push(escaped)
+      index += 1
+      continue
+    }
+    if (escape !== 'u' && escape !== 'U') throw new Error('Invalid TOML string.')
+    const digits = escape === 'u' ? 4 : 8
+    const hex = raw.slice(index + 2, index + 2 + digits)
+    if (hex.length !== digits || !/^[0-9A-Fa-f]+$/.test(hex)) throw new Error('Invalid TOML string.')
+    const point = Number.parseInt(hex, 16)
+    if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) throw new Error('Invalid TOML string.')
+    value.push(String.fromCodePoint(point))
+    index += digits + 1
+  }
+  return value.join('')
+}
+
+const TOML_ESCAPES: Readonly<Record<string, string>> = {
+  b: '\b',
+  t: '\t',
+  n: '\n',
+  f: '\f',
+  r: '\r',
+  '"': '"',
+  '\\': '\\',
+}
+
+const hasForbiddenTomlControl = (value: string): boolean => /[\u0000-\u0008\u000a-\u001f\u007f]/u.test(value)
 
 const parseTokens = (filename: string, key: string, raw: string): number => {
   if (!/^\d(?:_?\d)*$/.test(raw)) throw new Error(`${filename} has an invalid ${key}.`)
