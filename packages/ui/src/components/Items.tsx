@@ -1,4 +1,12 @@
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 
 import type {
   AgentItem,
@@ -32,11 +40,20 @@ import {
   isSilentReasoning,
   reasoningBody,
   reasoningHeadline,
+  shellCommandOf as toolCallCommandOf,
   toolCallVerb,
   type ToolCallVerb,
 } from '../lib/group-items'
+import { editOf } from '../lib/handoff'
 import { findTodos, type Todo } from '../lib/todos'
-import { shellCommandOf, toolSentence, toolSentences, wireNameOf } from '../lib/tool-names'
+import {
+  shellCommandOf,
+  shortestUniquePathLabels,
+  toolSentence,
+  toolSentences,
+  wireNameOf,
+  type ToolSentenceDetail,
+} from '../lib/tool-names'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
@@ -103,6 +120,68 @@ const relativeTo = (path: string, root: string | undefined): string => {
   return path.startsWith(prefix) ? path.slice(prefix.length) : path
 }
 
+const EMPTY_SENTENCES = new Map<string, string>()
+const FILE_PATH_KEYS = ['file_path', 'filePath', 'path', 'target_file', 'notebook_path', 'file']
+
+/** A path argument shared by the adapters' read, search, and edit tools. */
+const pathArgument = (args: unknown): string | null => {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
+  const record = args as Record<string, unknown>
+  return (
+    FILE_PATH_KEYS.map((key) => record[key]).find(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    ) ?? null
+  )
+}
+
+/** A file path named by one step, when the row can speak about one file. */
+const filePathOf = (item: AgentItem): string | null => {
+  if (item.type === 'fileChange') {
+    return item.changes.length === 1 ? (item.changes[0]?.path ?? null) : null
+  }
+  if (item.type === 'command') {
+    const action = item.actions.length === 1 ? item.actions[0] : undefined
+    return action?.type === 'read' ? action.path : null
+  }
+  if (item.type !== 'toolCall') return null
+  const verb = toolCallVerb(item)
+  return verb === 'read' || verb === 'fileChange' ? pathArgument(item.args) : null
+}
+
+const StepPathLabels = createContext<ReadonlyMap<string, string> | null>(null)
+
+/** File labels shared by every step in one turn, including folded groups. */
+export const StepNameScope = ({
+  items,
+  root,
+  children,
+}: {
+  items: readonly AgentItem[]
+  root?: string
+  children: ReactNode
+}) => {
+  const labels = useMemo(
+    () =>
+      shortestUniquePathLabels(
+        items.flatMap((item) => {
+          const path = filePathOf(item)
+          return path ? [relativeTo(path, root)] : []
+        }),
+      ),
+    [items, root],
+  )
+  return <StepPathLabels.Provider value={labels}>{children}</StepPathLabels.Provider>
+}
+
+const fileLabel = (
+  path: string,
+  root: string | undefined,
+  labels: ReadonlyMap<string, string> | null,
+): string => {
+  const relative = relativeTo(path, root)
+  return labels?.get(relative) ?? shortestUniquePathLabels([relative]).get(relative) ?? relative
+}
+
 /**
  * How long a step took, when that is worth a glance. Sub-second steps — and
  * the `0ms` some backends report for anything they did not time — say nothing
@@ -117,9 +196,10 @@ const formatDuration = (ms: number | undefined): string | null => {
 const StatusMark = ({ status }: { status: ItemStatus }) => {
   if (status === 'inProgress') return <span className={styles.spinner} />
   if (status === 'completed') return null
+  if (status === 'failed') return <span className={styles.statusFailed}>failed</span>
   return (
     <span className={styles.badge} data-status={status}>
-      {status === 'failed' ? 'failed' : 'declined'}
+      declined
     </span>
   )
 }
@@ -128,7 +208,7 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
 const Row = ({
   icon,
   title,
-  plainTitle = false,
+  hoverTitle,
   meta,
   status,
   defaultOpen = false,
@@ -136,7 +216,7 @@ const Row = ({
 }: {
   icon: ReactNode
   title: ReactNode
-  plainTitle?: boolean
+  hoverTitle?: string
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
@@ -152,11 +232,10 @@ const Row = ({
         onClick={() => collapsible && setOpen((value) => !value)}
         aria-expanded={collapsible ? open : undefined}
         style={collapsible ? undefined : { cursor: 'default' }}
+        title={hoverTitle}
       >
         <span className={styles.rowIcon}>{icon}</span>
-        <span className={`${styles.rowTitle} ${plainTitle ? styles.rowTitlePlain : ''}`}>
-          {title}
-        </span>
+        <span className={styles.rowTitle}>{title}</span>
         <span className={styles.rowMeta}>
           {meta}
           {status && <StatusMark status={status} />}
@@ -545,7 +624,6 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
     <Row
       icon={<BrainIcon size={14} />}
       title={headline}
-      plainTitle
       meta={item.content.length > 0 ? 'reasoning' : undefined}
     >
       {body.length > 0 && (
@@ -561,19 +639,59 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
   )
 }
 
-/** A short human label for a command, falling back to the command itself. */
-const describeCommand = (item: CommandItem): string => {
+/** A command's transcript sentence and the path disclosed on hover. */
+const describeCommand = (
+  item: CommandItem,
+  root: string | undefined,
+  labels: ReadonlyMap<string, string> | null,
+): { readonly sentence: string; readonly path?: string } => {
   const first = item.actions[0]
-  if (!first) return shellCommandOf(item.command)
+  if (!first || item.actions.length !== 1) {
+    return {
+      sentence: toolSentence('command', EMPTY_SENTENCES, {
+        kind: 'command',
+        command: shellCommandOf(item.command),
+      }),
+    }
+  }
   switch (first.type) {
     case 'read':
-      return `Read ${first.name}`
+      return {
+        sentence: toolSentence('read', EMPTY_SENTENCES, {
+          kind: 'read',
+          target: fileLabel(first.path, root, labels),
+        }),
+        path: relativeTo(first.path, root),
+      }
     case 'listFiles':
-      return first.path ? `List ${first.path}` : 'List files'
+      return {
+        sentence: toolSentence('list', EMPTY_SENTENCES, {
+          kind: 'list',
+          ...(first.path ? { target: relativeTo(first.path, root) } : {}),
+        }),
+        ...(first.path ? { path: relativeTo(first.path, root) } : {}),
+      }
     case 'search':
-      return first.query ? `Search for ${first.query}` : 'Search'
+      return first.query
+        ? {
+            sentence: toolSentence('search', EMPTY_SENTENCES, {
+              kind: 'search',
+              pattern: first.query,
+              ...(first.path ? { folder: relativeTo(first.path, root) } : {}),
+            }),
+            ...(first.path ? { path: relativeTo(first.path, root) } : {}),
+          }
+        : {
+            sentence: toolSentence('search', EMPTY_SENTENCES),
+            ...(first.path ? { path: relativeTo(first.path, root) } : {}),
+          }
     case 'unknown':
-      return shellCommandOf(item.command)
+      return {
+        sentence: toolSentence('command', EMPTY_SENTENCES, {
+          kind: 'command',
+          command: shellCommandOf(item.command),
+        }),
+      }
   }
 }
 
@@ -596,32 +714,40 @@ const ShellLine = ({ command }: { command: string }) => (
   </div>
 )
 
-const Command = ({ item }: { item: CommandItem }) => (
-  <Row
-    icon={<TerminalIcon size={14} />}
-    title={item.actions.length === 1 ? describeCommand(item) : shellCommandOf(item.command)}
-    meta={
-      <>
-        {item.origin === 'user' && <span className={styles.badge}>you</span>}
-        {formatDuration(item.durationMs)}
-        {item.exitCode !== null && item.exitCode !== undefined && item.exitCode !== 0 && (
-          <span className={styles.badge} data-status="failed">
-            exit {item.exitCode}
-          </span>
-        )}
-      </>
-    }
-    status={item.status}
-    defaultOpen={item.status === 'inProgress'}
-  >
-    <ShellLine command={shellCommandOf(item.command)} />
-    <pre className={styles.output}>
-      {item.output ? stripAnsi(item.output) : item.status === 'inProgress' ? '' : '(no output)'}
-    </pre>
-  </Row>
-)
+const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
+  const labels = useContext(StepPathLabels)
+  const described = describeCommand(item, root, labels)
+  return (
+    <Row
+      icon={<TerminalIcon size={14} />}
+      title={described.sentence}
+      hoverTitle={described.path}
+      meta={
+        <>
+          {item.origin === 'user' && <span className={styles.badge}>you</span>}
+          {formatDuration(item.durationMs)}
+        </>
+      }
+      status={item.status}
+      defaultOpen={item.status === 'inProgress'}
+    >
+      <ShellLine command={shellCommandOf(item.command)} />
+      <pre className={styles.output}>
+        {[
+          item.output ? stripAnsi(item.output) : item.status === 'inProgress' ? '' : '(no output)',
+          item.exitCode !== null && item.exitCode !== undefined && item.exitCode !== 0
+            ? `exit code ${item.exitCode}`
+            : '',
+        ]
+          .filter(Boolean)
+          .join('\n')}
+      </pre>
+    </Row>
+  )
+}
 
 const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => {
+  const labels = useContext(StepPathLabels)
   const totals = item.changes.reduce(
     (accumulator, change) => {
       const counts = countFileChange(change)
@@ -632,16 +758,20 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
     },
     { added: 0, removed: 0 },
   )
+  const only = item.changes.length === 1 ? item.changes[0] : undefined
+  const created = item.changes.length > 0 && item.changes.every((change) => change.kind.type === 'add')
+  const target = only
+    ? fileLabel(only.path, root, labels)
+    : `${item.changes.length} files`
 
   return (
     <Row
       icon={<DiffIcon size={14} />}
-      title={
-        item.changes.length === 1
-          ? relativeTo(item.changes[0]?.path ?? '', root)
-          : `${item.changes.length} files changed`
-      }
-      plainTitle
+      title={toolSentence(created ? 'write' : 'edit', EMPTY_SENTENCES, {
+        kind: created ? 'write' : 'edit',
+        target,
+      })}
+      hoverTitle={only ? relativeTo(only.path, root) : undefined}
       meta={
         <>
           <span className={styles.statAdd}>+{totals.added}</span>
@@ -743,7 +873,7 @@ const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
   </ul>
 )
 
-/** The one argument worth showing beside the title, shortened to the repo. */
+/** The one argument worth showing beside a call's title, shortened to the repo. */
 const headlineArg = (args: unknown, root: string | undefined): string | null => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
   const record = args as Record<string, unknown>
@@ -813,40 +943,78 @@ const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
  */
 const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const snapshot = useSnapshot()
+  const labels = useContext(StepPathLabels)
   const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
-  const said = toolSentence(item.tool, sentences)
   const described = describedTitle(item)
-  const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const verb = toolCallVerb(item)
   // Null when the adapter's "tool name" was already the sentence above.
   const wire = wireNameOf(item.tool)
-  const headline = headlineArg(item.args, root)
-  // The title often already names the file (the adapters do that work);
-  // repeating it as a subtitle would be noise. A described row names
-  // nothing but its sentence, on purpose.
-  const subtitle =
-    !described && headline && !String(label).includes(headline.split('/').pop() ?? headline) ? headline : null
   const record =
     typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args)
       ? (item.args as Record<string, unknown>)
       : null
-  const command = typeof record?.['command'] === 'string' && record['command'].trim().length > 0 ? record['command'] : null
-  const Icon = VERB_ICON[toolCallVerb(item)]
+  const path = pathArgument(item.args)
+  const relativePath = path ? relativeTo(path, root) : null
+  const target = path ? fileLabel(path, root, labels) : null
+  const command = toolCallCommandOf(item)
+  const pattern = [record?.['pattern'], record?.['query']].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  )
+  const detail: ToolSentenceDetail | undefined = (() => {
+    switch (verb) {
+      case 'read':
+        return target ? { kind: 'read', target } : undefined
+      case 'search':
+        return pattern
+          ? {
+              kind: 'search',
+              pattern,
+              ...(relativePath ? { folder: relativePath } : {}),
+            }
+          : undefined
+      case 'fileChange':
+        if (!target) return undefined
+        return { kind: 'fileChange', target }
+      case 'command':
+        return command ? { kind: 'command', command: shellCommandOf(command) } : undefined
+      case 'toolCall':
+        return undefined
+    }
+  })()
+  const said = toolSentence(item.tool, sentences, detail)
+  // An MCP tool's server is the one word that says whose tool ran.
+  const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  // A call the lookup has no grammar for carries no object in its sentence,
+  // so its one telling argument — the page, the query — stands beside it.
+  const headline = !described && !detail ? headlineArg(item.args, root) : null
+  const change = verb === 'fileChange' ? editOf(item) : null
+  const counts = change ? countFileChange(change) : null
+  const Icon = VERB_ICON[verb]
 
   return (
     <Row
       icon={<Icon size={14} />}
       title={
-        subtitle ? (
+        headline ? (
           <>
             {label}
-            <span className={styles.rowSubtitle}>{subtitle}</span>
+            <span className={styles.rowSubtitle}>{headline}</span>
           </>
         ) : (
           label
         )
       }
-      plainTitle={described !== null}
-      meta={formatDuration(item.durationMs)}
+      hoverTitle={relativePath ?? undefined}
+      meta={
+        counts ? (
+          <>
+            <span className={styles.statAdd}>+{counts.added}</span>
+            <span className={styles.statRemove}>−{counts.removed}</span>
+          </>
+        ) : (
+          formatDuration(item.durationMs)
+        )
+      }
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
     >
@@ -859,7 +1027,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               step does; every other call lists its arguments. The
               description is the row's title and the background flag is the
               panel's business, so neither is repeated here as a field. */}
-          {command ? <ShellLine command={command} /> : <ArgsView args={item.args} root={root} />}
+          {command ? <ShellLine command={shellCommandOf(command)} /> : <ArgsView args={item.args} root={root} />}
           {item.result?.map((part, index) => {
             if (part.type === 'text') {
               return (
@@ -932,7 +1100,6 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
           ? `${title}: ${item.members[0]?.nickname ?? 'agent'}`
           : `${title} · ${item.members.length}`
       }
-      plainTitle
       // What it ran on and what it cost, where the runtime says. A delegation
       // has its own model and its own bill; those are the two facts that make
       // it not a tool row, and the row header is where they belong.
@@ -997,8 +1164,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
 const WebSearch = ({ item }: { item: WebSearchItem }) => (
   <Row
     icon={<GlobeIcon size={14} />}
-    title={`Searched the web for “${item.query}”`}
-    plainTitle
+    title={toolSentence('web_search', EMPTY_SENTENCES, { kind: 'webSearch', query: item.query })}
     status={item.status}
   />
 )
@@ -1010,7 +1176,7 @@ const Plan = ({ item }: { item: PlanItem }) => {
     .filter(Boolean)
 
   return (
-    <Row icon={<PlanIcon size={14} />} title="Plan" plainTitle defaultOpen>
+    <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
       <ol className={styles.planList}>
         {steps.map((step, index) => (
           <li key={index} className={styles.planStep} data-status="pending">
@@ -1059,7 +1225,6 @@ const ImageRow = ({ item }: { item: ImageItem }) => (
   <Row
     icon={<ImageIcon size={14} />}
     title={item.generated ? 'Generated an image' : item.path.split('/').pop() ?? 'Image'}
-    plainTitle
   />
 )
 
@@ -1085,7 +1250,7 @@ export const ItemView = ({
       case 'reasoning':
         return <Reasoning item={item} />
       case 'command':
-        return <Command item={item} />
+        return <Command item={item} root={root} />
       case 'fileChange':
         return <FileChange item={item} root={root} />
       case 'toolCall':

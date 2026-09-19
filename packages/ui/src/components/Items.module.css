@@ -298,15 +298,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hd-font-code);
+  font-family: var(--hd-font-family); /* desk: code → interface, a step summary is a sentence rather than verbatim text */
   font-size: var(--hd-text);
   line-height: var(--hd-line);
   color: var(--hd-foreground);
-}
-
-.rowTitlePlain {
-  font-family: var(--hd-font-family);
-  font-size: var(--hd-text);
 }
 
 .rowMeta {
@@ -375,9 +370,10 @@
   color: var(--hd-muted-foreground);
 }
 
-.badge[data-status='failed'] {
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger-ink); /* desk: the raw red → the ink solved for reading on this tint */
+.statusFailed {
+  color: var(--hd-danger-ink);
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-medium);
 }
 
 .badge[data-status='declined'] {
@@ -809,14 +805,12 @@
   color: var(--hd-secondary-foreground);
 }
 
-[data-register='light'] .rowTitlePlain,
 [data-register='light'] .groupSummary {
   font-size: var(--hd-text);
   color: var(--hd-secondary-foreground);
 }
 
 [data-register='light'] .rowHeader:hover .rowTitle,
-[data-register='light'] .rowHeader:hover .rowTitlePlain,
 [data-register='light'] .groupHeader:hover .groupSummary {
   color: var(--hd-foreground);
 }

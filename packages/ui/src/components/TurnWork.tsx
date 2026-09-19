@@ -6,7 +6,7 @@ import type { AgentItem, Turn } from '@harnessdesk/protocol'
 import { groupItems, isSilentReasoning } from '../lib/group-items'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
 import { ChevronIcon } from './Icons'
-import { ItemView } from './Items'
+import { ItemView, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
@@ -108,25 +108,27 @@ export const TurnWork = ({
       </Button>
       {open && (
         <div className={styles.body} data-register="light">
-          {groupItems(shown).map((node) =>
-            node.kind === 'group' ? (
-              <StepGroup key={node.id} items={node.items} running={node.running} root={root} />
-            ) : (
-              <ItemView
-                key={node.item.id}
-                item={node.item}
-                root={root}
-                streaming={streamingItemId === node.item.id}
-              />
-            ),
-          )}
-          {/* The live line: what is happening this second, in the register of
-              a status rather than a record — faint, and moving. */}
-          {running && activity && (
-            <div className={styles.live} role="status" aria-live="polite">
-              <span className={styles.shimmer}>{activity}</span>
-            </div>
-          )}
+          <StepNameScope items={shown} root={root}>
+            {groupItems(shown).map((node) =>
+              node.kind === 'group' ? (
+                <StepGroup key={node.id} items={node.items} running={node.running} root={root} />
+              ) : (
+                <ItemView
+                  key={node.item.id}
+                  item={node.item}
+                  root={root}
+                  streaming={streamingItemId === node.item.id}
+                />
+              ),
+            )}
+            {/* The live line: what is happening this second, in the register of
+                a status rather than a record — faint, and moving. */}
+            {running && activity && (
+              <div className={styles.live} role="status" aria-live="polite">
+                <span className={styles.shimmer}>{activity}</span>
+              </div>
+            )}
+          </StepNameScope>
         </div>
       )}
       {!open && running && activity && (
