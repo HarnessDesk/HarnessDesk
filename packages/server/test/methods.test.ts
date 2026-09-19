@@ -133,6 +133,7 @@ test('a room is only made where the room confinement admits, at the path it was 
       },
     },
     team: {
+      flush: async () => {},
       createRoom: async (root: string) => {
         made.push(root)
         return { id: 'room-1' }

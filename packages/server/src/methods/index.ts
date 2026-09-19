@@ -7,6 +7,7 @@ import type { HostContext, HostMethodTable } from './context.js'
 import { credentialMethods } from './credentials.js'
 import { evidenceMethods } from './evidence.js'
 import { flowMethods } from './flows.js'
+import { goalMethods } from './goals.js'
 import { gitMethods } from './git.js'
 import { libraryMethods } from './library.js'
 import { pluginMethods } from './plugins.js'
@@ -58,6 +59,7 @@ export const hostMethods: HostMethodTable = {
   ...worktreeMethods,
   ...teamMethods,
   ...flowMethods,
+  ...goalMethods,
   ...agentMethods,
   ...evidenceMethods,
   ...gitMethods,
@@ -84,6 +86,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   worktreeMethods,
   teamMethods,
   flowMethods,
+  goalMethods,
   agentMethods,
   evidenceMethods,
   gitMethods,

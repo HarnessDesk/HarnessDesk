@@ -266,6 +266,8 @@ export interface TeamPort {
   steer(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
+  /** Goal-backed desks persist the board payload before announcing it. */
+  mutate?(state: TeamState): Promise<void>
   /** A room that no longer exists, so a window can stop drawing it. */
   removed(room: string): void
   /**
@@ -984,6 +986,44 @@ export class Team {
           messaging: true,
           problem: this.#problem,
         }
+  }
+
+  /** Historical display data copied into a Goal document; never a membership source. */
+  legacyFor(id: string): {
+    plans: readonly Plan[]
+    nicknames: Readonly<Record<string, string>>
+    roles: Readonly<Record<string, string>>
+    roster: Readonly<Record<string, RememberedMember>>
+  } {
+    const board = this.#boardById(id)
+    return {
+      plans: [...board.plans],
+      nicknames: { ...board.nicknames },
+      roles: { ...board.roles },
+      roster: { ...board.roster },
+    }
+  }
+
+  /** Install the host's durable Goal projection without writing a second membership source. */
+  installProjection(state: TeamState, remembered?: Readonly<Record<string, RememberedMember>>): void {
+    const previous = this.#boards.get(state.id)
+    this.#boards.set(state.id, {
+      id: state.id,
+      name: state.name,
+      updatedAt: state.updatedAt,
+      members: [...state.members],
+      root: state.root,
+      ...(state.cwd && state.cwd !== state.root ? { cwd: state.cwd } : {}),
+      nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+      nextPlan: Math.max(1, ...(state.plans ?? []).map((plan) => plan.id + 1)),
+      plans: [...(state.plans ?? [])],
+      messaging: state.messaging,
+      nicknames: { ...(state.nicknames ?? previous?.nicknames ?? {}) },
+      roles: { ...(state.roles ?? {}) },
+      roster: { ...(remembered ?? previous?.roster ?? {}) },
+      intents: [...state.intents],
+      channel: [...state.channel],
+    })
   }
 
   inboundFor(runtime: string, sessionId: string): TeamInbound {
@@ -1778,6 +1818,15 @@ export class Team {
   nudgeRoom(id: string): void {
     const board = this.#board(id)
     if (board) this.#wake(board)
+  }
+
+  /** Refuse undelivered agent mail for a Seat that has left this Goal. */
+  refuseSeatMail(room: string, runtime: string, sessionId: string): void {
+    this.#refusePending(
+      keyOf(runtime, sessionId),
+      (pending) => pending.roots.includes(room),
+      'The Seat was released before the message was read.',
+    )
   }
 
   /**
@@ -3805,7 +3854,21 @@ export class Team {
 
   #commit(board: Board, touchActivity = true): void {
     if (touchActivity) board.updatedAt = Date.now()
-    this.#port.changed(this.#stateOf(board))
+    const state = this.#stateOf(board)
+    if (this.#port.mutate) {
+      this.#writes = this.#writes
+        .then(() => this.#port.mutate!(state))
+        .then(() => {
+          this.#port.changed(state)
+          this.#wake(board)
+        })
+        .catch((error: unknown) => {
+          this.#problem = error instanceof Error ? error.message : String(error)
+          this.#port.changed(this.#stateOf(board))
+        })
+      return
+    }
+    this.#port.changed(state)
     /* Every card that becomes claimable becomes claimable here. Waking from
        the commit is what makes a wait free: nobody polls, and a seat is in
        its claim within a tick of the write that opened its card. */

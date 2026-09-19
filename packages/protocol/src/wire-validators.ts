@@ -225,11 +225,66 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
 
+/** Goal writes never accept host observations or authority through an extra key. */
+const goalShape = <T extends Record<string, unknown>>(
+  fields: { [K in keyof T]: Validator<T[K]> },
+): Validator<T> => {
+  const read = shape(fields)
+  return (value: unknown, path = '') => {
+    const object = isObject(value, path)
+    for (const key of Object.keys(object)) {
+      if (!Object.hasOwn(fields, key)) throw new ValidationError(`${path}.${key}`, 'unexpected field')
+    }
+    return read(value, path)
+  }
+}
+
+const goalId = atMost(4096, isFilled)
+const goalIdentifier = atMost(200, isFilled)
+const goalSentence: Validator<string> = (value, path = '') => atMost(2000, isFilled)(isString(value, path).trim(), path)
+const goalInteger = (minimum: number): Validator<number> => (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < minimum) throw new ValidationError(path, `expected a safe integer at least ${minimum}`)
+  return number
+}
+const goalDependencies: Validator<string[]> = (value, path = '') => {
+  const ids = arrayOf(goalId)(value, path)
+  if (ids.length > 128) throw new ValidationError(path, 'expected at most 128 dependencies')
+  return ids
+}
+const goalGrant = taggedUnion<import('./goal.js').SeatGrant, 'kind'>('kind', {
+  permission: goalShape({ kind: literalUnion('permission'), permission: grantValidator }),
+  ceiling: goalShape({ kind: literalUnion('ceiling'), level: literalUnion('read', 'edit', 'publish', 'merge') }),
+})
+
+const goalValidators = {
+  'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
+  'goal/read': goalShape({ goal: goalId }),
+  'goal/create': goalShape({
+    root: atMost(4096, isFilled), cwd: optional(atMost(4096, isFilled)), sentence: goalSentence,
+    checkout: optional(literalUnion('shared', 'isolated')), dependsOn: optional(goalDependencies),
+  }),
+  'goal/update': goalShape({
+    goal: goalId, revision: goalInteger(0), sentence: optional(goalSentence), dependsOn: optional(goalDependencies),
+  }),
+  'goal/seat': goalShape({
+    goal: goalId, agent: goalIdentifier, seats: optional(seatListValidator),
+    grant: optional(goalGrant), card: optional(goalInteger(1)), isolate: optional(isBoolean),
+  }),
+  'goal/assign': goalShape({
+    goal: goalId, card: goalInteger(1),
+    session: goalShape({ runtime: goalIdentifier, sessionId: goalIdentifier }),
+  }),
+  'goal/release': goalShape({ goal: goalId, seat: goalIdentifier }),
+  'goal/migration/ack': goalShape({}),
+}
+
 /**
  * Per-method params validators. A method missing from this table is rejected,
  * so the table doubles as the host's method allowlist.
  */
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  ...goalValidators,
   'host/hello': shape({ clientVersion: isString }),
 
   'runtime/health': shape({ runtime: isString }),

@@ -11,9 +11,13 @@ import type {
   FlowRole,
   FlowRound,
   FlowRun,
+  FlowPermission,
   FlowSeat,
   FlowSeatRecord,
   Intent,
+  RuntimeId,
+  SeatId,
+  SeatRecord,
 } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
@@ -55,18 +59,28 @@ export const FLOW_DIR = '.harnessdesk/flows'
 
 /** What this needs from the host: opening conversations, folders, and a shell. */
 export interface FlowPort {
-  /**
-   * Opens a conversation on an agent, in a folder, with the model and effort
-   * the seat asked for — and reports what it is *actually* running.
-   *
-   * Reported rather than assumed because a runtime drops a pick it declines
-   * rather than failing, and a seat that believes it is running at an effort
-   * it is not is a seat with an unchecked claim on it.
-   */
-  seat(
-    seat: FlowSeat,
-    where: { readonly cwd: string; readonly title: string },
-  ): Promise<{ readonly runtime: string; readonly sessionId: string; readonly label: string }>
+  /** Opens and durably records a legacy role before its first standing-order turn. */
+  openLegacySeat?(input: {
+    goal: string
+    spec: FlowSeat
+    permission: FlowPermission
+    role: string
+    isolate: boolean
+    title: string
+    lane?: string
+  }): Promise<SeatRecord>
+  /** Closes only the Goal Seat this failed flow opened, after its turn has stopped. */
+  releaseGoalSeat?(goal: string, seat: SeatId): Promise<void>
+  /** Legacy test adapter; production uses openLegacySeat. */
+  seat?(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<{
+    readonly runtime: string; readonly sessionId: string; readonly label: string
+  }>
+  /** Legacy test adapter; production membership comes from the durable Seat. */
+  join?(room: string, runtime: string, sessionId: string): Promise<void>
+  /** Legacy test adapter; production isolation is a lane. */
+  isolate?(root: string, name: string): Promise<string>
+  /** Legacy test observation only; production writes synchronously before returning. */
+  recorded?(room: string, seat: FlowSeatRecord): void
   /** Hands a seat its standing order. One turn, and the whole job is inside it. */
   order(runtime: string, sessionId: string, text: string): Promise<void>
   /**
@@ -88,13 +102,6 @@ export interface FlowPort {
    */
   retire(runtime: string, sessionId: string): Promise<void>
   /**
-   * A seat this run kept, once the run exists: the desk writes its durable
-   * Seat record. The run's own `FlowSeatRecord` is the seat's working state
-   * and goes with the run; the Seat record is what outlives it. Absent on a
-   * port that keeps no records, which is every test port.
-   */
-  recorded?(room: string, seat: FlowSeatRecord): void
-  /**
    * Why this conversation's last turn ended badly, in the runtime's own words,
    * or null when it ended normally.
    *
@@ -103,8 +110,6 @@ export interface FlowPort {
    * an agent that ignored its tools and one that never got a turn at all.
    */
   turnFailure?(runtime: string, sessionId: string): string | null
-  /** Puts a conversation in a room. */
-  join(room: string, runtime: string, sessionId: string): Promise<void>
   /**
    * Refuses the folder a room works in unless it is in a folder or a
    * repository the desk has open.
@@ -117,8 +122,6 @@ export interface FlowPort {
    * like any other, which keep working in a folder somebody has since closed.
    */
   confine(folder: string): Promise<void>
-  /** A worktree of its own, on a branch of its own, for a role that isolates. */
-  isolate(root: string, name: string): Promise<string>
   /**
    * Runs a check's command. Resolves with its exit status, or null if it ran
    * over. `card` says which card and round it is for, so the desk can record
@@ -410,63 +413,96 @@ export class Flows implements TeamFlows {
        live, roled, and owned by no run — turns spent on members nothing would
        ever stand down. */
     const opened: FlowSeatRecord[] = []
+    const openedIds = new Map<string, SeatId>()
     /* Naming happens before a word is written about anybody. A room names its
        members *lazily* — on the first look at the roster — so an order
        rendered straight after seating called a seat by its label ("Cursor ·
        Gemini 3.8 Flash · High") while the room addressed it as "Gemini 3", and
        the order is the one place a seat is told what it is called. */
     const undo = async (why: string): Promise<void> => {
+      const failures: string[] = []
       for (const seat of opened) {
-        this.#team.setRole(request.room, seat.runtime, seat.sessionId, null)
         try {
-          this.#team.leaveRoom(request.room, seat.runtime as never, seat.sessionId)
-        } catch {
-          // A room that is already gone needs no leaving.
+          await this.#port.retire(seat.runtime, seat.sessionId)
+          const seatId = openedIds.get(`${seat.runtime}\u0000${seat.sessionId}`)
+          if (seatId && this.#port.releaseGoalSeat) await this.#port.releaseGoalSeat(request.room, seatId)
+          else {
+            this.#team.setRole(request.room, seat.runtime, seat.sessionId, null)
+            this.#team.leaveRoom(request.room, seat.runtime as RuntimeId, seat.sessionId)
+          }
+        } catch (error) {
+          failures.push(error instanceof Error ? error.message : String(error))
         }
-        await this.#port.retire(seat.runtime, seat.sessionId).catch(() => {})
       }
-      this.#port.log('a flow could not seat every role, so the ones it opened were closed', {
-        room: request.room,
-        opened: opened.length,
-        why,
+      this.#port.log('a flow could not seat every role, so its opened Seats were released', {
+        room: request.room, opened: opened.length, why, failures,
       })
+      if (failures.length > 0) {
+        throw new Error(`${why} Cleanup also failed: ${failures.join('; ')}. The partial conversations were kept.`)
+      }
     }
 
     try {
-    for (const role of flow.roles) {
-      if (role.kind !== 'agent') continue
-      for (let index = 0; index < role.count; index += 1) {
-        const spec = seatAt(role, index)
-        const cwd = role.isolate
-          ? await this.#port.isolate(folder, `${role.id}-${index + 1}-${id.slice(-4)}`)
-          : folder
-        const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
-        const live = await this.#port.seat(spec, { cwd, title })
-        const held: FlowSeatRecord = {
-          /* Escaped, not the raw byte: a NUL in the source makes the whole
-             file binary to grep, and the string is identical either way. */
-          key: `${live.runtime}\u0000${live.sessionId}`,
-          role: role.id,
-          runtime: live.runtime,
-          sessionId: live.sessionId,
-          seat: live.label,
-          spec,
-          permission: role.permission,
-          cwd,
+      for (const role of flow.roles) {
+        if (role.kind !== 'agent') continue
+        for (let index = 0; index < role.count; index += 1) {
+          const spec = seatAt(role, index)
+          const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
+          const durable = this.#port.openLegacySeat
+            ? await this.#port.openLegacySeat({
+                goal: request.room,
+                spec,
+                permission: role.permission,
+                role: role.id,
+                isolate: Boolean(role.isolate),
+                title,
+                lane: `${role.id}-${index + 1}-${id.slice(-4)}`,
+              })
+            : await (async (): Promise<SeatRecord> => {
+                if (!this.#port.seat || !this.#port.join) throw new Error('This flow port cannot open a Seat.')
+                const cwd = role.isolate
+                  ? await this.#port.isolate?.(folder, `${role.id}-${index + 1}-${id.slice(-4)}`)
+                  : folder
+                if (!cwd) throw new Error('This flow port cannot isolate a Seat.')
+                const live = await this.#port.seat(spec, { cwd, title })
+                await this.#port.join(request.room, live.runtime, live.sessionId)
+                this.#team.setRole(request.room, live.runtime, live.sessionId, role.id)
+                return {
+                  id: `legacy-test-${live.runtime}-${live.sessionId}`,
+                  agent: null,
+                  briefDigest: null,
+                  seat: spec,
+                  seatLabel: live.label,
+                  passedOver: [],
+                  standing: { kind: 'permission', permission: role.permission },
+                  ceiling: null,
+                  checkout: { cwd, project: board.root, branch: null, head: null },
+                  session: { runtime: live.runtime, sessionId: live.sessionId },
+                  board: request.room,
+                  role: role.id,
+                  openedAt: now(),
+                  closed: null,
+                }
+              })()
+          openedIds.set(`${durable.session.runtime}\u0000${durable.session.sessionId}`, durable.id)
+          const held: FlowSeatRecord = {
+            key: `${durable.session.runtime}\u0000${durable.session.sessionId}`,
+            role: role.id,
+            runtime: durable.session.runtime,
+            sessionId: durable.session.sessionId,
+            seat: durable.seatLabel,
+            spec,
+            permission: role.permission,
+            cwd: durable.checkout.cwd,
+          }
+          seats.push(held)
+          opened.push(held)
+          record.push({
+            at: now(), kind: 'seated', role: role.id, seat: durable.seatLabel,
+            text: durable.checkout.cwd === board.root ? null : durable.checkout.cwd,
+          })
         }
-        seats.push(held)
-        opened.push(held)
-        await this.#port.join(request.room, live.runtime, live.sessionId)
-        this.#team.setRole(request.room, live.runtime, live.sessionId, role.id)
-        record.push({
-          at: now(),
-          kind: 'seated',
-          role: role.id,
-          seat: live.label,
-          text: cwd === board.root ? null : cwd,
-        })
       }
-    }
 
     /* The orders are inside the same transaction as the seating, and the run
        is published only once every one of them has landed.
@@ -516,7 +552,7 @@ export class Flows implements TeamFlows {
       startedAt: now(),
     }
     this.#runs.set(id, run)
-    for (const seat of seats) this.#port.recorded?.(request.room, seat)
+    if (!this.#port.openLegacySeat) for (const seat of seats) this.#port.recorded?.(request.room, seat)
 
     /* Past this line the run exists, so a failure is *stopped* rather than
        unwound: its seats have their orders and are already waiting, and a run

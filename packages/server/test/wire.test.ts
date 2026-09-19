@@ -1836,6 +1836,7 @@ type FolderMethod = {
  * and without a line here fails the build rather than going untested.
  */
 const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => HostParams<M> } = {
+  'goal/create': (cwd) => ({ root: cwd, sentence: 'Finish the probe' }),
   'session/list': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
   'runtime/sessionDefaults': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
   'runtime/skills': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
@@ -1856,6 +1857,7 @@ const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => Hos
  * before its handler runs, in the shape's own words, and handed to nothing.
  */
 const EMPTY_CWD_SHAPE_REFUSALS: { readonly [M in FolderMethod]?: string } = {
+  'goal/create': 'message.params.root: expected a non-empty string',
   'agent/seat': 'message.params.cwd: expected a non-empty string',
 }
 
@@ -2640,5 +2642,3 @@ test('preview-frame endpoint restricts navigation and form actions in CSP (#474)
   assert.match(csp, /form-action 'none'/, 'CSP must forbid form submission navigation')
   assert.match(csp, /navigate-to 'none'/, 'CSP must forbid document navigation')
 })
-
-

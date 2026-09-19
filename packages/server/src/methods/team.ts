@@ -11,20 +11,31 @@ import type { MethodsUnder } from './context.js'
 export const teamMethods = {
   'team/state': (ctx, params) => ctx.team.stateFor(params.room),
 
-  'team/add': (ctx, params) =>
-    ctx.team.addIntentAsUser(params.room, {
+  'team/add': async (ctx, params) => {
+    const intent = ctx.team.addIntentAsUser(params.room, {
       title: params.title,
       ...(params.detail !== undefined ? { detail: params.detail } : {}),
       ...(params.files !== undefined ? { files: params.files } : {}),
       ...(params.dependsOn !== undefined ? { dependsOn: params.dependsOn } : {}),
       ...(params.plan !== undefined ? { plan: params.plan } : {}),
-    }),
+    })
+    await ctx.team.flush()
+    return intent
+  },
 
-  'team/plan': (ctx, params) => ctx.team.planWork(params.room, params.goal),
+  'team/plan': async (ctx, params) => {
+    const plan = ctx.team.planWork(params.room, params.goal)
+    await ctx.team.flush()
+    return plan
+  },
 
-  'team/wrap': (ctx, params) => ctx.team.wrapPlan(params.room, params.plan),
+  'team/wrap': async (ctx, params) => {
+    const answer = ctx.team.wrapPlan(params.room, params.plan)
+    await ctx.team.flush()
+    return answer
+  },
 
-  'team/intent': (ctx, params) => {
+  'team/intent': async (ctx, params) => {
     ctx.team.intentAction(
       params.room,
       params.id,
@@ -33,6 +44,7 @@ export const teamMethods = {
       params.outcome,
       params.context,
     )
+    await ctx.team.flush()
     return null
   },
 
@@ -42,11 +54,12 @@ export const teamMethods = {
       params.text,
       params.to ? { runtime: params.to.runtime, sessionId: String(params.to.sessionId) } : undefined,
     )
+    await ctx.team.flush()
     return null
   },
 
-  'team/handout': (ctx, params) =>
-    ctx.team.handout(
+  'team/handout': async (ctx, params) => {
+    const answer = await ctx.team.handout(
       params.room,
       params.template,
       params.recipients.map((one) => ({
@@ -54,20 +67,26 @@ export const teamMethods = {
         sessionId: String(one.sessionId),
         ...(one.vars !== undefined ? { vars: one.vars } : {}),
       })),
-    ),
+    )
+    await ctx.team.flush()
+    return answer
+  },
 
-  'team/messaging': (ctx, params) => {
+  'team/messaging': async (ctx, params) => {
     ctx.team.setMessaging(params.room, params.enabled)
+    await ctx.team.flush()
     return null
   },
 
   'team/deliver': async (ctx, params) => {
     await ctx.team.deliverHeld(params.room, params.entryId)
+    await ctx.team.flush()
     return null
   },
 
-  'team/inbound': (ctx, params) => {
+  'team/inbound': async (ctx, params) => {
     ctx.team.setInbound(params.runtime, String(params.sessionId), params.mode)
+    await ctx.team.flush()
     return null
   },
 
@@ -81,15 +100,22 @@ export const teamMethods = {
      resolve to, and `flow/start` asks again before anything is seated. */
   'team/room/create': async (ctx, params) => {
     await ctx.workspaces.confineRoom(params.root)
-    return ctx.team.stateFor((await ctx.team.createRoom(params.root, params.name)).id)
+    const room = await ctx.team.createRoom(params.root, params.name)
+    await ctx.team.flush()
+    return ctx.team.stateFor(room.id)
   },
 
-  'team/room/rename': (ctx, params) => {
+  'team/room/rename': async (ctx, params) => {
     ctx.team.renameRoom(params.room, params.name)
+    await ctx.team.flush()
     return null
   },
 
-  'team/room/delete': (ctx, params) => ctx.team.deleteRoom(params.room),
+  'team/room/delete': async (ctx, params) => {
+    const answer = await ctx.team.deleteRoom(params.room)
+    await ctx.team.flush()
+    return answer
+  },
 
   'team/room/join': async (ctx, params) => {
     /* A conversation nothing can account for is not a member of anything.
@@ -162,11 +188,13 @@ export const teamMethods = {
       model: known.settings?.model ?? null,
       at: Date.now(),
     })
+    await ctx.team.flush()
     return null
   },
 
-  'team/room/leave': (ctx, params) => {
+  'team/room/leave': async (ctx, params) => {
     ctx.team.leaveRoom(params.room, params.runtime, String(params.sessionId))
+    await ctx.team.flush()
     return null
   },
 

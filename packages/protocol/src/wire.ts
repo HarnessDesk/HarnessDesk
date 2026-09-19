@@ -10,8 +10,9 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { BoardEvidence, ProjectChecks, SeatRecord } from './evidence.js'
+import type { BoardEvidence, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
+import type { GoalCreateInput, GoalId, GoalSeatRequest, GoalView } from './goal.js'
 import type {
   Library,
   LibraryDefinition,
@@ -557,6 +558,17 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'goal/list': { params: { root?: string }; result: readonly GoalView[] }
+  'goal/read': { params: { goal: GoalId }; result: GoalView }
+  'goal/create': { params: Omit<GoalCreateInput, 'origin'>; result: GoalView }
+  'goal/update': {
+    params: { goal: GoalId; revision: number; sentence?: string; dependsOn?: readonly GoalId[] }
+    result: GoalView
+  }
+  'goal/seat': { params: GoalSeatRequest; result: SeatRecord }
+  'goal/assign': { params: { goal: GoalId; card: number; session: SessionPointer }; result: SeatRecord }
+  'goal/release': { params: { goal: GoalId; seat: SeatId }; result: null }
+  'goal/migration/ack': { params: Record<string, never>; result: null }
   'host/hello': {
     params: { readonly clientVersion: string }
     result: {
@@ -2166,6 +2178,8 @@ export type WireResponse =
  * freshly connected client so it can render without replaying from zero.
  */
 export type WireNotification =
+  | { method: 'goal/changed'; params: { view: GoalView } }
+  | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }
   | {
       /**
        * One agent event, tagged with the runtime that produced it. Events
