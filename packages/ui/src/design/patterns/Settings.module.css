@@ -535,6 +535,11 @@
   margin-top: 0;
 }
 
+.sectionHead[data-sticky] {
+  padding: var(--usage-strip, 0) 0 var(--hd-space-2);
+  background: var(--hd-card);
+}
+
 /* The word over a card: a label, not a heading. It stood at 16px in primary
    ink, one step under the page title, so every page read as a stack of
    headings; the reference sets it as a 13px grey label, which is what lets
@@ -542,7 +547,7 @@
 .sectionName {
   flex: 1;
   font-size: var(--hd-text-sm); /* desk: 16 → 13, a label over a card */
-  font-weight: var(--hd-weight-medium);
+  font-weight: var(--hd-weight-normal); /* desk: medium → regular, a group label does not name a subject */
   color: var(--hd-secondary-foreground); /* desk: primary → secondary ink */
 }
 

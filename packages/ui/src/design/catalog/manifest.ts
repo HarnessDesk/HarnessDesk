@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -136,7 +136,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   board: ['default'],
   breadcrumb: ['default'],
   button: ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
-  card: ['default'],
+  card: ['default', 'muted'],
   chart: ['default'],
   checkbox: ['default'],
   commit: ['default'],
@@ -157,7 +157,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   marker: ['default', 'border', 'separator'],
   'native-select': ['default', 'filled'],
   popover: ['default'],
-  progress: ['default'],
+  progress: ['default', 'remaining', 'ring', 'stack'],
   'radio-group': ['vertical', 'horizontal'],
   rail: ['default'],
   'resize-handle': ['default'],
@@ -178,7 +178,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   tone: ['default'],
   turn: ['default'],
   tooltip: ['default'],
-  Settings: ['default'],
+  Settings: ['default', 'sticky'],
   ModalDialog: ['default'],
   ApprovalDialog: ['default'],
   ConfirmDialog: ['default'],

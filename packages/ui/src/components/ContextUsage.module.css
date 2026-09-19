@@ -1,215 +1,27 @@
-/* The context ring and the panel behind it. Design: docs/context-usage.md. */
-
-/* Registered so the fill animates between values instead of snapping. */
-@property --ring-fill {
-  syntax: '<percentage>';
-  inherits: false;
-  initial-value: 0%;
-}
-
-.ring {
-  --ring-size: 16px;
-  --ring-stroke: 2px;
-  --ring-fill: 0%;
-  --ring-track: var(--hd-border-emphasis);
-  --ring-color: var(--hd-accent);
-  flex: none;
-  display: inline-block;
-  width: var(--ring-size);
-  height: var(--ring-size);
-  border-radius: 50%;
-  background: conic-gradient(var(--ring-color) var(--ring-fill), var(--ring-track) 0);
-  -webkit-mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - var(--ring-stroke) - 0.5px),
-    #000 calc(100% - var(--ring-stroke))
-  );
-  mask: radial-gradient(
-    farthest-side,
-    transparent calc(100% - var(--ring-stroke) - 0.5px),
-    #000 calc(100% - var(--ring-stroke))
-  );
-  transition: --ring-fill 400ms var(--hd-ease, ease); /* desk: canonical One UI System scale */
-}
-
-.ring[data-tone='warn'] {
-  --ring-color: var(--hd-warning);
-}
-
-.ring[data-tone='bad'] {
-  --ring-color: var(--hd-danger);
-}
-
-/* No window size: a dashed track, distinct from an empty one. */
-.ring[data-unknown] {
-  background: none;
-  -webkit-mask: none;
-  mask: none;
-  box-sizing: border-box;
-  border: var(--ring-stroke) dashed var(--hd-muted-foreground);
-}
-
-/* --- panel -------------------------------------------------------------- */
+/* The context panel keeps only placement; its readings belong to design/. */
 
 .panel {
   width: 272px;
-  padding: 4px 2px 0;
 }
 
-.head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 8px 6px;
-}
-
-.headText {
-  min-width: 0;
-}
-
-.headline {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  color: var(--hd-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.headline[data-tone='warn'] {
-  color: var(--hd-warning);
-}
-
-.headline[data-tone='bad'] {
-  color: var(--hd-danger);
-}
-
-.subline {
-  margin-top: 2px;
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.track {
-  height: 5px;
-  margin: 2px var(--hd-space-2) 8px; /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius-xs); /* desk: canonical One UI System scale */
-  background: var(--hd-muted);
-  overflow: hidden;
-}
-
-.fill {
-  height: 100%;
-  border-radius: var(--hd-radius-xs); /* desk: canonical One UI System scale */
-  background: var(--hd-accent);
-  transition: width 400ms var(--hd-ease, ease); /* desk: canonical One UI System scale */
-}
-
-.fill[data-tone='good'] {
-  background: var(--hd-accent);
-}
-
-.fill[data-tone='warn'] {
-  background: var(--hd-warning);
-}
-
-.fill[data-tone='bad'] {
-  background: var(--hd-danger);
+.headProgress {
+  margin: var(--hd-space-0-5) var(--hd-space-2) var(--hd-space-2);
 }
 
 .row {
+  margin: var(--hd-space-1) var(--hd-space-2);
+}
+
+.rowReading {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: var(--hd-space-1) var(--hd-space-2); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
-}
-
-.rowLabel {
-  flex: 1;
-  min-width: 0;
-  color: var(--hd-secondary-foreground);
-}
-
-.rowValue {
-  flex: none;
-  color: var(--hd-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.rowHint {
-  flex: none;
-  min-width: 64px;
-  text-align: right;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
+  gap: var(--hd-space-2);
 }
 
 .window {
-  padding-bottom: 2px;
+  margin-bottom: var(--hd-space-0-5);
 }
 
-.window .track {
-  height: 4px;
-  margin: 1px var(--hd-space-2) 6px; /* desk: canonical One UI System scale */
-}
-
-/*
- * The composition bar. Its own bar, not slices of `.track` above it: the two
- * measure different things (see the Composition component), and one drawn
- * inside the other would claim they reconcile.
- *
- * Four part colours, cycled. They carry no meaning beyond "a different part",
- * so they are the neutral ramp rather than the tone scale — `warn` and `bad`
- * mean "the window is filling up", and a tool-schema row is not a warning.
- */
-.stack {
-  display: flex;
-  gap: 2px;
-  height: 5px;
-  margin: 2px var(--hd-space-2) 8px; /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius-xs); /* desk: canonical One UI System scale */
-  overflow: hidden;
-}
-
-.stackPart {
-  height: 100%;
-  border-radius: var(--hd-radius-2xs);
-  transition: width 400ms var(--hd-ease, ease); /* desk: canonical One UI System scale */
-}
-
-.swatch {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--hd-radius-2xs);
-  align-self: center;
-}
-
-.stackPart[data-part='0'],
-.swatch[data-part='0'] {
-  background: var(--hd-accent);
-}
-
-.stackPart[data-part='1'],
-.swatch[data-part='1'] {
-  background: color-mix(in srgb, var(--hd-accent) 55%, var(--hd-muted));
-}
-
-.stackPart[data-part='2'],
-.swatch[data-part='2'] {
-  background: color-mix(in srgb, var(--hd-accent) 30%, var(--hd-muted));
-}
-
-.stackPart[data-part='3'],
-.swatch[data-part='3'] {
-  background: color-mix(in srgb, var(--hd-accent) 15%, var(--hd-muted));
-}
-
-/* A count qualifies its label rather than competing with it. */
-.rowCount {
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
+.windowProgress {
+  margin: var(--hd-space-px) var(--hd-space-2) var(--hd-space-1-5);
 }

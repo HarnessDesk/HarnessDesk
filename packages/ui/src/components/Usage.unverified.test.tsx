@@ -115,7 +115,7 @@ const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = nul
 
 const card = async (report: UsageReport): Promise<string> => {
   await render(report)
-  const article = [...document.querySelectorAll('article')].find((node) =>
+  const article = [...document.querySelectorAll('[data-slot="card"]')].find((node) =>
     node.textContent?.includes('Antigravity'),
   )
   expect(article).toBeDefined()

@@ -60,6 +60,9 @@ export {
   RowMark,
   RowValue,
   SectionToggle,
+  Text,
+  type TextProps,
+  type TextRole,
   WireText,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'

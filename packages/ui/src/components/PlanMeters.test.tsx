@@ -104,7 +104,7 @@ const mount = (over: Partial<AppSnapshot>): void => {
   })
 }
 
-const bars = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('button [data-tone]')]
+const bars = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="plan-meter"]')]
 const triggers = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('button')]
 const titles = (): (string | null)[] => triggers().map((button) => button.getAttribute('title'))
 
@@ -147,7 +147,7 @@ it('answers with the countdown once there is nothing left', () => {
   mount({ runtimes: [runtime('a', 'Agent A')], usage: [spent('a', 2 * HOUR)], ...conversationWith('a') })
   const bar = bars()[0]
   expect(bar?.textContent).toBe('2h')
-  expect(bar?.getAttribute('data-tone')).toBe('bad')
+  expect(bar?.getAttribute('data-tone')).toBe('danger')
 })
 
 it('colours what is left, not what pace predicts', () => {
@@ -164,7 +164,7 @@ it('colours what is left, not what pace predicts', () => {
     ...conversationWith('a'),
   })
   const bar = bars()[0]
-  expect(bar?.getAttribute('data-tone')).toBe('good')
+  expect(bar?.getAttribute('data-tone')).toBe('neutral')
   expect(bar?.hasAttribute('data-low')).toBe(false)
 })
 
@@ -172,7 +172,7 @@ it('fills the bar with what is left, the way the figure beside it reads', () => 
   mount({ runtimes: [runtime('a', 'Agent A')], usage: [at('a', 96)], ...conversationWith('a') })
   // 4% used is 96% left. A bar drawn from what had been *spent* left the
   // roomiest account on the strip looking like the emptiest one.
-  const fill = container.querySelector<HTMLElement>('[data-tone] span[style]')
+  const fill = container.querySelector<HTMLElement>('[data-slot="plan-meter"] [data-slot="progress-fill"]')
   expect(fill?.style.width).toBe('96%')
   expect(triggers()[0]?.textContent).toContain('96%')
 })
@@ -185,7 +185,7 @@ it('says in the token whether anything else is in the way, without being opened'
   })
   const token = bars()[bars().length - 1]
   expect(token?.textContent).toBe('3 out')
-  expect(token?.getAttribute('data-tone')).toBe('bad')
+  expect(token?.getAttribute('data-tone')).toBe('danger')
   expect(titles()[titles().length - 1]).toBe(
     '5 other agents — 3 out of quota, least left 44%, 1 needs sign-in',
   )
