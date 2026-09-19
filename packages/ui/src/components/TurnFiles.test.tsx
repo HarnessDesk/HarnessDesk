@@ -43,7 +43,7 @@ const CHANGES: readonly FileChange[] = [
   { path: '/work/storefront/src/retry.ts', kind: { type: 'update' }, diff: '@@ -1,2 +1,2 @@\n-one\n+1\n two\n' },
 ]
 
-const rig = async (answers: TurnUndo[]) => {
+const rig = async (answers: TurnUndo[], changes: readonly FileChange[] = CHANGES) => {
   const snapshot = { ...emptySnapshot(), status: 'open', activeSessionKey: KEY } as unknown as AppSnapshot
   const revertTurn = vi.fn(async () => answers.shift() ?? { done: true, unrecoverable: false })
   const store = {
@@ -57,7 +57,7 @@ const rig = async (answers: TurnUndo[]) => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <TurnFiles turn={TURN} changes={CHANGES} root="/work/storefront" />
+        <TurnFiles turn={TURN} changes={changes} root="/work/storefront" />
       </StoreProvider>,
     )
   })
@@ -101,4 +101,32 @@ it('an undo that went through offers a redo, and nothing to skip', async () => {
 
   expect(button('Redo')).toBeDefined()
   expect(button('Undo the rest')).toBeUndefined()
+})
+
+it('names one edited file in the title with its totals', async () => {
+  await rig([])
+
+  expect(container.textContent).toContain('Edited retry.ts')
+  expect(container.textContent).toContain('+1')
+  expect(container.textContent).toContain('−1')
+  expect(container.textContent).not.toContain('Edited 1 file')
+  expect(container.querySelector('button[title="Open src/retry.ts"]')).toBeNull()
+})
+
+it('shows three file rows and expands the rest from an N more row', async () => {
+  const changes = Array.from({ length: 5 }, (_, index): FileChange => ({
+    path: `/work/storefront/src/file-${index + 1}.ts`,
+    kind: { type: 'update' },
+    diff: '@@ -1 +1 @@\n-old\n+new\n',
+  }))
+  await rig([], changes)
+
+  const fileRows = () => [...container.querySelectorAll<HTMLButtonElement>('button[title^="Open src/file-"]')]
+  expect(container.textContent).toContain('Edited 5 files +5 −5')
+  expect(fileRows()).toHaveLength(3)
+  expect(button('2 more')).toBeDefined()
+
+  act(() => button('2 more')?.click())
+  expect(fileRows()).toHaveLength(5)
+  expect(button('2 more')).toBeUndefined()
 })

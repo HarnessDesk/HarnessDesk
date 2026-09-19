@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentItem, ToolCallItem, ToolResultContent } from '@harnessdesk/protocol'
 
@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  delete window.harnessdesk
 })
 
 const call = (fields: {
@@ -165,27 +166,42 @@ describe('a user bubble', () => {
 
   const bubble = (): string => byClass('bubble')[0]?.textContent ?? ''
 
-  /**
-   * People type backticks meaning "this is a command", and Codex renders that.
-   * We were showing the marks — a bubble printing its own source.
-   */
-  it('renders inline code as code, not as backticks', () => {
-    render(said('run `echo hi` then reply with exactly one word'))
-    expect(bubble()).toBe('run echo hi then reply with exactly one word')
-    expect(byClass('bubbleCode').map((el) => el.textContent)).toEqual(['echo hi'])
-  })
-
-  /** A bubble is a quotation, so only inline code is rendered — nothing else. */
-  it('leaves every other markdown character alone', () => {
-    const typed = '# not a heading\n- not a list\n**not bold**'
+  /** One rule for a quotation: every markdown mark stays exactly as written. */
+  it('leaves markdown and line breaks exactly as typed', () => {
+    const typed = '# not a heading\n- run `echo hi`\n**not bold**'
     render(said(typed))
     expect(bubble()).toBe(typed)
+    expect(container.querySelector('h1')).toBeNull()
     expect(byClass('bubbleCode')).toEqual([])
+    expect(container.textContent).not.toContain('Show all')
   })
 
-  it('leaves an unpaired backtick as typed', () => {
-    render(said('what does ` do again'))
-    expect(bubble()).toBe('what does ` do again')
+  it('makes an https URL an external link named by its host and path', () => {
+    const opened = vi.fn()
+    window.harnessdesk = { openExternal: opened } as unknown as NonNullable<Window['harnessdesk']>
+    const url = 'https://docs.example.com/guides/setup?mode=desktop#install'
+
+    render(said(`Read ${url} before changing it.`))
+
+    const link = container.querySelector<HTMLAnchorElement>('a')
+    expect(link?.textContent).toBe('docs.example.com/guides/setup')
+    expect(link?.getAttribute('href')).toBe(url)
+    act(() => link?.click())
+    expect(opened).toHaveBeenCalledWith(url)
+  })
+
+  it('offers expansion only when twelve rendered lines do not hold the message', () => {
+    const scrollHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(300)
+    const clientHeight = vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(252)
+    try {
+      render(said(Array.from({ length: 14 }, (_, index) => `line ${index + 1}`).join('\n')))
+      expect(container.querySelector('button')?.textContent).toBe('Show all')
+      act(() => container.querySelector('button')?.click())
+      expect(container.querySelector('button')?.textContent).toBe('Show less')
+    } finally {
+      scrollHeight.mockRestore()
+      clientHeight.mockRestore()
+    }
   })
 })
 
@@ -196,8 +212,8 @@ describe('a user bubble', () => {
  * screen is whatever the adapter put in `error`. #241 made that the reason the
  * call came with rather than the constant "Tool reported failure"; the mapping
  * is pinned in `packages/adapter-codex`, and this is the same claim at the
- * layer a person actually reads it (#273). A failed step opens itself, so these
- * render without a click.
+ * layer a person actually reads it (#273). The row marks the failure; the
+ * full output stays behind the person's click.
  */
 describe('a failed dynamic tool call', () => {
   const failed = (fields: { error?: string; result?: readonly ToolResultContent[] }): ToolCallItem =>
@@ -213,8 +229,17 @@ describe('a failed dynamic tool call', () => {
 
   const reason = 'The browser could not open http://reports.test/q4: the host did not answer.'
 
+  it('marks the failed step on one closed line and opens its output only on click', () => {
+    render(failed({ error: reason }))
+    expect(title()).toContain('failed')
+    expect(outputs()).toEqual([])
+
+    act(() => container.querySelector('button')?.click())
+    expect(outputs()).toEqual([reason])
+  })
+
   it('shows the reason it came with, not the constant', () => {
-    render(failed({ error: reason, result: [{ type: 'text', text: reason }] }))
+    open(failed({ error: reason, result: [{ type: 'text', text: reason }] }))
     expect(outputs()).toEqual([reason])
     expect(container.textContent).not.toContain('Tool reported failure')
     // The controls, true whatever the box says: the step is the failed call it
@@ -226,12 +251,12 @@ describe('a failed dynamic tool call', () => {
   it('keeps a reason that arrived in several parts on the several lines it was joined into', () => {
     // What `failureOf` produces from a failure whose reason came as two text parts (#245).
     const joined = 'The hook refused this call.\nEdit the hook to allow it.'
-    render(failed({ error: joined }))
+    open(failed({ error: joined }))
     expect(outputs()).toEqual([joined])
   })
 
   it('draws the reason in place of the result, not beside it', () => {
-    render(failed({ error: reason, result: [{ type: 'text', text: 'half the page' }] }))
+    open(failed({ error: reason, result: [{ type: 'text', text: 'half the page' }] }))
     expect(outputs()).toEqual([reason])
     expect(container.textContent).not.toContain('half the page')
   })

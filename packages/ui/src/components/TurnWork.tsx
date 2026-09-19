@@ -15,27 +15,21 @@ import styles from './TurnWork.module.css'
  *
  * While the agent runs: "Working for 12s", ticking, with the narration and
  * steps below and the current step as a faint line that shimmers. When it
- * finishes, one of two postures, decided by what the steps are:
+ * finishes, the receipt depends on what the steps are:
  *
  * - **Templated steps fold.** A Codex turn's steps are "Ran a command" and
  *   "Read files" — labels the app derived, carrying nothing a count does not.
  *   It folds to "Worked for 1m 14s · read 6 files, ran 2 commands ›" so what
  *   stays on screen is the answer, the way Codex's own app folds it.
- * - **Described steps stand.** A Claude Code turn's shell calls each carry
- *   the sentence the agent wrote for them — "Find every caller of take" —
- *   and those sentences *are* the record of a research turn. They stay in
- *   the flow, one line each, the way Claude's own app keeps them; the fold
- *   is still there to close by hand, and closed it reads the sentences back
- *   as its receipt rather than a tally.
+ * - **Described steps read back in the receipt.** A shell call may carry the
+ *   sentence the agent wrote for it — "Find every caller of take" — and the
+ *   folded head preserves those words instead of flattening them to a count.
  *
- * Folding by information rather than by count is the whole rule. Opening or
- * closing is remembered for as long as the transcript is mounted; a fresh
- * read starts in the posture the steps earn.
+ * Opening or closing is remembered for as long as the transcript is mounted;
+ * a fresh read starts folded once the turn has finished.
  *
- * The exception is trouble. A turn that failed, was interrupted, or that had a
- * step declined or fail keeps its work open and tints the line — folding a
- * blocked command away behind a duration is how a UI ends up looking calm
- * about something the user needed to see.
+ * A finished fold opens only when the person opens it. Trouble stays visible
+ * in the receipt, and each failed row keeps its output behind one more click.
  */
 
 /** A clock that only ticks while something is running. */
@@ -66,7 +60,7 @@ export const TurnWork = ({
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
   const line = describeTurnWork(turn, work, now)
-  const open = choice ?? (running || line.trouble || line.informative)
+  const open = choice ?? running
 
   if (work.length === 0 && !running) return null
 
@@ -84,7 +78,6 @@ export const TurnWork = ({
       data-testid="turn-work"
       {...(running ? { 'data-running': '' } : {})}
       {...(line.trouble ? { 'data-trouble': '' } : {})}
-      {...(line.informative ? { 'data-described': '' } : {})}
     >
       <Button
         type="button"
@@ -98,6 +91,12 @@ export const TurnWork = ({
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}
         {!open && line.receipt.length > 0 && <span className={styles.headReceipt}>· {line.receipt}</span>}
+        {!open && line.declined > 0 && (
+          <span className={styles.declinedReceipt}>· {line.declined} declined</span>
+        )}
+        {!open && line.failed > 0 && (
+          <span className={styles.failedReceipt}>· {line.failed} failed</span>
+        )}
         <ChevronIcon className={styles.chevron} size={13} {...(open ? { 'data-open': '' } : {})} />
         <span className={styles.rule} />
       </Button>

@@ -265,8 +265,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* One line, always: the numbers shorten from the right before they wrap. */
-.turnTailStats {
+/* The visible end of the turn; its figures wait on the time's tooltip. */
+.turnTailTime {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -414,63 +414,4 @@
   background: none;
 }
 
-/* The turn summary: what the turn amounts to, as a row of small facts. */
-.turnSummary {
-  max-width: var(--hd-column);
-  margin: 8px auto 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.turnSummaryItem,
-.turnSummaryFact {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1); /* desk: canonical One UI System scale */
-
-  min-width: 0;
-  max-width: 100%;
-
-  white-space: nowrap;
-
-}
-
-/* The glyph keeps its size; only the words give way. A chip that wraps stops
-   being a chip — it becomes a two-line block with rounded ends, which is what
-   a narrow column used to do to a long file name. */
-.turnSummaryItem svg {
-  flex: none;
-}
-
-.turnSummaryLabel {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.turnSummaryFact {
-  min-height: var(--hd-target-min);
-  padding: 0 var(--hd-space-2);
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground); /* desk: static turn facts keep secondary ink, not a button hover's primary ink */
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.turnSummaryFact[data-tone='good'] {
-  color: var(--hd-success-ink); /* desk: restore the success state with contrast-safe semantic ink */
-}
-
-.turnSummaryFact[data-tone='bad'] {
-  color: var(--hd-danger);
-  background: var(--hd-danger-dim);
-}
-
-.turnSummaryFact[data-tone='ask'] {
-  color: var(--hd-warning-ink);
-}
 /* @design-owners TurnTail */

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
   AgentItem,
@@ -24,6 +24,7 @@ import type {
 import { stripAnsi } from '../lib/ansi'
 import { ActionError, Button } from '../design'
 import { instant } from '../lib/clock'
+import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf } from '../lib/diff'
 import {
@@ -46,6 +47,7 @@ import {
   TeamIcon,
   CopyIcon,
   DiffIcon,
+  ExternalIcon,
   FileIcon,
   GlobeIcon,
   ImageIcon,
@@ -265,27 +267,94 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   )
 }
 
+const WEB_URL = /\bhttps?:\/\/[^\s<>"'`]+/gi
+
+/** Sentence punctuation belongs to the sentence, not to the link before it. */
+const splitUrlEnd = (candidate: string): { readonly url: string; readonly suffix: string } => {
+  let end = candidate.length
+  while (end > 0 && /[.,;:!?]/.test(candidate[end - 1] ?? '')) end -= 1
+  const pairs: Readonly<Record<string, string>> = { ')': '(', ']': '[', '}': '{' }
+  while (end > 0) {
+    const close = candidate[end - 1] ?? ''
+    const open = pairs[close]
+    if (!open) break
+    const body = candidate.slice(0, end)
+    if (body.split(close).length <= body.split(open).length) break
+    end -= 1
+  }
+  return { url: candidate.slice(0, end), suffix: candidate.slice(end) }
+}
+
 /**
- * A person's own words, with inline code shown as code.
- *
- * People type backticks meaning "this bit is a command", and every client they
- * use renders that — Codex included. We were printing the marks themselves,
- * which is the same complaint as a tool row showing its own source.
- *
- * Inline code only, deliberately. A bubble is a quotation of what someone
- * said: a stray `#` must not silently become a heading, and a pasted diff must
- * keep every one of its lines.
+ * The one exception to literal message text is a web address: it is a door,
+ * so it says where it goes and opens through the desktop boundary.
  */
-const inlineCode = (text: string): ReactNode[] =>
-  text.split(/(`[^`\n]+`)/g).map((part, index) =>
-    part.length > 2 && part.startsWith('`') && part.endsWith('`') ? (
-      <code key={index} className={styles.bubbleCode}>
-        {part.slice(1, -1)}
-      </code>
-    ) : (
-      part
-    ),
+const linkedText = (text: string): ReactNode[] => {
+  const parts: ReactNode[] = []
+  let cursor = 0
+  for (const match of text.matchAll(WEB_URL)) {
+    const start = match.index ?? cursor
+    const whole = match[0] ?? ''
+    const { url, suffix } = splitUrlEnd(whole)
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      continue
+    }
+    parts.push(text.slice(cursor, start))
+    parts.push(
+      <a
+        key={`${start}-${url}`}
+        className={styles.bubbleLink}
+        href={url}
+        title={url}
+        onClick={(event) => {
+          event.preventDefault()
+          openExternal(url)
+        }}
+      >
+        <ExternalIcon size={12} />
+        <span>{parsed.host}{parsed.pathname === '/' ? '' : parsed.pathname}</span>
+      </a>,
+    )
+    parts.push(suffix)
+    cursor = start + whole.length
+  }
+  parts.push(text.slice(cursor))
+  return parts
+}
+
+/** Literal message text, folded only when its rendered box exceeds twelve lines. */
+const UserText = ({ text }: { text: string }) => {
+  const body = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [overflowed, setOverflowed] = useState(false)
+
+  useLayoutEffect(() => {
+    const node = body.current
+    if (!node || expanded) return
+    const measure = (): void => setOverflowed(node.scrollHeight > node.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [expanded, text])
+
+  return (
+    <div className={styles.bubble}>
+      <div ref={body} className={styles.bubbleText} {...(!expanded ? { 'data-collapsed': '' } : {})}>
+        {linkedText(text)}
+      </div>
+      {overflowed && (
+        <Button variant="quiet" size="sm" className={styles.bubbleToggle} onClick={() => setExpanded((value) => !value)}>
+          {expanded ? 'Show less' : 'Show all'}
+        </Button>
+      )}
+    </div>
   )
+}
 
 const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number }) => {
   const raw = item.content
@@ -376,7 +445,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
           })}
         </div>
       )}
-      {text.length > 0 && <div className={styles.bubble}>{inlineCode(text)}</div>}
+      {text.length > 0 && <UserText text={text} />}
       {text.length > 0 && <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />}
     </div>
   )
@@ -543,7 +612,7 @@ const Command = ({ item }: { item: CommandItem }) => (
       </>
     }
     status={item.status}
-    defaultOpen={item.status === 'inProgress' || item.status === 'failed'}
+    defaultOpen={item.status === 'inProgress'}
   >
     <ShellLine command={shellCommandOf(item.command)} />
     <pre className={styles.output}>
@@ -779,7 +848,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       plainTitle={described !== null}
       meta={formatDuration(item.durationMs)}
       status={item.status}
-      defaultOpen={item.status === 'failed'}
+      defaultOpen={item.status === 'inProgress'}
     >
       {wire && <div className={styles.wireName}>{wire}</div>}
       {item.error ? (

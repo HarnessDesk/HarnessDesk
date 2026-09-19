@@ -641,7 +641,6 @@ export const Conversation = ({
                     <TurnTail
                       turn={turn}
                       session={session}
-                      hideFiles={view.changes.length > 0}
                       answer={view.answer
                         .map((item) => (item.type === 'assistantMessage' ? item.text : ''))
                         .join('\n\n')}

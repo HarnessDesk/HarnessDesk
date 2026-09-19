@@ -259,7 +259,8 @@ describe('describeTurnWork', () => {
     const work = [item('command', 'c', { command: 'pnpm test', status: 'completed', exitCode: 1, actions: [] })]
     const line = describeTurnWork(done(work), work, started)
     expect(line.trouble).toBe(true)
-    expect(line.receipt).toContain('1 step failed')
+    expect(line.receipt).toBe('ran 1 command')
+    expect(line.failed).toBe(1)
   })
 
   test('the same file edited twice is one file', () => {
@@ -271,14 +272,16 @@ describe('describeTurnWork', () => {
     expect(describeTurnWork(done(work), work, started).receipt).toBe('edited 2 files')
   })
 
-  test('a declined or failed step tints the line and holds the work open', () => {
+  test('reports declined and failed steps apart from the ordinary receipt', () => {
     const work = [
       item('command', 'a', { status: 'declined', actions: [{ type: 'unknown', command: 'curl' }] }),
       item('toolCall', 'b', { status: 'completed', error: 'no network' }),
     ]
     const line = describeTurnWork(done(work), work, started)
     expect(line.trouble).toBe(true)
-    expect(line.receipt).toBe('ran 1 command, called 1 tool, 1 step declined, 1 step failed')
+    expect(line.receipt).toBe('ran 1 command, called 1 tool')
+    expect(line.declined).toBe(1)
+    expect(line.failed).toBe(1)
   })
 
   test('a failed turn is trouble even when every step it took went fine', () => {
@@ -296,11 +299,10 @@ describe('describeTurnWork', () => {
     expect(wrote.receipt).toBe('edited 1 file')
   })
 
-  test('a turn of described steps reads back as the sentences, and stands rather than folds', () => {
+  test('a turn of described steps reads back as the sentences when folded', () => {
     // Claude Code's shell calls carry the sentence the agent wrote for them,
     // and for a research turn those sentences are the record. Codex folds a
-    // two-minute turn to a duration and a count; this line keeps the words,
-    // and the flag says the rows stay on screen.
+    // two-minute turn to a duration and a count; this line keeps the words.
     const shell = (id: string, description: string): AgentItem =>
       item('toolCall', id, { tool: 'Bash', args: { command: 'x', description } })
     const work = [
@@ -310,13 +312,12 @@ describe('describeTurnWork', () => {
       shell('b', 'Measure the refill rate over one millisecond'),
     ]
     const line = describeTurnWork(done(work), work, started)
-    expect(line.informative).toBe(true)
     expect(line.receipt).toBe(
       'Read the limiter and its refill arithmetic · Measure the refill rate over one millisecond · read 2 files',
     )
   })
 
-  test('a turn of templated steps is not informative, and its tool calls count by what they did', () => {
+  test('a turn of templated steps counts its tool calls by what they did', () => {
     // ACP flattens every step to a tool call; "called 5 tools" is a shrug
     // where the arguments already say three were commands and two were reads.
     const work = [
@@ -327,7 +328,6 @@ describe('describeTurnWork', () => {
       item('toolCall', 'g1', { tool: 'grep', args: { pattern: 'foo' } }),
     ]
     const line = describeTurnWork(done(work), work, started)
-    expect(line.informative).toBe(false)
     expect(line.receipt).toBe('edited 1 file, ran 2 commands, read 1 file, searched 1 time')
   })
 

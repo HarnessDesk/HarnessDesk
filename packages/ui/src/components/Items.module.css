@@ -5,7 +5,7 @@
  * applied rather than a number anybody chose:
  *
  * 1. **The column is the measure.** `.item` is set in `--hd-column` and
- *    centred, and the request is three quarters of it — one relationship, so
+ *    centred, and the request is two thirds of it — one relationship, so
  *    the reader's own line and the agent's answer are visibly different
  *    objects without either being a width somebody liked.
  *
@@ -17,8 +17,7 @@
  *    own half-height.
  *
  * 3. **Two lines.** `--hd-line` (21px) carries the 14px interface step and
- *    `--hd-line-sm` (18px) the 12–13px one. 24px survives only on the bubble,
- *    where 16px prose at 1.5 is its own answer.
+ *    `--hd-line-sm` (18px) the 12–13px one.
  *
  * 4. **The hairline is a token.** 44 edges in this app are
  *    `inset 0 0 0 1px <border>` rather than a border, because it costs no
@@ -75,17 +74,46 @@
 }
 
 .bubble {
-  /* Three quarters of the column: `.item` already caps at the measure, so the
-     percentage IS the rule. `min(525px, 82%)` named the same width twice and
-     only ever picked one of them. */
-  max-width: 75%; /* desk: min(525px, 82%) → three quarters of the column */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 66.6667%; /* desk: 75% → two thirds of the reading column */
   padding: var(--hd-space-2-5) var(--hd-space-4);
-  border-radius: var(--hd-radius-lg); /* desk: 22 → 14, the ladder's floating rung */
+  border-radius: var(--hd-radius-xl); /* desk: --hd-radius-lg → --hd-radius-xl, the owner-selected message surface */
   background: var(--hd-muted);
-  box-shadow: var(--hd-hairline-soft);
-  font-size: var(--hd-text-lg);
-  line-height: var(--hd-line-lg); /* 16px at 1.5: two or three lines, tighter than a document */
+  font-size: var(--hd-text); /* desk: --hd-text-lg → --hd-text, the reading size */
+  line-height: var(--hd-line); /* desk: --hd-line-lg → --hd-line, paired with the reading size */
+}
+
+.bubbleText {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubbleText[data-collapsed] {
+  max-height: calc(var(--hd-line) * 12);
+  overflow: hidden;
+}
+
+.bubbleToggle {
+  align-self: flex-end;
+  margin-top: var(--hd-space-1);
+}
+
+.bubbleLink {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--hd-space-1);
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
+.bubbleLink svg {
+  flex: none;
+  align-self: center;
+}
+
+.bubbleLink span {
   overflow-wrap: anywhere;
 }
 
@@ -136,19 +164,6 @@
   /* Optical: a 24px target centred on the 21px line it sits beside, and pulled
      out to the band's own padding on the right. */
   margin: -2px -4px -2px 0; /* desk: -3 → -2, centred on the 21px line the band now sets */
-}
-
-/* The bubble already sits on the muted surface, so a code span inside it needs
-   a plate of its own to read as code rather than as emphasis. It is the only
-   code span in the app that keeps a hairline, and that is why. */
-.bubbleCode {
-  padding: 1px var(--hd-space-1); /* desk: 5 → 4 */
-  border-radius: var(--hd-radius-sm); /* desk: 5 → 6, the ladder's mark rung */
-  background: var(--hd-background);
-  box-shadow: var(--hd-hairline-soft);
-  font-family: var(--hd-font-code);
-  font-size: 0.875em; /* desk: 0.86 → 0.875em, one ratio for inline code */
-  overflow-wrap: anywhere;
 }
 
 .attachments {

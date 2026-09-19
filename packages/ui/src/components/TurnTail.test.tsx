@@ -2,14 +2,14 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { turnId, type Session, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, turnId, type Session, type Turn } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TurnTail } from './TurnTail'
 
 /**
- * What a turn says under itself when it has nothing to show.
+ * The line under a turn, and what a turn says when it has nothing to show.
  *
  * A failed turn names its reason with the alert every failed action uses, so
  * it reads, and is announced, the way a failed commit or checkout is. A turn
@@ -31,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.useRealTimers()
 })
 
 const render = async (turn: Turn) => {
@@ -67,4 +68,64 @@ it('says a silent turn ended with nothing, in the same drawing, without interrup
 
   expect(alert?.getAttribute('role')).toBe('status')
   expect(alert?.textContent).toBe('The agent finished this turn without any output.')
+})
+
+it('leaves only actions and time visible, with the turn figures on the time tooltip', () => {
+  vi.useFakeTimers()
+  const completedAt = Date.UTC(2026, 8, 18, 20, 15)
+  const turn: Turn = {
+    id: turnId('turn-1'),
+    status: 'completed',
+    durationMs: 25_000,
+    completedAt,
+    diff: null,
+    items: [
+      {
+        id: 'command-1', type: 'command', command: 'pnpm test', cwd: '/work', origin: 'agent',
+        actions: [{ type: 'unknown', command: 'pnpm test' }], status: 'failed', exitCode: 1, output: 'failed',
+      } as never,
+      { id: 'answer-1', type: 'assistantMessage', text: 'I found the cause.', phase: 'final' } as never,
+    ],
+  }
+  const session = {
+    id: sessionId('session-1'),
+    runtime: runtimeId('codex'),
+    cwd: '/work',
+    status: { type: 'idle' },
+    createdAt: completedAt - 60_000,
+    updatedAt: completedAt,
+    turns: [turn],
+    itemsLoaded: true,
+    usage: {
+      total: { totalTokens: 2400, inputTokens: 2000, cachedInputTokens: 1800, cacheWriteTokens: 100, outputTokens: 400, reasoningOutputTokens: 0 },
+      last: { totalTokens: 1200, inputTokens: 1000, cachedInputTokens: 900, cacheWriteTokens: 100, outputTokens: 200, reasoningOutputTokens: 0 },
+    },
+  } as Session
+  const snapshot = emptySnapshot()
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    queue: vi.fn(),
+    notice: vi.fn(),
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnTail turn={turn} session={session} answer="I found the cause." />
+      </StoreProvider>,
+    )
+  })
+
+  expect(container.textContent).not.toContain('1 command')
+  expect(container.textContent).not.toContain('1 step failed')
+  expect(container.querySelector('[data-testid="turn-time"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Copy this message"]')).not.toBeNull()
+
+  const time = container.querySelector('[data-testid="turn-time"]')
+  act(() => {
+    ;(time as HTMLElement | null)?.focus()
+    vi.advanceTimersByTime(1000)
+  })
+  expect(document.body.textContent).toContain('1 step · 25.0s · 1K in · 200 out · 90% cached')
 })
