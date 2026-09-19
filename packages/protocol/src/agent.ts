@@ -295,6 +295,13 @@ export interface SeatPlan {
    * `candidates` is empty and `winner` null.
    */
   readonly blocked: string | null
+  /**
+   * The Agent's own `prefer`, weighed against the same readings, when this
+   * machine's seats replace it here (`from: 'machine'`) — what its page lists
+   * under *Seats*, muted, beside the list in force. Absent otherwise: when
+   * `prefer` is the list in force, `candidates` already is it.
+   */
+  readonly own?: readonly SeatCandidate[]
 }
 
 /** One thing wrong with this machine's seating file, and whose entry it is in. */

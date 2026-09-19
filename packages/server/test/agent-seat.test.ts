@@ -3132,7 +3132,10 @@ test('an entry this machine cannot read refuses the seating — never the prefer
   )
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
-  assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  const { own, ...rest } = plan!
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  // The list it replaced here is still weighed, for the Agent's page.
+  assert.deepEqual(own?.map((one) => one.label), ['claude · opus-5'])
 })
 
 /**
@@ -3317,5 +3320,42 @@ test('a seating.json that cannot be read at all refuses the seating in one sente
   )
   untouched(seen)
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
-  assert.deepEqual(plan, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  const { own, ...rest } = plan!
+  assert.deepEqual(rest, { id: 'reviewer', from: 'machine', candidates: [], winner: null, blocked: why })
+  // A whole-file problem still leaves this Agent's own prefer weighed, exactly
+  // as one entry that alone cannot be read does — nobody can tell whether the
+  // file would have replaced it, so it is treated as if it would.
+  assert.deepEqual(own?.map((one) => one.label), ['claude · opus-5'])
+})
+
+/*
+ * An Agent's page shows its own list beside this Mac's, so the dry run weighs
+ * `prefer` too whenever this Mac's seats replace it — against the same
+ * readings, opening nothing — and only then.
+ */
+
+test("an Agent this Mac seats otherwise still has its own list weighed, for its page", async () => {
+  const seen = await rig(
+    'claude=opus-5',
+    {
+      claude: { name: 'Claude', models: ['opus-5'] },
+      cursor: { name: 'Cursor', models: ['gemini-3.8-flash'], signedOut: true },
+    },
+    { machine: JSON.stringify({ reviewer: ['cursor=gemini-3.8-flash'] }) },
+  )
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'machine')
+  assert.deepEqual(
+    plan?.candidates.map((one) => [one.label, one.state]),
+    [['Cursor · gemini-3.8-flash', 'passed']],
+  )
+  assert.deepEqual(plan?.own?.map((one) => [one.label, one.state]), [['Claude · opus-5', 'taken']])
+  untouched(seen)
+})
+
+test('an Agent whose own list is the one in force is weighed once', async () => {
+  const seen = await rig('claude=opus-5', { claude: { name: 'Claude', models: ['opus-5'] } })
+  const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
+  assert.equal(plan?.from, 'prefer')
+  assert.equal(plan !== undefined && 'own' in plan, false)
 })

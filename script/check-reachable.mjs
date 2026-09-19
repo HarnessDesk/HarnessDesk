@@ -60,12 +60,8 @@ const UNREACHED = {
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
   'agent/seating/read':
-    "likewise — an Agent's page reads this machine's seats for it, in the second half of the same phase",
-  'agent/seating/set': 'likewise — the same page edits them',
+    "likewise — On this Mac (Task 16) reads this machine's seats for it, in the second half of the same phase",
   'agent/create': 'likewise — Save as an Agent, in a conversation’s menu, is the second half of the same phase',
-  'agent/copy': "likewise — an Agent's page offers Customize…",
-  'agent/remove': "likewise — an Agent's page offers Remove…",
-  'agent/reveal': "likewise — an Agent's page offers Reveal",
 }
 
 /**

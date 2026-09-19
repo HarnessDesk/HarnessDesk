@@ -132,10 +132,12 @@ it('shows the overview when nothing is selected, and a placeholder once an Agent
   expect(onFocus).toHaveBeenCalledWith('code-reviewer')
 })
 
-it('a selected Agent gets a placeholder page naming it, not the overview', () => {
+it('a selected Agent gets its own page, not the overview', () => {
   mount('code-reviewer')
   expect(container.textContent).not.toContain('Who does the work')
-  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Code reviewer')
+  // The Agent's own page (Task 15) — a drill, not a settings section: no page title, its name in the head instead.
+  expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
+  expect(container.textContent).toContain('Code reviewer does the work.')
 })
 
 it('wears a state mark for an Agent that will not parse', () => {

@@ -90,6 +90,19 @@ export const fileWords = (
   home: string,
 ): string => (entry.origin === 'builtin' ? `HarnessDesk › agents/${entry.id}/AGENT.md` : shortPath(entry.path, home))
 
+/**
+ * Whether an entry names a real Agent folder — `<tier>/<id>/AGENT.md` — rather
+ * than the placeholder a project's own unreadable Agent directory becomes
+ * (`.harnessdesk/agents`: an id naming the directory itself, and a path that
+ * *is* that directory, never a file inside it). No file action belongs on the
+ * placeholder: there is no folder by that name to remove, customize or reveal
+ * — the host refuses those too (`listedAgentPath` in `methods/agents.ts`), but
+ * an Agent's page must not rely on that to withhold the buttons in the first
+ * place.
+ */
+export const isAgentFolder = (entry: { readonly id: string; readonly path: string }): boolean =>
+  entry.path.endsWith(`/${entry.id}/AGENT.md`)
+
 /** A brief's opening paragraph, on one line: what a page shows before *Open in editor*. */
 export const firstParagraph = (brief: string): string =>
   (brief.trim().split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim()
@@ -463,3 +476,29 @@ export const passedWords = (candidate: SeatCandidate): string => {
     .join('. ')
   return `${candidate.label} — ${why}`
 }
+
+/* --- an Agent's page ------------------------------------------------------- */
+
+/** A candidate's state on this Mac, as its row on an Agent's page says it. */
+export const stateWords = (candidate: SeatCandidate): string => {
+  if (candidate.state === 'taken') return 'The seat it takes here'
+  if (candidate.state === 'untried') return 'Not reached: a seat before it is free'
+  return candidate.reason ? reasonWords(candidate.reason, candidate.runtimeName) : 'Passed over'
+}
+
+/** Words an Agent's file lists — its verdicts, what it produces — as a person reads them. */
+export const wordList = (words: readonly string[]): string =>
+  words.length === 0 ? 'None' : words.map(wordOf).join(' · ')
+
+/** What an Agent in force comes first over, in a sentence; null when it hides nothing. */
+export const shadowWords = (entry: AgentEntry): string | null =>
+  entry.shadows.length === 0
+    ? null
+    : `Comes first over ${entry.shadows.map((one) => (one.origin === 'builtin' ? 'the one that ships' : 'yours')).join(' and ')}`
+
+/**
+ * Where *Customize…* may copy an Agent: only somewhere that comes before it,
+ * the project first — a copy anywhere else would be shadowed by what it copies.
+ */
+export const copyTargets = (origin: AgentOrigin, project: boolean): readonly ('user' | 'project')[] =>
+  origin === 'builtin' ? (project ? ['project', 'user'] : ['user']) : origin === 'user' && project ? ['project'] : []

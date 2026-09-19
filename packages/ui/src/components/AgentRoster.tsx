@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+
 import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
 
 import {
@@ -15,7 +17,8 @@ import { shortPath } from '../lib/paths'
 import type { AppSnapshot } from '../state/store'
 import { useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { Chip, Note, PageHead, Row, RowValue, Rows, SectionHead } from '../design'
+import { AgentPage } from './AgentPage'
+import { Chip, Note, PageHead, Row, RowButton, RowValue, Rows, SectionHead } from '../design'
 import styles from './AgentRoster.module.css'
 
 /**
@@ -67,12 +70,47 @@ const footnote = (origin: AgentOrigin, snapshot: AppSnapshot): string => {
   return `Read from ${folder ? shortPath(folder, snapshot.home) : 'the project'}, and committed with the code: everyone who clones it has these.`
 }
 
-export const AgentsRosterSection = () => {
+export const AgentsRosterSection = ({
+  focus = null,
+  onLeave = () => {},
+  onFocus,
+}: {
+  /** An Agent to open on — *Open <Agent> in Settings*, the refusal sheet's *Edit seats for this Mac*, the rail. */
+  readonly focus?: string | null
+  /** Closes the Agents window, for what an Agent's page opens behind it. */
+  readonly onLeave?: () => void
+  /**
+   * Tells the caller which Agent is open now, so the rail this section is
+   * shown beside (`AgentsWindow`) can keep its own selection in step with a
+   * row pressed here, or with *Back*. Optional: this section owns its own
+   * open/closed state either way, which is what makes it — and this file's
+   * own tests — usable with no window around it at all.
+   */
+  readonly onFocus?: (id: string | null) => void
+}) => {
   const snapshot = useSnapshot()
+  const [open, setOpen] = useState<string | null>(focus)
+  useEffect(() => {
+    setOpen(focus)
+  }, [focus])
 
   const agents = snapshot.agents ?? []
   const project = projectName(snapshot.workspace)
   const sections = bySection(agents)
+  const opened = open ? agents.find((one) => one.id === open) : undefined
+  if (opened) {
+    return (
+      <AgentPage
+        key={opened.id}
+        entry={opened}
+        onBack={() => {
+          setOpen(null)
+          onFocus?.(null)
+        }}
+        onLeave={onLeave}
+      />
+    )
+  }
 
   return (
     <>
@@ -91,14 +129,21 @@ export const AgentsRosterSection = () => {
             <Rows>
               {rows.length === 0 && shadowed.length === 0 && <Row title={EMPTY[origin]} />}
               {rows.map((entry) => (
-                <AgentRow key={entry.id} entry={entry} />
+                <AgentRow
+                  key={entry.id}
+                  entry={entry}
+                  onOpen={() => {
+                    setOpen(entry.id)
+                    onFocus?.(entry.id)
+                  }}
+                />
               ))}
               {shadowed.map(({ winner, path }) => (
                 <Row
                   key={path}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
-                  control={<RowValue className={styles.refused}>Shadowed</RowValue>}
+                  control={<RowValue className="text-(--hd-warning-ink)">Shadowed</RowValue>}
                 />
               ))}
             </Rows>
@@ -110,17 +155,18 @@ export const AgentsRosterSection = () => {
   )
 }
 
-/** One Agent in force, or one whose file will not parse. */
-const AgentRow = ({ entry }: { readonly entry: AgentEntry }) => {
+/** One Agent in force, or one whose file will not parse — each a way into its page. */
+export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
   const snapshot = useSnapshot()
   const definition = entry.definition
   if (!definition) {
     const problem = entry.problems.find((one) => one.level === 'error')
     return (
-      <Row
+      <RowButton
         title={entry.id}
         desc={problem ? `${problem.at} — ${problem.text}` : 'Its file could not be read.'}
         control={<Chip state="broken" label="Will not parse" />}
+        onClick={onOpen}
       />
     )
   }
@@ -128,26 +174,27 @@ const AgentRow = ({ entry }: { readonly entry: AgentEntry }) => {
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
   return (
-    <Row
+    <RowButton
       title={definition.name}
       {...(definition.description ? { desc: definition.description } : {})}
       control={
-        <span className={styles.facts}>
+        <span className={`${styles.facts} text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-secondary-foreground)`}>
           <span title={ceilingMeaning(definition.permission)}>{ceilingWords(definition.permission)}</span>
           {seat ? (
-            <span className={styles.seat}>
+            <span className={`${styles.seat} text-(--hd-foreground)`}>
               <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />
               {seat.label}
             </span>
           ) : plan ? (
-            <span className={styles.refused}>Can't seat here{reason ? ` · ${reason}` : ''}</span>
+            <span className="text-(--hd-warning-ink)">Can't seat here{reason ? ` · ${reason}` : ''}</span>
           ) : snapshot.agentPlansFailed ? (
-            <span className={styles.refused}>Its seats could not be checked</span>
+            <span className="text-(--hd-warning-ink)">Its seats could not be checked</span>
           ) : (
             <span>Checking seats…</span>
           )}
         </span>
       }
+      onClick={onOpen}
     />
   )
 }

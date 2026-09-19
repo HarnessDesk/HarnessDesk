@@ -4,9 +4,6 @@
   flex-direction: column;
   align-items: flex-end;
   gap: var(--hd-space-1);
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
   text-align: right;
 }
 
@@ -14,10 +11,4 @@
   display: inline-flex;
   align-items: center;
   gap: var(--hd-space-1);
-  color: var(--hd-foreground);
-}
-
-/* Refused, and staying: the reason is on screen, in the tone of a doubt rather than a failure. */
-.refused {
-  color: var(--hd-warning-ink);
 }

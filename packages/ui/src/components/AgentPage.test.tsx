@@ -1,0 +1,376 @@
+import { act } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+
+import {
+  runtimeId,
+  sessionKey,
+  type AgentEntry,
+  type RuntimeInfo,
+  type SeatCandidate,
+  type SeatPlan,
+} from '@harnessdesk/protocol'
+
+import { StoreProvider } from '../state/context'
+import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AgentsRosterSection } from './AgentRoster'
+
+/**
+ * An Agent's page: where it comes from, what it may do, the seats it asks for
+ * and their state on this Mac, what it hands back, and its brief — with
+ * starting it, customizing it and removing it.
+ */
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+let container: HTMLDivElement
+let root: Root
+beforeEach(() => {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+})
+afterEach(() => {
+  act(() => root.unmount())
+  container.remove()
+})
+
+const agent = (id: string, name: string, origin: AgentEntry['origin'], over: Partial<AgentEntry> = {}): AgentEntry => ({
+  id,
+  origin,
+  path:
+    origin === 'user'
+      ? `/Users/dev/.harnessdesk/agents/${id}/AGENT.md`
+      : origin === 'project'
+        ? `/w/storefront/.harnessdesk/agents/${id}/AGENT.md`
+        : `/app/agents/${id}/AGENT.md`,
+  digest: 'd',
+  shadows: [],
+  problems: [],
+  definition: {
+    id,
+    name,
+    description: `${name} does the work.`,
+    permission: 'read',
+    answers: ['approve', 'request-changes'],
+    produces: ['review'],
+    skills: ['checkout-rules'],
+    prefer: [{ runtime: 'claude-code' }],
+    brief: 'You review a change.\nSomebody else wrote it.\n\n## How to report\n\nFindings first.',
+  },
+  ...over,
+})
+
+const EXACT_SEAT = agent('exact', 'Exact', 'builtin')
+
+const ROSTER: readonly AgentEntry[] = [
+  agent('code-reviewer', 'Code reviewer', 'project', {
+    shadows: [{ origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' }],
+  }),
+  agent('scout', 'Scout', 'user'),
+  agent('judge', 'Judge', 'builtin'),
+  agent('draft', 'draft', 'user', {
+    definition: null,
+    problems: [{ level: 'error', at: 'permission', text: '"admin" is not a permission — it is read, publish or merge' }],
+  }),
+  // Correction 2: a built-in Agent whose own prefer names an exact seat —
+  // Customize to the project is greyed, never withdrawn.
+  { ...EXACT_SEAT, definition: { ...EXACT_SEAT.definition!, prefer: [{ runtime: 'claude-code', model: 'opus-5' }] } },
+  // Correction 3: not a real Agent folder at all — the placeholder a
+  // project's own unreadable Agent directory becomes (Task 9's
+  // `unreadDirectory`): an id naming the directory, and a path that is the
+  // directory itself, never a file inside it.
+  {
+    id: '.harnessdesk/agents',
+    origin: 'project',
+    path: '/w/storefront/.harnessdesk/agents',
+    digest: null,
+    shadows: [],
+    problems: [{ level: 'error', at: '.harnessdesk/agents', text: 'this directory could not be read — EACCES: permission denied' }],
+    definition: null,
+  },
+]
+
+const candidate = (
+  runtime: string,
+  label: string,
+  state: SeatCandidate['state'],
+  over: Partial<SeatCandidate> = {},
+): SeatCandidate => ({ seat: { runtime }, label, runtimeName: label.split(' · ')[0]!, state, reason: null, fix: null, ...over })
+
+const PLANS = new Map<string, SeatPlan>([
+  [
+    'judge',
+    {
+      id: 'judge',
+      from: 'prefer',
+      winner: 1,
+      blocked: null,
+      candidates: [
+        candidate('cursor', 'Cursor', 'passed', { reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } }),
+        candidate('claude-code', 'Claude · Opus 5 · High', 'taken'),
+      ],
+    },
+  ],
+  [
+    'code-reviewer',
+    {
+      id: 'code-reviewer',
+      from: 'machine',
+      winner: 0,
+      blocked: null,
+      candidates: [candidate('codex', 'Codex · GPT-5.6 Sol', 'taken')],
+      own: [candidate('claude-code', 'Claude', 'taken')],
+    },
+  ],
+  ['scout', { id: 'scout', from: 'prefer', winner: 0, blocked: null, candidates: [candidate('claude-code', 'Claude', 'taken')] }],
+])
+
+const COPY: AgentEntry = { ...ROSTER[2]!, origin: 'user', path: '/Users/dev/.harnessdesk/agents/judge/AGENT.md' }
+
+const mount = (props: { readonly focus?: string } = {}) => {
+  const onLeave = vi.fn()
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    home: '/Users/dev',
+    stateDir: '/Users/dev/.harnessdesk',
+    workspace: { path: '/w/storefront', name: 'storefront', lastOpenedAt: 1 },
+    runtimes: [{ id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' } } as unknown as RuntimeInfo],
+    agents: ROSTER,
+    agentsProject: '/w/storefront',
+    agentPlans: PLANS,
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    loadAgents: vi.fn(async () => {}),
+    openFile: vi.fn(),
+    revealAgent: vi.fn(async () => {}),
+    customizeAgent: vi.fn(async () => COPY),
+    trashAgent: vi.fn(async () => {}),
+    clearMachineSeats: vi.fn(async () => {}),
+    startAsAgent: vi.fn(async () => sessionKey(runtimeId('claude-code'), 's1')),
+    askSeatFix: vi.fn(),
+    askSettings: vi.fn(),
+  } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentsRosterSection {...props} onLeave={onLeave} />
+      </StoreProvider>,
+    )
+  })
+  return { store, onLeave }
+}
+
+const button = (label: string): HTMLButtonElement => {
+  const found = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no button reading “${label}”`)
+  return found
+}
+const hasButton = (label: string): boolean =>
+  [...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === label)
+const rowFor = (name: string): HTMLButtonElement => {
+  const found = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith(name))
+  if (!found) throw new Error(`no roster row for ${name}`)
+  return found
+}
+const settle = () => act(async () => {})
+
+it('opens from its roster row, names its file, and opens or reveals it', () => {
+  const { store, onLeave } = mount()
+  act(() => rowFor('Judge').click())
+  expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
+  expect(hasButton('Agents')).toBe(true)
+  const text = container.textContent ?? ''
+  expect(text).toContain('Judge does the work.')
+  expect(text).toContain('HarnessDesk › agents/judge/AGENT.md')
+  act(() => button('Reveal').click())
+  expect(store.revealAgent).toHaveBeenCalledWith('judge', 'builtin')
+  act(() => button('Open file').click())
+  expect(store.openFile).toHaveBeenCalledWith('/app/agents/judge/AGENT.md')
+  expect(onLeave).toHaveBeenCalled()
+})
+
+it('opens on the Agent Settings was asked for, and goes back to the roster', () => {
+  mount({ focus: 'scout' })
+  expect(container.textContent).toContain('Scout does the work.')
+  act(() => button('Agents').click())
+  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
+})
+
+it('says its ceiling is asked, and lists each seat with its state here and the fix for one that fails', () => {
+  const { store } = mount({ focus: 'judge' })
+  const text = container.textContent ?? ''
+  expect(text).toContain('Read · asked')
+  expect(text).toContain('Cursor is signed out')
+  expect(text).toContain('The seat it takes here')
+  act(() => button('Sign in to Cursor').click())
+  expect(store.askSeatFix).toHaveBeenCalledWith({ kind: 'signIn', runtime: 'cursor' }, 'judge')
+})
+
+it('lists its own seats, muted, where this Mac’s replace them', () => {
+  mount({ focus: 'code-reviewer' })
+  const text = container.textContent ?? ''
+  expect(text).toContain('Not used on this Mac')
+  expect(text).toContain('Free here')
+  expect(text).toContain('Comes first over the one that ships')
+})
+
+it('shows what it answers, produces and uses, and a skill opens the Library', () => {
+  const { store } = mount({ focus: 'judge' })
+  const text = container.textContent ?? ''
+  expect(text).toContain('Approve · Request changes')
+  expect(text).toContain('Review')
+  act(() => button('checkout-rules').click())
+  expect(store.askSettings).toHaveBeenCalledWith('library')
+})
+
+it('opens on the brief’s first paragraph, and opens the rest in the editor', () => {
+  const { store, onLeave } = mount({ focus: 'judge' })
+  expect(container.textContent).toContain('You review a change. Somebody else wrote it.')
+  expect(container.textContent).not.toContain('Findings first.')
+  act(() => button('Open in editor').click())
+  expect(store.openFile).toHaveBeenCalledWith('/app/agents/judge/AGENT.md')
+  expect(onLeave).toHaveBeenCalled()
+})
+
+it('starts a conversation as it, and leaves the window once one is open', async () => {
+  const { store, onLeave } = mount({ focus: 'judge' })
+  act(() => button('Start a conversation as Judge').click())
+  await settle()
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge')
+  expect(onLeave).toHaveBeenCalled()
+})
+
+it('customizes a built-in into yours or the project’s, then opens the copy', async () => {
+  const { store, onLeave } = mount({ focus: 'judge' })
+  expect(hasButton('Remove…')).toBe(false)
+  act(() => button('Customize…').click())
+  const choices = [...document.body.querySelectorAll('[role="radio"]')].map((one) => one.textContent ?? '')
+  expect(choices[0]).toContain('For storefront')
+  expect(choices[1]).toContain('For you')
+  act(() => (document.body.querySelectorAll('[role="radio"]')[1] as HTMLButtonElement).click())
+  act(() => button('Copy and open').click())
+  await settle()
+  expect(store.customizeAgent).toHaveBeenCalledWith('judge', 'builtin', 'user')
+  expect(store.openFile).toHaveBeenCalledWith(COPY.path)
+  expect(onLeave).toHaveBeenCalled()
+})
+
+it('removes one of yours to the Trash, after asking, and goes back to the roster', async () => {
+  const { store } = mount({ focus: 'scout' })
+  act(() => button('Remove…').click())
+  act(() => button('Move to Trash').click())
+  await settle()
+  expect(store.trashAgent).toHaveBeenCalledWith('scout', 'user')
+  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
+})
+
+it('opens a file that will not parse on why, with nothing to start', () => {
+  mount({ focus: 'draft' })
+  const text = container.textContent ?? ''
+  expect(text).toContain('Why it will not parse')
+  expect(text).toContain('"admin" is not a permission')
+  expect(hasButton('Start a conversation as draft')).toBe(false)
+  expect(hasButton('Remove…')).toBe(true)
+})
+
+/*
+ * Correction 2: Customize to the project is refused, server-side, for an
+ * Agent whose own seats name a model, an effort or thinking (the Task 9 fix,
+ * H6). `copyTargets` still offers the option; the page greys it instead of
+ * withdrawing it, with the reason on screen, and never submits it.
+ */
+it('greys Copy to the project, with the reason on screen, when the Agent’s own seats name a model — never withdrawn', () => {
+  mount({ focus: 'exact' })
+  act(() => button('Customize…').click())
+  const radios = [...document.body.querySelectorAll('[role="radio"]')]
+  expect(radios).toHaveLength(2)
+  const project = radios.find((one) => one.textContent?.includes('For storefront'))!
+  expect(project.textContent).toContain('Its seats name models, and a project’s Agent names runtimes only.')
+  expect(project).toHaveProperty('disabled', true)
+  // The dialog opens on a target it can actually submit, not the greyed one.
+  expect(button('Copy and open')).not.toHaveProperty('disabled', true)
+})
+
+/*
+ * Correction 3: the placeholder entry for a project's own unreadable Agent
+ * directory is not a real Agent folder — no file to open, reveal, copy or
+ * remove — and the page must withhold those on its own rather than lean on
+ * the host's refusal.
+ */
+it('offers no file action on a placeholder that is not a real Agent folder, and says why it cannot be read', () => {
+  mount({ focus: '.harnessdesk/agents' })
+  const text = container.textContent ?? ''
+  expect(text).toContain('this directory could not be read')
+  expect(hasButton('Open file')).toBe(false)
+  expect(hasButton('Reveal')).toBe(false)
+  expect(hasButton('Customize…')).toBe(false)
+  expect(hasButton('Remove…')).toBe(false)
+  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.startsWith('Start a conversation'))).toBe(
+    false,
+  )
+})
+
+/*
+ * Correction 4: Remove says what it does — naming the folder — and, only
+ * when this Mac's own seating.json has an entry for this id (`plan.from ===
+ * 'machine'`, the same signal the dry run itself uses), offers to clear it
+ * too, unchecked by default, calling `agent/seating/set` with null once the
+ * Remove itself has succeeded.
+ */
+it('names the folder on Remove, and — only when this Mac has seats for it — offers to clear them too, after the Remove succeeds', async () => {
+  const { store } = mount({ focus: 'code-reviewer' })
+  act(() => button('Remove…').click())
+  expect(document.body.textContent).toContain('/w/storefront/.harnessdesk/agents/code-reviewer/AGENT.md')
+  const checkbox = document.body.querySelector('[data-slot="checkbox"]')
+  expect(checkbox).not.toBeNull()
+  expect(checkbox).toHaveProperty('ariaChecked', 'false')
+  act(() => (checkbox as HTMLElement).click())
+  act(() => button('Move to Trash').click())
+  await settle()
+  expect(store.trashAgent).toHaveBeenCalledWith('code-reviewer', 'project')
+  expect(store.clearMachineSeats).toHaveBeenCalledWith('code-reviewer')
+})
+
+it('offers no checkbox to clear this Mac’s seats when it has none for this Agent', async () => {
+  const { store } = mount({ focus: 'scout' })
+  act(() => button('Remove…').click())
+  expect(document.body.querySelector('[data-slot="checkbox"]')).toBeNull()
+  act(() => button('Move to Trash').click())
+  await settle()
+  expect(store.clearMachineSeats).not.toHaveBeenCalled()
+})
+
+/*
+ * Correction 5: a refusal from the host is shown in the dialog that asked,
+ * as its own sentence, and nothing closes or navigates on it.
+ */
+it('shows Customize’s own refusal in its dialog, and neither closes nor opens anything', async () => {
+  const { store, onLeave } = mount({ focus: 'judge' })
+  store.customizeAgent = vi.fn(async () => {
+    throw new Error('A copy in your Agents would be shadowed by the built-in “judge” already there — remove or rename it first.')
+  })
+  act(() => button('Customize…').click())
+  act(() => button('Copy and open').click())
+  await settle()
+  expect(document.body.textContent).toContain('would be shadowed by the built-in')
+  expect(store.openFile).not.toHaveBeenCalled()
+  expect(onLeave).not.toHaveBeenCalled()
+  // Still open: the choices are still on screen.
+  expect(hasButton('Cancel')).toBe(true)
+})
+
+it('shows Remove’s own refusal in its dialog on a server-only host, and stays on the page', async () => {
+  const { store } = mount({ focus: 'scout' })
+  store.trashAgent = vi.fn(async () => {
+    throw new Error('Moving an Agent to the Trash needs the desktop app.')
+  })
+  act(() => button('Remove…').click())
+  act(() => button('Move to Trash').click())
+  await settle()
+  expect(document.body.textContent).toContain('needs the desktop app')
+  expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
+  expect(hasButton('Keep')).toBe(true)
+})

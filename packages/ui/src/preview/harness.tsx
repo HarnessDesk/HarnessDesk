@@ -659,7 +659,32 @@ const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
 })
 
 export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
-  ['code-reviewer', takenOn('code-reviewer', 'claude', 'Beta · Opus · High')],
+  [
+    'code-reviewer',
+    {
+      id: 'code-reviewer',
+      from: 'machine',
+      winner: 0,
+      blocked: null,
+      candidates: [
+        {
+          seat: { runtime: 'claude', model: 'opus', effort: 'high' },
+          label: 'Beta · Opus · High',
+          runtimeName: 'Beta',
+          state: 'taken',
+          reason: null,
+          fix: null,
+        },
+      ],
+      // Its own `prefer`, weighed the same way, muted on its page since this
+      // Mac's seats above replace it here.
+      own: [
+        { seat: { runtime: 'claude' }, label: 'Beta', runtimeName: 'Beta', state: 'taken', reason: null, fix: null },
+        { seat: { runtime: 'codex' }, label: 'Alpha', runtimeName: 'Alpha', state: 'untried', reason: null, fix: null },
+        { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'untried', reason: null, fix: null },
+      ],
+    },
+  ],
   ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
   ['implementer', takenOn('implementer', 'claude', 'Beta')],
   [
@@ -672,6 +697,13 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       candidates: [
         { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
         { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
+      ],
+      // Its own `prefer`, muted on its page since this Mac's seats replace it
+      // here too — a `from: 'machine'` plan always carries one.
+      own: [
+        { seat: { runtime: 'claude' }, label: 'Beta', runtimeName: 'Beta', state: 'taken', reason: null, fix: null },
+        { seat: { runtime: 'codex' }, label: 'Alpha', runtimeName: 'Alpha', state: 'untried', reason: null, fix: null },
+        { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'untried', reason: null, fix: null },
       ],
     },
   ],

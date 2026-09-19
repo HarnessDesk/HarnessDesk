@@ -94,20 +94,23 @@ export const agentMethods = {
       const entry = roster.find((one) => one.id === id)
       if (!entry) return { plan: blockedPlan(id, `No Agent called “${id}”.`) }
       if (!entry.definition || entry.digest === null) return { plan: blockedPlan(id, unusable(entry)) }
-      const list = candidatesFor(entry.definition, machine)
-      if ('refused' in list) return { plan: blockedPlan(id, list.refused, 'machine') }
-      return { id, list }
+      return { id, list: candidatesFor(entry.definition, machine), prefer: entry.definition.prefer }
     })
+    // Every runtime either list names, read once: the Agent's own list is only weighed beside this Mac's.
     const desk = await readDesk(
       ctx,
-      weighed.flatMap((one) => ('list' in one ? one.list.seats : [])),
+      weighed.flatMap((one) => ('list' in one ? [...('seats' in one.list ? one.list.seats : []), ...one.prefer] : [])),
     )
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
-    return weighed.map((one) =>
-      'plan' in one
-        ? one.plan
-        : planSeats(one.id, one.list.seats, desk.offers, words, one.list.from === 'machine' ? 'machine' : 'prefer'),
-    )
+    return weighed.map((one): SeatPlan => {
+      if ('plan' in one) return one.plan
+      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer').candidates
+      if ('refused' in one.list) return { ...blockedPlan(one.id, one.list.refused, 'machine'), own: own() }
+      if (one.list.from === 'machine') {
+        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine'), own: own() }
+      }
+      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer')
+    })
   },
 
   /**
@@ -585,13 +588,20 @@ const savedFieldMismatch = (
 
 /**
  * One Agent, weighed for `agent/seat/dry`: already blocked, or a candidate
- * list still waiting on the desk's own reads. Given its own name rather than
- * inferred, so the union stays the one written here — combining these two
- * shapes through plain, unannotated return statements pads each with the
- * other's keys as optional `undefined`, which defeats the `'plan' in one` /
- * `'list' in one` checks below that tell them apart.
+ * list still waiting on the desk's own reads, with its own `prefer` beside it
+ * — read once here, whether or not it ends up weighed as `own`. Given its own
+ * name rather than inferred, so the union stays the one written here —
+ * combining these two shapes through plain, unannotated return statements
+ * pads each with the other's keys as optional `undefined`, which defeats the
+ * `'plan' in one` / `'list' in one` checks below that tell them apart.
  */
-type Weighed = { readonly plan: SeatPlan } | { readonly id: AgentId; readonly list: CandidateList }
+type Weighed =
+  | { readonly plan: SeatPlan }
+  | {
+      readonly id: AgentId
+      readonly list: CandidateList | { readonly refused: string }
+      readonly prefer: readonly FlowSeat[]
+    }
 
 /**
  * A registry snapshot's name for an id, worth showing: never blank or

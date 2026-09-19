@@ -535,3 +535,28 @@ it('a read that fails leaves the Agent unread, rather than saying it is gone', a
   // Still unread — not `null`, which would say the Agent is gone.
   expect(store.getSnapshot().seatAgents.has(seatAgentKey('/w/storefront', 'code-reviewer'))).toBe(false)
 })
+
+it('customizing and removing read the roster again, and say why when the host refuses', async () => {
+  const copy = { ...ENTRY, origin: 'user' as const, path: '/u/.harnessdesk/agents/code-reviewer/AGENT.md' }
+  answering({
+    'agent/list': () => [copy],
+    // loadAgents() below draws a dry run too; this test cares about neither its shape nor its content.
+    'agent/seat/dry': () => [],
+    'agent/copy': () => copy,
+    'agent/remove': () => {
+      throw new Error('Moving an Agent to the Trash needs the desktop app.')
+    },
+  })
+  await store.openWorkspace(WORKSPACE.path)
+  await store.loadAgents()
+  asked.length = 0
+  expect(await store.customizeAgent('code-reviewer', 'builtin', 'user')).toEqual(copy)
+  expect(asked.find((one) => one.method === 'agent/copy')?.params).toEqual({
+    id: 'code-reviewer',
+    from: 'builtin',
+    to: 'user',
+    project: WORKSPACE.path,
+  })
+  await vi.waitFor(() => expect(asked.some((one) => one.method === 'agent/list')).toBe(true))
+  await expect(store.trashAgent('code-reviewer', 'user')).rejects.toThrow('needs the desktop app')
+})

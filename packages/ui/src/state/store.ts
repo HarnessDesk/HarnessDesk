@@ -11,6 +11,7 @@ import {
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
+  type AgentOrigin,
   type ApprovalDecision,
   type ApprovalId,
   type CapabilityContribution,
@@ -3842,6 +3843,49 @@ export class AppStore {
   /** Puts the refusal sheet away. */
   dismissSeatRefusal(): void {
     this.#patch({ seatRefusal: null })
+  }
+
+  /** Shows the file an Agent comes from in the file browser — the copy at `origin`, or the one in force. */
+  async revealAgent(id: string, origin?: AgentOrigin): Promise<void> {
+    const project = this.#snapshot.agentsProject
+    try {
+      await this.transport.request('agent/reveal', { id, ...(origin ? { origin } : {}), ...(project ? { project } : {}) })
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
+  }
+
+  /**
+   * *Customize…*: copies an Agent to you or to the project, where the copy
+   * comes first, and answers the copy. Throws the host's refusal, for the
+   * dialog that asked to say.
+   */
+  async customizeAgent(id: string, from: AgentOrigin, to: 'user' | 'project'): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const copy = await this.transport.request('agent/copy', { id, from, to, ...(project ? { project } : {}) })
+    void this.loadAgents()
+    return copy
+  }
+
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Throws the host's refusal. */
+  async trashAgent(id: string, origin: 'user' | 'project'): Promise<void> {
+    const project = this.#snapshot.agentsProject
+    await this.transport.request('agent/remove', { id, origin, ...(project ? { project } : {}) })
+    void this.loadAgents()
+  }
+
+  /**
+   * Clears this Mac's seats for an Agent id — the *Also clear this Mac's
+   * seats* checkbox on *Remove…*, called once the Agent itself is gone. A
+   * failure here is a notice, not a reason to undo a Remove that already
+   * succeeded.
+   */
+  async clearMachineSeats(id: string): Promise<void> {
+    try {
+      await this.transport.request('agent/seating/set', { id, seats: null })
+    } catch (error) {
+      this.notice('warning', describe(error))
+    }
   }
 
   /** Agent reads in flight, by `seatAgentKey`, so one conversation drawn in three places asks once. */

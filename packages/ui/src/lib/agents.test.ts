@@ -8,6 +8,7 @@ import {
   blockedWords,
   bySection,
   ceilingWords,
+  copyTargets,
   fileWords,
   firstParagraph,
   firstReason,
@@ -23,6 +24,9 @@ import {
   refusalOf,
   seatCautions,
   seatTaken,
+  shadowWords,
+  stateWords,
+  wordList,
   wordOf,
 } from './agents'
 
@@ -412,5 +416,34 @@ describe('a conversation seated as an Agent, in words', () => {
     ).toBe(
       'Gemini CLI — Gemini CLI opened it at Low effort, instead of High. Gemini CLI may keep the empty conversation it opened — it was put here',
     )
+  })
+})
+
+describe('an Agent’s page in words', () => {
+  it('says each candidate’s state on this Mac', () => {
+    const [passed, taken] = plan().candidates
+    expect(stateWords(taken!)).toBe('The seat it takes here')
+    expect(stateWords(passed!)).toBe('Cursor is signed out')
+    expect(stateWords({ ...taken!, state: 'untried' })).toBe('Not reached: a seat before it is free')
+  })
+
+  it('reads an Agent’s own words as words', () => {
+    expect(wordList(['approve', 'request-changes'])).toBe('Approve · Request changes')
+    expect(wordList([])).toBe('None')
+  })
+
+  it('says what a copy in force comes first over', () => {
+    expect(shadowWords(entry('a'))).toBeNull()
+    expect(
+      shadowWords(entry('a', { origin: 'project', shadows: [{ origin: 'user', path: '/u' }, { origin: 'builtin', path: '/b' }] })),
+    ).toBe('Comes first over yours and the one that ships')
+  })
+
+  it('copies only to somewhere that comes first', () => {
+    expect(copyTargets('builtin', true)).toEqual(['project', 'user'])
+    expect(copyTargets('builtin', false)).toEqual(['user'])
+    expect(copyTargets('user', true)).toEqual(['project'])
+    expect(copyTargets('user', false)).toEqual([])
+    expect(copyTargets('project', true)).toEqual([])
   })
 })

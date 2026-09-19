@@ -6,7 +6,7 @@ import { agentName, bySection, firstReason, originWords, projectName, seatTaken 
 import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavItem, WindowNavStateMark, WindowPage } from './AppWindow'
 import { BriefIcon } from './Icons'
-import { Dot, PageHead } from '../design'
+import { Dot } from '../design'
 import { AgentsRosterSection } from './AgentRoster'
 
 /**
@@ -16,8 +16,10 @@ import { AgentsRosterSection } from './AgentRoster'
  *
  * The rail is the roster: *All Agents* first (the overview, `focus === null`),
  * then the three sections precedence reads in, one row per Agent in force. A
- * row that cannot be seated here wears a state mark; Task 15 fills in what a
- * selected row's own page says.
+ * row that cannot be seated here wears a state mark. `AgentsRosterSection`
+ * owns whether the page shows the overview or a selected Agent's own page —
+ * `focus` only tells it where to start, and `onFocus` is how a row pressed
+ * there (or *Back*) keeps this rail's own selection in step.
  */
 export const AgentsWindow = ({
   focus,
@@ -42,7 +44,6 @@ export const AgentsWindow = ({
   const agents = snapshot.agents ?? []
   const project = projectName(snapshot.workspace)
   const sections = bySection(agents)
-  const selected = focus ? (agents.find((one) => one.id === focus) ?? null) : null
 
   return (
     <AppWindow label="Agents">
@@ -67,7 +68,9 @@ export const AgentsWindow = ({
             )
           })}
       </WindowNav>
-      <WindowPage>{selected ? <AgentPagePlaceholder entry={selected} /> : <AgentsRosterSection />}</WindowPage>
+      <WindowPage>
+        <AgentsRosterSection focus={focus} onLeave={onClose} onFocus={onFocus} />
+      </WindowPage>
     </AppWindow>
   )
 }
@@ -109,11 +112,3 @@ const AgentNavRow = ({
     />
   )
 }
-
-/** A selected Agent's page — a placeholder naming it, until Task 15 builds the real one. */
-const AgentPagePlaceholder = ({ entry }: { readonly entry: AgentEntry }) => (
-  <PageHead
-    title={agentName(entry)}
-    blurb={entry.definition?.description ?? 'Its page — what it is for, its files and its seats — is next.'}
-  />
-)

@@ -174,8 +174,7 @@ const Preview = () => {
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
   const [dialog, setDialog] = useState<'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet'>('off')
-  // The Agents window's own rail selection: the overview, or one Agent's
-  // placeholder page (Task 15 fills in the real one).
+  // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
@@ -305,8 +304,12 @@ const Preview = () => {
       <div className="my-4 flex flex-wrap items-center gap-3">
         <Dial
           label="agents focus"
+          // 'code-reviewer' shows both lists (this Mac's seats, muted beside its
+          // own); 'security-reviewer' a shipped Agent whose seats are refused;
+          // 'draft' one whose file will not parse — the frames the design bar
+          // asks an Agent's page be checked in (Task 15 correction 6).
           value={agentsFocus}
-          options={['overview', 'code-reviewer'] as const}
+          options={['overview', 'code-reviewer', 'security-reviewer', 'draft'] as const}
           onChange={setAgentsFocus}
         />
       </div>
