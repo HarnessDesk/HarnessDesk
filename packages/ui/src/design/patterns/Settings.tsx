@@ -2,7 +2,7 @@ import { Button } from '../ui/button'
 import { createElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { ArrowLeftIcon, CheckIcon, ChevronIcon, SearchIcon } from '../../components/Icons'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, SearchIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
@@ -51,10 +51,9 @@ export const Chip = ({
 /**
  * A search field: the input with the glass inside it.
  *
- * Every list on a settings page that grows past a screen gets one of these,
- * and before this each drew its own — some with the glyph, some without, at
- * three heights. One shape, so "this narrows the list below" reads the same
- * on every page.
+ * Every list that grows past a screen gets one of these, and before this each
+ * drew its own — some with the glyph, some without, at three heights. One
+ * shape, so "this narrows the list below" reads the same on every page.
  */
 export const Search = ({
   value,
@@ -63,6 +62,7 @@ export const Search = ({
   label,
   className,
   autoFocus,
+  clear,
 }: {
   value: string
   onChange: (next: string) => void
@@ -71,8 +71,14 @@ export const Search = ({
   label?: string
   className?: string
   autoFocus?: boolean
+  /** An accessible clear action, present only while the field has a value. */
+  clear?: { readonly label: string; readonly onClick: () => void }
 }) => (
-  <span className={cx(styles.search, className)}>
+  <span
+    className={cx(styles.search, className)}
+    data-slot="search"
+    {...(clear && value ? { 'data-clear': '' } : {})}
+  >
     <SearchIcon size={14} />
     <Input
       type="search"
@@ -84,6 +90,18 @@ export const Search = ({
       autoFocus={autoFocus}
       onChange={(event) => onChange(event.target.value)}
     />
+    {clear && value ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className={styles.searchClear}
+        aria-label={clear.label}
+        onClick={clear.onClick}
+      >
+        <CrossIcon size={12} />
+      </Button>
+    ) : null}
   </span>
 )
 

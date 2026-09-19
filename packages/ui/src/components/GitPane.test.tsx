@@ -214,6 +214,25 @@ it('asks for the log, the refs and the status together, and shows the walk', asy
   expect(document.body.textContent).toContain('2 commits')
 })
 
+it('uses the shared search field for history and refs, with history clearable', async () => {
+  await mount({})
+  const history = container.querySelector<HTMLInputElement>('input[aria-label="Search history"]')
+  const refs = container.querySelector<HTMLInputElement>('input[aria-label="Filter refs"]')
+  for (const input of [history, refs]) {
+    expect(input?.type).toBe('search')
+    expect(input?.closest('[data-slot="search"]')).not.toBeNull()
+  }
+
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(history, 'needle')
+    history?.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear the search"]')
+  expect(clear?.closest('[data-slot="search"]')).toBe(history?.closest('[data-slot="search"]'))
+  await act(async () => clear?.click())
+  expect(history?.value).toBe('')
+})
+
 it('uses padded canonical segments for the branch scope', async () => {
   await mount({})
   const group = container.querySelector('[role="radiogroup"][aria-label="Which branches"]')!

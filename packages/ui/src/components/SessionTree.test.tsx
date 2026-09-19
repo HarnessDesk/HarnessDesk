@@ -341,6 +341,9 @@ it('a room is a row under its project, and its members hang off it', () => {
 
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.textContent).toContain('Checkout rewrite')
+  expect(row.getAttribute('data-slot')).toBe('button')
+  expect(row.getAttribute('data-variant')).toBe('navigation')
+  expect(row.tagName).toBe('DIV')
   // The member is inside the room's own block; the loose one is not.
   const nested = row.parentElement?.querySelector('[class*="nested"]')
   expect(nested?.textContent).toContain('session-1')
@@ -371,6 +374,40 @@ it('the twisty hides the members without opening the room', () => {
 
   expect(store.toggleCollapsed).toHaveBeenCalledWith('r1')
   expect(store.openTeamRoom).not.toHaveBeenCalled()
+})
+
+/* The room row is a `div` wearing the navigation button, not a native button,
+   so the keys a button answers for free are its own code, and its nested
+   twisty's keys bubble through it. Each is pinned here. */
+it('the room row answers its own keys, and leaves the twisty and the menu theirs', () => {
+  const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
+  const row = roomRow(tree, 'Checkout rewrite')
+  expect(row.tabIndex).toBe(0)
+
+  // Enter and Space open the room, and Space does not also scroll the list.
+  for (const key of ['Enter', ' ']) {
+    const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    act(() => { row.dispatchEvent(press) })
+    expect(press.defaultPrevented, key).toBe(true)
+  }
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
+  expect(store.openTeamRoom).toHaveBeenLastCalledWith('r1')
+
+  // The twisty's own Enter and Space bubble to the row; they must not open the
+  // room, and the row must not cancel them, or the twisty's click is lost.
+  const twisty = row.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  for (const key of ['Enter', ' ']) {
+    const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    act(() => { twisty.dispatchEvent(press) })
+    expect(press.defaultPrevented, key).toBe(false)
+  }
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
+
+  // The context menu — a right click, or the menu key's contextmenu event —
+  // opens on the row and does not open the room.
+  act(() => { row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
+  expect(row.hasAttribute('data-menu-open')).toBe(true)
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
 })
 
 it('the twisty answers the keyboard too, and the row does not answer for it', () => {

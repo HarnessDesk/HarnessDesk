@@ -79,39 +79,35 @@
 .tools {
   flex: none;
   display: flex;
+  flex-wrap: wrap; /* desk: nowrap → wrap, a pane narrower than the controls stacks them rather than cutting the last */
+  align-content: center; /* desk: normal → center, one line of controls sits centred in the row as it did */
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 10px;
+  gap: 4px 8px; /* desk: 8px → 4px 8px, the same 8px across, and 4px between wrapped lines */
+  min-height: 36px; /* desk: height 36px → min-height 36px, one line is still 36px and two lines grow */
+  padding: 2px 10px; /* desk: 0 10px → 2px 10px, an inset around a second line; one line still centres in 36px */
   border-bottom: 1px solid var(--hd-border);
+  container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
 }
 
-.find {
-  flex: 1;
-  min-width: 60px;
+/* The search keeps room for its own words; in a narrow pane the count gives
+   way first, because it is the one thing on this bar nobody acts on, and
+   narrower still the row wraps rather than cutting off the select. The
+   search grows from its floor, so it has already given up its extra width
+   before anything wraps. */
+.historySearch {
+  flex: 1 1 120px; /* desk: 1 → 1 1 120px, it grows from its floor, so it gives way before the row wraps */
+  width: 120px; /* desk: auto → 120px, the width the row measures it at, rather than the input's own default size */
+  min-width: 120px; /* desk: 60px → 120px, never narrower than its own words */
   max-width: 260px;
+}
+
+/* The field and its qualifier wrap as one control: the group takes the row's
+   spare width, and the line never breaks between the two. */
+.searchGroup {
+  flex: 1 1 auto; /* desk: 1 → 1 1 auto, the field and its qualifier grow and wrap as one control */
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  color: var(--hd-muted-foreground);
-}
-
-.find:focus-within {
-  box-shadow: inset 0 0 0 1px var(--hd-ring);
-}
-
-.find input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: none;
-  outline: none;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-foreground);
+  gap: 8px;
 }
 
 .searchScope {
@@ -124,11 +120,23 @@
 }
 
 .count {
-  flex: none;
+  flex: 0 1 auto; /* desk: none → 0 1 auto, the count gives way before the search does */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--hd-text-xs);
   color: var(--hd-muted-foreground);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* The row's controls and a four-figure count need about 500px between its
+   padding. Below that the count leaves whole: cut to "10…" it is a number
+   without its noun, which answers nothing. The pane opens at about 460px. */
+@container hd-git-tools (max-width: 500px) {
+  .count {
+    display: none; /* desk: shown → none below the row's width, a cut count answers nothing */
+  }
 }
 
 /* --- the body ------------------------------------------------------------ */
@@ -439,27 +447,9 @@
   background: var(--hd-card);
 }
 
-.railFind {
+.railSearch {
   flex: none;
-  display: flex;
-  align-items: center;
-  gap: 6px;
   margin: 8px 8px 2px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  color: var(--hd-muted-foreground);
-}
-
-.railFind input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  background: none;
-  outline: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-foreground);
 }
 
 .railError {
