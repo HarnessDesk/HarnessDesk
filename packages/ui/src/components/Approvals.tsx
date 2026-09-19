@@ -1,4 +1,3 @@
-import { Button } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
@@ -7,7 +6,19 @@ import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } fr
 import { wholeFileOf } from '../lib/diff'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
-import { ApprovalDialog, type ApprovalDialogAction } from '../design'
+import {
+  ApprovalChoiceHint,
+  ApprovalCode,
+  ApprovalDialog,
+  ApprovalFilePath,
+  ApprovalMeta,
+  ApprovalPermissionList,
+  ApprovalQuestionText,
+  ApprovalReason,
+  Button,
+  Text,
+  type ApprovalDialogAction,
+} from '../design'
 import styles from './Approvals.module.css'
 
 /**
@@ -57,39 +68,30 @@ const CommandBody = ({ approval }: { approval: Extract<Approval, { type: 'comman
     // the context. Codex 0.153.0 asks this for a terminal the agent left
     // running; read as a command to run it said "(unknown command)".
     <>
-      {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
-      <pre className={styles.command}>{approval.input ?? ''}</pre>
-      <div className={styles.meta}>
-        <span className={styles.metaLabel}>to</span>
-        <span className={styles.metaValue}>{approval.command}</span>
-      </div>
+      {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
+      <ApprovalCode className={styles.command}>{approval.input ?? ''}</ApprovalCode>
+      <ApprovalMeta label="to">{approval.command}</ApprovalMeta>
       {approval.cwd && (
-        <div className={styles.meta}>
-          <span className={styles.metaLabel}>in</span>
-          <span className={styles.metaValue}>{approval.cwd}</span>
-        </div>
+        <ApprovalMeta label="in">{approval.cwd}</ApprovalMeta>
       )}
     </>
   ) : (
     <>
-      {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
-      <pre className={styles.command}>{approval.command}</pre>
-      <div className={styles.meta}>
-        <span className={styles.metaLabel}>in</span>
-        <span className={styles.metaValue}>{approval.cwd}</span>
-      </div>
+      {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
+      <ApprovalCode className={styles.command}>{approval.command}</ApprovalCode>
+      <ApprovalMeta label="in">{approval.cwd}</ApprovalMeta>
     </>
   )
 
 const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fileChange' }> }) => (
   <>
-    {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
+    {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {approval.changes.length === 0 && (
-      <p className={styles.reason}>The agent wants to write changes to disk.</p>
+      <ApprovalReason className={styles.reason}>The agent wants to write changes to disk.</ApprovalReason>
     )}
     {approval.changes.map((change) => (
       <div key={change.path} className={styles.fileBlock}>
-        <div className={styles.filePath}>{change.path}</div>
+        <ApprovalFilePath className={styles.filePath}>{change.path}</ApprovalFilePath>
         <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
       </div>
     ))}
@@ -98,25 +100,25 @@ const FileChangeBody = ({ approval }: { approval: Extract<Approval, { type: 'fil
 
 const PermissionBody = ({ approval }: { approval: Extract<Approval, { type: 'permission' }> }) => (
   <>
-    <p className={styles.reason}>{approval.summary}</p>
+    <ApprovalReason className={styles.reason}>{approval.summary}</ApprovalReason>
     {/* Why the agent is asking, when it said. The summary is the tool it wants
         to run; a decision needs the sentence under it — "the file is outside
         the workspace" is the part that answers allow or reject. */}
-    {approval.reason && <p className={styles.reason}>{approval.reason}</p>}
+    {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
     {(approval.filesystem?.length ?? 0) > 0 && (
       <>
-        <div className={styles.metaLabel}>Filesystem</div>
-        <ul className={styles.permissionList}>
+        <Text role="muted" as="div">Filesystem</Text>
+        <ApprovalPermissionList>
           {approval.filesystem?.map((path) => <li key={path}>{path}</li>)}
-        </ul>
+        </ApprovalPermissionList>
       </>
     )}
     {(approval.network?.length ?? 0) > 0 && (
       <>
-        <div className={styles.metaLabel}>Network</div>
-        <ul className={styles.permissionList}>
+        <Text role="muted" as="div">Network</Text>
+        <ApprovalPermissionList>
           {approval.network?.map((host) => <li key={host}>{host}</li>)}
-        </ul>
+        </ApprovalPermissionList>
       </>
     )}
   </>
@@ -134,7 +136,7 @@ const UserInputBody = ({
   <>
     {approval.questions.map((question) => (
       <div key={question.id} className={styles.question}>
-        <p className={styles.questionText}>{question.question}</p>
+        <ApprovalQuestionText>{question.question}</ApprovalQuestionText>
         <div className={styles.choices}>
           {question.options.map((option) => (
             <Button
@@ -146,7 +148,7 @@ const UserInputBody = ({
               <span>
                 {option.label}
                 {option.description && (
-                  <span className={styles.choiceHint}>{option.description}</span>
+                  <ApprovalChoiceHint className={styles.choiceHint}>{option.description}</ApprovalChoiceHint>
                 )}
               </span>
             </Button>
@@ -310,8 +312,8 @@ export const Approvals = () => {
           )}
           {approval.type === 'elicitation' && (
             <>
-              <p className={styles.reason}>{approval.message}</p>
-              <pre className={styles.command}>{JSON.stringify(approval.schema, null, 2)}</pre>
+              <ApprovalReason className={styles.reason}>{approval.message}</ApprovalReason>
+              <ApprovalCode className={styles.command}>{JSON.stringify(approval.schema, null, 2)}</ApprovalCode>
             </>
           )}
     </ApprovalDialog>

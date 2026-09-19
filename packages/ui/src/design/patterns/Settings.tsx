@@ -1,5 +1,5 @@
 import { Button } from '../ui/button'
-import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode } from 'react'
+import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
 import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
@@ -427,6 +427,7 @@ export const Search = ({
   onFocus,
   onBlur,
   onKeyDown,
+  inputRef,
 }: {
   value: string
   onChange: (next: string) => void
@@ -442,6 +443,8 @@ export const Search = ({
   onFocus?: FocusEventHandler<HTMLInputElement>
   onBlur?: FocusEventHandler<HTMLInputElement>
   onKeyDown?: KeyboardEventHandler<HTMLInputElement>
+  /** The owning surface may use the input as its initial focus target. */
+  inputRef?: Ref<HTMLInputElement>
   /** An accessible clear action, present only while the field has a value. */
   clear?: { readonly label: string; readonly onClick: () => void }
 }) => (
@@ -456,6 +459,7 @@ export const Search = ({
       ? <FilterIcon size={size === 'compact' ? 12 : 14} />
       : <SearchIcon size={size === 'compact' ? 12 : 14} />}
     <Input
+      ref={inputRef}
       type="search"
       spellCheck={false}
       variant={size === 'compact' ? 'quiet' : 'default'}
@@ -484,6 +488,21 @@ export const Search = ({
       </Button>
     ) : null}
   </span>
+)
+
+/** The inset around a list of destination rows. */
+export const NavigationList = ({ className, ...props }: ComponentProps<'div'>) => (
+  <div data-slot="navigation-list" className={cx(styles.navigationList, className)} {...props} />
+)
+
+/** A keyboard name shown as a physical key rather than explanatory copy. */
+export const Keycap = ({ className, ...props }: ComponentProps<'kbd'>) => (
+  <kbd data-slot="keycap" className={cx(styles.keycap, className)} {...props} />
+)
+
+/** The exact part of a search result that matched the query. */
+export const SearchMatch = ({ className, ...props }: ComponentProps<'mark'>) => (
+  <mark data-slot="search-match" className={cx(styles.searchMatch, className)} {...props} />
 )
 
 /** What `Field` hands its control: the id its label points at, and the wiring to its note. */
@@ -576,6 +595,11 @@ export const Note = ({
     {icon}
     {icon ? <span>{children}</span> : children}
   </p>
+)
+
+/** Short supporting facts that belong to a notice or note. */
+export const NoteList = ({ className, ...props }: ComponentProps<'ul'>) => (
+  <ul data-slot="note-list" className={cx(styles.noteList, className)} {...props} />
 )
 
 /**
@@ -729,7 +753,7 @@ const TEXT_INK = {
 
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'summary' | 'label'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h4' | 'summary' | 'label'
   children: ReactNode
   role?: TextRole
   tone?: Tone

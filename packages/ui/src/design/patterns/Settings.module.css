@@ -488,6 +488,26 @@
   appearance: none;
 }
 
+.navigationList {
+  padding: var(--hd-space-1-5);
+}
+
+.keycap {
+  padding: 1px var(--hd-space-1-5);
+  border-radius: var(--hd-radius-xs);
+  background: var(--hd-muted);
+  font: inherit;
+  font-size: var(--hd-text-xs);
+  color: var(--hd-muted-foreground);
+}
+
+.searchMatch {
+  padding: 0 1px;
+  border-radius: var(--hd-radius-2xs);
+  background: var(--hd-hover-solid);
+  color: var(--hd-foreground);
+}
+
 /* A form: fields stacked with a step of air between them. */
 .formStack {
   display: flex;
@@ -565,6 +585,15 @@
 
 .note[data-tone='bad'] {
   color: var(--hd-danger-ink);
+}
+
+.noteList {
+  margin: 0;
+  padding-left: var(--hd-space-3);
+  list-style: disc;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-secondary-foreground);
 }
 
 .segmented {

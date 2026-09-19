@@ -71,3 +71,17 @@ it('mounts as a compact quiet filter without swallowing input events', () => {
   expect(onFocus).toHaveBeenCalledOnce()
   expect(onKeyDown).toHaveBeenCalledOnce()
 })
+
+it('hands its input to an owning surface for initial focus', () => {
+  const inputRef = { current: null as HTMLInputElement | null }
+  act(() => root.render(
+    <Search
+      value=""
+      onChange={() => {}}
+      placeholder="Search actions"
+      inputRef={inputRef}
+    />,
+  ))
+
+  expect(inputRef.current).toBe(container.querySelector('input[type="search"]'))
+})

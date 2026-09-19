@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import css from './Settings.module.css?raw'
-import { PageHead, Text } from './Settings'
+import { Keycap, PageHead, SearchMatch, Text } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -78,4 +78,16 @@ it('sets page titles on the same type step and weight as the wordmark', () => {
   expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-heading\)/s)
   expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-heading\)/s)
   expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
+})
+
+it('owns the keycap and matched-text roles used by search surfaces', () => {
+  act(() => root.render(
+    <>
+      <Keycap>esc</Keycap>
+      <SearchMatch>sett</SearchMatch>
+    </>,
+  ))
+
+  expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
+  expect(container.querySelector('mark[data-slot="search-match"]')?.textContent).toBe('sett')
 })

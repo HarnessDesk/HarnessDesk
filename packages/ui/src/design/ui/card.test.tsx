@@ -63,6 +63,15 @@ it('offers the small system radius for compact code and diff plates', () => {
   expect(card?.className).toContain('rounded-(--hd-radius-sm)')
 })
 
+it('owns the compact inset and rhythm of a dense report card', () => {
+  act(() => root.render(<Card spacing="compact">Flow report</Card>))
+  const card = container.querySelector<HTMLElement>('[data-slot="card"]')
+  expect(card?.dataset['spacing']).toBe('compact')
+  expect(card?.className).toContain('gap-2')
+  expect(card?.className).toContain('p-3')
+  expect(card?.className).not.toContain('py-4')
+})
+
 it('owns the compact panel section and key-value readings', () => {
   act(() => root.render(
     <Section variant="panel">

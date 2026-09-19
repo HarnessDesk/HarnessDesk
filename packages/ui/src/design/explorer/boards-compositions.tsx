@@ -1092,7 +1092,7 @@ const AdoptedBoard = () => {
         </Case>
 
         <Case label="card &mdash; grouped content">
-          <Card className="w-full">
+          <Card className="w-full" data-catalog-size="default">
             <CardHeader>
               <CardTitle>Catalog source</CardTitle>
               <CardDescription>The production card primitive, not copied markup.</CardDescription>
@@ -1116,6 +1116,9 @@ const AdoptedBoard = () => {
           </Card>
           <Card variant="flush" radius="sm" className="w-full">
             <CardContent className="py-2">Small-radius code or diff plate.</CardContent>
+          </Card>
+          <Card spacing="compact" radius="sm" className="w-full" data-catalog-size="compact">
+            A dense report keeps one inset and one rhythm.
           </Card>
         </Case>
 
