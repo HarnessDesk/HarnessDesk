@@ -95,10 +95,10 @@ test('a check the desk stops is stopped at once, with everything it started', as
 test("a check's environment is built from a short list of names: nothing else of the desk's reaches it", () => {
   const desk = {
     PATH: '/usr/bin:/bin',
-    HOME: '/Users/alice',
+    HOME: '/home/alice',
     LANG: 'en_GB.UTF-8',
     TERM: 'xterm-256color',
-    HARNESSDESK_HOME: '/Users/alice/.harnessdesk',
+    HARNESSDESK_HOME: '/home/alice/.harnessdesk',
     HARNESSDESK_PORT: '4870',
     GITHUB_TOKEN: 'ghp_secret',
     GH_TOKEN: 'gho_secret',
@@ -108,7 +108,7 @@ test("a check's environment is built from a short list of names: nothing else of
     ELECTRON_RUN_AS_NODE: '1',
     CLAUDECODE: '1',
   }
-  assert.deepEqual(checkEnvironment(desk), { TERM: 'dumb', PATH: '/usr/bin:/bin', HOME: '/Users/alice', LANG: 'en_GB.UTF-8' })
+  assert.deepEqual(checkEnvironment(desk), { TERM: 'dumb', PATH: '/usr/bin:/bin', HOME: '/home/alice', LANG: 'en_GB.UTF-8' })
 })
 
 test("the command itself sees only that environment: a secret in the desk's is not there", async (t) => {
