@@ -21,6 +21,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { parseAgentDefinition } from '../agent-def.js'
+import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
   agentSource,
@@ -204,14 +205,19 @@ export const agentMethods = {
           `${definition.name} was seated on ${describeSeat(seat, words)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
         )
       }
-      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, {
+      /* `ceiling` is the one value phase 3 changes here: the ceiling this seat
+         actually runs under, and whether the runtime holds it. Null until then,
+         on the record the host keeps and on the durable one alike. */
+      const seated: SeatedAs = {
         agent: definition.id,
         name: definition.name,
         briefDigest: digest,
         permission,
         seatLabel: opened.label,
         passedOver: said(passed),
-      })
+        ceiling: null,
+      }
+      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, seated)
     }
   },
 

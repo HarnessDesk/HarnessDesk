@@ -12,6 +12,7 @@ import {
   type QueuedMessage,
   type RuntimeId,
   type SeatCandidate,
+  type SeatCeiling,
   type Session,
   type SessionId,
   type SessionKey,
@@ -116,6 +117,13 @@ export interface SeatedAs {
   readonly permission: FlowPermission
   readonly seatLabel: string
   readonly passedOver: readonly SeatCandidate[]
+  /**
+   * The ceiling this seat actually runs under, and whether the runtime holds it
+   * or it was only asked of the agent — the seam with phase 3, which fills it.
+   * Null until then. Not laid over the conversation's settings here: which
+   * surface draws it, and how, is phase 3's.
+   */
+  readonly ceiling: SeatCeiling | null
 }
 
 /**

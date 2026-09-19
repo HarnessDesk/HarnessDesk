@@ -850,7 +850,17 @@ test("the seat is told the narrower of the Agent's ceiling and the seating's gra
     assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
     assert.deepEqual(
       seen.recorded,
-      [{ agent: 'reviewer', name: 'Reviewer', briefDigest: digestOf(seen.source), permission: held, seatLabel: 'claude', passedOver: [] }],
+      [
+        {
+          agent: 'reviewer',
+          name: 'Reviewer',
+          briefDigest: digestOf(seen.source),
+          permission: held,
+          seatLabel: 'claude',
+          passedOver: [],
+          ceiling: null,
+        },
+      ],
       said,
     )
     assert.equal(session.settings?.permission, held, said)
@@ -1761,6 +1771,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
           fix: { kind: 'seats' },
         },
       ],
+      ceiling: null,
     },
   ])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
