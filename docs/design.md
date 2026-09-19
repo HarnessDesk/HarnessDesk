@@ -619,9 +619,28 @@ these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds sixteen categories at a baseline. Fifteen
+`pnpm design:audit --strict` holds eighteen categories at a baseline. Sixteen
 are at zero; `patternClass` sits at 3, which is three screens still drawing
-their own empty state.
+their own empty state, and `screenAppearance` sits at 2,783 declarations.
+
+Every ordinary property in a screen sheet has to match one of two explicit
+tables after its vendor prefix is stripped. `APPEARANCE_PROPERTIES` owns type,
+ink and ground, edges and the inner box; its open-ended families match by
+prefix, so `font-variant-numeric`, `background-image`, `border-image-source`
+and the next standards longhand do not slip past a remembered list.
+`LAYOUT_BEHAVIOUR_PROPERTIES` owns geometry, flow, interaction and motion.
+Height, minimum height and maximum height share one value rule: a non-zero
+fixed or token metric counts as appearance, while zero — the flex/grid shrink
+reset — percentages, intrinsic sizes and viewport or container-query shares
+remain layout. Custom properties define values rather than either side and
+remain outside the split. Anything else is a `screenUnclassified` finding that
+names the property and sheet and fails the strict gate.
+
+`screenAppearance` is the appearance side of that total boundary. A class name
+cannot say whether `.head` is a title bar, a table header or a card heading,
+which is why `patternClass` could safely keep only `empty`; the declaration
+says what the screen actually owns. Markdown's prose ratio ladder and the diff
+viewer remain named specialized-renderer exemptions.
 
 Two of those categories spent a long time reporting zero while they were simply
 unable to see:
