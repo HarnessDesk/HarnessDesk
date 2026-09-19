@@ -311,7 +311,7 @@ export class AppStore {
           }
           void this.loadAccounts()
           // A runtime just added may be exactly what an Agent's `prefer` names.
-          if (this.#snapshot.agents !== null) void this.loadAgentPlans()
+          if (this.#agentsRequested) void this.loadAgentPlans()
         }
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
@@ -336,27 +336,29 @@ export class AppStore {
             historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
           // Whatever a plan had it seated on may no longer be offered at all.
-          if (this.#snapshot.agents !== null) void this.loadAgentPlans()
+          if (this.#agentsRequested) void this.loadAgentPlans()
         }
         if (notification.method === 'session/removed') {
           this.#dropRemoved(sessionKey(notification.params.runtime, notification.params.sessionId))
         }
         if (notification.method === 'agent/changed') {
           /* A file under the roster moved, or this machine's seats did. Read
-             again only what this window has read — one that never showed an
-             Agent has nothing drawn from the roster to go stale — and only
-             for a project this window shows: `null` is this machine's roster
-             or `seating.json`, either of which touches every open project;
-             a named one is the watched project root, which for a folder
-             opened inside its repository is that repository's top rather
-             than the folder itself — so both spellings of "this window's
-             project" are checked. The dry run asks every runtime a question,
-             so a notice for a project nobody here is looking at is not worth
-             that. */
+             again only when a load has been asked for at least once — a
+             window that never showed an Agent has nothing drawn from the
+             roster to go stale — and only for a project this window shows:
+             `null` is this machine's roster or `seating.json`, either of
+             which touches every open project; a named one is the watched
+             project root, which for a folder opened inside its checkout is
+             that checkout's top rather than the folder itself — so both
+             spellings of "this window's project" are checked. `checkoutRoot`,
+             never `workspace.repo?.root`: for a linked worktree the latter is
+             deliberately the *main* checkout, which the watch does not name.
+             The dry run asks every runtime a question, so a notice for a
+             project nobody here is looking at is not worth that. */
           const { project } = notification.params
           const open = this.#snapshot.workspace?.path ?? null
-          const top = this.#snapshot.workspace?.repo?.root ?? null
-          if (this.#snapshot.agents !== null && (project === null || project === open || project === top)) {
+          const top = this.#snapshot.workspace?.checkoutRoot ?? null
+          if (this.#agentsRequested && (project === null || project === open || project === top)) {
             void this.loadAgents()
           }
         }
@@ -3676,6 +3678,21 @@ export class AppStore {
   #agentsGeneration = 0
   /** Same guard, for the dry run: `agentPlans` carries no project of its own. */
   #agentPlansGeneration = 0
+  /**
+   * Set the instant a window's first `loadAgents()` call is made, never
+   * cleared. `#snapshot.agents` says whether a load has *answered* — it stays
+   * `null` for as long as the very first one is in flight — and every place
+   * that decides whether to react to a later change (another folder opened, a
+   * push, a sign-in) by starting a fresh load used to read that instead. So a
+   * workspace switch during the still-pending first read found `agents` still
+   * `null`, started no replacement load, and the first read — for the folder
+   * that was open when it started, not the one on screen once it landed —
+   * applied unopposed: nothing had bumped `#agentsGeneration` since it began,
+   * so its own generation check waved it through. This is asked instead:
+   * whether a load was ever *requested*, which becomes true the instant the
+   * first one is, before it has awaited anything.
+   */
+  #agentsRequested = false
 
   /**
    * Reads the Agent roster for the folder that is open, and then which seat
@@ -3685,6 +3702,7 @@ export class AppStore {
    * lists its repository's Agents.
    */
   async loadAgents(): Promise<void> {
+    this.#agentsRequested = true
     const project = this.#snapshot.workspace?.path ?? null
     const generation = ++this.#agentsGeneration
     let agents: readonly AgentEntry[]
@@ -4524,7 +4542,7 @@ export class AppStore {
       await this.loadWorkspaces()
       void this.loadDraftOptions()
       // Another folder is another project's Agents.
-      if (this.#snapshot.agents !== null) void this.loadAgents()
+      if (this.#agentsRequested) void this.loadAgents()
     } catch (error) {
       this.notice('error', describe(error))
     }
@@ -5106,7 +5124,7 @@ export class AppStore {
       void this.loadAccounts()
       void this.refreshRuntime()
       // A sign-in is exactly what moves a candidate from passed over to taken.
-      if (this.#snapshot.agents !== null) void this.loadAgentPlans()
+      if (this.#agentsRequested) void this.loadAgentPlans()
       return
     }
     if (event.type === 'catalog/changed') {

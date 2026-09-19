@@ -1,14 +1,15 @@
-import type {
-  AgentEntry,
-  AgentOrigin,
-  FlowPermission,
-  RuntimeInfo,
-  SeatCandidate,
-  SeatDifference,
-  SeatFix,
-  SeatPlan,
-  SeatReason,
-  WorkspaceEntry,
+import {
+  effortWord,
+  type AgentEntry,
+  type AgentOrigin,
+  type FlowPermission,
+  type RuntimeInfo,
+  type SeatCandidate,
+  type SeatDifference,
+  type SeatFix,
+  type SeatPlan,
+  type SeatReason,
+  type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
 import { shortPath } from './paths'
@@ -45,10 +46,17 @@ export const ceilingMeaning = (permission: FlowPermission): string =>
 export const originWords = (origin: AgentOrigin, project: string | null): string =>
   origin === 'project' ? `In ${project ?? 'this project'}` : origin === 'user' ? 'Yours' : 'Built in'
 
-/** The name of the project a roster is read for: its repository's folder, or a worktree's own. */
+/**
+ * The name of the project a roster is read for: its repository's folder, or a
+ * worktree's own — `checkoutRoot`, never `repo.root`, which names the *main*
+ * checkout on purpose (so the session list can group a worktree under the
+ * project it is a checkout of) and is therefore the wrong folder for a
+ * worktree, and never `workspace.path` alone, which is only the same folder
+ * when nobody opened a subfolder of it.
+ */
 export const projectName = (workspace: WorkspaceEntry | null): string | null => {
   if (!workspace) return null
-  const root = workspace.repo && !workspace.repo.worktree ? workspace.repo.root : workspace.path
+  const root = workspace.checkoutRoot ?? workspace.path
   return root.split('/').filter(Boolean).at(-1) ?? workspace.name
 }
 
@@ -84,24 +92,38 @@ export const firstParagraph = (brief: string): string =>
   (brief.trim().split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim()
 
 /**
- * One field of a seat that opened running something other than what was asked,
- * worded as a clause: what it runs, and what was asked instead. No wire id
- * reaches this — a model or an effort is named by the value the seat and the
- * runtime already agree on, since nothing in the renderer today knows a
- * friendlier label for either (`SeatDifference`'s own doc: `asked`/`running`
- * carry the id a seat spec writes). Thinking is never a raw boolean: it reads
- * as on or off.
+ * Looks up the label a runtime gave a model id, when the caller has one to
+ * ask; null when it does not (or does not know). There is no such table for
+ * effort — that one is universal (`effortWord`, shared with the host) — but a
+ * model catalogue is per runtime and lives wherever the caller keeps it, so
+ * `reasonWords` takes this rather than assuming one.
  */
-const differenceWords = (difference: SeatDifference): string => {
+export type ModelLabel = (id: string) => string | null
+
+/** A model or effort id, worded by its known label when one is given, and as written otherwise. */
+const modelWord = (id: string, modelLabel?: ModelLabel): string => modelLabel?.(id) ?? id
+
+/** Either side of a `SeatDifference` is a plain id for `model`/`effort`; only `thinking` is ever a boolean. */
+const idOf = (value: string | boolean | null): string => (typeof value === 'string' ? value : String(value))
+
+/**
+ * One field of a seat that opened running something other than what was
+ * asked, worded as a clause: what it runs, and what was asked instead. A
+ * model is named by its runtime's own label where `modelLabel` has one;
+ * effort always reads as its known word (`effortWord`), the same vocabulary
+ * `SeatCandidate.label` is built from. Thinking is never a raw boolean: it
+ * reads as on or off.
+ */
+const differenceWords = (difference: SeatDifference, modelLabel?: ModelLabel): string => {
   switch (difference.field) {
     case 'model':
       return difference.running === null
-        ? `on no model it would name, instead of ${difference.asked}`
-        : `on ${difference.running}, instead of ${difference.asked}`
+        ? `on no model it would name, instead of ${modelWord(idOf(difference.asked), modelLabel)}`
+        : `on ${modelWord(idOf(difference.running), modelLabel)}, instead of ${modelWord(idOf(difference.asked), modelLabel)}`
     case 'effort':
       return difference.running === null
-        ? `at no effort it would name, instead of ${difference.asked}`
-        : `at ${difference.running} effort, instead of ${difference.asked}`
+        ? `at no effort it would name, instead of ${effortWord(idOf(difference.asked))} effort`
+        : `at ${effortWord(idOf(difference.running))} effort, instead of ${effortWord(idOf(difference.asked))}`
     case 'thinking':
       if (difference.asked === true) return 'without thinking, though it was asked for'
       if (difference.asked === false) return 'with thinking on, though it was asked to be off'
@@ -113,10 +135,17 @@ const differenceWords = (difference: SeatDifference): string => {
  * Why a candidate was passed over, as a sentence, with the runtime named the
  * way the desk names it — never its wire id.
  *
+ * A model reads by its runtime's own label where `modelLabel` can find one —
+ * no caller has a model catalogue to hand it yet, so this falls back to the
+ * raw id today, but the seam is here for the one that does. An effort always
+ * reads as its known word: unlike a model catalogue, that vocabulary
+ * (`effortWord`) is universal and needs no per-runtime lookup, so there is no
+ * excuse to show `xhigh` when "Extra high" is always known.
+ *
  * Exhaustive over `SeatReason` with no `default`, so a kind the host adds
  * later fails this file's typecheck rather than falling through to nothing.
  */
-export const reasonWords = (reason: SeatReason, runtime: string): string => {
+export const reasonWords = (reason: SeatReason, runtime: string, modelLabel?: ModelLabel): string => {
   switch (reason.kind) {
     case 'notInstalled':
       return reason.added ? `${runtime} is not installed on this Mac` : `${runtime} is not added to HarnessDesk`
@@ -131,17 +160,17 @@ export const reasonWords = (reason: SeatReason, runtime: string): string => {
     case 'spent':
       return `${runtime}'s plan window is used up`
     case 'spentModel':
-      return `${runtime}'s window for ${reason.model} is used up`
+      return `${runtime}'s window for ${modelWord(reason.model, modelLabel)} is used up`
     case 'modelsUnread':
       return `${runtime}'s models could not be read`
     case 'noModel':
-      return `${runtime} does not offer ${reason.model}`
+      return `${runtime} does not offer ${modelWord(reason.model, modelLabel)}`
     case 'noEffort':
-      return `${runtime} does not offer ${reason.effort} effort`
+      return `${runtime} does not offer ${effortWord(reason.effort)} effort`
     case 'couldNotOpen':
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
-      return `${runtime} opened it ${reason.differences.map(differenceWords).join(', and ')}`
+      return `${runtime} opened it ${reason.differences.map((one) => differenceWords(one, modelLabel)).join(', and ')}`
   }
 }
 

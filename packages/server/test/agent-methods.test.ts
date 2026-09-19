@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
@@ -337,4 +337,52 @@ test('a folder inside a repository reads the Agents at the top of its checkout, 
   await client.call('workspace/open', { path: tree })
   // The worktree's checkout, not the main one: the reviewer is untracked there and so is not in this branch.
   assert.deepEqual(idsOf(await client.call('agent/list', { project: tree })), [['scout', 'project', 'Branch scout']])
+})
+
+/*
+ * `repo.root` on a `workspace/open` result names the *main* checkout on
+ * purpose (`#openWorkspace`'s own comment: so the session list can group a
+ * worktree under the project it is a checkout of) — but that is exactly the
+ * wrong value for anything that wants the checkout this folder is actually
+ * *in*, which for a linked worktree is the worktree's own top. `checkoutRoot`
+ * is the value `projectOf` resolves an Agent read to, and what the roster's
+ * watch names in an `agent/changed` notice for this same folder, so a
+ * renderer surface reads it instead of `repo.root` whenever it needs "the
+ * checkout this folder is a part of" rather than "the project this checkout
+ * belongs to".
+ */
+test("workspace/open carries this checkout's own top, a linked worktree's included — never the main checkout `repo.root` deliberately names instead", async (t) => {
+  const client = await connected(t)
+  const repo = tempDir('hd-workspace-checkout-top-repo-')
+  const realRepo = await realpath(repo)
+  const git = (...args: string[]) =>
+    run('git', ['-C', repo, '-c', 'user.email=dev@example.com', '-c', 'user.name=Jane Doe', ...args])
+  await run('git', ['init', '-q', repo])
+  await git('commit', '-q', '--allow-empty', '-m', 'root')
+  await mkdir(join(repo, 'pkg'))
+
+  type Opened = { checkoutRoot: string | null; repo: { root: string; worktree: boolean } | null }
+
+  // A plain subfolder: its own checkout top is the repository's, same as `repo.root` here.
+  const subfolder = (await client.call('workspace/open', { path: join(repo, 'pkg') })) as Opened
+  assert.equal(subfolder.checkoutRoot, realRepo)
+  assert.equal(subfolder.repo?.root, realRepo)
+  assert.equal(subfolder.repo?.worktree, false)
+
+  const tree = join(tempDir('hd-workspace-checkout-top-tree-'), 'tree')
+  await git('worktree', 'add', '-q', '-b', 'checkout-top-branch', tree)
+  const realTree = await realpath(tree)
+  await mkdir(join(tree, 'pkg'))
+
+  // The worktree's own subfolder: its checkout top is the worktree's own —
+  // never the main repository `repo.root` names, and never this subfolder itself.
+  const worktreeSubfolder = (await client.call('workspace/open', { path: join(tree, 'pkg') })) as Opened
+  assert.equal(worktreeSubfolder.checkoutRoot, realTree)
+  assert.equal(worktreeSubfolder.repo?.root, realRepo)
+  assert.equal(worktreeSubfolder.repo?.worktree, true)
+  assert.notEqual(
+    worktreeSubfolder.checkoutRoot,
+    worktreeSubfolder.repo?.root,
+    "a worktree's own top and the main checkout `repo.root` names are two different folders here",
+  )
 })

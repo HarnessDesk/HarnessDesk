@@ -317,3 +317,29 @@ export interface MachineSeating {
   readonly entries: readonly { readonly id: AgentId; readonly seats: readonly FlowSeat[] }[]
   readonly problems: readonly SeatingProblem[]
 }
+
+/**
+ * Effort ids as a person says them, for a runtime that did not label them.
+ * An id not here is said as written — a vendor adds levels faster than this
+ * table learns them, and a word borrowed for one would lie about the next.
+ *
+ * Shared between the host, which builds `SeatCandidate.label` from it
+ * (`describeSeat` in `packages/server/src/agent-seating.ts`, which re-exports
+ * this rather than keeping its own copy), and the renderer, which words a
+ * refusal from the same vocabulary (`reasonWords` in
+ * `packages/ui/src/lib/agents.ts`) — one table, so an effort never reads two
+ * different ways depending on which side of the wire is talking about it.
+ */
+const EFFORT_WORDS: Readonly<Record<string, string>> = {
+  none: 'Off',
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra',
+}
+
+export const effortWord = (effort: string): string =>
+  Object.hasOwn(EFFORT_WORDS, effort) ? (EFFORT_WORDS[effort] ?? effort) : effort

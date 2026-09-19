@@ -1899,6 +1899,12 @@ export class Host {
       // Which project this folder is, so the session list can put a worktree
       // opened as a workspace under the project it is a checkout of.
       repo: await this.#repoOf(described.path),
+      // The top of *this* checkout — a linked worktree's own, where `repo`
+      // above deliberately names the main one instead. `#topLevelOf` is the
+      // same cached read `#watchProjects` makes for this same folder, so a
+      // surface comparing against this never disagrees with what a change
+      // notification names.
+      checkoutRoot: await this.#topLevelOf(described.path),
     }
   }
 

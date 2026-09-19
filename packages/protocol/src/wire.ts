@@ -389,6 +389,17 @@ export interface WorkspaceEntry {
    * is, and the session list groups it there.
    */
   readonly repo?: RepoInfo | null
+  /**
+   * The top of the checkout this folder is in, when the host has read it —
+   * a linked worktree's own top, unlike `repo.root`, which names the *main*
+   * checkout on purpose (so the session list can group a worktree under the
+   * project it is a checkout of). Null outside git. This is what a project
+   * keeps its Agents at (`projectOf` in `methods/agents.ts`) and what the
+   * roster's watch reports a change against, so a surface naming this
+   * folder's project, or matching an `agent/changed` notice against it,
+   * reads this rather than `repo.root`.
+   */
+  readonly checkoutRoot?: string | null
 }
 
 /**

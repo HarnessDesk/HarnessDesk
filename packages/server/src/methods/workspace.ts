@@ -14,12 +14,13 @@ export const workspaceMethods = {
     // per folder ever opened.
     const [latest, ...rest] = ctx.state.state.workspaces
     if (!latest) return []
-    const [git, repo] = await Promise.all([
+    const [git, repo, checkoutRoot] = await Promise.all([
       gitService.status(latest.path).catch(() => null),
       ctx.workspaces.repoOf(latest.path),
+      ctx.workspaces.topLevel(latest.path).catch(() => null),
     ])
     return [
-      { ...latest, git: git ? { branch: git.branch } : null, repo },
+      { ...latest, git: git ? { branch: git.branch } : null, repo, checkoutRoot },
       ...rest.map((entry) => ({ ...entry, git: null })),
     ]
   },
