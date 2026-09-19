@@ -8,6 +8,7 @@ import {
   type ExtensionEvent,
   type PluginInstance,
   type BackgroundTask,
+  type BoardEvidence,
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
@@ -418,11 +419,17 @@ export class AppStore {
           flowRuns.set(room, runs)
           this.#patch({ flowRuns })
         }
+        if (notification.method === 'evidence/changed') {
+          const { room, evidence } = notification.params
+          this.#keepBoardEvidence(room, evidence)
+        }
         if (notification.method === 'team/removed') {
           const { room } = notification.params
           const teams = new Map(this.#snapshot.teams)
           teams.delete(room)
-          this.#patch({ teams })
+          const boardEvidence = new Map(this.#snapshot.boardEvidence)
+          boardEvidence.delete(room)
+          this.#patch({ teams, boardEvidence })
           /* A pane pointed at a room that no longer exists is a surface backed
              by nothing — it would draw the empty board rather than say why. It
              goes with the room, and whatever the pane was replacing comes
@@ -3645,6 +3652,24 @@ export class AppStore {
     } catch {
       // A room the host no longer has is a room with no runs to draw.
     }
+  }
+
+  // ------------------------------------------------------------------ evidence
+
+  async loadBoardEvidence(room: string): Promise<void> {
+    try {
+      this.#keepBoardEvidence(room, (await this.transport.request('evidence/board', { room })) as BoardEvidence)
+    } catch {
+      // A room the host no longer has leaves what is already drawn unchanged.
+    }
+  }
+
+  #keepBoardEvidence(room: string, evidence: BoardEvidence): void {
+    const drawn = this.#snapshot.boardEvidence.get(room)
+    if (drawn && drawn.stamp > evidence.stamp) return
+    const boardEvidence = new Map(this.#snapshot.boardEvidence)
+    boardEvidence.set(room, evidence)
+    this.#patch({ boardEvidence })
   }
 
   /**
