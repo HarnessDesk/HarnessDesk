@@ -341,6 +341,9 @@ it('a room is a row under its project, and its members hang off it', () => {
 
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.textContent).toContain('Checkout rewrite')
+  expect(row.getAttribute('data-slot')).toBe('button')
+  expect(row.getAttribute('data-variant')).toBe('navigation')
+  expect(row.tagName).toBe('DIV')
   // The member is inside the room's own block; the loose one is not.
   const nested = row.parentElement?.querySelector('[class*="nested"]')
   expect(nested?.textContent).toContain('session-1')

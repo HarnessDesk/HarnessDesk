@@ -877,11 +877,10 @@ body {
 
   /* --- the section label ---------------------------------------------------
      The word over a group of rows — "Workspaces", "Capabilities", "Agents".
-     The reference sets these as 12px uppercase medium, which is what makes a
-     group read as a group without a rule under it: at 13px sentence case, the
-     app's label sat at the same size and weight as the rows beneath it and
-     was distinguished only by being grey. Tracking is the part that is easy
-     to leave out and the part that makes uppercase legible at 12px. */
+     Desk sets it at the rows' own 13px size in sentence case, regular weight
+     and muted ink, so it names the group quietly. Studio sets it at 12px in
+     uppercase medium with tracking, so the group reads distinctly without a
+     rule beneath it. */
   /*
    * The whole `--hd-label-*` family is defined in the STUDIO block and nowhere
    * else, and so is the selection family below it. This is the rule the rest
@@ -1142,7 +1141,6 @@ body[data-hd-interface='studio'] {
     var(--hd-sidebar-selected-foreground) 86%,
     transparent
   );
-  --hd-nav-weight-selected: var(--hd-weight-medium);
   --hd-nav-h: 34px;
   /* One height for every row in a navigation column, which is the thing Desk
      does not do: three rows in one sidebar at 31, 30 and neither. */

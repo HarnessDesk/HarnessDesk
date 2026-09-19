@@ -58,6 +58,13 @@ describe('the canonical button', () => {
     }
   })
 
+  it('marks selection with fill without changing the label weight', () => {
+    for (const variant of ['row', 'navigation', 'choice'] as const) {
+      const classes = buttonVariants({ variant })
+      expect(classes).not.toMatch(/(?:data-\[(?:selected|active|current|open)\]|aria-checked):font-/)
+    }
+  })
+
 })
 
 /**

@@ -319,7 +319,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". The reference sets these as 12px uppercase medium, which is what makes a group read as a group without a rule under it: at 13px sentence case, the app's label sat at the same size and weight as the rows beneath it and was distinguished only by being grey. Tracking is the part that is easy to leave out and the part that makes uppercase legible at 12px.
+The word over a group of rows — "Workspaces", "Capabilities", "Agents". Desk sets it at the rows' own 13px size in sentence case, regular weight and muted ink, so it names the group quietly. Studio sets it at 12px in uppercase medium with tracking, so the group reads distinctly without a rule beneath it.
 
 ### The card
 
@@ -371,7 +371,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |
-| `--hd-nav-weight-selected` | `` |
 | `--hd-nav-h` | `calc(14px * 1.5 + 4px * 2)` |
 | `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
 | `--hd-nav-radius` | `10px` |

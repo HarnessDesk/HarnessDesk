@@ -991,7 +991,6 @@
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
---hd-nav-weight-selected = 500
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px
@@ -1437,7 +1436,6 @@
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
---hd-nav-weight-selected = 500
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px

@@ -627,11 +627,13 @@ const RoomRow = ({
 
   return (
     <div>
-      <div
+      <Button
+        render={<div role="button" />}
+        variant="navigation"
+        size="navigation"
         className={styles.roomRow}
         {...(held > 0 ? { 'data-held': '' } : {})}
         {...(menu.at ? { 'data-menu-open': '' } : {})}
-        role="button"
         tabIndex={0}
         onContextMenu={menu.open}
         aria-label={`Room ${room.name}`}
@@ -715,7 +717,7 @@ const RoomRow = ({
             <MoreIcon size={12} />
           </Button>
         </span>
-      </div>
+      </Button>
       <ContextMenu at={menu.at} label={`Actions for ${room.name}`} onClose={menu.close}>
         <MenuItem
           icon={<PencilIcon size={13} />}
