@@ -140,8 +140,8 @@ export type AgentCardSubject = {
    */
   readonly agent?: {
     readonly name: string
-    /** "Read · asked": the ceiling the seat was told, and that nothing holds it to it yet. */
-    readonly ceiling: string
+    /** Drawn by the caller as the shared ceiling chip; this pattern owns no ceiling vocabulary. */
+    readonly ceiling: ReactNode
     readonly description?: string | null
     /** "In storefront", "Yours", "Built in". */
     readonly origin?: string | null
@@ -290,7 +290,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
         <Band label="Agent">
           <div className="flex items-baseline gap-1.5">
             <span className="min-w-0 flex-1 truncate text-xs font-medium">{agent.name}</span>
-            <span className="flex-none text-xs text-(--hd-muted-foreground)">{agent.ceiling}</span>
+            <span className="flex-none">{agent.ceiling}</span>
           </div>
           {agent.description && <div className="mt-0.5 text-xs">{agent.description}</div>}
           {agent.origin && <div className="mt-0.5 text-xs text-(--hd-muted-foreground)">{agent.origin}</div>}

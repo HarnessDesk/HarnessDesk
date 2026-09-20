@@ -643,7 +643,7 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
     { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
   ]),
-  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.'),
+  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.', 'edit', [], 'permission'),
   agentEntry('implementer', 'Implementer', 'builtin', 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.', 'publish'),
   agentEntry('security-reviewer', 'Security reviewer', 'builtin', 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'),
   {
@@ -707,7 +707,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
+  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol', { level: 'edit', hold: 'held' })],
   ['implementer', takenOn('implementer', 'claude', 'Beta', { level: 'edit', hold: 'asked' })],
   [
     'security-reviewer',
@@ -749,7 +749,16 @@ class PreviewStore {
       workspace: previewWorkspace,
       workspaces: previewWorkspaces,
       runtimes: [
-        runtime('codex', 'Alpha'),
+        {
+          ...runtime('codex', 'Alpha'),
+          ceilings: {
+            read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
+            edit: {
+              settings: [{ option: 'permissions', value: ':workspace' }],
+              how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
+            },
+          },
+        } as RuntimeInfo,
         runtime('claude', 'Beta'),
         runtime('cursor', 'Gamma'),
       ],
@@ -903,7 +912,8 @@ class PreviewStore {
               agent: 'code-reviewer',
               // Not the roster's digest: the file has moved on since this was handed over.
               briefDigest: 'digest-when-it-started',
-              ceiling: { level: 'edit', hold: 'asked' },
+              ceiling: { level: 'read', hold: 'held' },
+              ceilingNote: 'Read-only sandbox; anything past it asks you',
               seatLabel: 'Alpha · GPT-5.6 Sol',
               passedOver: [
                 { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },

@@ -569,7 +569,7 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <HeaderTitle session={session} />
+        <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
         {session && (
           <span className={`${styles.status} hd-no-drag`} data-status={status} title={STATUS_LABEL[status]}>
             <span className={styles.statusDot} />
@@ -947,6 +947,17 @@ export const GitControl = ({
       )}
     </Popover>
   )
+}
+
+import { CeilingChip } from './CeilingChip'
+import { seatCeilingOf } from '../lib/ceilings'
+
+/** The ceiling governing this conversation, or nothing on the plain path. */
+const HeaderCeiling = ({ session }: { readonly session: Session }) => {
+  const snapshot = useSnapshot()
+  const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
+  const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
+  return shown ? <CeilingChip ceiling={shown.ceiling} note={shown.note} /> : null
 }
 
 /**

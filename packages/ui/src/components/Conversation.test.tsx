@@ -327,6 +327,25 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
   expect(store.readSeatAgent).not.toHaveBeenCalled()
 })
 
+it('a conversation seated as an Agent carries its ceiling beside its title — held or asked — and a plain one carries none', () => {
+  render(
+    rig(
+      session({
+        settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' },
+      }),
+    ).store,
+  )
+  const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
+  expect(chip?.textContent).toBe('Read · held')
+  expect(chip?.title).toMatch(/Held: Read-only sandbox/)
+
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
+  expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
+
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
+  expect(container.querySelector('[data-ceiling]')).toBeNull()
+})
+
 it('the conversation’s menu offers Save as an Agent…', () => {
   render(rig(session()).store)
   act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())

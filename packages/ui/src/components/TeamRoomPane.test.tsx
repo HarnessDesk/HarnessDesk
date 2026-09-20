@@ -142,12 +142,14 @@ const rig = (
      unchanged; overridable because "has this member done anything" only means
      something once there is something to do. */
   board: Partial<TeamState> = {},
+  settings?: Session['settings'],
 ) => {
   const session = {
     id: 'c1',
     runtime: 'codex',
     title: 'API migration',
     cwd: '/repo',
+    ...(settings ? { settings } : {}),
     /* Mid-turn. Whether a member is working is the fact the rail exists to
        show without anything being opened, so the fixture has one that is —
        and it is read from *here*, live, rather than from the roster's copy,
@@ -1722,4 +1724,20 @@ it('a name or a mode set in another view is drawn here when the room’s state a
   expect(row('Mender').textContent).toContain('messages held')
   // From the push alone: the roster was not asked for again.
   expect(store.teamPeers).toHaveBeenCalledTimes(1)
+})
+
+it("a seated member's row leads with its ceiling — held or asked — and a plain member's is unchanged", async () => {
+  const { store } = rig(undefined, undefined, undefined, {
+    cwd: '/repo',
+    model: 'gpt-5.6',
+    agent: 'reviewer',
+    ceiling: { level: 'read', hold: 'held' },
+    ceilingNote: 'Read-only sandbox; anything past it asks you',
+  })
+  await render(store)
+  const seated = row('API migration')
+  const chip = seated.querySelector('[data-ceiling]') as HTMLElement | null
+  expect(chip?.textContent).toBe('Read · held')
+  expect(seated.textContent).toContain('#1 Migrate auth callers')
+  expect(row('Opus').querySelector('[data-ceiling]')).toBeNull()
 })

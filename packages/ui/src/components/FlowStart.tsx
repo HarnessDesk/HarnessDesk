@@ -30,6 +30,9 @@ import styles from './FlowStart.module.css'
  * the fourth round.
  */
 
+import { flowSeatCeiling } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
+
 /** Nothing chosen. A room without a flow is the ordinary room, and the default. */
 const NONE = ''
 
@@ -220,8 +223,8 @@ export const FlowStart = ({
                 <li key={`${seat.role}-${seat.index}`}>
                   <span className={styles.role}>{seat.role}</span>
                   <span className={styles.seat}>{seat.seat}</span>
-                  <span className={styles.tag} data-permission={seat.permission}>
-                    {seat.permission}
+                  <span className={styles.ceiling}>
+                    <CeilingChip ceiling={flowSeatCeiling(seat.permission)} />
                   </span>
                 </li>
               ))}
@@ -267,6 +270,13 @@ export const FlowStart = ({
                 That is what opening them costs. Each seat then keeps working inside its one turn —
                 one round trip per step, for as long as the flow runs — so on usage-based pricing the
                 run costs more than the seating.
+              </p>
+            )}
+            {report.seats.length > 0 && (
+              <p className={styles.note}>
+                A role's permission: keeps the meaning it had — its read lets a seat edit and commit,
+                so it reads as Edit — and a flow's seats are asked their ceilings, not held to them:
+                each agent is told, and the desk's own tools refuse anything above it.
               </p>
             )}
             {!report.settled && report.trace.length > 0 && (

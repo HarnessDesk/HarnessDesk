@@ -93,27 +93,9 @@
   margin-left: auto;
 }
 
-.tag {
+.ceiling {
   flex: none;
   margin-left: auto;
-  padding: 0 var(--hd-space-1);
-  border-radius: var(--hd-radius-sm);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
-}
-
-/* Publishing and merging are what an unattended agent must never drift into
-   unnoticed, so they are the two that are coloured. */
-.tag[data-permission='publish'] {
-  background: var(--hd-tint-amber-fill);
-  color: var(--hd-tint-amber-ink);
-}
-
-.tag[data-permission='merge'] {
-  background: var(--hd-tint-rose-fill);
-  color: var(--hd-tint-rose-ink);
 }
 
 .commands code {

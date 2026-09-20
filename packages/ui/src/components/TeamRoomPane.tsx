@@ -570,6 +570,7 @@ export const TeamRoomPane = ({
              conversation renamed while the room was open wearing its old name
              until something else moved. */
           title: live?.title ?? peer.title ?? null,
+          ceiling: seatCeilingOf(live?.settings, snapshot.flowRuns.get(room) ?? [], peer.runtime, peer.sessionId),
         }
       }),
     [
@@ -578,6 +579,8 @@ export const TeamRoomPane = ({
       snapshot.sessions,
       snapshot.accountsByRuntime,
       snapshot.accountPrefs,
+      snapshot.flowRuns,
+      room,
       intents,
       entries.length,
     ],
@@ -1049,6 +1052,9 @@ export const TeamRoomPane = ({
   )
 }
 
+import { seatCeilingOf, type SeatCeilingShown } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
+
 /** One member of the room, as the rail draws it. */
 type Member = {
   peer: TeamPeerInfo
@@ -1071,7 +1077,18 @@ type Member = {
   idleOnBoard: boolean
   onTask: Intent | null
   title: string | null
+  ceiling: SeatCeilingShown | null
 }
+
+const withCeiling = (shown: SeatCeilingShown | null, line: ReactNode): ReactNode =>
+  shown ? (
+    <span className="flex min-w-0 items-center gap-1.5">
+      <CeilingChip ceiling={shown.ceiling} note={shown.note} />
+      {line !== undefined && <span className="min-w-0 truncate">{line}</span>}
+    </span>
+  ) : (
+    line
+  )
 
 /**
  * A rail member, as the card reads it.
@@ -1314,7 +1331,8 @@ const MemberRow = ({
           {!member.here && <span className="sr-only"> — not open</span>}
         </>
       }
-      subtitle={
+      subtitle={withCeiling(
+        member.ceiling,
         !member.canUseBoard ? (
           /* Outranks everything else on the row: what a member is called and
              what it holds do not matter if it cannot take a job at all.
@@ -1353,8 +1371,8 @@ const MemberRow = ({
              say that the room is intact and nothing is warm yet — including
              what will happen if you write to it. */
           <span className={styles.memberIdle}>not open — a message opens it</span>
-        ) : undefined
-      }
+        ) : undefined,
+      )}
       trail={
         /* Watching beside, on every row and at all times.
            This used to appear only once a member was already up, on the theory

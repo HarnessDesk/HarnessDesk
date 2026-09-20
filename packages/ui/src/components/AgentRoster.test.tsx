@@ -187,3 +187,37 @@ it('says "Checking seats…" only while a plan is still pending, not after a fai
   mount({ agentPlans: new Map(), agentPlansFailed: false })
   expect(sectionText('In storefront')).toContain('Checking seats…')
 })
+
+it('flags an Agent still on permission: or on no ceiling, and draws the seat’s ceiling as the chip', () => {
+  const said = (id: string, name: string, origin: AgentEntry['origin'], ceilingFrom: 'ceiling' | 'permission' | 'none') =>
+    agent(id, name, origin, {
+      definition: {
+        id,
+        name,
+        description: `${name} does the work.`,
+        ceiling: ceilingFrom === 'none' ? 'read' : 'edit',
+        ceilingFrom,
+        answers: [],
+        produces: [],
+        skills: [],
+        prefer: [{ runtime: 'claude-code' }],
+        brief: 'Work.',
+      },
+    })
+  mount({
+    agents: [
+      said('code-reviewer', 'Storefront reviewer', 'project', 'permission'),
+      said('scout', 'Scout', 'user', 'none'),
+      said('tidy', 'Tidy', 'user', 'ceiling'),
+    ],
+  })
+  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission:, so it reads as edit.')
+  expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
+  expect(sectionText('Yours')).toContain('Tidy does the work.')
+  expect(sectionText('Yours')).not.toContain('Tidy does the work. Written')
+  expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
+  const chip = container.querySelector('section[aria-label="In storefront"] [data-ceiling]')
+  expect(chip?.getAttribute('data-hold')).toBe('asked')
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
+  expect(sectionText('Yours')).toContain('Edit')
+})

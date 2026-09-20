@@ -8544,7 +8544,7 @@ Every seat carries its effective ceiling as the chip — *Read · held*, *Edit �
 - **The name card's Agent band** (phase 2 Task 18): the band's ceiling becomes the chip. `AgentCardSubject.agent.ceiling` becomes a node, like `mark`, so the design pattern never learns the ceiling vocabulary; the caller draws `CeilingChip`.
 - **A room's rail**: a seated member's second line leads with the chip, then says what it said before.
 - **A card's holder** on the board: the chip follows the holder's name.
-- **A flow's dry run**: each seat's role wears its `permission:` on the ladder — a role's `read` reads as *Edit* — asked, and a sentence says so. The coloured `permission` tag and its three rules in `FlowStart.module.css` are deleted; the screen stylesheet's appearance count falls by five, and the audit's baseline and the design document are recorded lower.
+- **A flow's dry run**: each seat's role wears its `permission:` on the ladder — a role's `read` reads as *Edit* — asked, and a sentence says so. The coloured `permission` tag and its three rules in `FlowStart.module.css` are deleted; the screen stylesheet's appearance count falls by ten declarations, and the audit's baseline and the design document are recorded lower.
 - **The roster**: the seat an Agent would take here wears the chip — so an Agent whose ceiling that seat cannot hold is marked, in the warning tone — and an Agent still on `permission:`, or with no ceiling written, is flagged in its row's sentence (*Written with permission:, so it reads as edit.* / *No ceiling written, so it runs as read.*). Its *Update…* is on its page (Task 11): the row itself opens the page.
 
 The preview gets a seat that is held (the preview's *Code reviewer*, seated on Alpha with its read-only sandbox read back), a runtime that declares what it holds (Alpha, as Codex does), and a flagged Agent (*Release checker*, on `permission:`), so every frame shows both tones.
@@ -9287,7 +9287,7 @@ pnpm --filter @harnessdesk/ui exec vitest run
 node script/design-audit.mjs --strict; echo "audit exit: $?"
 ```
 
-Expected: the typecheck prints nothing; the whole suite passes; the audit exits **1**, with `Appearance drawn in a screen stylesheet: N -> N-5. Tighten the ceiling so it cannot drift back.` — the five declarations of `FlowStart.module.css`'s `.tag` rules are gone. Record the lower count and regenerate the design document:
+Expected: the typecheck prints nothing; the whole suite passes; the audit exits **1**, with `Appearance drawn in a screen stylesheet: N -> N-10. Tighten the ceiling so it cannot drift back.` — the ten declarations of `FlowStart.module.css`'s `.tag` rules are gone. Record the lower count and regenerate the design document:
 
 ```bash
 node script/design-audit.mjs --baseline
@@ -9296,7 +9296,7 @@ node script/design-audit.mjs --strict; echo "audit exit: $?"
 node script/design-doc.mjs --check
 ```
 
-Expected: `audit exit: 0`; `docs/design-system.md is current.`; `git diff --stat` shows `packages/ui/src/design/audit-baseline.json` and `docs/design-system.md` each with one line changed — `screenAppearance`, lower by five. As run on the scratch tree (its count was 2,725 on phase 2's Part B as far as it was built; yours will differ, and only the fall of five matters):
+Expected: `audit exit: 0`; `docs/design-system.md is current.`; `git diff --stat` shows `packages/ui/src/design/audit-baseline.json` and `docs/design-system.md` each with one line changed — `screenAppearance`, lower by ten. As run on the implementation tree, the count was 2,725 before the tag was removed; yours may differ, and only the fall of ten matters:
 
 ```diff
 diff --git a/packages/ui/src/design/audit-baseline.json b/packages/ui/src/design/audit-baseline.json
@@ -9307,7 +9307,7 @@ diff --git a/packages/ui/src/design/audit-baseline.json b/packages/ui/src/design
    "rawWeight": 0,
    "patternClass": 3,
 -  "screenAppearance": 2725,
-+  "screenAppearance": 2720,
++  "screenAppearance": 2715,
    "screenUnclassified": 0,
    "wrongVariant": 0,
    "missingClass": 0,
@@ -9322,7 +9322,7 @@ diff --git a/docs/design-system.md b/docs/design-system.md
  | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
  | `patternClass` | 3 | Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line. |
 -| `screenAppearance` | 2725 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
-+| `screenAppearance` | 2720 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
++| `screenAppearance` | 2715 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
  | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
  | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
  | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |
@@ -9363,7 +9363,7 @@ The pane header, the name card's Agent band, a room's rail, a card's holder,
 a flow's dry run and the roster each draw a seat's ceiling as the one chip —
 Read · held, Edit · asked — and a conversation nothing governs draws none. A
 flow role's permission: reads on the ladder, asked, and the dry run says so;
-its coloured tag is gone, and the audit's appearance baseline is five lower.
+its coloured tag is gone, and the audit's appearance baseline is ten lower.
 The roster flags an Agent still on permission: or on no ceiling.
 
 Named edits to tests this change did not write: AgentCards (the band's chip),

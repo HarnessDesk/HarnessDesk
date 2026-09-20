@@ -979,3 +979,19 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   const labels = items.map((one) => one.textContent?.trim())
   expect(labels).toContain('Answer approve')
 })
+
+it('a claimed card’s holder wears its ceiling, asked in the warning tone, and a plain holder wears none', async () => {
+  const plain = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })])
+  await render(plain.store)
+  expect(container.querySelector('[data-ceiling]')).toBeNull()
+
+  const seated = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })])
+  const held = seated.store.getSnapshot().sessions.get(sessionKey('codex', 'c1')) as unknown as { settings?: unknown }
+  held.settings = { ceiling: { level: 'read', hold: 'asked' } }
+  await render(seated.store)
+  const chip = container.querySelector('[data-ceiling]')
+  expect(chip?.getAttribute('data-ceiling')).toBe('read')
+  expect(chip?.getAttribute('data-hold')).toBe('asked')
+  expect(chip?.textContent).toBe('Read · asked')
+  expect(chip?.querySelector('[data-tone="warning"]')).not.toBeNull()
+})
