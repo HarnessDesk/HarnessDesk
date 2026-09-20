@@ -39,6 +39,7 @@ import {
 } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
+import { PREVIEW_GOAL } from './goal-fixture'
 import '../styles/app.css'
 
 /**
@@ -471,9 +472,9 @@ const Preview = () => {
             />
           </div>
         </Frame>
-        <Frame title="Team room — the roster, and the channel">
+        <Frame title="Goal — state, roster and channel">
           <div className="h-[540px]">
-            <TeamRoomPane room={PREVIEW_ROOM} />
+            <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
           </div>
         </Frame>
         <div className="flex min-w-0 flex-col gap-4">

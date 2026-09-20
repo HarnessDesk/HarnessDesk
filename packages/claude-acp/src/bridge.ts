@@ -2,7 +2,6 @@ import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync }
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { mkdirSync } from 'node:fs'
-
 import {
   agent as acpAgent,
   methods,
@@ -26,6 +25,7 @@ import { sessionFiles, trash } from './store.js'
 import { DELEGATION_CAPABILITY, DELEGATION_LIST, DELEGATION_NOTIFICATION } from './delegation-wire.js'
 import { SESSION_DELETE, SESSION_DELETE_CAPABILITY, TASKS_CAPABILITY, TASKS_CLEAR, TASKS_LIST, TASKS_NOTIFICATION, TASKS_STOP } from './tasks-wire.js'
 import { DelegationRegistry } from './delegation.js'
+import { childEnvironment, environmentAck, environmentIn } from './lane-environment.js'
 import { TaskRegistry } from './tasks.js'
 
 const DEFAULT = 'default'
@@ -183,6 +183,13 @@ const parsedSettings = (raw: unknown): Record<string, unknown> => {
 export const withOptions = (meta: Meta, values: Record<string, string>, abort: AbortController): Record<string, unknown> => {
   const claudeCode = (meta?.['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
   const options: Record<string, unknown> = { ...(claudeCode.options ?? {}), abortController: abort }
+  const environment = environmentIn(meta)
+  if (environment) {
+    options['env'] = childEnvironment(
+      { ...process.env, ...(options['env'] as NodeJS.ProcessEnv | undefined) },
+      environment,
+    )
+  }
   if (values[EFFORT_OPTION_ID] && values[EFFORT_OPTION_ID] !== DEFAULT) options['effort'] = values[EFFORT_OPTION_ID]
   else delete options['effort']
   const extraArgs = { ...((options['extraArgs'] as Record<string, string | null> | undefined) ?? {}) }
@@ -319,7 +326,20 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   }
   override async initialize(request: InitializeRequest): Promise<InitializeResponse> {
     const response = await super.initialize(request)
-    return { ...response, agentInfo: { name: '@harnessdesk/claude-acp', title: 'Claude Code', version: VERSION }, _meta: { ...(response._meta ?? {}), harnessdesk: { [TASKS_CAPABILITY]: true, [SESSION_DELETE_CAPABILITY]: true, [DELEGATION_CAPABILITY]: true, [INSTRUCTIONS_CAPABILITY]: true } } }
+    return {
+      ...response,
+      agentInfo: { name: '@harnessdesk/claude-acp', title: 'Claude Code', version: VERSION },
+      _meta: {
+        ...(response._meta ?? {}),
+        harnessdesk: {
+          [TASKS_CAPABILITY]: true,
+          [SESSION_DELETE_CAPABILITY]: true,
+          [DELEGATION_CAPABILITY]: true,
+          [INSTRUCTIONS_CAPABILITY]: true,
+          sessionEnvironment: true,
+        },
+      },
+    }
   }
   override async newSession(request: NewSessionRequest): Promise<NewSessionResponse> {
     const params = withInstructions(request)
@@ -333,7 +353,10 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#tasks.set(response.sessionId, new TaskRegistry())
     this.#delegations.set(response.sessionId, new DelegationRegistry())
     this.#writeControls(response.sessionId, stored.values)
-    return { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] }
+    return environmentAck(
+      { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] },
+      environmentIn(params._meta),
+    )
   }
   override async loadSession(request: LoadSessionRequest): Promise<LoadSessionResponse> {
     const remembered = this.#readControls(request.sessionId)
@@ -347,7 +370,10 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     this.#tasks.set(request.sessionId, new TaskRegistry())
     this.#delegations.set(request.sessionId, new DelegationRegistry())
     await this.#replayStored(request.sessionId)
-    return { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] }
+    return environmentAck(
+      { ...decorated, configOptions: [...(decorated.configOptions ?? []), ...customOptions(stored)] },
+      environmentIn(params._meta),
+    )
   }
   override async setSessionConfigOption(params: SetSessionConfigOptionRequest): Promise<SetSessionConfigOptionResponse> {
     if (!CONTROL_IDS.includes(params.configId as typeof CONTROL_IDS[number])) {

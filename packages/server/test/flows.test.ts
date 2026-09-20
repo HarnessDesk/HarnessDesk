@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { sessionKey, type RuntimeId, type TeamState } from '@harnessdesk/protocol'
+import { sessionKey, type FlowPermission, type FlowSeat, type RuntimeId, type SeatId, type SeatRecord, type TeamState } from '@harnessdesk/protocol'
 
-import { FLOW_DIR, Flows, runCheck, type FlowPort } from '../src/flows.js'
+import { FLOW_DIR, Flows as DurableFlows, runCheck, type FlowPort as DurableFlowPort } from '../src/flows.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 
 /**
@@ -75,6 +75,57 @@ const peerOf = (runtime: string, sessionId: string, cwd: string, model: string):
   model,
   here: true,
 })
+
+/** Old fake-desk spelling retained only inside this test; production has one durable Seat port. */
+type FlowPort = Omit<DurableFlowPort, 'openLegacySeat' | 'releaseGoalSeat'> & {
+  seat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<{
+    readonly runtime: string; readonly sessionId: string; readonly label: string
+  }>
+  join(room: string, runtime: string, sessionId: string): Promise<void>
+  isolate?(root: string, name: string): Promise<string>
+  recorded?(room: string, seat: unknown): void
+}
+
+const durablePort = (team: Team, legacy: FlowPort): DurableFlowPort => {
+  const opened = new Map<SeatId, { runtime: string; sessionId: string }>()
+  const { seat, join: joinRoom, isolate, recorded: _recorded, ...port } = legacy
+  return {
+    ...port,
+    openLegacySeat: async (input: {
+      goal: string; spec: FlowSeat; permission: FlowPermission; role: string
+      isolate: boolean; title: string; lane?: string
+    }): Promise<SeatRecord> => {
+      const board = team.stateFor(input.goal)
+      const folder = board.cwd ?? board.root
+      const cwd = input.isolate ? await isolate?.(folder, input.lane ?? input.role) : folder
+      if (!cwd) throw new Error('This test port cannot isolate a Seat.')
+      const live = await seat(input.spec, { cwd, title: input.title })
+      await joinRoom(input.goal, live.runtime, live.sessionId)
+      team.setRole(input.goal, live.runtime, live.sessionId, input.role)
+      const id = `test-${live.runtime}-${live.sessionId}` as SeatId
+      opened.set(id, live)
+      return {
+        id, agent: null, briefDigest: null, seat: input.spec, seatLabel: live.label,
+        passedOver: [], standing: { kind: 'permission', permission: input.permission }, ceiling: null,
+        checkout: { cwd, project: board.root, branch: null, head: null },
+        session: { runtime: live.runtime, sessionId: live.sessionId }, board: input.goal,
+        role: input.role, openedAt: Date.now(), closed: null,
+      }
+    },
+    releaseGoalSeat: async (goal, id) => {
+      const live = opened.get(id)
+      if (!live) return
+      team.setRole(goal, live.runtime, live.sessionId, null)
+      team.leaveRoom(goal, live.runtime as RuntimeId, live.sessionId)
+    },
+  }
+}
+
+class Flows extends DurableFlows {
+  constructor(dir: string, team: Team, port: FlowPort) {
+    super(dir, team, durablePort(team, port))
+  }
+}
 
 const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig> => {
   /* Built up as we go, because the fake desk's own verbs read its state — an

@@ -136,6 +136,7 @@ export const describeAdapterConformance = (name: string, harness: ConformanceHar
       await withRuntime(async (runtime) => {
         assert.ok(runtime.info.id.length > 0)
         assert.ok(runtime.info.presentation.name.trim().length > 0, 'presentation.name is what the shell calls it')
+        assert.equal(typeof runtime.info.capabilities.sessionEnvironment, 'boolean')
         for (const [key, value] of Object.entries(runtime.info.capabilities)) {
           assert.equal(typeof value, 'boolean', `capability ${key} must be a boolean verb`)
         }

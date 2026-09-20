@@ -21,6 +21,7 @@ export const appMethods = {
     // already resolved against, so the two agree by construction.
     home: homedir(),
     stateDir: ctx.state.directory,
+    goalMigrationPending: !ctx.goals.store.noticeSeen,
   }),
 
   'diagnostics/bundle': (ctx) => ctx.diagnostics(),

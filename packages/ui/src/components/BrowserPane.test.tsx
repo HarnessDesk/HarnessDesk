@@ -374,10 +374,10 @@ describe('BrowserPane', () => {
   })
 
   it('names the driven tab to the shell, not whichever tab is on screen', () => {
-    const named: number[] = []
+    const named: { profile: string | null; webContentsId: number }[] = []
     ;(window as { harnessdesk?: Partial<DesktopBridge> }).harnessdesk = {
       platform: 'darwin',
-      browserReady: (id: number) => named.push(id),
+      browserReady: request => named.push(request),
       browserGone: () => {},
       setBrowserLinksInPane: () => {},
     } as Partial<DesktopBridge> as DesktopBridge
@@ -391,7 +391,7 @@ describe('BrowserPane', () => {
       guests[1]!.dispatchEvent(new Event('dom-ready'))
       guests[0]!.dispatchEvent(new Event('dom-ready'))
     })
-    expect(named).toEqual([11])
+    expect(named).toEqual([{ profile: null, webContentsId: 11 }])
   })
 
   /**

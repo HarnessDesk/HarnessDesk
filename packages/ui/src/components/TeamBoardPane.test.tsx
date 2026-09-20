@@ -720,57 +720,6 @@ it('shows the holder by its room name, not by a title it may not have', async ()
 })
 
 /**
- * A goal can be finished; a Room cannot.
- *
- * The band above the work is the only line on the board that can ever say
- * "done" — and the refusal, when something is still live, is read there rather
- * than thrown away, because it is an answer the person needs.
- */
-it('offers to wrap a goal only when nothing on it is still live', async () => {
-  const live = intent({ id: 1, state: 'claimed', title: 'In progress', plan: 1 })
-  const settled = intent({ id: 2, state: 'done', title: 'Finished', plan: 1 })
-  const { store } = rig([live, settled] as never, {
-    plans: [{ id: 1, goal: 'Round half-up to whole cents', state: 'running', createdAt: 0 }],
-  } as never)
-  await render(store)
-
-  expect(container.textContent).toContain('Round half-up to whole cents')
-  expect(container.textContent).toContain('1 live')
-  const wrap = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent === 'Wrap up',
-  )
-  expect(wrap?.disabled).toBe(true)
-})
-
-it('a goal with nothing live says so, and the button works', async () => {
-  const settled = intent({ id: 1, state: 'done', title: 'Finished', plan: 1 })
-  const { store } = rig([settled] as never, {
-    plans: [{ id: 1, goal: 'Ship the migration', state: 'running', createdAt: 0 }],
-  } as never)
-  await render(store)
-
-  expect(container.textContent).toContain('all done')
-  const wrap = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent === 'Wrap up',
-  )
-  expect(wrap?.disabled).toBe(false)
-})
-
-it('a wrapped goal leaves the band, and its work stays on the board', async () => {
-  const settled = intent({ id: 1, state: 'done', title: 'Finished', plan: 1 })
-  const { store } = rig([settled] as never, {
-    plans: [{ id: 1, goal: 'Already put away', state: 'wrapped', createdAt: 0, wrappedAt: 1 }],
-  } as never, observed([], []))
-  await render(store)
-
-  // The heading has said what it had to say; a band that grew forever would
-  // push the work off the screen.
-  expect(container.textContent).not.toContain('Already put away')
-  // The record does not go anywhere.
-  expect(container.textContent).toContain('Finished')
-})
-
-/**
  * A card's menu is a floating panel, and it owes what every floating panel owes:
  * it goes when something takes the screen (#214).
  *

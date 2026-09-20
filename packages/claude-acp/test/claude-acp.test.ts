@@ -117,6 +117,7 @@ test('the bridge uses the official Claude ACP package contract', () => {
     dependencies?: Record<string, string>
   }
   assert.deepEqual(manifest.dependencies, {
+    '@harnessdesk/protocol': 'workspace:*',
     '@agentclientprotocol/claude-agent-acp': '0.77.0',
     '@agentclientprotocol/sdk': '1.4.0',
     '@anthropic-ai/claude-agent-sdk': '0.3.272',

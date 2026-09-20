@@ -19,6 +19,7 @@ import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
 import { RunCheck } from './RunCheck'
 import { HandOut } from './HandOut'
+import { GoalAssign } from './GoalAssign'
 import { SessionHoverCard } from './AgentCards'
 import { BrandMark } from './BrandIcons'
 import {
@@ -202,8 +203,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
    * Add beside a goal does not make anybody pick it out of a menu they were
    * just looking at.
    */
-  const [detailed, setDetailed] = useState<null | { plan: number | null }>(null)
+  const [detailed, setDetailed] = useState(false)
   const [handing, setHanding] = useState(false)
+  const [assigning, setAssigning] = useState<number | null>(null)
   /**
    * Who is on this board, from the host.
    *
@@ -232,13 +234,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
      a layout written before it existed — simply has no entry, which is the
      empty state below rather than an error. */
   const board = snapshot.teams.get(room)
+  const goal = snapshot.goals.get(room)
   const intents = board?.intents ?? []
-  /* Only the goals still running: a wrapped one has said what it had to say,
-     and a band that grew forever would push the work off the screen. */
-  const running = (board?.plans ?? []).filter(
-    (plan) => plan.state === 'running',
-  )
-
   const openCards = intents.filter((one) => one.state === 'open' && !one.claim).length
 
   /* Membership changes when a conversation opens or closes, and when somebody
@@ -393,7 +390,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       )
   }
 
-  const openAdd = (plan: number | null): void => setDetailed({ plan })
+  const openAdd = (): void => setDetailed(true)
 
   const runCheck = (
     card: number,
@@ -497,7 +494,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                  job" has to match what is announced. */
               aria-label="New job — add work with files, dependencies and a goal"
               title="Add work with files, dependencies and a goal"
-              onClick={() => openAdd(null)}
+              onClick={openAdd}
             >
               <PlusIcon />
               {/* The label goes at the narrowest width and the glyph carries
@@ -534,68 +531,13 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
             goal is not, so this is the only line that can ever say "finished" —
             and the refusal, when something is still live, is read here rather
             than thrown away, because it is an answer rather than a failure. */}
-        {running.length > 0 && (
-          <div className="mb-2 flex flex-wrap items-center gap-2">
-            {running.map((plan) => {
-              const live = intents.filter(
-                (one: Intent) =>
-                  one.plan === plan.id && one.state !== 'done' && one.state !== 'abandoned',
-              ).length
-              return (
-                <span
-                  key={plan.id}
-                  className="flex items-center gap-2 rounded-(--hd-radius-sm) bg-(--hd-muted) px-2 py-1"
-                >
-                  <span className="text-xs font-medium">{plan.goal}</span>
-                  <span className="text-xs text-(--hd-muted-foreground) tabular-nums">
-                    {live > 0 ? `${live} live` : 'all done'}
-                  </span>
-                  {/* Work goes onto a goal from the goal itself: the one place
-                      a reader is already thinking about that goal, and the only
-                      way `plan` gets set without typing an id. */}
-                  <Button
-                    variant="muted"
-                    size="xs"
-                    title={`Add work to “${plan.goal}”`}
-                    onClick={() => openAdd(plan.id)}
-                  >
-                    <PlusIcon />
-                    Add
-                  </Button>
-                  <Button
-                    variant="muted"
-                    size="xs"
-                    disabled={live > 0}
-                    title={
-                      live > 0
-                        ? `${live} ${live === 1 ? 'job is' : 'jobs are'} still live on this goal`
-                        : 'Put this goal away; its jobs stay as the record'
-                    }
-                    onClick={() => {
-                      void store
-                        .teamWrap(room, plan.id)
-                        .then((answer) =>
-                          setTrouble(answer.startsWith('Refused') ? answer : null),
-                        )
-                        .catch(() =>
-                          setTrouble('The host did not take that; the board is as it was.'),
-                        )
-                    }}
-                  >
-                    Wrap up
-                  </Button>
-                </span>
-              )
-            })}
-          </div>
-        )}
         {intents.length === 0 ? (
           <EmptyState
             icon={<PlanIcon />}
             title="Nothing on the board"
             description="Work added here — by you, or by any agent that can reach the board — can be claimed by one conversation at a time, with its files owned while the claim lives."
           >
-            <Button size="sm" className="self-center" onClick={() => openAdd(null)}>
+            <Button size="sm" className="self-center" onClick={openAdd}>
               <PlusIcon />
               Add the first job
             </Button>
@@ -617,6 +559,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
                       evidence={evidence?.cards.find((one) => one.card === intent.id)}
                       checks={evidence ?? NO_CHECKS}
                       onRunCheck={(name) => runCheck(intent.id, name)}
+                      onAssign={goal && !intent.claim && intent.state === 'open' ? () => setAssigning(intent.id) : undefined}
                       onOpenHolder={() => openHolder(intent)}
                       onAct={(verb, outcome) =>
                         verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)
@@ -662,14 +605,15 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           onTrouble={setTrouble}
         />
       )}
+      {assigning !== null && goal ? (
+        <GoalAssign view={goal} card={assigning} onClose={() => setAssigning(null)} />
+      ) : null}
       {detailed && (
         <AddWork
           room={room}
-          plan={detailed.plan}
-          plans={running}
           intents={intents}
           peers={peers ?? []}
-          onClose={() => setDetailed(null)}
+          onClose={() => setDetailed(false)}
           onTrouble={setTrouble}
         />
       )}
@@ -759,6 +703,7 @@ const IntentCard = ({
   evidence,
   checks,
   onRunCheck,
+  onAssign,
   onOpenHolder,
   onAct,
 }: {
@@ -774,6 +719,7 @@ const IntentCard = ({
   /** The checks the room's project names: to run, refused, or none readable. */
   checks: BoardChecks
   onRunCheck: (name: string) => void
+  onAssign?: () => void
   onOpenHolder: () => void
   /** `outcome` is what the person answered, on a card a flow addressed to them. */
   onAct: (verb: Verb, outcome?: string) => void
@@ -1070,10 +1016,12 @@ const IntentCard = ({
         </span>
       }
       actions={
-        verbs.length > 0 || checkItems.length > 0 ? (
+        verbs.length > 0 || checkItems.length > 0 || onAssign ? (
           <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
             {(close) => (
               <Menu close={close}>
+                {onAssign ? <MenuItem label="Give this to…" onSelect={onAssign} /> : null}
+                {onAssign && (checkItems.length > 0 || verbs.length > 0) ? <MenuSeparator /> : null}
                 {checkItems.map((one) => (
                   <MenuItem
                     key={`check:${one.key}`}

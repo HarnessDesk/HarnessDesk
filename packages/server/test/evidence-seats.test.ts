@@ -12,7 +12,7 @@ import {
   type FlowRun,
   type SeatRecord,
   type Session,
-  type TeamState,
+  type GoalView,
 } from '@harnessdesk/protocol'
 
 import { canonical } from '../src/evidence/revision.js'
@@ -186,8 +186,8 @@ seed:
 
 test("through the host: a flow's seat leaves a Seat record on its board and in its role, with no Agent", async (t) => {
   const { host, repo } = await evidenceDesk(t)
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Seat room' })) as TeamState
-  const run = (await host.call('flow/start', { room: room.id, source: FLOW })) as FlowRun
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Seat room' })) as GoalView
+  const run = (await host.call('flow/start', { room: room.goal.id, source: FLOW })) as FlowRun
   await host.call('flow/stop', { run: run.id })
   const seat = run.seats[0]
   assert.ok(seat)
@@ -197,7 +197,7 @@ test("through the host: a flow's seat leaves a Seat record on its board and in i
   )
   assert.equal(record.agent, null)
   assert.equal(record.briefDigest, null)
-  assert.equal(record.board, room.id)
+  assert.equal(record.board, room.goal.id)
   assert.equal(record.role, 'worker')
   assert.equal(record.seatLabel, seat.seat)
   assert.deepEqual(record.seat, seat.spec)

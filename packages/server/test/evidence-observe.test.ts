@@ -3,7 +3,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { runtimeId, type BoardEvidence, type Session, type TeamState } from '@harnessdesk/protocol'
+import { runtimeId, type BoardEvidence, type GoalView, type Session, type TeamState } from '@harnessdesk/protocol'
 
 import { readPullRequest, type GhInCheckout } from '../src/evidence/forge.js'
 import { Observer } from '../src/evidence/observe.js'
@@ -179,16 +179,15 @@ test('through the host: a card its holder finishes leaves the diff it was finish
   const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found for branch "work"' })
   const { host, stateDir } = await evidenceDesk(t, { evidence: { gh } }, { stateDir: tempDir('hd-observe-state-'), repo })
   await writeAgent(stateDir)
-  const session = (await host.call('agent/seat', { id: 'scout', cwd: repo.dir })) as Session
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Work' })) as TeamState
-  await host.call('team/room/join', { room: room.id, runtime: runtimeId('fake'), sessionId: String(session.id) })
-  await host.call('team/add', { room: room.id, title: 'Do the work' })
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Work' })) as GoalView
+  const card = await host.call('team/add', { room: room.goal.id, title: 'Do the work' }) as { id: number }
+  const seated = await host.call('goal/seat', { goal: room.goal.id, card: card.id, agent: 'scout' })
+  const session = { id: seated.session.sessionId, settings: { seatLabel: seated.seatLabel } }
   const scope = { runtime: 'fake', sessionId: String(session.id) }
-  assert.match(await host.teamPlane.claim(1, scope), /^Claimed #1 — Do the work\./)
   await host.teamPlane.complete(1, { note: 'done — all tests pass' }, scope)
 
   const board = await until(async () => {
-    const read = (await host.call('evidence/board', { room: room.id })) as BoardEvidence
+    const read = (await host.call('evidence/board', { room: room.goal.id })) as BoardEvidence
     return read.cards.some((card) => card.facts.some((fact) => fact.record.fact.kind === 'diff')) ? read : null
   }, 'the diff the finished card left')
   const diff = board.cards[0]?.facts.find((fact) => fact.record.fact.kind === 'diff')

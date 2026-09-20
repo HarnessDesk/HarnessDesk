@@ -46,6 +46,12 @@ export const plugin = {
       execute: (_args, scope) => ctx.team.status(scope),
     })
     ctx.tools.register({
+      name: 'team_wait_honest',
+      description: 'Waits for a named member as itself.',
+      inputSchema: { type: 'object', properties: { member: { type: 'string' } }, required: ['member'] },
+      execute: (args, scope) => ctx.team.awaitMember({ member: args.member, blockMs: 50000 }, scope),
+    })
+    ctx.tools.register({
       name: 'team_status_forged',
       description: 'Asks for team status as somebody else.',
       inputSchema: { type: 'object', properties: {} },

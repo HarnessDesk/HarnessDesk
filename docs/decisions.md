@@ -348,3 +348,22 @@ say what landed.
 
 **The rule:** profiles may contribute bounded start parameters; session state
 comes back from the agent.
+
+## A Goal is finite; Seats and receipts are the authority
+
+Rooms accumulated three competing truths: a member array, the conversations
+the host happened to hold, and Seat evidence. Goals keep the useful surface —
+board, channel and roster — but make the durable records authoritative. An open,
+non-restored Seat establishes membership. Assignment and Release are serialized
+host transactions; the renderer refreshes the resulting Goal instead of
+splicing a member into local state.
+
+Isolated Goal work receives a durable lane: retained checkout, disjoint port
+block and, by default, its own persistent browser partition. The host injects
+the lane environment into each agent invocation. Wrapping takes a reviewed
+snapshot and journals the receipt before cross-store settlement, so replay is
+idempotent and later mutation is refused. Backup restore deliberately removes
+execution authority: journals are cleared and lanes are released archives.
+
+**The rule:** active work is derived from open Seats; finished or restored work
+is read-only history.

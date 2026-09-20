@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import type { Intent, Plan, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
+import type { Intent, RuntimeId, SessionId, TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { ActionError, Button, Card, Checkbox, Dialog, Field, FormStack, Input, NativeSelect, Text, Textarea } from '../design'
 import { useStore } from '../state/context'
@@ -27,18 +27,12 @@ import styles from './AddWork.module.css'
 export const AddWork = ({
   room,
   intents,
-  plans = [],
-  plan = null,
   peers = [],
   onClose,
   onTrouble,
 }: {
   readonly room: string
   readonly intents: readonly Intent[]
-  /** The goals still running, when the board has any. */
-  readonly plans?: readonly Plan[]
-  /** The goal this was opened from, already chosen. */
-  readonly plan?: number | null
   /** Who could be asked to pick it up. Empty when nobody is in the room. */
   readonly peers?: readonly TeamPeerInfo[]
   readonly onClose: () => void
@@ -50,7 +44,6 @@ export const AddWork = ({
   const [detail, setDetail] = useState('')
   const [files, setFiles] = useState('')
   const [dependsOn, setDependsOn] = useState<readonly number[]>([])
-  const [goal, setGoal] = useState(plan === null ? '' : String(plan))
   const [ask, setAsk] = useState('nobody')
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -76,7 +69,6 @@ export const AddWork = ({
         ...(detail.trim() ? { detail: detail.trim() } : {}),
         ...(parsed.length > 0 ? { files: parsed } : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
-        ...(goal ? { plan: Number(goal) } : {}),
       })
     } catch (error) {
       setBusy(false)
@@ -174,28 +166,6 @@ export const AddWork = ({
         </Field>
 
         <div className={styles.pair}>
-          <Field
-            label={<>Goal <Text role="muted" ink="muted">optional</Text></>}
-            hint={plans.length === 0
-              ? 'No goal is running on this board.'
-              : 'A goal can be wrapped up when nothing on it is live.'}
-          >
-            {(control) => (
-              <NativeSelect
-                {...control}
-                aria-label="Goal"
-                value={goal}
-                disabled={plans.length === 0}
-                onChange={(event) => setGoal(event.target.value)}
-              >
-                <option value="">No goal</option>
-                {plans.map((one) => (
-                  <option key={one.id} value={String(one.id)}>{one.goal}</option>
-                ))}
-              </NativeSelect>
-            )}
-          </Field>
-
           <Field
             label={<>Ask someone <Text role="muted" ink="muted">optional</Text></>}
             hint={peers.length === 0

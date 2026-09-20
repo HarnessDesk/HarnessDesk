@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, type TestContext } from 'node:test'
 
-import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '@harnessdesk/cordis-host'
+import { ExtensionKernel, setTeamEngine, type HarnessContext, type HarnessPlugin, type TeamEngine } from '@harnessdesk/cordis-host'
 import { runtimeId, type ContributionId, type SessionId, type ToolResult } from '@harnessdesk/protocol'
 
 import {
@@ -21,6 +21,7 @@ import {
   guardrailsPlugin,
   searchPlugin,
   webPlugin,
+  teamPlugin,
 } from '../src/index.js'
 
 /**
@@ -41,6 +42,26 @@ const toolNamed = (kernel: ExtensionKernel, name: string): ContributionId => {
   assert.ok(found, `no tool named ${name}`)
   return found.id
 }
+
+test('await_member requires only member and maps block_ms to the host option', async (t) => {
+  const calls: unknown[] = []
+  setTeamEngine({
+    awaitMember: async (scope: unknown, options: unknown) => { calls.push({ scope, options }); return 'idle; cycle: 8' },
+  } as unknown as TeamEngine)
+  t.after(() => setTeamEngine(null))
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  await kernel.load(teamPlugin)
+  await settle()
+  const tool = kernel.list('tool').find((entry) => entry.name === 'await_member')!
+  assert.ok(tool)
+  assert.deepEqual(tool.inputSchema.required, ['member'])
+  const result = await kernel.invokeTool(tool.id, { member: 'Reviewer', cycle: 7, block_ms: 2345 }, {
+    runtime: runtimeId('codex'), sessionId: 'one' as SessionId,
+  })
+  assert.equal(text(result), 'idle; cycle: 8')
+  assert.deepEqual((calls[0] as { options: unknown }).options, { member: 'Reviewer', cycle: 7, blockMs: 2345 })
+})
 
 // ---------------------------------------------------------------- pure logic
 
@@ -1392,4 +1413,3 @@ test('hasRipgrep probes `rg --version` rather than `which rg` (#459)', async (t)
   assert.equal(ranWhich, false, 'hasRipgrep must not run `which rg`')
   assert.equal(ranRgVersion, true, 'hasRipgrep must run `rg --version`')
 })
-

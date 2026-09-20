@@ -1,11 +1,18 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, type Dirent } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { Service, type Context } from '@deepseek-ai/cordis'
 
 import { PAGE_HELPERS, callHelper } from './browser-page.js'
+import {
+  BrowserScopes,
+  currentBrowserIdentity,
+  drainBrowserInvocations,
+  type BrowserIdentity,
+} from './browser-scopes.js'
+import { currentActor } from './provenance.js'
 import type { HostRuntime } from './runtime.js'
 
 /**
@@ -130,8 +137,8 @@ export interface CdpSender {
 
 export interface BrowserEngine {
   /** The page to drive, started or shown if need be, with `Page` and `Runtime` domains enabled. */
-  ensure(): Promise<CdpSender>
-  close(): Promise<void>
+  ensure(identity?: BrowserIdentity): Promise<CdpSender>
+  close(identity?: BrowserIdentity): Promise<void>
 }
 
 /**
@@ -176,30 +183,35 @@ const DEFAULT_SETTINGS: BrowserSettings = { placement: 'pane', keepProfile: true
  * against the same profile would fight anyway. The permission gate still
  * runs per calling plugin.
  */
-const state: {
+interface BrowserState {
+  readonly profile: string
   child: ChildProcess | null
   connection: CdpConnection | null
   profileDir: string | null
-  /** The throwaway profile of a browser that keeps nothing; removed when it closes. */
   disposableDir: string | null
-  engine: BrowserEngine | null
-  settings: BrowserSettings
-  /** Raw events, drained from the engine and kept for whoever reads next. */
   events: CdpEvent[]
-} = {
-  child: null,
-  connection: null,
-  profileDir: null,
-  disposableDir: null,
-  engine: null,
-  settings: DEFAULT_SETTINGS,
-  events: [],
+  starting: Promise<void> | null
 }
+
+let installedEngine: BrowserEngine | null = null
+let settings: BrowserSettings = DEFAULT_SETTINGS
+const scopes = new BrowserScopes<BrowserState>(
+  (profile) => ({
+    profile,
+    child: null,
+    connection: null,
+    profileDir: null,
+    disposableDir: null,
+    events: [],
+    starting: null,
+  }),
+  (identity) => currentBrowserIdentity()?.invocation === identity.invocation,
+)
 
 /** Replaces the Chrome engine — the desktop shell does, with its own pane. */
 export const setBrowserEngine = (engine: BrowserEngine | null): void => {
-  state.engine = engine
-  state.events = []
+  installedEngine = engine
+  for (const [, state] of scopes.entries()) state.events = []
 }
 
 /**
@@ -207,24 +219,53 @@ export const setBrowserEngine = (engine: BrowserEngine | null): void => {
  * disturb a browser already open: the next call lands wherever the setting
  * now says, and whatever was running is left for its own owner to close.
  */
-export const setBrowserSettings = (settings: Partial<BrowserSettings>): void => {
-  state.settings = { ...state.settings, ...settings }
+export const setBrowserSettings = (next: Partial<BrowserSettings>): void => {
+  settings = { ...settings, ...next }
 }
 
-export const browserSettings = (): BrowserSettings => state.settings
+export const browserSettings = (): BrowserSettings => settings
 
 /** The engine the setting asks for, or the nearest thing this process has. */
-const engine = (): BrowserEngine => {
-  switch (state.settings.placement) {
+const settingsFor = (state: BrowserState): BrowserSettings =>
+  state.profile === 'default'
+    ? settings
+    : {
+        ...settings,
+        placement: settings.placement === 'system' ? 'window' : settings.placement,
+        keepProfile: true,
+        profileDir: join(
+          dirname(settings.profileDir ?? join(homedir(), '.harnessdesk', 'browser-profile')),
+          'browser-profiles',
+          state.profile,
+        ),
+      }
+
+const engine = (state = scopes.current()): BrowserEngine => {
+  switch (settingsFor(state).placement) {
     case 'window':
-      return chromeEngine
+      return chromeFor(state)
     case 'system':
       return systemEngine
     default:
       // No pane in a headless host or the web build; a window is the
       // closest thing to "in HarnessDesk" that such a process can offer.
-      return state.engine ?? chromeEngine
+      return installedEngine ?? chromeFor(state)
   }
+}
+
+const closeAllBrowsers = async (): Promise<void> => {
+  await drainBrowserInvocations()
+  // The installed pane engine exists before any tool allocates browser state.
+  // Keep a default entry so shutdown still closes that engine on an idle desk.
+  scopes.forProfile('default')
+  await Promise.all(
+    scopes.entries().map(async ([profile, state]) => {
+      state.events = []
+      if (state.starting) await state.starting.catch(() => {})
+      await chromeFor(state).close()
+      await installedEngine?.close({ invocation: 'host-shutdown', profile })
+    }),
+  )
 }
 
 // ------------------------------------------------------------------ options
@@ -400,7 +441,7 @@ export class BrowserService extends Service {
        nothing to wait for: both engines' `close()` happen to be synchronous
        today, and the first one that yields would outlive the quit — #212
        again, latent (round 3 of #244). */
-    ctx.effect(() => () => this.close().catch(() => {}), 'browser-shutdown')
+    ctx.effect(() => () => closeAllBrowsers(), 'browser-shutdown')
     /* And the folders left by a desk that never got to run that disposer.
        Here rather than at kernel start because this is the service that makes
        them, so the sweep cannot outlive the reason for it (#234). */
@@ -413,8 +454,24 @@ export class BrowserService extends Service {
   /** The gate, then the page — the two lines every call below starts with. */
   private async reach(): Promise<CdpSender> {
     this.runtime.owner(this.ctx).gate.assertBrowser()
-    const cdp = await engine().ensure()
-    await pump(cdp)
+    const identity = currentBrowserIdentity(currentActor() === 'agent')
+    const state = scopes.current()
+    const sender = await engine(state).ensure(identity)
+    const cdp: CdpSender = {
+      send: (method, params) => {
+        currentBrowserIdentity(currentActor() === 'agent')
+        return sender.send(method, params)
+      },
+      ...(sender.drain
+        ? {
+            drain: () => {
+              currentBrowserIdentity(currentActor() === 'agent')
+              return sender.drain!()
+            },
+          }
+        : {}),
+    }
+    await pump(cdp, state)
     return cdp
   }
 
@@ -423,11 +480,13 @@ export class BrowserService extends Service {
     this.runtime.owner(this.ctx).gate.assertBrowser()
     // The system browser is a hand-off, not a session: there is nothing to
     // wait for and nothing to ask afterwards, so say so plainly.
-    if (state.settings.placement === 'system') {
+    currentBrowserIdentity(currentActor() === 'agent')
+    const state = scopes.current()
+    if (settingsFor(state).placement === 'system') {
       await handToSystem(url)
       return { url, title: '', handedOff: true }
     }
-    const cdp = await engine().ensure()
+    const cdp = await this.reach()
     // A fresh document is a fresh console and a fresh set of requests. Keeping
     // the previous page's would make "what did this page log" a question with
     // two pages in the answer.
@@ -823,6 +882,7 @@ export class BrowserService extends Service {
   async console(options: { limit?: number; onlyErrors?: boolean; pattern?: string } = {}): Promise<readonly ConsoleEntry[]> {
     const cdp = await this.reach()
     this.assertSubscribable(cdp, 'console messages')
+    const state = scopes.current()
     let entries = consoleFrom(state.events)
     if (options.onlyErrors) entries = entries.filter((entry) => entry.level === 'error' || entry.level === 'warning')
     if (options.pattern) {
@@ -846,6 +906,7 @@ export class BrowserService extends Service {
       }
       return { body: body.body ?? '', base64: body.base64Encoded === true }
     }
+    const state = scopes.current()
     let entries = networkFrom(state.events)
     if (options.urlPattern) {
       const needle = options.urlPattern.toLowerCase()
@@ -875,6 +936,7 @@ export class BrowserService extends Service {
   async events(options: { method?: string; limit?: number } = {}): Promise<readonly CdpEvent[]> {
     const cdp = await this.reach()
     this.assertSubscribable(cdp, 'protocol events')
+    const state = scopes.current()
     let kept = state.events
     if (options.method) {
       const prefix = options.method
@@ -885,8 +947,12 @@ export class BrowserService extends Service {
   }
 
   async close(): Promise<void> {
+    this.runtime.owner(this.ctx).gate.assertBrowser()
+    const identity = currentBrowserIdentity(currentActor() === 'agent')
+    const state = scopes.current()
     state.events = []
-    await engine().close()
+    await chromeFor(state).close()
+    await installedEngine?.close(identity)
   }
 
   // ---------------------------------------------------------------- private
@@ -969,7 +1035,7 @@ export class BrowserService extends Service {
 // ------------------------------------------------------------------- events
 
 /** Drains whatever the engine has buffered into the service's own ring. */
-async function pump(cdp: CdpSender): Promise<void> {
+async function pump(cdp: CdpSender, state = scopes.current()): Promise<void> {
   if (!cdp.drain) return
   let fresh: readonly CdpEvent[] = []
   try {
@@ -1349,17 +1415,21 @@ const stopped = (child: ChildProcess): Promise<void> =>
  * for.
  */
 export const setChromeProcess = (child: ChildProcess | null, disposableDir: string | null): void => {
+  const state = scopes.forProfile('default')
   state.child = child
   state.disposableDir = disposableDir
   state.profileDir = disposableDir
 }
 
 /** The user's own Chrome, headed, in a profile of its own — the headless host's engine. */
-export const chromeEngine: BrowserEngine = {
+const chromeFor = (state: BrowserState): BrowserEngine => ({
   async ensure() {
-    await ensureChrome()
+    state.starting ??= ensureChrome(state).finally(() => {
+      state.starting = null
+    })
+    await state.starting
     return {
-      send: (method, params) => send(method, params ?? {}),
+      send: (method, params) => send(state, method, params ?? {}),
       drain: () => Promise.resolve(state.connection?.events.splice(0) ?? []),
     }
   },
@@ -1380,9 +1450,15 @@ export const chromeEngine: BrowserEngine = {
     if (child) await stopped(child)
     if (disposable) rmSync(disposable, { recursive: true, force: true })
   },
+})
+
+export const chromeEngine: BrowserEngine = {
+  ensure: () => chromeFor(scopes.forProfile('default')).ensure(),
+  close: () => chromeFor(scopes.forProfile('default')).close(),
 }
 
-async function ensureChrome(): Promise<void> {
+async function ensureChrome(state: BrowserState): Promise<void> {
+    const settings = settingsFor(state)
     if (state.connection && state.connection.socket.readyState === WebSocket.OPEN) return
     state.connection = null
 
@@ -1391,7 +1467,7 @@ async function ensureChrome(): Promise<void> {
     // different browser than the one they asked for and say nothing.
     // The messages name the rows as Settings › Browser draws them — "Which
     // browser", "Pages open" — because a person reads them to find the row.
-    const chosen = process.env['HARNESSDESK_BROWSER_BINARY'] ?? state.settings.binary?.trim()
+    const chosen = process.env['HARNESSDESK_BROWSER_BINARY'] ?? settings.binary?.trim()
     if (chosen && !existsSync(chosen)) {
       throw new Error(
         `No browser was found at ${chosen}. Check Settings → Browser → Which browser.`,
@@ -1413,10 +1489,10 @@ async function ensureChrome(): Promise<void> {
     // browser and removed with it — its own, never the kept one, which used
     // to be reused whenever a kept browser had run first in the same host.
     const profile = join(
-      process.env['HARNESSDESK_BROWSER_PROFILE'] ??
-        (state.settings.keepProfile === false
+      (state.profile === 'default' ? process.env['HARNESSDESK_BROWSER_PROFILE'] : undefined) ??
+        (settings.keepProfile === false
           ? (state.disposableDir ??= disposableProfile())
-          : (state.settings.profileDir ?? join(homedir(), '.harnessdesk', 'browser-profile'))),
+          : (settings.profileDir ?? join(homedir(), '.harnessdesk', 'browser-profile'))),
     )
     mkdirSync(profile, { recursive: true })
     rmSync(join(profile, 'DevToolsActivePort'), { force: true })
@@ -1436,7 +1512,9 @@ async function ensureChrome(): Promise<void> {
         ],
         { stdio: ['ignore', 'ignore', 'ignore'], detached: false },
       )
+      const child = state.child
       state.child.on('exit', () => {
+        if (state.child !== child) return
         state.child = null
         state.connection = null
       })
@@ -1491,18 +1569,18 @@ async function ensureChrome(): Promise<void> {
       if (state.connection === connection) state.connection = null
     })
     state.connection = connection
-    await send('Page.enable', {})
-    await send('Runtime.enable', {})
+    await send(state, 'Page.enable', {})
+    await send(state, 'Runtime.enable', {})
     // Console and network are what makes this a debugger rather than a
     // remote control. A browser that refuses either still drives.
-    await enableQuietly(['Log.enable', 'Network.enable'])
+    await enableQuietly(state, ['Log.enable', 'Network.enable'])
   }
 
 /** Domains whose absence is a smaller loss than a failed `browser_open`. */
-async function enableQuietly(methods: readonly string[]): Promise<void> {
+async function enableQuietly(state: BrowserState, methods: readonly string[]): Promise<void> {
   for (const method of methods) {
     try {
-      await send(method, {})
+      await send(state, method, {})
     } catch {
       // An engine without this domain reports it at the read, by name.
     }
@@ -1524,7 +1602,7 @@ async function awaitPort(profile: string): Promise<number> {
     }
   }
 
-function send(method: string, params: Record<string, unknown>): Promise<unknown> {
+function send(state: BrowserState, method: string, params: Record<string, unknown>): Promise<unknown> {
     const connection = state.connection
     if (!connection) return Promise.reject(new Error('No browser is open.'))
     const id = ++connection.nextId
