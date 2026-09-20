@@ -24,7 +24,7 @@ export const useProvenanceBatch = (root: string | null, shas: readonly string[],
     let live = true
     const pages = Array.from({ length: Math.ceil(shas.length / 400) }, (_, index) => shas.slice(index * 400, index * 400 + 400))
     void Promise.all(pages.map((page) => store.readProvenance(root, page))).then(
-      (pages) => { if (live) setRead({ key, values: new Map(pages.flatMap((page) => page.commits.map((commit) => [commit.sha, commit] as const))), error: false }) },
+      (pages) => { if (live) setRead({ key, values: new Map(pages.flatMap((page) => (page?.commits ?? []).map((commit) => [commit.sha, commit] as const))), error: false }) },
       () => { if (live) setRead({ key, values: new Map(), error: true }) },
     )
     return () => { live = false }

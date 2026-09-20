@@ -46,3 +46,14 @@ it('keeps a supplied history batch Seat actionable when its redundant detail rea
   expect(host.textContent).toContain('Contributor 1')
   expect([...host.querySelectorAll('button')].some((button) => button.textContent === 'Seat record')).toBe(true)
 })
+
+it('treats an optional preview store response as an empty provenance batch', async () => {
+  const snapshot = { ...emptySnapshot(), status: 'open' }
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    readProvenance: async () => undefined,
+  } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><CommitProvenance root="/work/project" sha={'a'.repeat(40)} /></StoreProvider>))
+  expect(host.textContent).toContain('Reading provenance')
+})
