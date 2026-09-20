@@ -62,6 +62,7 @@ const mount = async (): Promise<{ request: ReturnType<typeof vi.fn> }> => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    loadAgents: async () => {},
     transport: { request },
     openSession: vi.fn(async () => {}),
   } as unknown as AppStore
@@ -70,6 +71,7 @@ const mount = async (): Promise<{ request: ReturnType<typeof vi.fn> }> => {
     chooseFolder: () => {},
     openSettings: () => {},
     openUsage: () => {},
+    openAgents: () => {},
   }
   await act(async () => {
     root.render(

@@ -1,4 +1,4 @@
-import { SEAT_PREFERENCE_LIMIT } from './agent.js'
+import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   ClientToHost,
@@ -124,6 +124,14 @@ const isFilled: Validator<string> = (value, path = '') => {
   if (text.trim() === '') throw new ValidationError(path, 'expected a non-empty string')
   return text
 }
+
+/** A string held to the file field's public limit before it reaches the host. */
+const atMost = (limit: number, read: Validator<string> = isString): Validator<string> =>
+  (value, path = '') => {
+    const text = read(value, path)
+    if (text.length > limit) throw new ValidationError(path, `expected at most ${limit} characters, got ${text.length}`)
+    return text
+  }
 
 /**
  * A seat as a map — `{ runtime, model, effort, thinking }` — the shape a seat
@@ -504,12 +512,50 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
   'agent/list': shape({ project: optional(isString) }),
   'agent/read': shape({ id: isString, project: optional(isString) }),
+  'agent/seat/dry': shape({ ids: optional(arrayOf(isString)), project: optional(isString) }),
   'agent/seat': shape({
     id: isFilled,
     cwd: isFilled,
     project: optional(isString),
     seats: optional(seatListValidator),
     permission: optional(grantValidator),
+  }),
+  'agent/seating/read': isObject,
+  'agent/seating/set': shape({
+    id: isFilled,
+    seats: (value: unknown, path = '') => (value === null ? null : seatListValidator(value, path)),
+    expected: optional((value: unknown, path = '') => (value === null ? null : seatListValidator(value, path))),
+  }),
+  'agent/create': shape({
+    name: atMost(AGENT_NAME_LIMIT, isFilled),
+    description: optional(atMost(AGENT_DESCRIPTION_LIMIT)),
+    permission: grantValidator,
+    seat: flowSeatValidator,
+    to: literalUnion('user', 'project'),
+    project: optional(isString),
+  }),
+  'agent/copy': shape({
+    id: isFilled,
+    from: literalUnion('project', 'user', 'builtin'),
+    to: literalUnion('user', 'project'),
+    project: optional(isString),
+  }),
+  'agent/remove': shape({ id: isFilled, origin: literalUnion('user', 'project'), project: optional(isString) }),
+  'agent/reveal': shape({
+    id: isFilled,
+    origin: optional(literalUnion('project', 'user', 'builtin')),
+    project: optional(isString),
+  }),
+
+  'evidence/seat': shape({ runtime: isFilled, sessionId: isFilled }),
+  'evidence/checks': shape({ project: isFilled }),
+  'evidence/board': shape({ room: isFilled }),
+  'evidence/check/run': shape({
+    room: isFilled,
+    card: isNumber,
+    name: isFilled,
+    seen: optional(isString),
+    digest: optional(isString),
   }),
 
   'git/status': shape({ root: isString }),
@@ -637,8 +683,9 @@ export const parseClientMessage = (raw: unknown): ClientToHost => {
   return { id, method, params } as WireRequest
 }
 
-export const wireError = (code: string, message: string, details?: string | null): WireError => ({
+export const wireError = (code: string, message: string, details?: string | null, data?: unknown): WireError => ({
   code,
   message,
   details: details ?? null,
+  ...(data !== undefined && data !== null ? { data } : {}),
 })

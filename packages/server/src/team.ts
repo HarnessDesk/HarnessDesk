@@ -234,6 +234,12 @@ export interface TeamPeer {
   /** What it is running. The room's default nickname is derived from this. */
   readonly model?: string | null
   /**
+   * The Agent this conversation was seated as, by name. A room calls such a
+   * member that — the name it is addressed by, in the channel and on the rail
+   * — rather than after the model it runs.
+   */
+  readonly seatedAs?: string | null
+  /**
    * Whether the desk has this conversation open right now.
    *
    * Every peer the *host* hands over is here by construction — the host knows
@@ -283,6 +289,13 @@ export interface TeamPort {
     decision?: string
   }): void
   log?(message: string, details?: Readonly<Record<string, unknown>>): void
+  /**
+   * A card was finished, by its holder or by the person — told with the card
+   * as it stood a moment before, so its holder is still on it. The evidence
+   * plane looks at the branch it was finished on. Called after the board is
+   * written, never awaited: a finish is never held up by what it observes.
+   */
+  settled?(room: string, intent: Intent): void
 }
 
 /**
@@ -1177,6 +1190,7 @@ export class Team {
         outcome: said,
         ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
+      this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
       return
     } else {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
@@ -2057,6 +2071,7 @@ export class Team {
        board that had not yet recorded the completion would read its own round
        as unfinished. */
     this.#flows?.completed(board.id, { ...intent, state: 'done', outcome })
+    this.#port.settled?.(board.id, { ...intent, state: 'done', outcome })
     const unblocked =
       opened.length > 0
         ? ` That unblocked ${opened.map((id) => `#${id}`).join(', ')}.`
@@ -3699,7 +3714,7 @@ export class Team {
        allowed to collide. Two members answering to one name is the exact state
        the nickname exists to end, and addressing depends on it. */
     if (held && !live.has(held)) return held
-    const base = shortModelName(peer.model) ?? peer.agent
+    const base = peer.seatedAs ?? shortModelName(peer.model) ?? peer.agent
     let name = base
     for (let n = 2; live.has(name); n += 1) name = `${base} ${n}`
     board.nicknames[key] = name

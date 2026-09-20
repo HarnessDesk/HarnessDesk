@@ -1,3 +1,6 @@
+import type { SeatCandidate } from './agent.js'
+import type { CheckUnseen } from './evidence.js'
+
 /**
  * Failures a client can do something about, named on the wire.
  *
@@ -123,3 +126,85 @@ export const reopenRefusedByAgent = (error: unknown): boolean => {
   const { code, rpcCode } = error as { code?: unknown; rpcCode?: unknown }
   return code === -32602 || rpcCode === -32602
 }
+
+/** What a failure carries for the interface beyond its sentence, read structurally; null when nothing. */
+export const wireDataOf = (error: unknown): unknown => {
+  const data = error instanceof Error ? (error as { wireData?: unknown })['wireData'] : undefined
+  return data ?? null
+}
+
+/**
+ * No seat could be opened for an Agent, and here is every candidate and why.
+ *
+ * The sentence is the host's, for its log; a surface draws from `wireData`.
+ * The candidates are what the refusal sheet is drawn from: a list with a fix
+ * on every line is only possible when the list arrives as a list, and reading
+ * it back out of the English would break the first time a sentence was
+ * improved.
+ */
+export class SeatRefusedError extends Error {
+  readonly wireCode = 'seatRefused'
+  constructor(
+    message: string,
+    readonly wireData: { readonly candidates: readonly SeatCandidate[] },
+  ) {
+    super(message)
+    this.name = 'SeatRefusedError'
+  }
+}
+
+/**
+ * Whether a failure is a seat refused, read from `wireCode` — the field only
+ * the error the host itself throws carries. The host turns it into `code` for
+ * the wire (`wireCodeOf`, `wireError`), and a renderer's caught rejection
+ * (`rejectionFor` in the UI's transport) carries that `code`, never a
+ * `wireCode` of its own — so this reads true on the host side only; a surface
+ * tells a seat refusal apart from any other failure by reading
+ * `error.code === 'seatRefused'` itself, the way it already reads every other
+ * wire code.
+ */
+export const isSeatRefused = (error: unknown): boolean => wireCodeOf(error) === 'seatRefused'
+
+/**
+ * A seat was opened and then closed because handing its Agent's brief over
+ * failed — the one failure that can happen only after a candidate is already
+ * chosen, so it is neither a candidate a refusal sheet lists nor one a dry run
+ * could ever have foreseen.
+ *
+ * The sentence names the Agent and, in its own words, why the hand-over
+ * failed — never the seat's spec (`SeatCandidate.seat` is "never shown" for
+ * the same reason): a person reads what ran in the words a surface already
+ * shows it in, not its wire form. Given its own code, the way `SeatRefusedError`
+ * carries one, so a caller can tell this apart from every other reason a
+ * seating call can fail.
+ */
+export class BriefNotHandedOverError extends Error {
+  readonly wireCode = 'briefNotHandedOver'
+  constructor(message: string) {
+    super(message)
+    this.name = 'BriefNotHandedOverError'
+  }
+}
+
+export const isBriefNotHandedOver = (error: unknown): boolean => wireCodeOf(error) === 'briefNotHandedOver'
+
+/**
+ * A project's check has not been approved, as its file is now, by a person on
+ * this machine — so nothing ran. `wireData` carries the command verbatim, and
+ * the file's generation, for the surface to show and ask about. The person's
+ * answer is the same call with `seen` and `digest` set to exactly what they
+ * were shown, which runs only while the file is still that.
+ */
+export class CheckUnseenError extends Error {
+  readonly wireCode = 'checkUnseen'
+  constructor(
+    message: string,
+    readonly wireData: CheckUnseen,
+  ) {
+    super(message)
+    this.name = 'CheckUnseenError'
+  }
+}
+
+/** Host-side, like `isSeatRefused`: a renderer reads `error.code === 'checkUnseen'`. */
+export const isCheckUnseen = (error: unknown): boolean => wireCodeOf(error) === 'checkUnseen'

@@ -284,6 +284,11 @@ are the same shape and land next; nothing else is designed here.
 that polls for new work is spending inference to do a file watcher's job, which
 is what waiting roles fake today.
 
+**In a Goal a trigger opened, nothing waits on a person in silence.** Its own
+members accept each other's messages by default, because its shape was seen when
+the trigger was armed; a message held there, or an action held under a ceiling,
+makes the Goal *need you*, naming what waits.
+
 ### Where "agent" already meant the runtime, and where it still should
 
 The reason the word is taken is the protocol we speak: in the Agent Client
@@ -457,6 +462,12 @@ And four channels they reach each other through. Nothing else is a channel.
 | "The thing I approved has changed" | **Nothing is said** — the evidence went stale at the new head | An active notification can be missed; staleness cannot |
 | "This one won" | **Evidence bound to the winner's revision** | An outcome word cannot carry a sha |
 | "This specific problem is still open" | **A finding id** in the ledger | Prose cannot be re-checked |
+
+**The channel is the Goal's, and stops at its edge.** Messages travel between
+the Seats of one Goal and nowhere else; across Goals the link is `dependsOn`,
+and anything else is carried by the person. A conversation outside every Goal is
+never addressed by an agent. How a message is checked, wrapped, delivered and
+shown is the roadmap's *Agents messaging agents*.
 
 Two consequences worth stating, because both look like gaps until you see them:
 
@@ -1025,7 +1036,7 @@ roles:
 | `isolate` means a worktree | A lane: checkout, port range, browser profile |
 | `permission: read`, which may edit and commit | `ceiling:` and `grant:`, where `edit` says that and `read` changes nothing; the old key keeps its old meaning until its author rewrites it |
 | A ceiling stated in a paragraph | A ceiling held by the runtime or the desk, and marked *asked* where neither can |
-| Settings › Agents (the installed CLIs) | Settings › Runtimes; Agents becomes the roster of who |
+| Settings › Agents (the installed CLIs) | Settings › Runtimes; the roster of who is **Agents**, in the left menu |
 | `agents/*` wire verbs, mixing a registry with two install verbs | `acp/*` for the registry, `runtime/installs*` for the machine |
 | `~/.harnessdesk/agents.json` | Unchanged — it faces ACP, where the word is right |
 
@@ -1216,6 +1227,17 @@ Settings: seat it and say so, or refuse to seat it. A conversation a person is
 watching defaults to seating it and saying so; a Goal a trigger opened while
 nobody watches defaults to refusing, because an instruction nobody can enforce
 and nobody is reading is not a ceiling.
+
+**A message cannot carry a ceiling across.** A peer asked is not a peer refused:
+an agent whose ceiling forbids an action never asks for it, so nothing is ever
+refused, and it could ask a peer whose ceiling allows it. So the desk records
+what started every turn, and in a turn another agent's message started, an
+action that leaves the receiver's checkout — publishing or merging — beyond the
+**sender's** ceiling waits for the person, naming who asked and who would act.
+Work inside the receiver's own checkout runs at the receiver's own ceiling:
+asking a teammate to fix its own code is ordinary teamwork, and a checkout's
+changes can be undone. The desk holds this for its own tools, and asks it of a
+runtime's own publishing, drawn as asked.
 
 ## Before any of this is served remotely
 

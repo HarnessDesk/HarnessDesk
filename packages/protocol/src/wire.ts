@@ -1,4 +1,4 @@
-import type { AgentEntry } from './agent.js'
+import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
   CapabilityContribution,
@@ -10,6 +10,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
+import type { BoardEvidence, ProjectChecks, SeatRecord } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
   Library,
@@ -118,6 +119,30 @@ export interface BackupFile {
     readonly id: string
     readonly data: unknown
   }[]
+  /**
+   * This machine's own Agents, as text files relative to each Agent folder.
+   * `agents` above keeps its older meaning: entries in the runtime registry.
+   * Absent in backups written before Agent folders travelled with them.
+   */
+  readonly agentFolders?: readonly {
+    readonly id: string
+    readonly files: readonly { readonly path: string; readonly text: string }[]
+  }[]
+  /** This machine's `seating.json`, or null when it was absent or could not be read. */
+  readonly seating?: Readonly<Record<string, unknown>> | null
+  /**
+   * What the desk observed and every Seat it kept: each project's evidence
+   * store, as the lines it holds. Never the commands this machine has approved —
+   * those are this machine's alone, and no backup carries them. Absent in a
+   * backup from before it existed.
+   */
+  readonly evidence?: readonly {
+    readonly project: string
+    readonly seats: readonly unknown[]
+    readonly facts: readonly unknown[]
+    /** Lines the exporting build could not read — a newer build's, or damaged — left out, and counted so the export says so. */
+    readonly unreadable?: number
+  }[]
 }
 
 /**
@@ -125,11 +150,36 @@ export interface BackupFile {
  * a number here is a verified write, not an attempted one. `skipped` is the
  * merge policy speaking: an agent already registered, or a transcript the
  * local store holds a newer copy of, is left alone.
+ *
+ * `agentFolders` and `seating` fold a second, different cause into the same
+ * `skipped`: an entry refused outright — an id that is not safe to use, seats
+ * that do not parse, a folder that named no files — rather than one merely
+ * left alone because this machine already answers for it. Both counted the
+ * same way because either way nothing was written, but only the refusal is a
+ * fact worth a reason, and that reason is logged (`an Agent folder from a
+ * backup was refused`, and likewise for a seating entry) rather than folded
+ * into this count alone; a plain collision — this machine's own, never a
+ * stranger's — stays quiet by design.
  */
 export interface BackupReport {
   readonly agents: { readonly restored: number; readonly skipped: number }
   readonly preferences: number
   readonly transcripts: { readonly restored: number; readonly skipped: number }
+  readonly agentFolders: { readonly restored: number; readonly skipped: number }
+  readonly seating: { readonly restored: number; readonly skipped: number }
+  /**
+   * Evidence and Seat records, counted by what became of each: `duplicate` was
+   * already here; `refused` could not be read, or asked for what a backup may
+   * not do here — close a Seat this desk kept, dress a conversation this desk
+   * seated, stand for a project it does not belong to, or go past a limit;
+   * `failed` could not be written.
+   */
+  readonly evidence: {
+    readonly restored: number
+    readonly duplicate: number
+    readonly refused: number
+    readonly failed: number
+  }
 }
 
 /**
@@ -376,6 +426,17 @@ export interface WorkspaceEntry {
    * is, and the session list groups it there.
    */
   readonly repo?: RepoInfo | null
+  /**
+   * The top of the checkout this folder is in, when the host has read it —
+   * a linked worktree's own top, unlike `repo.root`, which names the *main*
+   * checkout on purpose (so the session list can group a worktree under the
+   * project it is a checkout of). Null outside git. This is what a project
+   * keeps its Agents at (`projectOf` in `methods/agents.ts`) and what the
+   * roster's watch reports a change against, so a surface naming this
+   * folder's project, or matching an `agent/changed` notice against it,
+   * reads this rather than `repo.root`.
+   */
+  readonly checkoutRoot?: string | null
 }
 
 /**
@@ -522,6 +583,13 @@ export interface HostMethods {
        * `/Users/<name>/…` in full.
        */
       readonly home: string
+      /**
+       * Where this desk keeps its state: `~/.harnessdesk` unless
+       * `HARNESSDESK_HOME` put it elsewhere. The roster footnotes this
+       * machine's Agents as `agents` in it, and an Agent's page footnotes
+       * `seating.json` there — the folder actually read, never a guess.
+       */
+      readonly stateDir: string
     }
   }
 
@@ -1557,6 +1625,23 @@ export interface HostMethods {
     result: AgentEntry | null
   }
   /**
+   * Which seat each Agent would take here, and why not the others — opening
+   * nothing. The reads a seating makes before it chooses, each held to the
+   * same deadline; one read of the desk serves every Agent asked about. `ids`
+   * absent is every Agent in force, in the roster's order; an id nobody
+   * defined is answered with why, never dropped.
+   *
+   * "Opening nothing" is about conversations: none is opened for any Agent
+   * named here, and none is named either. Learning an ACP agent's models for
+   * the first time in this process is not a conversation, but it is not free:
+   * it starts that agent's own hidden probe once, the same one a real seating
+   * or the model picker would have started to answer the same question.
+   */
+  'agent/seat/dry': {
+    params: { readonly ids?: readonly string[]; readonly project?: string }
+    result: readonly SeatPlan[]
+  }
+  /**
    * Opens a conversation as an Agent: the first of its seats this machine can
    * offer, handed the Agent's brief once as its standing order — the brief as
    * written, then the rule of the permission the seat holds — and recorded in
@@ -1596,6 +1681,135 @@ export interface HostMethods {
       readonly permission?: FlowPermission
     }
     result: Session
+  }
+  /**
+   * This machine's seats for its Agents — `seating.json` in the state
+   * directory — as read: every entry that reads, in the file's order, and
+   * every one that does not, with where and why. Never committed.
+   */
+  'agent/seating/read': { params: Record<string, never>; result: MachineSeating }
+  /**
+   * Sets one Agent's seats on this machine, replacing its `prefer` here, or
+   * clears them (`seats: null`) so its `prefer` applies again. Every other
+   * entry is kept as written. `expected`, when present, is the entry the edit
+   * was built from (`null` means there was no entry); a different current entry
+   * refuses the edit rather than replacing it. Omitting it keeps last-write-wins
+   * for non-editor callers. Refused while the file as a whole cannot be read,
+   * so a hand-edit is never written over; an empty list is refused too — it is
+   * not a way to clear. Every window is told once for each write
+   * (`agent/changed`); a set that would change nothing writes nothing, and
+   * tells nothing.
+   */
+  'agent/seating/set': {
+    params: {
+      readonly id: string
+      readonly seats: readonly FlowSeat[] | null
+      readonly expected?: readonly FlowSeat[] | null
+    }
+    result: MachineSeating
+  }
+  /**
+   * Writes a new Agent — *Save as an Agent* — to this machine (`to: 'user'`)
+   * or to a project, and answers its entry. `seat` is the seat the
+   * conversation it is saved from is on: saved to this machine it is the
+   * Agent's `prefer`; saved to a project, `prefer` names its runtime alone and
+   * this machine's `seating.json` keeps the exact seat, because a committed
+   * model name breaks the Agent on every other machine. The brief is a skeleton
+   * to be written in the editor. An Agent by that name already there is a
+   * refusal, never an overwrite.
+   */
+  'agent/create': {
+    params: {
+      readonly name: string
+      readonly description?: string
+      readonly permission: FlowPermission
+      readonly seat: FlowSeat
+      readonly to: 'user' | 'project'
+      readonly project?: string
+    }
+    result: AgentEntry
+  }
+  /**
+   * *Customize…*: copies the Agent found at `from` to this machine or to a
+   * project, where the copy shadows it, and answers the copy's entry. Refused
+   * where the copy would itself be shadowed by what it copies.
+   */
+  'agent/copy': {
+    params: {
+      readonly id: string
+      readonly from: AgentOrigin
+      readonly to: 'user' | 'project'
+      readonly project?: string
+    }
+    result: AgentEntry
+  }
+  /** *Remove…*: moves a user or project Agent's folder to the Trash. Needs the desktop app; what ships cannot be removed. */
+  'agent/remove': {
+    params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string }
+    result: null
+  }
+  /** Shows the file an Agent comes from in the OS file browser — the winner, or the copy at `origin`. Needs the desktop app. */
+  'agent/reveal': {
+    params: { readonly id: string; readonly origin?: AgentOrigin; readonly project?: string }
+    result: null
+  }
+
+  /**
+   * A conversation's Seat record: the latest Seat the desk kept it as, with how
+   * it ended, or null when the desk never seated it. Read-only, as the record
+   * is: it is written once, when the seat is kept, and closed once.
+   */
+  'evidence/seat': {
+    params: { readonly runtime: string; readonly sessionId: string }
+    result: SeatRecord | null
+  }
+  /**
+   * A project's named checks — `.harnessdesk/checks.yml` at the top of its main
+   * checkout, as committed at its `HEAD` — each command verbatim, with whether
+   * this machine has approved it for this generation of the file, whether the
+   * working copy differs from what is committed, and every problem with the
+   * file, where it is. Reads; never runs anything. `project` is held to the
+   * folders the person opened.
+   */
+  'evidence/checks': {
+    params: { readonly project: string }
+    result: ProjectChecks
+  }
+  /**
+   * A room's evidence: for each card that carries any, the latest fact of each
+   * kind the desk observed — each named check apart — and how it stands now
+   * against its branch, with the Seat that produced it in words; the named
+   * checks running for it; and the checks its project names. Read on demand;
+   * every change after is pushed whole, as `evidence/changed`.
+   */
+  'evidence/board': {
+    params: { readonly room: string }
+    result: BoardEvidence
+  }
+  /**
+   * Runs one of the room's project's named checks for a card, and answers once
+   * it has started: what it observed arrives as the room's evidence.
+   *
+   * Security-critical. A command a repository names runs only after a person
+   * has approved it, verbatim, on this machine, for this repository and this
+   * generation of its checks file as committed; until then — and again
+   * whenever the file changes in any way — nothing runs, and the call is
+   * refused `checkUnseen` with the command and the file's generation as data
+   * (`CheckUnseen`). The person's answer is the same call with `seen` and
+   * `digest` set to exactly what they were shown, which runs only while the
+   * file is still exactly that. It runs with the person's own authority.
+   */
+  'evidence/check/run': {
+    params: {
+      readonly room: string
+      readonly card: number
+      readonly name: string
+      /** The answer: the command exactly as it was shown… */
+      readonly seen?: string
+      /** …and the checks file it was shown from (`CheckUnseen.digest`). */
+      readonly digest?: string
+    }
+    result: { readonly started: true }
   }
 
   'git/status': { params: { readonly root: string }; result: GitStatus | null }
@@ -1935,6 +2149,12 @@ export interface WireError {
   readonly code: string
   readonly message: string
   readonly details?: string | null
+  /**
+   * What a failure with a way out carries for the interface to draw it, when
+   * a sentence is not enough — a seating's refusal lists every candidate with
+   * its reason and its fix. Read only by a caller that knows the code.
+   */
+  readonly data?: unknown
 }
 
 export type WireResponse =
@@ -2028,6 +2248,33 @@ export type WireNotification =
       readonly params: { readonly runtime: RuntimeId }
     }
   | {
+      /**
+       * A conversation the host no longer holds and no window should draw:
+       * deleted, or opened for a seat, passed over and discarded. Without this
+       * a window kept the row the conversation's `session/started` gave it
+       * until it was reloaded — and a reload brought it back from the host's
+       * own record. A seat passed over that somebody used meanwhile is not
+       * discarded, and sends none: it stays, as it is.
+       */
+      readonly method: 'session/removed'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    }
+  | {
+      /**
+       * The roster changed under one of its roots, or this machine's seats for
+       * it did: every listing and every dry run drawn from them is stale.
+       * `project` names the project whose own Agents changed; null means this
+       * machine's — its Agents or its seats — or the built-in ones, which
+       * every listing shows.
+       */
+      readonly method: 'agent/changed'
+      readonly params: {
+        readonly project: string | null
+        /** Present when this notice is for a seating write: the revision that write produced. */
+        readonly revision?: number
+      }
+    }
+  | {
       /** Base64 output from a terminal. Every client receives it; a pane shows its own. */
       readonly method: 'terminal/output'
       readonly params: { readonly terminalId: string; readonly stream: 'stdout' | 'stderr'; readonly data: string }
@@ -2084,6 +2331,15 @@ export type WireNotification =
        */
       readonly method: 'flow/changed'
       readonly params: { readonly room: string; readonly runs: readonly FlowRun[] }
+    }
+  | {
+      /**
+       * One room's evidence, whole — sent when the desk records a fact for one
+       * of its cards, and when a named check starts or ends — for the reason
+       * the board is sent whole: a new fact can move a card to another column.
+       */
+      readonly method: 'evidence/changed'
+      readonly params: { readonly room: string; readonly evidence: BoardEvidence }
     }
   | { readonly method: 'host/shutdown'; readonly params: { readonly reason: string } }
 

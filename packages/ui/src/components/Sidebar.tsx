@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, CaretIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CaretIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -17,6 +17,7 @@ import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { livePlugins } from '../lib/plugins'
+import { anyBroken, inForce } from '../lib/agents'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
@@ -41,6 +42,7 @@ import styles from './Sidebar.module.css'
 export const Sidebar = ({
   onOpenSettings,
   onOpenPlugins,
+  onOpenAgents,
   onOpenUsage,
   onBrowseFolders,
   onSignIn,
@@ -48,6 +50,8 @@ export const Sidebar = ({
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
+  /** Opens the Agents window — the roster, never a Settings page. */
+  onOpenAgents: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
@@ -94,6 +98,12 @@ export const Sidebar = ({
   // Not `plugins.length`: an installed copy a built-in has taken over is off,
   // and counting it here made the sidebar promise one more than the page lists.
   const pluginCount = livePlugins(snapshot.plugins).length
+  // Null until a surface that lists Agents has asked (the plain path's own
+  // rule): this row then counts none and wears no dot, rather than reading
+  // the roster itself just to sit in the sidebar.
+  const agentsRoster = snapshot.agents ?? []
+  const agentsCount = inForce(agentsRoster).length
+  const agentsBroken = anyBroken(agentsRoster)
 
   return (
     <div className={styles.sidebar}>
@@ -149,6 +159,19 @@ export const Sidebar = ({
           </Button>
           <WorktreeMenu />
         </div>
+        {/* The plain path's one new row (the owner's rule, 2026-09-18): who
+            can do the work, beside where the work already starts. Its count
+            is the roster in force, and it wears the same warn tone the
+            Dashboard's own badge does — never a chip drawn just for this row. */}
+        <Button variant="navigation" size="navigation" className={styles.navItem} onClick={onOpenAgents}>
+          <BriefIcon size={15} className={styles.navIcon} />
+          Agents
+          {agentsCount > 0 && (
+            <span className={styles.navCount} {...(agentsBroken ? { 'data-tone': 'warn' } : {})}>
+              {agentsCount}
+            </span>
+          )}
+        </Button>
         {/* Called with nothing, on purpose: the handler takes an agent id
             now, and a click event in its place would open the dashboard
             scoped to an object. */}

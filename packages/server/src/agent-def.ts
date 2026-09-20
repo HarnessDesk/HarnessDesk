@@ -6,7 +6,7 @@ import {
   type FlowSeat,
 } from '@harnessdesk/protocol'
 
-import { asList, asRecord, asText, isPermission, parseSeat, problem, seatFromMap } from './flow.js'
+import { asList, asRecord, asText, isPermission, parseSeatList, problem } from './flow.js'
 import { parseYaml, YamlError } from './yaml.js'
 
 /**
@@ -159,11 +159,11 @@ export const parseAgentDefinition = (
     }
   }
 
-  /* The seat grammar has one parser, and this is not it: `parseSeat` reads the
-     compact form and `seatFromMap` the long one, both of them returning the
-     refusal as a string. A model id with a `/` in it can only be written as a
-     map, which is why both forms are read here as well as in a flow. */
-  const prefer: FlowSeat[] = []
+  /* The seat grammar has one parser, and this is not it: `parseSeatList`
+     reads the compact form or the long one, per seat, both of them returning
+     a refusal as a string — shared with `agent-seating-file.ts`, so a model
+     id with a `/` in it, which can only be written as a map, is read the same
+     way wherever an Agent's seats are written. */
   const listed = oneOrMore(field('prefer'))
   /* Refused whole rather than cut at the cap: the seats past it are ones the
      author wrote, and trying a shorter list than the file says would be the
@@ -173,19 +173,12 @@ export const parseAgentDefinition = (
       problem(
         'error',
         'prefer',
-        `it names ${listed.length} seats, and an Agent may name at most ${SEAT_PREFERENCE_LIMIT} — each seat that opens and is passed over leaves an empty conversation in that agent’s history, so keep the ones worth trying`,
+        `it names ${listed.length} seats, and an Agent may name at most ${SEAT_PREFERENCE_LIMIT} — each seat that opens and is passed over costs a conversation, which an agent that cannot delete one may keep in its history, so keep the ones worth trying`,
       ),
     )
   }
-  listed.forEach((one, index) => {
-    const map = asRecord(one)
-    const seat = map ? seatFromMap(map) : parseSeat(asText(one) ?? '')
-    if (typeof seat === 'string') {
-      problems.push(problem('error', `prefer[${index}]`, seat))
-      return
-    }
-    prefer.push(seat)
-  })
+  const { seats: prefer, broken } = parseSeatList(listed)
+  for (const one of broken) problems.push(problem('error', `prefer[${one.index}]`, one.text))
 
   for (const key of Object.keys(head)) {
     if (!(FIELDS as readonly string[]).includes(key)) {

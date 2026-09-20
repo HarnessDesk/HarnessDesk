@@ -14,7 +14,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AddAgents, AgentsSection } from './SettingsAgents'
+import { AddAgents, RuntimesSection } from './SettingsAgents'
 
 /**
  * Adding an agent from the interface — the door the audit found missing.
@@ -166,7 +166,7 @@ it('sends the custom form as typed, arguments split by line', async () => {
   type(byLabel('Arguments'), '--acp\n--config /tmp/x.yml\n')
 
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
 
   expect(addAgent).toHaveBeenCalledWith({
@@ -188,7 +188,7 @@ it('forgets what was typed when the custom form is cancelled', async () => {
   await act(async () => {
     button('Cancel')?.click()
   })
-  expect(document.body.querySelector('[role="dialog"][aria-label="Add a custom agent"]')).toBeNull()
+  expect(document.body.querySelector('[role="dialog"][aria-label="Add a custom runtime"]')).toBeNull()
   await act(async () => {
     button('Set up…')?.click()
   })
@@ -206,9 +206,9 @@ it('says so, in the dialog, when adding fails', async () => {
   type(byLabel('Name'), 'My Harness')
   type(byLabel('Command'), '/usr/local/bin/my-harness')
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
-  const dialog = document.body.querySelector('[role="dialog"][aria-label="Add a custom agent"]')
+  const dialog = document.body.querySelector('[role="dialog"][aria-label="Add a custom runtime"]')
   expect(dialog).not.toBeNull()
   const alert = dialog?.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('could not add it')
@@ -224,7 +224,7 @@ it('says so when adding throws', async () => {
   type(byLabel('Name'), 'My Harness')
   type(byLabel('Command'), 'nope')
   await act(async () => {
-    button('Add agent')?.click()
+    button('Add runtime')?.click()
   })
   const alert = document.body.querySelector('[role="dialog"] [role="alert"]')
   expect(alert?.textContent).toContain('exited with 127')
@@ -410,7 +410,7 @@ const mountList = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsSection onSignIn={() => {}} />
+        <RuntimesSection onSignIn={() => {}} />
       </StoreProvider>,
     )
   })
@@ -520,7 +520,7 @@ it('Expand all opens every block, and Collapse all folds the roster flat', async
 
 it('search finds an agent by the address of an account under it', async () => {
   await mountList()
-  type('input[aria-label="Search agents or accounts"]', 'grace@')
+  type('input[aria-label="Search runtimes or accounts"]', 'grace@')
 
   expect(listed()).toEqual(['Alpha'])
   // A hit is shown open — hiding what was searched for would be the wrong answer.
@@ -529,10 +529,10 @@ it('search finds an agent by the address of an account under it', async () => {
 
 it('a search that finds nothing offers the way back', async () => {
   await mountList()
-  type('input[aria-label="Search agents or accounts"]', 'nobody')
+  type('input[aria-label="Search runtimes or accounts"]', 'nobody')
 
   expect(listed()).toEqual([])
-  expect(document.body.textContent).toContain('No agent matches')
+  expect(document.body.textContent).toContain('No runtime matches')
 
   await act(async () => button('Clear filters')?.click())
   expect(listed()).toEqual(['Alpha', 'Beta', 'Gamma'])

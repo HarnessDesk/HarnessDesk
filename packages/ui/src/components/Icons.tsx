@@ -8,6 +8,7 @@ import {
   ArrowLeftRight,
   ArrowUp,
   ArrowUpFromLine,
+  BookText,
   CloudDownload,
   Eraser,
   FolderGit2,
@@ -322,6 +323,8 @@ export const ToolIcon = icon(Wrench, 'ToolIcon')
 export const BrainIcon = icon(Brain, 'BrainIcon')
 /** An agent — a runtime, or a sub-agent it spawned. */
 export const AgentIcon = icon(Bot, 'AgentIcon')
+/** An Agent's own brief — the file it is, as distinct from its running seat. */
+export const BriefIcon = icon(BookText, 'BriefIcon')
 /** A skill, or anything else the agent is handed to work with. */
 export const SparkIcon = icon(Sparkle, 'SparkIcon')
 export const GlobeIcon = icon(Globe, 'GlobeIcon')

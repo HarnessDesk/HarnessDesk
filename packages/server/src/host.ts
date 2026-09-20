@@ -53,13 +53,18 @@ import {
   type ContributionId,
   type ScopeQuery,
   type SecretReload,
+  type SeatArchived,
+  type SeatLeft,
   type PublicationItem,
   runtimeId,
   sessionModel,
 } from '@harnessdesk/protocol'
 
 import { packagedPath, type AgentDirectory } from './agent-registry.js'
-import { runningOf, type SeatRunning } from './agent-seating.js'
+import { exportAgentFolders, importAgentFolder } from './agent-files.js'
+import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-file.js'
+import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
+import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
@@ -78,6 +83,10 @@ import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
+import { EvidencePlane } from './evidence/plane.js'
+import type { GhInCheckout } from './evidence/forge.js'
+import { flowSeatInput } from './evidence/seats.js'
+import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
 import { ForgePlane, type ForgePlaneOptions } from './forge.js'
@@ -151,6 +160,36 @@ export interface OpenedSeat {
   readonly label: string
 }
 
+/**
+ * A conversation a seating has opened and not yet kept or let go — what a
+ * discard has to know to delete only what its seating opened and nobody else
+ * touched (`Host#discardSeat`). Only ever a conversation the runtime opened
+ * new: one it answered with an id the desk already held is refused before it
+ * is held at all (`Host#openSeat`).
+ *
+ * Kept beside the registry, not on its record: a record is the conversation's,
+ * and outlives the seating; this lives exactly as long as the seating's hold on
+ * it.
+ */
+interface SeatInHand {
+  /**
+   * The handle the seating opened it on: the one a discard closes, when
+   * nobody is in the conversation yet. A reopen since, which puts a
+   * *different* handle on the record, counts as somebody being in it
+   * (`#leaveAsItIs`) — so a discard that finds one closes nothing at all,
+   * this handle included, rather than closing this one regardless of what
+   * the record now holds.
+   */
+  readonly live: AgentSession
+  /** A window asked something of it — read it, reopened it, wrote to it — while the seating held it. */
+  reached: boolean
+  /**
+   * Past the point of no return: being deleted or archived. Nothing a window
+   * asks may start on it now, because nothing that starts could be kept.
+   */
+  removing: boolean
+}
+
 /** One permission-policy rule, as stored in preferences. */
 interface PolicyRule {
   readonly id: string
@@ -202,8 +241,11 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
  * directory in a checkout, a standalone host and the app. The unpacked twin
  * matters here for a reason of its own: an entry's `path` is shown to a person
  * and handed to other programs to open, and a path inside `app.asar` is one only
- * this process can read. Nothing ships there yet, and a directory that is not
- * there is an empty tier rather than a failure.
+ * this process can read. The Agents that ship with the app live there, one
+ * folder each. The app carries the folder because the desktop build copies
+ * this whole package and unpacks every `node_modules` entry (`asarUnpack`);
+ * `files` lists it too, so the manifest says what the package holds. A
+ * directory that is not there is still an empty tier rather than a failure.
  */
 export const builtinAgentRoot = (): string =>
   packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
@@ -217,6 +259,8 @@ export const builtinAgentRoot = (): string =>
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
+  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
+  readonly evidence?: { readonly gh?: GhInCheckout }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -231,6 +275,20 @@ export interface HostOptions {
   readonly pickDirectory?: () => Promise<string | null>
   /** Shows a folder in the OS file browser. Supplied by the desktop shell. */
   readonly revealPath?: (path: string) => Promise<void>
+  /**
+   * Moves a file or folder to the OS Trash, where it can be put back.
+   * Supplied by the desktop shell; without it, removing an Agent says so.
+   */
+  readonly trashPath?: (path: string) => Promise<void>
+  /**
+   * Where the Agents that ship with the app are read from, watched and opened
+   * for reading. The app never passes this: they are `builtinAgentRoot()`.
+   * A test that counts `agent/changed` points it at a copy, because the real
+   * folder is this checkout's `packages/server/agents`, which somebody may be
+   * editing while the tests run — and to a host watching it, every edit there
+   * is a notice to every window.
+   */
+  readonly builtinAgents?: string
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -252,6 +310,11 @@ export interface HostOptions {
    * has not yet accepted it. See `SEND_ACCEPT_DEADLINE_MS`.
    */
   readonly sendAcceptDeadlineMs?: number
+  /**
+   * How long each read a seating makes before it chooses may take — an
+   * account, a model list, the usage. See `SEAT_READ_DEADLINE_MS`.
+   */
+  readonly seatReadDeadlineMs?: number
   /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
@@ -378,6 +441,38 @@ export class Host {
    * request names. Read afresh on every ask — an Agent is a file somebody edits.
    */
   readonly #agents: Agents
+  /**
+   * This machine's seats for its Agents: `seating.json`, beside `agents/` in
+   * the state directory. Replaces an Agent's `prefer` here, never merges with
+   * it — precedence is a seating's own `seats`, then this, then `prefer`.
+   *
+   * Named apart from `#seating` (below), which is a different thing: the
+   * conversations a seating has opened and not yet kept or let go.
+   */
+  readonly #machineSeating: MachineSeatingFile
+  /**
+   * The evidence plane: every Seat this desk kept and what it observed, one
+   * append-only store per project under `evidence/` in the state directory.
+   */
+  readonly #evidence: EvidencePlane
+  /**
+   * The roster, watched (`AgentWatch`). Made at start rather than in the
+   * constructor, so a host that is built and never started watches nothing.
+   */
+  #agentWatch: AgentWatch | null = null
+  /**
+   * Bumped on every call to `#watchProjects`; a call applies its snapshot only
+   * if it is still the latest by the time it has one, so a slower, older call
+   * — `#openWorkspace` and `forgetBoardRoots` both fire it without waiting —
+   * can never finish last and re-point the watch at a stale set of projects.
+   */
+  #watchGeneration = 0
+  /**
+   * Set at the top of `dispose()`, before anything in it can yield: a `start()`
+   * still working through its own awaits reads this right before making the
+   * roster's watch, so a quit that lands first leaves none to leak.
+   */
+  #disposed = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -386,6 +481,14 @@ export class Host {
    * however many conversations the history lists in it.
    */
   readonly #repos = new Map<string, Promise<RepoInfo | null>>()
+  /**
+   * Each remembered folder's git top level, for the roster's watch, cached the
+   * way `#repos` is: an open asks git about the folder it adds, not again
+   * about every folder already remembered, and a folder on a stalled volume
+   * holds the watch up until its first answer only, not on every open.
+   * Cleared where the board roots are, when a folder is forgotten.
+   */
+  readonly #topLevels = new Map<string, Promise<string | null>>()
   readonly #terminals = new Terminals((notification) => this.#push(notification))
   /**
    * The editor plane. Held here, and not in the extension host, because it is
@@ -475,7 +578,32 @@ export class Host {
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
     // a HARNESSDESK_HOME that moves the state directory moves these with it.
-    this.#agents = new Agents({ user: join(this.#state.directory, 'agents'), builtin: builtinAgentRoot() })
+    this.#agents = new Agents({
+      user: join(this.#state.directory, 'agents'),
+      builtin: options.builtinAgents ?? builtinAgentRoot(),
+    })
+    // Beside everything else the desk keeps on this machine, so a rig's
+    // HARNESSDESK_HOME that moves the state directory moves these with it.
+    this.#machineSeating = new MachineSeatingFile(join(this.#state.directory, SEATING_FILE), {
+      log: (message, details) => this.#logger.warn(message, details),
+    })
+    this.#evidence = new EvidencePlane(
+      {
+        dir: join(this.#state.directory, 'evidence'),
+        seenFile: join(this.#state.directory, SEEN_FILE),
+        ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
+        cipher: options.credentialCipher ?? plainCipher,
+      },
+      {
+        board: (room) => (this.#team.hasRoom(room) ? this.#team.stateFor(room) : null),
+        cwdOf: (runtime, sessionId) =>
+          this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
+        push: (notification) => this.#push(notification),
+        log: (message, details) => this.#logger.warn(message, details ?? {}),
+      },
+    )
+    // A conversation seen for the first time wears the Agent its Seat record names.
+    this.registry.restoreSeatedAs((runtime, id) => this.#evidence.seatedAs(runtime, id))
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -526,6 +654,7 @@ export class Host {
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
+      settled: (room, intent) => this.#evidence.settled(room, intent),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
@@ -535,6 +664,8 @@ export class Host {
          say it is — a flow says it in the label, and carries on. */
       seat: async (seat, where) => {
         const opened = await this.#openSeat(seat, where)
+        // A flow keeps every seat it opens, so the seating's hold ends here (`#seating`).
+        this.#seating.delete(sessionKey(opened.runtime, opened.sessionId))
         return { runtime: opened.runtime, sessionId: opened.sessionId, label: opened.label }
       },
       order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
@@ -549,6 +680,21 @@ export class Host {
         return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
       },
       retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+      /* Not awaited by the run, which already exists: a record that could not
+         be written is logged loudly with the seat it was for, and the run goes
+         on. An Agent's seat is stricter (`agent/seat`), because nothing has
+         started yet when its record is written. */
+      recorded: (room, seat) => {
+        void this.#evidence.seats.opened(flowSeatInput(room, seat)).catch((error: unknown) => {
+          this.#logger.error("a flow seat's record could not be written", {
+            room,
+            role: seat.role,
+            runtime: seat.runtime,
+            sessionId: seat.sessionId,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        })
+      },
       join: async (room, runtime, sessionId) => {
         const id = makeSessionId(sessionId)
         const known = this.registry.get(runtime as RuntimeId, id)?.session
@@ -566,7 +712,7 @@ export class Host {
          room's rule, and the folder rule alone would refuse a room made from
          a linked worktree, which works in the main checkout. */
       isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
-      run: (command, where) => runCheck(command, where),
+      run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
@@ -828,6 +974,36 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    /* Before any runtime starts, so the first conversation listed already
+       wears the Agent its Seat record names. Caught like the flow runs above:
+       records that cannot be read cost the restored names, not the desk. */
+    await this.#evidence.load().catch((error: unknown) => {
+      this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    /* From here on a file changed under any of the roster's roots is one
+       notice to every window. Guarded on `#disposed`: everything above this
+       point can yield, and a quit landing in one of those gaps must find no
+       watch here to leak — `dispose()` cannot close what `start()` has not
+       made yet, and does not run again once it has. */
+    if (!this.#disposed) {
+      this.#agentWatch = new AgentWatch({
+        roots: [this.#agents.roots.user, this.#agents.roots.builtin],
+        changed: (project) => this.#push({ method: 'agent/changed', params: { project } }),
+        log: (message, details) => this.#logger.warn(message, details),
+      })
+      /* Not awaited: nothing below needs the watch pointed at open projects
+         yet, and pointing it asks git once per remembered folder. Awaited
+         here, a window's first listing on a stalled volume or a checkout with
+         many linked worktrees would wait behind every one of those probes
+         before any runtime could start. */
+      void this.#watchProjects().catch((error: unknown) => {
+        this.#logger.warn('could not point the roster watch at the open projects', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
+    }
     await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
     /* And only now wake what stopped while the desk was down. Reconciling a
        run's rounds is board work and belongs above; *sending* to a seat needs
@@ -895,7 +1071,10 @@ export class Host {
   }
 
   async dispose(): Promise<void> {
+    // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
+    this.#disposed = true
     this.#catalogs.stop()
+    this.#agentWatch?.dispose()
     /*
       Every runtime is told the quit has begun before anything below can yield.
 
@@ -946,6 +1125,7 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#evidence.close()
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
        that did not wait here was only the *request* to stop writing: the last
@@ -1052,9 +1232,37 @@ export class Host {
   // ------------------------------------------------------------------ methods
 
   async call<M extends HostMethodName>(method: M, params: HostParams<M>): Promise<HostResult<M>> {
+    this.#noteReach(params)
     // Validated by the wire layer against the same table the handler's type
     // reads from; see `methods/index.ts` for what the table guarantees.
     return dispatch(this.#context, method, params)
+  }
+
+  /**
+   * A window asked something of one conversation. When a seating holds it, the
+   * seating may no longer delete it (`#discardSeat`) — and once the seating is
+   * past the point of no return, the ask is refused rather than let start on a
+   * conversation that is going.
+   *
+   * Here, at the one door every window's request comes through, and before the
+   * request does anything: a read, a reopen or a message still on its way when
+   * a discard decides is one the discard has already heard of. Everything that
+   * names a conversation counts — a person who opened it is about to use it,
+   * and an empty conversation kept is a smaller mistake than a used one
+   * deleted.
+   */
+  #noteReach(params: unknown): void {
+    if (this.#seating.size === 0 || typeof params !== 'object' || params === null) return
+    const { runtime, sessionId } = params as { readonly runtime?: unknown; readonly sessionId?: unknown }
+    if (typeof runtime !== 'string' || typeof sessionId !== 'string') return
+    const inHand = this.#seating.get(sessionKey(runtime, sessionId))
+    if (!inHand) return
+    if (inHand.removing) {
+      throw new SessionGoneError(
+        'This conversation was opened for a seat that was passed over, and it is being removed.',
+      )
+    }
+    inHand.reached = true
   }
 
 
@@ -1081,6 +1289,8 @@ export class Host {
       team: this.#team,
       flows: this.#flows,
       agents: this.#agents,
+      seating: this.#machineSeating,
+      evidence: this.#evidence,
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,
@@ -1129,7 +1339,10 @@ export class Host {
         open: (seat, where) => this.#openSeat(seat, where),
         order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
+        discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
         recordAgent: (runtime, sessionId, seated) => {
+          // Kept: the seating's hold ends, and the conversation is the Agent's (`#seating`).
+          this.#seating.delete(sessionKey(runtime, sessionId))
           const record = this.registry.seatAs(runtime as RuntimeId, makeSessionId(sessionId), seated)
           // Every window holding this conversation learns it, not only the one that asked.
           if (record.session.settings) {
@@ -1173,12 +1386,19 @@ export class Host {
       },
       workspaces: {
         openRoots: () => this.#openRoots(),
+        fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        topLevel: (path) => gitOps.topLevel(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
         repoOf: (cwd) => this.#repoOf(cwd),
         boardRootOf: (cwd) => this.#boardRootOf(cwd),
-        forgetBoardRoots: () => this.#boardRoots.clear(),
+        forgetBoardRoots: () => {
+          this.#boardRoots.clear()
+          this.#topLevels.clear()
+          // The same moment the roster's watch lets go of a project that is no longer open.
+          void this.#watchProjects()
+        },
         issuePreviewTicket: (path, runtime) => {
           const ticket = randomBytes(24).toString('hex')
           this.#previewTickets.set(ticket, {
@@ -1263,6 +1483,23 @@ export class Host {
       ...this.registry.snapshot()
         .map((session) => session.cwd)
         .filter((cwd): cwd is string => typeof cwd === 'string' && isAbsolute(cwd)),
+    ]
+  }
+
+  /**
+   * Where the renderer may read or write a file by path: the open roots, and
+   * the roster's own folders — this machine's for both, because a person
+   * edits their own Agents in the desk's editor; the built-in one for reading
+   * only, because nobody edits what ships (*Customize…* copies it first).
+   * `confine` compares path text by design, so a user Agent folder linked to a
+   * dotfiles checkout is read and saved through that link, just as the roster
+   * reads it. The built-in root never joins the write list.
+   */
+  #fileRoots(mode: 'read' | 'write'): string[] {
+    return [
+      ...this.#openRoots(),
+      join(this.#state.directory, 'agents'),
+      ...(mode === 'read' ? [this.#agents.roots.builtin] : []),
     ]
   }
 
@@ -1355,6 +1592,11 @@ export class Host {
       agents: this.options.agents?.entries() ?? [],
       preferences: this.#state.state.preferences,
       transcripts: await this.#transcripts.exportAll(),
+      agentFolders: await exportAgentFolders(join(this.#state.directory, 'agents'), (message, details) =>
+        this.#logger.warn(message, details),
+      ),
+      seating: await this.#machineSeating.raw(),
+      evidence: await this.#evidence.backup(),
     }
   }
 
@@ -1426,8 +1668,68 @@ export class Host {
       else transcripts.skipped += 1
     }
 
-    this.#logger.info('backup restored', { agents, preferences, transcripts })
-    return { agents, preferences, transcripts }
+    const agentFolders = { restored: 0, skipped: 0 }
+    for (const copy of Array.isArray(file.agentFolders) ? file.agentFolders : []) {
+      try {
+        const outcome = await importAgentFolder(join(this.#state.directory, 'agents'), copy)
+        if (outcome.restored) {
+          agentFolders.restored += 1
+        } else {
+          agentFolders.skipped += 1
+          // `reason: null` is a plain collision with an Agent already here —
+          // this machine's own, never a stranger's, so it stays quiet.
+          if (outcome.reason !== null) {
+            this.#logger.warn('an Agent folder from a backup was refused', {
+              id: loggedId(backupCopyId(copy)),
+              error: outcome.reason,
+            })
+          }
+        }
+      } catch (error) {
+        agentFolders.skipped += 1
+        this.#logger.warn('an Agent folder from a backup could not be restored', {
+          id: loggedId(backupCopyId(copy)),
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    const seating = { restored: 0, skipped: 0 }
+    let seatingRevision: number | undefined
+    if (typeof file.seating === 'object' && file.seating !== null) {
+      const saved = parseSeating(JSON.stringify(file.seating))
+      for (const entry of saved.entries) {
+        try {
+          // `onlyIfAbsent` decides "is this Agent's id already taken" inside
+          // `set()`'s own write queue, against the file it is about to write —
+          // not from a read taken before this loop started, which a window's
+          // own `agent/seating/set` landing in the gap between that read and
+          // this call could otherwise have made stale.
+          const outcome = await this.#machineSeating.set(entry.id, entry.seats, { onlyIfAbsent: true })
+          if (outcome.wrote) {
+            seating.restored += 1
+            seatingRevision = outcome.seating.revision
+          } else seating.skipped += 1
+        } catch (error) {
+          seating.skipped += 1
+          this.#logger.warn('a seating entry from a backup could not be restored', {
+            id: entry.id,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      seating.skipped += saved.problems.filter((one) => one.id !== null).length
+    }
+    if (agentFolders.restored > 0 || seating.restored > 0) {
+      this.#push({
+        method: 'agent/changed',
+        params: { project: null, ...(seatingRevision === undefined ? {} : { revision: seatingRevision }) },
+      })
+    }
+    // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
+    const evidence = await this.#evidence.restore(file.evidence)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence }
   }
 
   /**
@@ -1504,7 +1806,7 @@ export class Host {
     const entry = this.#previewTickets.get(ticket)
     this.#previewTickets.delete(ticket)
     if (!entry || entry.expiresAt < Date.now()) return null
-    const path = confine(entry.path, this.#openRoots())
+    const path = confine(entry.path, this.#fileRoots('read'))
     const bytes = await this.#files(entry.runtime).read(path)
     const extension = path.split('.').pop()?.toLowerCase()
     const contentType =
@@ -1653,6 +1955,9 @@ export class Host {
     // Plugins scope their filesystem access to the open workspace, so the
     // kernel has to learn about the change at the same moment the host does.
     this.#extensions?.setWorkspace({ root: described.path, branch: git?.branch ?? null })
+    // Fire-and-forget: opening a folder must not wait on re-pointing the
+    // roster's watch, which walks every open project's ancestors afresh.
+    void this.#watchProjects()
     return {
       ...record,
       name: described.name || basename(described.path),
@@ -1660,7 +1965,60 @@ export class Host {
       // Which project this folder is, so the session list can put a worktree
       // opened as a workspace under the project it is a checkout of.
       repo: await this.#repoOf(described.path),
+      // The top of *this* checkout — a linked worktree's own, where `repo`
+      // above deliberately names the main one instead. `#topLevelOf` is the
+      // same cached read `#watchProjects` makes for this same folder, so a
+      // surface comparing against this never disagrees with what a change
+      // notification names.
+      checkoutRoot: await this.#topLevelOf(described.path),
     }
+  }
+
+  /**
+   * Points the roster's watch at every open project: each open folder and its
+   * own git top level — a project keeps its Agents at the top of its
+   * repository, and a person often opens a folder inside it. `confineGitRoot`
+   * admits the top level as a project for `agent/list` on the open folder's
+   * account, and for a linked worktree it is that worktree's own top. The
+   * main checkout `#repoOf` answers with for a linked worktree is not added:
+   * `confineGitRoot` does not admit it on the worktree's account, so no Agent
+   * read reaches it through the worktree. The top level is asked once per
+   * folder (`#topLevelOf`).
+   *
+   * Called without being waited on from two places that can race each other —
+   * opening a folder, and forgetting one — so every call reads its own
+   * snapshot of `this.#state.state.workspaces` and asks git about it in
+   * parallel (`Promise.all`, the way `#withRepos` does), and only applies what
+   * it found if no later call has started since: a generation bumped on
+   * entry, checked again once the asking is done. An older call finishing
+   * last from a slower git probe can then only ever lose to a newer one,
+   * never re-add a folder the newer call had already let go of.
+   */
+  async #watchProjects(): Promise<void> {
+    const watch = this.#agentWatch
+    if (!watch) return
+    const generation = ++this.#watchGeneration
+    const roots = new Set<string>()
+    await Promise.all(
+      this.#state.state.workspaces.map(async (entry) => {
+        if (typeof entry?.path !== 'string' || entry.path === '') return
+        roots.add(entry.path)
+        const top = await this.#topLevelOf(entry.path)
+        if (top) roots.add(top)
+      }),
+    )
+    // Superseded while this was asking git: whatever it found is stale, and the call that made it stale already applied its own.
+    if (generation !== this.#watchGeneration) return
+    await watch.watchProjects([...roots])
+  }
+
+  /** A folder's git top level, asked of git once per folder until a folder is forgotten (`#topLevels`). */
+  #topLevelOf(cwd: string): Promise<string | null> {
+    const held = this.#topLevels.get(cwd)
+    if (held) return held
+    const asked = gitOps.topLevel(cwd).catch(() => null)
+    this.#topLevels.set(cwd, asked)
+    return asked
   }
 
   /** What the host knows about a runtime, by id — null for one it does not hold. */
@@ -2160,6 +2518,15 @@ export class Host {
   }
 
   /**
+   * Conversations a seating has opened and not yet kept or let go, by session
+   * key: the only conversations `#discardSeat` will ever delete, and only while
+   * nobody else has had a hand in them. Entered as each is opened
+   * (`#openSeat`); left when the seat is kept (a flow's `seat`, `recordAgent`),
+   * retired, or discarded.
+   */
+  readonly #seating = new Map<string, SeatInHand>()
+
+  /**
    * Opens a conversation on a seat, puts it on the seat's picks, and answers
    * with what it is actually running — the one way the desk opens a
    * conversation for a seat, whether a flow's role or an Agent asked for it.
@@ -2173,20 +2540,65 @@ export class Host {
    * something it did not ask for.
    *
    * It answers with an open seat or with nothing open. A conversation that
-   * opened and then failed on the way to being handed back is closed here,
-   * because nothing else knows it is there to close it — and a caller that
-   * goes on to open the next seat must not be leaving one behind.
+   * opened and then failed on the way to being handed back is discarded here
+   * (`#discardSeat`), because nothing else knows it is there to close it —
+   * and a caller that goes on to open the next seat must not be leaving one
+   * behind. The failure goes on exactly as it was thrown, and what the discard
+   * left of the conversation is noted beside it (`leftOnFailure`).
+   *
+   * The seating holds what it opened until its caller keeps it or lets it go
+   * (`#seating`), so that a discard can tell the conversation it opened, and
+   * nobody else touched, from one it must leave alone.
+   *
+   * What the desk already holds on the runtime is looked at before the
+   * conversation is asked for, because a runtime that answers with one of those
+   * ids has handed back somebody's conversation, not a new one — with its own
+   * record, name, handle and row. The seat stops there, before anything is done
+   * to it: it is not attached, which would put the seating's handle over
+   * theirs; not named, which would rename their conversation after the Agent;
+   * and not closed, because a close is said by the conversation's id, and the
+   * runtime would hear it as theirs. The failure is noted `alreadyHeld`, so the
+   * seating passes the candidate over as that; a flow's seat fails in its words.
    */
   async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
-    const live = await runtime.createSession({
-      cwd: where.cwd,
-      ...(seat.model ? { model: seat.model } : {}),
-      options: {
-        ...(seat.effort ? { effort: seat.effort } : {}),
-        ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
-      },
-    })
+    const held = new Set(
+      this.registry
+        .all()
+        .filter((record) => record.runtime === runtime.info.id)
+        .map((record) => String(record.session.id)),
+    )
+    let live: Awaited<ReturnType<typeof runtime.createSession>>
+    try {
+      live = await runtime.createSession({
+        cwd: where.cwd,
+        ...(seat.model ? { model: seat.model } : {}),
+        options: {
+          ...(seat.effort ? { effort: seat.effort } : {}),
+          ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),
+        },
+      })
+    } catch (error) {
+      // Nothing opened, so nothing is left — said outright rather than left
+      // unsaid, because an adapter that keeps one error object and throws it
+      // again for the next seat would otherwise leave a stale note from
+      // whatever an earlier seat's own discard left, read out here as this
+      // seat's, though this seat never opened a conversation at all.
+      noteLeftOnFailure(error, null)
+      throw error
+    }
+    if (held.has(String(live.id))) {
+      this.#logger.warn('a runtime answered a new seat with a conversation the desk already holds, so it was left as it is', {
+        runtime: String(runtime.info.id),
+        session: String(live.id),
+      })
+      const refused = new Error(
+        `${runtime.info.presentation.name} answered with a conversation the desk already holds, not a new one`,
+      )
+      noteLeftOnFailure(refused, { kind: 'alreadyHeld' })
+      throw refused
+    }
+    this.#seating.set(sessionKey(runtime.info.id, live.id), { live, reached: false, removing: false })
     try {
       const session = this.#attach(runtime, live.id, live)
       await live.setTitle(where.title).catch(() => {})
@@ -2200,7 +2612,17 @@ export class Host {
         label: this.#labelOf(seat.runtime, ran),
       }
     } catch (error) {
-      await this.#letGo(runtime.info.id, live.id, live)
+      // Passed over part-way through opening, so discarded like any other seat
+      // passed over — and what that left is noted on the failure, not dropped.
+      const left = await this.#discardSeat(runtime.info.id, live.id).catch((failure: unknown) => {
+        this.#logger.warn('a seat lost part-way through opening could not be discarded', {
+          runtime: String(runtime.info.id),
+          session: String(live.id),
+          error: describeError(failure),
+        })
+        return null
+      })
+      noteLeftOnFailure(error, left)
       throw error
     }
   }
@@ -2211,10 +2633,211 @@ export class Host {
     await live.send([{ type: 'text', text }])
   }
 
-  /** Closes a conversation a seating opened and will not use, and lets it go. */
+  /** Closes a conversation a seating opened and will not use, and lets it go — the seating's hold with it. */
   async #retireSeat(runtime: string, sessionId: string): Promise<void> {
     const id = makeSessionId(sessionId)
+    this.#seating.delete(sessionKey(runtime, id))
     await this.#letGo(runtime as RuntimeId, id, this.registry.get(runtime as RuntimeId, id)?.live)
+  }
+
+  /**
+   * Takes a seat a seating opened and passed over out of the world: closed,
+   * let go, removed where its runtime keeps it, forgotten by the desk, and
+   * dropped from every window — unless it is not the seating's alone to take.
+   * Answers what it was left as, or null when nothing is left.
+   *
+   * Only a conversation the seating itself opened, and nobody else touched, is
+   * ever deleted. It is a row in every window from its `session/started`,
+   * titled with the Agent's name, for as long as the seating holds it — across
+   * the title, the name, every pick and the read-back — and a person can open
+   * that row and write in it. So it is looked at (`#leaveAsItIs`) before its
+   * handle is touched, and once more after the seating's own handle is let go
+   * and before anything that cannot be undone. One somebody had a hand in is
+   * left as it is — its record, its name and its row — and so is the handle
+   * they were using: one they are already in when it is passed over is not
+   * closed at all, because a closed handle stops hearing its conversation
+   * (Codex's close unsubscribes from the thread), and a turn running on it
+   * would read as running for good, with every message after it queued behind
+   * it. Only one somebody reached for while it was closing is left closed, as a
+   * retired seat is. Nothing is awaited between the second look and the delete
+   * being on its way, and from then on a window's request for it is refused
+   * (`#noteReach`), so nothing can start on it in between.
+   *
+   * What "removed" means is the runtime's. One that can delete is asked to:
+   * Codex erases the thread from its own history, and the Claude Code and
+   * Cursor bridges move whatever their agent wrote to the Trash — for a
+   * conversation that never took a message, nothing but the bridge's own
+   * bookkeeping. One that cannot has no way in to its own store from here, and
+   * the desk cannot tell whether it recorded a conversation nobody spoke in;
+   * so it is archived — in the runtime's own archive when it has one, the
+   * desk's otherwise — and keeps its name, so that if it was recorded it stays
+   * out of the list and explained. One that is asked and refuses gets the same.
+   *
+   * The record and every window's row go before any file is touched, and each
+   * file after that is a best effort of its own (`#forgetSeat`): a file that
+   * will not write neither brings the rows back nor ends a seating that is
+   * about to try its next candidate.
+   */
+  async #discardSeat(runtime: RuntimeId, id: SessionId): Promise<SeatLeft | null> {
+    const key = sessionKey(runtime, id)
+    const inHand = this.#seating.get(key)
+    // Only a seating's own conversation is discarded; anything else is a caller's mistake, and said so.
+    if (!inHand) throw new Error(`No seating holds conversation ${String(id)}, so there is none of it to discard.`)
+    try {
+      // Before its handle is touched: somebody already in it keeps the handle they are in it on.
+      const before = this.#leaveAsItIs(inHand, runtime, id)
+      if (!before) await this.#letGo(runtime, id, inHand.live)
+      // And again once it is let go, for anything that reached it while it was closing. From
+      // this look to the delete on its way nothing is awaited, so nothing can start on it in between.
+      const leave = before ?? this.#leaveAsItIs(inHand, runtime, id)
+      if (leave) {
+        // Read fresh off the record rather than assumed from `before`: a
+        // reopen since this seat was opened puts a *different* handle on the
+        // record, which is one of `#leaveAsItIs`'s own reasons to leave
+        // things as they are — and when that is why, this seating's own
+        // handle was never "kept open" by anything done here, it was simply
+        // superseded, which is a different fact from either "kept open" or
+        // "closed".
+        const record = this.registry.get(runtime, id)
+        const handle = record?.live === inHand.live ? 'kept open' : record?.live ? 'replaced' : 'closed'
+        this.#logger.info('a seat passed over was left as it is, not deleted', {
+          runtime: String(runtime),
+          session: String(id),
+          why: leave.kind,
+          handle,
+        })
+        return leave
+      }
+      inHand.removing = true
+      const owner = this.#runtimes.get(runtime)
+      if (!owner) {
+        this.#logger.warn('a seat passed over could not be deleted: its runtime was gone', {
+          runtime: String(runtime),
+          session: String(id),
+        })
+      }
+      // The runtime first, because whether it deleted decides what the desk keeps.
+      const asked = owner ? await this.#askToDelete(owner, id) : null
+      // Then out of the host's records and every window, before any file is touched.
+      this.registry.delete(runtime, id)
+      this.#push({ method: 'session/removed', params: { runtime, sessionId: id } })
+      const left: SeatLeft | null = owner && asked ? await this.#leftAs(owner, id, asked) : { kind: 'unasked' }
+      await this.#forgetSeat(runtime, id, left)
+      return left
+    } finally {
+      this.#seating.delete(key)
+    }
+  }
+
+  /**
+   * Why a seat passed over must be left as it is, or null when it is the
+   * seating's alone: opened by it — which `#openSeat` saw to — and touched by
+   * nobody else.
+   *
+   * Touched is anything the desk can see: a window that asked anything of it
+   * (`SeatInHand.reached`); a turn it watched start, or a message waiting for
+   * it, on its record; a send, a queue or a reopen still on its way; a handle on
+   * its record other than the one the seating opened. A turn that started some
+   * other way than a window asking — a room's post, say — is on the record too.
+   */
+  #leaveAsItIs(inHand: SeatInHand, runtime: RuntimeId, id: SessionId): SeatLeft | null {
+    const key = sessionKey(runtime, id)
+    const record = this.registry.get(runtime, id)
+    const touched =
+      inHand.reached ||
+      this.#sendingNow.has(key) ||
+      this.#draining.has(key) ||
+      this.#reattaching.has(key) ||
+      (record !== undefined &&
+        (record.session.turns.length > 0 ||
+          record.watched.size > 0 ||
+          record.queue.messages.length > 0 ||
+          (record.live !== null && record.live !== inHand.live)))
+    return touched ? { kind: 'inUse' } : null
+  }
+
+  /**
+   * Asks a passed-over seat's runtime to delete it where it keeps it: deleted;
+   * `cannot`, for a runtime with no delete to ask; or refused, in its words.
+   * What the desk does about one still there is its caller's (`#archiveSeat`).
+   */
+  async #askToDelete(owner: AgentRuntime, id: SessionId): Promise<'deleted' | 'cannot' | { readonly refused: string }> {
+    if (!owner.info.capabilities.deleteHistory) return 'cannot'
+    try {
+      await owner.deleteSession(id)
+      return 'deleted'
+    } catch (error) {
+      this.#logger.warn('a seat passed over could not be deleted where its runtime keeps it, so it is archived instead', {
+        runtime: String(owner.info.id),
+        session: String(id),
+        error: describeError(error),
+      })
+      return { refused: describeError(error) }
+    }
+  }
+
+  /**
+   * What a passed-over seat is left as, once its runtime has answered: nothing
+   * when it deleted it; otherwise out of the list (`#archiveSeat`) and said to
+   * be — `kept` by a runtime with no delete, `undeleted` by one that refused.
+   */
+  async #leftAs(
+    owner: AgentRuntime,
+    id: SessionId,
+    asked: 'deleted' | 'cannot' | { readonly refused: string },
+  ): Promise<SeatLeft | null> {
+    if (asked === 'deleted') return null
+    const archived = await this.#archiveSeat(owner, id)
+    return asked === 'cannot' ? { kind: 'kept', archived } : { kind: 'undeleted', detail: asked.refused, archived }
+  }
+
+  /**
+   * Puts a passed-over seat the desk could not delete out of the list, the way
+   * `session/archive` does: in the runtime's own archive when it keeps one, the
+   * desk's otherwise, never both. Answers where — or that it could not.
+   */
+  async #archiveSeat(owner: AgentRuntime, id: SessionId): Promise<SeatArchived> {
+    try {
+      if (owner.info.capabilities.archiveHistory) {
+        await owner.archiveSession(id, true)
+        return 'runtime'
+      }
+      await this.#archive.set(owner.info.id, id, true)
+      return 'here'
+    } catch (error) {
+      this.#logger.warn('a seat passed over could not be archived', {
+        runtime: String(owner.info.id),
+        session: String(id),
+        error: describeError(error),
+      })
+      return 'failed'
+    }
+  }
+
+  /**
+   * What the desk keeps about a passed-over seat, let go of once the seat is
+   * out of the registry and every window: its transcript, always; its archive
+   * mark and its name only once it is gone where its runtime keeps it — one
+   * that may still be listed keeps both, so it stays hidden and explained. Each
+   * is a best effort of its own, logged when it fails.
+   */
+  async #forgetSeat(runtime: RuntimeId, id: SessionId, left: SeatLeft | null): Promise<void> {
+    const forgets: [string, () => Promise<void>][] = [['transcript', () => this.#transcripts.forget(runtime, id)]]
+    if (left === null) {
+      forgets.push(['archive mark', () => this.#archive.forget(runtime, id)], ['name', () => this.#names.forget(runtime, id)])
+    }
+    for (const [what, forget] of forgets) {
+      try {
+        await forget()
+      } catch (error) {
+        this.#logger.warn('a seat passed over could not be forgotten everywhere', {
+          runtime: String(runtime),
+          session: String(id),
+          what,
+          error: describeError(error),
+        })
+      }
+    }
   }
 
   /**
@@ -2568,6 +3191,8 @@ export class Host {
            conversations on one agent and one account are told apart by the one
            thing that actually differs between them. */
         model: sessionModel(record.session),
+        /* A conversation seated as an Agent is called that in a room. */
+        ...(record.seatedAs ? { seatedAs: record.seatedAs.name } : {}),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */
@@ -3316,6 +3941,51 @@ const recordKey = (record: SessionRecord): string => sessionKey(record.runtime, 
 
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
+
+/** A backup's own `id` field, whatever shape it turns out to be — never trusted to be the string it claims. */
+const backupCopyId = (copy: unknown): unknown =>
+  typeof copy === 'object' && copy !== null && 'id' in copy ? (copy as { id: unknown }).id : null
+
+/** The most a logged id is ever allowed to cost, quotes and all. */
+const LOGGED_ID_LIMIT = 140
+
+/**
+ * A backup's own id, safe to put in a log: quoted like any other logged
+ * value, and capped — nothing here says a stranger's string is short,
+ * printable, or even a string at all.
+ *
+ * The *raw* text is capped first, not the quoted text: a control character or
+ * anything else JSON expands to several characters (a NUL becomes six
+ * characters, U+0000 spelled out) is exactly why a cap taken before quoting
+ * could smuggle a short raw string past it — but a cap taken by slicing the
+ * already-quoted text at a raw character position can itself land inside one
+ * of those six characters, leaving `\u00` with nothing after it, or between
+ * the two UTF-16 halves of an astral character's surrogate pair, which
+ * `JSON.stringify` leaves unescaped and so gives no mark of where it is safe
+ * to cut. Both are avoided the same way: find the longest prefix of the raw
+ * text, whole code points only, whose own quoted form still fits the cap
+ * once the ellipsis this appends is counted — then quote only that prefix.
+ * An escape or a surrogate pair is then always either whole or entirely
+ * behind the cut, never half of either.
+ */
+const loggedId = (id: unknown): string => {
+  const text = typeof id === 'string' ? id : String(id)
+  const whole = JSON.stringify(text)
+  if (whole.length <= LOGGED_ID_LIMIT) return whole
+  // The prefix's own quoted form may cost this much: its closing quote is
+  // about to be swapped for `…"`, one character longer, so one is held back
+  // here to leave room for that swap.
+  const budget = LOGGED_ID_LIMIT - 1
+  let prefix = ''
+  for (const codePoint of text) {
+    const next = prefix + codePoint
+    if (JSON.stringify(next).length > budget) break
+    prefix = next
+  }
+  // The quoted prefix's own closing quote is dropped and put back after the
+  // ellipsis, exactly as the un-truncated form's is by `JSON.stringify` itself.
+  return `${JSON.stringify(prefix).slice(0, -1)}…"`
+}
 
 /**
  * Why a queue stopped, in the turn's own words where it has any. A person

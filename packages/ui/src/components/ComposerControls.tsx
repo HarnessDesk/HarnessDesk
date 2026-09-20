@@ -13,6 +13,7 @@ import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
 import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
 import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
+import { useSeatAgent } from '../state/seat-agent'
 import {
   AlertIcon,
   BrainIcon,
@@ -714,10 +715,14 @@ export const AgentControl = () => {
   const snapshot = useSnapshot()
   const { ref, narrow, tight } = useNarrowToolbar()
   const session = useActiveSession()
+  const seated = useSeatAgent(session)
   const [handoff, setHandoff] = useState<RuntimeId | null>(null)
   const ownerId = session ? session.runtime : snapshot.activeRuntime
   const owner = snapshot.runtimes.find((entry) => entry.id === ownerId)
-  if (!owner || snapshot.runtimes.length < 2) return null
+  /* A conversation seated as an Agent says who it is and the seat it took even
+     on a desk with one runtime, where there is otherwise nothing to choose. */
+  if (!owner || (snapshot.runtimes.length < 2 && !seated)) return null
+  const seat = session?.settings?.seatLabel ?? owner.presentation.name
   const others = snapshot.runtimes.filter((entry) => entry.id !== owner.id)
   const target = handoff ? snapshot.runtimes.find((entry) => entry.id === handoff) ?? null : null
   // Two accounts of one agent are two entries here, and the agent's name
@@ -728,13 +733,19 @@ export const AgentControl = () => {
   return (
     <InToolbar refer={ref}>
       <Popover
-        title={session ? `This conversation is with ${owner.presentation.name}` : 'Which agent starts this conversation'}
+        title={
+          seated
+            ? `Seated as ${seated.name ?? 'an Agent'} on ${seat}`
+            : session
+              ? `This conversation is with ${owner.presentation.name}`
+              : 'Which agent starts this conversation'
+        }
         drop="up"
         align="left"
         label={
           <>
             <RuntimeMark runtime={owner} size={13} />
-            {!narrow && <PopoverStrong>{brandOf(owner.presentation.name)}</PopoverStrong>}
+            {!narrow && <PopoverStrong>{seated?.name ?? brandOf(owner.presentation.name)}</PopoverStrong>}
             {!tight && <Chevron />}
           </>
         }
@@ -746,24 +757,33 @@ export const AgentControl = () => {
                 <MenuItem
                   icon={<RuntimeMark runtime={owner} />}
                   selected
-                  label={`Reply here with ${owner.presentation.name}`}
-                  title="This conversation belongs to it; replies continue it."
+                  label={seated ? `As ${seated.name ?? 'an Agent'}, on ${seat}` : `Reply here with ${owner.presentation.name}`}
+                  title={
+                    seated
+                      ? 'The seat it took, as read back when it opened. Replies continue it.'
+                      : 'This conversation belongs to it; replies continue it.'
+                  }
                   onSelect={() => undefined}
                 />
                 {/* What a hand-off does is said once, over the group, rather
                     than repeated under every agent in it: the sentence is the
                     same for all of them, so N copies of it are N times the
-                    height and none of the information. */}
-                <MenuLabel>Hand off</MenuLabel>
-                <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
-                {others.map((entry) => (
-                  <MenuItem
-                    key={entry.id}
-                    icon={<RuntimeMark runtime={entry} />}
-                    label={`Hand off to ${label(entry)}…`}
-                    onSelect={() => setHandoff(entry.id)}
-                  />
-                ))}
+                    height and none of the information. One runtime has
+                    nowhere to hand off to. */}
+                {others.length > 0 && (
+                  <>
+                    <MenuLabel>Hand off</MenuLabel>
+                    <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
+                    {others.map((entry) => (
+                      <MenuItem
+                        key={entry.id}
+                        icon={<RuntimeMark runtime={entry} />}
+                        label={`Hand off to ${label(entry)}…`}
+                        onSelect={() => setHandoff(entry.id)}
+                      />
+                    ))}
+                  </>
+                )}
               </>
             ) : (
               <>

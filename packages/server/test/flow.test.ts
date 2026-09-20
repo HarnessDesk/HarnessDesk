@@ -321,6 +321,10 @@ test('a permission rule is about permission, and it travels with anything delega
   // pays for it, not to the ceiling.
   for (const [permission, rule] of Object.entries(GIT_RULES)) {
     assert.doesNotMatch(rule, /costs a request|never spawn/i, `${permission} still carries a billing rule`)
+    // The judge, the test reviewer and the performance reviewer run code at
+    // another commit in a worktree of their own, outside the shared folder.
+    // Without this clause the rule they are handed forbids exactly that.
+    assert.ok(rule.includes('write nothing outside it, but for a temporary folder of your own that you remove when you are done.'), `${permission} lets a seat keep a temporary folder of its own, which three shipped briefs need`)
     // The ceiling is an instruction today, not an enforcement, and a child a
     // seat spawns is not bound by instructions the parent was given. So the
     // rule says outright that it covers delegated work, as its last line.
@@ -411,6 +415,25 @@ seed: { role: worker, title: Do it }
 `)
   assert.deepEqual(seatAt(flow.roles[0]!, 0), { runtime: 'cline', model: 'deepseek/deepseek-v4-flash' })
   assert.deepEqual(validateFlow(flow), [])
+})
+
+test('a misspelt field in a seat map is a problem, not a silently ignored typo', () => {
+  const yaml = `
+name: Typo
+roles:
+  worker:
+    kind: agent
+    seat:
+      runtime: cursor
+      modle: gpt-5.3-codex
+    outcomes: [done]
+seed: { role: worker, title: Do it }
+`
+  assert.deepEqual(errors(yaml), [
+    `roles.worker.seat: "modle" is not a seat's field — a seat takes runtime, model, effort and thinking`,
+    // The seat did not parse, so the role is left with none — its own, separate error.
+    'roles.worker.seat: an agent role needs a seat — which agent, model and effort to open',
+  ])
 })
 
 test('a list of seats may mix the two forms', () => {

@@ -109,6 +109,40 @@ test('without a project, the user roster is what there is', async () => {
   assert.equal(listed[0]?.origin, 'user')
 })
 
+test('a transaction temporary folder is not listed as an Agent even when it contains a complete brief', async () => {
+  const { roots, agents } = await rig()
+  await write(roots.user, 'scout', brief('Scout'))
+  await write(roots.user, '.harnessdesk-agent-scout-ABCDEF', brief('Temporary scout'))
+
+  const listed = await agents.list()
+  assert.deepEqual(
+    listed.map((one) => one.id),
+    ['scout'],
+  )
+})
+
+/**
+ * P2/P4 (final Part A review): a top-level `.git` — an Agents root that is
+ * itself a linked git checkout — used to be admitted by `idsIn` like any
+ * other folder name, so the roster listed it as a broken Agent and export
+ * walked its whole history looking for an `AGENT.md`. The same fold that
+ * already keeps a nested `.git` out of a backup (`isGitDir`, shared) applies
+ * here too, so a checkout named `.GIT` — which reads back as `.git` on the
+ * case-insensitive volume macOS defaults to — is excluded exactly alike.
+ */
+test('a top-level .git is never listed as an Agent, even though it has no AGENT.md to fail on', async () => {
+  const { roots, agents } = await rig()
+  await write(roots.user, 'scout', brief('Scout'))
+  await mkdir(join(roots.user, '.git', 'objects'), { recursive: true })
+  await writeFile(join(roots.user, '.git', 'config'), '[core]\n', 'utf8')
+
+  const listed = await agents.list()
+  assert.deepEqual(
+    listed.map((one) => one.id),
+    ['scout'],
+  )
+})
+
 test('the digest is stable for the same text and differs for different text', async () => {
   const { roots, agents } = await rig()
   await write(roots.user, 'a', brief('Same'))

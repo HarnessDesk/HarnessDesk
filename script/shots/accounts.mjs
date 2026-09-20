@@ -60,6 +60,8 @@ export const ACCOUNTS = {
   cursor: status({ kind: 'agent', label: `${PRIMARY.name}-Cursor`, planType: 'Pro' }),
   'gemini-cli': status(person(SHANE.email, 'Free')),
   copilot: status(person(SHANE.email, null)),
+  // Signed out — the state a refusal names — on the one seat no other scene uses.
+  windsurf: status(),
 }
 
 /** What any other runtime says, including one the rig has never heard of. */

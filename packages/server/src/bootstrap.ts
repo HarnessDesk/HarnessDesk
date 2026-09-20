@@ -107,6 +107,7 @@ export interface BootstrapOptions {
   readonly version?: string
   readonly pickDirectory?: HostOptions['pickDirectory']
   readonly revealPath?: HostOptions['revealPath']
+  readonly trashPath?: HostOptions['trashPath']
   readonly console?: boolean
   /**
    * Where browser tools find their page. Absent, the plugin host starts the
@@ -423,6 +424,7 @@ export const createDefaultHost = (
     ...(options.credentialCipher ? { credentialCipher: options.credentialCipher } : {}),
     ...(options.pickDirectory ? { pickDirectory: options.pickDirectory } : {}),
     ...(options.revealPath ? { revealPath: options.revealPath } : {}),
+    ...(options.trashPath ? { trashPath: options.trashPath } : {}),
   })
 
   // The editor plane exists only now, because it needs the host's own roots

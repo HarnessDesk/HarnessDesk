@@ -11,6 +11,8 @@ import {
   type FlowPermission,
   type QueuedMessage,
   type RuntimeId,
+  type SeatCandidate,
+  type SeatCeiling,
   type Session,
   type SessionId,
   type SessionKey,
@@ -100,19 +102,35 @@ export interface SessionRecord {
 
 /**
  * Which Agent a conversation was seated as, the digest of the brief it was
- * handed, and the permission its standing order told it it holds.
+ * handed, the permission its standing order told it it holds, what the seat
+ * runs as read back when it was kept, and the candidates passed over on the way.
  */
 export interface SeatedAs {
   readonly agent: string
+  /**
+   * The Agent's name when it was seated — what a room calls the member. Not
+   * laid over the conversation's settings: a renderer reads the Agent itself
+   * (`agent/read`) for what it is called now.
+   */
+  readonly name: string
   readonly briefDigest: string
   readonly permission: FlowPermission
+  readonly seatLabel: string
+  readonly passedOver: readonly SeatCandidate[]
+  /**
+   * The ceiling this seat actually runs under, and whether the runtime holds it
+   * or it was only asked of the agent — the seam with phase 3, which fills it.
+   * Null until then. Not laid over the conversation's settings here: which
+   * surface draws it, and how, is phase 3's.
+   */
+  readonly ceiling: SeatCeiling | null
 }
 
 /**
  * Settings with the host's record of which Agent this is laid over them — and
  * nobody else's.
  *
- * All three fields are the host's to write. A runtime that re-announces its
+ * All five fields are the host's to write. A runtime that re-announces its
  * settings drops them; a renderer can name them in a patch that a runtime
  * echoes back, or in the options it opens a conversation with. So they are put
  * back from the record after every fold, and taken off a conversation the host
@@ -123,14 +141,36 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
   if (seated) {
     return settings.agent === seated.agent &&
       settings.briefDigest === seated.briefDigest &&
-      settings.permission === seated.permission
+      settings.permission === seated.permission &&
+      settings.seatLabel === seated.seatLabel &&
+      settings.passedOver === seated.passedOver
       ? settings
-      : { ...settings, agent: seated.agent, briefDigest: seated.briefDigest, permission: seated.permission }
+      : {
+          ...settings,
+          agent: seated.agent,
+          briefDigest: seated.briefDigest,
+          permission: seated.permission,
+          seatLabel: seated.seatLabel,
+          passedOver: seated.passedOver,
+        }
   }
-  if (settings.agent === undefined && settings.briefDigest === undefined && settings.permission === undefined) {
+  if (
+    settings.agent === undefined &&
+    settings.briefDigest === undefined &&
+    settings.permission === undefined &&
+    settings.seatLabel === undefined &&
+    settings.passedOver === undefined
+  ) {
     return settings
   }
-  const { agent: _agent, briefDigest: _briefDigest, permission: _permission, ...theirs } = settings
+  const {
+    agent: _agent,
+    briefDigest: _briefDigest,
+    permission: _permission,
+    seatLabel: _seatLabel,
+    passedOver: _passedOver,
+    ...theirs
+  } = settings
   return theirs
 }
 
@@ -159,6 +199,18 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   readonly #records = new Map<SessionKey, SessionRecord>()
+  /**
+   * Where a conversation seen for the first time learns which Agent it was
+   * seated as, from the desk's durable Seat records — so a restarted desk shows
+   * a seated conversation as its Agent, not as a plain one. Null until the host
+   * gives one (`restoreSeatedAs`); a registry with none restores nothing.
+   */
+  #restore: ((runtime: RuntimeId, id: SessionId) => SeatedAs | null) | null = null
+
+  /** Gives the registry the durable record to restore a conversation's Agent from. Once, by the host. */
+  restoreSeatedAs(restore: (runtime: RuntimeId, id: SessionId) => SeatedAs | null): void {
+    this.#restore = restore
+  }
 
   /**
    * Folds a read of a session — from a runtime's store, or the summary a
@@ -196,9 +248,9 @@ export class SessionRegistry {
       running: new Set(),
       queue: emptyQueue(),
       tasks: [],
-      seatedAs: null,
+      seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
     }
-    record.session = seatedSession(this.#settle(record, session), null)
+    record.session = seatedSession(this.#settle(record, session), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)
     return record
   }

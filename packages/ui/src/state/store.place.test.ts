@@ -383,6 +383,24 @@ describe('restoring a layout with a conversation docked', () => {
     expect(store.getSnapshot().sessions.get(docked)).toBeDefined()
     expect(JSON.stringify(calls('session/resume'))).toContain('s-2')
   })
+
+  it('takes the panel down when the host removes the docked one, and leaves the one in front', async () => {
+    await restore()
+    const transport = store.transport as unknown as {
+      handlers: { onNotification(notification: unknown): void }
+    }
+
+    transport.handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: sessionId('s-2') } })
+
+    expect(
+      mountedViews(store.getSnapshot().workbench).some(
+        (entry) => entry.mounted.view.kind === 'conversation' && entry.mounted.view.session === docked,
+      ),
+    ).toBe(false)
+    expect(store.getSnapshot().sessions.has(docked)).toBe(false)
+    expect(panes(store.getSnapshot().layout.root).map(sessionOf)).toEqual([inFront])
+    expect(store.getSnapshot().activeSessionKey).toBe(inFront)
+  })
 })
 
 /**

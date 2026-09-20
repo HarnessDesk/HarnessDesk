@@ -1,10 +1,14 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { Button, Dialog, Input } from '../design'
+import type { AgentEntry } from '@harnessdesk/protocol'
+
+import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
+import { Button, Dialog, Input, Note } from '../design'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
-import { AgentIcon, TeamIcon } from './Icons'
+import { RuntimeMark } from './BrandIcons'
+import { AgentIcon, BriefIcon, TeamIcon } from './Icons'
 import { projectRoots, useProjectGroups } from './SessionTree'
 import styles from './NewSessionChoice.module.css'
 
@@ -40,6 +44,13 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
      the host names the repository above it — which is why the room count
      below asks the tree for every spelling rather than comparing one string. */
   const root = projectRootOf(snapshot.workspace)
+
+  // Fresh every time the dialog opens: whether each Agent can be seated here
+  // is what the list is for, and a sign-in since last time changes it.
+  useEffect(() => {
+    void store.loadAgents()
+  }, [store])
+  const agents = inForce(snapshot.agents ?? [])
 
   /** Once the room door is chosen, this holds the name being typed. */
   const [naming, setNaming] = useState(false)
@@ -171,15 +182,38 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
     )
   }
 
+  // What ⌘N does, and what Enter starts here too — the owner's rule that a
+  // person who never touches Agents sees today's app, unchanged, whatever
+  // else this dialog now lists above it.
+  const startPlain = (): void => {
+    onClose()
+    store.newDraft()
+  }
+
   return (
     <Dialog title="What are you starting?" size="sm" onClose={onClose}>
       <div className={styles.choices}>
+        {agents.length > 0 && (
+          <div className={styles.group} role="group" aria-label="As an Agent">
+            <Note>As an Agent</Note>
+            {agents.map((entry) => (
+              <AgentChoice key={entry.id} entry={entry} onClose={onClose} />
+            ))}
+          </div>
+        )}
+
         <Button
           type="button"
           variant="choice" size="row" className={styles.choice}
-          onClick={() => {
-            onClose()
-            store.newDraft()
+          // The row focused when the dialog opens, whatever else is listed
+          // above it: the plain choice stays what Enter starts.
+          autoFocus
+          onClick={startPlain}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              startPlain()
+            }
           }}
         >
           <span className={styles.mark}>
@@ -213,5 +247,56 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
         </Button>
       </div>
     </Dialog>
+  )
+}
+
+/**
+ * One Agent, as a door: its name, and the mark of the runtime it would sit on
+ * here. One that cannot be seated here stays, with its first reason on
+ * screen — and pressing it asks, which raises the refusal sheet with every
+ * candidate and its fix rather than a button that does nothing.
+ *
+ * Not `aria-disabled`: the canonical Button already refuses pointer events on
+ * that attribute (`design/ui/button.tsx`'s base class), and a screen may not
+ * redraw a canonical control to undo it (the `canonical-control-visual-
+ * override` gate) — `aria-disabled` here would be un-clickable, not merely
+ * grey. `data-refused` is set, the same marker `TeamBoardPane`'s drop target
+ * and this Button's own `ghost` variant already use for it; `choice`, the
+ * variant this row takes, has no `data-[refused]` rule yet the way `ghost`
+ * does (`data-[refused]:opacity-45`) — a primitive shape to ask the UI-system
+ * session for, noted in the report — so this row reads its refusal from the
+ * reason on screen alone until that lands.
+ */
+const AgentChoice = ({ entry, onClose }: { readonly entry: AgentEntry; readonly onClose: () => void }) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const plan = snapshot.agentPlans.get(entry.id)
+  const seat = seatTaken(plan)
+  const refused = plan !== undefined && seat === null
+  const reason = refused ? firstReason(plan) : null
+  const name = entry.definition?.name ?? entry.id
+  return (
+    <Button
+      type="button"
+      variant="choice" size="row" className={styles.choice}
+      data-refused={refused ? '' : undefined}
+      title={
+        seat
+          ? `${entry.definition?.description ?? name} It would sit on ${seat.label}.`
+          : 'Can’t be seated here — press to see every seat it would take, and what stands in the way.'
+      }
+      onClick={() => {
+        onClose()
+        void store.startAsAgent(entry.id)
+      }}
+    >
+      <span className={styles.mark}>
+        {seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
+      </span>
+      <span className={styles.text}>
+        <span className={styles.name}>{name}</span>
+        {reason && <span className={styles.note}>{reason}</span>}
+      </span>
+    </Button>
   )
 }

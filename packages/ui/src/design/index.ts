@@ -134,6 +134,6 @@ export {
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
-export { AgentCard, type AgentCardAction, type AgentCardSubject } from './patterns/AgentCard'
+export { AgentCard, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
 export { KindGlyph, PublicationCard, StatePill, publicationVerb } from './patterns/PublicationCard'

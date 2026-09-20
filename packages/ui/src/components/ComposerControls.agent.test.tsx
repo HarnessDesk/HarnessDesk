@@ -2,8 +2,9 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { RuntimeInfo } from '@harnessdesk/protocol'
+import { sessionKey, type AgentEntry, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
+import { seatAgentKey } from '../lib/agents'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentControl } from './ComposerControls'
@@ -90,4 +91,76 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
   expect(down?.title).toBe('')
   expect(ready?.textContent).not.toContain('The available agent.')
   expect(ready?.title).toBe('The available agent.')
+})
+
+it('a conversation seated as an Agent shows the Agent and the seat it took — even with one runtime', () => {
+  const only = runtime('claude-code', 'Claude Code', 'An agent.')
+  const key = sessionKey('claude-code', 's1')
+  const live = {
+    id: 's1',
+    runtime: 'claude-code',
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+    settings: { cwd: '/repo', agent: 'code-reviewer', briefDigest: 'd', permission: 'read', seatLabel: 'Claude · Opus 5 · High', passedOver: [] },
+  } as unknown as Session
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [only],
+    activeRuntime: only.id,
+    sessions: new Map([[key, live]]),
+    activeSessionKey: key,
+    seatAgents: new Map([[seatAgentKey('/repo', 'code-reviewer'), entry]]),
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readSeatAgent: vi.fn() } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentControl />
+      </StoreProvider>,
+    )
+  })
+  const trigger = document.querySelector<HTMLButtonElement>('button[title="Seated as Code reviewer on Claude · Opus 5 · High"]')
+  expect(trigger?.textContent).toContain('Code reviewer')
+  click(trigger!)
+  expect(document.body.textContent).toContain('As Code reviewer, on Claude · Opus 5 · High')
+})
+
+it('a plain conversation on a one-runtime desk shows no control, and reads nothing about an Agent', () => {
+  const only = runtime('claude-code', 'Claude Code', 'An agent.')
+  const key = sessionKey('claude-code', 's1')
+  const live = {
+    id: 's1',
+    runtime: 'claude-code',
+    cwd: '/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 1,
+    turns: [],
+    itemsLoaded: true,
+    settings: { cwd: '/repo', model: 'opus-5' },
+  } as unknown as Session
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [only],
+    activeRuntime: only.id,
+    sessions: new Map([[key, live]]),
+    activeSessionKey: key,
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readSeatAgent: vi.fn() } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentControl />
+      </StoreProvider>,
+    )
+  })
+  expect(container.querySelector('button')).toBeNull()
+  expect(store.readSeatAgent).not.toHaveBeenCalled()
 })

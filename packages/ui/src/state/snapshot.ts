@@ -2,11 +2,13 @@ import type {
   AccountStatus,
   CapabilityContribution,
   PluginInstance,
+  AgentEntry,
   AgentError,
   BackgroundTask,
   Approval,
   ConfigOption,
   EditorDocument,
+  MachineSeating,
   ModelInfo,
   NoticeLevel,
   OptionValue,
@@ -16,6 +18,9 @@ import type {
   RuntimeHealth,
   RuntimeId,
   RuntimeInfo,
+  SeatCandidate,
+  SeatFix,
+  SeatPlan,
   Session,
   SessionQueue,
   SkillInfo,
@@ -45,6 +50,32 @@ import type { PlanEdit } from '../lib/plan-edits'
 import type { ConnectionStatus } from '../lib/transport'
 
 import { emptyLayout, panes, type Layout } from './layout'
+
+/**
+ * An Agent that could not be seated, and why each seat it would take could
+ * not be — what the refusal sheet draws. Store state, like `newWorktreeFor`,
+ * because every door that starts an Agent can raise it and the door is
+ * usually gone by the time it is read.
+ */
+export interface SeatRefusal {
+  /** The Agent's id — where *Edit seats for this Mac* goes. */
+  readonly agent: string
+  readonly name: string
+  readonly candidates: readonly SeatCandidate[]
+  /**
+   * Why it could not be weighed at all, worded from its own entry
+   * (`blockedWords`, `lib/agents.ts`) — never the host's sentence, which
+   * starts with an absolute path. Null otherwise.
+   */
+  readonly blocked: string | null
+  /**
+   * Whether a seat actually opened before this failed. A dry-run refusal
+   * opens nothing, so this is always false there; a `seatRefused` from
+   * `agent/seat` may have opened, tried and closed or kept several seats
+   * first, so "Nothing was opened" would be false for it.
+   */
+  readonly opened: boolean
+}
 
 import { emptyWorkbench, type Workbench } from './workbench'
 
@@ -231,6 +262,8 @@ export interface AppSnapshot {
    * username in full.
    */
   readonly home: string
+  /** Where this desk keeps its state — see `host/hello`. Empty until the handshake. */
+  readonly stateDir: string
   /** Who each runtime is signed in as — the sign-in page and the Agents card read this. */
   readonly accountsByRuntime: Readonly<Partial<Record<RuntimeId, AccountStatus>>>
   /**
@@ -358,6 +391,25 @@ export interface AppSnapshot {
    */
   readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
   /**
+   * The Agent roster for `agentsProject`: that project's own Agents, then this
+   * machine's, then the ones that ship, one per id, each carrying what it
+   * shadowed and anything wrong with its file. Null until a surface that lists
+   * Agents asks, so a window that never shows one never reads a file for it.
+   */
+  readonly agents: readonly AgentEntry[] | null
+  /** The folder the roster above was read for — the open workspace — or null for none. */
+  readonly agentsProject: string | null
+  /** Which seat each listed Agent would take here, by Agent id: one dry run of the whole roster. */
+  readonly agentPlans: ReadonlyMap<string, SeatPlan>
+  /**
+   * Whether the dry run for `agentsProject` failed outright, so a row that
+   * never got a plan can say its seats could not be checked, rather than
+   * "Checking seats…" forever for an answer that already isn't coming.
+   */
+  readonly agentPlansFailed: boolean
+  /** This machine's seats for its Agents, as the host read `seating.json` — null until a page asks. */
+  readonly seating: MachineSeating | null
+  /**
    * The repository a new worktree is being set up for, or null.
    *
    * Dialog state in the store, because three places raise this one dialog —
@@ -371,6 +423,22 @@ export interface AppSnapshot {
    * is two components away from the state that opens windows.
    */
   readonly settingsFor: string | null
+  /** The thing inside that page to open — an Agent's id, a runtime's, `add` — until the shell opens it. */
+  readonly settingsFocus: string | null
+  /** The refusal sheet, while it is up. */
+  readonly seatRefusal: SeatRefusal | null
+  /**
+   * A fix for a seat, asked for from somewhere deep — the refusal sheet, an
+   * Agent's page, a name card — until the shell, which holds the sign-in, the
+   * usage window and Settings, takes it where it is fixed.
+   */
+  readonly seatFix: { readonly fix: SeatFix; readonly agent: string } | null
+  /**
+   * The Agent each seated conversation was seated as, read for the folder it
+   * works in, by `seatAgentKey(cwd, id)` — what its header, its row and its
+   * name card say about it. Null when no Agent by that id is there any more.
+   */
+  readonly seatAgents: ReadonlyMap<string, AgentEntry | null>
 
   readonly workspaces: readonly WorkspaceEntry[]
   readonly workspace: WorkspaceEntry | null
@@ -614,6 +682,7 @@ const EMPTY: AppSnapshot = {
   // No tilde until the host says what to shorten against; `shortPath` leaves
   // a path whole rather than guess, which is the right way round.
   home: '',
+  stateDir: '',
   accountsByRuntime: {},
   accountPrefs: {},
   profile: {},
@@ -645,8 +714,17 @@ const EMPTY: AppSnapshot = {
   worktrees: [],
   teams: new Map(),
   flowRuns: new Map(),
+  agents: null,
+  agentsProject: null,
+  agentPlans: new Map(),
+  agentPlansFailed: false,
+  seating: null,
   newWorktreeFor: null,
   settingsFor: null,
+  settingsFocus: null,
+  seatRefusal: null,
+  seatFix: null,
+  seatAgents: new Map(),
   workspaces: [],
   workspace: null,
   skills: [],
@@ -694,4 +772,8 @@ export const emptySnapshot = (): AppSnapshot => ({
   tasks: new Map(),
   foldersGone: new Map(),
   loadingSessions: new Set(),
+  agentPlans: new Map(),
+  agentPlansFailed: false,
+  seating: null,
+  seatAgents: new Map(),
 })

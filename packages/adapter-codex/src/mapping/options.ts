@@ -138,7 +138,17 @@ export const stateFromThreadSettings = (
  * because offering a model the backend would refuse is a trap, not a choice.
  */
 export const stateFromConfig = (
-  config: CodexProtocol.v2.Config,
+  config: Pick<
+    CodexProtocol.v2.Config,
+    | 'model'
+    | 'sandbox_workspace_write'
+    | 'sandbox_mode'
+    | 'model_provider'
+    | 'model_reasoning_effort'
+    | 'approval_policy'
+    | 'approvals_reviewer'
+    | 'service_tier'
+  >,
   catalog: Catalog,
   cwd: string,
 ): ThreadState => {

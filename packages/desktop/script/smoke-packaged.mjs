@@ -127,11 +127,26 @@ child.stderr.on('data', (chunk) => (stderr += String(chunk)))
 let exited = null
 child.on('exit', (code) => (exited = code ?? -1))
 
+// The Agents that ship with the app. A build that lost the folder lists none,
+// and nothing else in a packaged launch would say so.
+const SHIPPED_AGENTS = [
+  'api-reviewer',
+  'code-reviewer',
+  'implementer',
+  'judge',
+  'performance-reviewer',
+  'requirements-analyst',
+  'researcher',
+  'security-reviewer',
+  'test-reviewer',
+]
+
 try {
   // The window, then the store: both take a moment, and an app that dies
   // early should say so with its own stderr rather than a timeout.
   const deadline = Date.now() + READY_MS
   let rows = null
+  let socketUrl = null
   let lastProblem = 'the debugger never answered'
   while (Date.now() < deadline && rows === null) {
     if (exited !== null) {
@@ -146,6 +161,7 @@ try {
         lastProblem = 'no renderer page yet'
         continue
       }
+      socketUrl = page.webSocketDebuggerUrl
       rows = await evaluate(
         page.webSocketDebuggerUrl,
         `window.__hdStore ? window.__hdStore.agentCatalog() : Promise.reject(new Error('store not mounted'))`,
@@ -175,6 +191,19 @@ try {
     )
   }
   console.log(`smoke: ok — every bridge this build promises is on disk (${rows.length} rows)`)
+
+  const roster = await evaluate(socketUrl, `window.__hdStore.transport.request('agent/list', {})`)
+  const built = (Array.isArray(roster) ? roster : []).filter((entry) => entry.origin === 'builtin')
+  const broken = SHIPPED_AGENTS.filter(
+    (id) => !built.some((entry) => entry.id === id && entry.definition && entry.problems.length === 0),
+  )
+  if (broken.length > 0) {
+    throw new Error(
+      `this build is missing shipped Agents, or ships them broken: ${broken.join(', ')} — ` +
+        `check build.files and build.asarUnpack in packages/desktop/package.json (packaging.test.mjs pins both)`,
+    )
+  }
+  console.log(`smoke: ok — the ${SHIPPED_AGENTS.length} shipped Agents are on disk and parse`)
 } catch (error) {
   fail(error instanceof Error ? error.message : String(error))
 } finally {

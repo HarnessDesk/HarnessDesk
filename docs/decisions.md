@@ -324,3 +324,27 @@ second; a draft abandoned after that leaves the worktree, listed with the others
 **The rule:** nothing is made on disk for a conversation that has not been
 sent, and nothing git tracks is discarded to bring work home — what it ignores
 goes with the folder, and the dialog says so first.
+
+## A Codex profile is a bounded new-session input, not another configuration
+
+Codex's app-server cannot take the CLI's profile flag, but each thread verb can
+take configuration overrides. HarnessDesk therefore declares the available
+profile names as one ordinary new-session option. With **None** selected it
+sends nothing new. With a profile selected, the adapter reads that file when
+the conversation starts and carries only its root `model`,
+`model_context_window`, and `model_auto_compact_token_limit` values.
+
+The file is input, never a program: its name, byte count, UTF-8, strings and
+integers are bounded; commands, instructions, MCP tables and every other key
+remain inert. A malformed profile stays in the list with its refusal instead
+of disappearing. This is deliberately narrower than asking Codex to load the
+whole profile, which would execute capabilities the person did not choose on
+this surface.
+
+The values sent are not facts about the resulting conversation. The live
+model comes from the thread response, and the context ring remains empty until
+Codex reports its context window in usage. A profile can ask; only Codex can
+say what landed.
+
+**The rule:** profiles may contribute bounded start parameters; session state
+comes back from the agent.

@@ -809,14 +809,14 @@ rules:
 
   // The review sweep records every Settings destination, including the rich
   // rows that a single Appearance frame cannot exercise.
-  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'agents', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
+  for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'runtimes', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
     SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
       if (!await cdp.eval(`Boolean(document.querySelector(':is(section, [role="dialog"])[aria-label="Settings"]')) && !document.querySelector(':is(section, [role="dialog"])[aria-label="Dashboard"]')`)) {
         throw new Error('Settings did not become the visible window for ' + section)
       }
-      if (section === 'agents') {
+      if (section === 'runtimes') {
         // Keep an account in the frame so header and nested-row containment
         // are both exercised, not just the collapsed list's card outlines.
         await cdp.eval(`document.querySelector('button[aria-label^="Show the accounts under"]')?.click(); true`)
@@ -1557,6 +1557,161 @@ rules:
       for (const agent of CAST) rmSync(switchFile(agent.id, 'page'), { force: true })
     },
   }
+
+  /* ------------------------------------------------------------ Agents */
+
+  const PROJECT_AGENT = join(REPO, '.harnessdesk', 'agents', 'code-reviewer', 'AGENT.md')
+
+  /** What an earlier Agent scene may have left up: the refusal sheet, a dialog, the palette. */
+  const clearAgentScenes = async () => {
+    await cdp.eval(`${STORE}.dismissSeatRefusal(); true`)
+    for (let n = 0; n < 2; n += 1) {
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+      await sleep(150)
+    }
+  }
+
+  /** The storefront open, and its roster and seats read, before a surface draws them. */
+  const openStorefront = async () => {
+    await clearAgentScenes()
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    await cdp.eval(`${STORE}.loadAgents()`, 120_000)
+    await sleep(900)
+  }
+
+  /** Types into an input found by its label, the way the flow scene fills its dialog. */
+  const fill = (label, value) => cdp.eval(`(() => {
+    const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
+    const input = tag && document.getElementById(tag.getAttribute('for'))
+    if (!input) return false
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${q(value)})
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    return true
+  })()`)
+
+  Object.assign(SCENES, {
+    /** The top-level Agents window: three sections and the project's reviewer shadowing the one that ships. */
+    'settings-agents': { leaveOverlay: true, expect: 'Shadowed by the one in storefront', run: async () => {
+      await openStorefront()
+      if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
+      await sleep(1400)
+    } },
+
+    /** An Agent's page: its file, its ceiling, its own seats muted, and this Mac's. */
+    'agent-page': { leaveOverlay: true, expect: 'On this Mac', run: async () => {
+      await openStorefront()
+      if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
+      if (!(await click('Code reviewer', '[role="dialog"][aria-label="Agents"]'))) throw new Error('no Code reviewer in the Agents window')
+      await sleep(1400)
+    } },
+
+    /** Workspaces › a project: its own Agents, and the folder they are read from. */
+    'project-page': { leaveOverlay: true, expect: 'Its own, read from', run: async () => {
+      await openStorefront()
+      await cdp.eval(`${STORE}.askSettings('workspaces', ${q(REPO)}); true`)
+      await sleep(1400)
+    } },
+
+    /** The new-session dialog: Agents first, and the one that cannot be seated greyed with why. */
+    'new-session-agents': { leaveOverlay: true, expect: 'Windsurf is signed out', run: async () => {
+      await openStorefront()
+      if (!(await click('New'))) throw new Error('no New button in the title bar')
+      await sleep(1200)
+      if (!(await cdp.eval(`document.body.innerText.includes('As an Agent')`))) throw new Error('the dialog lists no Agents')
+    } },
+
+    /** Command palette, through the sidebar's magnifier: an Agent to start as. */
+    'palette-agents': { leaveOverlay: true, expect: 'Start as Code reviewer', run: async () => {
+      await openStorefront()
+      if (!(await click('Search everything'))) throw new Error('no search in the sidebar')
+      await sleep(600)
+      await cdp.eval(`(() => {
+        const input = document.querySelector('[role="dialog"] input')
+        if (!input) return false
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'Start as')
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        return true
+      })()`)
+      await sleep(900)
+    } },
+
+    /** Start as Code reviewer: headed by it, and its name card names the seat and the one passed over. */
+    'conversation-agent-card': {
+      leaveOverlay: true,
+      expect: 'Seated on Claude · Opus',
+      // CDP's pointer can land on the seven-pixel glyph while Chromium reports
+      // only the row as hovered at a 2x device scale. Open the same card by
+      // keyboard focus on its padded trigger, then require the real portal and
+      // its contents. The component deliberately supports that path too.
+      keepPointer: true,
+      run: async () => {
+        await openStorefront()
+        const key = await cdp.eval(`${STORE}.startAsAgent('code-reviewer')`, 180_000)
+        if (!key) throw new Error('Code reviewer was not seated: ' + await cdp.eval(`JSON.stringify(${STORE}.getSnapshot().seatRefusal)`))
+        await sleep(6500)
+        const headed = await cdp.eval(`[...document.querySelectorAll('header [class*="title"]')].some((one) => (one.textContent ?? '').startsWith('Code reviewer'))`)
+        if (!headed) throw new Error('the conversation is not headed Code reviewer')
+        writeFileSync(PROJECT_AGENT, `${readFileSync(PROJECT_AGENT, 'utf8')}\nRead docs/checkout.md before the diff.\n`)
+        await sleep(2500)
+        const opened = await cdp.eval(`(() => {
+          const trigger = document.querySelector('button[data-active] [class*="statusTarget"]')
+          if (!trigger) return false
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab', bubbles: true }))
+          trigger.focus()
+          return true
+        })()`)
+        if (!opened) throw new Error('the active conversation has no name-card trigger')
+        await waitForSnapshot(
+          () => cdp.eval(`document.querySelector('[data-slot="agent-card"]')?.textContent ?? ''`),
+          (text) => text.includes('Seated on Claude · Opus'),
+        )
+      },
+      verify: async () => {
+        await waitForSnapshot(
+          () => cdp.eval(`document.querySelector('[data-slot="agent-card"]')?.textContent ?? ''`),
+          (text) => text.includes('Passed over Windsurf') && text.includes('The brief has changed since this started.'),
+        )
+      },
+    },
+
+    /** The refusal sheet: every seat, its reason and its fix — and nothing opened. */
+    'refusal-sheet': { leaveOverlay: true, expect: 'Nothing was opened.', run: async () => {
+      await openStorefront()
+      const before = await cdp.eval(`${STORE}.getSnapshot().sessions.size`)
+      const key = await cdp.eval(`${STORE}.startAsAgent('release-checker')`, 180_000)
+      await sleep(1200)
+      const after = await cdp.eval(`${STORE}.getSnapshot().sessions.size`)
+      if (key !== null || after !== before) throw new Error(`a refused seating opened something (${before} → ${after})`)
+      const listed = await cdp.eval(`${STORE}.getSnapshot().seatRefusal?.candidates.length ?? 0`)
+      if (listed !== 2) throw new Error(`the sheet lists ${listed} candidates, not both`)
+      if (!(await cdp.eval(`document.body.innerText.includes('Sign in to Windsurf')`))) {
+        throw new Error('the signed-out candidate offers no Sign in')
+      }
+    } },
+
+    /** Save as an Agent…, from a conversation's menu, with its name typed. */
+    'save-as-agent': { leaveOverlay: true, expect: 'Save and open the brief', run: async () => {
+      await openStorefront()
+      await seat(cdp, { work: REPO, runtime: 'codex', picks: {} })
+      await sleep(1500)
+      if (!(await click('Conversation'))) throw new Error('no conversation menu')
+      if (!(await click('Save as an Agent…'))) throw new Error('no Save as an Agent… in its menu')
+      if (!(await fill('Name', 'Checkout reviewer'))) throw new Error('no Name field')
+      await fill('What it is for', 'Reads checkout changes against the storefront’s rules.')
+      await sleep(700)
+    } },
+
+    /** A room's +: the project's Agents first, each with the seat it would take there. */
+    'add-member-agents': { leaveOverlay: true, expect: 'Who joins', run: async () => {
+      await clearAgentScenes()
+      await stageRoom()
+      await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
+      await sleep(1500)
+      if (!(await click('Add an agent to the room'))) throw new Error('no + on the room’s roster')
+      await sleep(1800)
+    } },
+  })
 
   /* Every `--scene` on the line, not just the first: a take is usually two or
      three scenes, and silently shooting only one of them is the kind of miss

@@ -99,3 +99,32 @@ it('an agent with nothing to pre-set gets the sentence, not an empty section', a
   expect(container.textContent).toContain('Set per conversation')
   expect(container.textContent).toContain('Codex declares its controls once a session exists')
 })
+
+it('a longer choice list keeps refused values visible and disabled', async () => {
+  const profiles: ConfigOption[] = [
+    {
+      type: 'select',
+      id: 'codexProfile',
+      label: 'Profile',
+      currentValue: '',
+      choices: [
+        { value: '', label: 'None' },
+        { value: 'sol', label: 'sol' },
+        { value: 'astra', label: 'astra' },
+        { value: 'broken', label: 'broken', disabled: 'The file is malformed.' },
+      ],
+    },
+  ]
+  const { setNewSessionDefault } = await mount(profiles)
+  const select = container.querySelector('select[aria-label="Profile"]') as HTMLSelectElement | null
+  expect(select).toBeTruthy()
+  const broken = select?.querySelector('option[value="broken"]')
+  expect(broken?.hasAttribute('disabled')).toBe(true)
+  expect(broken?.textContent).toContain('The file is malformed.')
+
+  await act(async () => {
+    select!.value = 'sol'
+    select!.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(setNewSessionDefault).toHaveBeenCalledWith('codex', 'codexProfile', 'sol')
+})
