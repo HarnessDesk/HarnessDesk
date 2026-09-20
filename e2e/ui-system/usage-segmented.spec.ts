@@ -237,6 +237,49 @@ async function inkOf(account: Locator, within = 10_000) {
 for (const [look, theme] of [
   ['desk', 'light'], ['desk', 'dark'], ['studio', 'light'], ['studio', 'dark'],
 ] as const) {
+  test(`${look} Dashboard keeps the first band aligned and its hero readings judged in ${theme}`, async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await stageAccounts(page)
+    await page.goto('/preview.html')
+    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
+    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const firstBand = dashboard.getByRole('heading', { name: 'What is left', exact: true })
+    await expect(firstBand).toBeVisible()
+
+    const measurement = await firstBand.evaluate(node => {
+      const dialog = node.closest('[role="dialog"]')!
+      const blurb = dialog.querySelector<HTMLElement>('[class*="pageBlurb"]')!
+      const card = dialog.querySelector<HTMLElement>('article')!
+      const title = node.getBoundingClientRect()
+      const text = document.createRange()
+      text.selectNodeContents(node)
+      const textBox = text.getBoundingClientRect()
+      const pageTitle = dialog.querySelector<HTMLElement>('[data-slot="page-title"]')!
+      const headingStyle = getComputedStyle(node)
+      const figures = [...dialog.querySelectorAll<HTMLElement>('[data-role="figure"]')]
+        .map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))
+      return {
+        blurbToHeading: textBox.top - blurb.getBoundingClientRect().bottom,
+        headingToCard: card.getBoundingClientRect().top - textBox.top,
+        foreground: getComputedStyle(pageTitle).color,
+        danger: headingStyle.getPropertyValue('--hd-danger-ink').trim(),
+        figures,
+        titleTop: title.top,
+      }
+    })
+    await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
+
+    // The sticky heading's words start one spacing step above the pre-fix
+    // position, which returns the first card to the measured pre-conversion band.
+    expect.soft(measurement.blurbToHeading).toBeLessThanOrEqual(56)
+    expect(measurement.headingToCard).toBeGreaterThan(0)
+    expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
+    for (const reading of ['78%']) {
+      expect(measurement.figures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
+    }
+  })
+
   test(`${look} selected account text meets AA in ${theme}`, async ({ page }, testInfo) => {
     await stageAccounts(page)
     await page.goto('/preview.html')
