@@ -26,16 +26,11 @@
   overflow-y: auto;
 }
 
-.note,
-.error {
+.note {
   padding: 6px 10px 8px;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);
-}
-
-.error {
-  color: var(--hd-danger);
 }
 
 .create {

@@ -1,5 +1,6 @@
 /* The files card under an answer: one header line with the verdict and the
-   two actions, then the files. Quiet — a list, not a dashboard.
+   two actions, then the files when there are several. Quiet — a list, not a
+   dashboard.
 
    It is the conversation's one real card, so it joins the `--hd-card-*`
    family: under Studio it fills with the brand wash and drops its hairline,
@@ -23,7 +24,7 @@
 
 /* Wraps rather than overlaps: in a squeezed column — a second pane open, or
    the window zoomed — the buttons drop to their own row instead of printing
-   themselves over "Edited 1 file". */
+   themselves over a long file name. */
 .head {
   display: flex;
   flex-wrap: wrap;
@@ -114,6 +115,10 @@
 
   text-align: left;
 
+}
+
+.more {
+  width: 100%;
 }
 
 .path {

@@ -58,29 +58,30 @@ const texts = (name: string): string[] =>
 describe('the counts beside a changed file', () => {
   it('an added file that arrives as its content has no removals, front matter and all', () => {
     show([{ path: '/w/posts/hello.md', kind: { type: 'add' }, diff: '---\ntitle: Hello\n---\nBody\n' }])
-    // The step's own header and the file's, both.
-    expect(texts('statAdd')).toEqual(['+4', '+4'])
-    expect(texts('statRemove')).toEqual(['−0', '−0'])
+    expect(texts('statAdd')).toEqual(['+4'])
+    expect(texts('statRemove')).toEqual(['−0'])
+    expect(container.textContent?.match(/hello\.md/g)).toHaveLength(1)
   })
 
   it('an added file that arrives as a real diff is counted as one', () => {
     show([
       { path: '/w/a.txt', kind: { type: 'add' }, diff: '--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1,2 @@\n+a\n+b\n' },
     ])
-    expect(texts('statAdd')).toEqual(['+2', '+2'])
-    expect(texts('statRemove')).toEqual(['−0', '−0'])
+    expect(texts('statAdd')).toEqual(['+2'])
+    expect(texts('statRemove')).toEqual(['−0'])
+    expect(container.textContent).not.toContain('Hunk 1 of')
   })
 
   it('an added file whose text contains @@ is still counted as its content', () => {
     show([{ path: '/w/notes.md', kind: { type: 'add' }, diff: 'ping @@ops\n- item one\n' }])
-    expect(texts('statAdd')).toEqual(['+2', '+2'])
-    expect(texts('statRemove')).toEqual(['−0', '−0'])
+    expect(texts('statAdd')).toEqual(['+2'])
+    expect(texts('statRemove')).toEqual(['−0'])
   })
 
   it('a deleted file that arrives as its content counts its lines as removed', () => {
     show([{ path: '/w/old.md', kind: { type: 'delete' }, diff: '# Old\n\n- gone\n' }])
-    expect(texts('statAdd')).toEqual(['+0', '+0'])
-    expect(texts('statRemove')).toEqual(['−3', '−3'])
+    expect(texts('statAdd')).toEqual(['+0'])
+    expect(texts('statRemove')).toEqual(['−3'])
     // And drawn as what it counts: three removal rows, no additions.
     expect(container.querySelectorAll('tr[class*="_remove_"]')).toHaveLength(3)
     expect(container.querySelectorAll('tr[class*="_add_"]')).toHaveLength(0)
@@ -88,7 +89,19 @@ describe('the counts beside a changed file', () => {
 
   it('a modified file is counted by the diff rule, a removed --- included', () => {
     show([{ path: '/w/b.md', kind: { type: 'update' }, diff: '@@ -1,2 +1,2 @@\n----\n+title\n same\n' }])
-    expect(texts('statAdd')).toEqual(['+1', '+1'])
-    expect(texts('statRemove')).toEqual(['−1', '−1'])
+    expect(texts('statAdd')).toEqual(['+1'])
+    expect(texts('statRemove')).toEqual(['−1'])
+  })
+
+  it('keeps one compact file header per file when a step changes several', () => {
+    show([
+      { path: '/w/src/a.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new' },
+      { path: '/w/src/b.ts', kind: { type: 'update' }, diff: '@@ -1 +1 @@\n-old\n+new' },
+    ])
+    act(() => container.querySelector<HTMLButtonElement>('button')?.click())
+
+    expect(container.textContent).toContain('src/a.ts')
+    expect(container.textContent).toContain('src/b.ts')
+    expect(container.querySelectorAll('[class*="_fileHeader_"]')).toHaveLength(2)
   })
 })

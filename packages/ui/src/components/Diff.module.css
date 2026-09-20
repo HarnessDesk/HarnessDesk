@@ -1,11 +1,12 @@
 .diff {
-  border-radius: var(--hd-radius-sm);
+  border-radius: var(--hd-code-radius); /* desk: var(--hd-radius-sm) → the shared code plate */
   overflow: hidden;
-  background: var(--hd-card);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
+  background: var(--hd-code-fill); /* desk: var(--hd-card) → the shared code plate */
+  box-shadow: var(--hd-code-edge); /* desk: a local inset edge → the shared code plate */
+  color: var(--hd-secondary-foreground);
   font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs); /* desk: 19 → 16, the line the 12px step is set on */
+  font-size: var(--hd-code-text); /* desk: var(--hd-text-xs) → the shared code register */
+  line-height: var(--hd-code-line); /* desk: var(--hd-line-xs) → the shared code register */
 }
 
 .scroll {
@@ -46,7 +47,7 @@
   padding: 0 8px !important;
   text-align: right;
   color: var(--hd-muted-foreground);
-  background: var(--hd-muted);
+  background: color-mix(in srgb, var(--hd-foreground) 4%, transparent); /* desk: var(--hd-muted) → a quiet register inside the code plate */
   user-select: none;
   font-variant-numeric: tabular-nums;
 }
@@ -57,26 +58,32 @@
 }
 
 .add {
-  background: color-mix(in srgb, var(--hd-success) 12%, transparent); /* desk: a forked literal → the token it was a copy of */
+  background: var(--hd-code-add-fill); /* desk: a transparent green wash → the opaque AA-paired code tint */
 }
 .add .gutter {
-  background: color-mix(in srgb, var(--hd-success) 16%, transparent); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-success-ink);
+  background: var(--hd-code-add-fill); /* desk: a stronger transparent wash → the same opaque tint, never composited twice */
 }
 
 .remove {
-  background: color-mix(in srgb, var(--hd-danger) 10%, transparent); /* desk: a forked literal → the token it was a copy of */
+  background: var(--hd-code-remove-fill); /* desk: a transparent red wash → the opaque AA-paired code tint */
 }
 .remove .gutter {
-  background: color-mix(in srgb, var(--hd-danger) 14%, transparent); /* desk: a forked literal → the token it was a copy of */
+  color: var(--hd-danger-ink);
+  background: var(--hd-code-remove-fill); /* desk: a stronger transparent wash → the same opaque tint, never composited twice */
 }
 
 .hunk {
   color: var(--hd-muted-foreground);
-  background: var(--hd-muted);
+  background: transparent; /* desk: var(--hd-muted) → space separates hunks inside one plate */
 }
 
 .hunk .code {
+  padding-top: var(--hd-space-2) !important;
+  padding-bottom: var(--hd-space-0-5) !important;
+  font-family: var(--hd-font-family);
   font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
 }
 
 .marker {
@@ -86,10 +93,10 @@
 }
 
 .add .marker {
-  color: var(--hd-success);
+  color: var(--hd-success-ink); /* desk: the state fill → its AA-paired ink */
 }
 .remove .marker {
-  color: var(--hd-danger);
+  color: var(--hd-danger-ink); /* desk: the state fill → its AA-paired ink */
 }
 
 .truncated {
@@ -120,6 +127,6 @@
   flex: 1;
 }
 
-.row[data-current] td {
+.row[data-current] td:first-child {
   box-shadow: inset 2px 0 0 var(--hd-accent);
 }

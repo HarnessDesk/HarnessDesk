@@ -1,6 +1,6 @@
 /*
  * The history pane's dialogs. A few small rules mirror GitPane.module.css
- * (the stacked body, the inline refusal) rather than importing it — a
+ * (the stacked body) rather than importing it — a
  * screen's stylesheet is not a library, and the shared shapes that deserve
  * promotion live in design/ui or a named design/patterns contract.
  */
@@ -17,15 +17,6 @@
   gap: 10px;
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
-}
-
-.error {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  overflow-wrap: anywhere;
 }
 
 .note {

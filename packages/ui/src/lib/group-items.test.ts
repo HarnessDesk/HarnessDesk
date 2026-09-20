@@ -331,6 +331,16 @@ describe('toolCallVerb across real agent shapes', () => {
     }
   })
 
+  test('an edit reported by its kind, with a file and nothing to diff, is still an edit', () => {
+    for (const tool of ['Edit src/checkout/retry.ts', 'Write notes.md', 'update_file', 'createFile']) {
+      expect(toolCallVerb(call(tool, { path: 'src/checkout/retry.ts' }) as never), tool).toBe('fileChange')
+    }
+    // Titled like an edit but naming no file: nothing says what it touched.
+    expect(toolCallVerb(call('Edit', {}) as never)).toBe('toolCall')
+    // A word that only begins like one is not the verb.
+    expect(toolCallVerb(call('Editorial review', { path: 'a.md' }) as never)).toBe('toolCall')
+  })
+
   test('a verb ends at a separator, not only at a space', () => {
     for (const tool of ['read_file', 'ReadFile', 'Read a.ts', 'read-file']) {
       expect(toolCallVerb(call(tool, { path: '/w/a.ts' }) as never), tool).toBe('read')

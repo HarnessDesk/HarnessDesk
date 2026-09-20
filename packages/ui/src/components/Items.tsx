@@ -1,4 +1,12 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 
 import type {
   AgentItem,
@@ -22,30 +30,41 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { Button } from '../design'
+import { ActionError, Button, CodeBlock, CopyButton, Lightbox, type LightboxImage } from '../design'
 import { instant } from '../lib/clock'
+import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
 import { countFileChange, wholeFileOf } from '../lib/diff'
 import {
   describedTitle,
   isSilentReasoning,
+  PATH_KEYS,
   reasoningBody,
   reasoningHeadline,
+  shellCommandOf as toolCallCommandOf,
   toolCallVerb,
   type ToolCallVerb,
 } from '../lib/group-items'
+import { editOf } from '../lib/handoff'
 import { findTodos, type Todo } from '../lib/todos'
-import { shellCommandOf, toolSentence, toolSentences, wireNameOf } from '../lib/tool-names'
+import { effectiveItemStatus } from '../lib/turn-view'
+import {
+  shellCommandOf,
+  shortestUniquePathLabels,
+  toolSentence,
+  toolSentences,
+  wireNameOf,
+  type ToolSentenceDetail,
+} from '../lib/tool-names'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
   AlertIcon,
   BrainIcon,
-  CheckIcon,
   ChevronIcon,
   TeamIcon,
-  CopyIcon,
   DiffIcon,
+  ExternalIcon,
   FileIcon,
   GlobeIcon,
   ImageIcon,
@@ -63,7 +82,6 @@ import {
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContext, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
-import { Lightbox, type LightboxImage } from '../design'
 import { Markdown } from './Markdown'
 import { Publication } from './Publication'
 import styles from './Items.module.css'
@@ -86,7 +104,7 @@ const ResultImage = ({ url, mimeType }: { url: string; mimeType?: string | undef
   return !failed && drawsAsImage(url, mimeType) ? (
     <img src={url} alt="" style={{ maxWidth: '100%' }} onError={() => setFailed(true)} />
   ) : (
-    <pre className={styles.output}>{unshownImage(url, mimeType)}</pre>
+    <CodeBlock output={unshownImage(url, mimeType)} />
   )
 }
 
@@ -99,6 +117,67 @@ const relativeTo = (path: string, root: string | undefined): string => {
   if (!root) return path
   const prefix = root.endsWith('/') ? root : `${root}/`
   return path.startsWith(prefix) ? path.slice(prefix.length) : path
+}
+
+const EMPTY_SENTENCES = new Map<string, string>()
+
+/** A path argument shared by the adapters' read, search, and edit tools. */
+const pathArgument = (args: unknown): string | null => {
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
+  const record = args as Record<string, unknown>
+  return (
+    PATH_KEYS.map((key) => record[key]).find(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0,
+    ) ?? null
+  )
+}
+
+/** A file path named by one step, when the row can speak about one file. */
+const filePathOf = (item: AgentItem): string | null => {
+  if (item.type === 'fileChange') {
+    return item.changes.length === 1 ? (item.changes[0]?.path ?? null) : null
+  }
+  if (item.type === 'command') {
+    const action = item.actions.length === 1 ? item.actions[0] : undefined
+    return action?.type === 'read' ? action.path : null
+  }
+  if (item.type !== 'toolCall') return null
+  const verb = toolCallVerb(item)
+  return verb === 'read' || verb === 'fileChange' ? pathArgument(item.args) : null
+}
+
+const StepPathLabels = createContext<ReadonlyMap<string, string> | null>(null)
+
+/** File labels shared by every step in one turn, including folded groups. */
+export const StepNameScope = ({
+  items,
+  root,
+  children,
+}: {
+  items: readonly AgentItem[]
+  root?: string
+  children: ReactNode
+}) => {
+  const labels = useMemo(
+    () =>
+      shortestUniquePathLabels(
+        items.flatMap((item) => {
+          const path = filePathOf(item)
+          return path ? [relativeTo(path, root)] : []
+        }),
+      ),
+    [items, root],
+  )
+  return <StepPathLabels.Provider value={labels}>{children}</StepPathLabels.Provider>
+}
+
+const fileLabel = (
+  path: string,
+  root: string | undefined,
+  labels: ReadonlyMap<string, string> | null,
+): string => {
+  const relative = relativeTo(path, root)
+  return labels?.get(relative) ?? shortestUniquePathLabels([relative]).get(relative) ?? relative
 }
 
 /**
@@ -115,9 +194,10 @@ const formatDuration = (ms: number | undefined): string | null => {
 const StatusMark = ({ status }: { status: ItemStatus }) => {
   if (status === 'inProgress') return <span className={styles.spinner} />
   if (status === 'completed') return null
+  if (status === 'failed') return <span className={styles.statusFailed}>failed</span>
   return (
     <span className={styles.badge} data-status={status}>
-      {status === 'failed' ? 'failed' : 'declined'}
+      declined
     </span>
   )
 }
@@ -126,18 +206,21 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
 const Row = ({
   icon,
   title,
-  plainTitle = false,
+  hoverTitle,
   meta,
   status,
   defaultOpen = false,
+  bareBody = false,
   children,
 }: {
   icon: ReactNode
   title: ReactNode
-  plainTitle?: boolean
+  hoverTitle?: string
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
+  /** The child draws its own plate, so the disclosure body supplies alignment only. */
+  bareBody?: boolean
   children?: ReactNode
 }) => {
   const [open, setOpen] = useState(defaultOpen)
@@ -150,11 +233,10 @@ const Row = ({
         onClick={() => collapsible && setOpen((value) => !value)}
         aria-expanded={collapsible ? open : undefined}
         style={collapsible ? undefined : { cursor: 'default' }}
+        title={hoverTitle}
       >
         <span className={styles.rowIcon}>{icon}</span>
-        <span className={`${styles.rowTitle} ${plainTitle ? styles.rowTitlePlain : ''}`}>
-          {title}
-        </span>
+        <span className={styles.rowTitle}>{title}</span>
         <span className={styles.rowMeta}>
           {meta}
           {status && <StatusMark status={status} />}
@@ -167,7 +249,9 @@ const Row = ({
           />
         )}
       </Button>
-      {collapsible && open && <div className={styles.rowBody}>{children}</div>}
+      {collapsible && open && (
+        <div className={bareBody ? styles.rowBodyBare : styles.rowBody}>{children}</div>
+      )}
     </div>
   )
 }
@@ -205,52 +289,20 @@ const sentAt = (at: number | undefined): string | null => {
  * Under a sent message: when, copy, edit. Edit puts the text back in the
  * composer as the draft — the quickest way to ask again, differently.
  */
-const CopyButton = ({
-  text,
-  label,
-  inShellRow = false,
-}: {
-  text: string
-  label: string
-  /**
-   * Where it sits, rather than a class to sit by.
-   *
-   * It used to take a `className`, which is how a screen hands a canonical
-   * control its own look — and `ui-architecture` cannot read a prop, so the
-   * one class passed in this way carried a width, a height, a border and a
-   * hover fill past every check. The square is the size's now, and the only
-   * thing left to say is that a shell row pulls it out to its own padding.
-   */
-  inShellRow?: boolean
-}) => {
+
+/** A failed copy, said the way the app says every failure it cannot fix for you. */
+const useCopyFailed = () => {
   const store = useStore()
-  const [copied, setCopied] = useState(false)
-  return (
-    <Button
-      variant="quiet" size="icon-xs" className={inShellRow ? styles.shellCopy : ''}
-      title="Copy"
-      aria-label={label}
-      onClick={() =>
-        void navigator.clipboard
-          .writeText(text)
-          .then(() => {
-            setCopied(true)
-            window.setTimeout(() => setCopied(false), 1500)
-          })
-          .catch(() => store.notice('warning', 'Could not copy to the clipboard.'))
-      }
-    >
-      {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-    </Button>
-  )
+  return () => store.notice('warning', 'Could not copy to the clipboard.')
 }
 
 const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined }) => {
   const when = sentAt(at)
+  const copyFailed = useCopyFailed()
   return (
     <div className={styles.userFooter}>
       {when && <span className={styles.userTime}>{when}</span>}
-      <CopyButton text={text} label="Copy this message" />
+      <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
         variant="quiet" size="icon-xs"
         title="Edit — puts this message in the composer"
@@ -265,27 +317,94 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   )
 }
 
+const WEB_URL = /\bhttps?:\/\/[^\s<>"'`]+/gi
+
+/** Sentence punctuation belongs to the sentence, not to the link before it. */
+const splitUrlEnd = (candidate: string): { readonly url: string; readonly suffix: string } => {
+  let end = candidate.length
+  while (end > 0 && /[.,;:!?]/.test(candidate[end - 1] ?? '')) end -= 1
+  const pairs: Readonly<Record<string, string>> = { ')': '(', ']': '[', '}': '{' }
+  while (end > 0) {
+    const close = candidate[end - 1] ?? ''
+    const open = pairs[close]
+    if (!open) break
+    const body = candidate.slice(0, end)
+    if (body.split(close).length <= body.split(open).length) break
+    end -= 1
+  }
+  return { url: candidate.slice(0, end), suffix: candidate.slice(end) }
+}
+
 /**
- * A person's own words, with inline code shown as code.
- *
- * People type backticks meaning "this bit is a command", and every client they
- * use renders that — Codex included. We were printing the marks themselves,
- * which is the same complaint as a tool row showing its own source.
- *
- * Inline code only, deliberately. A bubble is a quotation of what someone
- * said: a stray `#` must not silently become a heading, and a pasted diff must
- * keep every one of its lines.
+ * The one exception to literal message text is a web address: it is a door,
+ * so it says where it goes and opens through the desktop boundary.
  */
-const inlineCode = (text: string): ReactNode[] =>
-  text.split(/(`[^`\n]+`)/g).map((part, index) =>
-    part.length > 2 && part.startsWith('`') && part.endsWith('`') ? (
-      <code key={index} className={styles.bubbleCode}>
-        {part.slice(1, -1)}
-      </code>
-    ) : (
-      part
-    ),
+const linkedText = (text: string): ReactNode[] => {
+  const parts: ReactNode[] = []
+  let cursor = 0
+  for (const match of text.matchAll(WEB_URL)) {
+    const start = match.index ?? cursor
+    const whole = match[0] ?? ''
+    const { url, suffix } = splitUrlEnd(whole)
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      continue
+    }
+    parts.push(text.slice(cursor, start))
+    parts.push(
+      <a
+        key={`${start}-${url}`}
+        className={styles.bubbleLink}
+        href={url}
+        title={url}
+        onClick={(event) => {
+          event.preventDefault()
+          openExternal(url)
+        }}
+      >
+        <ExternalIcon size={12} />
+        <span>{parsed.host}{parsed.pathname === '/' ? '' : parsed.pathname}</span>
+      </a>,
+    )
+    parts.push(suffix)
+    cursor = start + whole.length
+  }
+  parts.push(text.slice(cursor))
+  return parts
+}
+
+/** Literal message text, folded only when its rendered box exceeds twelve lines. */
+const UserText = ({ text }: { text: string }) => {
+  const body = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [overflowed, setOverflowed] = useState(false)
+
+  useLayoutEffect(() => {
+    const node = body.current
+    if (!node || expanded) return
+    const measure = (): void => setOverflowed(node.scrollHeight > node.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [expanded, text])
+
+  return (
+    <div className={styles.bubble}>
+      <div ref={body} className={styles.bubbleText} {...(!expanded ? { 'data-collapsed': '' } : {})}>
+        {linkedText(text)}
+      </div>
+      {overflowed && (
+        <Button variant="quiet" size="sm" className={styles.bubbleToggle} onClick={() => setExpanded((value) => !value)}>
+          {expanded ? 'Show less' : 'Show all'}
+        </Button>
+      )}
+    </div>
   )
+}
 
 const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number }) => {
   const raw = item.content
@@ -376,7 +495,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
           })}
         </div>
       )}
-      {text.length > 0 && <div className={styles.bubble}>{inlineCode(text)}</div>}
+      {text.length > 0 && <UserText text={text} />}
       {text.length > 0 && <UserMessageFooter text={text} at={item.startedAt ?? sentAt} />}
     </div>
   )
@@ -476,7 +595,6 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
     <Row
       icon={<BrainIcon size={14} />}
       title={headline}
-      plainTitle
       meta={item.content.length > 0 ? 'reasoning' : undefined}
     >
       {body.length > 0 && (
@@ -492,67 +610,93 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
   )
 }
 
-/** A short human label for a command, falling back to the command itself. */
-const describeCommand = (item: CommandItem): string => {
+/** A command's transcript sentence and the path disclosed on hover. */
+const describeCommand = (
+  item: CommandItem,
+  root: string | undefined,
+  labels: ReadonlyMap<string, string> | null,
+): { readonly sentence: string; readonly path?: string } => {
   const first = item.actions[0]
-  if (!first) return shellCommandOf(item.command)
+  if (!first || item.actions.length !== 1) {
+    return {
+      sentence: toolSentence('command', EMPTY_SENTENCES, {
+        kind: 'command',
+        command: shellCommandOf(item.command),
+      }),
+    }
+  }
   switch (first.type) {
     case 'read':
-      return `Read ${first.name}`
+      return {
+        sentence: toolSentence('read', EMPTY_SENTENCES, {
+          kind: 'read',
+          target: fileLabel(first.path, root, labels),
+        }),
+        path: relativeTo(first.path, root),
+      }
     case 'listFiles':
-      return first.path ? `List ${first.path}` : 'List files'
+      return {
+        sentence: toolSentence('list', EMPTY_SENTENCES, {
+          kind: 'list',
+          ...(first.path ? { target: relativeTo(first.path, root) } : {}),
+        }),
+        ...(first.path ? { path: relativeTo(first.path, root) } : {}),
+      }
     case 'search':
-      return first.query ? `Search for ${first.query}` : 'Search'
+      return first.query
+        ? {
+            sentence: toolSentence('search', EMPTY_SENTENCES, {
+              kind: 'search',
+              pattern: first.query,
+              ...(first.path ? { folder: relativeTo(first.path, root) } : {}),
+            }),
+            ...(first.path ? { path: relativeTo(first.path, root) } : {}),
+          }
+        : {
+            sentence: toolSentence('search', EMPTY_SENTENCES),
+            ...(first.path ? { path: relativeTo(first.path, root) } : {}),
+          }
     case 'unknown':
-      return shellCommandOf(item.command)
+      return {
+        sentence: toolSentence('command', EMPTY_SENTENCES, {
+          kind: 'command',
+          command: shellCommandOf(item.command),
+        }),
+      }
   }
 }
 
-/**
- * The command itself, wrapped in full and copyable, under a prompt mark.
- *
- * A row's title is a label and ellipsises; this is what actually ran. A
- * command step and a shell tool call both open onto it, so a step never
- * shows output with no sight of what produced it — and a described call,
- * whose row is the agent's sentence, keeps its command exactly one click
- * away rather than glued to the sentence.
- */
-const ShellLine = ({ command }: { command: string }) => (
-  <div className={styles.shellRow}>
-    <span className={styles.shellPrompt} aria-hidden="true">
-      $
-    </span>
-    <code className={styles.shellCommand}>{command}</code>
-    <CopyButton text={command} label="Copy this command" inShellRow />
-  </div>
-)
-
-const Command = ({ item }: { item: CommandItem }) => (
-  <Row
-    icon={<TerminalIcon size={14} />}
-    title={item.actions.length === 1 ? describeCommand(item) : shellCommandOf(item.command)}
-    meta={
-      <>
-        {item.origin === 'user' && <span className={styles.badge}>you</span>}
-        {formatDuration(item.durationMs)}
-        {item.exitCode !== null && item.exitCode !== undefined && item.exitCode !== 0 && (
-          <span className={styles.badge} data-status="failed">
-            exit {item.exitCode}
-          </span>
-        )}
-      </>
-    }
-    status={item.status}
-    defaultOpen={item.status === 'inProgress' || item.status === 'failed'}
-  >
-    <ShellLine command={shellCommandOf(item.command)} />
-    <pre className={styles.output}>
-      {item.output ? stripAnsi(item.output) : item.status === 'inProgress' ? '' : '(no output)'}
-    </pre>
-  </Row>
-)
+const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
+  const copyFailed = useCopyFailed()
+  const labels = useContext(StepPathLabels)
+  const described = describeCommand(item, root, labels)
+  return (
+    <Row
+      icon={<TerminalIcon size={14} />}
+      title={described.sentence}
+      hoverTitle={described.path}
+      meta={
+        <>
+          {item.origin === 'user' && <span className={styles.badge}>you</span>}
+          {formatDuration(item.durationMs)}
+        </>
+      }
+      status={effectiveItemStatus(item)}
+      defaultOpen={item.status === 'inProgress'}
+      bareBody
+    >
+      <CodeBlock
+        command={shellCommandOf(item.command)}
+        output={item.output ? stripAnsi(item.output) : item.status === 'inProgress' ? '' : '(no output)'}
+        exitCode={item.exitCode}
+        onCopyError={copyFailed}
+      />
+    </Row>
+  )
+}
 
 const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => {
+  const labels = useContext(StepPathLabels)
   const totals = item.changes.reduce(
     (accumulator, change) => {
       const counts = countFileChange(change)
@@ -563,16 +707,20 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
     },
     { added: 0, removed: 0 },
   )
+  const only = item.changes.length === 1 ? item.changes[0] : undefined
+  const created = item.changes.length > 0 && item.changes.every((change) => change.kind.type === 'add')
+  const target = only
+    ? fileLabel(only.path, root, labels)
+    : `${item.changes.length} files`
 
   return (
     <Row
       icon={<DiffIcon size={14} />}
-      title={
-        item.changes.length === 1
-          ? relativeTo(item.changes[0]?.path ?? '', root)
-          : `${item.changes.length} files changed`
-      }
-      plainTitle
+      title={toolSentence(created ? 'write' : 'edit', EMPTY_SENTENCES, {
+        kind: created ? 'write' : 'edit',
+        target,
+      })}
+      hoverTitle={only ? relativeTo(only.path, root) : undefined}
       meta={
         <>
           <span className={styles.statAdd}>+{totals.added}</span>
@@ -581,17 +729,21 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
       }
       status={item.status}
       defaultOpen={item.changes.length === 1}
+      bareBody
     >
-      <div className={styles.fileList}>
-        {item.changes.map((change) => (
-          <FileEntry
-            key={change.path}
-            change={change}
-            root={root}
-            single={item.changes.length === 1}
-          />
-        ))}
-      </div>
+      {only ? (
+        <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
+      ) : (
+        <div className={styles.fileList}>
+          {item.changes.map((change) => (
+            <FileEntry
+              key={change.path}
+              change={change}
+              root={root}
+            />
+          ))}
+        </div>
+      )}
     </Row>
   )
 }
@@ -599,13 +751,11 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
 const FileEntry = ({
   change,
   root,
-  single,
 }: {
   change: FileChangeItem['changes'][number]
   root?: string
-  single: boolean
 }) => {
-  const [open, setOpen] = useState(single)
+  const [open, setOpen] = useState(false)
   // The rule the view below draws by — the whole file, added or removed, unless
   // the payload is a diff — so the badge is what is drawn. See `countFileChange`.
   const counts = countFileChange(change)
@@ -623,7 +773,7 @@ const FileEntry = ({
       </Button>
       {open && (
         <div className={styles.fileBody}>
-          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} />
+          <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
         </div>
       )}
     </div>
@@ -674,7 +824,7 @@ const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
   </ul>
 )
 
-/** The one argument worth showing beside the title, shortened to the repo. */
+/** The one argument worth showing beside a call's title, shortened to the repo. */
 const headlineArg = (args: unknown, root: string | undefined): string | null => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
   const record = args as Record<string, unknown>
@@ -743,60 +893,114 @@ const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
  * reader learns a CLI that does not exist.
  */
 const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
+  const copyFailed = useCopyFailed()
   const snapshot = useSnapshot()
+  const labels = useContext(StepPathLabels)
   const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
-  const said = toolSentence(item.tool, sentences)
   const described = describedTitle(item)
-  const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const verb = toolCallVerb(item)
   // Null when the adapter's "tool name" was already the sentence above.
   const wire = wireNameOf(item.tool)
-  const headline = headlineArg(item.args, root)
-  // The title often already names the file (the adapters do that work);
-  // repeating it as a subtitle would be noise. A described row names
-  // nothing but its sentence, on purpose.
-  const subtitle =
-    !described && headline && !String(label).includes(headline.split('/').pop() ?? headline) ? headline : null
   const record =
     typeof item.args === 'object' && item.args !== null && !Array.isArray(item.args)
       ? (item.args as Record<string, unknown>)
       : null
-  const command = typeof record?.['command'] === 'string' && record['command'].trim().length > 0 ? record['command'] : null
-  const Icon = VERB_ICON[toolCallVerb(item)]
+  const path = pathArgument(item.args)
+  const relativePath = path ? relativeTo(path, root) : null
+  const target = path ? fileLabel(path, root, labels) : null
+  const command = toolCallCommandOf(item)
+  const commandOutputParts = command ? item.result?.map((part) => {
+    if (part.type === 'text') return stripAnsi(part.text)
+    if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
+    return null
+  }) : undefined
+  const commandOutput = commandOutputParts && commandOutputParts.length > 0
+    && commandOutputParts.every((part): part is string => part !== null)
+    ? commandOutputParts.join('\n')
+    : undefined
+  const pattern = [record?.['pattern'], record?.['query']].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0,
+  )
+  const detail: ToolSentenceDetail | undefined = (() => {
+    switch (verb) {
+      case 'read':
+        return target ? { kind: 'read', target } : undefined
+      case 'search':
+        return pattern
+          ? {
+              kind: 'search',
+              pattern,
+              ...(relativePath ? { folder: relativePath } : {}),
+            }
+          : undefined
+      case 'fileChange':
+        if (!target) return undefined
+        return { kind: 'fileChange', target }
+      case 'command':
+        return command ? { kind: 'command', command: shellCommandOf(command) } : undefined
+      case 'toolCall':
+        return undefined
+    }
+  })()
+  const said = toolSentence(item.tool, sentences, detail)
+  // An MCP tool's server is the one word that says whose tool ran.
+  const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  // A call the lookup has no grammar for carries no object in its sentence,
+  // so its one telling argument — the page, the query — stands beside it.
+  const argument = !described && !detail ? headlineArg(item.args, root) : null
+  const headline = argument && !label.includes(argument.split('/').pop() ?? argument) ? argument : null
+  const change = verb === 'fileChange' ? editOf(item) : null
+  const counts = change ? countFileChange(change) : null
+  const Icon = VERB_ICON[verb]
 
   return (
     <Row
       icon={<Icon size={14} />}
       title={
-        subtitle ? (
+        headline ? (
           <>
             {label}
-            <span className={styles.rowSubtitle}>{subtitle}</span>
+            <span className={styles.rowSubtitle}>{headline}</span>
           </>
         ) : (
           label
         )
       }
-      plainTitle={described !== null}
-      meta={formatDuration(item.durationMs)}
-      status={item.status}
-      defaultOpen={item.status === 'failed'}
+      hoverTitle={relativePath ?? undefined}
+      meta={
+        counts ? (
+          <>
+            <span className={styles.statAdd}>+{counts.added}</span>
+            <span className={styles.statRemove}>−{counts.removed}</span>
+          </>
+        ) : (
+          formatDuration(item.durationMs)
+        )
+      }
+      status={effectiveItemStatus(item)}
+      defaultOpen={Boolean(change) || item.status === 'inProgress'}
+      bareBody={Boolean(change) || Boolean(command)}
     >
       {wire && <div className={styles.wireName}>{wire}</div>}
       {item.error ? (
-        <pre className={styles.output}>{stripAnsi(item.error)}</pre>
+        <CodeBlock output={stripAnsi(item.error)} />
+      ) : change ? (
+        <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
       ) : (
         <>
           {/* A shell call opens onto the command it ran, the way a command
               step does; every other call lists its arguments. The
               description is the row's title and the background flag is the
               panel's business, so neither is repeated here as a field. */}
-          {command ? <ShellLine command={command} /> : <ArgsView args={item.args} root={root} />}
-          {item.result?.map((part, index) => {
+          {command ? (
+            <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
+          ) : (
+            <ArgsView args={item.args} root={root} />
+          )}
+          {commandOutput === undefined && item.result?.map((part, index) => {
             if (part.type === 'text') {
               return (
-                <pre key={index} className={styles.output}>
-                  {stripAnsi(part.text)}
-                </pre>
+                <CodeBlock key={index} output={stripAnsi(part.text)} />
               )
             }
             if (part.type === 'image') {
@@ -810,9 +1014,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             // quote into \" — the shell transcript arrives as its own source.
             if (typeof part.value === 'string') {
               return (
-                <pre key={index} className={styles.output}>
-                  {stripAnsi(part.value)}
-                </pre>
+                <CodeBlock key={index} output={stripAnsi(part.value)} />
               )
             }
             const todos = findTodos(part.value)
@@ -823,7 +1025,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             if (diff) {
               return (
                 <div key={index} className={styles.fileBody}>
-                  <DiffView diff={diff} />
+                  <DiffView diff={diff} inline />
                 </div>
               )
             }
@@ -863,7 +1065,6 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
           ? `${title}: ${item.members[0]?.nickname ?? 'agent'}`
           : `${title} · ${item.members.length}`
       }
-      plainTitle
       // What it ran on and what it cost, where the runtime says. A delegation
       // has its own model and its own bill; those are the two facts that make
       // it not a tool row, and the row header is where they belong.
@@ -875,7 +1076,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
       status={item.status}
       defaultOpen={item.status === 'inProgress'}
     >
-      {item.prompt && <pre className={styles.output}>{item.prompt}</pre>}
+      {item.prompt && <CodeBlock output={item.prompt} />}
       {item.members.length > 0 && (
         <div className={styles.fileList}>
           {item.members.map((member) => {
@@ -928,8 +1129,7 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
 const WebSearch = ({ item }: { item: WebSearchItem }) => (
   <Row
     icon={<GlobeIcon size={14} />}
-    title={`Searched the web for “${item.query}”`}
-    plainTitle
+    title={toolSentence('web_search', EMPTY_SENTENCES, { kind: 'webSearch', query: item.query })}
     status={item.status}
   />
 )
@@ -941,7 +1141,7 @@ const Plan = ({ item }: { item: PlanItem }) => {
     .filter(Boolean)
 
   return (
-    <Row icon={<PlanIcon size={14} />} title="Plan" plainTitle defaultOpen>
+    <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
       <ol className={styles.planList}>
         {steps.map((step, index) => (
           <li key={index} className={styles.planStep} data-status="pending">
@@ -983,17 +1183,13 @@ const Review = ({ item }: { item: ReviewItem }) => (
 )
 
 const ErrorRow = ({ item }: { item: ErrorItem }) => (
-  <div className={styles.error}>
-    <AlertIcon className={styles.errorIcon} size={14} />
-    <span>{item.message}</span>
-  </div>
+  <ActionError>{item.message}</ActionError>
 )
 
 const ImageRow = ({ item }: { item: ImageItem }) => (
   <Row
     icon={<ImageIcon size={14} />}
     title={item.generated ? 'Generated an image' : item.path.split('/').pop() ?? 'Image'}
-    plainTitle
   />
 )
 
@@ -1019,7 +1215,7 @@ export const ItemView = ({
       case 'reasoning':
         return <Reasoning item={item} />
       case 'command':
-        return <Command item={item} />
+        return <Command item={item} root={root} />
       case 'fileChange':
         return <FileChange item={item} root={root} />
       case 'toolCall':
