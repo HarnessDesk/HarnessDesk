@@ -26,3 +26,7 @@ export const captureForRoot = (
   const project = workspaces.find((workspace) => workspace.path === root)?.repo?.root ?? root
   return health.get(project) ?? health.get(root)
 }
+
+/** The host retains capture per repository, including every linked checkout. */
+export const provenanceRootFor = (root: string, workspaces: readonly WorkspaceEntry[]): string =>
+  workspaces.find((workspace) => workspace.path === root)?.repo?.root ?? root

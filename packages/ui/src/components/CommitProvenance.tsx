@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from 'react'
 import type { CommitProvenance as Attribution, ProvenanceSeat } from '@harnessdesk/protocol'
 
 import { Button, Chip, Note, Row, Rows, SectionHead } from '../design'
-import { provenanceWords } from '../lib/provenance'
+import { provenanceRootFor, provenanceWords } from '../lib/provenance'
 import { useSnapshot, useStore } from '../state/context'
+import { RuntimeMark } from './BrandIcons'
+import { EvidenceChips } from './EvidenceChips'
 import { ProvenanceDialog } from './ProvenanceDialog'
 
 export const CommitSeatLabels = ({ value }: { readonly value: Attribution | null }) => {
@@ -15,8 +17,9 @@ export const CommitSeatLabels = ({ value }: { readonly value: Attribution | null
 export const useProvenanceBatch = (root: string | null, shas: readonly string[], scope: string) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const revision = root ? snapshot.provenanceRevision.get(root) ?? 0 : 0
-  const key = JSON.stringify([root, scope, revision, snapshot.status, shas])
+  const project = root ? provenanceRootFor(root, snapshot.workspaces) : null
+  const revision = project ? snapshot.provenanceRevision.get(project) ?? 0 : 0
+  const key = JSON.stringify([root, project, scope, revision, snapshot.status, shas])
   const [read, setRead] = useState<{ key: string; values: ReadonlyMap<string, Attribution>; error: boolean }>({ key: '', values: new Map(), error: false })
   const [retry, setRetry] = useState(0)
   useEffect(() => {
@@ -37,11 +40,19 @@ export const CommitProvenance = ({ root, sha, value: supplied }: { readonly root
   const value = supplied ?? read.values.get(sha)
   const failed = supplied === undefined && read.error
   const [seat, setSeat] = useState<string | null>(null)
+  const snapshot = useSnapshot()
   return <section aria-label="Commit provenance"><SectionHead name="Provenance" />
     {failed ? <><Note>Provenance could not be read.</Note><Button variant="secondary" onClick={read.retry}>Retry provenance</Button></>
       : !value ? <Note>Reading provenance…</Note>
       : <><Chip tone="neutral" label={provenanceWords(value)} /><Note>{value.explanation}</Note>
-        <Rows>{value.seats.map((item: ProvenanceSeat) => <Row key={item.id} title={item.agentName ?? 'Seat'} desc={item.seatLabel} control={<Button variant="secondary" onClick={() => setSeat(item.id)}>Seat record</Button>} />)}</Rows>
+        <Rows>{value.seats.map((item: ProvenanceSeat) => {
+          const runtime = snapshot.runtimes.find((entry) => entry.id === item.runtime)
+          return <Row key={item.id} title={item.agentName ?? 'Seat'} desc={item.seatLabel} mark={runtime ? <RuntimeMark runtime={runtime} size={14} /> : <RuntimeMark runtime={{ id: item.runtime, presentation: { name: item.runtime } }} size={14} />} control={<Button variant="secondary" onClick={() => setSeat(item.id)}>Seat record</Button>} />
+        })}</Rows>
+        {value.cards.map((card) => {
+          const evidence = snapshot.boardEvidence.get(card.board)?.cards.find((entry) => entry.card === card.id)
+          return evidence ? <EvidenceChips key={`${card.board}:${card.id}`} id={card.id} title="Provenance evidence" card={evidence} /> : <Note key={`${card.board}:${card.id}`}>The desk no longer has evidence for this historical card.</Note>
+        })}
       </>}
     {seat && <ProvenanceDialog root={root} seat={seat} onClose={() => setSeat(null)} />}
   </section>

@@ -57,3 +57,16 @@ it('treats an optional preview store response as an empty provenance batch', asy
   await act(async () => root.render(<StoreProvider store={store}><CommitProvenance root="/work/project" sha={'a'.repeat(40)} /></StoreProvider>))
   expect(host.textContent).toContain('Reading provenance')
 })
+
+it('renders a runtime mark and returned card evidence for an attributed Seat', async () => {
+  const supplied = { ...value(), cards: [{ board: 'room-1', id: 7 }] }
+  const snapshot = {
+    ...emptySnapshot(), status: 'open',
+    runtimes: [{ id: 'fixture', presentation: { name: 'Fixture', brand: 'codex' } }],
+    boardEvidence: new Map(),
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readProvenance: async () => undefined } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><CommitProvenance root="/work/project" sha={supplied.sha} value={supplied} /></StoreProvider>))
+  expect(host.querySelector('svg')).not.toBeNull()
+  expect(host.textContent).toContain('no longer has evidence')
+})
