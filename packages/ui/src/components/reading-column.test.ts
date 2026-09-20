@@ -4,6 +4,7 @@ import composerCss from './Composer.module.css?raw'
 import conversationCss from './Conversation.module.css?raw'
 import itemsCss from './Items.module.css?raw'
 import roomCss from './TeamRoomPane.module.css?raw'
+import roomTsx from './TeamRoomPane.tsx?raw'
 import composerSystem from '../design/ui/composer.tsx?raw'
 
 /**
@@ -112,12 +113,17 @@ it.each([
  */
 it.each([
   { what: 'the transcript’s bars', css: conversationCss, selector: '.bars' },
-  { what: 'the room’s composer', css: roomCss, selector: '.composer' },
   { what: 'the room’s alert line', css: roomCss, selector: '.trouble' },
 ])('$what is inset by the gutter its stream reserves', ({ css, selector }) => {
   // The room's two docked rules read `--room-dock`, which is that sum
   // named once; the conversation's spell it out. Either is the gutter.
   expect(rule(css, selector)).toMatch(/var\(--hd-scrollbar-width|var\(--room-dock\)/)
+})
+
+it('the room’s composer is inset by the gutter its stream reserves', () => {
+  // The padding moved from CSS to a Tailwind utility on the element: the
+  // stylesheet is now layout-only, and the dock reference lives in the TSX.
+  expect(roomTsx).toContain('var(--room-dock)')
 })
 
 it('the transcript’s composer is inset by the gutter its stream reserves', () => {

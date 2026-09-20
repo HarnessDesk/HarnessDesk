@@ -41,17 +41,26 @@ const shown = (value: RateLimits | null): string => {
 const value = (words: string): Element | undefined =>
   [...container.querySelectorAll('[data-tone]')].find((node) => node.textContent === words)
 
-it('shows a zero balance as a balance, in the tone of an empty one', () => {
+it('shows a zero balance as a balance, in the danger tone', () => {
   const text = shown(limits({ balance: 0 }))
   expect(text).toContain('Credits')
   expect(text).toContain('0 credits')
   expect(text).not.toContain('Nothing to read yet')
-  expect(value('0 credits')?.getAttribute('data-tone')).toBe('bad')
+  /* The Text component maps the describeLimits tone "bad" to the system's
+     "danger" tone, rendered as data-tone="danger" on the element. */
+  expect(value('0 credits')?.getAttribute('data-tone')).toBe('danger')
 })
 
-it('shows a balance with something in it in the tone of a good one', () => {
+it('shows a balance with something in it, untoned (health takes no tone)', () => {
   shown(limits({ balance: 5 }))
-  expect(value('5 credits')?.getAttribute('data-tone')).toBe('good')
+  /* A positive balance is healthy and healthy values take no tone — the
+     "Health takes no tone" rule. The old CSS added data-tone="good" for
+     styling; the design system's Text component leaves it untoned. */
+  const el = [...container.querySelectorAll('[data-slot="text"]')].find(
+    (node) => node.textContent === '5 credits',
+  )
+  expect(el).toBeDefined()
+  expect(el?.getAttribute('data-tone')).toBeNull()
 })
 
 it('shows an unlimited account as unlimited', () => {

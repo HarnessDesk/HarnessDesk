@@ -151,7 +151,10 @@ const rows = (): { label: string; figure: string | null; state: string | null }[
     .filter((node) => /@acme\.dev/.test(node.textContent ?? ''))
     .map((node) => ({
       label: /work@acme\.dev/.test(node.textContent ?? '') ? 'work@acme.dev' : 'olivia@acme.dev',
-      figure: node.querySelector('[class*="figure"]')?.textContent ?? null,
+      figure:
+        [...node.querySelectorAll('[data-slot="text"]')].find((el) =>
+          el.textContent?.includes('% left'),
+        )?.textContent ?? null,
       state: node.querySelector('[class*="dot"]')?.getAttribute('data-state') ?? null,
     }))
 

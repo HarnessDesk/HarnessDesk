@@ -5,6 +5,7 @@ import panesCss from '../components/Panes.module.css?raw'
 import sidebarCss from '../components/Sidebar.module.css?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
+import teamRoomTsx from '../components/TeamRoomPane.tsx?raw'
 import terminalPaneSource from '../components/TerminalPane.tsx?raw'
 import toolPaneHeaderSource from '../components/ToolPaneHeader.tsx?raw'
 import toolPanesCss from '../components/ToolPanes.module.css?raw'
@@ -45,9 +46,6 @@ import appCss from '../styles/app.css?raw'
 /** Every row that the layout can put under the window buttons. */
 const CORNER_ROWS: ReadonlyArray<readonly [string, string, string]> = [
   ["a conversation's header", conversationCss, '.header'],
-  // The room draws its own top row and gets no strip above it, so that row is
-  // the corner whenever the room is filling the window with the sidebar away.
-  ["a room's top row", teamRoomCss, '.bar'],
 ]
 
 /** The body of one rule, by selector, from a stylesheet read as text. */
@@ -62,6 +60,13 @@ describe('the row under the macOS window buttons', () => {
     const rule = block(css, selector)
     expect(rule).toMatch(/padding[^;]*max\([^;]*var\(--titlebar-inset, 0px\)/)
   })
+
+  it('a room’s top row leaves room for the window buttons (from the TSX)', () => {
+    // The bar’s padding moved from CSS to a Tailwind utility + inline style:
+    // the stylesheet is now layout-only, and the titlebar-inset lives in the TSX.
+    expect(teamRoomTsx).toContain('var(--titlebar-inset')
+  })
+
 
   it("a tool's header leaves room for them through the shared corner role", () => {
     expect(toolPaneHeaderSource).toContain('corner')
