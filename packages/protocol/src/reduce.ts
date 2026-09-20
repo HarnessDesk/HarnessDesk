@@ -81,6 +81,33 @@ const replaceItem = (items: readonly AgentItem[], next: AgentItem): AgentItem[] 
   return copy
 }
 
+/**
+ * Keeps a notice classification the live stream already established when a
+ * later snapshot reports the same item as a user message.
+ *
+ * A runtime owns an item's content, but the client owns this distinction:
+ * `notice` means the text was scaffolding or a standing order rather than
+ * something the person typed. Backends commonly persist both as their own
+ * user-message shape, so an equal or fuller completion/read must not undo the
+ * classification merely because its list wins on length.
+ */
+export const preserveNoticeItems = (
+  items: readonly AgentItem[],
+  held: readonly AgentItem[],
+): readonly AgentItem[] => {
+  const notices = new Map(held.flatMap((item) => (item.type === 'notice' ? [[item.id, item] as const] : [])))
+  if (notices.size === 0) return items
+  let changed = false
+  const reconciled = items.map((item) => {
+    if (item.type !== 'userMessage') return item
+    const notice = notices.get(item.id)
+    if (!notice) return item
+    changed = true
+    return notice
+  })
+  return changed ? reconciled : items
+}
+
 const mapTurn = (
   session: Session,
   id: TurnId,
@@ -140,11 +167,12 @@ export const reduceSession = (session: Session, event: AgentEvent): Session => {
       if (event.sessionId !== session.id) return session
       // The completed turn carries authoritative status and timing, but the
       // streamed items are richer than the summary the runtime sends back.
-      return mapTurn(session, event.turn.id, (turn) => ({
-        ...turn,
-        ...event.turn,
-        items: event.turn.items.length > turn.items.length ? event.turn.items : turn.items,
-      }))
+      return mapTurn(session, event.turn.id, (turn) => {
+        const items = event.turn.items.length > turn.items.length
+          ? preserveNoticeItems(event.turn.items, turn.items)
+          : turn.items
+        return { ...turn, ...event.turn, items }
+      })
     }
 
     case 'turn/diff':
@@ -257,7 +285,9 @@ export const mergeRead = (
     // the moment a conversation was reopened.
     const diff = turn.diff ?? mine.diff
     const plan = turn.plan ?? mine.plan
-    const items = mine.items.length > turn.items.length ? mine.items : turn.items
+    const items = mine.items.length > turn.items.length
+      ? mine.items
+      : preserveNoticeItems(turn.items, mine.items)
     if (items === turn.items && diff === turn.diff && plan === turn.plan) return turn
     return {
       ...turn,

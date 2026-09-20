@@ -1040,8 +1040,21 @@ export interface AgentSession {
   readonly runtime: RuntimeId
   settings(): SessionSettings
 
-  /** Start a turn. Resolves once the runtime has accepted the input. */
-  send(input: readonly UserContent[]): Promise<TurnId>
+  /**
+   * Start a turn. Resolves once the runtime has accepted the input.
+   *
+   * `recordAs: 'notice'` is for text no person typed — an Agent's standing
+   * order, handed over once as the seat opens (`agentOrder`). The runtime
+   * still runs it as a real turn and the model still reads every word; only
+   * how *this* session remembers its own opening line changes, from a
+   * person's words to the runtime's own housekeeping. That is the same
+   * distinction `NoticeItem` already draws for a `/model` echo replayed off
+   * disk — "reaches the transcript because the agent records it as one", not
+   * because anyone said it — so a fresh seat's title and transcript are not
+   * drawn from a brief nobody typed. Omitted, or `'user'`, is the default and
+   * changes nothing.
+   */
+  send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId>
   /** Add to the turn already in flight without interrupting it. */
   steer(input: readonly UserContent[]): Promise<void>
   interrupt(): Promise<void>

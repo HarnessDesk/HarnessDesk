@@ -22,6 +22,7 @@ import {
   SessionBusyError,
   type CapabilityRegistry,
   type AgentEvent,
+  type AgentItem,
   type AgentRuntime,
   type CatalogRefresh,
   type SkillProblem,
@@ -45,6 +46,7 @@ import {
   type SessionSummary,
   type SkillInfo,
   type Unsubscribe,
+  type UserMessageItem,
 } from '@harnessdesk/protocol'
 
 import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
@@ -306,7 +308,7 @@ export class CodexRuntime implements AgentRuntime {
         // it; see `ReviewTurns`.
         for (const seen of this.#reviewTurns.see(notification)) {
           this.#track(seen)
-          for (const event of mapNotification(seen, this.#id)) this.#emit(event)
+          for (const event of mapNotification(seen, this.#id)) this.#emit(this.#deSpeak(event))
         }
       }),
       this.#server.onServerRequest((request, responder) =>
@@ -1306,6 +1308,20 @@ export class CodexRuntime implements AgentRuntime {
     }
   }
 
+  /**
+   * Turns the opening item of a standing order back into a `notice`, the way
+   * one already is for a `/model` echo (`NoticeItem`) — the turn is real, and
+   * Codex still reports its opening as `userMessage` on the wire, but that
+   * text is an Agent's brief, not a person's, so it must not read or title as
+   * one (`CodexSession.send`, `recordAs: 'notice'`).
+   */
+  #deSpeak(event: AgentEvent): AgentEvent {
+    if (event.type !== 'item/started' && event.type !== 'item/completed') return event
+    if (event.item.type !== 'userMessage') return event
+    if (!this.#sessions.get(event.sessionId)?.isSilentTurn(event.turnId)) return event
+    return { ...event, item: noticeFromUserMessage(event.item) }
+  }
+
   #onServerRequest(
     request: CodexProtocol.ServerRequest,
     responder: ServerRequestResponder,
@@ -1432,6 +1448,16 @@ export class CodexRuntime implements AgentRuntime {
     for (const listener of this.#eventListeners) listener(event)
   }
 }
+
+/** A silent order's opening item, told as `notice` instead of `userMessage` — see `CodexRuntime.#deSpeak`. */
+const noticeFromUserMessage = (item: UserMessageItem): AgentItem => ({
+  id: item.id,
+  type: 'notice',
+  text: item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
+  ...(item.startedAt !== undefined ? { startedAt: item.startedAt } : {}),
+  ...(item.completedAt !== undefined ? { completedAt: item.completedAt } : {}),
+  ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
+})
 
 const healthFromError = (error: CodexError): RuntimeHealth => {
   switch (error.code) {

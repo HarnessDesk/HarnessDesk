@@ -3319,11 +3319,22 @@ export class Host {
     }
   }
 
-  /** Hands a seated conversation its standing order: one message, and the whole job is inside its turn. */
+  /**
+   * Hands a seated conversation its standing order: one message, and the
+   * whole job is inside its turn.
+   *
+   * `recordAs: 'notice'` — this is host-authored text no person typed, so it
+   * is not recorded as one. Without it, a fresh Agent seat's whole brief
+   * showed as the first message bubble, in the person's own voice, and
+   * `titleOf` read the conversation's title back off it.
+   */
   async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
-    await live.send([{ type: 'text', text: laneStandingOrder(text, environment) }])
+    await live.send(
+      [{ type: 'text', text: laneStandingOrder(text, environment) }],
+      { recordAs: 'notice' },
+    )
   }
 
   /** Closes a conversation a seating opened and will not use, and lets it go — the seating's hold with it. */

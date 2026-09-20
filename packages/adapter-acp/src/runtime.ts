@@ -2715,6 +2715,10 @@ const IMAGE_MIME: Readonly<Record<string, string>> = {
   '.ico': 'image/x-icon',
 }
 
+/** The text of a `send`'s input, for a `NoticeItem`'s one `text` field — a standing order is always plain text. */
+const plainTextOf = (input: readonly UserContent[]): string =>
+  input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n')
+
 const readLocalImageBlock = (
   targetPathOrUri: string,
   preferredName?: string,
@@ -3128,19 +3132,20 @@ class AcpSession implements AgentSession {
    * disagree with it. `busy` is false while a loaded session's history is
    * being replayed, which is a turn re-read rather than one in flight.
    */
-  async send(input: readonly UserContent[]): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
     if (this.busy) {
       throw new Error(
         `${this.#host.agentName} is still working on the last message; wait for the turn to end, or interrupt it.`,
       )
     }
     const id = turnId(`turn-${++this.#counter}`)
-    const userItem: AgentItem = {
-      id: itemId(`${id}-user`),
-      type: 'userMessage',
-      content: input,
-      startedAt: Date.now(),
-    }
+    // A standing order is real input — the model reads it whole — but not a
+    // person's words, so it is not recorded as the person's turn. Same fact
+    // `NoticeItem` already carries for a `/model` echo: housekeeping, not speech.
+    const userItem: AgentItem =
+      opts?.recordAs === 'notice'
+        ? { id: itemId(`${id}-user`), type: 'notice', text: plainTextOf(input), startedAt: Date.now() }
+        : { id: itemId(`${id}-user`), type: 'userMessage', content: input, startedAt: Date.now() }
     const turn: MutableTurn = { id, items: [userItem], startedAt: Date.now() }
     this.#currentTurn = turn
     this.#host.emit({
