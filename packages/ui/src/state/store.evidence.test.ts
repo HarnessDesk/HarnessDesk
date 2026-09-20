@@ -59,6 +59,32 @@ it('a board reads its evidence when asked, and a read that fails leaves what was
   expect(store.getSnapshot().boardEvidence.get(EVIDENCE_ROOM)).toEqual(EVIDENCE_BOARD)
 })
 
+it('a failed first evidence read stays unknown until a successful answer replaces it', async () => {
+  request.mockRejectedValueOnce(new Error('The evidence could not be read.'))
+  await store.loadBoardEvidence(EVIDENCE_ROOM)
+  expect(
+    (store.getSnapshot() as unknown as { boardEvidenceFailed?: ReadonlySet<string> })
+      .boardEvidenceFailed?.has(EVIDENCE_ROOM),
+  ).toBe(true)
+  expect(store.getSnapshot().boardEvidence.has(EVIDENCE_ROOM)).toBe(false)
+
+  request.mockResolvedValueOnce(EVIDENCE_BOARD)
+  await store.loadBoardEvidence(EVIDENCE_ROOM)
+  expect(
+    (store.getSnapshot() as unknown as { boardEvidenceFailed?: ReadonlySet<string> })
+      .boardEvidenceFailed?.has(EVIDENCE_ROOM),
+  ).toBe(false)
+  expect(store.getSnapshot().boardEvidence.get(EVIDENCE_ROOM)).toEqual(EVIDENCE_BOARD)
+})
+
+it('a pushed evidence answer clears a prior cold-read failure', async () => {
+  request.mockRejectedValueOnce(new Error('The evidence could not be read.'))
+  await store.loadBoardEvidence(EVIDENCE_ROOM)
+  push({ method: 'evidence/changed', params: { room: EVIDENCE_ROOM, evidence: EVIDENCE_BOARD } })
+  expect(store.getSnapshot().boardEvidenceFailed.has(EVIDENCE_ROOM)).toBe(false)
+  expect(store.getSnapshot().boardEvidence.get(EVIDENCE_ROOM)).toBe(EVIDENCE_BOARD)
+})
+
 it('running a check says it started, or hands back the command nobody here has approved, verbatim', async () => {
   await expect(store.runCheck(EVIDENCE_ROOM, 1, 'verify')).resolves.toEqual({ kind: 'started' })
   expect(request).toHaveBeenLastCalledWith('evidence/check/run', {

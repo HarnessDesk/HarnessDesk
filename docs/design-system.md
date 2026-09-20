@@ -588,6 +588,12 @@ because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
 
+### `CodeBlock`
+
+`packages/ui/src/design/patterns/CodeBlock.tsx`
+
+Exact command text and its output, drawn as one readable plate.
+
 ### `ConfirmDialog`
 
 `packages/ui/src/design/patterns/ConfirmDialog.tsx`
@@ -610,6 +616,20 @@ separately, and the answers drifted:
 
 The rule is in one file, so the eleventh confirm cannot get it wrong by
 copying the tenth.
+
+### `CopyButton`
+
+`packages/ui/src/design/patterns/CopyButton.tsx`
+
+The one copy control: an icon that becomes a tick for a moment once the
+text is on the clipboard.
+
+A message's footer, an answer's actions and a code plate each drew their
+own, and one of them swallowed a failed write while the other two said so.
+A failure is the caller's to announce — the app does it with a notice, and
+this layer has no store — so it is handed back rather than dropped. A row
+that stays shown while the tick is up hears about it through
+`onCopiedChange`.
 
 ### `DockPanel`
 
@@ -954,7 +974,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 3 | Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 2725 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `screenAppearance` | 2664 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |

@@ -34,6 +34,8 @@ import {
   Board,
   BoardCard,
   BoardColumn,
+  Banner,
+  BannerAction,
   Button,
   EmptyState,
   IconTile,
@@ -264,6 +266,8 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
     }
   }, [store, room])
   const evidence = snapshot.boardEvidence.get(room)
+  const evidenceFailed = snapshot.boardEvidenceFailed.has(room)
+  const waitingForEvidence = evidence === undefined && intents.some((intent) => intent.state === 'done')
   useEffect(() => {
     let live = true
     void store
@@ -328,6 +332,9 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const placed = useMemo(() => {
     const out = new Map<number, Placement>()
     for (const intent of intents) {
+      // A completed card's column is an evidence verdict. Until the first
+      // read succeeds, omitting it is honest; “nothing checked” is not.
+      if (intent.state === 'done' && evidence === undefined) continue
       const role = flowRoleOf(intent, flowRun)
       out.set(
         intent.id,
@@ -347,7 +354,10 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const byColumn = useMemo(() => {
     const out = new Map<FactColumn, Intent[]>()
     for (const column of COLUMNS) out.set(column.id, [])
-    for (const intent of intents) out.get(placed.get(intent.id)?.column ?? 'todo')?.push(intent)
+    for (const intent of intents) {
+      const placement = placed.get(intent.id)
+      if (placement) out.get(placement.column)?.push(intent)
+    }
     return out
   }, [intents, placed])
   const shown = COLUMNS.filter(
@@ -503,6 +513,22 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           <p className="mb-2 text-xs text-(--hd-danger-ink)" role="alert">
             {trouble}
           </p>
+        )}
+        {waitingForEvidence && (
+          <Banner
+            tone={evidenceFailed ? 'danger' : 'info'}
+            title={evidenceFailed ? 'Evidence unavailable' : 'Checking current evidence'}
+            role={evidenceFailed ? 'alert' : 'status'}
+            actions={
+              evidenceFailed ? (
+                <BannerAction onClick={() => void store.loadBoardEvidence(room)}>Try again</BannerAction>
+              ) : undefined
+            }
+          >
+            {evidenceFailed
+              ? 'The desk could not read the current facts, so completed work has not been placed.'
+              : 'Completed work will be placed after the desk reads its current facts.'}
+          </Banner>
         )}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —

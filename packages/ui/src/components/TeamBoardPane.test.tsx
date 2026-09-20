@@ -260,7 +260,7 @@ it('abandoning is offered, and is not the same act as finishing', async () => {
 })
 
 it('settled work can be put back in play', async () => {
-  const { store } = rig([intent({ state: 'done' })])
+  const { store } = rig([intent({ state: 'done' })], {}, observed([], []))
   await render(store)
 
   await pick(1, 'Put back in play')
@@ -760,7 +760,7 @@ it('a wrapped goal leaves the band, and its work stays on the board', async () =
   const settled = intent({ id: 1, state: 'done', title: 'Finished', plan: 1 })
   const { store } = rig([settled] as never, {
     plans: [{ id: 1, goal: 'Already put away', state: 'wrapped', createdAt: 0, wrappedAt: 1 }],
-  } as never)
+  } as never, observed([], []))
   await render(store)
 
   // The heading has said what it had to say; a band that grew forever would
@@ -881,6 +881,23 @@ it('the plain board draws no evidence', async () => {
   await render(store)
   expect(chipsOf(1)).toBeNull()
   expect(store.loadBoardEvidence).toHaveBeenCalledWith(ROOM)
+})
+
+it('does not place completed work before the first evidence read answers', async () => {
+  const { store } = rig([intent({ state: 'done', title: 'Waiting for observed facts' })])
+  await render(store)
+  expect(container.textContent).toContain('Checking current evidence')
+  expect(container.textContent).not.toContain('Waiting for observed facts')
+  expect(container.textContent).not.toContain('nothing checked')
+})
+
+it('says evidence is unavailable after a cold read fails instead of claiming nothing was checked', async () => {
+  const { store, snapshot } = rig([intent({ state: 'done', title: 'Facts could not be read' })])
+  Object.assign(snapshot, { boardEvidenceFailed: new Set([ROOM]) })
+  await render(store)
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('Evidence unavailable')
+  expect(container.textContent).not.toContain('Facts could not be read')
+  expect(container.textContent).not.toContain('nothing checked')
 })
 
 it('a message between agents is never evidence: the channel saying the tests pass draws no chip', async () => {

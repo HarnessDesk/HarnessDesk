@@ -95,6 +95,22 @@ it('disables the in-flight branch and prevents duplicate checkouts (#391)', asyn
   })
 })
 
+it('announces a failed checkout in the canonical alert', async () => {
+  await rig({ checkoutBranch: vi.fn(async () => false) })
+
+  const alpha = [...container.querySelectorAll<HTMLButtonElement>('button[role="menuitemradio"]')]
+    .find((button) => button.textContent?.includes('feature/alpha'))
+  await act(async () => {
+    alpha?.click()
+  })
+
+  const alert = container.querySelector('[data-slot="alert"]')
+  expect(alert?.getAttribute('role')).toBe('alert')
+  expect(alert?.textContent).toContain(
+    'Could not switch to feature/alpha. The working tree may have uncommitted changes.',
+  )
+})
+
 it('→ on the branch row steps in while the branches are still being read, and their arrival leaves the focus where it is', async () => {
   // The flyout is drawn before the list is read, with one row in it: the
   // create row at its foot. → lands there, where Enter lands too, and the

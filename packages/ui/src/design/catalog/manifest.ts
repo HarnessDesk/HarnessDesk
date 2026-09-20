@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -26,6 +26,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   control: 'packages/ui/src/design/explorer/boards.tsx',
   face: 'packages/ui/src/design/explorer/boards.tsx',
   banner: 'packages/ui/src/design/explorer/boards.tsx',
+  code: 'packages/ui/src/design/explorer/boards.tsx',
   dialog: 'packages/ui/src/design/explorer/boards.tsx',
   stat: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   delta: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -117,7 +118,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'DockPanel', 'PublicationCard', 'RefusedAction',
+  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'RefusedAction',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -134,7 +135,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   badge: ['default', 'secondary', 'destructive', 'outline'],
   board: ['default'],
   breadcrumb: ['default'],
-  button: ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
+  button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
   card: ['default'],
   chart: ['default'],
   checkbox: ['default'],
@@ -186,8 +187,11 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   Popover: ['default'],
   ChannelMessage: ['default'],
   AgentCard: ['default'],
+  CodeBlock: ['default'],
+  CopyButton: ['default'],
   DockPanel: ['default'],
   PublicationCard: ['default'],
+  ActionError: ['default'],
   RefusedAction: ['default'],
 }
 
@@ -253,7 +257,10 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   DockPanel: ['expanded', 'collapsed'],
   ChannelMessage: ['default', 'loading', 'success', 'error'],
   AgentCard: ['default', 'active', 'inactive', 'loading'],
+  CodeBlock: ['default', 'error'],
+  CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
+  ActionError: ['error'],
   RefusedAction: ['disabled', 'focus-visible'],
 }
 
@@ -282,8 +289,11 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Popover: 'packages/ui/src/components/ComposerControls.tsx',
   ChannelMessage: 'packages/ui/src/components/Channel.tsx',
   AgentCard: 'packages/ui/src/components/AgentCards.tsx',
+  CodeBlock: 'packages/ui/src/components/Items.tsx',
+  CopyButton: 'packages/ui/src/components/MessageActions.tsx',
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
+  ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
 }
 
@@ -297,7 +307,10 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
   AgentCard: 'packages/ui/src/design/explorer/boards.tsx',
+  CodeBlock: 'packages/ui/src/design/explorer/boards.tsx',
+  CopyButton: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
+  ActionError: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
 }
 
@@ -409,8 +422,11 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Popover', 'propagation', 'HarnessDesk anchored action popover'],
   ['ChannelMessage', 'channel', 'Room and channel message anatomy'],
   ['AgentCard', 'group', 'Agent, account and member card anatomy'],
+  ['CodeBlock', 'code', 'Verbatim command and output plate'],
+  ['CopyButton', 'code', 'The one copy control'],
   ['DockPanel', 'panels', 'Docked panel chrome and actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
+  ['ActionError', 'banner', 'Failure and reason for an action just taken'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
 ] as const satisfies readonly ModuleSeed[]
 

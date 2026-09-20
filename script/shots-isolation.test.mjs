@@ -42,6 +42,20 @@ test('the refreshed evidence scene waits for the new check without discarding ol
   assert.doesNotMatch(refreshed, /!card\.text\.includes\('since'\)/)
 })
 
+test('the unavailable evidence scene withholds completed work without replacing facts with an empty answer', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const unavailable = shoot.slice(
+    shoot.indexOf("SCENES['evidence-unavailable']"),
+    shoot.indexOf('const seatRecordSays'),
+  )
+  assert.match(unavailable, /boardEvidence\.delete\(room\)/)
+  assert.match(unavailable, /boardEvidenceFailed\.add\(room\)/)
+  assert.match(unavailable, /loadBoardEvidence = async \(\) => undefined/)
+  assert.match(unavailable, /openTeamBoard\(room\)/)
+  assert.match(unavailable, /Facts must be hidden/)
+  assert.match(unavailable, /nothing checked/)
+})
+
 test('the capture driver reads rig paths without running the staging script', () => {
   const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
   assert.doesNotMatch(shoot, /from '\.\/seed\.mjs'/)

@@ -584,7 +584,10 @@ along with what Settings still does not do — is recorded with the audit.
 
 **On a card.** A room's board draws each card's evidence as chips in its foot,
 and its columns — To do, Working, Needs you, In review, Ready, and Set aside
-while anything is — come from those facts, so nothing on the board is dragged. The whole of it is in
+while anything is — come from those facts, so nothing on the board is dragged.
+A completed card is not placed until the first evidence read succeeds; while
+that read is pending or unavailable, the board says so rather than claiming
+that nothing was checked. The whole of it is in
 [multi-agent.md](multi-agent.md), under *The Board*.
 
 **A conversation's Seat record.** A conversation seated as an Agent shows its

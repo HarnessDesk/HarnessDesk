@@ -432,7 +432,9 @@ export class AppStore {
           teams.delete(room)
           const boardEvidence = new Map(this.#snapshot.boardEvidence)
           boardEvidence.delete(room)
-          this.#patch({ teams, boardEvidence })
+          const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+          boardEvidenceFailed.delete(room)
+          this.#patch({ teams, boardEvidence, boardEvidenceFailed })
           /* A pane pointed at a room that no longer exists is a surface backed
              by nothing — it would draw the empty board rather than say why. It
              goes with the room, and whatever the pane was replacing comes
@@ -3660,10 +3662,22 @@ export class AppStore {
   // ------------------------------------------------------------------ evidence
 
   async loadBoardEvidence(room: string): Promise<void> {
+    if (!this.#snapshot.boardEvidence.has(room) && this.#snapshot.boardEvidenceFailed.has(room)) {
+      const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+      boardEvidenceFailed.delete(room)
+      this.#patch({ boardEvidenceFailed })
+    }
     try {
       this.#keepBoardEvidence(room, (await this.transport.request('evidence/board', { room })) as BoardEvidence)
     } catch {
-      // A room the host no longer has leaves what is already drawn unchanged.
+      // A refresh failure leaves established facts intact. A first-read
+      // failure is different: without any answer, the board must say it does
+      // not know rather than turn absence into the factual “nothing checked”.
+      if (!this.#snapshot.boardEvidence.has(room)) {
+        const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+        boardEvidenceFailed.add(room)
+        this.#patch({ boardEvidenceFailed })
+      }
     }
   }
 
@@ -3703,7 +3717,9 @@ export class AppStore {
     if (drawn && drawn.stamp > evidence.stamp) return
     const boardEvidence = new Map(this.#snapshot.boardEvidence)
     boardEvidence.set(room, evidence)
-    this.#patch({ boardEvidence })
+    const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+    boardEvidenceFailed.delete(room)
+    this.#patch({ boardEvidence, boardEvidenceFailed })
   }
 
   /**

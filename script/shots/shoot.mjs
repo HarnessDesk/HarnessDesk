@@ -1521,6 +1521,24 @@ rules:
   }
 
   /**
+   * A turn the agent could not run. The reason stands in the conversation as
+   * the same alert every other failed action uses.
+   */
+  SCENES['turn-failed'] = {
+    leaveOverlay: true,
+    expect: 'owned by another process',
+    run: async () => {
+      writeFileSync(switchFile('claude-code', 'prompt-fails'), '')
+      const key = await seat(cdp, { work: REPO, runtime: rigRuntimeId('claude-code'), picks: {} })
+      await cdp.eval(`${STORE}.send([{ type: 'text', text: 'Retry the checkout call on a 502' }], ${q(key)})`, 60_000)
+      await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('owned by another process')`), Boolean, { attempts: 60 })
+      // The same reason also arrives as a toast, over the question it answers.
+      await dismissNotices(cdp).catch(() => {})
+    },
+    finish: () => rmSync(switchFile('claude-code', 'prompt-fails'), { force: true }),
+  }
+
+  /**
    * Every agent answering one row a page, as ACP allows. The sidebar lists
    * whole what an agent has; taken against a build from before the change, it
    * lists the first page of each and nothing after it.
@@ -1808,6 +1826,37 @@ rules:
         throw new Error('a command this Mac has approved asked again')
       }
       await cardSays((card) => card.column === 'Ready' && /verify ✓ @[0-9a-f]{7}/.test(card.text))
+    },
+  }
+
+  SCENES['evidence-unavailable'] = {
+    expect: 'Evidence unavailable',
+    run: async () => {
+      await stageEvidence()
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)}); true`, 60_000)
+      await cdp.eval(`(() => {
+        const store = ${STORE}
+        const room = ${q(evidenceRoom)}
+        const snapshot = store.getSnapshot()
+        snapshot.boardEvidence.delete(room)
+        snapshot.boardEvidenceFailed.add(room)
+        store.loadBoardEvidence = async () => undefined
+        store.openTeamBoard(room)
+        return true
+      })()`)
+      await waitForSnapshot(
+        () => cdp.eval(`document.body.innerText.includes('Evidence unavailable')`),
+        Boolean,
+      )
+    },
+    verify: async () => {
+      const text = await cdp.eval(`document.body.innerText`)
+      if (text.includes('Retry the checkout call on a 502')) {
+        throw new Error('Facts must be hidden until the first evidence read succeeds')
+      }
+      if (text.includes('nothing checked')) {
+        throw new Error('an unavailable evidence read was presented as nothing checked')
+      }
     },
   }
 

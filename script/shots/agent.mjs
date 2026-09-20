@@ -23,6 +23,7 @@
  * Two files beside the store, read on every listing rather than at start, so a
  * scene can bend the history while the app runs and put it back:
  *   <store>.list-fails   `session/list` fails as an agent whose index is locked does
+ *   <store>.prompt-fails `session/prompt` fails as an agent whose session another process holds does
  *   <store>.page         a number: `session/list` answers that many rows a page
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -305,6 +306,10 @@ const handlers = {
   },
 
   'session/prompt': async (id, params) => {
+    const failing = beside('prompt-fails')
+    if (failing && existsSync(failing)) {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the session is owned by another process' } } })
+    }
     const sessionId = params.sessionId
     cancelled.delete(sessionId)
     const stopReason = await playTurn(sessionId)
