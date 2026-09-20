@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, WorkspaceEntry } from '@harnessdesk/protocol'
+import type { AgentEntry, ProjectChecks, WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
@@ -64,6 +64,16 @@ const AGENTS: Readonly<Record<string, readonly AgentEntry[]>> = {
   [SCRATCH.path]: [JUDGE],
 }
 
+const CHECKS = (path: string): ProjectChecks => ({
+  project: path,
+  file: `${path}/.harnessdesk/checks.yml`,
+  exists: path === STOREFRONT.path,
+  at: null,
+  uncommitted: false,
+  checks: path === STOREFRONT.path ? [{ name: 'verify', run: 'pnpm verify', timeout: 600, seen: 'no' }] : [],
+  problems: [],
+})
+
 const mount = (node: React.ReactNode) => {
   const snapshot = {
     ...emptySnapshot(),
@@ -77,6 +87,7 @@ const mount = (node: React.ReactNode) => {
     getSnapshot: () => snapshot,
     loadWorktrees: vi.fn(async () => {}),
     agentsIn: vi.fn(async (path: string) => AGENTS[path] ?? []),
+    projectChecks: vi.fn(async (path: string) => CHECKS(path)),
     openWorkspace: vi.fn(async () => {}),
     forgetWorkspace: vi.fn(async () => {}),
     askSettings: vi.fn(),
@@ -171,4 +182,18 @@ it('the sidebar’s project menu opens the project’s page', () => {
   if (!item) throw new Error('no Project settings item')
   act(() => item.click())
   expect(store.askSettings).toHaveBeenCalledWith('workspaces', STOREFRONT.path)
+})
+
+it('a project’s checks follow its Agents, and a project with no checks file shows none', async () => {
+  mount(<WorkspacesSection focus={STOREFRONT.path} />)
+  await settle()
+  const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
+  expect(sections).toEqual(['Agents', 'Checks'])
+  expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
+
+  act(() => root.unmount())
+  root = createRoot(container)
+  mount(<WorkspacesSection focus={DOCS.path} />)
+  await settle()
+  expect(container.querySelector('section[aria-label="Checks"]')).toBeNull()
 })

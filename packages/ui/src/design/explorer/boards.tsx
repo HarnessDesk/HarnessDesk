@@ -41,10 +41,12 @@ import {
   RefusedAction,
   SectionHead,
   Segmented,
+  StatePill,
   Switch,
   SwitchShape,
   ToggleGroup,
   ToggleGroupItem,
+  stateTone,
 } from '..'
 import styles from './explorer.module.css'
 
@@ -164,11 +166,35 @@ const StateBoard = () => (
         <Chip state="limit" label="Out of weekly credit until Thursday" />
         <Chip state="broken" label="No executable at that path" />
       </Case>
+      <Case label="chip tones">
+        <Chip tone="neutral">Neutral</Chip>
+        <Chip tone="brand">Brand</Chip>
+        <Chip tone="success">Success</Chip>
+        <Chip tone="warning">Warning</Chip>
+        <Chip tone="danger">Danger</Chip>
+        <Chip tone="info">Info</Chip>
+      </Case>
+      <Case label="stale and unknown">
+        <Chip tone="success" stale>Passed yesterday</Chip>
+        <Chip tone="danger" unknown />
+        <Chip tone="warning" unknown>Last checked</Chip>
+      </Case>
+      <Case label="pull request states">
+        {(['open', 'draft', 'merged', 'closed'] as const).map((state) => (
+          <StatePill key={state} state={state} />
+        ))}
+      </Case>
+      <Case label="check outcomes">
+        {(['passed', 'failed', 'running', 'skipped', 'timed out'] as const).map((state) => {
+          const { label, tone } = stateTone(state)
+          return <Chip key={state} tone={tone}>{label}</Chip>
+        })}
+      </Case>
     </div>
     <p className={styles.rule}>
-      One vocabulary of five states, so a colour means the same thing in the sidebar, on a settings
-      row and in the account list. Pass <code>label</code> only to say something more specific than
-      the state&rsquo;s own name — never to say something different.
+      Readiness keeps its five states and dot. A toned chip judges any other compact fact; stale
+      crosses out what is no longer current, while unknown says the fact cannot be determined.
+      Pull requests and checks take their label and tone from one <code>stateTone</code> map.
     </p>
   </>
 )

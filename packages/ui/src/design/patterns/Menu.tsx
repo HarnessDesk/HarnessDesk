@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -252,6 +253,7 @@ export const MenuItem = ({
 }) => {
   const scope = useScope()
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const reasonId = useId()
   return (
     <DropdownMenuItem
       render={<button type="button" disabled={Boolean(disabled)} />}
@@ -262,6 +264,7 @@ export const MenuItem = ({
       {...(danger ? { 'data-danger': '' } : {})}
       {...(current ? { 'data-current': '' } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
+      {...(reason ? { 'aria-describedby': reasonId } : {})}
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}
@@ -279,7 +282,9 @@ export const MenuItem = ({
               {label}
               {badge && <span className={styles.badge}>{badge}</span>}
             </span>
-            {(hint ?? reason) && <span className={styles.hint}>{hint ?? reason}</span>}
+            {(reason ?? hint) && (
+              <span id={reason ? reasonId : undefined} className={styles.hint}>{reason ?? hint}</span>
+            )}
           </span>
           {value !== undefined && <span className={styles.value}>{value}</span>}
           {shortcut && <span className={styles.shortcut}>{shortcut}</span>}
