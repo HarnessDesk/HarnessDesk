@@ -264,6 +264,7 @@ for (const [look, theme] of [
         headingToCard: card.getBoundingClientRect().top - textBox.top,
         foreground: getComputedStyle(pageTitle).color,
         danger: headingStyle.getPropertyValue('--hd-danger-ink').trim(),
+        warning: headingStyle.getPropertyValue('--hd-warning-ink').trim(),
         figures,
         titleTop: title.top,
       }
@@ -298,6 +299,7 @@ for (const [look, theme] of [
     expect(sticky.offset).toBeGreaterThanOrEqual(0)
     expect(sticky.offset).toBeLessThanOrEqual(27)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
+    expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
     for (const reading of ['78%']) {
       expect(measurement.figures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
     }
