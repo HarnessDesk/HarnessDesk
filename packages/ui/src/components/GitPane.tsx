@@ -26,12 +26,12 @@ import type {
 import { laneWindow, layoutGraph, type GraphRow, type LaneWindow } from '../lib/git-graph'
 import { GitGraph } from './GitGraph'
 import { clampColumn, GIT_COLUMNS, type GitColumnName } from '../lib/git-columns'
-import { branchTree, commitDate, inFolder, refChips, shortSha } from '../lib/git-refs'
+import { branchTree, commitDate, inFolder, refChips, shortSha, type RefChip as RefChipData } from '../lib/git-refs'
 import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { Dialog } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, Dot, EmptyState, FileState, KeyValue, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text, Toolbar } from '../design'
 import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
@@ -111,6 +111,23 @@ const OVERSCAN = 12
 
 /** Padding between the last lane and the description. */
 const GUTTER_PAD = 10
+
+const RefChip = ({ chip }: { chip: RefChipData }) => {
+  const appearance = chip.kind === 'head'
+    ? { tone: 'brand' as const, emphasis: true as const }
+    : chip.kind === 'branch'
+      ? { tint: 'blue' as const }
+      : chip.kind === 'tag'
+        ? { tint: 'amber' as const }
+        : { tone: 'neutral' as const }
+
+  return (
+    <Chip {...appearance} className={styles.chip} title={chip.name}>
+      {chip.kind === 'tag' ? <TagIcon size={10} /> : <BranchIcon size={10} />}
+      <span className={styles.chipName}>{chip.name}</span>
+    </Chip>
+  )
+}
 
 /** Which columns fit, measured from the pane itself. */
 const fits = (width: number) => ({
@@ -665,9 +682,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
     return (
       <>
         <ToolPaneHeader title={folder ? `History — ${folder}` : 'History'} subtitle={shown} />
-        <div className={styles.empty}>
-          <p>This folder is not a git repository, so there is no history to show.</p>
-        </div>
+        <EmptyState tight title="No repository" description="This folder is not a git repository, so there is no history to show." />
       </>
     )
   }
@@ -698,7 +713,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Button>
       </ToolPaneHeader>
 
-      <div className={styles.actionBar} role="toolbar" aria-label="Repository actions">
+      <Toolbar className={styles.actionBar} role="toolbar" aria-label="Repository actions">
         <ActionBtn
           icon={<CommitIcon size={15} />}
           label="Commit"
@@ -739,7 +754,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           title="Fetch every remote"
           onClick={doFetch}
         />
-        <span className={styles.actionSep} />
+        <Separator orientation="vertical" className={styles.actionSep} />
         <ActionBtn
           icon={<BranchIcon size={15} />}
           label="Branch"
@@ -778,12 +793,13 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           onClick={() => setDialog({ kind: 'worktrees' })}
         />
         <span className={styles.space} />
-        {working && <span className={styles.working}>{working}</span>}
-      </div>
+        {working && <Text role="meta">{working}</Text>}
+      </Toolbar>
+      <Separator />
 
       {conflicted && (
-        <div className={styles.troubleBar} role="status">
-          <span className={styles.troubleWhat}>{conflicted.said}</span>
+        <Alert tone="warning" className={styles.troubleBar} role="status">
+          <Text role="muted" tone="warning" className={styles.troubleWhat}>{conflicted.said}</Text>
           <Button variant="secondary" size="sm" onClick={() => setAsking(conflicted)}>
             <AgentIcon size={13} />
             Ask an agent to fix this
@@ -800,10 +816,10 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           >
             <CrossIcon size={12} />
           </Button>
-        </div>
+        </Alert>
       )}
 
-      <div className={styles.tools}>
+      <Toolbar className={styles.tools}>
         <Segmented<GitLogScope>
           label="Which branches"
           options={[
@@ -838,10 +854,11 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           </NativeSelect>
         </span>
         <span className={styles.space} />
-        <span className={styles.count}>
+        <Text role="meta" numeric className={styles.count}>
           {loading ? 'Reading…' : `${total.toLocaleString()}${hasMore ? '+' : ''} commits`}
-        </span>
-      </div>
+        </Text>
+      </Toolbar>
+      <Separator />
 
       <div className={styles.body}>
         {fit.rail && railOpen && refsSummary && (
@@ -859,9 +876,9 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         <div className={styles.main}>
           {dirtyCount > 0 && !searching && (
             <Button type="button" variant="row" size="row" className={styles.dirtyRow} onClick={() => store.setDetailsTab('changes')}>
-              <span className={styles.dirtyDot} />
+              <Dot state="limit" />
               Uncommitted changes · {dirtyCount} file{dirtyCount === 1 ? '' : 's'}
-              <span className={styles.dirtyHint}>open Changes</span>
+              <Text role="meta" className={styles.dirtyHint}>open Changes</Text>
             </Button>
           )}
 
@@ -877,7 +894,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               />
             )}
             <span className={styles.headCell} data-flex="">
-              Description
+              <Text role="meta">Description</Text>
             </span>
             {fit.sha && (
               <HeadCell
@@ -907,6 +924,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               />
             )}
           </div>
+          <Separator />
 
           <div
             className={styles.list}
@@ -918,11 +936,11 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             aria-label="Commits"
           >
             {total === 0 && !loading ? (
-              <div className={styles.quiet}>
+              <Note>
                 {searching
                   ? 'Nothing in the history matches that search.'
                   : 'No commits yet — the history starts with the first one.'}
-              </div>
+              </Note>
             ) : (
               <div style={{ height: total * ROW, position: 'relative' }}>
                 {commits.slice(first, last).map((commit, offset) => {
@@ -1427,30 +1445,29 @@ const HeadCell = ({
     hidden > 0 ? `${hidden} more ${hidden === 1 ? 'lane' : 'lanes'} — widen this column to see them` : null
   return (
     <span className={styles.headCell} style={{ width }}>
-      <span className={styles.headLabel}>{GIT_COLUMNS[name].label}</span>
+      <Text role="meta" className={styles.headLabel}>{GIT_COLUMNS[name].label}</Text>
       {hidden > 0 && width >= LANE_W && (
-        <span className={styles.headMore} title={missing ?? undefined}>
-          +{hidden}
-        </span>
+        <Badge title={missing ?? undefined}>+{hidden}</Badge>
       )}
-      <span
+      {name === 'graph' && (
+        <Separator orientation="vertical" className="pointer-events-none absolute right-0 top-0" />
+      )}
+      <ResizeHandle
+        orientation="vertical"
+        value={(width - GIT_COLUMNS[name].min) / (GIT_COLUMNS[name].max - GIT_COLUMNS[name].min)}
+        min={0}
+        max={1}
+        onChange={(next) => onNudge(name, GIT_COLUMNS[name].min + next * (GIT_COLUMNS[name].max - GIT_COLUMNS[name].min))}
         className={styles.headGrip}
-        {...(dragging ? { 'data-on': '' } : {})}
+        {...(dragging ? { 'data-dragging': '' } : {})}
         {...(width < LANE_W ? { 'data-tight': '' } : {})}
-        role="separator"
-        tabIndex={0}
-        aria-orientation="vertical"
-        aria-label={`Resize the ${GIT_COLUMNS[name].label} column`}
+        label={`Resize the ${GIT_COLUMNS[name].label} column`}
+        aria-valuenow={width}
         aria-valuemin={GIT_COLUMNS[name].min}
         aria-valuemax={GIT_COLUMNS[name].max}
-        aria-valuenow={width}
         title={missing ?? `Resize the ${GIT_COLUMNS[name].label} column`}
         onPointerDown={(event) => onGrab(name, event)}
         onKeyDown={(event) => {
-          // A separator that only answers a pointer is a control a keyboard
-          // cannot reach at all. Arrows nudge, shifted arrows stride, Home
-          // and End take the ends — all through the same clamp and the same
-          // write as a drag, so the two cannot disagree.
           const step = event.shiftKey ? 24 : 4
           const to =
             event.key === 'ArrowLeft'
@@ -1523,7 +1540,7 @@ const ActionBtn = ({
         {icon}
         {words && <span>{label}</span>}
         {badge !== undefined && badge > 0 && (
-          <span className={styles.actionBadge}>{badge > 99 ? '99+' : badge}</span>
+          <Badge>{badge > 99 ? '99+' : badge}</Badge>
         )}
       </Button>
     </RefusedAction>
@@ -1653,9 +1670,14 @@ const CommitRow = ({
   const chips = refChips(commit.refs, remotes)
   const merge = commit.parents.length > 1
   return (
-    <div
+    <Button
+      type="button"
+      variant="row"
+      size="content"
+      bordered={false}
+      cursor="default"
       className={styles.row}
-      style={{ top, height: ROW }}
+      style={{ top, height: ROW, paddingRight: 'var(--hd-space-3)' }}
       {...(selected ? { 'data-selected': '' } : {})}
       {...(merge ? { 'data-merge': '' } : {})}
       role="option"
@@ -1664,39 +1686,35 @@ const CommitRow = ({
       onContextMenu={onMenu}
     >
       <span className={styles.gutter} style={{ width: gutter }}>
-        {row && gutter > 0 && <GitGraph row={row} lanes={lanes} rowHeight={ROW} laneWidth={LANE_W} className={styles.graph} offGraphClassName={styles.offGraph} />}
+        {row && gutter > 0 && <GitGraph row={row} lanes={lanes} rowHeight={ROW} laneWidth={LANE_W} className={styles.graph} />}
       </span>
       <span className={styles.subject}>
-        {chips.map((chip) => (
-          <span key={`${chip.kind}-${chip.name}`} className={styles.chip} data-kind={chip.kind} title={chip.name}>
-            {chip.kind === 'tag' ? <TagIcon size={10} /> : <BranchIcon size={10} />}
-            <span className={styles.chipName}>{chip.name}</span>
-          </span>
-        ))}
-        <span className={styles.subjectText} title={commit.subject}>
+        {chips.map((chip) => <RefChip key={`${chip.kind}-${chip.name}`} chip={chip} />)}
+        <Text role={merge ? 'muted' : 'row'} className={styles.subjectText} title={commit.subject}>
           {commit.subject}
-        </span>
+        </Text>
       </span>
       {fit.sha && (
-        <span className={styles.sha} style={{ width: widths.sha }}>
-          {shortSha(commit.sha)}
-        </span>
+        <Text role="meta" className={styles.sha} style={{ width: widths.sha }}>
+          <CodeText>{shortSha(commit.sha)}</CodeText>
+        </Text>
       )}
       {fit.date && (
-        <span className={styles.date} style={{ width: widths.date }}>
+        <Text role="meta" numeric className={styles.date} style={{ width: widths.date }}>
           {commitDate(commit.authoredAt, now)}
-        </span>
+        </Text>
       )}
       {fit.author && (
-        <span
+        <Text
+          role="meta"
           className={styles.author}
           style={{ width: widths.author }}
           title={`${commit.author} <${commit.authorEmail}>`}
         >
           {commit.author}
-        </span>
+        </Text>
       )}
-    </div>
+    </Button>
   )
 }
 
@@ -1779,12 +1797,13 @@ const RefsRail = ({
     >
       <BranchIcon size={12} />
       <span className={styles.railName}>{label}</span>
-      {branch.current && <span className={styles.railHere}>HEAD</span>}
-      {track(branch) && <span className={styles.railTrack}>{track(branch)}</span>}
+      {branch.current && <Chip tone="brand" emphasis>HEAD</Chip>}
+      {track(branch) && <Text role="meta" numeric className={styles.railTrack}>{track(branch)}</Text>}
     </Button>
   )
 
   return (
+    <>
     <aside className={styles.rail} aria-label="Branches, remotes, tags and stashes">
       <Search
         className={styles.railSearch}
@@ -1793,9 +1812,9 @@ const RefsRail = ({
         label="Filter refs"
         onChange={setFilter}
       />
-      {error && <div className={styles.railError}>{error}</div>}
+      {error && <ActionError className={styles.railError}>{error}</ActionError>}
       <div className={styles.railScroll}>
-        <div className={styles.railHead}>Branches · {branches.length}</div>
+        <PopoverGroupLabel>Branches · {branches.length}</PopoverGroupLabel>
         {tree.map((entry) =>
           entry.kind === 'branch' ? (
             branchRow(entry.branch, entry.branch.name, false)
@@ -1804,20 +1823,20 @@ const RefsRail = ({
               <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
                 <ChevronIcon size={11} style={{ transform: closed.has(`b:${entry.name}`) ? undefined : 'rotate(90deg)' }} />
                 {entry.name}
-                <span className={styles.railCount}>{entry.branches.length}</span>
+                <Text role="meta" numeric className={styles.railCount}>{entry.branches.length}</Text>
               </Button>
               {!closed.has(`b:${entry.name}`) && entry.branches.map((branch) => branchRow(branch, inFolder(branch), true))}
             </div>
           ),
         )}
 
-        {remotes.size > 0 && <div className={styles.railHead}>Remotes</div>}
+        {remotes.size > 0 && <PopoverGroupLabel>Remotes</PopoverGroupLabel>}
         {[...remotes.entries()].map(([remote, list]) => (
           <div key={`remote-${remote}`}>
             <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
               <ChevronIcon size={11} style={{ transform: closed.has(`r:${remote}`) ? undefined : 'rotate(90deg)' }} />
               {remote}
-              <span className={styles.railCount}>{list.length}</span>
+              <Text role="meta" numeric className={styles.railCount}>{list.length}</Text>
             </Button>
             {!closed.has(`r:${remote}`) &&
               list.map((branch) => (
@@ -1838,7 +1857,7 @@ const RefsRail = ({
           </div>
         ))}
 
-        {tags.length > 0 && <div className={styles.railHead}>Tags · {tags.length}</div>}
+        {tags.length > 0 && <PopoverGroupLabel>Tags · {tags.length}</PopoverGroupLabel>}
         {tags.map((tag) => (
           <Button
             key={`tag-${tag.name}`}
@@ -1852,7 +1871,7 @@ const RefsRail = ({
           </Button>
         ))}
 
-        {stashes.length > 0 && <div className={styles.railHead}>Stashes · {stashes.length}</div>}
+        {stashes.length > 0 && <PopoverGroupLabel>Stashes · {stashes.length}</PopoverGroupLabel>}
         {stashes.map((stash) => (
           <Button
             key={stash.ref}
@@ -1866,7 +1885,7 @@ const RefsRail = ({
           </Button>
         ))}
 
-        {checkouts.length > 0 && <div className={styles.railHead}>Worktrees · {checkouts.length}</div>}
+        {checkouts.length > 0 && <PopoverGroupLabel>Worktrees · {checkouts.length}</PopoverGroupLabel>}
         {checkouts.map((entry) => {
           const folder = entry.path.split('/').filter(Boolean).at(-1) ?? entry.path
           return (
@@ -1880,30 +1899,23 @@ const RefsRail = ({
             >
               <WorktreeIcon size={12} />
               <span className={styles.railName}>{entry.branch ?? folder}</span>
-              {entry.isCurrent && <span className={styles.railHere}>HERE</span>}
+              {entry.isCurrent && <Chip tone="brand" emphasis>Here</Chip>}
               {entry.locked && <LockIcon size={10} />}
-              {entry.prunable && <span className={styles.railTrack}>gone</span>}
+              {entry.prunable && <Text role="meta" className={styles.railTrack}>gone</Text>}
               {entry.dirty !== null && entry.dirty > 0 && (
-                <span className={styles.railTrack}>{entry.dirty}</span>
+                <Text role="meta" numeric className={styles.railTrack}>{entry.dirty}</Text>
               )}
             </Button>
           )
         })}
       </div>
     </aside>
+    <Separator orientation="vertical" />
+    </>
   )
 }
 
 // -------------------------------------------------------------- the detail
-
-const STATUS_WORD: Record<string, string> = {
-  modified: 'modified',
-  added: 'added',
-  deleted: 'deleted',
-  renamed: 'renamed',
-  conflicted: 'conflicted',
-  untracked: 'untracked',
-}
 
 const CommitDetail = ({
   root,
@@ -1981,23 +1993,18 @@ const CommitDetail = ({
   const absolute = (path: string): string => (path.startsWith('/') ? path : `${root}/${path}`)
 
   const card = detail && (
-    <div className={styles.card}>
-      <div className={styles.cardSubject}>{subject}</div>
-      {body.length > 0 && <pre className={styles.cardBody}>{body}</pre>}
+    <Card className={styles.detailCard}>
+      <CardContent>
+      <Text role="subject">{subject}</Text>
+      {body.length > 0 && <Text as="p" role="muted" className={styles.bodyCopy}>{body}</Text>}
       {chips.length > 0 && (
         <div className={styles.cardChips}>
-          {chips.map((chip) => (
-            <span key={`${chip.kind}-${chip.name}`} className={styles.chip} data-kind={chip.kind} title={chip.name}>
-              {chip.kind === 'tag' ? <TagIcon size={10} /> : <BranchIcon size={10} />}
-              <span className={styles.chipName}>{chip.name}</span>
-            </span>
-          ))}
+          {chips.map((chip) => <RefChip key={`${chip.kind}-${chip.name}`} chip={chip} />)}
         </div>
       )}
-      <dl className={styles.cardMeta}>
-        <dt>Commit</dt>
-        <dd>
-          <code>{detail.sha}</code>
+      <KeyValue className={styles.cardMeta}>
+        <KeyValueRow label="Commit">
+          <CodeText as="code">{detail.sha}</CodeText>
           <Button
             type="button"
             variant="ghost" size="icon-sm" className={styles.cardCopy}
@@ -2007,35 +2014,29 @@ const CommitDetail = ({
           >
             <CopyIcon size={12} />
           </Button>
-        </dd>
+        </KeyValueRow>
         {detail.parents.length > 0 && (
-          <>
-            <dt>Parents</dt>
-            <dd>
+          <KeyValueRow label="Parents">
               {detail.parents.map((parent) => (
                 <Button key={parent} type="button" variant="link" size="content" className={styles.parentLink} onClick={() => onJump(parent)}>
                   {shortSha(parent)}
                 </Button>
               ))}
-            </dd>
-          </>
+          </KeyValueRow>
         )}
-        <dt>Author</dt>
-        <dd>
+        <KeyValueRow label="Author">
           {detail.author} &lt;{detail.authorEmail}&gt; ·{' '}
           {new Date(detail.authoredAt).toLocaleString(undefined, {
             dateStyle: 'medium',
             timeStyle: 'short',
           })}
-        </dd>
+        </KeyValueRow>
         {detail.committer !== detail.author && (
-          <>
-            <dt>Committer</dt>
-            <dd>{detail.committer}</dd>
-          </>
+          <KeyValueRow label="Committer">{detail.committer}</KeyValueRow>
         )}
-      </dl>
-    </div>
+      </KeyValue>
+      </CardContent>
+    </Card>
   )
 
   const fileRow = (entry: GitCommitDetail['files'][number]) => (
@@ -2047,28 +2048,27 @@ const CommitDetail = ({
       title={entry.oldPath ? `${entry.oldPath} → ${entry.path}` : entry.path}
       onClick={() => setFile(wide ? entry.path : file === entry.path ? null : entry.path)}
     >
-      <span className={styles.fileStatus} data-status={entry.status}>
-        {(STATUS_WORD[entry.status] ?? entry.status)[0]?.toUpperCase()}
-      </span>
+      <FileState state={entry.status as Parameters<typeof FileState>[0]['state']} />
       <span className={styles.filePath}>{ltr(entry.path)}</span>
       {entry.added === null ? (
-        <span className={styles.fileCounts}>binary</span>
+        <ChangeStats binary />
       ) : (
-        <span className={styles.fileCounts}>
-          <span className={styles.added}>+{entry.added}</span>
-          <span className={styles.removed}>−{entry.removed ?? 0}</span>
-        </span>
+        <ChangeStats added={entry.added} removed={entry.removed ?? 0} />
       )}
     </Button>
   )
 
   return (
     <div className={styles.detail} style={{ flexBasis: `${fraction * 100}%` }} ref={host}>
-      <div
+      <Separator />
+      <ResizeHandle
+        orientation="horizontal"
+        value={fraction}
+        min={0.2}
+        max={0.75}
+        onChange={setFraction}
         className={styles.detailHandle}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="Resize the commit detail"
+        label="Resize the commit detail"
         onPointerDown={(event) => {
           event.preventDefault()
           event.currentTarget.setPointerCapture(event.pointerId)
@@ -2082,44 +2082,46 @@ const CommitDetail = ({
           dragging.current = false
         }}
       />
-      <div className={styles.detailHead}>
+      <Toolbar className={styles.detailHead}>
         <CommitIcon size={13} />
-        <code>{shortSha(sha)}</code>
-        <span className={styles.detailTitle}>{subject}</span>
+        <Text role="meta"><CodeText as="code">{shortSha(sha)}</CodeText></Text>
+        <Text role="row" className={styles.detailTitle}>{subject}</Text>
         <span className={styles.space} />
         <Button variant="ghost" size="icon-sm" aria-label="Close the commit" onClick={onClose}>
           <CrossIcon size={13} />
         </Button>
-      </div>
+      </Toolbar>
+      <Separator />
 
       {failed ? (
-        <div className={styles.quiet}>Could not read that commit — it may have been rewritten away.</div>
+        <Note>Could not read that commit — it may have been rewritten away.</Note>
       ) : !detail ? (
-        <div className={styles.quiet}>Reading the commit…</div>
+        <Note>Reading the commit…</Note>
       ) : wide ? (
         <div className={styles.detailSplit}>
           <div className={styles.detailLeft}>
             {card}
-            <div className={styles.fileHead}>
+            <PopoverGroupLabel>
               {detail.files.length} file{detail.files.length === 1 ? '' : 's'}
-            </div>
-            <div className={styles.files}>{detail.files.map(fileRow)}</div>
+            </PopoverGroupLabel>
+            <div className={styles.fileListBody}>{detail.files.map(fileRow)}</div>
           </div>
+          <Separator orientation="vertical" />
           <div className={styles.detailRight}>
             {file ? (
               <>
-                <div className={styles.diffHead}>
+                <PatchHeader className={styles.diffHead}>
                   <FileIcon size={12} />
                   <span className={styles.filePath}>{ltr(file)}</span>
                   <span className={styles.space} />
                   <Button variant="ghost" size="sm" className={styles.fileAction} onClick={() => store.openFile(absolute(file))}>
                     Open current version
                   </Button>
-                </div>
+                </PatchHeader>
                 {diffs.get(file) === undefined ? (
-                  <div className={styles.quiet}>Reading the patch…</div>
+                  <Note>Reading the patch…</Note>
                 ) : diffs.get(file) === '' ? (
-                  <div className={styles.quiet}>No text patch — a binary file, or an empty change.</div>
+                  <Note>No text patch — a binary file, or an empty change.</Note>
                 ) : (
                   <div className={styles.diffScroll}>
                     <DiffView diff={diffs.get(file)!} />
@@ -2127,26 +2129,26 @@ const CommitDetail = ({
                 )}
               </>
             ) : (
-              <div className={styles.quiet}>Select a file to read its patch.</div>
+              <Note>Select a file to read its patch.</Note>
             )}
           </div>
         </div>
       ) : (
         <div className={styles.detailStack}>
           {card}
-          <div className={styles.fileHead}>
+          <PopoverGroupLabel>
             {detail.files.length} file{detail.files.length === 1 ? '' : 's'}
-          </div>
+          </PopoverGroupLabel>
           {detail.files.map((entry) => (
             <div key={entry.path}>
               {fileRow(entry)}
               {file === entry.path &&
                 (diffs.get(entry.path) === undefined ? (
-                  <div className={styles.quiet}>Reading the patch…</div>
+                  <Note>Reading the patch…</Note>
                 ) : diffs.get(entry.path) === '' ? (
-                  <div className={styles.quiet}>No text patch — a binary file, or an empty change.</div>
+                  <Note>No text patch — a binary file, or an empty change.</Note>
                 ) : (
-                  <div className={styles.inlineDiff}>
+                  <div className={styles.inlinePatch}>
                     <DiffView diff={diffs.get(entry.path)!} />
                   </div>
                 ))}
@@ -2219,9 +2221,9 @@ const CreateBranch = ({
         />
         <div className={styles.createRow}>
           <Switch checked={checkout} onCheckedChange={setCheckout} aria-label="Check the new branch out" />
-          <span>Check it out too — refused if the working tree is dirty.</span>
+          <Text role="muted">Check it out too — refused if the working tree is dirty.</Text>
         </div>
-        {error && <div className={styles.createError}>{error}</div>}
+        {error && <ActionError>{error}</ActionError>}
       </div>
     </Dialog>
   )

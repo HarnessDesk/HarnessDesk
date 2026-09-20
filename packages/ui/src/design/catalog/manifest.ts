@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'bordered' | 'tinted' | 'line'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -51,6 +51,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   panels: 'packages/ui/src/design/explorer/Explorer.tsx',
   propagation: 'packages/ui/src/design/explorer/Explorer.tsx',
   tools: 'packages/ui/src/design/explorer/Explorer.tsx',
+  'tool-pane': 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
@@ -79,10 +80,10 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   spark: 'packages/ui/src/components/Usage.tsx',
   switch: 'packages/ui/src/components/PluginsSection.tsx',
   tabs: 'packages/ui/src/components/Extensions.tsx',
-  textarea: 'packages/ui/src/components/Composer.tsx',
+  textarea: 'packages/ui/src/components/AddWork.tsx',
   toast: 'packages/ui/src/app/App.tsx',
   'toggle-group': 'packages/ui/src/components/Library.tsx',
-  'tool-pane': 'packages/ui/src/components/TeamBoardPane.tsx',
+  'tool-pane': 'packages/ui/src/components/BrowserPane.tsx',
   tone: 'packages/ui/src/components/Usage.tsx',
   tooltip: 'packages/ui/src/components/Sidebar.tsx',
 }
@@ -118,7 +119,8 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'RefusedAction',
+  'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
+  'InspectorPanel',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -136,7 +138,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   board: ['default'],
   breadcrumb: ['default'],
   button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
-  card: ['default'],
+  card: ['default', 'muted', 'flush'],
   chart: ['default'],
   checkbox: ['default'],
   commit: ['default'],
@@ -151,48 +153,52 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'icon-tile': ['default'],
   input: ['default', 'quiet', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
-  'key-value': ['default'],
+  'key-value': ['default', 'panel'],
   label: ['default'],
   'list-row': ['default'],
   marker: ['default', 'border', 'separator'],
   'native-select': ['default', 'filled'],
   popover: ['default'],
-  progress: ['default'],
+  progress: ['default', 'remaining', 'ring', 'stack'],
   'radio-group': ['vertical', 'horizontal'],
   rail: ['default'],
-  'resize-handle': ['default'],
+  'resize-handle': ['default', 'line'],
   'scroll-area': ['default'],
-  section: ['card', 'plain', 'quiet'],
+  section: ['card', 'plain', 'quiet', 'panel'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
   spark: ['default'],
   stat: ['plain', 'bordered', 'tinted'],
   stepper: ['default'],
   switch: ['default'],
-  table: ['default'],
+  table: ['default', 'framed', 'panel'],
   tabs: ['default', 'line'],
   textarea: ['default', 'editor', 'inline', 'composer'],
   toast: ['default'],
   'toggle-group': ['default', 'outline'],
-  'tool-pane': ['default'],
+  'tool-pane': ['default', 'integrated'],
   tone: ['default'],
   turn: ['default'],
   tooltip: ['default'],
-  Settings: ['default'],
+  Settings: ['default', 'sticky'],
   ModalDialog: ['default'],
   ApprovalDialog: ['default'],
   ConfirmDialog: ['default'],
   Lightbox: ['default'],
   Menu: ['default'],
   Popover: ['default'],
+  MessageQueue: ['default'],
   ChannelMessage: ['default'],
   AgentCard: ['default'],
   CodeBlock: ['default'],
   CopyButton: ['default'],
-  DockPanel: ['default'],
+  DockPanel: ['default', 'workbench'],
   PublicationCard: ['default'],
   ActionError: ['default'],
+  AppWindow: ['default'],
+  Change: ['default'],
   RefusedAction: ['default'],
+  InspectorPanel: ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -254,6 +260,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Lightbox: ['closed', 'open'],
   Menu: ['closed', 'open', 'selected', 'disabled'],
   Popover: ['closed', 'open'],
+  MessageQueue: ['default', 'warning', 'active'],
   DockPanel: ['expanded', 'collapsed'],
   ChannelMessage: ['default', 'loading', 'success', 'error'],
   AgentCard: ['default', 'active', 'inactive', 'loading'],
@@ -261,7 +268,10 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
+  AppWindow: ['default'],
+  Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
+  InspectorPanel: ['default', 'selected', 'empty', 'running'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -270,9 +280,10 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
 )
 Object.assign(SIZES, {
   button: ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
+  card: ['default', 'compact'],
   input: ['default', 'compact', 'bare'],
   attachment: ['sm', 'default', 'lg'],
-  'icon-tile': ['sm', 'default', 'lg'],
+  'icon-tile': ['xs', 'sm', 'default', 'lg'],
   'native-select': ['default', 'compact'],
   switch: ['default', 'sm'],
   textarea: ['default', 'compact', 'composer'],
@@ -287,6 +298,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Lightbox: 'packages/ui/src/components/Items.tsx',
   Menu: 'packages/ui/src/components/ComposerControls.tsx',
   Popover: 'packages/ui/src/components/ComposerControls.tsx',
+  MessageQueue: 'packages/ui/src/components/MessageQueue.tsx',
   ChannelMessage: 'packages/ui/src/components/Channel.tsx',
   AgentCard: 'packages/ui/src/components/AgentCards.tsx',
   CodeBlock: 'packages/ui/src/components/Items.tsx',
@@ -294,7 +306,10 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
+  AppWindow: 'packages/ui/src/components/AppWindow.tsx',
+  Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
+  InspectorPanel: 'packages/ui/src/components/Panel.tsx',
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
@@ -305,13 +320,18 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
+  MessageQueue: 'packages/ui/src/design/explorer/boards.tsx',
+  Popover: 'packages/ui/src/design/explorer/boards.tsx',
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
   AgentCard: 'packages/ui/src/design/explorer/boards.tsx',
   CodeBlock: 'packages/ui/src/design/explorer/boards.tsx',
   CopyButton: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
   ActionError: 'packages/ui/src/design/explorer/boards.tsx',
+  AppWindow: 'packages/ui/src/design/explorer/boards.tsx',
+  Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
+  InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -407,7 +427,7 @@ export const CANONICAL_UI_MODULES = [
   ['textarea', 'field', 'Multiline text input'],
   ['toast', 'banner', 'Transient notification host'],
   ['toggle-group', 'control', 'Segmented and multi-toggle behavior'],
-  ['tool-pane', 'tools', 'Shared tool-pane chrome'],
+  ['tool-pane', 'tool-pane', 'Shared tool-pane chrome'],
   ['tone', 'foundation', 'Typed semantic tone mapping'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
 ] as const satisfies readonly ModuleSeed[]
@@ -420,6 +440,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Lightbox', 'dialog', 'Full-window image gallery and modal policy'],
   ['Menu', 'propagation', 'Menu, context menu and submenu policy'],
   ['Popover', 'propagation', 'HarnessDesk anchored action popover'],
+  ['MessageQueue', 'queue', 'Queued-message frame, rows and timing states'],
   ['ChannelMessage', 'channel', 'Room and channel message anatomy'],
   ['AgentCard', 'group', 'Agent, account and member card anatomy'],
   ['CodeBlock', 'code', 'Verbatim command and output plate'],
@@ -427,7 +448,10 @@ export const CANONICAL_PATTERN_MODULES = [
   ['DockPanel', 'panels', 'Docked panel chrome and actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
   ['ActionError', 'banner', 'Failure and reason for an action just taken'],
+  ['AppWindow', 'app-window', 'Full-window destination chrome and plates'],
+  ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
+  ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

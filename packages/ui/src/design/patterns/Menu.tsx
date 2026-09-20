@@ -207,8 +207,8 @@ export const MenuNote = ({ children }: { children: ReactNode }) => (
   <div className={styles.note}>{children}</div>
 )
 
-export const MenuLabel = ({ children }: { children: ReactNode }) => (
-  <div className={styles.label}>{children}</div>
+export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => (
+  <div className={styles.label} data-size={size}>{children}</div>
 )
 
 export const MenuSeparator = () => <div className={styles.separator} role="separator" />
@@ -228,6 +228,7 @@ export const MenuItem = ({
   danger,
   disabled,
   keepOpen,
+  layout = 'default',
   className,
   onSelect,
 }: {
@@ -248,6 +249,8 @@ export const MenuItem = ({
   danger?: boolean
   disabled?: string | boolean
   keepOpen?: boolean
+  /** A taller row anatomy whose contents earn more than one line. */
+  layout?: 'default' | 'profile' | 'account'
   className?: string
   onSelect: () => void
 }) => {
@@ -265,6 +268,7 @@ export const MenuItem = ({
       {...(current ? { 'data-current': '' } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
       {...(reason ? { 'aria-describedby': reasonId } : {})}
+      data-layout={layout}
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}

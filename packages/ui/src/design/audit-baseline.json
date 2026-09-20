@@ -1,9 +1,10 @@
 {
   "rawType": 0,
   "rawWeight": 0,
-  "patternClass": 3,
-  "screenAppearance": 2664,
+  "patternClass": 1,
+  "screenAppearance": 505,
   "screenUnclassified": 0,
+  "visualKindUnion": 0,
   "wrongVariant": 0,
   "missingClass": 0,
   "forkedToken": 0,

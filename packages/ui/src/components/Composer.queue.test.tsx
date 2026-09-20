@@ -7,7 +7,6 @@ import { sessionKey, type RuntimeInfo, type Session, type SessionQueue } from '@
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
-import styles from './Composer.module.css'
 
 /**
  * What Enter does, and when.
@@ -286,7 +285,8 @@ describe('what the action button says about when the message goes', () => {
    * control that ends it — and it does not move again once a draft appears
    * beside it. Both are position claims, so both are asserted as position.
    */
-  const corner = (): Element | null => container.querySelector(`.${styles.toolbar}`)?.lastElementChild ?? null
+  const corner = (): Element | null =>
+    container.querySelector('[data-slot="composer-tools"]')?.lastElementChild ?? null
 
   it('gives the corner to whatever acts on the turn right now', () => {
     mount({ busy: false })

@@ -394,23 +394,6 @@
   font-size: var(--hd-text-sm);
 }
 
-/* `+11 −1`, in the inks solved for reading rather than in the state colours.
-   The raw green measures 2.3:1 on the light face at this size; `design/ui`'s
-   own diff stat had already reached for these two names. */
-.stat {
-  flex: none;
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.statAdd {
-  color: var(--hd-success-ink); /* desk: the raw green → the ink that can be read at 12px */
-}
-
-.statRemove {
-  color: var(--hd-danger-ink); /* desk: the raw red → the ink that can be read at 12px */
-}
-
 .fileBody {
   padding: 0 var(--hd-space-2-5) var(--hd-space-2-5);
 }

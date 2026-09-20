@@ -96,7 +96,7 @@ for (const [where, width, height] of [
 
     const held = await dialog.evaluate(node => {
       const box = node.getBoundingClientRect()
-      const rows = [...node.querySelectorAll('[class*="rosterRow"]')]
+      const rows = [...node.querySelectorAll('[data-slot="list-row"]')]
       return {
         rows: rows.length,
         // A row whose own words stand outside it is a fixed-height control
@@ -109,7 +109,7 @@ for (const [where, width, height] of [
         }),
         // Nothing crushed to nothing: a flex child with `min-width: 0` and no
         // floor beside two `flex: none` siblings reaches zero.
-        narrowest: Math.min(...[...node.querySelectorAll('[class*="nextText"], [class*="rosterText"]')]
+        narrowest: Math.min(...[...node.querySelectorAll('[data-slot="alert-content"], [data-slot="list-row-content"]')]
           .map(child => Math.round(child.getBoundingClientRect().width))),
         over: [...node.querySelectorAll('*')]
           .map(child => child.scrollWidth - node.clientWidth)

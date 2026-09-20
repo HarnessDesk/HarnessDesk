@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
+import { forwardRef } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
 import { beginResize, endResize, markDragging } from '../../lib/resizing'
@@ -47,6 +48,88 @@ import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
  */
 
 export type PanelEdge = 'left' | 'right' | 'top' | 'bottom'
+
+/** The grounded canvas the split tree and docks share. */
+export const WorkbenchCanvas = forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(
+  ({ className, ...props }, ref) => (
+    <div ref={ref} data-slot="workbench-canvas" className={cn('bg-(--hd-background)', className)} {...props} />
+  ),
+)
+WorkbenchCanvas.displayName = 'WorkbenchCanvas'
+
+/** The navigation plate down the workbench's side. */
+export const WorkbenchRail = forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(
+  ({ className, ...props }, ref) => (
+    <div
+      ref={ref}
+      data-slot="workbench-rail"
+      className={cn(
+        'bg-(--hd-sidebar-plate) outline-none data-[floating]:shadow-(--hd-shadow-lg)',
+        className,
+      )}
+      {...props}
+    />
+  ),
+)
+WorkbenchRail.displayName = 'WorkbenchRail'
+
+/** The dim between a floating rail and the workbench it covers. */
+export const WorkbenchScrim = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div data-slot="workbench-scrim" className={cn('bg-(--hd-scrim)', className)} {...props} />
+)
+
+/** A view's grounded plate inside the split tree. */
+export const PaneSurface = ({
+  as = 'div',
+  className,
+  ...props
+}: React.ComponentProps<'div'> & { as?: 'div' | 'section' }) => {
+  const Component = as
+  return <Component data-slot="pane-surface" className={cn('bg-(--hd-background)', className)} {...props} />
+}
+
+/** The narrow landing band that makes an otherwise empty dock reachable. */
+export const DockDropEdge = ({
+  area,
+  className,
+  ...props
+}: React.ComponentProps<'div'> & { area: 'right' | 'bottom' }) => (
+  <div
+    data-slot="dock-drop-edge"
+    data-area={area}
+    className={cn(
+      'relative shrink-0 self-stretch data-[area=right]:w-45 data-[area=bottom]:h-30',
+      className,
+    )}
+    {...props}
+  />
+)
+
+/** The one highlighted landing target under a dragged panel tab. */
+export const DockDropTarget = ({
+  active = false,
+  label,
+  className,
+  ...props
+}: React.ComponentProps<'div'> & { active?: boolean; label: ReactNode }) => (
+  <div
+    data-slot="dock-drop-target"
+    {...(active ? { 'data-over': '' } : {})}
+    className={cn(
+      'group/drop absolute inset-0 grid place-items-center rounded-(--hd-radius) border-2 border-dashed border-transparent',
+      'transition-[background,border-color] data-[over]:border-(--hd-accent) data-[over]:bg-(--hd-accent-dim)',
+      className,
+    )}
+    {...props}
+  >
+    <span
+      data-slot="dock-drop-label"
+      className="pointer-events-none rounded-(--hd-radius-sm) bg-(--hd-accent) px-2 py-1 text-xs font-medium text-(--hd-accent-foreground) opacity-0 group-data-[over]/drop:opacity-100"
+    >
+      {label}
+    </span>
+  </div>
+)
 
 /**
  * Which side the panel's dividing rule is drawn on. `edge` names that side —

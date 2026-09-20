@@ -1,88 +1,15 @@
-/*
- * The one choice this screen asks: how much of a conversation travels to
- * another agent. The dialog around it is `Dialog`'s — this file used to be
- * `HandoffSheet.module.css`, an orphan stylesheet with no component of its
- * own that two screens reached into.
- */
-
 .choices {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-}
-
-.choice {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  width: 100%;
-
-  text-align: left;
-
-}
-
-/* The words, and the reason the row can be narrow: without `min-width: 0` a
-   flex child will not shrink below its content, so the hint would push the row
-   wider than the dialog however the text is allowed to wrap. */
-.choiceText {
-  min-width: 0;
-}
-
-/*
- * The mark sits on the label's line, not in the middle of the whole choice.
- * Stated here rather than on the row: the row is the canonical control and its
- * own `items-center` is a utility, which a module class of equal weight loses
- * to on source order — `align-self` on the child is the one that wins without
- * anybody having to shout.
- */
-.choiceMark {
-  flex: none;
-  align-self: flex-start;
-  width: 14px;
-  height: 14px;
-  margin-top: 4px; /* desk: 2 → 4, the mark on the label’s line rather than above it */
-  border-radius: 50%;
-  border: 1.5px solid var(--hd-border-emphasis);
-}
-
-.choice[data-selected] .choiceMark {
-  border-color: var(--hd-accent);
-  background: radial-gradient(circle, var(--hd-accent) 0 40%, transparent 45%);
+  gap: var(--hd-space-1);
 }
 
 .choiceLabel {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium);
+  gap: var(--hd-space-1-5);
 }
 
-.choiceLabel > svg {
-  color: var(--hd-secondary-foreground);
-}
-
-.choiceHint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 16 → 18, the line the 13px step is set on */
-  color: var(--hd-muted-foreground);
-}
-
-/*
- * The place control. A worktree armed for the draft is something that will
- * happen on send, so it reads in the primary ink — the AA-solved text step,
- * never the accent itself — at the weight every subject in this toolbar
- * wears. A folder that already is a worktree says so with the design
- * system's Badge, the same one the header's git control wears.
- */
-
-/* The place's word gives way before the agent's or the model's does: they
-   are one word each, and a branch can be forty characters. */
 .word {
   max-width: 16ch;
-}
-
-.armed {
-  font-weight: var(--hd-weight-medium);
-  color: var(--hd-primary-ink);
 }

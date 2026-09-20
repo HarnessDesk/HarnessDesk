@@ -4,72 +4,16 @@
    quiet — the diffs are the page — and every action is a small text button,
    because the page's one real verb is "revise this hunk". */
 
-.head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 var(--hd-space-5); /* desk: canonical One UI System scale */
-}
-
-.title {
-  margin: 0;
-  font-size: var(--hd-title); /* desk: var(--hd-heading) → var(--hd-title) */
-  line-height: var(--hd-line-title);
-  font-weight: var(--hd-weight-normal); /* desk: 650 → 600, the bundled face stops there */
-  letter-spacing: -0.01em;
-  color: var(--hd-foreground);
-}
-
-.sub {
-  margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
-/* Working tree / Staged: the read scope, never the index. */
-.scope {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--hd-border-strong);
-  border-radius: 8px;
-}
-
-.scopeTab {
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--hd-text-xs);
-  padding: 4px 10px;
-  border-radius: 6px;
-  color: var(--hd-muted-foreground);
-  cursor: pointer;
-}
-
-.scopeTab[data-on] {
-  background: var(--hd-hover);
-  color: var(--hd-foreground);
-}
-
 .folder {
   margin: 0 0 var(--hd-space-6); /* desk: canonical One UI System scale */
 }
 
 .folderName {
   margin: 0 0 8px;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs); /* desk: 11.5 → 12, onto the nearest step of the scale */
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  color: var(--hd-muted-foreground);
 }
 
 /* Same card, at the side panel's size — see TurnFiles.module.css. */
 .file {
-  border: 1px solid var(--hd-card-border, var(--hd-border-strong));
-  background: var(--hd-card-fill, transparent);
-  border-radius: var(--hd-card-radius, var(--hd-radius));
-  overflow: hidden;
   margin: 0 0 12px;
   scroll-margin-top: 16px;
 }
@@ -78,60 +22,19 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--hd-border-strong);
-  background: var(--hd-card);
-}
-
-.filePath {
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  font-weight: var(--hd-weight-medium); /* desk: 550 → 500, onto the three rungs */
-  color: var(--hd-foreground);
 }
 
 .counts {
   display: inline-flex;
   gap: var(--hd-space-2); /* desk: canonical One UI System scale */
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
-}
-
-.added {
-  color: var(--hd-success);
-}
-
-.removed {
-  color: var(--hd-danger);
 }
 
 .space {
   flex: 1;
 }
 
-.quiet {
-  padding: 12px;
-  font-size: var(--hd-text-sm); /* desk: 12.5 → 13, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
-}
-
-.hunk {
-  border-top: 1px solid var(--hd-border-strong);
-}
-
-.hunk:first-of-type {
-  border-top: 0;
-}
-
 .hunkHead {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: var(--hd-space-1) 12px; /* desk: canonical One UI System scale */
-}
-
-.hunkRange {
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs); /* desk: 11 → 12, onto the nearest step of the scale */
-  color: var(--hd-muted-foreground);
 }

@@ -179,6 +179,9 @@ it('a failed op wears its reason after apply; the batch reports per op', async (
   )
   await click(buttonNamed('Apply 2 changes'))
   expect(document.body.textContent).toContain('The target changed since the preview.')
+  expect(document.body.querySelector('[role="alert"]')?.textContent).toContain(
+    'The target changed since the preview.',
+  )
   expect(document.body.querySelector('[data-testid="apply-summary"]')?.textContent).toContain(
     '1 change made, 1 failed.',
   )

@@ -45,7 +45,26 @@ import {
   SignOutIcon,
   UsageIcon,
 } from './Icons'
-import { Button, Chip, PageHead, Segmented } from '../design'
+import {
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  Card as SurfaceCard,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  Chip,
+  EmptyState,
+  PageHead,
+  Progress,
+  SectionHead,
+  Segmented,
+  Separator,
+  Text,
+  buttonVariants,
+} from '../design'
 import {
   BurnDown,
   ChartAxis,
@@ -348,7 +367,7 @@ export const Usage = ({
         )}
 
         <div className={styles.navFoot}>
-          {oldest !== null && <span className={styles.age}>Read {formatAge(oldest, now)}</span>}
+          {oldest !== null && <Text role="meta">Read {formatAge(oldest, now)}</Text>}
           <Button variant="secondary" size="sm" disabled={refreshing} onClick={() => void refresh()}>
             <RetryIcon size={13} />
             {refreshing ? 'Refreshing…' : 'Refresh'}
@@ -361,10 +380,7 @@ export const Usage = ({
 
         <div className={styles.body}>
           <section className={styles.band} aria-label="What is left">
-            <div className={styles.bandHead}>
-              <span className={styles.bandTitle}>What is left</span>
-              <span className={styles.bandNote}>{summary.headline}</span>
-            </div>
+            <BandHead name="What is left" note={summary.headline} />
 
             <div className={styles.cards}>
               {reports.map((report) => (
@@ -384,25 +400,20 @@ export const Usage = ({
                 to an agent whose card is filtered out has nothing to attach
                 itself to. */}
             {asleep && (scope === null || scope === asleep.id) && (
-              <div className={styles.callout}>
-                <span className={styles.calloutIcon}>
-                  <SignInIcon size={18} />
-                </span>
-                <span className={styles.calloutText}>
-                  <span className={styles.calloutTitle}>
-                    {asleep.presentation.name} has nothing to report
-                  </span>
-                  <span className={styles.calloutHint}>
-                    It reports its plan once an account is connected — until then this screen is
-                    missing its share.
-                  </span>
-                </span>
+              <Alert className={styles.callout} tone="neutral">
+                <SignInIcon size={18} />
+                <AlertContent>
+                  <AlertTitle>{asleep.presentation.name} has nothing to report</AlertTitle>
+                  <AlertDescription>
+                    It reports its plan once an account is connected — until then this screen is missing its share.
+                  </AlertDescription>
+                </AlertContent>
                 {onSignIn && (
                   <Button variant="default" onClick={() => onSignIn(asleep.id)}>
                     Sign in to {asleep.presentation.name}
                   </Button>
                 )}
-              </div>
+              </Alert>
             )}
           </section>
 
@@ -437,11 +448,10 @@ export const Usage = ({
           />
 
           <section className={styles.band} aria-label="Where it went">
-            <div className={styles.bandHead}>
-              <span className={styles.bandTitle}>Where it went</span>
-              <span className={styles.fill} />
-              <Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={setPivot} />
-            </div>
+            <BandHead
+              name="Where it went"
+              action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={setPivot} />}
+            />
             <Ranked ledger={ledger} pivot={pivot} byId={byId} tintOf={agentTints} />
           </section>
         </div>
@@ -449,6 +459,30 @@ export const Usage = ({
     </AppWindow>
   )
 }
+
+const BandHead = ({
+  name,
+  note,
+  action,
+}: {
+  name: string
+  note?: ReactNode
+  action?: ReactNode
+}) => (
+  <SectionHead
+    sticky
+    level="heading"
+    className={styles.bandHead}
+    name={name}
+    description={note}
+    action={
+      <>
+        <span className={styles.fill} />
+        {action}
+      </>
+    }
+  />
+)
 
 /* --- the rail ------------------------------------------------------------ */
 
@@ -493,25 +527,34 @@ const RailRow = ({
     {...(title ? { title } : {})}
     onClick={onClick}
   >
-    <span className={styles.acctMark}>{mark}</span>
-    <span className={styles.acctName}>{name}</span>
+    <Text className={styles.acctMark} role={selected ? 'muted' : 'meta'}>{mark}</Text>
+    <Text className={styles.acctName} role="row" truncate>{name}</Text>
     {action ? (
-      <span className={styles.acctAdd}>{action}</span>
+      <Text className={styles.acctAdd} role="meta" tone="brand">{action}</Text>
     ) : (
-      <span className={styles.acctFigure} {...(tone ? { 'data-tone': tone } : {})}>
+      /* A selected row sits on the navigation fill, where the warning and
+         error inks fall short of AA; its reading turns neutral there and the
+         meter below keeps the account's tone. */
+      <Text
+        className={styles.acctFigure}
+        role={selected ? 'muted' : 'meta'}
+        {...(selected ? {} : { tone: tone ? paletteTone(tone) : 'neutral' })}
+        numeric
+      >
         {figure}
-      </span>
+      </Text>
     )}
     {percent !== undefined && percent !== null ? (
-      <span className={styles.acctTrack}>
-        <span
-          className={styles.acctFill}
-          {...(tone ? { 'data-tone': tone } : {})}
-          style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
-        />
-      </span>
+      <Progress
+        className={styles.acctProgress}
+        value={percent}
+        measure="remaining"
+        size="xs"
+        label={false}
+        aria-label={`${name} — what is left`}
+      />
     ) : sub ? (
-      <span className={styles.acctSub}>{sub}</span>
+      <Text className={styles.acctSub} role={selected ? 'muted' : 'meta'} truncate>{sub}</Text>
     ) : null}
   </Button>
 )
@@ -635,27 +678,29 @@ const Card = ({
       : noteOf(drawn, view, balance, Boolean(spend))
 
   return (
-    <article
+    <SurfaceCard
+      as="article"
+      variant={hero || balance || money ? 'default' : 'muted'}
       className={styles.card}
-      {...(hero || balance || money ? {} : { 'data-muted': '' })}
     >
-      <div className={styles.cardHead}>
+      <CardHeader className={styles.cardHead}>
         {info && (
-          <span className={styles.cardMark}>
+          <Text role="muted" className={styles.cardMark}>
             <RuntimeMark runtime={info} size={15} />
-          </span>
+          </Text>
         )}
-        <span className={styles.cardName}>{drawn.account ?? agent}</span>
-        {drawn.account && <span className={styles.cardAgent}>{agent}</span>}
+        <Text role="subject" truncate className={styles.cardName}>{drawn.account ?? agent}</Text>
+        {drawn.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
         <span className={styles.fill} />
         <Chip state={state} {...(plan ? { label: plan } : {})} />
-      </div>
+      </CardHeader>
 
-      <div className={styles.hero}>
-        <div className={styles.heroFigure}>
-          <span className={styles.figure}>{figure}</span>
-          <span className={styles.figureWord}>{word}</span>
-          <span className={styles.fill} />
+      <CardContent className={styles.cardBody}>
+        <div className={styles.hero}>
+          <div className={styles.heroFigure}>
+            <Text role="figure" tone={hero ? paletteTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
+            <Text role="muted" truncate>{word}</Text>
+            <span className={styles.fill} />
           {/* The pace sits beside the figure it qualifies, not in the header.
               It spent a year as the *last* of six candidates for the card's
               one line of prose, which meant the only card that ever showed it
@@ -664,74 +709,74 @@ const Card = ({
               badge. The header was the first place tried and it is the wrong
               one: an account address, an agent name, a badge and a plan chip
               on one 320px line truncated the agent to "Cur…". */}
-          {hero?.burn?.forecast && <LanePace lane={hero} />}
-        </div>
+            {hero?.burn?.forecast && <LanePace lane={hero} />}
+          </div>
         {/* No lane, no meter: an empty track under a balance or a month's spend
             reads as "nothing left", which is the opposite of what those cards
             are saying. */}
-        {hero && (
-          <>
-            <SegmentMeter
-              className={styles.heroMeter}
-              percent={hero.known ? (hero.remainingPercent ?? 0) : null}
-              tone={paletteTone(hero.tone)}
-              label={`${hero.title} — what is left`}
-            />
-            {resetOf(hero) && <div className={styles.resetLine}>{resetOf(hero)}</div>}
-          </>
-        )}
-      </div>
+          {hero && (
+            <>
+              <SegmentMeter
+                className={styles.heroMeter}
+                percent={hero.known ? (hero.remainingPercent ?? 0) : null}
+                tone={paletteTone(hero.tone)}
+                label={`${hero.title} — what is left`}
+              />
+              {resetOf(hero) && <Text as="div" role="meta" className={styles.resetLine}>{resetOf(hero)}</Text>}
+            </>
+          )}
+        </div>
 
-      {view.all.length > 0 && (
-        <div className={styles.lanes}>
+        {view.all.length > 0 && (
+          <div className={styles.lanes}>
+            <Separator />
           {view.all.map((lane) => (
             <div
               key={lane.id}
               className={styles.lane}
               {...(lane.id === view.heroId ? { 'data-hero': '' } : {})}
             >
-              <span className={styles.laneName} title={lane.title}>
+              <Text className={styles.laneName} role="muted" truncate title={lane.title}>
                 {lane.title}
-              </span>
-              <span
-                className={styles.laneTrack}
-                {...(lane.known ? {} : { 'data-unknown': '' })}
-              >
-                <span
-                  className={styles.laneFill}
-                  data-tone={lane.tone}
-                  style={{ width: `${Math.min(100, lane.remainingPercent ?? 0)}%` }}
-                />
-              </span>
-              <span className={styles.laneFigure} data-tone={lane.tone}>
+              </Text>
+              <Progress
+                className={styles.laneProgress}
+                value={lane.known ? lane.remainingPercent : null}
+                measure="remaining"
+                size="xs"
+                label={false}
+                aria-label={`${lane.title} — what is left`}
+              />
+              <Text role="muted" align="end" tone={paletteTone(lane.tone)} numeric>
                 {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
-              </span>
-              <span className={styles.laneWhen}>{lane.shortCountdown ?? ''}</span>
+              </Text>
+              <Text role="meta" align="end" numeric>{lane.shortCountdown ?? ''}</Text>
             </div>
           ))}
           {view.overflow > 0 && (
-            <div className={styles.laneMore}>
+            <Text as="div" role="meta">
               +{view.overflow} more {view.overflow === 1 ? 'limit' : 'limits'} reported
-            </div>
+            </Text>
           )}
-        </div>
-      )}
+          </div>
+        )}
 
-      {note && (
-        <div className={styles.cardWord} {...(note.tone ? { 'data-tone': note.tone } : {})}>
-          <span className={styles.cardWordIcon}>{noteGlyph(note.tone)}</span>
-          <span>{note.text}</span>
-        </div>
-      )}
+        {note && (
+          <Text as="div" role="muted" tone={note.tone ? paletteTone(note.tone) : 'neutral'} className={styles.cardWord}>
+            <span className={styles.cardWordIcon}>{noteGlyph(note.tone)}</span>
+            <span>{note.text}</span>
+          </Text>
+        )}
+      </CardContent>
 
-      <div className={styles.cardFoot} {...(view.stale ? { 'data-stale': '' } : {})}>
-        <span className={styles.cardSource}>{report.source.label}</span>
-        {hero && <span className={styles.cardAge}>· {view.age}</span>}
+      <CardFooter className={styles.cardFoot} {...(view.stale ? { 'data-stale': '' } : {})}>
+        <Text role="meta" truncate className={styles.cardSource}>{report.source.label}</Text>
+        {hero && <Text role="meta" tone={view.stale ? 'warning' : 'neutral'} className={styles.cardAge}>· {view.age}</Text>}
         <span className={styles.fill} />
         <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
-          triggerClassName={styles.footMore}
+          triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs' })}
           align="right"
         >
           {(close) => (
@@ -750,8 +795,8 @@ const Card = ({
             </Menu>
           )}
         </Popover>
-      </div>
-    </article>
+      </CardFooter>
+    </SurfaceCard>
   )
 }
 
@@ -842,13 +887,10 @@ const Runway = ({
   if (cards.length === 0) return null
   return (
     <section className={styles.band} aria-label="Will it last">
-      <div className={styles.bandHead}>
-        <span className={styles.bandTitle}>Will it last</span>
-        <span className={styles.bandNote}>
-          What is left against an even burn to the reset. Above the dashed line is headroom;
-          below it is borrowing from the rest of the window.
-        </span>
-      </div>
+      <BandHead
+        name="Will it last"
+        note="What is left against an even burn to the reset. Above the dashed line is headroom; below it is borrowing from the rest of the window."
+      />
       <div className={styles.burnRow}>
         {cards.map(({ lane, account, report }) => (
           <BurnCard
@@ -896,8 +938,8 @@ const BurnCard = ({
         <div className={styles.burnBody}>
           <div className={styles.burnStats}>
             <div className={styles.heroFigure}>
-              <span className={styles.figure}>{Math.round(burn.left)}%</span>
-              <span className={styles.figureWord}>left</span>
+              <Text role="figure">{Math.round(burn.left)}%</Text>
+              <Text role="muted">left</Text>
             </div>
             <StatLine label="Resets in" value={formatCountdown(untilReset) ?? 'any moment'} />
             {/* "after reset" rather than a blank: the row is the answer to
@@ -952,10 +994,10 @@ const StatLine = ({
   danger?: boolean
 }) => (
   <div className={styles.statLine}>
-    <span className={styles.statLabel}>{label}</span>
-    <span className={styles.statValue} {...(danger ? { 'data-tone': 'bad' } : {})}>
+    <Text role="meta">{label}</Text>
+    <Text role="row" tone={danger ? 'danger' : 'neutral'} numeric>
       {value}
-    </span>
+    </Text>
   </div>
 )
 
@@ -1204,11 +1246,7 @@ const Spend = ({
 
   return (
     <section className={styles.band} aria-label="What it cost">
-      <div className={styles.bandHead}>
-        <span className={styles.bandTitle}>What it cost</span>
-        <span className={styles.fill} />
-        {rangeControl}
-      </div>
+      <BandHead name="What it cost" action={rangeControl} />
 
       <ChartFrame>
         {/* Two surfaces inside one frame, separated by the frame's own gutter:
@@ -1227,8 +1265,8 @@ const Spend = ({
           <div className={styles.periods}>
             {periods.map((period) => (
               <div key={period.days} className={styles.period}>
-                <span className={styles.periodLabel}>{period.label}</span>
-                <span className={styles.periodValue}>{money(period.cost)}</span>
+                <Text role="meta">{period.label}</Text>
+                <Text role="metric">{money(period.cost)}</Text>
                 {/* Today carries no percentage and says "so far" instead. A day
                     still running measured against a whole one falls every
                     morning and recovers by evening, which is a property of the
@@ -1236,7 +1274,7 @@ const Spend = ({
                     also what tell a reader that the finished window beside it
                     is a different kind of figure. */}
                 {period.partial ? (
-                  <span className={styles.periodNote}>so far</span>
+                  <Text role="meta">so far</Text>
                 ) : (
                   period.change !== null && (
                     <Delta
@@ -1276,16 +1314,17 @@ const Spend = ({
               )}
             </>
           ) : (
-            <div className={styles.chartEmpty}>
-              {scan?.running
-                ? `Reading transcripts — ${scan.filesDone} of ${scan.filesTotal} files.`
-                : 'No priced usage in this window yet.'}
-            </div>
+            <EmptyState
+              tight
+              className={styles.chartEmpty}
+              title={scan?.running ? 'Reading transcripts' : 'No priced usage in this window yet'}
+              description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
+            />
           )}
         </ChartCard>
 
         <ChartFoot>
-          <span className={styles.costWord}>{coverageSentence(ledger)}</span>
+          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger)}</Text>
           <span className={styles.fill} />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
@@ -1348,7 +1387,7 @@ const Ranked = ({
   tintOf: (runtime: string) => Tint
 }) => {
   if (!ledger || ledger.rows.length === 0) {
-    return <p className={styles.bandNote}>Nothing recorded in this window.</p>
+    return <EmptyState tight title="Nothing recorded in this window" />
   }
   const rows = ledger.rows.slice(0, 12)
   const peak = ledger.rows.reduce((high, row) => Math.max(high, row.cost ?? 0), 0)
@@ -1386,22 +1425,22 @@ const Ranked = ({
                 tint: tintAt(index),
               }))}
             >
-              <span className={styles.donutTotal}>
+              <Text role="metric">
                 {formatMoney(total, ledger.currency) ?? '—'}
-              </span>
-              <span className={styles.donutWord}>in total</span>
+              </Text>
+              <Text role="meta">in total</Text>
             </Donut>
           </div>
         )}
 
-        <div className={styles.ranked}>
+        <SurfaceCard className={styles.ranked}>
           {rows.map((row, index) => {
             const info = row.runtime ? byId.get(row.runtime) : null
             const label = nameOf(row)
             const share = shareOf(row.cost, total)
             return (
-              <div key={row.key} className={styles.rank} {...(asParts ? { 'data-parts': '' } : {})}>
-                <span className={styles.rankMark}>
+              <CardContent key={row.key} className={styles.rank} {...(asParts ? { 'data-parts': '' } : {})}>
+                <Text role="meta" className={styles.rankMark}>
                   {/* The doughnut keyed these rows by colour, so the colour is
                       what identifies them here — a second identity beside it
                       would have the reader checking which one to trust. */}
@@ -1415,40 +1454,39 @@ const Ranked = ({
                       />
                     )
                   )}
-                </span>
-                <span className={styles.rankName} title={label}>
+                </Text>
+                <Text role="subject" truncate title={label}>
                   {label}
-                </span>
+                </Text>
                 {!asParts && (
-                  <span className={styles.rankTrack}>
-                    <span
-                      className={styles.rankFill}
-                      style={{
-                        width: `${peak > 0 ? Math.max(1, Math.round(((row.cost ?? 0) / peak) * 100)) : 0}%`,
-                      }}
-                    />
-                  </span>
+                  <Progress
+                    className={styles.rankProgress}
+                    value={peak > 0 ? Math.max(1, Math.round(((row.cost ?? 0) / peak) * 100)) : 0}
+                    tone="brand"
+                    label={false}
+                    aria-label={`${label} share of peak spend`}
+                  />
                 )}
-                <span className={styles.rankShare}>
+                <Text role="muted" align="end" numeric>
                   {share === null ? '' : share < 1 ? '<1%' : `${Math.round(share)}%`}
-                </span>
-                <span className={styles.rankTokens}>
+                </Text>
+                <Text role="muted" align="end" numeric>
                   {row.tokens === null ? '—' : formatTokens(row.tokens)}
-                </span>
-                <span className={styles.rankCost}>
+                </Text>
+                <Text role="value" align="end" numeric>
                   {formatMoney(row.cost, ledger.currency) ?? '—'}
-                </span>
-              </div>
+                </Text>
+              </CardContent>
             )
           })}
-        </div>
+        </SurfaceCard>
       </div>
       {/* One caveat under the table, rather than a "has unpriced" chip on every
           second row — a badge that repeats down a column stops reading as a
           warning and starts reading as a category. */}
-      <div className={styles.footnote}>
+      <Text as="div" role="meta">
         {pricedNote(unpriced, ledger.provenance)}
-      </div>
+      </Text>
     </>
   )
 }

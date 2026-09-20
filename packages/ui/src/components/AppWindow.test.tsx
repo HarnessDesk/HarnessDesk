@@ -52,6 +52,7 @@ it('uses the shared search field for a window rail filter', () => {
   expect(input?.type).toBe('search')
   expect(input?.closest('[data-slot="search"]')).not.toBeNull()
   expect(input?.closest('[data-slot="search"]')?.classList.contains('hd-no-drag')).toBe(true)
+  expect(container.querySelector('[data-slot="app-window-nav"]')).not.toBeNull()
 })
 
 it('takes focus and hides the covered desk, then restores both when it closes', async () => {
@@ -68,6 +69,7 @@ it('takes focus and hides the covered desk, then restores both when it closes', 
   await frame()
   const dialog = container.querySelector<HTMLElement>('[role="dialog"][aria-label="Settings"]')!
   expect(dialog).not.toBeNull()
+  expect(dialog.getAttribute('data-slot')).toBe('app-window')
   expect(dialog.getAttribute('aria-modal')).toBe('true')
   expect(document.activeElement).toBe(dialog)
   expect(desk.closest('[aria-hidden="true"], [inert]')).not.toBeNull()

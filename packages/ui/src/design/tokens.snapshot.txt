@@ -52,7 +52,7 @@
 --hd-code-fill = rgb(245, 245, 245)
 --hd-code-function = rgb(97, 61, 196)
 --hd-code-gutter-bg = transparent
---hd-code-gutter-fg = rgb(132, 132, 132)
+--hd-code-gutter-fg = rgb(107, 107, 107)
 --hd-code-heading = rgb(0, 92, 197)
 --hd-code-inset = 12px
 --hd-code-invalid = rgb(197, 34, 51)
@@ -124,14 +124,14 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-muted = rgb(245, 245, 245)
---hd-muted-foreground = rgb(132, 132, 132)
+--hd-muted-foreground = rgb(107, 107, 107)
 --hd-nav-gap = 8px
 --hd-nav-h = calc(14px * 1.5 + 4px * 2)
 --hd-nav-h-group = calc(14px * 1.5 + 4px * 2)
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
---hd-placeholder-foreground = rgb(132, 132, 132)
+--hd-placeholder-foreground = rgb(107, 107, 107)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
 --hd-press = none
@@ -175,7 +175,7 @@
 --hd-sidebar-border = rgba(9, 12, 17, 0.05)
 --hd-sidebar-foreground = rgb(27, 27, 27)
 --hd-sidebar-hover = rgba(9, 12, 17, 0.05)
---hd-sidebar-muted-foreground = rgb(132, 132, 132)
+--hd-sidebar-muted-foreground = rgb(107, 107, 107)
 --hd-sidebar-plate = rgb(249, 249, 249)
 --hd-sidebar-selected = color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)
 --hd-sidebar-width = 275px
@@ -208,7 +208,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
 --hd-target-min = 24px
---hd-tertiary-foreground = rgb(132, 132, 132)
+--hd-tertiary-foreground = rgb(107, 107, 107)
 --hd-text = 14px
 --hd-text-lg = 16px
 --hd-text-sm = 13px
@@ -318,7 +318,7 @@
 --hdp-alias-label-primary-dimmed = rgb(24, 24, 24)
 --hdp-alias-label-primary-inverted = rgb(255, 255, 255)
 --hdp-alias-label-secondary = rgb(100, 100, 100)
---hdp-alias-label-tertiary = rgb(132, 132, 132)
+--hdp-alias-label-tertiary = rgb(107, 107, 107)
 --hdp-alias-markdown-citation = rgb(237, 237, 237)
 --hdp-alias-markdown-code-block = rgb(249, 249, 249)
 --hdp-alias-markdown-code-block-banner = rgb(249, 249, 249)
@@ -400,7 +400,7 @@
 --hdp-static-grey-50 = rgb(249, 249, 249)
 --hdp-static-grey-500 = rgb(156, 156, 156)
 --hdp-static-grey-60 = rgb(245, 245, 245)
---hdp-static-grey-600 = rgb(132, 132, 132)
+--hdp-static-grey-600 = rgb(107, 107, 107)
 --hdp-static-grey-700 = rgb(100, 100, 100)
 --hdp-static-grey-75 = rgb(242, 242, 242)
 --hdp-static-grey-750 = rgb(71, 71, 71)
@@ -733,7 +733,7 @@
 --hdp-alias-button-elevated-fill = rgb(71, 71, 71)
 --hdp-alias-button-floating-fill = rgb(41, 41, 41)
 --hdp-alias-button-floating-hover = rgb(49, 49, 49)
---hdp-alias-button-ghost-active-border = rgb(132, 132, 132)
+--hdp-alias-button-ghost-active-border = rgb(107, 107, 107)
 --hdp-alias-button-ghost-active-fill = rgb(71, 71, 71)
 --hdp-alias-button-ghost-active-hover = rgb(100, 100, 100)
 --hdp-alias-button-info-fill = rgb(136, 167, 254)
@@ -749,7 +749,7 @@
 --hdp-alias-interactive-bg-hover-accent = rgba(255, 255, 255, 0.22)
 --hdp-alias-interactive-bg-hover-danger = rgba(238, 94, 84, 0.16)
 --hdp-alias-interactive-bg-hover-solid = rgb(49, 49, 49)
---hdp-alias-label-caption = rgb(132, 132, 132)
+--hdp-alias-label-caption = rgb(107, 107, 107)
 --hdp-alias-label-dimmed = rgb(71, 71, 71)
 --hdp-alias-label-primary = rgb(231, 231, 231)
 --hdp-alias-label-primary-bluish = rgb(249, 249, 249)
@@ -838,7 +838,7 @@
 --hdp-static-grey-50 = rgb(249, 249, 249)
 --hdp-static-grey-500 = rgb(156, 156, 156)
 --hdp-static-grey-60 = rgb(245, 245, 245)
---hdp-static-grey-600 = rgb(132, 132, 132)
+--hdp-static-grey-600 = rgb(107, 107, 107)
 --hdp-static-grey-700 = rgb(100, 100, 100)
 --hdp-static-grey-75 = rgb(242, 242, 242)
 --hdp-static-grey-750 = rgb(71, 71, 71)
@@ -932,7 +932,7 @@
 --hd-code-fill = rgb(245, 245, 245)
 --hd-code-function = rgb(97, 61, 196)
 --hd-code-gutter-bg = transparent
---hd-code-gutter-fg = rgb(132, 132, 132)
+--hd-code-gutter-fg = rgb(107, 107, 107)
 --hd-code-heading = rgb(0, 92, 197)
 --hd-code-inset = 12px
 --hd-code-invalid = rgb(197, 34, 51)
@@ -990,7 +990,7 @@
 --hd-icon-target-sm = 20px
 --hd-input = rgb(255, 255, 255)
 --hd-input-shadow = 0 1px 2px rgba(0, 0, 0, 0.05)
---hd-label-ink = rgb(132, 132, 132)
+--hd-label-ink = rgb(107, 107, 107)
 --hd-label-size = 12px
 --hd-label-space = 20px
 --hd-label-tracking = 0.06em
@@ -1011,7 +1011,7 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-muted = rgb(245, 245, 245)
---hd-muted-foreground = rgb(132, 132, 132)
+--hd-muted-foreground = rgb(107, 107, 107)
 --hd-nav-gap = 8px
 --hd-nav-h = 34px
 --hd-nav-h-group = 34px
@@ -1021,7 +1021,7 @@
 --hd-page-group-gap = 0px
 --hd-page-row-h = 36px
 --hd-page-row-padding = 0 10px
---hd-placeholder-foreground = rgb(132, 132, 132)
+--hd-placeholder-foreground = rgb(107, 107, 107)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
 --hd-press = translateY(1px)
@@ -1065,7 +1065,7 @@
 --hd-sidebar-border = rgba(9, 12, 17, 0.05)
 --hd-sidebar-foreground = rgb(27, 27, 27)
 --hd-sidebar-hover = rgba(9, 12, 17, 0.05)
---hd-sidebar-muted-foreground = rgb(132, 132, 132)
+--hd-sidebar-muted-foreground = rgb(107, 107, 107)
 --hd-sidebar-plate = rgb(249, 249, 249)
 --hd-sidebar-selected = rgb(82, 117, 235)
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
@@ -1100,7 +1100,7 @@
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
 --hd-target-min = 24px
---hd-tertiary-foreground = rgb(132, 132, 132)
+--hd-tertiary-foreground = rgb(107, 107, 107)
 --hd-text = 14px
 --hd-text-lg = 16px
 --hd-text-sm = 13px
@@ -1210,7 +1210,7 @@
 --hdp-alias-label-primary-dimmed = rgb(24, 24, 24)
 --hdp-alias-label-primary-inverted = rgb(255, 255, 255)
 --hdp-alias-label-secondary = rgb(100, 100, 100)
---hdp-alias-label-tertiary = rgb(132, 132, 132)
+--hdp-alias-label-tertiary = rgb(107, 107, 107)
 --hdp-alias-markdown-citation = rgb(237, 237, 237)
 --hdp-alias-markdown-code-block = rgb(249, 249, 249)
 --hdp-alias-markdown-code-block-banner = rgb(249, 249, 249)
@@ -1292,7 +1292,7 @@
 --hdp-static-grey-50 = rgb(249, 249, 249)
 --hdp-static-grey-500 = rgb(156, 156, 156)
 --hdp-static-grey-60 = rgb(245, 245, 245)
---hdp-static-grey-600 = rgb(132, 132, 132)
+--hdp-static-grey-600 = rgb(107, 107, 107)
 --hdp-static-grey-700 = rgb(100, 100, 100)
 --hdp-static-grey-75 = rgb(242, 242, 242)
 --hdp-static-grey-750 = rgb(71, 71, 71)
@@ -1641,7 +1641,7 @@
 --hdp-alias-button-elevated-fill = rgb(71, 71, 71)
 --hdp-alias-button-floating-fill = rgb(41, 41, 41)
 --hdp-alias-button-floating-hover = rgb(49, 49, 49)
---hdp-alias-button-ghost-active-border = rgb(132, 132, 132)
+--hdp-alias-button-ghost-active-border = rgb(107, 107, 107)
 --hdp-alias-button-ghost-active-fill = rgb(71, 71, 71)
 --hdp-alias-button-ghost-active-hover = rgb(100, 100, 100)
 --hdp-alias-button-info-fill = rgb(136, 167, 254)
@@ -1657,7 +1657,7 @@
 --hdp-alias-interactive-bg-hover-accent = rgba(255, 255, 255, 0.22)
 --hdp-alias-interactive-bg-hover-danger = rgba(238, 94, 84, 0.16)
 --hdp-alias-interactive-bg-hover-solid = rgb(49, 49, 49)
---hdp-alias-label-caption = rgb(132, 132, 132)
+--hdp-alias-label-caption = rgb(107, 107, 107)
 --hdp-alias-label-dimmed = rgb(71, 71, 71)
 --hdp-alias-label-primary = rgb(231, 231, 231)
 --hdp-alias-label-primary-bluish = rgb(249, 249, 249)
@@ -1746,7 +1746,7 @@
 --hdp-static-grey-50 = rgb(249, 249, 249)
 --hdp-static-grey-500 = rgb(156, 156, 156)
 --hdp-static-grey-60 = rgb(245, 245, 245)
---hdp-static-grey-600 = rgb(132, 132, 132)
+--hdp-static-grey-600 = rgb(107, 107, 107)
 --hdp-static-grey-700 = rgb(100, 100, 100)
 --hdp-static-grey-75 = rgb(242, 242, 242)
 --hdp-static-grey-750 = rgb(71, 71, 71)

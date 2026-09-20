@@ -12,20 +12,27 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
-import { Button, Dialog, Input, Textarea } from '../design'
+import {
+  ActionError,
+  Button,
+  Chip,
+  CodeText,
+  Dialog,
+  Field,
+  FormStack,
+  Input,
+  LibraryOperationMark,
+  LibraryOperationList,
+  SectionHead,
+  Separator,
+  Text,
+  Textarea,
+} from '../design'
 import { Checkbox, ToggleGroup, ToggleGroupItem } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
-import {
-  AlertIcon,
-  CheckIcon,
-  ChevronIcon,
-  CrossIcon,
-  ImportIcon,
-  PlusIcon,
-} from './Icons'
-import { CodeText } from '../design'
+import { AlertIcon, ChevronIcon, ImportIcon, PlusIcon } from './Icons'
 import styles from './LibraryActions.module.css'
 
 /**
@@ -112,14 +119,18 @@ const verbOf = (op: LibraryPlannedOp, columns: readonly LibraryColumn[]): string
 }
 
 const Mark = ({ op, result }: { op: LibraryPlannedOp; result?: LibraryOpResult }) => {
-  if (result) {
-    if (result.outcome === 'done') return <CheckIcon size={13} />
-    if (result.outcome === 'failed') return <CrossIcon size={13} />
-    return <span className={styles.skipMark}>·</span>
-  }
-  if (op.action === 'refuse') return <AlertIcon size={13} />
-  if (op.action === 'skip') return <span className={styles.skipMark}>·</span>
-  return <span className={styles.planned} />
+  const state = result
+    ? result.outcome === 'done'
+      ? 'done'
+      : result.outcome === 'failed'
+        ? 'failed'
+        : 'skipped'
+    : op.action === 'refuse'
+      ? 'refuse'
+      : op.action === 'skip'
+        ? 'skipped'
+        : 'planned'
+  return <LibraryOperationMark state={state} />
 }
 
 /**
@@ -216,20 +227,20 @@ export const PlanDialog = ({
       onClose={onClose}
       subhead={
         results ? (
-          <p className={styles.summary} data-testid="apply-summary">
+          <Text as="p" role="muted" className={styles.summary} data-testid="apply-summary">
             {done} {done === 1 ? 'change' : 'changes'} made
             {failedCount > 0 ? `, ${failedCount} failed` : ''}
             {results.length - done - failedCount > 0
               ? `, ${results.length - done - failedCount} skipped`
               : ''}
             .
-          </p>
+          </Text>
         ) : plan ? (
-          <p className={styles.summary}>
+          <Text as="p" role="muted" className={styles.summary}>
             {runnable.length === 0
               ? 'Nothing to change — every row says why.'
               : `${runnable.length} ${runnable.length === 1 ? 'change' : 'changes'}, previewed below. Nothing has happened yet.`}
-          </p>
+          </Text>
         ) : undefined
       }
       footer={
@@ -256,18 +267,18 @@ export const PlanDialog = ({
       }
     >
       {failed !== null ? (
-        <p className={styles.failed}>{failed}</p>
+        <ActionError>{failed}</ActionError>
       ) : !plan ? (
-        <p className={styles.loading}>Working out exactly what would change…</p>
+        <Text as="p" role="muted" className={styles.loading}>Working out exactly what would change…</Text>
       ) : plan.ops.length === 0 ? (
-        <p className={styles.loading}>Nothing to do.</p>
+        <Text as="p" role="muted" className={styles.loading}>Nothing to do.</Text>
       ) : (
-        <ul className={styles.ops}>
-          {plan.ops.map((op) => {
+        <LibraryOperationList>
+          {plan.ops.map((op, index) => {
             const result = resultOf(op.id)
             const expandable = op.preview !== undefined && op.preview !== ''
             return (
-              <li key={op.id} className={styles.op} data-action={op.action}>
+              <div key={op.id} role="listitem" data-action={op.action}>
                 <Button
                   type="button"
                   variant="row" size="row" className={styles.opHead}
@@ -275,60 +286,58 @@ export const PlanDialog = ({
                   aria-expanded={open === op.id}
                   disabled={!expandable}
                 >
-                  <span
-                    className={styles.opMark}
-                    data-state={result?.outcome ?? op.action}
-                  >
-                    <Mark op={op} {...(result ? { result } : {})} />
-                  </span>
-                  <span className={styles.opName}>{op.name}</span>
-                  <span
+                  <Mark op={op} {...(result ? { result } : {})} />
+                  <Text role="row">{op.name}</Text>
+                  <Text
+                    role="meta"
+                    ink="secondary"
                     className={styles.opVerb}
-                    {...(op.action === 'refuse' || result?.outcome === 'failed'
-                      ? { 'data-wrap': '' }
-                      : {})}
-                    title={result?.outcome === 'failed' ? result.detail : verbOf(op, columns)}
+                    truncate={op.action !== 'refuse'}
+                    {...(op.action === 'refuse' ? { tone: 'warning' as const } : {})}
+                    title={verbOf(op, columns)}
                   >
-                    {result?.outcome === 'failed' ? result.detail : verbOf(op, columns)}
-                  </span>
+                    {verbOf(op, columns)}
+                  </Text>
                   {op.targetPath !== undefined && op.targetPath !== '' && (
-                    <span className={styles.opPath} title={op.targetPath}>
-                      {shortPath(op.targetPath, home)}
-                    </span>
+                    <Text role="meta" className={styles.opPath} title={op.targetPath} truncate align="end" dir="rtl">
+                      <bdi dir="ltr"><CodeText as="code" size="inherit">{shortPath(op.targetPath, home)}</CodeText></bdi>
+                    </Text>
                   )}
                   {expandable && (
-                    <span className={styles.opChev} data-open={open === op.id ? '' : undefined}>
+                    <Text role="meta" className={styles.opChev} data-chevron="" data-open={open === op.id ? '' : undefined}>
                       <ChevronIcon size={13} />
-                    </span>
+                    </Text>
                   )}
                 </Button>
+                {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
                 {open === op.id && op.preview && (
                   <div className={styles.opBody}>
                     <DiffView diff={op.preview} wrap />
                     {op.extraFiles && op.extraFiles.length > 0 && (
-                      <p className={styles.opFiles}>
+                      <Text as="p" role="meta" ink="secondary" className={styles.opFiles}>
                         Also carries {op.extraFiles.length}{' '}
                         {op.extraFiles.length === 1 ? 'bundle file' : 'bundle files'}:{' '}
                         <CodeText as="code">{op.extraFiles.slice(0, 4).join(', ')}</CodeText>
                         {op.extraFiles.length > 4 ? '…' : ''}
-                      </p>
+                      </Text>
                     )}
                     {op.backup && (
-                      <p className={styles.opFiles}>
+                      <Text as="p" role="meta" ink="secondary" className={styles.opFiles}>
                         The current copy is backed up before this happens.
-                      </p>
+                      </Text>
                     )}
                     {result?.backupPath && (
-                      <p className={styles.opFiles}>
+                      <Text as="p" role="meta" ink="secondary" className={styles.opFiles}>
                         Backed up to <CodeText as="code">{result.backupPath}</CodeText>
-                      </p>
+                      </Text>
                     )}
                   </div>
                 )}
-              </li>
+                {index < plan.ops.length - 1 && <Separator />}
+              </div>
             )
           })}
-        </ul>
+        </LibraryOperationList>
       )}
     </Dialog>
   )
@@ -523,11 +532,11 @@ export const ImportDialog = ({
       subhead={
         <div className={styles.pickPair}>
           <div className={styles.pickCol}>
-            <span className={styles.pickLabel}>From</span>
+            <Text role="muted">From</Text>
             <AgentPick columns={columns} value={source} onChange={pickSource} label="Import from" />
           </div>
           <div className={styles.pickCol}>
-            <span className={styles.pickLabel}>To</span>
+            <Text role="muted">To</Text>
             <AgentPick columns={columns} value={target} onChange={pickTarget} label="Import into" />
           </div>
         </div>
@@ -544,16 +553,16 @@ export const ImportDialog = ({
       }
     >
       {source === null || target === null ? (
-        <p className={styles.loading}>
+        <Text as="p" role="muted" className={styles.loading}>
           Pick where to import from, and which agent should get it. Nothing changes until a
           preview is confirmed.
-        </p>
+        </Text>
       ) : candidates.length === 0 ? (
-        <p className={styles.loading}>
+        <Text as="p" role="muted" className={styles.loading}>
           {library.locations.some((one) => one.runtime === target)
             ? 'Nothing to import — everything the source loads already reaches the target, or cannot be carried faithfully (those rows say so in the table).'
             : `Nothing can be carried to ${columns.find((one) => one.id === target)?.label ?? 'this agent'} yet — this build does not know where it keeps skills or servers.`}
-        </p>
+        </Text>
       ) : (
         <>
           <div className={styles.bulk}>
@@ -569,38 +578,45 @@ export const ImportDialog = ({
               None
             </Button>
           </div>
-          <ul className={styles.candidates}>
-            {candidates.map((entry) => {
+          <div className={styles.candidates} role="list">
+            {candidates.map((entry, index) => {
               const key = `${entry.kind}:${entry.name}`
               const on = !excluded.has(key)
               return (
-                <li key={key} className={styles.candidate}>
-                  {/* A checkbox, not a switch. A switch says "this setting is
-                      on now"; nothing here is on until Preview is confirmed,
-                      and every one of these rows is an item being picked out
-                      of a list. The two controls are not interchangeable and
-                      the app has both. */}
-                  <Checkbox
-                    checked={on}
-                    aria-label={`Import ${entry.name}`}
-                    onCheckedChange={() =>
-                      setExcluded((current) => {
-                        const next = new Set(current)
-                        if (on) next.add(key)
-                        else next.delete(key)
-                        return next
-                      })
-                    }
-                  />
-                  <span className={styles.candidateName}>{entry.title ?? entry.name}</span>
-                  {entry.kind === 'mcp' && <span className={styles.candidateKind}>MCP</span>}
-                  {entry.description && (
-                    <span className={styles.candidateDesc}>{entry.description}</span>
-                  )}
-                </li>
+                <div key={key} role="listitem">
+                  <div className={styles.candidate}>
+                    {/* A checkbox, not a switch. A switch says "this setting is
+                        on now"; nothing here is on until Preview is confirmed,
+                        and every one of these rows is an item being picked out
+                        of a list. The two controls are not interchangeable and
+                        the app has both. */}
+                    <Checkbox
+                      checked={on}
+                      aria-label={`Import ${entry.name}`}
+                      onCheckedChange={() =>
+                        setExcluded((current) => {
+                          const next = new Set(current)
+                          if (on) next.add(key)
+                          else next.delete(key)
+                          return next
+                        })
+                      }
+                    />
+                    <Text role="navigation">{entry.title ?? entry.name}</Text>
+                    {entry.kind === 'mcp' && (
+                      <Chip tone="neutral" size="sm" variant="outline">MCP</Chip>
+                    )}
+                    {entry.description && (
+                      <Text role="meta" truncate className={styles.candidateDesc}>
+                        {entry.description}
+                      </Text>
+                    )}
+                  </div>
+                  {index < candidates.length - 1 && <Separator />}
+                </div>
               )
             })}
-          </ul>
+          </div>
         </>
       )}
     </Dialog>
@@ -661,15 +677,15 @@ export const ResolveDialog = ({
         </>
       }
     >
-      <p className={styles.blurb}>
+      <Text as="p" role="muted" className={styles.blurb}>
         The copies of this skill disagree, so which one an agent runs depends on scan order. Pick
         the copy that should win; every other copy is rewritten to match it, and each one replaced
         is backed up first.
-      </p>
-      <ul className={styles.choices} role="radiogroup" aria-label="The copy that should win">
+      </Text>
+      <div className={styles.choices} role="radiogroup" aria-label="The copy that should win">
         {loadable.map((copy) => (
-          <li key={copy.path}>
             <Button
+              key={copy.path}
               type="button"
               role="radio"
               aria-checked={winner === copy.path}
@@ -677,21 +693,19 @@ export const ResolveDialog = ({
               data-on={winner === copy.path ? '' : undefined}
               onClick={() => setWinner(copy.path)}
             >
-              <span className={styles.choiceDot} />
               <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
-              <span className={styles.choiceNote}>
+              <Text role="meta" className={styles.choiceNote}>
                 {copy.readBy.length === 0
                   ? 'Read by nobody'
                   : `Read by ${copy.readBy
                       .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                       .join(', ')}`}
-              </span>
+              </Text>
             </Button>
-          </li>
         ))}
-      </ul>
+      </div>
       {hollow.length > 0 && (
-        <label className={styles.hollowLine}>
+        <Text as="label" role="muted" className={styles.hollowLine}>
           {/* A checkbox for the same reason the import candidates are: this
               is part of a plan being composed, not a setting taking effect. */}
           <Checkbox
@@ -700,7 +714,7 @@ export const ResolveDialog = ({
             onCheckedChange={(next) => setCleanHollow(next === true)}
           />
           Also remove {hollow.length} empty {hollow.length === 1 ? 'copy' : 'copies'} of this name
-        </label>
+        </Text>
       )}
     </Dialog>
   )
@@ -756,66 +770,75 @@ export const AuthorDialog = ({
         </>
       }
     >
-      <div className={styles.form}>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Name</span>
-          <Input
-            value={name}
-            placeholder="release-notes"
-            autoFocus
-            onChange={(event) => setName(event.target.value)}
-          />
-          {name.trim() !== '' && !validName && (
-            <span className={styles.fieldNote}>
-              Letters, digits, dots and dashes — it becomes a directory name.
-            </span>
+      <FormStack>
+        <Field
+          label="Name"
+          error={name.trim() !== '' && !validName
+            ? 'Letters, digits, dots and dashes — it becomes a directory name.'
+            : undefined}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              value={name}
+              placeholder="release-notes"
+              autoFocus
+              onChange={(event) => setName(event.target.value)}
+            />
           )}
-        </label>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Description</span>
-          <Input
-            value={description}
-            placeholder="When should an agent reach for this?"
-            onChange={(event) => setDescription(event.target.value)}
-          />
-          <span className={styles.fieldNote}>
-            Every agent carries this line on every turn — it is how the skill gets chosen, and what
-            it costs.
-          </span>
-        </label>
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Instructions</span>
-          <Textarea
-            variant="editor" controlSize="compact"
-            value={body}
-            rows={6}
-            placeholder="What the agent should do when this skill fires."
-            onChange={(event) => setBody(event.target.value)}
-          />
-        </label>
-        <div className={styles.field}>
-          <span className={styles.fieldLabel}>Install for</span>
-          {/* The same switcher the import pickers use, in its many-valued
-              form. It was a row of the same invisible pills — and here the
-              stakes are higher, because with none of them pressed the confirm
-              button is disabled and nothing on screen says which of the four
-              unstyled words is the thing to press. */}
-          <ToggleGroup
-            type="multiple"
-            value={[...targets]}
-            aria-label="Install for"
-            className={`${SWITCH_TRACK} w-fit`}
-            onValueChange={(next) => setTargets(new Set(next as RuntimeId[]))}
-          >
-            {columns.map((column) => (
-              <ToggleGroupItem key={column.id} value={column.id} className={SWITCH_ITEM}>
-                {column.info && <RuntimeMark runtime={column.info} size={13} />}
-                {column.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </div>
-      </div>
+        </Field>
+        <Field
+          label="Description"
+          hint="Every agent carries this line on every turn — it is how the skill gets chosen, and what it costs."
+        >
+          {(control) => (
+            <Input
+              {...control}
+              value={description}
+              placeholder="When should an agent reach for this?"
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label="Instructions">
+          {(control) => (
+            <Textarea
+              {...control}
+              variant="editor" controlSize="compact"
+              value={body}
+              rows={6}
+              placeholder="What the agent should do when this skill fires."
+              onChange={(event) => setBody(event.target.value)}
+            />
+          )}
+        </Field>
+        <Field label="Install for">
+          {(control) => (
+            <>
+              {/* The same switcher the import pickers use, in its many-valued
+                  form. It was a row of the same invisible pills — and here the
+                  stakes are higher, because with none of them pressed the confirm
+                  button is disabled and nothing on screen says which of the four
+                  unstyled words is the thing to press. */}
+              <ToggleGroup
+                {...control}
+                type="multiple"
+                value={[...targets]}
+                aria-label="Install for"
+                className={`${SWITCH_TRACK} w-fit`}
+                onValueChange={(next) => setTargets(new Set(next as RuntimeId[]))}
+              >
+                {columns.map((column) => (
+                  <ToggleGroupItem key={column.id} value={column.id} className={SWITCH_ITEM}>
+                    {column.info && <RuntimeMark runtime={column.info} size={13} />}
+                    {column.label}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </>
+          )}
+        </Field>
+      </FormStack>
     </Dialog>
   )
 }
@@ -915,46 +938,57 @@ export const LibraryHistory = ({
 
   return (
     <section className={styles.history} aria-label="Changes made from here">
-      <h3 className={styles.historyHead}>Changes made from here</h3>
-      <ul className={styles.historyRows}>
+      <SectionHead name="Changes made from here" />
+      <div className={styles.historyRows} role="list">
         {shown.map((row, index) => (
-          <li key={`${row.at}-${index}`} className={styles.historyRow} data-status={row.status}>
-            <span className={styles.historyWhen}>
-              {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-            </span>
-            <span className={styles.historyWhat}>
-              {row.status === 'failed'
-                ? `Failed to ${HISTORY_TRY[row.op] ?? row.op} ${row.name}${row.detail ? ` — ${row.detail}` : ''}`
-                : `${HISTORY_VERB[row.op] ?? row.op} ${row.name}`}
-              <CodeText as="code" className={styles.historyPath} title={row.path}>
-                {shortPath(row.path, home)}
-              </CodeText>
-            </span>
-            {row.backupPath !== undefined && row.status === 'done' && (
-              <Button variant="secondary"
-                size="sm"
-                title={`Restore what this change filed at ${row.backupPath}`}
-                onClick={() =>
-                  onFlow({
-                    type: 'plan',
-                    title: `Restore ${row.name}`,
-                    intents: [
-                      {
-                        kind: 'restoreCopy',
-                        name: row.name,
-                        backupPath: row.backupPath ?? '',
-                        targetPath: row.path,
-                      },
-                    ],
-                  })
-                }
-              >
-                Restore…
-              </Button>
-            )}
-          </li>
+          <div key={`${row.at}-${index}`} role="listitem">
+            <div className={styles.historyRow}>
+              <Text role="meta" className={styles.historyWhen}>
+                {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+              </Text>
+              <span className={styles.historyWhat}>
+                <Text
+                  role="meta"
+                  ink="secondary"
+                  {...(row.status === 'failed' ? { tone: 'warning' as const } : {})}
+                >
+                  {row.status === 'failed'
+                    ? `Failed to ${HISTORY_TRY[row.op] ?? row.op} ${row.name}${row.detail ? ` — ${row.detail}` : ''}`
+                    : `${HISTORY_VERB[row.op] ?? row.op} ${row.name}`}
+                </Text>
+                <Text role="meta" className={styles.historyPath} title={row.path} truncate dir="rtl">
+                  <bdi dir="ltr">
+                    <CodeText as="code" size="inherit">{shortPath(row.path, home)}</CodeText>
+                  </bdi>
+                </Text>
+              </span>
+              {row.backupPath !== undefined && row.status === 'done' && (
+                <Button variant="secondary"
+                  size="sm"
+                  title={`Restore what this change filed at ${row.backupPath}`}
+                  onClick={() =>
+                    onFlow({
+                      type: 'plan',
+                      title: `Restore ${row.name}`,
+                      intents: [
+                        {
+                          kind: 'restoreCopy',
+                          name: row.name,
+                          backupPath: row.backupPath ?? '',
+                          targetPath: row.path,
+                        },
+                      ],
+                    })
+                  }
+                >
+                  Restore…
+                </Button>
+              )}
+            </div>
+            {index < shown.length - 1 && <Separator />}
+          </div>
         ))}
-      </ul>
+      </div>
       {rows.length > shown.length && (
         <Button variant="secondary" size="sm" onClick={() => setAll(true)}>
           Show all {rows.length}
