@@ -20,9 +20,13 @@ Two things follow from the promise and apply to every section below:
 ## Local — the default, and today the only one
 
 Nothing leaves. Agent credentials, API keys, vendor sessions, source, terminal
-output, diffs, transcripts, browser state and the audit log are files on your
+output, diffs, transcripts, browser state, the audit log, and what the desk
+observed — every Seat it kept and every fact it recorded — are files on your
 disk, under `~/.harnessdesk` and your own repositories. The host binds a
 loopback socket the renderer talks to; nothing listens on a routable address.
+To see a card's pull request and its CI, the desk asks your forge with your
+own `gh`, in the card's checkout — the same tool, and the same account, the
+desk already publishes with.
 
 **Retention:** yours. Deleting the folder deletes it.
 

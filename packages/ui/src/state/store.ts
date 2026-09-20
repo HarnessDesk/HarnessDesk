@@ -8,6 +8,10 @@ import {
   type ExtensionEvent,
   type PluginInstance,
   type BackgroundTask,
+  type BoardEvidence,
+  type CheckUnseen,
+  type SeatRecord,
+  type ProjectChecks,
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
@@ -418,11 +422,19 @@ export class AppStore {
           flowRuns.set(room, runs)
           this.#patch({ flowRuns })
         }
+        if (notification.method === 'evidence/changed') {
+          const { room, evidence } = notification.params
+          this.#keepBoardEvidence(room, evidence)
+        }
         if (notification.method === 'team/removed') {
           const { room } = notification.params
           const teams = new Map(this.#snapshot.teams)
           teams.delete(room)
-          this.#patch({ teams })
+          const boardEvidence = new Map(this.#snapshot.boardEvidence)
+          boardEvidence.delete(room)
+          const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+          boardEvidenceFailed.delete(room)
+          this.#patch({ teams, boardEvidence, boardEvidenceFailed })
           /* A pane pointed at a room that no longer exists is a surface backed
              by nothing — it would draw the empty board rather than say why. It
              goes with the room, and whatever the pane was replacing comes
@@ -3645,6 +3657,69 @@ export class AppStore {
     } catch {
       // A room the host no longer has is a room with no runs to draw.
     }
+  }
+
+  // ------------------------------------------------------------------ evidence
+
+  async loadBoardEvidence(room: string): Promise<void> {
+    if (!this.#snapshot.boardEvidence.has(room) && this.#snapshot.boardEvidenceFailed.has(room)) {
+      const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+      boardEvidenceFailed.delete(room)
+      this.#patch({ boardEvidenceFailed })
+    }
+    try {
+      this.#keepBoardEvidence(room, (await this.transport.request('evidence/board', { room })) as BoardEvidence)
+    } catch {
+      // A refresh failure leaves established facts intact. A first-read
+      // failure is different: without any answer, the board must say it does
+      // not know rather than turn absence into the factual “nothing checked”.
+      if (!this.#snapshot.boardEvidence.has(room)) {
+        const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+        boardEvidenceFailed.add(room)
+        this.#patch({ boardEvidenceFailed })
+      }
+    }
+  }
+
+  async runCheck(
+    room: string,
+    card: number,
+    name: string,
+    answer?: { readonly seen: string; readonly digest: string },
+  ): Promise<{ readonly kind: 'started' } | { readonly kind: 'unseen'; readonly unseen: CheckUnseen }> {
+    try {
+      await this.transport.request('evidence/check/run', {
+        room,
+        card,
+        name,
+        ...(answer !== undefined ? { seen: answer.seen, digest: answer.digest } : {}),
+      })
+      return { kind: 'started' }
+    } catch (error) {
+      const refusal = error as { code?: unknown; data?: unknown }
+      if (refusal.code === 'checkUnseen' && refusal.data) {
+        return { kind: 'unseen', unseen: refusal.data as CheckUnseen }
+      }
+      throw error
+    }
+  }
+
+  async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
+    return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
+  }
+
+  async projectChecks(project: string): Promise<ProjectChecks> {
+    return (await this.transport.request('evidence/checks', { project })) as ProjectChecks
+  }
+
+  #keepBoardEvidence(room: string, evidence: BoardEvidence): void {
+    const drawn = this.#snapshot.boardEvidence.get(room)
+    if (drawn && drawn.stamp > evidence.stamp) return
+    const boardEvidence = new Map(this.#snapshot.boardEvidence)
+    boardEvidence.set(room, evidence)
+    const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+    boardEvidenceFailed.delete(room)
+    this.#patch({ boardEvidence, boardEvidenceFailed })
   }
 
   /**

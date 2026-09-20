@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -10,6 +10,7 @@ import { AgentRegistryStore } from '../packages/server/dist/src/agent-registry.j
 import { parseSeating } from '../packages/server/dist/src/agent-seating-file.js'
 import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
+import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
@@ -29,6 +30,37 @@ test('every capture dismisses only the normal import offer before auditing the f
   assert.ok(dismissal >= 0, 'the standing banner is not a transient snapshot.notice')
   assert.ok(dismissal < capture.indexOf('await audit(name)'))
   assert.doesNotMatch(capture, /dismissNotices\(/, 'do not discard errors to make a scene look healthy')
+})
+
+test('the refreshed evidence scene waits for the new check without discarding older history', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const refreshed = shoot.slice(
+    shoot.indexOf("SCENES['evidence-refreshed']"),
+    shoot.indexOf('const seatRecordSays'),
+  )
+  assert.match(refreshed, /\/verify ✓ @\[0-9a-f\]\{7\}\//)
+  assert.doesNotMatch(refreshed, /!card\.text\.includes\('since'\)/)
+})
+
+test('the unavailable evidence scene withholds completed work without replacing facts with an empty answer', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const unavailable = shoot.slice(
+    shoot.indexOf("SCENES['evidence-unavailable']"),
+    shoot.indexOf('const seatRecordSays'),
+  )
+  assert.match(unavailable, /boardEvidence\.delete\(room\)/)
+  assert.match(unavailable, /const request = store\.transport\.request\.bind\(store\.transport\)/)
+  assert.match(unavailable, /method === 'evidence\/board'/)
+  assert.match(unavailable, /await store\.loadBoardEvidence\(room\)/)
+  assert.match(unavailable, /const card = await cardOne\(\)/)
+  assert.match(unavailable, /Facts must be hidden/)
+  assert.match(unavailable, /nothing checked/)
+})
+
+test('the capture driver reads rig paths without running the staging script', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  assert.doesNotMatch(shoot, /from '\.\/seed\.mjs'/)
+  assert.match(shoot, /from '\.\/config\.mjs'/)
 })
 
 test('the native editor scene seeds the fake filesystem and requires rendered file contents', () => {
@@ -92,6 +124,38 @@ test('every seeded camera agent stays on its scripted process even with real CLI
   for (const row of [...USAGE, ...LEDGER.rows, ...LEDGER.daily]) assert.ok(ids.has(row.runtime), `usage mapped to missing runtime ${row.runtime}`)
 })
 
+test('a camera conversation created for a scene is listed after the agent restarts', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-restart-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+    stdio: 'pipe',
+  })
+  const config = new AgentRegistryStore(join(home, 'agents.json')).configs()
+    .find(agent => agent.id === 'shots-claude-code')
+  assert.ok(config)
+
+  const first = new AcpRuntime(config)
+  await first.start()
+  let created
+  try {
+    created = await first.createSession({ cwd: join(work, 'storefront') })
+  } finally {
+    await first.dispose()
+  }
+
+  const second = new AcpRuntime(config)
+  await second.start()
+  try {
+    const listed = await second.listSessions()
+    assert.ok(listed.data.some(session => session.id === created.id), 'fresh process did not list the scene conversation')
+  } finally {
+    await second.dispose()
+  }
+})
+
 test('the staged desk has Agents: a project one shadowing one that ships, one of yours, and this Mac’s seats', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-shots-agents-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
@@ -120,4 +184,32 @@ test('the staged desk has Agents: a project one shadowing one that ships, one of
   // One runtime is signed out where the host asks, and the renderer is told the same.
   assert.ok(configs.find(one => one.id === 'shots-windsurf')?.account?.status, 'Windsurf answers its own sign-in')
   assert.deepEqual(RUNTIME_ACCOUNTS['shots-windsurf']?.accounts, [])
+})
+
+test('the storefront names one check and commits it, and every take starts with nothing approved and nothing observed', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-evidence-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  seed()
+  const storefront = join(work, 'storefront')
+  const read = await readChecks(storefront)
+  assert.deepEqual(read.problems, [])
+  assert.deepEqual(read.checks, [{ name: 'verify', run: 'node --test', timeout: 120 }])
+  assert.equal(execFileSync('git', ['-C', storefront, 'status', '--porcelain'], { encoding: 'utf8' }), '')
+  execFileSync(process.execPath, ['--test'], { cwd: storefront, stdio: 'pipe' })
+
+  mkdirSync(join(home, 'evidence'), { recursive: true })
+  writeFileSync(join(home, 'commands-seen.json'), '{}\n')
+  writeFileSync(join(home, 'commands-seen.key'), 'key\n')
+  writeFileSync(join(home, 'seat-record-scene.json'), '{}\n')
+  seed()
+  for (const name of ['evidence', 'commands-seen.json', 'commands-seen.key', 'seat-record-scene.json']) {
+    assert.equal(existsSync(join(home, name)), false, `${name} survived a seed`)
+  }
 })
