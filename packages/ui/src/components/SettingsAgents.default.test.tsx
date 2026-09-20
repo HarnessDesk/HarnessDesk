@@ -127,6 +127,14 @@ const chip = (): string => {
   return found.getAttribute('data-state') ?? ''
 }
 
+it('keeps each runtime name at the roster heading scale', async () => {
+  await mount({})
+  const name = [...container.querySelectorAll('[data-slot="text"]')].find(
+    (node) => node.textContent === 'Claude Code',
+  )
+  expect(name?.className).toContain('text-lg')
+})
+
 const click = async (node: Element | null | undefined, what: string): Promise<void> => {
   if (!node) throw new Error(`nothing to click: ${what}`)
   await act(async () => {

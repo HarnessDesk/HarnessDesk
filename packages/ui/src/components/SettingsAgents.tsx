@@ -479,7 +479,7 @@ const AgentBlock = ({
           mark={<RuntimeMark runtime={info} size={17} />}
           title={
             <span className={styles.headName} title={info.presentation.tagline}>
-              <Text role="subject">{info.presentation.name}</Text>
+              <Text role="subject" className="text-lg">{info.presentation.name}</Text>
               {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
               {connection && <Chip tone="neutral" size="sm">{connection}</Chip>}
             </span>
