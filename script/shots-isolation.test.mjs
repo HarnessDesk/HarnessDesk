@@ -51,7 +51,7 @@ test('the unavailable evidence scene withholds completed work without replacing 
   assert.match(unavailable, /boardEvidence\.delete\(room\)/)
   assert.match(unavailable, /boardEvidenceFailed\.add\(room\)/)
   assert.match(unavailable, /loadBoardEvidence = async \(\) => undefined/)
-  assert.match(unavailable, /openTeamBoard\(room\)/)
+  assert.match(unavailable, /await store\.loadFlowRuns\(room\)/)
   assert.match(unavailable, /Facts must be hidden/)
   assert.match(unavailable, /nothing checked/)
 })

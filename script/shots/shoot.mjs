@@ -1833,15 +1833,14 @@ rules:
     expect: 'Evidence unavailable',
     run: async () => {
       await stageEvidence()
-      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)}); true`, 60_000)
-      await cdp.eval(`(() => {
+      await cdp.eval(`(async () => {
         const store = ${STORE}
         const room = ${q(evidenceRoom)}
         const snapshot = store.getSnapshot()
         snapshot.boardEvidence.delete(room)
         snapshot.boardEvidenceFailed.add(room)
         store.loadBoardEvidence = async () => undefined
-        store.openTeamBoard(room)
+        await store.loadFlowRuns(room)
         return true
       })()`)
       await waitForSnapshot(
