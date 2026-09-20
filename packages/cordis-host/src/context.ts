@@ -189,6 +189,11 @@ export interface HarnessContext {
       options: { readonly blockMs?: number; readonly cycle?: number },
       scope?: ScopeQuery,
     ): Promise<string>
+    /** Wait for one member's currently running turn without sending or polling. */
+    awaitMember(
+      options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+      scope?: ScopeQuery,
+    ): Promise<string>
     conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string>
     complete(
       intent: number,

@@ -336,6 +336,7 @@ test('a team call rides its own invocation or is refused: the child cannot imper
     claim: async () => 'x',
     claimNext: async () => 'x',
     awaitWork: async () => 'x',
+    awaitMember: async () => 'x',
     conflicts: async () => 'x',
     complete: async () => 'x',
     release: async () => 'x',
@@ -377,6 +378,50 @@ test('a team call rides its own invocation or is refused: the child cannot imper
   }
 })
 
+test('a child member wait remains invocation-bound and cancellation aborts the host wait', async () => {
+  let pending = 0
+  let seenInvocation = ''
+  const engine: TeamEngine = {
+    board: async () => 'x', addIntent: async () => 'x', claim: async () => 'x', claimNext: async () => 'x',
+    awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', release: async () => 'x',
+    handoff: async () => 'x', status: async () => 'x', send: async () => 'x',
+    awaitMember: async (scope) => {
+      pending++
+      seenInvocation = scope.invocation ?? ''
+      try {
+        await new Promise<void>((resolve) => scope.signal?.addEventListener('abort', () => resolve(), { once: true }))
+        return 'stopped: the calling turn ended; cycle: 1'
+      } finally {
+        pending--
+      }
+    },
+  }
+  const dir = await mkdtemp(join(tmpdir(), 'hd-member-wait-'))
+  const store = join(dir, 'plugins')
+  await cp(join(FIXTURES, 'plugin-teamish'), join(store, 'teamish'), { recursive: true })
+  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+    invokeTimeoutMs: 150,
+    env: { HARNESSDESK_PLUGINS: store },
+    teamEngine: engine,
+  })
+  try {
+    await host.loadInstalledPlugins()
+    const tool = host.list('tool').find((entry) => entry.name === 'team_wait_honest')!
+    assert.ok(tool)
+    const result = await host.invokeTool(tool.id, { member: 'Reviewer' }, {
+      runtime: 'codex' as RuntimeId, sessionId: 's1' as SessionId,
+    })
+    assert.equal(result.ok, false)
+    assert.match(result.ok ? '' : result.error, /timed out|did not answer|no answer/i)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    assert.notEqual(seenInvocation, '')
+    assert.equal(pending, 0)
+  } finally {
+    await host.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 /**
  * Two plugins, one process, one grant between them.
  *
@@ -394,6 +439,7 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
     claim: async () => 'x',
     claimNext: async () => 'x',
     awaitWork: async () => 'x',
+    awaitMember: async () => 'x',
     conflicts: async () => 'x',
     complete: async () => 'x',
     release: async () => 'x',
@@ -521,6 +567,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     claim: async () => 'x',
     claimNext: async () => 'x',
     awaitWork: async () => 'x',
+    awaitMember: async () => 'x',
     conflicts: async () => 'x',
     complete: async () => 'x',
     release: async () => 'x',

@@ -299,6 +299,16 @@ export interface ChildToHostMethods {
     }
     result: string
   }
+  /** Blocks on the member turn captured when the call begins; it never sends. */
+  'team/awaitMember': {
+    params: {
+      readonly scope: TeamCallScope
+      readonly member: string
+      readonly cycle?: number
+      readonly blockMs?: number
+    }
+    result: string
+  }
   'team/conflicts': {
     params: { readonly scope: TeamCallScope; readonly paths: readonly string[] }
     result: string
@@ -344,6 +354,8 @@ export interface ChildToHostMethods {
 export interface TeamCallScope {
   readonly runtime?: string
   readonly sessionId?: string
+  readonly plugin?: string
+  readonly invocation?: string
 }
 
 /** The forge plane's answers, as they cross the child boundary. */

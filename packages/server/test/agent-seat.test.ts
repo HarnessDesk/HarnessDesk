@@ -1535,7 +1535,7 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   assert.deepEqual(held?.passedOver, [])
 })
 
-test('through the host: a member seated as an Agent goes by its name in a room, numbered like any other name', async (t) => {
+test('through the host: members seated as the same Agent are disambiguated by their recorded Seat labels', async (t) => {
   const { harness, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=big/high')
   const room = (await client.call('team/room/create', { root: work, name: 'Review' })) as TeamState
@@ -1544,7 +1544,10 @@ test('through the host: a member seated as an Agent goes by its name in a room, 
     await client.call('team/room/join', { room: room.id, runtime: 'seatfake', sessionId: String(seated.id) })
   }
   const peers = (await client.call('team/peers', { room: room.id })) as TeamPeerInfo[]
-  assert.deepEqual(peers.map((one) => one.nickname).sort(), ['Reviewer', 'Reviewer 2'])
+  assert.deepEqual(peers.map((one) => one.nickname).sort(), [
+    'Reviewer · Seat Fake · Big · High',
+    'Reviewer · Seat Fake · Big · High 2',
+  ])
 })
 
 test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {

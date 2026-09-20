@@ -102,7 +102,8 @@ import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { Flows, runCheck } from './flows.js'
-import { Serial } from './goals/assignments.js'
+import { dispatchAfter, Serial } from './goals/assignments.js'
+import { goalMembers } from './goals/members.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
 import { availablePorts, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
@@ -697,14 +698,42 @@ export class Host {
       // the room's post is such a use. This used to throw "not attached" for
       // exactly the conversations the user's own composer reopens without a
       // word, which made a room's members vanish on every catalogue refresh.
-      send: async (runtime, id, text) => {
-        const live = await this.#teamLive(runtime, id)
-        await live.send([{ type: 'text', text }])
+      send: async (runtime, id, text, allowed) => {
+        await dispatchAfter(
+          allowed ?? (() => ({ ok: true })),
+          () => this.#teamLive(runtime, id),
+          async (live) => { await live.send([{ type: 'text', text }]) },
+        )
       },
-      steer: async (runtime, id, text) => {
-        const live = await this.#teamLive(runtime, id)
-        await live.steer([{ type: 'text', text }])
+      steer: async (runtime, id, text, allowed) => {
+        await dispatchAfter(
+          allowed ?? (() => ({ ok: true })),
+          () => this.#teamLive(runtime, id),
+          (live) => live.steer([{ type: 'text', text }]),
+        )
       },
+      goalMembers: (goal) => {
+        const document = this.#goalStore.read(goal)
+        return {
+          seats: goalMembers(document, this.#evidence.seats.all()),
+          legacy: document.legacy?.nicknames,
+          sentence: document.goal.sentence,
+        }
+      },
+      memberStatus: (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        if (!record) return { exists: true, turn: null, stopped: null }
+        const running = [...record.running]
+        if (running.length > 1) {
+          throw new Error('This member has more than one running turn; wait after one finishes.')
+        }
+        return {
+          exists: true,
+          turn: running[0] ? String(running[0]) : null,
+          stopped: record.detached ? 'the agent stopped' : null,
+        }
+      },
+      canDispatch: (goal) => this.#goals.canDispatch(goal),
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
       mutate: (state) => this.#goalSerial.run(() => this.#saveTeamProjection(state)),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
@@ -882,7 +911,7 @@ export class Host {
       },
       refuseMail: async (goal: string, seat: SeatId) => {
         const record = this.#evidence.seats.byId(seat)
-        if (record) this.#team.refuseSeatMail(goal, record.session.runtime, record.session.sessionId)
+        if (record) this.#team.refuseSeatMail(goal, record.session.runtime, record.session.sessionId, String(seat))
       },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
@@ -3678,7 +3707,7 @@ export class Host {
         runtime,
         String(event.sessionId),
         event.type === 'turn/completed'
-          ? { ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
+          ? { turn: String(event.turn.id), ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
           : undefined,
       )
       /* A seat of a running flow has exactly one turn, and it is meant to

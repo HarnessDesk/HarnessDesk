@@ -449,7 +449,7 @@ export class PluginHostProcess {
           return
         }
         const params = request.params as Record<string, unknown>
-        const scope = (params['scope'] ?? {}) as TeamScope
+        const claimed = (params['scope'] ?? {}) as TeamScope
         // The scope is the child's claim; the armed set is the parent's
         // knowledge. See `#teamScopes` — a claim the parent is not currently
         // standing behind is refused, not believed.
@@ -463,11 +463,17 @@ export class PluginHostProcess {
         // remains one trust domain — a plugin that lies about its identity is
         // still only reaching a window where the plugin it names is itself
         // mid-invocation — but the ambient, always-on grant is gone.
-        if (!this.#armedFor(scope, 'team')) {
+        if (!this.#armedFor(claimed, 'team')) {
           refuse(
             'Refused: this team call does not ride a live invocation the host dispatched to this plugin for that conversation, so it cannot be attributed. Team verbs work only while a tool call, context resolution, or command for that conversation — dispatched to this plugin, which must be granted `team` — is in flight.',
           )
           return
+        }
+        const scope: TeamScope = {
+          ...claimed,
+          ...(claimed.invocation
+            ? { signal: this.#browserInvocations.signal(claimed.invocation, claimed.plugin) }
+            : {}),
         }
         switch (request.method) {
           case 'team/board': {
@@ -521,6 +527,18 @@ export class PluginHostProcess {
             reply({
               response: request.request,
               result: await plane.awaitWork(scope, {
+                ...(cycle !== undefined ? { cycle: Number(cycle) } : {}),
+                ...(blockMs !== undefined ? { blockMs: Number(blockMs) } : {}),
+              }),
+            })
+            return
+          }
+          case 'team/awaitMember': {
+            const { member, cycle, blockMs } = params as { member: string; cycle?: number; blockMs?: number }
+            reply({
+              response: request.request,
+              result: await plane.awaitMember(scope, {
+                member: String(member ?? ''),
                 ...(cycle !== undefined ? { cycle: Number(cycle) } : {}),
                 ...(blockMs !== undefined ? { blockMs: Number(blockMs) } : {}),
               }),
@@ -658,7 +676,6 @@ export class PluginHostProcess {
       if (
         input.browser &&
         owner?.enabled &&
-        owner.permissions.browser &&
         owner.contributions.some(
           (entry) => entry.id === namespaced && scopeApplies(entry.scope, input.scope),
         )
@@ -758,13 +775,21 @@ export class PluginHostProcess {
    * write a `team/*` frame while armed would reach the board without the
    * grant the manifest never asked for.
    */
-  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown }, plane: 'team' | 'forge'): boolean {
+  #armedFor(scope: { readonly runtime?: unknown; readonly sessionId?: unknown; readonly plugin?: unknown; readonly invocation?: unknown }, plane: 'team' | 'forge'): boolean {
     if (typeof scope.runtime !== 'string' || typeof scope.sessionId !== 'string' || typeof scope.plugin !== 'string') {
       return false
     }
     if ((this.#teamScopes.get(teamScopeKey(scope.runtime, scope.sessionId, scope.plugin)) ?? 0) <= 0) return false
     const plugin = this.#plugins.find((entry) => String(entry.instanceId) === scope.plugin)
-    return plugin !== undefined && plugin.enabled && plugin.permissions[plane] === true
+    if (plugin === undefined || !plugin.enabled || plugin.permissions[plane] !== true) return false
+    if (scope.invocation !== undefined) {
+      try {
+        this.#browserInvocations.resolve(scope.invocation, scope.plugin)
+      } catch {
+        return false
+      }
+    }
+    return true
   }
 
   /** The plugins whose scoped engine calls — team or forge — a live invocation arms. */

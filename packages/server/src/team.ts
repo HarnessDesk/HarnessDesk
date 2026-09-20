@@ -13,6 +13,7 @@ import {
   type Plan,
   type IntentState,
   type RuntimeId,
+  type SeatRecord,
   type SessionKey,
   type TeamActor,
   type TeamEntry,
@@ -26,6 +27,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_YET } from './errno.js'
+import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
+import { memberNames } from './goals/members.js'
 
 /**
  * The team plane: one board and one channel per workspace, host-owned.
@@ -261,9 +264,29 @@ export interface TeamPort {
   /** The workspace a session's folder belongs to; null when none is open. */
   rootOf(cwd: string): Promise<string | null>
   /** Starts a turn on an idle conversation with this text. */
-  send(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
+  send(
+    runtime: RuntimeId,
+    sessionId: string,
+    text: string,
+    allowed?: () => { ok: true } | { ok: false; reason: string },
+  ): Promise<void>
   /** Injects into a running turn — only where the runtime can. */
-  steer(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
+  steer(
+    runtime: RuntimeId,
+    sessionId: string,
+    text: string,
+    allowed?: () => { ok: true } | { ok: false; reason: string },
+  ): Promise<void>
+  /** Current kept Seats and imported labels for a durable Goal. */
+  goalMembers?(goal: string): {
+    readonly seats: readonly SeatRecord[]
+    readonly legacy?: Readonly<Record<string, string>>
+    readonly sentence?: string
+  }
+  /** The live turn state for one of those Seats. */
+  memberStatus?(seat: SeatRecord): MemberStatus
+  /** Rechecked after a live handle is prepared and immediately before delivery. */
+  canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
   /** Goal-backed desks persist the board payload before announcing it. */
@@ -346,6 +369,8 @@ export interface TeamTurnFailure {
 export interface TeamCallScope {
   readonly runtime?: string
   readonly sessionId?: string
+  readonly invocation?: string
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -665,6 +690,8 @@ export class Team {
   readonly #deniedInTurn = new Set<string>()
   readonly #deletedMembers = new Map<string, string>()
   #waiters = new Set<Waiter>()
+  readonly #memberWaits = new Map<string, MemberWaits>()
+  readonly #waitingInvocations = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
   /** Latest content per file; a burst of mutations becomes one write. */
   readonly #queuedContent = new Map<string, string | null>()
@@ -1523,7 +1550,15 @@ export class Team {
         return
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, entry.envelope)
+        const sender = entry.from.kind === 'agent'
+          ? { runtime: entry.from.runtime, sessionId: entry.from.sessionId }
+          : null
+        await this.#port.send(
+          peer.runtime,
+          peer.sessionId,
+          entry.envelope,
+          sender ? () => this.#deliveryAllowed(board, sender, peer) : undefined,
+        )
         this.#updateEntry(roots, entryId, { state: 'delivered', reason: null })
       } catch (error) {
         this.#updateEntry(roots, entryId, {
@@ -1821,12 +1856,28 @@ export class Team {
   }
 
   /** Refuse undelivered agent mail for a Seat that has left this Goal. */
-  refuseSeatMail(room: string, runtime: string, sessionId: string): void {
+  refuseSeatMail(room: string, runtime: string, sessionId: string, seatId?: string): void {
     this.#refusePending(
       keyOf(runtime, sessionId),
       (pending) => pending.roots.includes(room),
       'The Seat was released before the message was read.',
     )
+    const board = this.#boards.get(room)
+    if (board) {
+      for (const entry of board.channel) {
+        if (entry.kind !== 'message' || entry.state !== 'held') continue
+        const fromSeat = entry.from.kind === 'agent' && entry.from.runtime === runtime && entry.from.sessionId === sessionId
+        const toSeat = entry.to?.runtime === runtime && entry.to.sessionId === sessionId
+        if (fromSeat || toSeat) this.#updateEntry([room], entry.id, {
+          state: 'refused',
+          reason: 'The Seat was released before the message was read.',
+        })
+      }
+    }
+    const known = seatId ?? this.#goalMembership(room)?.seats.find((candidate) =>
+      candidate.session.runtime === runtime && candidate.session.sessionId === sessionId,
+    )?.id
+    if (known) this.#memberWaits.get(room)?.gone(String(known))
   }
 
   /**
@@ -1839,6 +1890,56 @@ export class Team {
       if (waiter.timer) clearTimeout(waiter.timer)
       this.#waiters.delete(waiter)
       waiter.resolve(`stand down — ${reason}`)
+    }
+    for (const waits of this.#memberWaits.values()) waits.close(reason)
+    this.#memberWaits.clear()
+    this.#waitingInvocations.clear()
+  }
+
+  /** Waits for the turn that is running now; it never starts or messages one. */
+  async awaitMember(
+    scope: TeamCallScope,
+    options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+  ): Promise<string> {
+    const caller = this.#caller(scope)
+    const board = this.#roomOf(caller.runtime, caller.sessionId)
+    if (!board) return 'gone; cycle: 1'
+    const membership = this.#goalMembership(board.id)
+    if (!membership || !this.#port.memberStatus) return 'gone; cycle: 1'
+    const callerSeat = membership.seats.find((seat) =>
+      seat.session.runtime === caller.runtime && seat.session.sessionId === caller.sessionId,
+    )
+    if (!callerSeat) return `gone; cycle: ${(options.cycle ?? 0) + 1}`
+    const names = memberNames(membership.seats, membership.legacy)
+    const needle = options.member.trim().toLowerCase()
+    const exact = membership.seats.filter((seat) => names.get(String(seat.id))?.toLowerCase() === needle)
+    const matches = exact.length > 0 ? exact : membership.seats.filter((seat) =>
+      names.get(String(seat.id))?.toLowerCase().includes(needle),
+    )
+    if (matches.length > 1) {
+      throw new Error(`“${options.member}” matches ${matches.length} members: ${matches.map((seat) => names.get(String(seat.id))).join(', ')}. Name one exactly.`)
+    }
+    const target = matches[0]
+    const waits = this.#waitsFor(board.id)
+    if (!target) {
+      return waits.wait(String(callerSeat.id), '__missing__', options.cycle, options.blockMs, scope.signal)
+    }
+    const ready = this.#port.canDispatch?.(board.id)
+    if (ready && !ready.ok) throw new Error(ready.reason)
+    if (scope.invocation && this.#waitingInvocations.has(scope.invocation)) {
+      throw new Error('This invocation is already waiting for a member')
+    }
+    // Immediate answers do not consume the per-invocation pending slot.
+    const status = this.#port.memberStatus(target)
+    if (status.turn === null || !status.exists || scope.signal?.aborted) {
+      return waits.wait(String(callerSeat.id), String(target.id), options.cycle, options.blockMs, scope.signal)
+    }
+    if (!scope.invocation) throw new Error('This member wait is not attached to a live host invocation.')
+    this.#waitingInvocations.add(scope.invocation)
+    try {
+      return await waits.wait(String(callerSeat.id), String(target.id), options.cycle, options.blockMs, scope.signal)
+    } finally {
+      this.#waitingInvocations.delete(scope.invocation)
     }
   }
 
@@ -2338,7 +2439,7 @@ export class Team {
     }
 
     const envelope = wrapContext(
-      agentMessageSource(caller.agent, caller.title),
+      this.#messageSource(board, caller),
       `${text}\n\n${AGENT_MESSAGE_NOTICE}`,
     )
     const record = (state: TeamMessage['state'], reason: string | null = null): TeamMessage => {
@@ -2379,7 +2480,12 @@ export class Team {
 
     if (!peer.busy) {
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, envelope)
+        await this.#port.send(
+          peer.runtime,
+          peer.sessionId,
+          envelope,
+          () => this.#deliveryAllowed(board, caller, peer),
+        )
       } catch (error) {
         audit('send-failed')
         record('refused', `Sending failed: ${errorText(error)}`)
@@ -2402,7 +2508,12 @@ export class Team {
 
     if (args.wake && peer.canSteer) {
       try {
-        await this.#port.steer(peer.runtime, peer.sessionId, envelope)
+        await this.#port.steer(
+          peer.runtime,
+          peer.sessionId,
+          envelope,
+          () => this.#deliveryAllowed(board, caller, peer),
+        )
       } catch (error) {
         audit('steer-failed')
         record('refused', `Steering failed: ${errorText(error)}`)
@@ -2556,9 +2667,20 @@ export class Team {
      * knows what the turn said. The trailing idle nudge passes nothing and
      * must not be mistaken for a turn that answered with silence.
      */
-    completed?: { readonly answer?: string; readonly failure?: TeamTurnFailure },
+    completed?: { readonly turn?: string; readonly answer?: string; readonly failure?: TeamTurnFailure },
   ): Promise<void> {
     const key = keyOf(runtime, sessionId)
+    if (completed?.turn) {
+      for (const board of this.#boards.values()) {
+        const seat = this.#seatForSession(board.id, runtime, sessionId)
+        if (seat) this.#memberWaits.get(board.id)?.ended(
+          String(seat.id),
+          completed.turn,
+          completed.failure?.message ?? null,
+        )
+        if (seat) this.#memberWaits.get(board.id)?.cancel(String(seat.id))
+      }
+    }
     /* A turn ending is the strongest evidence there is that a conversation is
        alive, so it renews whatever that conversation holds — including through
        a long turn that touched the board only at the start. */
@@ -2591,7 +2713,16 @@ export class Team {
       if (waiting.length === 0) this.#pending.delete(key)
       if (!next) return
       try {
-        await this.#port.send(runtime, sessionId, next.envelope)
+        const original = this.#askerOf(next.roots, next.entryId)
+        const board = next.roots.map((root) => this.#boards.get(root)).find(Boolean)
+        await this.#port.send(
+          runtime,
+          sessionId,
+          next.envelope,
+          original?.kind === 'agent' && board
+            ? () => this.#deliveryAllowed(board, original, peer)
+            : undefined,
+        )
         this.#updateEntry(next.roots, next.entryId, { state: 'delivered', reason: null })
         const asker = this.#askerOf(next.roots, next.entryId)
         if (asker) this.#owe(peer, asker, next.roots)
@@ -2614,6 +2745,10 @@ export class Team {
     // reattached to a fresh agent has proved nothing yet — see `#used`.
     this.#used.delete(key)
     this.#deletedMembers.delete(key)
+    for (const board of this.#boards.values()) {
+      const seat = this.#seatForSession(board.id, runtime, sessionId)
+      if (seat) this.#memberWaits.get(board.id)?.gone(String(seat.id))
+    }
   }
 
   /**
@@ -2644,6 +2779,17 @@ export class Team {
     }
     for (const key of [...this.#deletedMembers.keys()]) {
       if (key.startsWith(prefix)) this.#deletedMembers.delete(key)
+    }
+    for (const board of this.#boards.values()) {
+      for (const seat of this.#goalMembership(board.id)?.seats ?? []) {
+        if (seat.session.runtime !== runtime) continue
+        const status = this.#port.memberStatus?.(seat)
+        if (status?.turn) this.#memberWaits.get(board.id)?.ended(
+          String(seat.id),
+          status.turn,
+          reason ?? 'the agent stopped',
+        )
+      }
     }
   }
 
@@ -3073,6 +3219,64 @@ export class Team {
        fired, because a capability is a claim and this is evidence. */
     this.#used.add(keyOf(peer.runtime, peer.sessionId))
     return peer
+  }
+
+  #goalMembership(goal: string): ReturnType<NonNullable<TeamPort['goalMembers']>> | null {
+    return this.#port.goalMembers?.(goal) ?? null
+  }
+
+  #seatForSession(goal: string, runtime: string, sessionId: string): SeatRecord | null {
+    return this.#goalMembership(goal)?.seats.find((seat) =>
+      seat.session.runtime === runtime && seat.session.sessionId === sessionId,
+    ) ?? null
+  }
+
+  #waitsFor(goal: string): MemberWaits {
+    let waits = this.#memberWaits.get(goal)
+    if (waits) return waits
+    waits = new MemberWaits((member) => {
+      const seat = this.#goalMembership(goal)?.seats.find((candidate) => String(candidate.id) === member)
+      if (!seat || !this.#port.memberStatus) return { exists: false, turn: null, stopped: null }
+      return this.#port.memberStatus(seat)
+    })
+    this.#memberWaits.set(goal, waits)
+    return waits
+  }
+
+  #deliveryAllowed(
+    board: Board,
+    sender: { runtime: string; sessionId: string },
+    receiver: { runtime: string; sessionId: string },
+  ): { ok: true } | { ok: false; reason: string } {
+    const membership = this.#goalMembership(board.id)
+    if (!membership) return { ok: true }
+    const holds = (one: { runtime: string; sessionId: string }): boolean => membership.seats.some((seat) =>
+      seat.session.runtime === one.runtime && seat.session.sessionId === one.sessionId,
+    )
+    if (!holds(sender) || !holds(receiver)) {
+      return { ok: false, reason: 'The sender or receiver no longer holds a Seat in this Goal.' }
+    }
+    return this.#port.canDispatch?.(board.id) ?? { ok: true }
+  }
+
+  #messageSource(board: Board, caller: TeamPeer): string {
+    const membership = this.#goalMembership(board.id)
+    const seat = membership?.seats.find((candidate) =>
+      candidate.session.runtime === caller.runtime && candidate.session.sessionId === caller.sessionId,
+    )
+    if (!seat) return agentMessageSource(caller.agent, caller.title)
+    const standing = seat.standing.kind === 'permission'
+      ? `permission ${seat.standing.permission}`
+      : seat.standing.kind === 'ceiling'
+        ? `standing ceiling ${seat.standing.level}`
+        : 'standing not recorded'
+    const ceiling = seat.ceiling
+      ? `ceiling ${seat.ceiling.level} (${seat.ceiling.hold})`
+      : 'ceiling not recorded'
+    const details = [seat.seatLabel, standing, ceiling, membership?.sentence ? `Goal: ${membership.sentence}` : null]
+      .filter((part): part is string => part !== null)
+      .join('; ')
+    return agentMessageSource(seat.agent?.name ?? this.#nameOn(board, caller), details)
   }
 
   /** Members observed calling a team verb, this run. Never persisted: a name
@@ -3736,6 +3940,14 @@ export class Team {
    */
   #nameOn(board: Board, peer: TeamPeer): string {
     const key = keyOf(peer.runtime, peer.sessionId)
+    const membership = this.#goalMembership(board.id)
+    if (membership) {
+      const seat = membership.seats.find((candidate) =>
+        candidate.session.runtime === peer.runtime && candidate.session.sessionId === peer.sessionId,
+      )
+      const name = seat ? memberNames(membership.seats, membership.legacy).get(String(seat.id)) : undefined
+      if (name) return name
+    }
     /* Names are unique among the members of *this room*, not among every
        conversation that ever passed through it and not among everything
        running anywhere.

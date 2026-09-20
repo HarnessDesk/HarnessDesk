@@ -69,6 +69,7 @@ export {
   BrowserScopes,
   browserPartition,
   currentBrowserIdentity,
+  currentInvocationSignal,
   runBrowserInvocation,
   withBrowserIdentity,
   type BrowserIdentity,

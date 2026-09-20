@@ -136,10 +136,14 @@ export function convertRoom(file: string, value: unknown, source?: string): {
     intents: raw.intents.map((card) => ({ ...card, files: card.files ?? [], dependsOn: card.dependsOn ?? [] })),
     channel: raw.channel,
   }
+  const legacyNames = Object.fromEntries(seats.flatMap((seat) => {
+    const old = raw.nicknames?.[`${seat.runtime}\u0000${seat.sessionId}`]
+    return old ? [[seat.id, old]] : []
+  }))
   const legacy: NonNullable<GoalDocument['legacy']> = {
     source: file,
     plans,
-    nicknames: raw.nicknames ?? {},
+    nicknames: legacyNames,
     roster: raw.roster ?? {},
     sourceSha256: createHash('sha256').update(source ?? JSON.stringify(value)).digest('hex'),
     seatLocations: Object.fromEntries(seats.map((seat) => [seat.id, seat.cwdKnown ? 'remembered' : 'inferred'])),

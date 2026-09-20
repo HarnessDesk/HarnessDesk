@@ -66,6 +66,8 @@ test('migration records remembered and inferred locations without fabricating au
   assert.equal(remembered.role, 'reviewer')
   assert.equal(remembered.seatLabel, 'Fake Runtime · small')
   assert.equal(inferredRoom.legacy.seatLocations[inferred.id], 'inferred')
+  assert.equal(inferredRoom.legacy.nicknames[inferred.id], 'Old name')
+  assert.equal(inferredRoom.legacy.nicknames[member], undefined)
   const opening = migrationOpening(inferred)
   assert.deepEqual(opening.standing, { kind: 'unknown' })
   assert.deepEqual(opening.checkout, { cwd: '/work/legacy', project: '/work/legacy', branch: null, head: null })
