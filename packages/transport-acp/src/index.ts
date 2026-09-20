@@ -573,6 +573,8 @@ export class AcpError extends Error {
      * sentence nobody could act on.
      */
     readonly details?: string,
+    /** The child process exit code, when the failure came from process exit. */
+    readonly exitCode?: number,
   ) {
     super(message)
     this.name = 'AcpError'
@@ -968,6 +970,9 @@ export class AcpConnection {
       this.#failAll(
         new AcpError(
           `The agent exited${code !== null ? ` (code ${code})` : ''} while requests were waiting.`,
+          undefined,
+          undefined,
+          code ?? undefined,
         ),
       )
       this.#options.onExit?.(code)
