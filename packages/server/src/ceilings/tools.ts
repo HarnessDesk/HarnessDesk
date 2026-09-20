@@ -79,12 +79,12 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
 }
 
 /** What a desk tool above read does, in the words its refusal uses. */
-export const TOOL_ACTIONS: Readonly<Record<string, string>> = {
-  pr_create: 'opening a pull request',
-  pr_update: 'changing a pull request',
-  pr_merge: 'merging a pull request',
-  run_tests: 'running the tests',
-  create_checkpoint: 'taking a checkpoint',
+export const TOOL_WORDS: Readonly<Record<string, { readonly doing: string; readonly ask: string }>> = {
+  pr_create: { doing: 'opening a pull request', ask: 'open a pull request' },
+  pr_update: { doing: 'changing a pull request', ask: 'change a pull request' },
+  pr_merge: { doing: 'merging a pull request', ask: 'merge a pull request' },
+  run_tests: { doing: 'running the tests', ask: 'run the tests' },
+  create_checkpoint: { doing: 'taking a checkpoint', ask: 'take a checkpoint' },
 }
 
 /**

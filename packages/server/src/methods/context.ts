@@ -2,6 +2,7 @@ import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
   AgentRuntime,
   AgentSession,
+  ApprovalDecision,
   CeilingLevel,
   ArchiveFilter,
   BackupFile,
@@ -210,6 +211,10 @@ export interface HostContext {
      * (`SessionRecord.seatedAs`).
      */
     recordAgent(runtime: string, sessionId: string, seated: SeatedAs): Session
+  }
+
+  readonly ceilings: {
+    answerHeld(approvalId: string, decision: ApprovalDecision): boolean
   }
 
   readonly queue: {

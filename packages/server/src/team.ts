@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import {
   AGENT_MESSAGE_NOTICE,
+  agentMessageCeilingNotice,
   agentMessageSource,
   cleanModel,
   sessionKey,
@@ -13,6 +14,7 @@ import {
   type Plan,
   type IntentState,
   type RuntimeId,
+  type SeatCeiling,
   type SessionKey,
   type TeamActor,
   type TeamEntry,
@@ -248,6 +250,13 @@ export interface TeamPeer {
    * what the board remembers about it. See `Board.roster`.
    */
   readonly here: boolean
+  readonly ceiling?: SeatCeiling | null
+}
+
+export interface TeamSender {
+  readonly runtime: RuntimeId
+  readonly sessionId: string
+  readonly name: string
 }
 
 /**
@@ -261,9 +270,9 @@ export interface TeamPort {
   /** The workspace a session's folder belongs to; null when none is open. */
   rootOf(cwd: string): Promise<string | null>
   /** Starts a turn on an idle conversation with this text. */
-  send(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
+  send(runtime: RuntimeId, sessionId: string, text: string, from: TeamSender | null): Promise<void>
   /** Injects into a running turn — only where the runtime can. */
-  steer(runtime: RuntimeId, sessionId: string, text: string): Promise<void>
+  steer(runtime: RuntimeId, sessionId: string, text: string, from: TeamSender | null): Promise<void>
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
   /** A room that no longer exists, so a window can stop drawing it. */
@@ -399,7 +408,13 @@ interface PendingDelivery {
    * never do, so board-only mode and inbound policy sweeps leave these alone.
    */
   readonly byUser?: boolean
+  readonly from?: TeamSender | null
 }
+
+const senderOfActor = (actor: TeamActor): TeamSender | null =>
+  actor.kind === 'agent'
+    ? { runtime: actor.runtime, sessionId: actor.sessionId, name: actor.nickname ?? actor.title }
+    : null
 
 // The separator is NUL, spelled as an escape so this file stays text to Git
 // and every diff tool; neither half of the key can contain it.
@@ -1314,11 +1329,11 @@ export class Team {
           text: body,
           state: 'queued',
         })
-        this.#enqueue(peer, entry.id, [board.id], body, true)
+        this.#enqueue(peer, entry.id, [board.id], body, true, null)
         continue
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, body)
+        await this.#port.send(peer.runtime, peer.sessionId, body, null)
         this.#message(board, { from: { kind: 'user' }, to: address, text: body, state: 'delivered' })
         this.#owe(peer, { kind: 'user' }, [board.id])
       } catch (error) {
@@ -1401,7 +1416,7 @@ export class Team {
         return
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, body)
+        await this.#port.send(peer.runtime, peer.sessionId, body, null)
         rows[index] = { to: address, text: body, state: 'delivered', peer }
       } catch (error) {
         rows[index] = { to: address, text: body, state: 'refused', reason: `Sending failed: ${errorText(error)}` }
@@ -1428,7 +1443,7 @@ export class Team {
         this.#owe(row.peer, { kind: 'user' }, [board.id])
         tally.delivered += 1
       } else if (row.state === 'queued' && row.peer) {
-        this.#enqueue(row.peer, entry.id, [board.id], row.text, true)
+        this.#enqueue(row.peer, entry.id, [board.id], row.text, true, null)
         tally.queued += 1
       } else {
         tally.refused += 1
@@ -1475,15 +1490,16 @@ export class Team {
         })
         return
       }
+      const sender = senderOfActor(entry.from)
       if (peer.busy) {
         this.#updateEntry(roots, entryId, { state: 'queued', reason: null })
         // Released by the user, so the pending row carries their authority:
         // a later policy sweep must not re-hold what they explicitly freed.
-        this.#enqueue(peer, entryId, roots, entry.envelope, true)
+        this.#enqueue(peer, entryId, roots, entry.envelope, true, sender)
         return
       }
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, entry.envelope)
+        await this.#port.send(peer.runtime, peer.sessionId, entry.envelope, sender)
         this.#updateEntry(roots, entryId, { state: 'delivered', reason: null })
       } catch (error) {
         this.#updateEntry(roots, entryId, {
@@ -2288,10 +2304,13 @@ export class Team {
       this.#lastText.set(pair, { text, at: now })
     }
 
+    const ceiling = caller.ceiling?.level ?? null
+    const asked = ceiling ? agentMessageCeilingNotice(ceiling) : null
     const envelope = wrapContext(
-      agentMessageSource(caller.agent, caller.title),
-      `${text}\n\n${AGENT_MESSAGE_NOTICE}`,
+      agentMessageSource(caller.agent, caller.title, ceiling),
+      `${text}\n\n${AGENT_MESSAGE_NOTICE}${asked ? ` ${asked}` : ''}`,
     )
+    const from: TeamSender = { runtime: caller.runtime, sessionId: caller.sessionId, name: this.#nameOn(board, caller) }
     const record = (state: TeamMessage['state'], reason: string | null = null): TeamMessage => {
       const entry = this.#message(board, {
         from: this.#actorOf(board, caller),
@@ -2330,7 +2349,7 @@ export class Team {
 
     if (!peer.busy) {
       try {
-        await this.#port.send(peer.runtime, peer.sessionId, envelope)
+        await this.#port.send(peer.runtime, peer.sessionId, envelope, from)
       } catch (error) {
         audit('send-failed')
         record('refused', `Sending failed: ${errorText(error)}`)
@@ -2353,7 +2372,7 @@ export class Team {
 
     if (args.wake && peer.canSteer) {
       try {
-        await this.#port.steer(peer.runtime, peer.sessionId, envelope)
+        await this.#port.steer(peer.runtime, peer.sessionId, envelope, from)
       } catch (error) {
         audit('steer-failed')
         record('refused', `Steering failed: ${errorText(error)}`)
@@ -2374,7 +2393,7 @@ export class Team {
     accept()
     audit('queued')
     const entry = record('queued', null)
-    this.#enqueue(peer, entry.id, [board.id], envelope)
+    this.#enqueue(peer, entry.id, [board.id], envelope, false, from)
     const why = args.wake
       ? `${peer.agent} cannot take input mid-turn, so it is queued instead`
       : 'it is queued'
@@ -2542,7 +2561,7 @@ export class Team {
       if (waiting.length === 0) this.#pending.delete(key)
       if (!next) return
       try {
-        await this.#port.send(runtime, sessionId, next.envelope)
+        await this.#port.send(runtime, sessionId, next.envelope, next.from ?? null)
         this.#updateEntry(next.roots, next.entryId, { state: 'delivered', reason: null })
         const asker = this.#askerOf(next.roots, next.entryId)
         if (asker) this.#owe(peer, asker, next.roots)
@@ -3002,6 +3021,13 @@ export class Team {
       }
     }
     return gone
+  }
+
+  /** What a conversation's room calls it, when it is an open member. */
+  nameOf(runtime: string, sessionId: string): string | null {
+    const board = this.#roomOf(runtime, sessionId)
+    const peer = this.#port.peers().find((one) => one.runtime === runtime && one.sessionId === sessionId)
+    return board && peer ? this.#nameOn(board, peer) : null
   }
 
   /** The room a conversation is in, if it is in one. */
@@ -3555,6 +3581,7 @@ export class Team {
     roots: readonly string[],
     envelope: string,
     byUser = false,
+    from: TeamSender | null = null,
   ): void {
     const key = keyOf(peer.runtime, peer.sessionId)
     const waiting = this.#pending.get(key) ?? []
@@ -3564,6 +3591,7 @@ export class Team {
       envelope,
       receiver: { runtime: peer.runtime, sessionId: peer.sessionId },
       ...(byUser ? { byUser } : {}),
+      ...(from ? { from } : {}),
     })
     this.#pending.set(key, waiting)
   }

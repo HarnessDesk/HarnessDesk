@@ -14,19 +14,27 @@ import {
   type ToolResult,
 } from '@harnessdesk/protocol'
 
-import { TOOL_ACTIONS, toolCeiling } from './tools.js'
+import type { TurnCause } from './cause.js'
+import { TOOL_WORDS, toolCeiling } from './tools.js'
 
 /** What the tool gate needs from the host. */
 export interface CeilingGatePort {
-  governing(runtime: string, sessionId: string): GoverningSeat | null
+  rootOf(runtime: string, sessionId: string): Conversation
+  ceilingOf(runtime: string, sessionId: string): SeatCeiling | null
+  causeOf(runtime: string, sessionId: string, turnId?: string): TurnCause
+  nameOf(runtime: string, sessionId: string): string
   say(runtime: string, sessionId: string, text: string): void
+  askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'>
 }
 
-/** The ceiling and the seated conversation that owns it. */
-export interface GoverningSeat {
-  readonly ceiling: SeatCeiling
+export interface Conversation {
   readonly runtime: string
   readonly sessionId: string
+}
+
+export interface HeldQuestion {
+  readonly summary: string
+  readonly reason: string
 }
 
 export interface GatedCall {
@@ -41,8 +49,24 @@ const WORD: Readonly<Record<CeilingLevel, string>> = { read: 'Read', edit: 'Edit
 
 /** A refusal says what the seat may do, never the tool's wire name. */
 export const refusalOf = (tool: string, needs: CeilingLevel, level: CeilingLevel): string => {
-  const action = TOOL_ACTIONS[tool]
-  return `${WORD[needs]} refused: this seat may ${level}, not ${needs}${action ? ` — ${action} needs a seat that may ${needs}` : ''}.`
+  const doing = TOOL_WORDS[tool]?.doing
+  return `${WORD[needs]} refused: this seat may ${level}, not ${needs}${doing ? ` — ${doing} needs a seat that may ${needs}` : ''}.`
+}
+
+const askOf = (tool: string, needs: CeilingLevel): string => TOOL_WORDS[tool]?.ask ?? `use a tool that needs a seat that may ${needs}`
+
+export const heldWords = (tool: string, needs: CeilingLevel, sender: { readonly name: string; readonly level: CeilingLevel }, receiver: string) => {
+  const ask = askOf(tool, needs)
+  return {
+    question: {
+      summary: `${sender.name} asked ${receiver} to ${ask}.`,
+      reason: `${sender.name} may ${sender.level}, and a message cannot carry a ceiling across: what it may not do itself, it may not ask another agent to do for it. Allow it once, or refuse it.`,
+    },
+    waiting: `Waiting for you: ${sender.name} asked ${receiver} to ${ask}, which is beyond what ${sender.name} may do.`,
+    allowed: `You allowed ${receiver} to ${ask} for ${sender.name}.`,
+    refused: `You refused: ${receiver} will not ${ask} for ${sender.name}. Nothing was done — say so, and go on without it.`,
+    unanswered: `Nobody answered, so nothing was done: ${sender.name} may ${sender.level}, and to ${ask} for it needs the person. End your turn, and say that this waits for the person.`,
+  }
 }
 
 export class CeilingGate {
@@ -51,10 +75,27 @@ export class CeilingGate {
   async admit(call: GatedCall): Promise<Admission> {
     const { runtime, sessionId } = call.scope
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
-    const seat = this.port.governing(String(runtime), String(sessionId))
-    if (!seat || reaches(seat.ceiling.level, call.needs)) return { admitted: true }
-    const refusal = refusalOf(call.tool, call.needs, seat.ceiling.level)
-    this.port.say(seat.runtime, seat.sessionId, refusal)
+    const root = this.port.rootOf(String(runtime), String(sessionId))
+    const ceiling = this.port.ceilingOf(root.runtime, root.sessionId)
+    if (ceiling && !reaches(ceiling.level, call.needs)) {
+      const refusal = refusalOf(call.tool, call.needs, ceiling.level)
+      this.port.say(root.runtime, root.sessionId, refusal)
+      return { admitted: false, refusal }
+    }
+    if (!reaches(call.needs, 'publish')) return { admitted: true }
+    const own = root.runtime === String(runtime) && root.sessionId === String(sessionId)
+    const turnId = own && call.scope.turnId !== undefined ? String(call.scope.turnId) : undefined
+    const cause = this.port.causeOf(root.runtime, root.sessionId, turnId)
+    if (cause.kind !== 'message' || !cause.ceiling || reaches(cause.ceiling.level, call.needs)) return { admitted: true }
+    const words = heldWords(call.tool, call.needs, { name: cause.from.name, level: cause.ceiling.level }, this.port.nameOf(root.runtime, root.sessionId))
+    this.port.say(root.runtime, root.sessionId, words.waiting)
+    const answer = await this.port.askPerson(root.runtime, root.sessionId, words.question)
+    if (answer === 'allowed') {
+      this.port.say(root.runtime, root.sessionId, words.allowed)
+      return { admitted: true }
+    }
+    const refusal = answer === 'refused' ? words.refused : words.unanswered
+    this.port.say(root.runtime, root.sessionId, refusal)
     return { admitted: false, refusal }
   }
 }

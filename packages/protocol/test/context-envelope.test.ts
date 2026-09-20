@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { agentMessageSource, openingOf, opensEnvelope, splitContext, wrapContext } from '../src/context-envelope.js'
+import { agentMessageCeilingNotice, agentMessageSource, isAgentMessageSource, openingOf, opensEnvelope, splitContext, wrapContext } from '../src/context-envelope.js'
 
 /**
  * A label survives the envelope exactly, whatever is in it.
@@ -149,4 +149,19 @@ test('a bare <context> is the user\u2019s own words, not an envelope (#224)', ()
   // The control: the labelless envelope a writer could actually produce.
   assert.equal(opensEnvelope(wrapContext('', 'body')), true)
   assert.equal(splitContext(wrapContext('', 'body')).injections[0]?.label, '')
+})
+
+test("a message's label names what its sender may do, and a sender nothing governs reads as it always has", () => {
+  assert.equal(agentMessageSource('Code reviewer', 'Checkout review', 'read'), 'Message from Code reviewer (read) — “Checkout review”')
+  assert.equal(agentMessageSource('Codex', null, 'publish'), 'Message from Codex (publish)')
+  assert.equal(agentMessageSource('Codex', 'Checkout review'), 'Message from Codex — “Checkout review”')
+  assert.equal(agentMessageSource('Codex', 'Checkout review', null), 'Message from Codex — “Checkout review”')
+  assert.ok(isAgentMessageSource(agentMessageSource('Code reviewer', null, 'read')))
+})
+
+test("what a message asks of its receiver about acting for its sender outside the checkout, by the sender's ceiling", () => {
+  assert.match(agentMessageCeilingNotice('read') ?? '', /Its sender may read and no more, .* pushing, opening a pull request or merging — waits for the person\./)
+  assert.match(agentMessageCeilingNotice('edit') ?? '', /Its sender may edit and no more, .* pushing, opening a pull request or merging — waits/)
+  assert.match(agentMessageCeilingNotice('publish') ?? '', /Its sender may publish and no more, .* merging — waits for the person\./)
+  assert.equal(agentMessageCeilingNotice('merge'), null)
 })
