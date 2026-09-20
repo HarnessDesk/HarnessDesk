@@ -33,7 +33,24 @@ const extraModels = () => {
   }
 }
 
+const geminiModels = () => {
+  const withdrawn = process.env.FAKE_CURSOR_WITHDRAW_GEMINI_FILE
+  if (withdrawn && existsSync(withdrawn)) return ''
+  return 'gemini-3.8-flash-low - Gemini 3.8 Flash Low\ngemini-3.8-flash-medium - Gemini 3.8 Flash Medium\ngemini-3.8-flash-high - Gemini 3.8 Flash High\n'
+}
+
 if (argv[0] === 'models') {
+  const hold = process.env.FAKE_CURSOR_HOLD_MODELS_FILE
+  if (hold && existsSync(hold)) {
+    const started = process.env.FAKE_CURSOR_MODELS_STARTED_FILE
+    if (started) writeFileSync(started, 'started')
+    while (existsSync(hold)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50)
+  }
+  const empty = process.env.FAKE_CURSOR_EMPTY_MODELS_FILE
+  if (empty && existsSync(empty)) {
+    process.stdout.write('Available models\n')
+    process.exit(0)
+  }
   // brain-9 exercises the dimension grammar: efforts, thinking, fast, max.
   const baseModels = process.env.FAKE_CURSOR_NO_AUTO_MODEL
     ? 'Available models\n\nfast-1 - Fast Model\nsmart-1 - Smart Model\n'
@@ -43,7 +60,7 @@ if (argv[0] === 'models') {
       'brain-9-low - Brain 9 Low\nbrain-9-high - Brain 9\nbrain-9-high-fast - Brain 9 Fast\n' +
       'brain-9-thinking-low - Brain 9 Low Thinking\nbrain-9-thinking-high - Brain 9 Thinking\n' +
       'brain-9-max - Brain 9 Max\n' +
-      'gemini-3.8-flash-low - Gemini 3.8 Flash Low\ngemini-3.8-flash-medium - Gemini 3.8 Flash Medium\ngemini-3.8-flash-high - Gemini 3.8 Flash High\n' +
+      geminiModels() +
       // FAKE_CURSOR_EXTRA_MODELS names a file of `id - label` lines that
       // plays models Cursor added after the bridge started: read on every
       // ask, so a test can add one between two asks.
@@ -102,7 +119,7 @@ if (prompt.includes('modern-model-not-found')) {
     n = Number(readFileSync(counter, 'utf8')) || 0
   } catch {}
   writeFileSync(counter, String(n + 1))
-  if (n < 2) {
+  if (n < 2 || (process.env.FAKE_CURSOR_WITHDRAW_GEMINI_FILE && existsSync(process.env.FAKE_CURSOR_WITHDRAW_GEMINI_FILE)) || (process.env.FAKE_CURSOR_HOLD_MODELS_FILE && existsSync(process.env.FAKE_CURSOR_HOLD_MODELS_FILE)) || (process.env.FAKE_CURSOR_EMPTY_MODELS_FILE && existsSync(process.env.FAKE_CURSOR_EMPTY_MODELS_FILE))) {
     process.stderr.write(`ActionRequiredError: AI Model Not Found Model name is not valid: "${model}"\n`)
     process.exit(1)
   }

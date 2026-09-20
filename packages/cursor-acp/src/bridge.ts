@@ -448,7 +448,11 @@ const START_RETRY_MS = Math.max(0, Number(process.env['CURSOR_ACP_START_RETRY_MS
  * one diagnostic line after the refusal would hide it.
  */
 const STARTUP_TRANSIENT =
-  /Available models:\s*(?:$|·)|AI Model Not Found.*Model name is not valid|Unexpected end of JSON input|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|Too Many Requests|\b429\b|rate limit/i
+  /Available models:\s*(?:$|·)|Unexpected end of JSON input|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|Too Many Requests|\b429\b|rate limit/i
+
+/** Cursor can use this wording for both a failed catalogue lookup and a model
+ * it has actually withdrawn. The current catalogue decides which one it is. */
+const MODEL_NOT_FOUND = /AI Model Not Found.*Model name is not valid/i
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -877,6 +881,15 @@ interface Session {
 interface ModelRow {
   readonly modelId: string
   readonly name: string
+}
+
+const modelRowsOf = (output: string): ModelRow[] => {
+  const rows: ModelRow[] = []
+  for (const line of output.split('\n')) {
+    const match = /^(\S+) - (.+)$/.exec(line.trim())
+    if (match) rows.push({ modelId: match[1]!, name: match[2]! })
+  }
+  return rows
 }
 
 export interface BridgeOptions {
@@ -1658,7 +1671,9 @@ export class CursorAcpBridge {
         } catch (error) {
           leave()
           const said = error instanceof Error ? error.message : String(error)
-          if (session.cancelled || spoke.yet || attempt >= START_ATTEMPTS || !STARTUP_TRANSIENT.test(said)) {
+          const retryable = await this.#retryableStartupError(session, said)
+          if (session.cancelled) return { stopReason: 'cancelled' }
+          if (spoke.yet || attempt >= START_ATTEMPTS || !retryable) {
             throw error
           }
           // The process died before its first event for a reason that reads as
@@ -2026,12 +2041,12 @@ export class CursorAcpBridge {
   }
 
   /** One short-lived cursor-agent subcommand; stdout, trimmed of nothing. */
-  #run(args: readonly string[], cwd: string): Promise<string> {
+  #run(args: readonly string[], cwd: string, signal?: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
       execFile(
         this.#command,
         [...args],
-        { cwd, timeout: 30_000, env: { ...process.env } },
+        { cwd, timeout: 30_000, env: { ...process.env }, signal },
         (error, stdout, stderr) => {
           if (error) {
             const detail = stderr.trim().split('\n').slice(-2).join(' · ')
@@ -2056,11 +2071,7 @@ export class CursorAcpBridge {
     if (this.#models && Date.now() - this.#modelsListedAt < modelsTtlMs()) return this.#models
     try {
       const output = await this.#run(['models'], process.cwd())
-      const rows: ModelRow[] = []
-      for (const line of output.split('\n')) {
-        const match = /^(\S+) - (.+)$/.exec(line.trim())
-        if (match) rows.push({ modelId: match[1]!, name: match[2]! })
-      }
+      const rows = modelRowsOf(output)
       this.#models = rows
       this.#modelsListedAt = Date.now()
     } catch (error) {
@@ -2073,6 +2084,35 @@ export class CursorAcpBridge {
       this.#models ??= []
     }
     return this.#models
+  }
+
+  /** Re-reads Cursor's live catalogue after a model-not-found startup error.
+   * `null` means the catalogue could not be read, so the bounded retry is
+   * safer than declaring a model absent on inconclusive evidence. */
+  async #freshModels(session: Session): Promise<readonly ModelRow[] | null> {
+    if (session.cancelled) return null
+    const controller = new AbortController()
+    const wake = () => controller.abort()
+    session.wake = wake
+    try {
+      const rows = modelRowsOf(await this.#run(['models'], process.cwd(), controller.signal))
+      this.#models = rows
+      this.#modelsListedAt = Date.now()
+      return rows
+    } catch (error) {
+      if (session.cancelled) return null
+      this.#log(`cursor-acp: could not refresh models: ${error instanceof Error ? error.message : String(error)}`)
+      return null
+    } finally {
+      if (session.wake === wake) session.wake = undefined
+    }
+  }
+
+  async #retryableStartupError(session: Session, said: string): Promise<boolean> {
+    if (STARTUP_TRANSIENT.test(said)) return true
+    if (!MODEL_NOT_FOUND.test(said)) return false
+    const models = await this.#freshModels(session)
+    return models === null || models.some((model) => model.modelId === session.modelId)
   }
 }
 

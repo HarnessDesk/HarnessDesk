@@ -1275,6 +1275,111 @@ test('a current Cursor model-not-found startup failure is retried', async () => 
   }
 })
 
+test('a current Cursor model-not-found error is final when a refreshed catalogue omits the model', async () => {
+  const counter = join(tempDir('cursor-acp-removed-model-'), 'count')
+  const withdrawn = join(tempDir('cursor-acp-removed-model-'), 'withdrawn')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: {
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: STATE,
+      CURSOR_CONFIG_DIR: CURSOR_HOME,
+      FAKE_CURSOR_MODERN_FLAKY_COUNTER: counter,
+      FAKE_CURSOR_WITHDRAW_GEMINI_FILE: withdrawn,
+      CURSOR_ACP_START_RETRY_MS: '100',
+    },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    // The catalogue is withdrawn after selection, as it can be when Cursor
+    // changes a model server-side while a desk stays open.
+    await session.setOption('model', 'gemini-3.8-flash')
+    writeFileSync(withdrawn, 'withdrawn')
+    await session.send([{ type: 'text', text: 'modern-model-not-found: say hello' }])
+    const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    assert.equal(turn.status, 'failed')
+    assert.equal(readFileSync(counter, 'utf8'), '1', 'a confirmed removed model is not retried')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a current Cursor model-not-found error is final when a refreshed catalogue is explicitly empty', async () => {
+  const counter = join(tempDir('cursor-acp-empty-models-'), 'count')
+  const empty = join(tempDir('cursor-acp-empty-models-'), 'empty')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: {
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: STATE,
+      CURSOR_CONFIG_DIR: CURSOR_HOME,
+      FAKE_CURSOR_MODERN_FLAKY_COUNTER: counter,
+      FAKE_CURSOR_EMPTY_MODELS_FILE: empty,
+      CURSOR_ACP_START_RETRY_MS: '100',
+    },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'gemini-3.8-flash')
+    writeFileSync(empty, 'empty')
+    await session.send([{ type: 'text', text: 'modern-model-not-found: say hello' }])
+    const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    assert.equal(turn.status, 'failed')
+    assert.equal(readFileSync(counter, 'utf8'), '1', 'an explicit empty catalogue is a final refusal')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
+test('a Stop interrupts a live catalogue refresh after a model-not-found error', async () => {
+  const dir = tempDir('cursor-acp-refresh-stop-')
+  const counter = join(dir, 'count')
+  const hold = join(dir, 'hold')
+  const started = join(dir, 'started')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: {
+      CURSOR_ACP_COMMAND: FAKE,
+      CURSOR_ACP_STATE_DIR: STATE,
+      CURSOR_CONFIG_DIR: CURSOR_HOME,
+      FAKE_CURSOR_MODERN_FLAKY_COUNTER: counter,
+      FAKE_CURSOR_HOLD_MODELS_FILE: hold,
+      FAKE_CURSOR_MODELS_STARTED_FILE: started,
+    },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'gemini-3.8-flash')
+    writeFileSync(hold, 'hold')
+    await session.send([{ type: 'text', text: 'modern-model-not-found: say hello' }])
+    for (let attempt = 0; attempt < 50 && !existsSync(started); attempt += 1) await pause(50)
+    assert.ok(existsSync(started), 'the catalogue refresh started')
+    const stoppedAt = Date.now()
+    await session.interrupt()
+    const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    assert.equal(turn.status, 'interrupted')
+    assert.ok(Date.now() - stoppedAt < 3_000, 'Stop aborts the catalogue refresh')
+  } finally {
+    rmSync(hold, { force: true })
+    await runtime.dispose()
+  }
+})
+
 test('a refusal that names the models the account offers is the account\'s answer, and is not retried', async () => {
   const log = join(tempDir('cursor-acp-named-'), 'spawns')
   const runtime = new AcpRuntime({
