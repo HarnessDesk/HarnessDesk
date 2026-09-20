@@ -28,6 +28,7 @@ import {
   wordList,
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
+import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
@@ -52,6 +53,7 @@ import {
   Switch,
 } from '../design'
 import styles from './AgentPage.module.css'
+import { CeilingUpdate } from './CeilingUpdate'
 
 /**
  * An Agent's page — a drill from the roster, not a dialog.
@@ -85,6 +87,7 @@ export const AgentPage = ({
   const [customizing, setCustomizing] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [updatingCeiling, setUpdatingCeiling] = useState(false)
   const [seatingBusy, setSeatingBusy] = useState(false)
   const [seatingProblem, setSeatingProblem] = useState<string | null>(null)
   const seatingInFlight = useRef(false)
@@ -97,6 +100,11 @@ export const AgentPage = ({
   const warnings = entry.problems.filter((one) => one.level === 'warning')
   const shadows = shadowWords(entry)
   const plan = snapshot.agentPlans.get(entry.id)
+  const ceilingFlag = definition ? flagWords(definition) : null
+  const canUpdateCeiling = ceilingFlag !== null && (entry.origin === 'user' || entry.origin === 'project')
+  useEffect(() => {
+    setUpdatingCeiling(false)
+  }, [entry.id, entry.origin, entry.path, snapshot.agentsProject])
 
   const openFile = (): void => {
     store.openFile(entry.path)
@@ -224,10 +232,18 @@ export const AgentPage = ({
 
       {definition && (
         <>
-          <SectionHead name="Ceiling" />
-          <Rows>
-            <Row title={ceilingWords(definition.ceiling)} desc={ceilingMeaning(definition.ceiling)} />
-          </Rows>
+          <section aria-label="Ceiling">
+            <SectionHead name="Ceiling" />
+            <Rows>
+              <Row
+                title={ceilingWords(definition.ceiling)}
+                desc={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
+                {...(canUpdateCeiling ? {
+                  control: <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>,
+                } : {})}
+              />
+            </Rows>
+          </section>
 
           <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />
           <MachineSeats
@@ -293,6 +309,10 @@ export const AgentPage = ({
           onSet={setMachineSeats}
           onClose={() => setAdding(false)}
         />
+      )}
+
+      {updatingCeiling && definition && canUpdateCeiling && (
+        <CeilingUpdate entry={entry} onClose={() => setUpdatingCeiling(false)} />
       )}
 
       {removing && folder && entry.origin !== 'builtin' && (

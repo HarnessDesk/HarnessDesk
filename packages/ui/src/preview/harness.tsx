@@ -5,6 +5,7 @@ import {
   sessionKey,
   type AgentEntry,
   type CeilingLevel,
+  type CeilingUpdate,
   type FlowSeat,
   type MachineSeating,
   type ModelInfo,
@@ -1340,6 +1341,45 @@ class PreviewStore {
     if (!seating) return
     const entries = seating.entries.filter((entry) => entry.id !== id)
     this.patch({ seating: { ...seating, entries: seats ? [...entries, { id, seats }] : entries } })
+  }
+  previewCeiling = async (entry: AgentEntry, level: CeilingLevel): Promise<CeilingUpdate> => {
+    if (entry.origin === 'builtin' || !entry.definition) throw new Error('Customize this Agent before updating it.')
+    const before = entry.definition.ceilingFrom === 'permission' ? `permission: ${entry.definition.ceiling}` : null
+    const after = `ceiling: ${level}`
+    const oldLine = before === null ? [] : [`-${before}`]
+    return {
+      path: entry.path,
+      digest: `preview-${entry.digest ?? 'missing'}-${level}`,
+      line: 3,
+      before,
+      after,
+      diff: [
+        '--- a/AGENT.md',
+        '+++ b/AGENT.md',
+        before === null ? '@@ -2,0 +3 @@' : '@@ -3 +3 @@',
+        ...oldLine,
+        `+${after}`,
+        '',
+      ].join('\n'),
+    }
+  }
+  writeCeiling = async (entry: AgentEntry, level: CeilingLevel, digest: string): Promise<AgentEntry> => {
+    const shown = await this.previewCeiling(entry, level)
+    if (digest !== shown.digest) throw new Error('The Agent file changed after this preview.')
+    const written: AgentEntry = {
+      ...entry,
+      digest: `written-${entry.id}-${level}`,
+      definition: entry.definition ? { ...entry.definition, ceiling: level, ceilingFrom: 'ceiling' } : null,
+    }
+    const agents = this.#snapshot.agents
+    if (agents) {
+      this.patch({
+        agents: agents.map((one) =>
+          one.id === entry.id && one.origin === entry.origin && one.path === entry.path ? written : one,
+        ),
+      })
+    }
+    return written
   }
   // What a new session starts with, for the one agent that declares it —
   // the same shape Codex reports — so Permissions has something to show.

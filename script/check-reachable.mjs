@@ -59,8 +59,6 @@ const UNREACHED = {
   'evidence/board': "a room's board draws its cards' evidence, in the second half of the evidence phase",
   'evidence/checks': "a project's page lists its checks, in the second half of the evidence phase",
   'evidence/seat': "a conversation's details draw its Seat record, in the second half of the evidence phase",
-  'agent/ceiling/preview': "Update… on an Agent's row shows the one line it writes, in the second half of the ceilings phase",
-  'agent/ceiling/write': 'likewise — the same dialog writes it',
   'team/state':
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
