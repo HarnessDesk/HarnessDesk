@@ -53,6 +53,27 @@ it('moves and selects radio choices with arrow keys', () => {
   expect(document.activeElement).toBe(radios[1])
 })
 
+it('skips disabled radio choices during roving keyboard selection', () => {
+  const chooseFirst = vi.fn()
+  const chooseDisabled = vi.fn()
+  const chooseLast = vi.fn()
+  act(() => root.render(
+    <div role="radiogroup" aria-label="Permission">
+      <RowChoice title="First" selected onClick={chooseFirst} />
+      <RowChoice title="Unavailable" selected={false} disabled onClick={chooseDisabled} />
+      <RowChoice title="Last" selected={false} onClick={chooseLast} />
+    </div>,
+  ))
+
+  const radios = container.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+  radios[0]?.focus()
+  act(() => radios[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+
+  expect(chooseDisabled).not.toHaveBeenCalled()
+  expect(chooseLast).toHaveBeenCalledOnce()
+  expect(document.activeElement).toBe(radios[2])
+})
+
 it('keeps a short list of note details semantically grouped', () => {
   act(() => root.render(<NoteList><li>flow.yaml — unknown role</li></NoteList>))
   const list = container.querySelector('[data-slot="note-list"]')

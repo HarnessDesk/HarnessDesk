@@ -932,6 +932,7 @@ export const RowChoice = ({
   desc,
   wrapDesc = false,
   selected,
+  tabStop,
   disabled,
   onClick,
 }: {
@@ -940,6 +941,8 @@ export const RowChoice = ({
   /** A consequence in a narrow choice arrives whole rather than ellipsised. */
   wrapDesc?: boolean
   selected: boolean
+  /** The Tab entry when a radio group has no selected answer. */
+  tabStop?: boolean
   disabled?: boolean
   onClick: () => void
 }) => (
@@ -947,7 +950,7 @@ export const RowChoice = ({
     type="button"
     role="radio"
     aria-checked={selected}
-    tabIndex={selected ? 0 : -1}
+    tabIndex={selected || tabStop ? 0 : -1}
     disabled={disabled}
     className={cx('w-full min-w-0', styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}

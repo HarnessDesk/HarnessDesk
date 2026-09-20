@@ -13,6 +13,8 @@ import {
   rawColours,
   rawZIndexes,
   screenAppearanceOf,
+  screenAreaOf,
+  singleScreenAreaOf,
   screenUnclassifiedOf,
   sheetsOf,
   squaresOf,
@@ -69,6 +71,31 @@ test('audit source cache reads each present or missing stylesheet once and prese
 test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
   assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
   assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+})
+
+test('single-screen pattern accounting recognizes non-Git screen families', () => {
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const dashboard = path.join(repoRoot, 'packages/ui/src/components/Usage.tsx')
+  assert.equal(screenAreaOf(sidebar), 'sidebar')
+  assert.equal(screenAreaOf(dashboard), 'usage')
+  assert.equal(singleScreenAreaOf([sidebar]), 'sidebar')
+  assert.equal(singleScreenAreaOf([dashboard]), 'usage')
+})
+
+test('single-screen pattern accounting groups Git screens but exempts cross-family use', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  assert.equal(singleScreenAreaOf([gitPane, gitDialogs]), 'git')
+  assert.equal(singleScreenAreaOf([gitPane, sidebar]), null)
+})
+
+test('single-screen pattern accounting follows a pattern consumer into its screen hosts', () => {
+  const approval = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  const importers = new Map([[approval, [room, builtins]]])
+  assert.equal(singleScreenAreaOf([approval], importers), null)
 })
 
 test('the browser integration job builds workspace package entries before Vite', () => {

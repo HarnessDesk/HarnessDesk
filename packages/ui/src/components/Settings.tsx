@@ -1344,7 +1344,7 @@ const BrowserSection = () => {
       <PageHead title="Browser" blurb="Where the pages agents open appear, and what those pages may keep." />
 
       <SectionHead name="Pages open" />
-      <Rows>
+      <Rows role="radiogroup" aria-label="Pages open">
         {PLACEMENTS.map((option) => (
           <RowChoice
             key={option.value}
@@ -1359,11 +1359,12 @@ const BrowserSection = () => {
       {prefs.placement === 'window' && (
         <>
           <SectionHead name="Which browser" />
-          <Rows>
+          <Rows role="radiogroup" aria-label="Which browser">
             <RowChoice
               title="Whichever is installed"
               desc={found[0] ? `Today that is ${found[0].name}.` : 'None found yet.'}
               selected={prefs.externalBinary === ''}
+              tabStop={prefs.externalBinary !== '' && !found.some((browser) => browser.path === prefs.externalBinary)}
               onClick={() => store.setBrowserPrefs({ externalBinary: '' })}
             />
             {found.map((browser) => (

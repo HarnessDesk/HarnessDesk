@@ -1755,11 +1755,30 @@ export const visualKindUnionsOf = (source) => {
   return found
 }
 
-/** The screen families the audit currently knows cross file boundaries. */
-const screenAreaOf = (file) => {
+/**
+ * The screen family a source belongs to.
+ *
+ * Most screens own their basename. The Git surface is deliberately spread
+ * across several source files, so its recorded family prefixes collapse to
+ * one area. A new multi-file family has to be named here; an unknown screen
+ * must never become `null`, because `null` used to exempt every non-Git
+ * consumer from the single-area pattern ledger.
+ */
+export const screenAreaOf = (file) => {
   const relative = path.relative(UI_SRC, file).split(path.sep).join('/')
   if (/^components\/(?:Git|Branch|Changes|Details(?:\.|$)|NewWorktree)/.test(relative)) return 'git'
-  return null
+  const match = /^(?:components|slots|panels)\/([^/]+)\.tsx$/.exec(relative)
+  return match?.[1]?.toLowerCase() ?? null
+}
+
+/** One owning screen area, or `null` when a pattern is genuinely cross-area. */
+export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
+  const screens = new Set(files)
+  for (const file of files) {
+    for (const importer of importersByFile.get(file) ?? []) screens.add(importer)
+  }
+  const areas = new Set([...screens].map(screenAreaOf))
+  return areas.size === 1 && !areas.has(null) ? [...areas][0] : null
 }
 
 /**
@@ -2328,7 +2347,21 @@ const publicDesignImports = (file) => {
  */
 const exportedFrom = publicDesignExports()
 const consumersByModule = new Map()
-for (const file of tsxFiles().filter((candidate) => isScreenSheet(candidate))) {
+const screenSources = tsxFiles().filter((candidate) => isScreenSheet(candidate))
+const importersByFile = new Map()
+for (const importer of screenSources) {
+  for (const match of codeOf(importer).matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {
+    const spec = match[1]
+    if (!spec.startsWith('.') && !spec.startsWith('@/')) continue
+    const base = spec.startsWith('@/')
+      ? path.join(UI_SRC, spec.slice(2))
+      : path.resolve(path.dirname(importer), spec)
+    const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
+    if (!tracked.has(imported) || !isScreenSheet(imported)) continue
+    importersByFile.set(imported, [...(importersByFile.get(imported) ?? []), importer])
+  }
+}
+for (const file of screenSources) {
   for (const name of publicDesignImports(file)) {
     const module = exportedFrom.get(name)
     if (!module) continue
@@ -2336,11 +2369,10 @@ for (const file of tsxFiles().filter((candidate) => isScreenSheet(candidate))) {
   }
 }
 for (const [module, consumers] of consumersByModule) {
-  const areas = new Set(consumers.map(screenAreaOf))
-  if (areas.size !== 1 || areas.has(null)) continue
+  const area = singleScreenAreaOf(consumers, importersByFile)
+  if (!area) continue
   const sheet = module.replace(/\.tsx$/, '.module.css')
   if (!tracked.has(sheet)) continue
-  const area = [...areas][0]
   for (const { property } of declarationsOf(read(sheet)).filter(
     ({ property, value }) => screenPropertySideOf(property, value) === 'appearance',
   )) {
