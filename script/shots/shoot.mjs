@@ -77,6 +77,10 @@ const HEIGHT = Number(flag('height', '900'))
 const THEMES = flag('theme') ? [flag('theme')] : ['light', 'dark']
 const REPO = join(WORK, REPOS[0].dir)
 const say = (line) => process.stdout.write(`  ${line}\n`)
+const PROVENANCE_SHOTS = (() => {
+  const file = join(HOME, 'provenance-shots.json')
+  try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return [] }
+})()
 
 const busy = await deskInUse(HOME)
 if (busy) {
@@ -562,6 +566,78 @@ rules:
    * turn and photograph a different conversation each time.
    */
   const SCENES = {
+    ...(PROVENANCE_SHOTS.length === 2 ? {
+      'provenance-history': {
+        leaveOverlay: true, expect: 'Associated Seat', run: async () => {
+          const fixture = PROVENANCE_SHOTS[0]
+          await waitForSnapshot(
+            () => cdp.eval(`${STORE}.readProvenance(${q(fixture.project)}, [${q(fixture.sha)}])`),
+            (value) => value?.commits?.[0]?.seats?.some((one) => one.id === fixture.seat),
+          )
+          await cdp.eval(`${STORE}.openGitHistory(${q(fixture.project)}); true`)
+          await waitForSnapshot(
+            () => cdp.eval(`Array.from(document.querySelectorAll('[role="option"]')).some(node => node.textContent.includes(${q(fixture.name)}))`),
+            Boolean,
+          )
+          await cdp.eval(`(() => {
+            const row = Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent.includes(${q(fixture.name)}))
+            if (!row) return false
+            if (row.getAttribute('aria-selected') !== 'true') row.click()
+            return true
+          })()`)
+        },
+      },
+      'provenance-seat': {
+        leaveOverlay: true, expect: 'Seat record', run: async () => {
+          await SCENES['provenance-history'].run()
+          try {
+            await waitForSnapshot(
+              () => cdp.eval(`Boolean([...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Seat record'))`),
+              Boolean,
+            )
+          } catch (error) {
+            const fixture = PROVENANCE_SHOTS[0]
+            const observed = await cdp.json(`${STORE}.readProvenance(${q(fixture.project)}, [${q(fixture.sha)}])`).catch(() => null)
+            const visible = await cdp.json(`({ text: document.body.innerText.includes('Provenance'), buttons: [...document.querySelectorAll('button')].map(node => node.textContent).filter(Boolean) })`).catch(() => null)
+            throw new Error(`${error instanceof Error ? error.message : String(error)}; provenance=${JSON.stringify(observed)} visible=${JSON.stringify(visible)}`)
+          }
+          await cdp.eval(`(() => {
+            const action = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Seat record')
+            action?.scrollIntoView({ block: 'center' })
+            for (let parent = action?.parentElement; parent; parent = parent.parentElement) {
+              if (['auto', 'scroll'].includes(getComputedStyle(parent).overflowY)) { parent.scrollTop = parent.scrollHeight; break }
+            }
+            return true
+          })()`)
+          await sleep(200)
+          const actionState = await cdp.json(`(() => {
+            const action = [...document.querySelectorAll('button')].find(node => node.textContent?.trim() === 'Seat record')
+            if (!action) return { buttons: [...document.querySelectorAll('button')].map(node => node.textContent) }
+            const rect = action.getBoundingClientRect()
+            return { buttons: [action.textContent], x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, hit: document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2)?.textContent ?? null }
+          })()`)
+          if (!actionState?.x || !actionState?.y || actionState.hit !== 'Seat record') throw new Error(`The history selection has no pointer-reachable Seat record action: ${JSON.stringify(actionState)}`)
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: actionState.x, y: actionState.y })
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: actionState.x, y: actionState.y, button: 'left', clickCount: 1 })
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: actionState.x, y: actionState.y, button: 'left', clickCount: 1 })
+          await waitForSnapshot(() => cdp.eval(`document.querySelector('[role="dialog"]')?.textContent.includes('Contributor 1')`), Boolean)
+        },
+      },
+      'provenance-project': {
+        leaveOverlay: true, expect: 'Capture on this machine', run: async () => {
+          await cdp.eval(`${STORE}.askSettings('workspaces', ${q(PROVENANCE_SHOTS[0].project)}); true`)
+          await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Capture on this machine')`), Boolean)
+        },
+      },
+      'provenance-stopped': {
+        leaveOverlay: true, expect: 'Capture stopped', run: async () => {
+          await cdp.eval(`${STORE}.setCapture(${q(PROVENANCE_SHOTS[0].project)}, false)`, 60_000)
+          await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Capture stopped')`), Boolean)
+        },
+        finish: async () => { await cdp.eval(`${STORE}.setCapture(${q(PROVENANCE_SHOTS[0].project)}, true)`, 60_000) },
+      },
+    } : {}),
+
     /** The desk itself: twelve agents, three projects, work in the sidebar. */
     desk: { expect: 'Workspaces', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)

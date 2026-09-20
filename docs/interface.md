@@ -667,3 +667,9 @@ beside the conversation and lays them over it instead:
 The reading column never collapses, and nothing is unmounted on the way: the
 floating sidebar is the same sidebar, and a panel over the conversation leaves
 it exactly where it was.
+
+## Provenance
+
+History shows an associated Agent's recorded name beside its runtime's mark. A compact count indicates additional Seats; selecting the commit lists every contributor. The selected detail distinguishes complete, partial, pending and unattributed changes and keeps the explanation visible. Its Seat record opens the exact historical record, with the original conversation available only while the desk can still open it. Matching observations keep their original revisions. A missing card or conversation says why it is unavailable.
+
+Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Only stopped capture appears on the existing project row, even while that row is folded. A plain conversation and its header are unchanged.

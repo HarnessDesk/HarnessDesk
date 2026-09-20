@@ -89,6 +89,7 @@ interface Script {
   readonly home?: string
   /** Answers for the write verbs, by method name. */
   readonly on?: Readonly<Record<string, unknown>>
+  readonly provenance?: readonly import('@harnessdesk/protocol').CommitProvenance[]
 }
 
 const mount = async (script: Script) => {
@@ -143,6 +144,13 @@ const mount = async (script: Script) => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request },
+    readProvenance: vi.fn(async (root: string, shas: readonly string[]) => ({
+      project: root,
+      revision: 0,
+      health: { project: root, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 0 },
+      commits: script.provenance ?? shas.map((sha) => ({ sha, state: 'unattributed', coverage: 'none', seats: [], via: null, reason: 'not-observed', explanation: 'No local observation.', evidenceIds: [], cards: [], observedAt: null })),
+    })),
+    readProvenanceSeat: vi.fn(async () => ({ seat: null, session: null, unavailable: null })),
     setDetailsTab,
     openDetailsTab,
     notice,
@@ -229,6 +237,17 @@ it('keeps the windowed commit row borderless and marks the graph column edge', a
   expect(rows.every((row) => row.style.paddingRight === 'var(--hd-space-3)')).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
+})
+
+it('keeps a loaded history Seat actionable in selected detail when the refresh is refused', async () => {
+  const sha = 'aaaa1111111'
+  await mount({
+    log: [commit(sha, 'tip')],
+    provenance: [{ sha, state: 'attributed', coverage: 'complete', seats: [{ id: 'seat-1', agentName: 'Contributor 1', runtime: 'fixture', seatLabel: 'Alpha', session: { runtime: 'fixture', sessionId: 'one' } }], via: 'observed', reason: null, explanation: 'Observed.', evidenceIds: [], cards: [], observedAt: 1 }],
+  })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  expect(container.textContent).toContain('Contributor 1')
+  expect([...container.querySelectorAll('button')].some((item) => item.textContent === 'Seat record')).toBe(true)
 })
 
 it('uses the shared search field for history and refs, with history clearable', async () => {

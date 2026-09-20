@@ -232,6 +232,10 @@ export type DraftPlace =
   | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
 
 export interface AppSnapshot {
+  /** Per-project state of local, opt-in commit-to-Seat capture. */
+  readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
+  /** Latest host revision accepted for each capture-health entry. */
+  readonly provenanceRevision: ReadonlyMap<string, number>
   readonly status: ConnectionStatus
   readonly runtimes: readonly RuntimeInfo[]
   readonly activeRuntime: RuntimeId | null
@@ -676,6 +680,8 @@ const EMPTY_WORKBENCH = emptyWorkbench()
  * way out is `emptySnapshot()`, which copies those fields fresh.
  */
 const EMPTY: AppSnapshot = {
+  captureHealth: new Map(),
+  provenanceRevision: new Map(),
   status: 'connecting',
   runtimes: [],
   catalogRefreshing: false,
@@ -774,6 +780,8 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  captureHealth: new Map(),
+  provenanceRevision: new Map(),
   sessions: new Map(),
   queues: new Map(),
   tasks: new Map(),

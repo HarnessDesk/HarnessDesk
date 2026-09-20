@@ -24,6 +24,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { laneWindow, layoutGraph, type GraphRow, type LaneWindow } from '../lib/git-graph'
+import { CommitProvenance, CommitSeatLabels, useProvenanceBatch } from './CommitProvenance'
 import { GitGraph } from './GitGraph'
 import { clampColumn, GIT_COLUMNS, type GitColumnName } from '../lib/git-columns'
 import { branchTree, commitDate, inFolder, refChips, shortSha, type RefChip as RefChipData } from '../lib/git-refs'
@@ -210,10 +211,14 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const [needle, setNeedle] = useState('')
   const [search, setSearch] = useState<GitLogSearch>('message')
   const [selected, setSelected] = useState<string | null>(null)
+  const [selectedProvenance, setSelectedProvenance] = useState<import('@harnessdesk/protocol').CommitProvenance | null>(null)
   const [railOpen, setRailOpen] = useState(true)
   const [railError, setRailError] = useState<string | null>(null)
   const [branchAt, setBranchAt] = useState<string | null>(null)
   const [tick, setTick] = useState(0)
+  const historyKey = JSON.stringify([root, scope, needle, search, tick])
+  const [loadedFor, setLoadedFor] = useState('')
+  const provenance = useProvenanceBatch(root, loadedFor === historyKey ? commits.map((commit) => commit.sha) : [], historyKey)
 
   // One generation per reload: a page arriving for a root or query the pane
   // has moved past must fall on the floor, not into the table.
@@ -243,6 +248,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       request('git/worktrees', { root }).catch((): readonly GitWorktree[] => []),
     ]).then(([page, refsResult, status, checkouts]) => {
       if (gen.current !== mine) return
+      setLoadedFor(JSON.stringify([root, scope, needle, search, tick]))
       setCommits(page.commits)
       setHasMore(page.hasMore)
       setRefsSummary(refsResult)
@@ -327,7 +333,8 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
 
   const select = useCallback((sha: string | null): void => {
     setSelected(sha)
-  }, [])
+    setSelectedProvenance(sha === null ? null : provenance.values.get(sha) ?? null)
+  }, [provenance.values])
 
   const scrollToIndex = useCallback((index: number): void => {
     const list = listRef.current
@@ -860,6 +867,8 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
       </Toolbar>
       <Separator />
 
+      {provenance.error && <Note>Provenance could not be read. <Button variant="link" onClick={provenance.retry}>Retry provenance</Button></Note>}
+
       <div className={styles.body}>
         {fit.rail && railOpen && refsSummary && (
           <RefsRail
@@ -950,6 +959,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
                     <CommitRow
                       key={commit.sha}
                       commit={commit}
+                      provenance={provenance.values.get(commit.sha) ?? null}
                       row={row}
                       top={index * ROW}
                       gutter={gutter}
@@ -975,6 +985,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <CommitDetail
               root={root}
               sha={selected}
+              provenance={selectedProvenance ?? provenance.values.get(selected) ?? null}
               wide={fit.sideBySide}
               remotes={remoteNames}
               onClose={() => select(null)}
@@ -1642,6 +1653,7 @@ const BranchMenu = ({
 
 const CommitRow = ({
   commit,
+  provenance,
   row,
   top,
   gutter,
@@ -1655,6 +1667,7 @@ const CommitRow = ({
   onMenu,
 }: {
   commit: GitLogCommit
+  provenance: import('@harnessdesk/protocol').CommitProvenance | null
   row: GraphRow | null
   top: number
   gutter: number
@@ -1693,6 +1706,7 @@ const CommitRow = ({
         <Text role={merge ? 'muted' : 'row'} className={styles.subjectText} title={commit.subject}>
           {commit.subject}
         </Text>
+        <CommitSeatLabels value={provenance} />
       </span>
       {fit.sha && (
         <Text role="meta" className={styles.sha} style={{ width: widths.sha }}>
@@ -1920,6 +1934,7 @@ const RefsRail = ({
 const CommitDetail = ({
   root,
   sha,
+  provenance,
   wide,
   remotes,
   onClose,
@@ -1927,6 +1942,7 @@ const CommitDetail = ({
 }: {
   root: string
   sha: string
+  provenance: import('@harnessdesk/protocol').CommitProvenance | null
   wide: boolean
   remotes: ReadonlySet<string>
   onClose: () => void
@@ -2101,6 +2117,7 @@ const CommitDetail = ({
         <div className={styles.detailSplit}>
           <div className={styles.detailLeft}>
             {card}
+            <CommitProvenance root={root} sha={sha} value={provenance} />
             <PopoverGroupLabel>
               {detail.files.length} file{detail.files.length === 1 ? '' : 's'}
             </PopoverGroupLabel>
@@ -2136,6 +2153,7 @@ const CommitDetail = ({
       ) : (
         <div className={styles.detailStack}>
           {card}
+          <CommitProvenance root={root} sha={sha} value={provenance} />
           <PopoverGroupLabel>
             {detail.files.length} file{detail.files.length === 1 ? '' : 's'}
           </PopoverGroupLabel>

@@ -8657,7 +8657,7 @@ const seedProvenance = async () => {
 export const PROVENANCE_SHOTS = process.env['HD_SHOTS_PROVENANCE'] === '1' ? await seedProvenance() : []
 ```
 
-In `script/shots/shoot.mjs`, apply this complete patch. The context lines are the exact edit anchors:
+In `script/shots/shoot.mjs`, keep the existing `config.mjs` import: importing `seed.mjs` would rebuild a staged desk while its app is running and violates the existing isolation test. The seeder instead writes a synthetic-only `provenance-shots.json` manifest under the staged home; the shooter reads that manifest after staging. Apply the scene patch using that manifest. This corrects the stale import anchor without weakening the two-fact rig proof.
 
 ```diff
 --- a/script/shots/shoot.mjs

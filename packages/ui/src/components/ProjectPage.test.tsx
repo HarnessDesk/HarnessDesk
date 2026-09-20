@@ -88,6 +88,9 @@ const mount = (node: React.ReactNode) => {
     loadWorktrees: vi.fn(async () => {}),
     agentsIn: vi.fn(async (path: string) => AGENTS[path] ?? []),
     projectChecks: vi.fn(async (path: string) => CHECKS(path)),
+    loadCaptureHealth: vi.fn(async () => {}),
+    setCapture: vi.fn(async () => ({ project: STOREFRONT.path, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 })),
+    retryCapture: vi.fn(async () => ({ project: STOREFRONT.path, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 })),
     openWorkspace: vi.fn(async () => {}),
     forgetWorkspace: vi.fn(async () => {}),
     askSettings: vi.fn(),
@@ -188,7 +191,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Checks'])
+  expect(sections).toEqual(['Agents', 'Checks', 'Provenance'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())

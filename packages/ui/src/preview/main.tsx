@@ -5,6 +5,8 @@ import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@har
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
+import { CommitProvenance, CommitSeatLabels } from '../components/CommitProvenance'
+import { ProjectProvenance } from '../components/ProjectProvenance'
 import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
@@ -39,7 +41,23 @@ import {
 } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
+import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
 import '../styles/app.css'
+
+const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
+const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
+previewMutable.patch({ captureHealth: new Map([[PROVENANCE_ROOT, captureHealth()]]) })
+Object.assign(store as unknown as Record<string, unknown>, {
+  readProvenance: async () => ({ project: PROVENANCE_ROOT, revision: 1, health: captureHealth(), commits: [previewProvenance] }),
+  readProvenanceSeat: async () => ({ seat: null, session: previewProvenance.seats[0]!.session, unavailable: 'The historical Seat record is unavailable.' }),
+  loadCaptureHealth: async () => {},
+  setCapture: async (_root: string, enabled: boolean) => {
+    const health = captureHealth({ enabled, state: enabled ? 'healthy' : 'stopped', revision: enabled ? 3 : 2, reason: enabled ? 'Capture is current for the refs Git exposes.' : 'Capture is off on this machine.', nextStep: enabled ? 'No action needed.' : 'Turn capture on.' })
+    previewMutable.patch({ captureHealth: new Map([[PROVENANCE_ROOT, health]]) })
+    return health
+  },
+  retryCapture: async () => captureHealth(),
+})
 
 /**
  * The screen preview: real screens on a stubbed store, in a browser.
@@ -194,6 +212,10 @@ const Preview = () => {
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
     <div className="min-h-full bg-background p-4 text-foreground">
+      <section aria-label="Provenance preview">
+        <Frame title="History — associated Seats"><CommitSeatLabels value={previewProvenance} /><CommitProvenance root={PROVENANCE_ROOT} sha={PROVENANCE_SHA} /></Frame>
+        <Frame title="Project — capture"><ProjectProvenance root={PROVENANCE_ROOT} /></Frame>
+      </section>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <span className="text-sm font-semibold">Screen preview</span>
         <Dial

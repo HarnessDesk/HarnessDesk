@@ -1,5 +1,6 @@
 import {
   Button,
+  Chip,
   ContextMenu,
   Dot,
   Input,
@@ -21,6 +22,7 @@ import { openingOf, sessionKey, type Session, type SessionSummary, type TeamStat
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, projectRootOf, type ProjectGroup } from '../lib/projects'
+import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
@@ -519,6 +521,9 @@ const GroupHead = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const menu = useContextMenu()
+  const stopped = projectRoots(group)
+    .map((root) => captureForRoot(root, snapshot.captureHealth, snapshot.workspaces))
+    .find((health) => health?.state === 'stopped')
   const pinned = snapshot.listPrefs.pinned.includes(group.root)
   // The folder the app is working in. It used to be marked only by leading
   // the list, which says nothing once you have arranged the list yourself —
@@ -564,6 +569,7 @@ const GroupHead = ({
         </Text>
         <span className={styles.groupBody}>
           <Text role="navigation" fade className={styles.groupName}>{group.name}</Text>
+          {stopped && <span title={`${stopped.reason} ${stopped.nextStep}`}><Chip tone="neutral" label="Capture stopped" /></span>}
           {pinned && <Text role="meta" className={styles.groupPin}><PinIcon size={11} /></Text>}
           <Text role="meta" numeric className={styles.groupCount}>{group.sessions.length}</Text>
         </span>

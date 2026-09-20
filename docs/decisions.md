@@ -348,3 +348,11 @@ say what landed.
 
 **The rule:** profiles may contribute bounded start parameters; session state
 comes back from the agent.
+
+## Provenance preserves a defensible association
+
+A commit's author, message and trailers do not authenticate the Seat that made its changes. HarnessDesk associates only the patches explained by locally observed diff facts and the original Seat record. Stable and verbatim fingerprints must agree; surviving file changes can retain partial attribution through an amend. A squash compares its net change with bounded observed ranges and keeps every defensible contributor. Competing explanations, overlapping contributions that cannot be separated and unavailable source objects remain unattributed.
+
+Passive capture cannot recover a ref move whose reflog and objects Git no longer retains. The desk reads available transitions, preserves known gaps and says when capture is degraded or stopped. It installs no hooks, changes no Git configuration and never delays a turn to observe it.
+
+**The rule:** ambiguity remains visible; a rewritten association never refreshes the original checks, reviews or evidence.
