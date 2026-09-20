@@ -84,5 +84,5 @@ it('keeps the card divider between usage windows and Credits', () => {
   shown(limits({ balance: 5, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: null }] as never }))
   const progress = container.querySelector('[role="progressbar"]')
   const meterRows = progress?.parentElement?.parentElement
-  expect(meterRows?.className).toContain('border-(--hd-card-divider)')
+  expect(meterRows?.className).toContain('border-[var(--hd-card-divider,var(--hd-border))]')
 })
