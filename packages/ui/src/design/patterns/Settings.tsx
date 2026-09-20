@@ -947,9 +947,28 @@ export const RowChoice = ({
     type="button"
     role="radio"
     aria-checked={selected}
+    tabIndex={selected ? 0 : -1}
     disabled={disabled}
     className={cx('w-full min-w-0', styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
+    onKeyDown={(event) => {
+      if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
+      const group = event.currentTarget.closest('[role="radiogroup"]')
+      if (!group) return
+      const choices = Array.from(group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)'))
+      const current = choices.indexOf(event.currentTarget)
+      if (current < 0 || choices.length === 0) return
+
+      const next = event.key === 'Home'
+        ? choices[0]
+        : event.key === 'End'
+          ? choices.at(-1)
+          : choices[(current + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + choices.length) % choices.length]
+      if (!next) return
+      event.preventDefault()
+      next.focus()
+      next.click()
+    }}
   >
     <span className={styles.choiceMark}>{selected ? <CheckIcon size={15} /> : null}</span>
     <span className={styles.rowText}>

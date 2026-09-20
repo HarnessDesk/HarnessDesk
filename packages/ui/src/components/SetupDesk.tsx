@@ -20,10 +20,10 @@ import styles from './SetupDesk.module.css'
  */
 export const SetupDesk = ({
   onSignIn,
-  onOpenAgents,
+  onOpenRuntimes,
 }: {
   onSignIn: (runtime?: RuntimeId) => void
-  onOpenAgents: () => void
+  onOpenRuntimes: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -97,9 +97,9 @@ export const SetupDesk = ({
         </ListRows>
       </Card>
       <Text as="p" role="muted">
-        Another agent on this machine?{' '}
-        <Button variant="link" size="content" onClick={onOpenAgents}>
-          Add an agent…
+        Another agent program on this Mac?{' '}
+        <Button variant="link" size="content" onClick={onOpenRuntimes}>
+          Add a runtime…
         </Button>
       </Text>
     </>

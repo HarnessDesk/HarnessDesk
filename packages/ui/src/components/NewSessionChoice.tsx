@@ -288,12 +288,12 @@ const AgentChoice = ({ entry, onClose }: { readonly entry: AgentEntry; readonly 
         void store.startAsAgent(entry.id)
       }}
     >
-      <span className={styles.mark}>
+      <IconTile tint="blue">
         {seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
-      </span>
+      </IconTile>
       <span className={styles.text}>
-        <span className={styles.name}>{name}</span>
-        {reason && <span className={styles.note}>{reason}</span>}
+        <Text role="row">{name}</Text>
+        {reason && <Text role="muted">{reason}</Text>}
       </span>
     </Button>
   )

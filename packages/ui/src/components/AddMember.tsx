@@ -304,9 +304,9 @@ export const AddMember = ({
 
         {mode === 'agent' ? (
           <div className={styles.field}>
-            <span className={styles.label}>Its Agents, and the seat each would take here</span>
+            <Text role="row">Its Agents, and the seat each would take here</Text>
             {roster === null ? (
-              <p className={styles.note}>Reading this project’s Agents…</p>
+              <Text role="muted">Reading this project’s Agents…</Text>
             ) : (
               <RadioGroup
                 className={styles.picker}
@@ -319,19 +319,30 @@ export const AddMember = ({
                   const reason = plan && !seat ? firstReason(plan) : null
                   const name = agentName(entry)
                   return (
-                    <label key={entry.id} className={styles.candidate} {...(reason ? { 'data-refused': '' } : {})}>
-                      <RadioGroupItem value={entry.id} aria-label={name} />
-                      {seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />}
-                      <span className={styles.candidateName}>{name}</span>
-                      <span className={reason ? `${styles.candidateAgent} text-(--hd-warning-ink)` : styles.candidateAgent}>
-                        {seat ? seat.label : reason ? `Can't seat here · ${reason}` : 'Checking…'}
-                      </span>
-                    </label>
+                    <ListRow
+                      key={entry.id}
+                      as="label"
+                      interactive
+                      size="sm"
+                      {...(reason ? { 'data-refused': '' } : {})}
+                      lead={(
+                        <>
+                          <RadioGroupItem value={entry.id} aria-label={name} />
+                          {seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />}
+                        </>
+                      )}
+                      title={<Text role="value" truncate>{name}</Text>}
+                      trail={(
+                        <Text role="meta" className={reason ? 'text-(--hd-warning-ink)' : undefined}>
+                          {seat ? seat.label : reason ? `Can't seat here · ${reason}` : 'Checking…'}
+                        </Text>
+                      )}
+                    />
                   )
                 })}
               </RadioGroup>
             )}
-            <p className={styles.note}>It is seated in this room’s folder, joins as soon as it is, and goes by the Agent’s name.</p>
+            <Note>It is seated in this room’s folder, joins as soon as it is, and goes by the Agent’s name.</Note>
           </div>
         ) : mode === 'running' ? (
           <div className={styles.field}>
@@ -371,11 +382,11 @@ export const AddMember = ({
           </div>
         ) : (
           <>
-        <Field label="Agent">
+        <Field label="Runtime">
           {(control) => (
             <NativeSelect
               {...control}
-              aria-label="Agent"
+              aria-label="Runtime"
               value={runtime ?? ''}
               onChange={(event) => setRuntime(event.target.value as RuntimeId)}
             >
