@@ -159,6 +159,24 @@ test('the answer runs exactly the command that was shown, once, and the fact it 
   await settled(r, 2)
 })
 
+test('an approved check runs again after a commit lands and records the new head', async () => {
+  const r = await rig('verify: { run: touch MARKERS/verify, timeout: 30 }\n')
+  const carried = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  await r.plane.checks.run('room-1', 1, 'verify', answer(carried))
+  const [first] = await settled(r, 1)
+  const before = first?.fact.kind === 'check' ? first.fact.at : null
+
+  await r.repo.git('commit', '--allow-empty', '-q', '-m', 'landed after verify')
+  const head = await r.repo.git('rev-parse', 'HEAD')
+  assert.notEqual(head, before)
+
+  assert.deepEqual(await r.plane.checks.run('room-1', 1, 'verify'), { started: true })
+  const facts = await settled(r, 2)
+  assert.equal(facts.length, 2)
+  assert.equal(facts[1]?.fact.kind === 'check' ? facts[1].fact.at : null, head)
+  assert.equal(facts[1]?.fact.kind === 'check' ? facts[1].fact.counted : null, true)
+})
+
 test('what runs is the file as committed: a change in the working copy is not run, and not asked about', async () => {
   const r = await rig('verify: { run: touch MARKERS/committed }\n')
   const at = await r.repo.git('rev-parse', 'HEAD')

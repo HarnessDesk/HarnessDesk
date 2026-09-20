@@ -5,16 +5,41 @@ import { cn } from '@/lib/utils'
 /* Vendored from shadcn/ui (card), tightened one step for a desktop app's
  * density: py-4/px-4 where upstream says 6. */
 
-const Card = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div
-    data-slot="card"
-    className={cn(
-      'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
-      className,
-    )}
-    {...props}
-  />
-)
+type CardProps<T extends React.ElementType = 'div'> = {
+  as?: T
+  variant?: 'default' | 'muted' | 'flush'
+  radius?: 'sm' | 'default' | 'lg'
+  spacing?: 'default' | 'compact'
+} & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius' | 'spacing'>
+
+const Card = <T extends React.ElementType = 'div'>({
+  as,
+  className,
+  variant,
+  radius = 'default',
+  spacing = 'default',
+  ...props
+}: CardProps<T>) => {
+  const Component = as ?? 'div'
+  return (
+    <Component
+      data-slot="card"
+      data-variant={variant ?? 'default'}
+      data-radius={radius}
+      data-spacing={spacing}
+      className={cn(
+        'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
+        variant === 'muted' && 'border-dashed bg-(--hd-muted)',
+        variant === 'flush' && 'gap-0 overflow-hidden py-0',
+        radius === 'sm' && 'rounded-(--hd-radius-sm)',
+        radius === 'lg' && 'rounded-(--hd-radius-lg)',
+        spacing === 'compact' && 'gap-2 p-3',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
 
 const CardHeader = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div
@@ -55,4 +80,18 @@ const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div data-slot="card-footer" className={cn('flex items-center px-4', className)} {...props} />
 )
 
-export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent }
+/** A fixed-height media window inside a preview card. */
+const CardViewport = ({
+  className,
+  size = 'editor',
+  ...props
+}: React.ComponentProps<'div'> & { size?: 'editor' }) => (
+  <div
+    data-slot="card-viewport"
+    data-size={size}
+    className={cn(size === 'editor' && 'h-44', className)}
+    {...props}
+  />
+)
+
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent, CardViewport }

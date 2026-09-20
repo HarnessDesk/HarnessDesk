@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { describeLimits, formatReset } from './limits'
+import { describeLimits, formatReset, usageReadingTone } from './limits'
 
 const NOON = new Date('2026-08-22T12:00:00').getTime()
 
@@ -66,5 +66,13 @@ describe('formatReset', () => {
   })
   it('names the day otherwise', () => {
     expect(formatReset(NOON + 2 * 86_400_000, NOON)).toMatch(/^Mon \d{1,2}:\d{2} [AP]M$/)
+  })
+})
+
+describe('usageReadingTone', () => {
+  it('leaves a healthy reading untoned and colours only warning and danger', () => {
+    expect(usageReadingTone('good')).toBeUndefined()
+    expect(usageReadingTone('warn')).toBe('warning')
+    expect(usageReadingTone('bad')).toBe('danger')
   })
 })

@@ -33,7 +33,7 @@ export const SECTIONS = [
   [
     'patternClass',
     'Patterns re-declared in a screen stylesheet',
-    'Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line.',
+    'Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line.',
     'Compose the pattern instead of re-declaring it: Row/Rows, ListRow/ListRows, EmptyState, Section, PageHead/SectionHead, Note, Field — all exported from packages/ui/src/design. This category is a burn-down: its ceiling may only fall.',
   ],
   [
@@ -47,6 +47,12 @@ export const SECTIONS = [
     'Properties outside the screen boundary',
     'An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total.',
     'Classify the property in APPEARANCE_PROPERTIES or LAYOUT_BEHAVIOUR_PROPERTIES in script/design-audit.mjs. A screen declaration must be on exactly one side of the boundary.',
+  ],
+  [
+    'visualKindUnion',
+    'Visual catalogues hidden behind a kind prop',
+    'One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role.',
+    'Split the catalogue into named components with real prop APIs. A visual kind prop is capped at eight values; domain-state unions are not kind props and are unaffected.',
   ],
   [
     'wrongVariant',

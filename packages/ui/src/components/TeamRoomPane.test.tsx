@@ -182,6 +182,7 @@ const rig = (
     openSession: vi.fn().mockResolvedValue(undefined),
     /* A room with no flow, which is every room these tests are about. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     setRoomWatching: vi.fn(),
     leaveRoom: vi.fn().mockResolvedValue(undefined),
     setTeamInbound: vi.fn().mockResolvedValue(undefined),

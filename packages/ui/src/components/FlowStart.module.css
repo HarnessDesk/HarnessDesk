@@ -4,62 +4,29 @@
   gap: var(--hd-space-3);
 }
 
-/* The report, not a preview: what this is about to cost and do, above the
-   button that does it. */
-.report {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-3);
-  background: var(--hd-card);
-  border: 1px solid var(--hd-border);
-  border-radius: var(--hd-radius);
-}
-
 .head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--hd-space-2);
   margin: 0;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  font-weight: var(--hd-weight-semibold);
-  color: var(--hd-foreground);
 }
 
 .head + .head {
   margin-top: var(--hd-space-2);
 }
 
-.cost {
-  font-weight: var(--hd-weight-normal);
-  color: var(--hd-secondary-foreground);
-}
-
 .seats,
 .commands,
-.trace,
-.problems {
+.trace {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-secondary-foreground);
 }
 
-.problems {
-  padding-left: var(--hd-space-3);
-  list-style: disc;
-}
-
-.seats li,
-.commands li,
-.trace li {
+.seats > div,
+.commands > div,
+.trace > div {
   display: flex;
   align-items: baseline;
   gap: var(--hd-space-2);
@@ -71,8 +38,6 @@
 .role {
   flex: none;
   min-width: 5.5rem;
-  font-weight: var(--hd-weight-semibold);
-  color: var(--hd-foreground);
 }
 
 .seat,
@@ -86,7 +51,6 @@
 .count,
 .next {
   flex: none;
-  color: var(--hd-muted-foreground);
 }
 
 .next {
@@ -96,36 +60,13 @@
 .tag {
   flex: none;
   margin-left: auto;
-  padding: 0 var(--hd-space-1);
-  border-radius: var(--hd-radius-sm);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
 }
 
-/* Publishing and merging are what an unattended agent must never drift into
-   unnoticed, so they are the two that are coloured. */
-.tag[data-permission='publish'] {
-  background: var(--hd-tint-amber-fill);
-  color: var(--hd-tint-amber-ink);
-}
-
-.tag[data-permission='merge'] {
-  background: var(--hd-tint-rose-fill);
-  color: var(--hd-tint-rose-ink);
-}
-
-.commands code {
+.commands [data-slot='code-text'] {
   min-width: 0;
   overflow-x: auto;
-  font-family: var(--hd-font-code);
-  color: var(--hd-foreground);
 }
 
 .note {
   margin: 0;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-warning-ink);
 }

@@ -664,7 +664,6 @@ export const Conversation = ({
                     <TurnTail
                       turn={turn}
                       session={session}
-                      hideFiles={view.changes.length > 0}
                       answer={view.answer
                         .map((item) => (item.type === 'assistantMessage' ? item.text : ''))
                         .join('\n\n')}
@@ -704,7 +703,12 @@ export const Conversation = ({
 
         {!pinned && items.length > 0 && (
           <span className={styles.jumpButton}>
-            <Button type="button" variant="ghost" size="sm" onClick={jumpToBottom}>
+            <Button
+              type="button"
+              variant="floating"
+              size="sm"
+              onClick={jumpToBottom}
+            >
               Jump to latest
             </Button>
           </span>

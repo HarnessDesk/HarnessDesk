@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 
 import type { UsageWindow } from '@harnessdesk/protocol'
 
@@ -13,7 +13,20 @@ import {
 import { describeLimits, formatReset } from '../lib/limits'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
 import styles from './ContextUsage.module.css'
-import { Menu, MenuLabel, MenuNote, Popover } from '../design'
+import {
+  KeyValue,
+  KeyValueRow,
+  ListRow,
+  Menu,
+  MenuLabel,
+  MenuNote,
+  Popover,
+  Progress,
+  ProgressRing,
+  ProgressStack,
+  Text,
+  type Tone,
+} from '../design'
 
 /**
  * The ring beside the model: how full the context window is, for whichever
@@ -50,30 +63,29 @@ export const ContextUsage = () => {
       {(close) => (
         <Menu close={close}>
           <div className={styles.panel}>
-            <div className={styles.head}>
-              <Ring fill={fill} size={28} />
-              <div className={styles.headText}>
-                <div className={styles.headline} data-tone={fill?.tone ?? 'none'}>
+            <ListRow
+              size="sm"
+              lead={<Ring fill={fill} size={28} />}
+              title={
+                <Text role="subject" tone={toneOf(fill?.tone)} numeric>
                   {fill ? `${fill.percent}% full` : 'Context window unknown'}
-                </div>
-                <div className={styles.subline}>
-                  {fill
-                    ? `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens in context`
-                    : `${agent} does not report its context window size.`}
-                </div>
-              </div>
-            </div>
+                </Text>
+              }
+              subtitle={
+                fill
+                  ? `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens in context`
+                  : `${agent} does not report its context window size.`
+              }
+            />
             {fill && (
-              <div
-                className={styles.track}
-                role="progressbar"
-                aria-valuenow={fill.percent}
-                aria-valuemin={0}
-                aria-valuemax={100}
+              <Progress
+                className={styles.headProgress}
+                value={fill.percent}
+                tone={toneOf(fill.tone)}
+                size="sm"
+                label={false}
                 aria-label="Context window"
-              >
-                <div className={styles.fill} data-tone={fill.tone} style={{ width: `${Math.max(1, fill.percent)}%` }} />
-              </div>
+              />
             )}
 
             {composition && <Composition composition={composition} />}
@@ -155,27 +167,17 @@ export const ContextUsage = () => {
 const Composition = ({ composition }: { composition: ContextComposition }) => (
   <>
     <MenuLabel>What is in context</MenuLabel>
-    <div className={styles.stack} aria-hidden>
-      {composition.segments.map((segment, index) => (
-        <span
-          key={segment.id}
-          className={styles.stackPart}
-          data-part={index % 4}
-          style={{ width: `${Math.max(1, segment.percent)}%` }}
-        />
-      ))}
-    </div>
-    {composition.segments.map((segment, index) => (
-      <div key={segment.id} className={styles.row}>
-        <span className={styles.swatch} data-part={index % 4} aria-hidden />
-        <span className={styles.rowLabel}>
-          {segment.label}
-          {segment.count != null && <span className={styles.rowCount}> ({segment.count})</span>}
-        </span>
-        <span className={styles.rowValue}>{formatTokens(segment.tokens)}</span>
-        <span className={styles.rowHint}>{segment.percent}%</span>
-      </div>
-    ))}
+    <ProgressStack
+      label="What is in context"
+      parts={composition.segments.map((segment) => ({
+        id: segment.id,
+        value: segment.percent,
+        label: segment.label,
+        ...(segment.count != null ? { detail: `(${segment.count})` } : {}),
+        reading: formatTokens(segment.tokens),
+        meta: `${segment.percent}%`,
+      }))}
+    />
     <MenuNote>
       {composition.approximate
         ? `${formatTokens(composition.measured)} tokens, as ${composition.source} estimates them — a composition, not a total, so it will not match the figure above.`
@@ -190,29 +192,35 @@ const Composition = ({ composition }: { composition: ContextComposition }) => (
  * keeps every glyph in Icons.tsx, and a meter that animates between values
  * wants a custom property, not a path.
  */
-export const Ring = ({ fill, size, label }: { fill: ContextFill | null; size: number; label?: string }) => {
-  const style = {
-    '--ring-size': `${size}px`,
-    '--ring-fill': `${(fill?.ratio ?? 0) * 100}%`,
-    '--ring-stroke': `${Math.max(2, Math.round(size / 8))}px`,
-  } as CSSProperties
-  return (
-    <span
-      className={styles.ring}
-      data-tone={fill?.tone ?? 'none'}
-      {...(fill ? {} : { 'data-unknown': '' })}
-      style={style}
-      {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
-    />
-  )
-}
+const toneOf = (tone: ContextFill['tone'] | 'none' | undefined): Tone =>
+  tone === 'warn' ? 'warning' : tone === 'bad' ? 'danger' : tone === 'good' ? 'brand' : 'neutral'
 
-const Row = ({ label, value, hint }: { label: ReactNode; value: ReactNode; hint?: ReactNode | null }) => (
-  <div className={styles.row}>
-    <span className={styles.rowLabel}>{label}</span>
-    <span className={styles.rowValue}>{value}</span>
-    {hint != null && hint !== '' && <span className={styles.rowHint}>{hint}</span>}
-  </div>
+export const Ring = ({ fill, size, label }: { fill: ContextFill | null; size: number; label?: string }) => (
+  <ProgressRing
+    value={fill ? fill.percent : null}
+    size={size}
+    tone={toneOf(fill?.tone)}
+    {...(label ? { label } : {})}
+  />
+)
+
+const Row = ({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: ReactNode
+  value: ReactNode
+  hint?: ReactNode | null
+  tone?: Tone
+}) => (
+  <KeyValue className={styles.row}>
+    <KeyValueRow label={label}>
+      <Text role="value" tone={tone} className={styles.rowReading}>{value}</Text>
+      {hint != null && hint !== '' && <Text role="meta" align="end">{hint}</Text>}
+    </KeyValueRow>
+  </KeyValue>
 )
 
 /**
@@ -231,20 +239,21 @@ const WindowRow = ({ window }: { window: UsageWindow }) => {
   const reset = formatReset(window.resetsAt)
   return (
     <div className={styles.window}>
-      <Row label={window.label} value={`${left}% left`} hint={reset ? `resets ${reset}` : null} />
-      <div
-        className={styles.track}
-        role="progressbar"
-        aria-valuenow={left}
-        aria-valuemin={0}
-        aria-valuemax={100}
+      <Row
+        label={window.label}
+        value={`${left}% left`}
+        hint={reset ? `resets ${reset}` : null}
+        tone={toneOf(tone)}
+      />
+      <Progress
+        className={styles.windowProgress}
+        value={left}
+        measure="remaining"
+        size="sm"
+        label={false}
         aria-label={`${window.label} — what is left`}
-      >
-        {/* No minimum width: a spent window has nothing left to draw, and a
-            1% sliver on an exhausted plan is the one reading this bar must
-            not give. */}
-        <div className={styles.fill} data-tone={tone} style={{ width: `${left}%` }} />
-      </div>
+        {...(tone === 'good' ? { tone: 'brand' as const } : {})}
+      />
     </div>
   )
 }

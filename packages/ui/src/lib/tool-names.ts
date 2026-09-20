@@ -124,11 +124,89 @@ export const toolSentences = (
   return out
 }
 
+export type ToolSentenceDetail =
+  | { readonly kind: 'read'; readonly target: string }
+  | { readonly kind: 'search'; readonly pattern: string; readonly folder?: string }
+  | { readonly kind: 'edit'; readonly target: string }
+  | { readonly kind: 'write'; readonly target: string }
+  | { readonly kind: 'fileChange'; readonly target: string }
+  | { readonly kind: 'command'; readonly command: string }
+  | { readonly kind: 'webSearch'; readonly query: string }
+  | { readonly kind: 'list'; readonly target?: string }
+
+/**
+ * What a known action did, with the object that makes the sentence useful.
+ *
+ * Tool identifiers answer which implementation ran, while these details
+ * answer what the person would look for in the transcript. Keeping the
+ * grammar here gives every adapter one vocabulary without teaching a screen
+ * the spellings each adapter happens to send.
+ */
+const detailedSentence = (tool: string, detail: ToolSentenceDetail): string => {
+  switch (detail.kind) {
+    case 'read':
+      return `Read ${detail.target}`
+    case 'search':
+      return `Searched for ${detail.pattern}${detail.folder ? ` in ${detail.folder}` : ''}`
+    case 'edit':
+      return `Edited ${detail.target}`
+    case 'write':
+      return `Created ${detail.target}`
+    case 'fileChange':
+      return /^(?:write|create)(?:[^a-z]|$)/i.test(bareToolName(tool))
+        ? `Created ${detail.target}`
+        : `Edited ${detail.target}`
+    case 'command':
+      return `Ran ${detail.command}`
+    case 'webSearch':
+      return `Searched the web for ${detail.query}`
+    case 'list':
+      return detail.target ? `Listed ${detail.target}` : 'Listed files'
+  }
+}
+
 /** What this call did, as a sentence. Falls back to the identifier as words. */
 export const toolSentence = (
   tool: string,
   sentences: ReadonlyMap<string, string>,
-): string => sentences.get(bareToolName(tool)) ?? sentences.get(tool) ?? toolWords(tool)
+  detail?: ToolSentenceDetail,
+): string =>
+  detail
+    ? detailedSentence(tool, detail)
+    : sentences.get(bareToolName(tool)) ?? sentences.get(tool) ?? toolWords(tool)
+
+/**
+ * The shortest suffix of each path that still names only that path.
+ *
+ * Repeated mentions of one path are one name, not a collision. Distinct files
+ * with the same base name grow one directory at a time until the reader can
+ * tell them apart.
+ */
+export const shortestUniquePathLabels = (paths: readonly string[]): ReadonlyMap<string, string> => {
+  const unique = [...new Set(paths)]
+  const parts = new Map(
+    unique.map((path) => [path, path.split('/').filter((part) => part.length > 0)] as const),
+  )
+  const labels = new Map<string, string>()
+
+  for (const path of unique) {
+    const own = parts.get(path) ?? [path]
+    let width = 1
+    while (
+      width < own.length &&
+      unique.some((other) => {
+        if (other === path) return false
+        const theirs = parts.get(other) ?? [other]
+        return theirs.slice(-width).join('/') === own.slice(-width).join('/')
+      })
+    ) {
+      width += 1
+    }
+    labels.set(path, own.slice(-width).join('/'))
+  }
+
+  return labels
+}
 
 /**
  * The tools one plugin lends, by the bare name an agent calls them.

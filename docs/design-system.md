@@ -298,7 +298,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar` | `rgb(249, 249, 249)` |
 | `--hd-sidebar-foreground` | `rgb(27, 27, 27)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
-| `--hd-sidebar-muted-foreground` | `rgb(132, 132, 132)` |
+| `--hd-sidebar-muted-foreground` | `rgb(107, 107, 107)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
 | `--sidebar-width` | `` |
@@ -560,6 +560,56 @@ makes the user read both before they can ignore it.
 
 ## Patterns
 
+### `AppWindowSurface`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The full-window destination shell shared by Settings and Dashboard.
+Base UI still owns focus and modality; this pattern owns the window ground
+and the two plates that meet inside it.
+
+### `ApprovalReason`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+Explanatory copy inside an approval.
+
+### `ApprovalCode`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+Verbatim command, input or schema text inside an approval.
+
+### `ApprovalMeta`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+A compact labelled value that locates an approved action.
+
+### `ApprovalFilePath`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+A file named by an approval, as a copyable path rather than prose.
+
+### `ApprovalPermissionList`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+Files or hosts covered by a permission request.
+
+### `ApprovalQuestionText`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+The question an approval asks before its choice rows.
+
+### `ApprovalChoiceHint`
+
+`packages/ui/src/design/patterns/ApprovalDialog.tsx`
+
+The consequence that earns a second line under an approval choice.
+
 ### `ApprovalDialog`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -588,6 +638,12 @@ because the difference between "still reading" and "ran out of its window
 forty minutes ago" is the whole reason the row exists, and a grey sentence
 in a busy channel is not that difference.
 
+### `CodeBlock`
+
+`packages/ui/src/design/patterns/CodeBlock.tsx`
+
+Exact command text and its output, drawn as one readable plate.
+
 ### `ConfirmDialog`
 
 `packages/ui/src/design/patterns/ConfirmDialog.tsx`
@@ -610,6 +666,56 @@ separately, and the answers drifted:
 
 The rule is in one file, so the eleventh confirm cannot get it wrong by
 copying the tenth.
+
+### `CopyButton`
+
+`packages/ui/src/design/patterns/CopyButton.tsx`
+
+The one copy control: an icon that becomes a tick for a moment once the
+text is on the clipboard.
+
+A message's footer, an answer's actions and a code plate each drew their
+own, and one of them swallowed a failed write while the other two said so.
+A failure is the caller's to announce — the app does it with a notice, and
+this layer has no store — so it is handed back rather than dropped. A row
+that stays shown while the tick is up hears about it through
+`onCopiedChange`.
+
+### `WorkbenchCanvas`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+The grounded canvas the split tree and docks share.
+
+### `WorkbenchRail`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+The navigation plate down the workbench's side.
+
+### `WorkbenchScrim`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+The dim between a floating rail and the workbench it covers.
+
+### `PaneSurface`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+A view's grounded plate inside the split tree.
+
+### `DockDropEdge`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+The narrow landing band that makes an otherwise empty dock reachable.
+
+### `DockDropTarget`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+The one highlighted landing target under a dragged panel tab.
 
 ### `DockPanel`
 
@@ -735,6 +841,12 @@ it after the last.
 
 A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 
+### `MessageQueueFrame`
+
+`packages/ui/src/design/patterns/MessageQueue.tsx`
+
+The messages held between the transcript and the composer.
+
 ### `Dialog`
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
@@ -763,6 +875,18 @@ Orders screen-level surfaces after nested menus and dialogs have had the
 key. AppWindow uses canonical dialog modality but explicitly delegates
 Escape here, retaining the window stack's ordering and approval boundary.
 Other dialogs consume Escape themselves; see `lib/overlays.ts`.
+
+### `PopoverSurface`
+
+`packages/ui/src/design/patterns/Popover.tsx`
+
+The floating plate shared by anchored menus and inline trigger pickers.
+
+### `stateTone`
+
+`packages/ui/src/design/patterns/PublicationCard.tsx`
+
+The one label and tone for a pull-request state or check outcome.
 
 ### `publicationVerb`
 
@@ -799,13 +923,86 @@ and the opening of its description exactly as GitHub holds them, which is
 how the signature at the end of a short description appears here — as part
 of the text, not as a claim the desk makes about it.
 
+### `Spinner`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A running operation whose words live beside it.
+
+### `StateStrip`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A compact whole-roster reading: one segment per agent, in readiness order.
+
+### `StatusSummary`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One operation or account state: judged mark, title, and the reason beneath it.
+
+### `AccessHeader`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The horizontal title band of an account-access sheet.
+
+### `AccessRail`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The roster column of an account-access sheet.
+
+### `AccessDetail`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The scrolled work pane beside an access roster.
+
+### `AccessFact`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A labelled path or consequence in an account-access flow.
+
+### `AccessCode`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A one-time code: verbatim, selectable, and visually separate from prose.
+
+### `LibraryReachMark`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One state in the Library matrix, distinguished by shape before colour.
+
+### `LibraryReachFace`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+An agent's identity mark, with reach expressed only by the plate around it.
+
+### `LibraryOperationList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The list's floor keeps a one-change plan reading as a composed preview.
+
+### `LibraryOperationMark`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+One planned operation or result, using the glyph the Library already taught.
+
 ### `Chip`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
-The state, said out loud. Pass `label` only to say something more specific
-than the state's own name — "Out of weekly credit until Thursday" rather
-than "Limit reached".
+A compact state, said out loud. Readiness keeps its dot and default word;
+a judged fact takes a semantic `tone`, while an identity takes a `tint`.
+The emphatic brand tone marks the current fact in a set. Stale and unknown
+facts keep those meanings distinct in both ink and their accessible names.
 
 ### `Search`
 
@@ -816,6 +1013,24 @@ A search field: the input with the glass inside it.
 Every list that grows past a screen gets one of these, and before this each
 drew its own — some with the glyph, some without, at three heights. One
 shape, so "this narrows the list below" reads the same on every page.
+
+### `NavigationList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The inset around a list of destination rows.
+
+### `Keycap`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A keyboard name shown as a physical key rather than explanatory copy.
+
+### `SearchMatch`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The exact part of a search result that matched the query.
 
 ### `Field`
 
@@ -845,6 +1060,12 @@ Fields, stacked — the body of a dialog that asks for more than one thing.
 
 The short paragraph that belongs to a group of rows rather than to one of them.
 
+### `NoteList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Short supporting facts that belong to a notice or note.
+
 ### `Segmented`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -870,6 +1091,18 @@ this pattern supplies the settings-specific segmented appearance.
 `packages/ui/src/design/patterns/Settings.tsx`
 
 The page's name, one line saying what it is for, and anything it acts on.
+
+### `Text`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The interface's named text roles, including dashboard readouts.
+
+### `NavigationGroupHeader`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The label line above navigation rows, including the controls that act on that list.
 
 ### `Rows`
 
@@ -935,6 +1168,18 @@ sessions run as …"), so the title is decided as the pointer arrives, from
 whether the text overflows its box right then. The ellipsis is the
 caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
 
+### `Monogram`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Initials inside a row's neutral mark. They identify the thing without becoming its name.
+
+### `MetaList`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Compact facts whose dot separators belong to the role, not to each caller.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -946,9 +1191,10 @@ list only goes down, except when the audit learns to see something it was blind 
 | --- | --- | --- |
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
-| `patternClass` | 3 | Three screens still draw their own empty state. Each is a different shape — a whole conversation, a pane, a group row — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 2725 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
+| `patternClass` | 1 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
+| `screenAppearance` | 505 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
+| `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
 | `missingClass` | 0 | Renders with no styling at all, and nothing fails. |
 | `forkedToken` | 0 | Forks the source of truth: the generated doc and the token snapshot both miss it. |

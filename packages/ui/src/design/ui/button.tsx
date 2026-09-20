@@ -52,19 +52,16 @@ const buttonVariants = cva(
        button. It centred anyway — but a line box taller than its control is
        the thing that makes a two-line label overflow instead of wrap, and
        Kit's `.btn` has always said `line-height: 1`. */
-    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors outline-none select-none data-[draggable]:cursor-grab',
-    /* The focus mark. `outline-none` above kills the document's, and until
-       now nothing put one back: a button in this app could be focused with
-       no way to tell. The reference's answer is two marks at once — the ring
-       colour on the border, and its wash outside it — so the control reads
-       as live rather than as circled. */
-    'focus-visible:border-(--hd-ring) focus-visible:shadow-(--hd-focus-ring)',
+    'cursor-pointer text-(length:--hd-btn-text) leading-none font-(--hd-btn-weight) transition-colors select-none data-[draggable]:cursor-grab',
+    /* The document-level focus rule owns the one ring. A component shadow
+       here would draw a second mark around the same button under Desk. */
     'active:not-aria-[haspopup]:translate-y-px',
-    'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
+    'disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[dragging]:opacity-40',
     'aria-invalid:border-(--hd-destructive)',
     // Icons carry their own dimensions through the app's icon facade. A
     // descendant-wide size override also shrank avatar marks and nested art.
     '[&_svg]:pointer-events-none [&_svg]:shrink-0',
+    '[&_[data-chevron]]:transition-transform [&_[data-chevron][data-open]]:rotate-90',
   ].join(' '),
   {
     variants: {
@@ -72,11 +69,15 @@ const buttonVariants = cva(
         default:
           'bg-(--hd-btn-primary-fill) text-(--hd-btn-primary-foreground) hover:bg-(--hd-btn-primary-hover)',
         outline:
-          'border-(--hd-btn-border) bg-(--hd-background) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
+          'border-(--hd-btn-border) bg-(--hd-background) text-(--hd-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
         secondary:
           'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover)',
         ghost:
           'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-ring)]',
+        /* A control that floats over content needs its own ground so its edge
+           does not disappear into whatever happens to scroll beneath it. */
+        floating:
+          'rounded-full bg-(--hd-card) shadow-[var(--hd-shadow-raised),inset_0_0_0_1px_var(--hd-border-strong)] hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground)',
         destructive:
           'text-(--hd-btn-danger-ink) hover:bg-(--hd-btn-danger-hover) aria-expanded:bg-(--hd-btn-danger-hover) data-[overlay]:border-2 data-[overlay]:border-(--hd-card) data-[overlay]:bg-(--hd-solid) data-[overlay]:text-(--hd-solid-foreground) data-[overlay]:hover:bg-(--hd-danger) data-[overlay]:hover:text-(--hd-destructive-foreground)',
         link: 'text-(--hd-primary-ink) underline-offset-4 hover:underline',
@@ -88,15 +89,15 @@ const buttonVariants = cva(
            answer in a list of answers — is the same fill; none of them
            changes the weight. */
         row:
-          'justify-start bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
+          'justify-start text-left bg-transparent text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[indent]:pl-6 data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)] data-[done]:opacity-60 data-[done]:line-through',
         navigation:
-          'justify-start bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))]',
+          'justify-start text-left bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[current]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[open]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[selected]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[insert=before]:shadow-[inset_0_2px_0_0_var(--hd-primary)] data-[insert=after]:shadow-[inset_0_-2px_0_0_var(--hd-primary)]',
         /* A chosen option is filled whichever way its caller says so:
            `data-selected`, `data-on`, or the radio's own `aria-checked`.
            Hover takes the plain hover fill, so pointing at an option never
            reads as having chosen it. */
         choice:
-          'justify-start border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim)',
+          'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim)',
         quiet:
           'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-pressed:bg-(--hd-hover) data-[on]:bg-(--hd-active) data-[on]:text-(--hd-foreground) data-[active]:bg-(--hd-accent-dim) data-[active]:text-(--hd-accent) data-[live]:bg-(--hd-success-dim) data-[live]:text-(--hd-success-ink)',
         muted:
@@ -169,12 +170,18 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   className?: string
   variant?: NonNullable<ButtonVariants['variant']>
   size?: NonNullable<ButtonVariants['size']>
+  /** Remove the canonical hairline when adjoining content has to meet the control edge. */
+  bordered?: boolean
+  /** Selection rows may keep the platform cursor while retaining button semantics. */
+  cursor?: 'default' | 'pointer'
 }
 
 const Button = ({
   className,
   variant = 'default',
   size = 'default',
+  bordered = true,
+  cursor = 'pointer',
   type,
   render,
   ...props
@@ -182,7 +189,11 @@ const Button = ({
   <ButtonPrimitive
     data-slot="button"
     data-variant={variant}
-    className={cn(buttonVariants({ variant, size, className }))}
+    className={cn(
+      buttonVariants({ variant, size, className }),
+      !bordered && 'border-0',
+      cursor === 'default' && 'cursor-default',
+    )}
     /* A bare <button> submits the form around it; nothing in this app means
        that, so the default is the safe one — the same rule Kit's Btn holds.
        Skipped when `render` is given, because the element being rendered may

@@ -10,15 +10,6 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--hd-card);
-  --lane-0: var(--hd-tint-blue-ink);
-  --lane-1: var(--hd-tint-rose-ink);
-  --lane-2: var(--hd-tint-amber-ink);
-  --lane-3: var(--hd-tint-violet-ink);
-  --lane-4: var(--hd-tint-teal-ink);
-  --lane-5: var(--hd-tint-orange-ink);
-  --lane-6: var(--hd-tint-sky-ink);
-  --lane-7: var(--hd-tint-green-ink);
 }
 
 /* --- the action bar ------------------------------------------------------
@@ -32,46 +23,17 @@
   align-items: center;
   gap: 2px;
   height: 34px;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--hd-border);
+  padding: 0 var(--hd-space-2);
 }
 
 .actionLayout {
   position: relative;
 }
 
-.actionBadge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 16px;
-  height: 15px;
-  padding: 0 4px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-}
-
-.actionLayout:disabled .actionBadge {
-  background: var(--hd-muted);
-  color: var(--hd-muted-foreground);
-}
-
 .actionSep {
   flex: none;
   width: 1px;
-  height: 16px;
   margin: 0 6px;
-  background: var(--hd-border);
-}
-
-.working {
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  white-space: nowrap;
 }
 
 /* --- the tool row -------------------------------------------------------- */
@@ -83,10 +45,9 @@
   align-content: center; /* desk: normal → center, one line of controls sits centred in the row as it did */
   align-items: center;
   gap: 4px 8px; /* desk: 8px → 4px 8px, the same 8px across, and 4px between wrapped lines */
-  min-height: 36px; /* desk: height 36px → min-height 36px, one line is still 36px and two lines grow */
-  padding: 2px 10px; /* desk: 0 10px → 2px 10px, an inset around a second line; one line still centres in 36px */
-  border-bottom: 1px solid var(--hd-border);
   container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
+  min-height: 36px;
+  padding: var(--hd-space-0-5) var(--hd-space-2-5);
 }
 
 /* The search keeps room for its own words; in a narrow pane the count gives
@@ -124,9 +85,6 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -154,23 +112,6 @@
   flex-direction: column;
 }
 
-.empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  color: var(--hd-secondary-foreground);
-  font-size: var(--hd-text);
-  text-align: center;
-}
-
-.quiet {
-  padding: 16px;
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-sm);
-}
-
 /* The working tree's own row, pinned over the history it is not part of. */
 .dirtyRow {
   flex: none;
@@ -182,17 +123,8 @@
   text-align: left;
 }
 
-.dirtyDot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-warning);
-}
-
 .dirtyHint {
   margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
 }
 
 /* --- the table ----------------------------------------------------------- */
@@ -204,12 +136,8 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-right: 12px;
-  height: 24px;
-  border-bottom: 1px solid var(--hd-border);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  user-select: none;
+  height: var(--hd-control-h-sm);
+  padding-right: var(--hd-space-3);
 }
 
 /* No `overflow: hidden` here: the handle straddles the column's right edge,
@@ -240,15 +168,6 @@
 }
 
 /* Lanes the graph column cannot draw, counted rather than silently dropped. */
-.headMore {
-  flex: none;
-  padding: 0 4px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
 /* The handle straddles the column edge: a 9px target for a 1px line, which is
    the difference between a resize and a fight. */
 .headGrip {
@@ -261,34 +180,11 @@
   touch-action: none;
 }
 
-.headGrip::after {
-  content: '';
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  width: 1px;
-  background: var(--hd-border-strong);
-}
-
 /* A column dragged to nothing would hang its handle off the left edge of the
    table, where half of it is unreachable. Tuck it inside instead. */
-.headGrip:focus-visible {
-  outline: 2px solid var(--hd-ring);
-  outline-offset: -1px;
-  border-radius: var(--hd-radius-sm);
-}
-
 .headGrip[data-tight] {
   right: auto;
   left: 0;
-}
-
-.headGrip:hover::after,
-.headGrip[data-on]::after {
-  top: 0;
-  bottom: 0;
-  background: var(--hd-accent);
 }
 
 .list {
@@ -296,7 +192,6 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  outline: none;
   position: relative;
 }
 
@@ -307,22 +202,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-right: 12px;
-  font-size: var(--hd-text-sm);
-  cursor: default;
-  user-select: none;
-}
-
-.row:hover {
-  background: var(--hd-hover);
-}
-
-.row[data-selected] {
-  background: var(--hd-accent-dim);
-}
-
-.row[data-merge] .subjectText {
-  color: var(--hd-muted-foreground);
 }
 
 .gutter {
@@ -333,18 +212,6 @@
 
 .graph {
   display: block;
-}
-
-.graph line,
-.graph path {
-  stroke-width: 1.5;
-}
-
-/* A commit on a lane too far right to draw: marked, not invented. */
-.offGraph {
-  stroke: var(--hd-muted-foreground);
-  stroke-width: 1.5;
-  stroke-dasharray: 2 2;
 }
 
 .subject {
@@ -361,20 +228,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hd-foreground);
 }
 
 .chip {
   flex: 0 1 auto;
   min-width: 56px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 190px;
-  padding: 1px 6px;
-  border-radius: var(--hd-radius-full);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs);
 }
 
 /* The ellipsis has to live on the text itself: an inline-flex box clips its
@@ -386,41 +244,12 @@
   white-space: nowrap;
 }
 
-.chip[data-kind='head'] {
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-}
-
-.chip[data-kind='branch'] {
-  background: var(--hd-tint-blue-fill);
-  color: var(--hd-tint-blue-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-blue-edge);
-}
-
-.chip[data-kind='remote'] {
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-}
-
-.chip[data-kind='tag'] {
-  background: var(--hd-tint-amber-fill);
-  color: var(--hd-tint-amber-ink);
-  box-shadow: inset 0 0 0 1px var(--hd-tint-amber-edge);
-}
-
 .sha {
   flex: none;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
 }
 
 .date {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -428,8 +257,6 @@
 
 .author {
   flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -443,8 +270,6 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--hd-border);
-  background: var(--hd-card);
 }
 
 .railSearch {
@@ -454,26 +279,12 @@
 
 .railError {
   margin: 6px 8px 0;
-  padding: 6px 8px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-xs);
 }
 
 .railScroll {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-bottom: 10px;
-}
-
-.railHead {
-  padding: 12px 10px 4px;
-  font-size: var(--hd-text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hd-muted-foreground);
 }
 
 .railRow,
@@ -494,41 +305,23 @@
   white-space: nowrap;
 }
 
-.railHere {
-  flex: none;
-  padding: 0 4px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-accent);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  line-height: var(--hd-line-xs); /* desk: 15 → 16, the line the 12px step is set on */
-}
-
 .railTrack {
   flex: none;
   margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
 }
 
 .railCount {
   margin-left: auto;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
 }
 
 /* --- the commit, opened -------------------------------------------------- */
 
 .detail {
   flex: none;
-  min-height: 160px;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--hd-border);
   position: relative;
+  min-height: 160px;
 }
 
 .detailHandle {
@@ -536,13 +329,8 @@
   top: -3px;
   left: 0;
   right: 0;
-  height: 6px;
   cursor: row-resize;
   z-index: 1;
-}
-
-.detailHandle:hover {
-  background: var(--hd-accent-dim);
 }
 
 .detailHead {
@@ -550,16 +338,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
-  border-bottom: 1px solid var(--hd-border);
-  color: var(--hd-secondary-foreground);
-  font-size: var(--hd-text-sm);
-}
-
-.detailHead code {
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
+  padding: var(--hd-space-1) var(--hd-space-2-5);
 }
 
 .detailTitle {
@@ -567,7 +346,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hd-foreground);
 }
 
 .detailSplit {
@@ -582,8 +360,17 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--hd-border);
   overflow-y: auto;
+}
+
+.detailCard {
+  margin: var(--hd-space-3);
+}
+
+.bodyCopy {
+  margin: var(--hd-space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .detailRight {
@@ -599,26 +386,6 @@
   overflow-y: auto;
 }
 
-.card {
-  padding: 12px;
-  border-bottom: 1px solid var(--hd-border);
-}
-
-.cardSubject {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-  color: var(--hd-foreground);
-}
-
-.cardBody {
-  margin: 8px 0 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  font-family: inherit;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-}
-
 .cardChips {
   display: flex;
   flex-wrap: wrap;
@@ -631,22 +398,12 @@
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
   margin: 12px 0 0;
-  font-size: var(--hd-text-xs);
-}
-
-.cardMeta dt {
-  color: var(--hd-muted-foreground);
 }
 
 .cardMeta dd {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  color: var(--hd-secondary-foreground);
-}
-
-.cardMeta code {
-  font-family: var(--hd-font-code);
 }
 
 .cardCopy {
@@ -662,18 +419,6 @@
 
 }
 
-.fileHead {
-  padding: 10px 12px 4px;
-  font-size: var(--hd-text-xs);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hd-muted-foreground);
-}
-
-.files {
-  padding-bottom: 8px;
-}
-
 .fileRow {
   display: flex;
   align-items: center;
@@ -684,29 +429,8 @@
 
 }
 
-.fileStatus {
-  flex: none;
-  width: 14px;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-}
-
-.fileStatus[data-status='added'] {
-  color: var(--hd-success);
-}
-
-.fileStatus[data-status='deleted'],
-.fileStatus[data-status='conflicted'] {
-  color: var(--hd-danger);
-}
-
-.fileStatus[data-status='modified'] {
-  color: var(--hd-warning-ink);
-}
-
-.fileStatus[data-status='renamed'] {
-  color: var(--hd-tint-violet-ink);
+.fileListBody {
+  padding-bottom: var(--hd-space-2);
 }
 
 .filePath {
@@ -719,32 +443,11 @@
   text-align: left;
 }
 
-.fileCounts {
-  flex: none;
-  display: inline-flex;
-  gap: 6px;
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-  color: var(--hd-muted-foreground);
-}
-
-.added {
-  color: var(--hd-success);
-}
-
-.removed {
-  color: var(--hd-danger);
-}
-
 .diffHead {
   flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 12px;
-  border-bottom: 1px solid var(--hd-border);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-secondary-foreground);
 }
 
 .fileAction {
@@ -756,11 +459,11 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 10px 12px;
+  padding: var(--hd-space-2-5) var(--hd-space-3);
 }
 
-.inlineDiff {
-  padding: 4px 12px 12px;
+.inlinePatch {
+  padding: var(--hd-space-1) var(--hd-space-3) var(--hd-space-3);
 }
 
 /* --- create branch ------------------------------------------------------- */
@@ -775,17 +478,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.createError {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  overflow-wrap: anywhere;
 }
 
 /* The conflicts a verb left behind. A toast fades; a half-made merge does
@@ -795,17 +487,11 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 12px;
-  background: var(--hd-warning-dim);
-  border-bottom: 1px solid var(--hd-border);
 }
 
 .troubleWhat {
   flex: 1 1 200px;
   min-width: 0;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line); /* desk: 1.45 → 21, its step’s own line */
-  color: var(--hd-warning-ink);
 }
 
 .troubleClose {

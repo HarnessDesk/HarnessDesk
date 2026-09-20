@@ -39,3 +39,49 @@ it('offers an accessible clear action only while the field has a value', () => {
   act(() => clear?.click())
   expect(onClear).toHaveBeenCalledOnce()
 })
+
+it('mounts as a compact quiet filter without swallowing input events', () => {
+  const onFocus = vi.fn()
+  const onKeyDown = vi.fn()
+  act(() => root.render(
+    <Search
+      value=""
+      onChange={() => {}}
+      placeholder="Filter sessions"
+      size="compact"
+      icon="filter"
+      title="Narrow the list below."
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
+    />,
+  ))
+
+  const search = container.querySelector<HTMLElement>('[data-slot="search"]')
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')
+  expect(search?.dataset['size']).toBe('compact')
+  expect(search?.dataset['icon']).toBe('filter')
+  expect(search?.querySelector('svg')?.classList.contains('lucide-funnel')).toBe(true)
+  expect(input?.dataset['variant']).toBe('quiet')
+  expect(input?.dataset['size']).toBe('compact')
+  expect(input?.title).toBe('Narrow the list below.')
+  act(() => {
+    input?.focus()
+    input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(onFocus).toHaveBeenCalledOnce()
+  expect(onKeyDown).toHaveBeenCalledOnce()
+})
+
+it('hands its input to an owning surface for initial focus', () => {
+  const inputRef = { current: null as HTMLInputElement | null }
+  act(() => root.render(
+    <Search
+      value=""
+      onChange={() => {}}
+      placeholder="Search actions"
+      inputRef={inputRef}
+    />,
+  ))
+
+  expect(inputRef.current).toBe(container.querySelector('input[type="search"]'))
+})

@@ -40,6 +40,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  CardViewport,
   Checkbox,
   ChoiceRow,
   DataTableColumnHeader,
@@ -74,6 +75,8 @@ import {
   MarkerContent,
   MarkerIcon,
   Progress,
+  ProgressRing,
+  ProgressStack,
   RadioGroup,
   RadioGroupItem,
   ResizeHandle,
@@ -114,6 +117,12 @@ import {
   TableHeader,
   TableRow,
   Textarea,
+  ToolPane,
+  ToolPaneBar,
+  ToolPaneBody,
+  ToolPaneHeader,
+  ToolPaneMessage,
+  ToolPaneNotice,
   Toaster,
   Tooltip,
   TooltipContent,
@@ -126,6 +135,27 @@ import {
   ToolbarGap,
   toast,
 } from '../ui'
+import {
+  Counts,
+  GroupLine,
+  PanelBody,
+  PanelFilter,
+  PanelFooter,
+  PanelFrame,
+  PanelRow,
+  PanelTools,
+  RunDot,
+} from '../patterns/InspectorPanel'
+import { PatchHeader } from '../patterns/Change'
+import {
+  DockDropEdge,
+  DockDropTarget,
+  PaneSurface,
+  WorkbenchCanvas,
+  WorkbenchRail,
+  WorkbenchScrim,
+} from '../patterns/DockPanel'
+import { CodeText, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -162,7 +192,7 @@ const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'
 const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const
 const ATTACHMENT_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
 const ATTACHMENT_CATALOG_STATES = ['default', 'loading', 'error'] as const
-const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical'] as const
+const ATTACHMENT_CATALOG_ORIENTATION = ['horizontal', 'vertical', 'tile'] as const
 const BADGE_CATALOG_VARIANTS = ['default', 'secondary', 'destructive', 'outline'] as const
 const BADGE_CATALOG_SIZES = ['default'] as const
 const BADGE_CATALOG_STATES = ['default', 'active', 'inactive'] as const
@@ -172,7 +202,7 @@ const TABS_CATALOG_SIZES = ['default'] as const
 const TABS_CATALOG_STATES = ['unselected', 'selected', 'focus-visible', 'disabled'] as const
 
 const ICON_TILE_CATALOG_VARIANTS = ['default'] as const
-const ICON_TILE_CATALOG_SIZES = ['sm', 'default', 'lg'] as const
+const ICON_TILE_CATALOG_SIZES = ['xs', 'sm', 'default', 'lg'] as const
 const ICON_TILE_CATALOG_STATES = ['default', 'hover', 'selected'] as const
 const ICON_TILE_CATALOG_SHAPE = ['square', 'round'] as const
 const INPUT_GROUP_CATALOG_VARIANTS = ['default'] as const
@@ -182,9 +212,15 @@ const INPUT_GROUP_CATALOG_ALIGN = ['inline-start', 'inline-end', 'block-start', 
 const MARKER_CATALOG_VARIANTS = ['default', 'border', 'separator'] as const
 const MARKER_CATALOG_SIZES = ['default'] as const
 const MARKER_CATALOG_STATES = ['default', 'success', 'warning', 'error'] as const
-const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet'] as const
+const SECTION_CATALOG_VARIANTS = ['card', 'plain', 'quiet', 'panel'] as const
 const SECTION_CATALOG_SIZES = ['default'] as const
 const SECTION_CATALOG_STATES = ['expanded', 'collapsed'] as const
+const KEY_VALUE_CATALOG_VARIANTS = ['default', 'panel'] as const
+const KEY_VALUE_CATALOG_SIZES = ['default'] as const
+const KEY_VALUE_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+const TOOL_PANE_CATALOG_VARIANTS = ['default', 'integrated'] as const
+const TOOL_PANE_CATALOG_SIZES = ['default'] as const
+const TOOL_PANE_CATALOG_STATES = ['default', 'loading', 'empty', 'error'] as const
 const STAT_CATALOG_VARIANTS = ['plain', 'bordered', 'tinted'] as const
 const STAT_CATALOG_SIZES = ['default'] as const
 const STAT_CATALOG_STATES = ['default', 'loading', 'error'] as const
@@ -363,6 +399,9 @@ const SectionBoard = () => (
           is a box someone forgot to delete.
         </SectionBody>
       </Section>
+      <Section variant="quiet">
+        <SectionBody spacing="compact">Compact inset for a short grant or summary.</SectionBody>
+      </Section>
       <Section variant="plain">
         <SectionHeader>
           <SectionTitle>Plain</SectionTitle>
@@ -510,7 +549,8 @@ const ListBoard = () => (
                 </IconTile>
               }
               title="Trace the flaky socket test"
-              subtitle="Waiting on approval since 09:12"
+              subtitle="Waiting on approval because the socket runner is still holding the port from its last failed attempt."
+              wrapSubtitle
               trail={<Progress value={19} tone="warning" className="w-24" />}
             />
           </ListRows>
@@ -528,9 +568,14 @@ const ListBoard = () => (
 
 const KeyValueBoard = () => (
   <>
-    <div className={styles.matrix}>
+    <div
+      className={styles.matrix}
+      data-catalog-variants={KEY_VALUE_CATALOG_VARIANTS.join(' ')}
+      data-catalog-sizes={KEY_VALUE_CATALOG_SIZES.join(' ')}
+      data-catalog-states={KEY_VALUE_CATALOG_STATES.join(' ')}
+    >
       <Case label="one column, with a total">
-        <KeyValue className="w-full">
+        <KeyValue className="w-full" data-catalog-variant="default">
           <KeyValueRow label="Prompt">5.9M</KeyValueRow>
           <KeyValueRow label="Completion">2.5M</KeyValueRow>
           <KeyValueRow label="Cached">−1.8M</KeyValueRow>
@@ -539,22 +584,125 @@ const KeyValueBoard = () => (
           </KeyValueRow>
         </KeyValue>
       </Case>
+      <Case label="compact panel facts">
+        <KeyValue variant="panel" className="w-full" data-catalog-variant="panel">
+          <KeyValueRow variant="panel" label="Branch">main</KeyValueRow>
+          <KeyValueRow variant="panel" label="Status">Ready</KeyValueRow>
+        </KeyValue>
+      </Case>
       <Case label="progress, as a reading">
         <div className="flex w-full flex-col gap-2">
           <Progress value={82} tone="success" />
           <Progress value={44} />
           <Progress value={19} tone="warning" />
           <Progress value={96} tone="danger" label="96% of plan" />
+          <Progress value={12} measure="remaining" label="12% left" />
+        </div>
+      </Case>
+      <Case label="ring and composed reading">
+        <div className="flex w-full items-start gap-4">
+          <ProgressRing value={74} size={28} tone="warning" label="Context window" />
+          <ProgressStack
+            className="min-w-48 flex-1"
+            label="What is in context"
+            parts={[
+              { id: 'instructions', label: 'Instructions', value: 62, reading: '62K', meta: '62%' },
+              { id: 'tools', label: 'Tools', value: 38, reading: '38K', meta: '38%' },
+            ]}
+          />
+        </div>
+      </Case>
+      <Case label="text roles">
+        <div className="flex flex-col gap-1">
+          <Text role="subject">Account name</Text>
+          <Text role="row">Weekly allowance</Text>
+          <Text role="muted">Resets in four days</Text>
+          <Text role="meta">Read 2m ago</Text>
+          <Text role="meta" ink="secondary">Operation detail</Text>
+          <Text role="figure">74%</Text>
         </div>
       </Case>
     </div>
     <Rule>
-      The bar fills with what has <em>happened</em>. An earlier version of this app&rsquo;s usage
-      meter filled with what was left, sat next to a number counting up, and the two contradicted
-      each other on the same line — see <code>docs</code> and the meter-direction note.
+      Ordinary progress fills with what has <em>happened</em>. A remaining budget says so through
+      <code>measure=&quot;remaining&quot;</code>, fills with the amount left, and takes its warning and danger
+      tones from the same thresholds on every screen.
     </Rule>
   </>
 )
+
+const ToolPaneBoard = () => {
+  const [filter, setFilter] = useState('')
+  return (
+    <>
+      <div
+        className={styles.matrix}
+        data-catalog-variants={TOOL_PANE_CATALOG_VARIANTS.join(' ')}
+        data-catalog-sizes={TOOL_PANE_CATALOG_SIZES.join(' ')}
+        data-catalog-states={TOOL_PANE_CATALOG_STATES.join(' ')}
+      >
+        <Case label="standalone frame">
+          <ToolPane className="h-56 w-full" data-catalog-variant="default">
+            <ToolPaneHeader title="Terminal" subtitle="/work/project" />
+            <ToolPaneBody>
+              <CodeText>$ pnpm verify</CodeText>
+            </ToolPaneBody>
+          </ToolPane>
+        </Case>
+        <Case label="integrated tool">
+          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-variant="integrated">
+            <ToolPaneHeader variant="window" title="Browser" subtitle="https://example.com" />
+            <ToolPaneBar variant="address">example.com</ToolPaneBar>
+            <ToolPaneNotice tone="warning">The page is still loading.</ToolPaneNotice>
+            <ToolPaneBody bleed>
+              <ToolPaneMessage>Waiting for the page.</ToolPaneMessage>
+            </ToolPaneBody>
+          </ToolPane>
+        </Case>
+        <Case label="inspector panel">
+          <PanelFrame>
+            <PanelTools>
+              <PanelFilter value={filter} placeholder="Filter changes" onChange={setFilter} />
+            </PanelTools>
+            <PanelBody>
+              <GroupLine left="Today" right="2" />
+              <PanelRow title="src/app.ts" sub="Modified" selected trail={<Counts added={4} removed={2} />} />
+              <PanelRow mark={<RunDot />} title="Run checks" sub="In progress" />
+            </PanelBody>
+            <PanelFooter left="2 changes" right="Running" />
+          </PanelFrame>
+        </Case>
+        <Case label="panel blocks">
+          <Section variant="panel" className="w-full">
+            <Card variant="flush">
+              <CardViewport size="editor" className="h-24">
+                <PatchHeader level="block"><CodeText>src/app.ts</CodeText></PatchHeader>
+                <ToolPaneMessage>Block content reaches the card edge.</ToolPaneMessage>
+              </CardViewport>
+            </Card>
+          </Section>
+        </Case>
+        <Case label="workbench chrome and drop target">
+          <WorkbenchCanvas className="relative flex h-56 w-full overflow-hidden">
+            <WorkbenchRail data-floating className="w-28 p-3">Rail</WorkbenchRail>
+            <ResizeHandle appearance="line" orientation="vertical" value={0.35} onChange={() => {}} />
+            <PaneSurface className="relative flex-1 p-3">
+              Pane
+              <DockDropEdge area="bottom" className="absolute inset-x-0 bottom-0">
+                <DockDropTarget active label="Dock in Bottom" />
+              </DockDropEdge>
+            </PaneSurface>
+            <WorkbenchScrim className="pointer-events-none absolute inset-0 opacity-20" />
+          </WorkbenchCanvas>
+        </Case>
+      </div>
+      <Rule>
+        A tool owns one frame whether it is freestanding or fills a dock. Inspectors use the same
+        row, filter, state and facts roles, so selection remains a fill and running remains a dot.
+      </Rule>
+    </>
+  )
+}
 
 // --- input ------------------------------------------------------------------
 
@@ -737,6 +885,9 @@ const KanbanBoard = () => {
           </BoardColumn>
         ))}
       </Board>
+      <Board derived className="mt-3">
+        <BoardColumn title="No result" count={0} onAdd={() => undefined} />
+      </Board>
       <Rule>
         A card&rsquo;s column is its state, so no card repeats it — every card says who has it, how
         urgent it is and how much conversation it has collected, and none of them says &ldquo;in
@@ -744,7 +895,8 @@ const KanbanBoard = () => {
         column pushes every card in it into a verdict it has not earned, and a card sitting there
         three days starts to read as an incident. Only <code>priority</code> judges. Unassigned is
         said out loud, because an unassigned card and a card whose avatars failed to load look
-        identical otherwise.
+        identical otherwise. A derived board reports facts and therefore offers no way to add or
+        move one; its empty column says so without drawing a drop target.
       </Rule>
     </>
   )
@@ -964,12 +1116,33 @@ const AdoptedBoard = () => {
         </Case>
 
         <Case label="card &mdash; grouped content">
-          <Card className="w-full">
+          <Card className="w-full" data-catalog-size="default">
             <CardHeader>
               <CardTitle>Catalog source</CardTitle>
               <CardDescription>The production card primitive, not copied markup.</CardDescription>
             </CardHeader>
             <CardContent>One border, one ground, one spacing contract.</CardContent>
+          </Card>
+          <Card variant="muted" className="w-full">
+            <CardHeader>
+              <CardTitle>No reading yet</CardTitle>
+              <CardDescription>The object remains present without claiming a figure.</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card variant="flush" className="w-full">
+            <CardHeader>
+              <CardTitle>Content-owned rhythm</CardTitle>
+              <CardDescription>A flush card lets a table or diff reach its edge.</CardDescription>
+            </CardHeader>
+          </Card>
+          <Card radius="lg" className="w-full">
+            <CardContent>Large-radius configuration surface.</CardContent>
+          </Card>
+          <Card variant="flush" radius="sm" className="w-full">
+            <CardContent className="py-2">Small-radius code or diff plate.</CardContent>
+          </Card>
+          <Card spacing="compact" radius="sm" className="w-full" data-catalog-size="compact">
+            A dense report keeps one inset and one rhythm.
           </Card>
         </Case>
 
@@ -1074,7 +1247,9 @@ const AdoptedBoard = () => {
           {ATTACHMENT_CATALOG_ORIENTATION.map((orientation) => (
             <Attachment key={orientation} orientation={orientation} data-catalog-orientation={orientation} state="done">
               <AttachmentMedia />
-              <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
+              {orientation !== 'tile' && (
+                <AttachmentContent><AttachmentTitle>{orientation}</AttachmentTitle></AttachmentContent>
+              )}
             </Attachment>
           ))}
         </AttachmentGroup>
@@ -1125,6 +1300,24 @@ const AdoptedBoard = () => {
                   </TableRow>
                 ))}
               </TableBody>
+            </Table>
+            <Table variant="framed" data-catalog-variant="framed">
+              <TableHeader>
+                <TableRow variant="matrix">
+                  <TableHead variant="matrix" pinned>Name</TableHead>
+                  <TableHead variant="matrix" align="center">Agent</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow variant="matrix" interactive data-state="selected">
+                  <TableHead variant="row" pinned>code-review</TableHead>
+                  <TableCell variant="matrix">Loaded</TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+            <Table variant="panel" data-catalog-variant="panel">
+              <TableHeader><TableRow variant="panel"><TableHead variant="panel">Panel fact</TableHead></TableRow></TableHeader>
+              <TableBody><TableRow variant="panel"><TableCell variant="panel">Compact value</TableCell></TableRow></TableBody>
             </Table>
           </SectionBody>
           <DataTablePagination
@@ -1230,6 +1423,12 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     title: 'KeyValue · Progress',
     about: 'Facts about one thing, and how far along it is.',
     render: KeyValueBoard,
+  },
+  {
+    id: 'tool-pane',
+    title: 'ToolPane · InspectorPanel',
+    about: 'The shared frame, bars, messages and inspector anatomy around live tools.',
+    render: ToolPaneBoard,
   },
   {
     id: 'field',

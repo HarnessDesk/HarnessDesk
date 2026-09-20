@@ -4,7 +4,7 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
 import { inView } from '../lib/git-view'
-import { Button, Tabs, TabsList, TabsTrigger } from '../design'
+import { Button, Card, ChangeStats, CodeText, Note, PageHead, PatchHeader, PatchSection, Tabs, TabsList, TabsTrigger, Text } from '../design'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavEmpty, WindowNavItem, WindowPage } from './AppWindow'
 import { DiffView } from './Diff'
@@ -55,12 +55,7 @@ const groupByFolder = (files: readonly GitFileStatus[]): FolderGroup[] => {
 }
 
 const Counts = ({ added, removed }: { added: number; removed: number }) =>
-  added + removed > 0 ? (
-    <span className={styles.counts}>
-      {added > 0 && <span className={styles.added}>+{added}</span>}
-      {removed > 0 && <span className={styles.removed}>−{removed}</span>}
-    </span>
-  ) : null
+  added + removed > 0 ? <ChangeStats added={added} removed={removed} className={styles.counts} /> : null
 
 export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
   const store = useStore()
@@ -177,29 +172,30 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
       </WindowNav>
 
       <WindowPage wide>
-        <header className={styles.head}>
-          <div>
-            <h1 className={styles.title}>Changes</h1>
-            <div className={styles.sub}>
+        <PageHead
+          title="Changes"
+          blurb={
+            <>
               {git?.branch ? `on ${git.branch} · ` : ''}
               {files.length} file{files.length === 1 ? '' : 's'}
               {total.added + total.removed > 0 ? ` · +${total.added} −${total.removed}` : ''}
-            </div>
-          </div>
-          {/* Was a hand-rolled tablist: correct roles, but no arrow keys and no
-              roving focus, so a keyboard tabbed through every scope one at a
-              time. The system's tabs bring both. */}
-          <Tabs
-            value={staged ? 'staged' : 'working'}
-            onValueChange={(next) => setStaged(next === 'staged')}
-            className={styles.scope}
-          >
-            <TabsList aria-label="Which changes">
-              <TabsTrigger value="working">Working tree</TabsTrigger>
-              <TabsTrigger value="staged">Staged</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </header>
+            </>
+          }
+          actions={(
+            /* Was a hand-rolled tablist: correct roles, but no arrow keys and no
+               roving focus, so a keyboard tabbed through every scope one at a
+               time. The system's tabs bring both. */
+            <Tabs
+              value={staged ? 'staged' : 'working'}
+              onValueChange={(next) => setStaged(next === 'staged')}
+            >
+              <TabsList aria-label="Which changes">
+                <TabsTrigger value="working">Working tree</TabsTrigger>
+                <TabsTrigger value="staged">Staged</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
+        />
 
         {groups.length === 0 && (
           <div className="hd-empty-line">
@@ -213,13 +209,13 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
 
         {groups.map((group) => (
           <section key={group.folder || '.'} className={styles.folder}>
-            <h2 className={styles.folderName}>{group.folder || 'in this folder'}</h2>
+            <Text as="h2" role="muted" className={styles.folderName}>{group.folder || 'in this folder'}</Text>
             {group.files.map((file) => {
               const diff = diffs.get(file.path) ?? ''
               const hunks = splitHunks(diff)
               const count = countChanges(diff)
               return (
-                <article
+                <section
                   key={file.path}
                   className={styles.file}
                   ref={(element) => {
@@ -227,43 +223,45 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                     else sections.current.delete(file.path)
                   }}
                 >
-                  <div className={styles.fileHead}>
-                    <span className={styles.filePath} title={file.path}>
-                      {basename(file.path)}
-                    </span>
-                    <Counts added={count.added} removed={count.removed} />
-                    <span className={styles.space} />
-                    <Button variant="quiet" size="content" onClick={() => store.openFile(absolute(file.path))}>
-                      Open
-                    </Button>
-                  </div>
-                  {hunks.length === 0 ? (
-                    <div className={styles.quiet}>
-                      {file.status === 'untracked'
-                        ? 'New file — open it to read it.'
-                        : staged
-                          ? 'No staged diff for this file.'
-                          : 'No diff to show.'}
-                    </div>
-                  ) : (
-                    hunks.map((hunk, index) => (
-                      <div key={`${file.path}-${index}`} className={styles.hunk}>
-                        <div className={styles.hunkHead}>
-                          <code className={styles.hunkRange}>{hunk.header}</code>
-                          <span className={styles.space} />
-                          <Button
-                            variant="quiet" size="content"
-                            title="Quote this hunk into the composer as a revision request"
-                            onClick={() => reviseHunk(file.path, hunk)}
-                          >
-                            Revise this hunk…
-                          </Button>
-                        </div>
-                        <DiffView diff={hunk.text} />
-                      </div>
-                    ))
-                  )}
-                </article>
+                  <Card as="article" variant="flush">
+                    <PatchHeader className={styles.fileHead}>
+                      <Text role="row" truncate title={file.path}>
+                        {basename(file.path)}
+                      </Text>
+                      <Counts added={count.added} removed={count.removed} />
+                      <span className={styles.space} />
+                      <Button variant="quiet" size="content" onClick={() => store.openFile(absolute(file.path))}>
+                        Open
+                      </Button>
+                    </PatchHeader>
+                    {hunks.length === 0 ? (
+                      <Note>
+                        {file.status === 'untracked'
+                          ? 'New file — open it to read it.'
+                          : staged
+                            ? 'No staged diff for this file.'
+                            : 'No diff to show.'}
+                      </Note>
+                    ) : (
+                      hunks.map((hunk, index) => (
+                        <PatchSection key={`${file.path}-${index}`}>
+                          <PatchHeader level="hunk" className={styles.hunkHead}>
+                            <Text role="meta"><CodeText as="code">{hunk.header}</CodeText></Text>
+                            <span className={styles.space} />
+                            <Button
+                              variant="quiet" size="content"
+                              title="Quote this hunk into the composer as a revision request"
+                              onClick={() => reviseHunk(file.path, hunk)}
+                            >
+                              Revise this hunk…
+                            </Button>
+                          </PatchHeader>
+                          <DiffView diff={hunk.text} />
+                        </PatchSection>
+                      ))
+                    )}
+                  </Card>
+                </section>
               )
             })}
           </section>

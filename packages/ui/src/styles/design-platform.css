@@ -130,7 +130,7 @@ body {
   --hdp-static-grey-400: rgb(177, 177, 177); /* desk: the grey ramp is neutral */
   --hdp-static-grey-500: rgb(156, 156, 156); /* desk: the grey ramp is neutral */
   --hdp-static-grey-50: rgb(249, 249, 249); /* desk: the grey ramp is neutral */
-  --hdp-static-grey-600: rgb(132, 132, 132); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-600: rgb(107, 107, 107); /* desk: tertiary text clears AA on every light ground */
   --hdp-static-grey-60: rgb(245, 245, 245); /* desk: the grey ramp is neutral */
   --hdp-static-grey-700: rgb(100, 100, 100); /* desk: the grey ramp is neutral */
   --hdp-static-grey-750: rgb(71, 71, 71); /* desk: the grey ramp is neutral */
@@ -206,7 +206,7 @@ body[data-hd-dark-theme] {
   --hdp-static-grey-400: rgb(177, 177, 177); /* desk: the grey ramp is neutral */
   --hdp-static-grey-500: rgb(156, 156, 156); /* desk: the grey ramp is neutral */
   --hdp-static-grey-50: rgb(249, 249, 249); /* desk: the grey ramp is neutral */
-  --hdp-static-grey-600: rgb(132, 132, 132); /* desk: the grey ramp is neutral */
+  --hdp-static-grey-600: rgb(107, 107, 107); /* desk: tertiary text clears AA on every light ground */
   --hdp-static-grey-60: rgb(245, 245, 245); /* desk: the grey ramp is neutral */
   --hdp-static-grey-700: rgb(100, 100, 100); /* desk: the grey ramp is neutral */
   --hdp-static-grey-750: rgb(71, 71, 71); /* desk: the grey ramp is neutral */

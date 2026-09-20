@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useLayoutEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -206,8 +207,8 @@ export const MenuNote = ({ children }: { children: ReactNode }) => (
   <div className={styles.note}>{children}</div>
 )
 
-export const MenuLabel = ({ children }: { children: ReactNode }) => (
-  <div className={styles.label}>{children}</div>
+export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => (
+  <div className={styles.label} data-size={size}>{children}</div>
 )
 
 export const MenuSeparator = () => <div className={styles.separator} role="separator" />
@@ -227,6 +228,7 @@ export const MenuItem = ({
   danger,
   disabled,
   keepOpen,
+  layout = 'default',
   className,
   onSelect,
 }: {
@@ -247,11 +249,14 @@ export const MenuItem = ({
   danger?: boolean
   disabled?: string | boolean
   keepOpen?: boolean
+  /** A taller row anatomy whose contents earn more than one line. */
+  layout?: 'default' | 'profile' | 'account'
   className?: string
   onSelect: () => void
 }) => {
   const scope = useScope()
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const reasonId = useId()
   return (
     <DropdownMenuItem
       render={<button type="button" disabled={Boolean(disabled)} />}
@@ -262,6 +267,8 @@ export const MenuItem = ({
       {...(danger ? { 'data-danger': '' } : {})}
       {...(current ? { 'data-current': '' } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
+      {...(reason ? { 'aria-describedby': reasonId } : {})}
+      data-layout={layout}
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}
@@ -279,7 +286,9 @@ export const MenuItem = ({
               {label}
               {badge && <span className={styles.badge}>{badge}</span>}
             </span>
-            {(hint ?? reason) && <span className={styles.hint}>{hint ?? reason}</span>}
+            {(reason ?? hint) && (
+              <span id={reason ? reasonId : undefined} className={styles.hint}>{reason ?? hint}</span>
+            )}
           </span>
           {value !== undefined && <span className={styles.value}>{value}</span>}
           {shortcut && <span className={styles.shortcut}>{shortcut}</span>}

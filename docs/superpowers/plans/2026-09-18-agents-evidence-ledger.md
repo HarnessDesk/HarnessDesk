@@ -215,7 +215,7 @@ Every task's requirements include these.
 - **The plain path stays plain** (rule 7). A conversation never seated shows no Seat record; a board with no evidence and a project with no `checks.yml` show none of this phase's surfaces; nothing runs until a person asks. Each UI task has a test that renders the plain path and finds none of its surfaces.
 - **No use case is built in** (rule 8). The desk runs whatever a project's `checks.yml` names; nothing ships a check.
 - **No competitor or third-party product names** in code, comments, commit messages, PR titles or PR bodies. Rendered UI text names a runtime only through `RuntimeInfo.presentation` or a name the host supplies (AGENTS.md rule 8 — `pnpm layering` fails a brand name in rendered text).
-- **No real accounts, emails or handles** in fixtures, docs, commit messages or screenshots: `Jane Doe`, `dev@example.com`, or the demo persona **Shane** at `harnessdesk.app` (AGENTS.md rule 13). Every frame comes from the rig, never a real desk.
+- **No real accounts, emails or handles** in fixtures, docs, commit messages or screenshots: `Jane Doe`, `dev@example.com`, or the project's public demo persona at `harnessdesk.app` (AGENTS.md rule 13). Every frame comes from the rig, never a real desk.
 - **Compose, don't draw** (the UI system's rules). Build screens from `packages/ui/src/design`: `Chip`, `stateTone`, `Button`, `KeyValue`, `KeyValueRow`, `EmptyState`, `Dialog`, `ConfirmDialog`, `Popover`, `Menu`, `MenuItem`, `MenuSeparator`, `Rows`, `Row`, `SectionHead`, `Note`, `CodeText`, `Board`, `BoardColumn`, `BoardCard`. No screen stylesheet; a class in a screen carries layout only (flex, grid, gap, wrap, width, position). No raw font size, colour, radius, padding or height. Icons only from `components/Icons.tsx`. **This plan edits no design primitive**; `4382ded9` above is a prerequisite, not a task. Where the design differs from the shipped system, follow the system; the choices still with the owner (selection style, the tertiary grey, one sidebar row, mono for paths and commits, group-label style, tinted or hairline cards) are not decided here — commits and paths are set in the interface face, as the system sets names today.
 - **Verify what renders.** Each UI task adds a fixture to the preview harness (`packages/ui/preview.html` → `src/preview/main.tsx`, `src/preview/harness.tsx`) and runs `node script/design-audit.mjs --strict` and `pnpm test:ui-system`. The preview store answers an unknown method with `undefined`, so every new store method a screen calls is stubbed there.
 - **Committed text never names another app the UI is measured against** — this plan's own numbers and reasons only.
@@ -289,7 +289,7 @@ Every task carries one line under its **Files** block — `**Proof needs:** neit
 | `packages/ui/src/preview/evidence-fixture.ts` (new) | B | The evidence fixtures the preview and the tests share |
 | `packages/ui/src/preview/harness.tsx`, `main.tsx` | B | Fixtures and frames for every new surface; two dialogs on the preview's dial |
 | `packages/ui/src/components/TeamBoardPane.test.tsx`, `TeamRoomPane.test.tsx`, `ProjectPage.test.tsx` | B | Named edits and deletions (Tasks 16, 17, 19; 16; 21) |
-| `script/shots/seed.mjs`, `shoot.mjs`, `script/shots-isolation.test.mjs` | B | The storefront's check, eight scenes, one gate test (Task 23) |
+| `script/shots/config.mjs`, `seed.mjs`, `shoot.mjs`, `agent.mjs`, `script/shots-isolation.test.mjs` | B | Inert rig paths, the storefront's check, restart-safe camera conversations, eight scenes, and gate tests (Task 23) |
 | `docs/interface.md`, `docs/multi-agent.md`, `docs/data-boundaries.md` | B | What ships |
 
 ### Where this plan and phase 2's Part B meet
@@ -309,7 +309,7 @@ Phase 2's Part B was not built when this plan was written. These are every file 
 | `packages/ui/src/components/ProjectPage.tsx` | Created (17) | One section added (21) | An insertion after its Agents section |
 | `packages/ui/src/components/ProjectPage.test.tsx` | Created (17) | Its store gains `projectChecks`; one test appended (21) | A named edit to phase 2's test |
 | `packages/ui/src/lib/agents.ts` | Created (12, 18) | Read only: `ceilingWords`, `originWords`, `passedWords` (20) | Consumed, never edited |
-| `script/shots/seed.mjs`, `shoot.mjs`, `script/shots-isolation.test.mjs` | Staged Agents and ten scenes, with `openStorefront` (22) | The storefront's check, eight scenes, one gate test (23), using phase 2's `openStorefront` and `startAsAgent` | Additions after phase 2's |
+| `script/shots/config.mjs`, `seed.mjs`, `shoot.mjs`, `agent.mjs`, `script/shots-isolation.test.mjs` | Staged Agents and ten scenes, with `openStorefront` (22) | The storefront's check, restart-safe camera conversations, eight scenes and gate tests (23), using phase 2's `openStorefront` and `startAsAgent` | Additions after phase 2's; inert configuration keeps a capture import from reseeding |
 | `packages/ui/src/preview/harness.tsx`, `main.tsx` | Roster fixtures and frames (12–20) | Evidence, Seat record and checks fixtures, three frames, two dialogs on the dial (15–21) | Additions |
 | `script/check-reachable.mjs` | Unpins the agent verbs (12–19) | Pins and unpins the evidence verbs (4–21) | Different lines |
 | `docs/interface.md`, `docs/multi-agent.md` | Agents in the app (21) | Evidence, columns, the Seat record (22) | Different sections |
@@ -8212,7 +8212,7 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { PREVIEW_ROOT } from './sidebar-fixture'
+const EVIDENCE_ROOT = '/home/dev/code/HarnessDesk'
 
 /**
  * What the desk observed, in the shapes the host sends: facts on cards, a
@@ -8257,7 +8257,7 @@ export const factView = (
       id: `fact-${minted}`,
       fact,
       card: { board: EVIDENCE_ROOM, id: over.card ?? 1 },
-      checkout: { cwd: PREVIEW_ROOT, branch: 'retry-on-502' },
+      checkout: { cwd: EVIDENCE_ROOT, branch: 'retry-on-502' },
       seat: over.by === null ? null : 'seat-1',
       round: over.round ?? null,
       observedAt: over.observedAt ?? Date.UTC(2026, 8, 18, 14, 5),
@@ -8357,7 +8357,7 @@ export const EVIDENCE_TEAM: TeamState = {
   id: EVIDENCE_ROOM,
   name: 'Checkout hardening',
   updatedAt: at,
-  root: PREVIEW_ROOT,
+  root: EVIDENCE_ROOT,
   members: [sessionKey(runtimeId('codex'), 'c1' as SessionId), sessionKey(runtimeId('claude'), 'k1' as SessionId)],
   messaging: true,
   intents: [
@@ -8427,7 +8427,7 @@ export const PREVIEW_SEAT: SeatRecord = {
   ],
   standing: { kind: 'permission', permission: 'read' },
   ceiling: null,
-  checkout: { cwd: PREVIEW_ROOT, project: PREVIEW_ROOT, branch: 'retry-on-502', head: HEAD },
+  checkout: { cwd: EVIDENCE_ROOT, project: EVIDENCE_ROOT, branch: 'retry-on-502', head: HEAD },
   session: { runtime: 'codex', sessionId: 's1' },
   board: EVIDENCE_ROOM,
   role: null,
@@ -8438,8 +8438,8 @@ export const PREVIEW_SEAT: SeatRecord = {
 // ------------------------------------------------------- a project's checks
 
 export const PREVIEW_CHECKS: ProjectChecks = {
-  project: PREVIEW_ROOT,
-  file: `${PREVIEW_ROOT}/.harnessdesk/checks.yml`,
+  project: EVIDENCE_ROOT,
+  file: `${EVIDENCE_ROOT}/.harnessdesk/checks.yml`,
   exists: true,
   at: HEAD,
   uncommitted: false,
@@ -8461,8 +8461,8 @@ export const PREVIEW_CHECKS: ProjectChecks = {
 export const PREVIEW_UNSEEN: CheckUnseen = {
   check: { name: 'lint', run: 'pnpm lint --max-warnings 0', timeout: 600 },
   previous: 'pnpm lint',
-  cwd: PREVIEW_ROOT,
-  file: `${PREVIEW_ROOT}/.harnessdesk/checks.yml`,
+  cwd: EVIDENCE_ROOT,
+  file: `${EVIDENCE_ROOT}/.harnessdesk/checks.yml`,
   digest: sha('c4ec5f1'),
 }
 ```
@@ -10755,7 +10755,7 @@ Run each, watch the named test go red, and restore:
 1. **Answer for the person.** In `runCheck`'s `then`, replace `setAsking({ card, unseen: answer.unseen })` with `runCheck(card, name, { seen: answer.unseen.check.run, digest: answer.unseen.digest })`: `a card offers each named check, and the first run… shows it and asks`, `Not now runs nothing…` and `a changed command asks again…` fail.
 2. **Answer with nothing.** Change `onRun` to `() => runCheck(asking.card, asking.unseen.check.name)`: the first test fails on the answer carrying `{ seen: 'pnpm verify', digest }`. It fails the same way when the answer drops `digest`.
 3. **Armed at once.** In `RunCheck`, pass `pending={false}`: the first test fails — the press the moment the question opened answered it — and so does `a click already on its way when the question opens answers nothing…` in `run-check.spec.ts`.
-4. **Focused on open.** In `ConfirmDialog` (the design system's), drop `initialFocus={false}`: `a Return held from the press through the question opening answers nothing` fails in the spec. Restore it — this pins a property of the dialog this task relies on.
+4. **Focused on open.** In `ConfirmDialog` (the design system's), drop `initialFocus={false}`: `a Return held from the press through the question opening answers nothing` fails because its opener no longer keeps focus. Restore it — this pins the question's requirement that nothing inside it takes focus. Merely counting answers is not enough here: Base UI now focuses the alert-dialog popup by default rather than the proceeding button, so a held Return still answers nothing while the focus contract has regressed.
 5. **Allow a refused check.** Change `disabled={one.why ?? false}` to `disabled={false}`: `a check that cannot run stays in the menu, greyed, with its reason as its second line` and `while a check runs on a card…` fail.
 6. **No lock on the card.** Change `why: busy === null ? null : …` to `why: null`: `while a check runs on a card, every check on that card waits…` fails.
 
@@ -11910,9 +11910,9 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    home: '/home/shane',
+    home: '/home/dev',
     activeSessionKey: KEY,
-    sessions: new Map([[KEY, { id: 's1', runtime: 'codex', cwd: '/work/shane/HarnessDesk', turns: [], itemsLoaded: true } as unknown as Session]]),
+    sessions: new Map([[KEY, { id: 's1', runtime: 'codex', cwd: '/home/dev/code/HarnessDesk', turns: [], itemsLoaded: true } as unknown as Session]]),
     teams: new Map([[EVIDENCE_ROOM, { id: EVIDENCE_ROOM, name: 'Checkout hardening' } as unknown as TeamState]]),
   } as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, seatRecord: vi.fn(seatRecord) } as unknown as AppStore
@@ -12260,10 +12260,10 @@ afterEach(() => {
   container.remove()
 })
 
-const ROOT = '/work/shane/HarnessDesk'
+const ROOT = '/home/dev/code/HarnessDesk'
 
 const mount = async (projectChecks: (root: string) => Promise<unknown>) => {
-  const snapshot = { ...emptySnapshot(), status: 'open', home: '/home/shane' } as AppSnapshot
+  const snapshot = { ...emptySnapshot(), status: 'open', home: '/home/dev' } as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, projectChecks: vi.fn(projectChecks) } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -12314,7 +12314,7 @@ it('a project with no checks file shows no section at all', async () => {
 
 it('checks that cannot be read say so, in the host’s words', async () => {
   await mount(async () => {
-    throw new Error('/work/shane/elsewhere is outside every open workspace. Open its folder first.')
+    throw new Error('/home/dev/elsewhere is outside every open workspace. Open its folder first.')
   })
   expect(container.textContent).toContain('Its checks could not be read')
   expect(container.textContent).toContain('is outside every open workspace')
@@ -12740,14 +12740,16 @@ The roadmap's *Done when*, in the app: a card's *verify ✓* goes stale when a c
 | `seat-record-restarted` | The Agents inspector, after the app quit and opened again | the same Seat record, read back from disk |
 
 **Files:**
+- Add: `script/shots/config.mjs` (inert paths/environment shared by seed and capture)
 - Modify: `script/shots/seed.mjs` (the storefront's check, committed; what a take leaves is cleared)
 - Modify: `script/shots/shoot.mjs` (eight scenes)
-- Test: `script/shots-isolation.test.mjs` (one test appended)
+- Modify: `script/shots/agent.mjs` (new camera conversations remain listable after the agent restarts)
+- Test: `script/shots-isolation.test.mjs` (isolation, refresh-history, import-side-effect, and restart guards)
 
 **Proof needs:** the rendered UI — the real app, launched on the rig's isolated home. A writer whose sandbox denies launching the app leaves the take to the controller and says so.
 
 **Interfaces:**
-- Consumes: every surface of Tasks 15–21; phase 2's Task 22 rig — `openStorefront`, `click`, `STORE`, `q`, `sleep`, `splitKey`, `makeRoom`, `waitForSnapshot`, `HOME`, `REPO`; `store.startAsAgent` (phase 2's Task 14); `store.openDetailsTab`; `readChecks` (`packages/server/dist/src/evidence/checks-file.js`) in the gate test.
+- Consumes: every surface of Tasks 15–21; phase 2's Task 22 rig — `openStorefront`, `click`, `STORE`, `q`, `sleep`, `splitKey`, `makeRoom`, `waitForSnapshot`, `HOME`, `REPO`; `store.startAsAgent` (phase 2's Task 14); `store.openDetailsTab`; `readChecks` (`packages/server/dist/src/evidence/checks-file.js`) in the gate test. `shoot.mjs` reads `HOME`, `WORK`, and `SHOT_ENV` from inert `config.mjs`, never from the executable staging module; the camera agent records each `session/new` in its synthetic store so a fresh process can list and load it.
 - Produces: eight scenes, and their frames in a scratch folder — never committed.
 
 - [ ] **Step 1: Write the failing gate test**
@@ -12824,6 +12826,8 @@ if (!existsSync(join(roots.storefront, '.harnessdesk', 'checks.yml'))) {
 say('checks: storefront names verify (node --test)')
 ```
 
+Phase 2's rig now writes the storefront's project Agent after the repository is built. Commit that project file too, when it changed, before the seed ends: otherwise the checkout is dirty, the real check is bound to no commit, and a passing fact correctly cannot put the card in *Ready*. The isolation test's clean-worktree assertion pins both the check and the Agent as committed fixture inputs.
+
 - [ ] **Step 4: The scenes**
 
 In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_process'` as the first import and `writeFileSync` to the `node:fs` import if it is not there, and just before the line that reads `--scene` arguments (`const named = argv.flatMap(…)`), add:
@@ -12852,27 +12856,9 @@ In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_proce
     return evidenceRoom
   }
 
-  /**
-   * A real press — pointer down and up at the middle of what the selector
-   * names — for a control that opens on the pointer rather than on a synthetic
-   * click, as a menu's trigger does.
-   */
-  const press = async (selector) => {
-    const point = await cdp.json(`(() => {
-      const node = document.querySelector(${q(selector)})
-      if (!node) throw new Error('nothing to press: ' + ${q(selector)})
-      const rect = node.getBoundingClientRect()
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-    })()`)
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await cdp.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 })
-    }
-    await sleep(600)
-  }
-
-  /** Card #1's menu, and its *Run verify*. */
+  /** Card #1's menu, and its *Run verify*, through the rig's existing trusted pointer helper. */
   const runVerify = async () => {
-    await press('button[aria-label="What to do with #1"]')
+    await press({ selector: 'button[aria-label="What to do with #1"]' }, { wait: 600 })
     if (!(await click('Run verify', '[role="menu"]'))) throw new Error('card #1 offers no Run verify')
   }
 
@@ -12931,7 +12917,7 @@ In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_proce
   SCENES['evidence-observed'] = {
     expect: 'What the desk observed on #1',
     run: async () => {
-      await press('button[aria-label^="What the desk observed on #1"]')
+      await press({ selector: 'button[aria-label^="What the desk observed on #1"]' }, { wait: 600 })
     },
     verify: async () => {
       const text = await cdp.eval(`document.querySelector('[role="dialog"]')?.textContent ?? ''`)
@@ -12961,7 +12947,9 @@ In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_proce
       if (await cdp.eval(`Boolean(document.querySelector('[role="alertdialog"]'))`)) {
         throw new Error('a command this Mac has approved asked again')
       }
-      await cardSays((card) => card.column === 'Ready' && !card.text.includes('since'))
+      // The earlier diff stays in the ledger as stale history. Acceptance is
+      // the new current check and the card's fact-derived return to Ready.
+      await cardSays((card) => card.column === 'Ready' && /verify ✓ @[0-9a-f]{7}/.test(card.text))
     },
   }
 
@@ -13058,7 +13046,7 @@ Open each PNG and look: both themes, and the narrow board. The stale chip is str
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"
-git add script/shots/seed.mjs script/shots/shoot.mjs script/shots-isolation.test.mjs
+git add script/shots/config.mjs script/shots/seed.mjs script/shots/shoot.mjs script/shots/agent.mjs script/shots-isolation.test.mjs
 git commit -m "test(evidence): the phase's done, photographed in the real app
 
 The staged storefront names verify and commits it with the test it runs. The

@@ -5,7 +5,7 @@
  * applied rather than a number anybody chose:
  *
  * 1. **The column is the measure.** `.item` is set in `--hd-column` and
- *    centred, and the request is three quarters of it — one relationship, so
+ *    centred, and the request is two thirds of it — one relationship, so
  *    the reader's own line and the agent's answer are visibly different
  *    objects without either being a width somebody liked.
  *
@@ -17,8 +17,7 @@
  *    own half-height.
  *
  * 3. **Two lines.** `--hd-line` (21px) carries the 14px interface step and
- *    `--hd-line-sm` (18px) the 12–13px one. 24px survives only on the bubble,
- *    where 16px prose at 1.5 is its own answer.
+ *    `--hd-line-sm` (18px) the 12–13px one.
  *
  * 4. **The hairline is a token.** 44 edges in this app are
  *    `inset 0 0 0 1px <border>` rather than a border, because it costs no
@@ -75,79 +74,46 @@
 }
 
 .bubble {
-  /* Three quarters of the column: `.item` already caps at the measure, so the
-     percentage IS the rule. `min(525px, 82%)` named the same width twice and
-     only ever picked one of them. */
-  max-width: 75%; /* desk: min(525px, 82%) → three quarters of the column */
-  padding: var(--hd-space-2-5) var(--hd-space-4);
-  border-radius: var(--hd-radius-lg); /* desk: 22 → 14, the ladder's floating rung */
-  background: var(--hd-muted);
-  box-shadow: var(--hd-hairline-soft);
-  font-size: var(--hd-text-lg);
-  line-height: var(--hd-line-lg); /* 16px at 1.5: two or three lines, tighter than a document */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-/* ------------------------------------------------- an opened command step */
-
-/*
- * The verbatim command, behind a shell prompt, in its own band closed off by a
- * hairline — the same zoning as the wire name and the argument list. The row
- * above it is a label and ellipsises; this is the string a reader compares
- * against what actually ran, so it wraps whole and can be copied.
- *
- * It is set at the size the row above announced it, because the two are the
- * same string and a reader compares them. The output below is a step down:
- * command, then what it printed.
- */
-.shellRow {
   display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-2) var(--hd-space-3); /* desk: 9 → 8 */
-  border-bottom: 1px solid var(--hd-border);
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 66.6667%; /* desk: 75% → two thirds of the reading column */
+  padding: var(--hd-space-2-5) var(--hd-space-4);
+  border-radius: var(--hd-radius-xl); /* desk: --hd-radius-lg → --hd-radius-xl, the owner-selected message surface */
+  background: var(--hd-muted);
+  font-size: var(--hd-text); /* desk: --hd-text-lg → --hd-text, the reading size */
+  line-height: var(--hd-line); /* desk: --hd-line-lg → --hd-line, paired with the reading size */
 }
 
-.shellPrompt {
-  flex: none;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
-  line-height: var(--hd-line); /* desk: 17 → 21 */
-  color: var(--hd-muted-foreground);
-}
-
-.shellCommand {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text); /* desk: 12 → 14, the size the row above announced */
-  line-height: var(--hd-line); /* desk: 17 → 21 */
+.bubbleText {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: var(--hd-secondary-foreground);
 }
 
-/* Where it sits, and nothing else: the square is `icon-xs`, which is the icon
-   rung that clears AA on its own. */
-.shellCopy {
+.bubbleText[data-collapsed] {
+  max-height: calc(var(--hd-line) * 12);
+  overflow: hidden;
+}
+
+.bubbleToggle {
+  align-self: flex-end;
+  margin-top: var(--hd-space-1);
+}
+
+.bubbleLink {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--hd-space-1);
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
+.bubbleLink svg {
   flex: none;
-  align-self: flex-start;
-  /* Optical: a 24px target centred on the 21px line it sits beside, and pulled
-     out to the band's own padding on the right. */
-  margin: -2px -4px -2px 0; /* desk: -3 → -2, centred on the 21px line the band now sets */
+  align-self: center; /* desk: flex-start → center, the link icon sits on the text line */
 }
 
-/* The bubble already sits on the muted surface, so a code span inside it needs
-   a plate of its own to read as code rather than as emphasis. It is the only
-   code span in the app that keeps a hairline, and that is why. */
-.bubbleCode {
-  padding: 1px var(--hd-space-1); /* desk: 5 → 4 */
-  border-radius: var(--hd-radius-sm); /* desk: 5 → 6, the ladder's mark rung */
-  background: var(--hd-background);
-  box-shadow: var(--hd-hairline-soft);
-  font-family: var(--hd-font-code);
-  font-size: 0.875em; /* desk: 0.86 → 0.875em, one ratio for inline code */
+.bubbleLink span {
   overflow-wrap: anywhere;
 }
 
@@ -283,15 +249,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--hd-font-code);
+  font-family: var(--hd-font-family); /* desk: code → interface, a step summary is a sentence rather than verbatim text */
   font-size: var(--hd-text);
   line-height: var(--hd-line);
   color: var(--hd-foreground);
-}
-
-.rowTitlePlain {
-  font-family: var(--hd-font-family);
-  font-size: var(--hd-text);
 }
 
 .rowMeta {
@@ -315,20 +276,14 @@
 }
 
 .rowBody {
-  border-top: 1px solid var(--hd-border);
+  padding: var(--hd-space-2) var(--hd-space-3) var(--hd-space-3) var(--hd-space-6);
 }
 
-.output {
-  max-height: 380px;
-  overflow: auto;
-  margin: 0;
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm); /* desk: 19 → 18 */
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--hd-secondary-foreground);
+/* A code plate is already the opened step's document. The disclosure body
+   contributes only the icon-column inset; drawing a second surface around it
+   makes one record look like a card nested inside another card. */
+.rowBodyBare {
+  margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6);
 }
 
 .json {
@@ -360,9 +315,10 @@
   color: var(--hd-muted-foreground);
 }
 
-.badge[data-status='failed'] {
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger-ink); /* desk: the raw red → the ink solved for reading on this tint */
+.statusFailed {
+  color: var(--hd-danger-ink);
+  font-size: var(--hd-text-xs);
+  font-weight: var(--hd-weight-medium);
 }
 
 .badge[data-status='declined'] {
@@ -438,23 +394,6 @@
   font-size: var(--hd-text-sm);
 }
 
-/* `+11 −1`, in the inks solved for reading rather than in the state colours.
-   The raw green measures 2.3:1 on the light face at this size; `design/ui`'s
-   own diff stat had already reached for these two names. */
-.stat {
-  flex: none;
-  font-size: var(--hd-text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.statAdd {
-  color: var(--hd-success-ink); /* desk: the raw green → the ink that can be read at 12px */
-}
-
-.statRemove {
-  color: var(--hd-danger-ink); /* desk: the raw red → the ink that can be read at 12px */
-}
-
 .fileBody {
   padding: 0 var(--hd-space-2-5) var(--hd-space-2-5);
 }
@@ -494,24 +433,6 @@
 .noticeIcon {
   flex: none;
   margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
-}
-
-/* --- error -------------------------------------------------------------- */
-
-.error {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-  border-radius: var(--hd-radius);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger-ink); /* desk: the raw red → the ink solved against this fill */
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
-}
-
-.errorIcon {
-  flex: none;
 }
 
 /* --- plan --------------------------------------------------------------- */
@@ -812,14 +733,12 @@
   color: var(--hd-secondary-foreground);
 }
 
-[data-register='light'] .rowTitlePlain,
 [data-register='light'] .groupSummary {
   font-size: var(--hd-text);
   color: var(--hd-secondary-foreground);
 }
 
 [data-register='light'] .rowHeader:hover .rowTitle,
-[data-register='light'] .rowHeader:hover .rowTitlePlain,
 [data-register='light'] .groupHeader:hover .groupSummary {
   color: var(--hd-foreground);
 }

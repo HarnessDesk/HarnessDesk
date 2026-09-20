@@ -6,6 +6,7 @@ import type {
   AgentError,
   BackgroundTask,
   Approval,
+  BoardEvidence,
   ConfigOption,
   EditorDocument,
   MachineSeating,
@@ -390,6 +391,10 @@ export interface AppSnapshot {
    * which is every room that exists today — simply has no entry here.
    */
   readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
+  /** What the desk observed on each room's cards, newest host read by stamp. */
+  readonly boardEvidence: ReadonlyMap<string, BoardEvidence>
+  /** Rooms whose first evidence read failed before any facts could be established. */
+  readonly boardEvidenceFailed: ReadonlySet<string>
   /**
    * The Agent roster for `agentsProject`: that project's own Agents, then this
    * machine's, then the ones that ship, one per id, each carrying what it
@@ -714,6 +719,8 @@ const EMPTY: AppSnapshot = {
   worktrees: [],
   teams: new Map(),
   flowRuns: new Map(),
+  boardEvidence: new Map(),
+  boardEvidenceFailed: new Set(),
   agents: null,
   agentsProject: null,
   agentPlans: new Map(),

@@ -7,7 +7,6 @@ import type { SessionSummary } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { CommandPalette } from './CommandPalette'
-import styles from './CommandPalette.module.css'
 
 /**
  * Group headers in the command palette must never be duplicated or interleaved (#386).
@@ -106,7 +105,7 @@ it('does not render duplicate or interleaved group headers when filtering (#386)
   await mount(history)
   type('settings')
 
-  const groupElements = [...container.querySelectorAll(`.${styles.group}`)]
+  const groupElements = [...container.querySelectorAll('[data-slot="group-label"]')]
   const headers = groupElements.map((el) => el.textContent?.trim() ?? '')
 
   // Headers must not have duplicates

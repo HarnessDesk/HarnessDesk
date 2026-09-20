@@ -274,7 +274,7 @@ describe('MessageQueue', () => {
  */
 describe('dragging a queued message', () => {
   const grip = (index: number): HTMLElement => {
-    const found = rows()[index]?.querySelector('[class*="_grip_"]')
+    const found = rows()[index]?.querySelector('[data-slot="message-queue-grip"]')
     if (!found) throw new Error(`no grip on row ${index}`)
     return found as HTMLElement
   }

@@ -9,7 +9,30 @@ import { expect, test, type Page } from '@playwright/test'
  * "0…" it is a number with no noun, which answers nothing. The search beside it
  * keeps room for its own words either way.
  */
-const mount = async (page: Page, width: number) => {
+const HISTORY = [
+  {
+    sha: 'aaaa111111111111111111111111111111111111',
+    parents: ['bbbb222222222222222222222222222222222222'],
+    subject: 'Keep the graph continuous',
+    author: 'Jane Doe',
+    authorEmail: 'dev@example.com',
+    authoredAt: 1_700_000_000_000,
+    committedAt: 1_700_000_000_000,
+    refs: ['HEAD -> main', 'feat/promo-stacking'],
+  },
+  {
+    sha: 'bbbb222222222222222222222222222222222222',
+    parents: [],
+    subject: 'The row before it',
+    author: 'Jane Doe',
+    authorEmail: 'dev@example.com',
+    authoredAt: 1_699_999_000_000,
+    committedAt: 1_699_999_000_000,
+    refs: ['fix/cart-drift'],
+  },
+] as const
+
+const mount = async (page: Page, width: number, commits: readonly object[] = []) => {
   await page.route('**/src/preview/main.tsx*', async route => {
     const response = await route.fetch()
     const source = await response.text()
@@ -21,7 +44,7 @@ const mount = async (page: Page, width: number) => {
       import { GitPane } from '/src/components/GitPane.tsx';
       import { MountProvider } from '/src/panels/mount.tsx';
       const gitTransport = { request: async (method) => {
-        if (method === 'git/log') return { commits: [], hasMore: false };
+        if (method === 'git/log') return { commits: ${JSON.stringify(commits)}, hasMore: false };
         if (method === 'git/refs') return {
           headSha: 'aaaa111', branch: 'main', branches: [], remotes: [], tags: [], stashes: []
         };
@@ -48,6 +71,39 @@ const mount = async (page: Page, width: number) => {
   await expect(frame.getByRole('searchbox', { name: 'Search history' })).toBeVisible()
   return frame
 }
+
+test('consecutive graph slices fill their exact 26px row pitch and the head marks the graph edge', async ({ page }) => {
+  const frame = await mount(page, 900, HISTORY)
+  // The search field's native select also exposes options; a commit row is
+  // the option that carries a graph slice.
+  const rows = frame.getByRole('option').filter({ has: page.locator('svg') })
+  await expect(rows).toHaveCount(HISTORY.length)
+
+  const slices = await rows.evaluateAll(nodes => nodes.slice(0, 2).map(node => {
+    const row = node.getBoundingClientRect()
+    const svg = node.querySelector('svg')
+    if (!svg?.parentElement) throw new Error('commit graph slice missing')
+    const cell = svg.parentElement.getBoundingClientRect()
+    const drawing = svg.getBoundingClientRect()
+    return {
+      row: { top: row.top, bottom: row.bottom, height: row.height },
+      cell: { top: cell.top, bottom: cell.bottom, height: cell.height },
+      drawing: { top: drawing.top, bottom: drawing.bottom, height: drawing.height },
+    }
+  }))
+
+  for (const slice of slices) {
+    expect.soft(slice.row.height).toBe(26)
+    expect.soft(slice.cell.top).toBeCloseTo(slice.row.top, 1)
+    expect.soft(slice.cell.bottom).toBeCloseTo(slice.row.bottom, 1)
+    expect.soft(slice.drawing.top).toBeCloseTo(slice.row.top, 1)
+    expect.soft(slice.drawing.bottom).toBeCloseTo(slice.row.bottom, 1)
+  }
+  expect(slices[0]!.cell.bottom).toBeCloseTo(slices[1]!.cell.top, 1)
+
+  const head = frame.getByRole('row').filter({ hasText: 'GraphDescription' })
+  await expect(head.locator('[data-slot="separator"][data-orientation="vertical"]')).toHaveCount(1)
+})
 
 test('in the pane’s opening width the count leaves whole and the search keeps its words', async ({ page }) => {
   const frame = await mount(page, 460)

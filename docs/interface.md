@@ -580,6 +580,30 @@ the settings and window Codex reports back, not the values the draft expected.
 Which pages actually carry anything varies by runtime, and the audit of that —
 along with what Settings still does not do — is recorded with the audit.
 
+## What the desk observed
+
+**On a card.** A room's board draws each card's evidence as chips in its foot,
+and its columns — To do, Working, Needs you, In review, Ready, and Set aside
+while anything is — come from those facts, so nothing on the board is dragged.
+A completed card is not placed until the first evidence read succeeds; while
+that read is pending or unavailable, the board says so rather than claiming
+that nothing was checked. The whole of it is in
+[multi-agent.md](multi-agent.md), under *The Board*.
+
+**A conversation's Seat record.** A conversation seated as an Agent shows its
+Seat record at the head of its Agents inspector, above the sub-agents it
+started: the Agent and where it came from, what it runs on, what was passed
+over on the way, what its standing order told it it may do, the checkout it
+started in, its board, and when it opened and closed. A Seat restored from a
+backup says so. It is read-only, because the record is: written once when the
+seat was kept, and closed once. A conversation never seated shows none of it.
+
+**A project's checks.** Workspaces › a project lists the checks the project
+names, as committed, each command verbatim with whether this Mac has approved
+it for this version of the file, says when your working copy of the file is
+not what is committed, and lists every check the file refuses with where and
+why. The section appears only once the project has a checks file.
+
 ## Out-of-band messages
 
 One `Banner` card for everything that is not conversation: neutral surface,
