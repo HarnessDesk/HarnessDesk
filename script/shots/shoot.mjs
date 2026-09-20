@@ -1853,8 +1853,9 @@ rules:
       )
     },
     verify: async () => {
+      const card = await cardOne()
       const text = await cdp.eval(`document.body.innerText`)
-      if (text.includes('Retry the checkout call on a 502')) {
+      if (card.text) {
         throw new Error('Facts must be hidden until the first evidence read succeeds')
       }
       if (text.includes('nothing checked')) {

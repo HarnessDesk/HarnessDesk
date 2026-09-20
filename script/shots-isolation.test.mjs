@@ -52,6 +52,7 @@ test('the unavailable evidence scene withholds completed work without replacing 
   assert.match(unavailable, /const request = store\.transport\.request\.bind\(store\.transport\)/)
   assert.match(unavailable, /method === 'evidence\/board'/)
   assert.match(unavailable, /await store\.loadBoardEvidence\(room\)/)
+  assert.match(unavailable, /const card = await cardOne\(\)/)
   assert.match(unavailable, /Facts must be hidden/)
   assert.match(unavailable, /nothing checked/)
 })
