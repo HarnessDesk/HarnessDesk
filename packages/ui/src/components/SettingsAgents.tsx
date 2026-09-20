@@ -224,7 +224,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
       {view && (view.windows.length > 0 || view.credits) ? (
         <Rows>
           {view.windows.length > 0 && (
-            <div className={`flex flex-col gap-4 p-4${view.credits ? ' border-b border-(--hd-border)' : ''}`}>
+            <div className={`flex flex-col gap-4 p-4${view.credits ? ' border-b border-(--hd-card-divider)' : ''}`}>
               {view.windows.map((window) => (
                 <UsageMeter key={window.label} window={window} />
               ))}
