@@ -645,10 +645,24 @@ rules:
       })()`), content => content === expected)
     } },
 
-    /** xterm behind the canonical terminal option bridge. */
-    terminal: { leaveOverlay: true, run: async () => {
+    /** xterm behind the canonical terminal option bridge.
+     *
+     * Requires HD_SHOTS_NATIVE_CODEX=1 because only the built-in Codex adapter
+     * (connected to its real app-server fixture) can host processes. The
+     * camera's ACP seats run the scripted agent.mjs, which speaks prompts but
+     * has no shell to offer — an openTerminal call from one of those runtimes
+     * is refused by the host, which is why the scene never reached the native
+     * workbench on main.
+     */
+    terminal: { leaveOverlay: true, requires: 'HD_SHOTS_NATIVE_CODEX', run: async () => {
+      if (process.env['HD_SHOTS_NATIVE_CODEX'] !== '1') {
+        throw new Error(
+          'The terminal scene needs a real Codex app-server to host processes. ' +
+          'Set HD_SHOTS_NATIVE_CODEX=1 and re-seed.'
+        )
+      }
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
-      if (process.env['HD_SHOTS_NATIVE_CODEX'] === '1') await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
+      await cdp.eval(`${STORE}.selectRuntime('codex')`, 60_000)
       // Use the system's plain POSIX shell rather than the runner's configured
       // interactive shell. The latter may print a personal prompt from a real
       // dotfile; `/bin/sh -i` still exercises the process and xterm bridges
@@ -2022,6 +2036,10 @@ rules:
   for (const name of wanted) {
     const scene = SCENES[name]
     if (!scene) throw new Error(`no scene "${name}" — have ${Object.keys(SCENES).join(', ')}`)
+    if (scene.requires && process.env[scene.requires] !== '1') {
+      say(`— ${name}  [skipped: ${scene.requires} not set]`)
+      continue
+    }
     say(`— ${name}`)
     await runScene(scene, {
       leaveOverlay,
