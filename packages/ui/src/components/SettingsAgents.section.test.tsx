@@ -41,17 +41,21 @@ const shown = (value: RateLimits | null): string => {
 const value = (words: string): Element | undefined =>
   [...container.querySelectorAll('[data-tone]')].find((node) => node.textContent === words)
 
-it('shows a zero balance as a balance, in the tone of an empty one', () => {
+it('shows a zero balance as a balance, in the danger tone', () => {
   const text = shown(limits({ balance: 0 }))
   expect(text).toContain('Credits')
   expect(text).toContain('0 credits')
   expect(text).not.toContain('Nothing to read yet')
-  expect(value('0 credits')?.getAttribute('data-tone')).toBe('bad')
+  expect(value('0 credits')?.getAttribute('data-tone')).toBe('danger')
 })
 
-it('shows a balance with something in it in the tone of a good one', () => {
+it('shows a balance with something in it, untoned', () => {
   shown(limits({ balance: 5 }))
-  expect(value('5 credits')?.getAttribute('data-tone')).toBe('good')
+  const credits = [...container.querySelectorAll('[data-slot="text"]')].find(
+    (node) => node.textContent === '5 credits',
+  )
+  expect(credits).toBeDefined()
+  expect(credits?.getAttribute('data-tone')).toBeNull()
 })
 
 it('shows an unlimited account as unlimited', () => {
@@ -74,4 +78,11 @@ it('draws the windows and the balance as one card', () => {
   expect(cards).toHaveLength(1)
   expect(cards[0]?.textContent).toContain('Weekly')
   expect(cards[0]?.textContent).toContain('Credits')
+})
+
+it('keeps the card divider between usage windows and Credits', () => {
+  shown(limits({ balance: 5, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: null }] as never }))
+  const progress = container.querySelector('[role="progressbar"]')
+  const meterRows = progress?.parentElement?.parentElement
+  expect(meterRows?.className).toContain('border-[var(--hd-card-divider,var(--hd-border))]')
 })
