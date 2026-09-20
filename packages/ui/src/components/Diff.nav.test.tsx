@@ -81,6 +81,32 @@ describe('DiffView hunk navigation (#390)', () => {
     expect(container.querySelectorAll('tbody tr').length).toBeGreaterThan(0)
   })
 
+  it('keeps a metadata-only file when a later file has content', () => {
+    const diff = [
+      'diff --git a/old.txt b/new.txt',
+      'similarity index 100%',
+      'rename from old.txt',
+      'rename to new.txt',
+      'diff --git a/file.txt b/file.txt',
+      'index 1111111..2222222 100644',
+      '--- a/file.txt',
+      '+++ b/file.txt',
+      '@@ -1 +1 @@',
+      '-before',
+      '+after',
+    ].join('\n')
+
+    act(() => {
+      root.render(<DiffView diff={diff} />)
+    })
+
+    expect(container.textContent).toContain('rename from old.txt')
+    expect(container.textContent).toContain('rename to new.txt')
+    expect(container.textContent).toContain('before')
+    expect(container.textContent).toContain('after')
+    expect(container.textContent).not.toContain('index 1111111')
+  })
+
   it('uses one line-number column and no hunk navigation inline', () => {
     act(() => {
       root.render(<DiffView diff={makeDiffWithHunks(2)} inline />)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../design'
-import { asAdditions, asRemovals, drawnWhole, parseDiff, type WholeFile } from '../lib/diff'
+import { asAdditions, asRemovals, drawnWhole, parseDiff, type DiffLine, type WholeFile } from '../lib/diff'
 import { ChevronIcon } from './Icons'
 import styles from './Diff.module.css'
 
@@ -41,6 +41,25 @@ export interface DiffViewProps {
 
 const startsAtFirstNewLine = (text: string): boolean => /^@@+ .*\+1(?:,\d+)? @@+/.test(text)
 
+/** Drop file introductions only for the file section that has content to show instead. */
+const withoutIntroductions = (lines: readonly DiffLine[]): DiffLine[] => {
+  const shown: DiffLine[] = []
+  let section: DiffLine[] = []
+  const flush = () => {
+    const hasContent = section.some((line) => line.kind !== 'meta')
+    shown.push(...(hasContent
+      ? section.filter((line) => line.kind !== 'meta' || line.text.startsWith('\\'))
+      : section))
+    section = []
+  }
+  for (const line of lines) {
+    if (section.length > 0 && line.kind === 'meta' && line.text.startsWith('diff ')) flush()
+    section.push(line)
+  }
+  flush()
+  return shown
+}
+
 export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false }: DiffViewProps) => {
   const [expanded, setExpanded] = useState(false)
   const [hunk, setHunk] = useState(0)
@@ -57,10 +76,7 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
   const displayLines = useMemo(() => {
     // The post-hunk "no newline" marker is a fact about the change, not part
     // of git's file introduction, so it keeps the quiet metadata treatment.
-    const hasContent = lines.some((line) => line.kind !== 'meta')
-    const withoutHeaders = hasContent
-      ? lines.filter((line) => line.kind !== 'meta' || line.text.startsWith('\\'))
-      : lines
+    const withoutHeaders = withoutIntroductions(lines)
     const hunks = withoutHeaders.filter((line) => line.kind === 'hunk')
     if (hunks.length === 1 && startsAtFirstNewLine(hunks[0]!.text)) {
       return withoutHeaders.filter((line) => line !== hunks[0])
