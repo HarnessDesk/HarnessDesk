@@ -349,8 +349,16 @@ tasks chip · git control · plan meters · browser button · terminal toggle ·
 sidebar row lead with the Agent's name — once, while the conversation's title
 is still that name — the composer's agent chip names the Agent and the seat it
 took, and the name card adds an *Agent* band: what it is for, its ceiling
-(*Read · asked*), where it came from, the seat and every seat passed over, and
+(*Read · held* or *Read · asked*), where it came from, the seat and every seat passed over, and
 *The brief has changed since this started* once its file has moved on.
+
+The same ceiling vocabulary appears on six governed-seat surfaces: the
+conversation header, Agent name card, room rail, board holder, flow dry run and
+Agent roster. A held limit is neutral and an asked limit uses the warning tone;
+the words *held* and *asked* and a hover explanation make colour unnecessary.
+The roster keeps two facts distinct: the Agent file's declared level and the
+effective would-be seat after the seating grant narrows it. A plain conversation
+has no ceiling chip.
 
 **A worktree comes back as a branch.** "Bring it back to the main checkout"
 checks the worktree's branch out in the main checkout and removes the worktree
@@ -553,7 +561,18 @@ open project's own Agents, yours, and the ones that ship. Its overview names
 the folder each section reads; each row is an Agent's name and what it is for,
 with its ceiling and the seat it would take here, or *Can't seat here* and why.
 A row opens the Agent's page, and *On this Mac* on that page is where this
-machine's seats for it are chosen. See [agents.md](agents.md).
+machine's seats for it are chosen. A legacy or missing ceiling flag leads to
+that page's **Ceiling → Update…** action. Its dialog offers only compatible
+choices, previews the exact one-line file diff, and requires an author-controlled
+write; a changed file is refused. Built-ins must be customized first. See
+[agents.md](agents.md).
+
+**Settings › Permissions › Ceilings** shows four held/asked chips for every
+installed runtime, using controls the runtime declares and reads back rather
+than a runtime-name table. It also chooses whether a watched conversation may
+open an unheld seat and say so, or pass it over. The same section is focused
+when a seating refusal's fix opens Settings; Approvals and Rules remain beside
+it and do not auto-answer held peer actions.
 
 **Runtimes** is every registered runtime with its accounts beneath it, and a
 page per runtime (health, update, the runtime's own options) or per account;
