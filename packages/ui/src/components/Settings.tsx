@@ -73,6 +73,7 @@ import { LibrarySection } from './Library'
 import { RuntimesSection, agentReadiness } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
+import { CeilingsSection } from './SettingsCeilings'
 import { RemoveWorktree } from './RemoveWorktree'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
@@ -608,7 +609,7 @@ const isAccessOption = (option: ConfigOption): boolean =>
  * comes first, because that is what a person means by "permissions"; the
  * rules that answer for you come second, and are written in a dialog.
  */
-const PermissionsSection = () => {
+const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [rules, setRules] = useState<readonly PolicyRule[] | null>(null)
@@ -647,8 +648,10 @@ const PermissionsSection = () => {
     <>
       <PageHead
         title="Permissions"
-        blurb="What each agent may do without asking, and the rules that answer for you."
+        blurb="Ceilings set the most a seat may do. Approvals ask you about an action; rules answer recurring permission requests."
       />
+
+      <CeilingsSection focus={focus} />
 
       {groups.length > 0 && (
         <>
@@ -1941,7 +1944,7 @@ export const Settings = ({
           id: 'permissions',
           label: 'Permissions',
           icon: <ShieldIcon size={14} />,
-          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network'],
+          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked'],
         },
         {
           id: 'browser',
@@ -2033,7 +2036,7 @@ export const Settings = ({
             {section === 'extensions' && hasExtensions && <ExtensionsSection />}
             {section === 'library' && <LibrarySection initialFlow={libraryImport ? 'import' : null} />}
             {section === 'skills' && <SkillsSection onUse={onClose} />}
-            {section === 'permissions' && <PermissionsSection />}
+            {section === 'permissions' && <PermissionsSection focus={focus} />}
             {section === 'browser' && <BrowserSection />}
       </WindowPage>
     </AppWindow>

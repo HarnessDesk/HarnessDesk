@@ -738,6 +738,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 class PreviewStore {
   #snapshot: AppSnapshot
   #listeners = new Set<() => void>()
+  #unheldCeilings: 'seat' | 'refuse' = 'seat'
 
   constructor(seed: Partial<AppSnapshot> = {}) {
     this.#snapshot = {
@@ -1341,6 +1342,10 @@ class PreviewStore {
     if (!seating) return
     const entries = seating.entries.filter((entry) => entry.id !== id)
     this.patch({ seating: { ...seating, entries: seats ? [...entries, { id, seats }] : entries } })
+  }
+  loadUnheldCeilings = async (): Promise<'seat' | 'refuse'> => this.#unheldCeilings
+  saveUnheldCeilings = async (watched: 'seat' | 'refuse'): Promise<void> => {
+    this.#unheldCeilings = watched
   }
   previewCeiling = async (entry: AgentEntry, level: CeilingLevel): Promise<CeilingUpdate> => {
     if (entry.origin === 'builtin' || !entry.definition) throw new Error('Customize this Agent before updating it.')

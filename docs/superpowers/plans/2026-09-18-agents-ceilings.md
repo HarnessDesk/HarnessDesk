@@ -9607,7 +9607,7 @@ seat. A seating refusal's fix lands on this section with keyboard focus.
 - Create: `packages/ui/src/components/SettingsCeilings.tsx` — `CeilingsSection`, the runtime rows and watched-seat preference.
 - Create: `packages/ui/src/components/SettingsCeilings.test.tsx` — matrix, choice, loading and focus tests.
 - Modify: `packages/ui/src/components/Settings.tsx` — `PermissionsSection` accepts `focus`, mounts `CeilingsSection`, updates the Permissions blurb and search keywords.
-- Test: `packages/ui/src/components/Settings.test.tsx` — append navigation/search/focus integration cases, retaining Approvals and Rules coverage.
+- Test: `packages/ui/src/components/Settings.route.test.tsx` — append navigation/search/focus integration cases, retaining Approvals and Rules coverage. The current tree keeps Settings route integration in this file; there is no generic `Settings.test.tsx`.
 - Modify: `packages/ui/src/state/store.ts` — export `UnheldCeilings`; add `loadUnheldCeilings` and `saveUnheldCeilings` to `AppStore`.
 - Test: `packages/ui/src/state/store.preferences.test.ts` — append parsing, exact patch and failed-write notice cases.
 - Modify: `packages/ui/src/preview/harness.tsx` — synthetic preference read/write methods, preserving Task 10's runtime declarations.
@@ -9730,7 +9730,7 @@ valid, invalid and failed-save cases, with the key and notice path mutated red.
 6. `store.preferences.test.ts`, *reads and writes what happens when a ceiling cannot be held, as the host reads it*: absent key, `{ watched: 'refuse' }`, `{ watched: 'seat' }`, bad word, null, array and scalar; only exact `refuse` produces refusal. Assert the exact `app/state/set` patch. Must fail before methods exist; mutating `watched` to another key must fail.
 7. Same file, *an unreadable preference uses the host default*: reject `app/state/get`; expect `seat` without a write. Guards the reader's failure default.
 8. Same file, *reports a failed ceiling preference write*: reject `app/state/set`; expect one notice containing “What happens when a ceiling cannot be held could not be saved” and the host error. Replacing `#writePreference` with a swallowed request must fail. Preserve all existing preference tests.
-9. `Settings.test.tsx`, *Permissions search and the ceiling fix open the same section*: search each new keyword, navigate to Permissions with `focus: 'ceilings'`, expect the section focused and Approvals/Rules still rendered. This is the integration guard; a standalone section test cannot prove focus was passed.
+9. `Settings.route.test.tsx`, *Permissions search and the ceiling fix open the same section*: search each new keyword, navigate to Permissions with `focus: 'ceilings'`, expect the section focused and Approvals/Rules still rendered. This is the integration guard; a standalone section test cannot prove focus was passed.
 10. Same file, *ordinary Permissions navigation preserves its controls*: enter without focus, edit an existing rule, verify its current behavior and no new automatic policy write. Guards the unchanged approval/rule layer.
 
 **Run:**
@@ -9741,7 +9741,7 @@ valid, invalid and failed-save cases, with the key and notice path mutated red.
 ```bash
 pnpm --filter @harnessdesk/ui exec vitest run src/components/SettingsCeilings.test.tsx
 pnpm --filter @harnessdesk/ui exec vitest run src/state/store.preferences.test.ts
-pnpm --filter @harnessdesk/ui exec vitest run src/components/Settings.test.tsx
+pnpm --filter @harnessdesk/ui exec vitest run src/components/Settings.route.test.tsx
 pnpm --filter @harnessdesk/ui exec tsc --noEmit -p .
 node script/design-audit.mjs --strict
 pnpm test:ui-system

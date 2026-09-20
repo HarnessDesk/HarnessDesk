@@ -225,6 +225,8 @@ export type {
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
 
+export type UnheldCeilings = 'seat' | 'refuse'
+
 export class AppStore {
   #snapshot: AppSnapshot = emptySnapshot()
   #listeners = new Set<() => void>()
@@ -5030,6 +5032,28 @@ export class AppStore {
       this.notice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
       return false
     }
+  }
+
+  /** What a watched conversation does when its runtime cannot hold the requested ceiling. */
+  async loadUnheldCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const watched = typeof stored === 'object' && stored !== null
+        ? (stored as { watched?: unknown }).watched
+        : undefined
+      return watched === 'refuse' ? 'refuse' : 'seat'
+    } catch {
+      return 'seat'
+    }
+  }
+
+  /** Writes only the watched unheld-ceiling preference; the host merges the patch. */
+  async saveUnheldCeilings(watched: UnheldCeilings): Promise<void> {
+    await this.#writePreference(
+      { unheldCeilings: { watched } },
+      'What happens when a ceiling cannot be held',
+    )
   }
 
   setTheme(theme: AppSnapshot['theme']): void {
