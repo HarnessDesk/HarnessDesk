@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  height: 34px;
+  /* height and padding composed on element via Tailwind. */
   padding: 0 var(--hd-space-2);
 }
 
@@ -46,7 +46,7 @@
   align-items: center;
   gap: 4px 8px; /* desk: 8px → 4px 8px, the same 8px across, and 4px between wrapped lines */
   container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
-  min-height: 36px;
+  /* min-height composed on element via Tailwind. */
   padding: var(--hd-space-0-5) var(--hd-space-2-5);
 }
 
@@ -321,7 +321,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 160px;
+  /* min-height composed on element via Tailwind. */
 }
 
 .detailHandle {

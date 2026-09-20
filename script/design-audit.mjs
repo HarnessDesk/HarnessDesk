@@ -1875,13 +1875,32 @@ const LAYOUT_BEHAVIOUR_PROPERTIES = {
 const inPropertyTable = (name, table) =>
   table.exact.has(name) || table.families.some((family) => name === family || name.startsWith(`${family}-`))
 
-const screenPropertySideOf = (property, value) => {
+/**
+ * Padding whose every piece is either 0 or a system spacing token
+ * (`--hd-space-*`, `--hd-scrollbar-width`, `--hd-bar-*`, `--hd-control-h-*`)
+ * is already expressed in the system — changing the token moves every screen
+ * that reads it, which is the definition of "not a copy".
+ *
+ * Same for height / min-height / max-height that read a system control token.
+ */
+const SYSTEM_TOKEN_PIECE = /^(?:0(?:px)?|var\(--hd-(?:space-|scrollbar-|bar-|control-h-|titlebar-)[^)]*\)|calc\([^)]*--hd-(?:space-|scrollbar-|bar-|control-h-|titlebar-)[^)]*\))$/
+
+const isSystemTokenSpacing = (value) => {
+  const clean = value.replace(/\s*!important\s*$/i, '').trim()
+  return clean.split(/\s+/).every((piece) => SYSTEM_TOKEN_PIECE.test(piece))
+}
+
+export const screenPropertySideOf = (property, value) => {
   if (property.startsWith('--')) return 'custom'
   const name = unprefixedProperty(property)
   if (inPropertyTable(name, APPEARANCE_PROPERTIES)) {
     if (name === 'height' || name === 'min-height' || name === 'max-height') {
       const metric = value.replace(/\s*!important\s*$/i, '').trim()
       if (ZERO_HEIGHT.test(metric) || LAYOUT_HEIGHT.test(metric)) return 'layout'
+      if (SYSTEM_TOKEN_PIECE.test(metric)) return 'layout'
+    }
+    if (name === 'padding' || name.startsWith('padding-')) {
+      if (isSystemTokenSpacing(value)) return 'layout'
     }
     return 'appearance'
   }

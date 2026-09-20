@@ -535,7 +535,7 @@ test('screen property families have one explicit appearance or layout boundary',
     ['border-image-source', 'linear-gradient(red, blue)', true],
     ['outline-offset', '2px', true],
     ['box-shadow', 'var(--hd-shadow-sm)', true],
-    ['padding-inline', 'var(--hd-space-2)', true],
+    ['padding-inline', 'var(--hd-space-2)', false], // system-token spacing is layout (#835)
     // Layout and behaviour.
     ['display', 'grid', false],
     ['flex-basis', 'auto', false],

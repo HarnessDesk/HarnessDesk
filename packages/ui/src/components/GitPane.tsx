@@ -713,7 +713,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Button>
       </ToolPaneHeader>
 
-      <Toolbar className={styles.actionBar} role="toolbar" aria-label="Repository actions">
+      <Toolbar className={`${styles.actionBar} h-[34px]`} role="toolbar" aria-label="Repository actions">
         <ActionBtn
           icon={<CommitIcon size={15} />}
           label="Commit"
@@ -819,7 +819,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Alert>
       )}
 
-      <Toolbar className={styles.tools}>
+      <Toolbar className={`${styles.tools} min-h-[36px]`}>
         <Segmented<GitLogScope>
           label="Which branches"
           options={[
@@ -2059,7 +2059,7 @@ const CommitDetail = ({
   )
 
   return (
-    <div className={styles.detail} style={{ flexBasis: `${fraction * 100}%` }} ref={host}>
+    <div className={`${styles.detail} min-h-[160px]`} style={{ flexBasis: `${fraction * 100}%` }} ref={host}>
       <Separator />
       <ResizeHandle
         orientation="horizontal"
