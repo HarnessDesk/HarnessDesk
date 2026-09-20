@@ -1058,6 +1058,22 @@ it('a refusal to run is said in the host’s words, and nothing is asked', async
   expect(question()).toBeNull()
 })
 
+it('a stale check is offered again and an approved command starts without another question', async () => {
+  const { store } = rig(
+    [intent({ state: 'done' })],
+    {},
+    observed(['verify'], [
+      cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 1 } })]),
+    ]),
+  )
+  await render(store)
+
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledWith(ROOM, 1, 'verify')
+  expect(question()).toBeNull()
+})
+
 it('the board is derived: no card or column takes a drop, no column takes a title, and an empty one says so', async () => {
   const { store } = rig([intent({ state: 'open' })])
   await render(store)

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { execFileSync } from 'node:child_process'
 /**
  * Photograph the real app against the staged desk.
  *
@@ -36,8 +37,8 @@ import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, make
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
+import { HOME, WORK, SHOT_ENV } from './config.mjs'
 import { runScene } from './scene.mjs'
-import { HOME, WORK, SHOT_ENV } from './seed.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 /**
@@ -1694,6 +1695,175 @@ rules:
       await sleep(1800)
     } },
   })
+
+  /* ---------------------------------------------------------- evidence */
+
+  let evidenceRoom = null
+  const stageEvidence = async () => {
+    if (evidenceRoom) return evidenceRoom
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+    evidenceRoom = await makeRoom(cdp, { work: REPO, name: 'Release checks', members: [] })
+    await cdp.eval(`${STORE}.teamAdd(${q(evidenceRoom)}, { title: 'Retry the checkout call on a 502' })`, 60_000)
+    await cdp.eval(`${STORE}.teamIntent(${q(evidenceRoom)}, 1, 'done')`, 60_000)
+    await cdp.eval(`${STORE}.openTeamBoard(${q(evidenceRoom)}); true`)
+    await sleep(1500)
+    return evidenceRoom
+  }
+
+  const runVerify = async () => {
+    if (!(await press({ selector: 'button[aria-label="What to do with #1"]' }, { wait: 600 }))) {
+      throw new Error('card #1 has no menu')
+    }
+    if (!(await click('Run verify', '[role="menu"]'))) throw new Error('card #1 offers no Run verify')
+  }
+
+  const cardOne = () =>
+    cdp.json(`(() => {
+      const card = [...document.querySelectorAll('[data-slot="board-card"]')]
+        .find((one) => (one.textContent ?? '').includes('Retry the checkout call on a 502'))
+      return {
+        text: card?.textContent ?? '',
+        column: card?.closest('[data-slot="board-column"]')?.querySelector('h3')?.textContent ?? null,
+      }
+    })()`)
+
+  const cardSays = (matches) => waitForSnapshot(cardOne, matches, { attempts: 600 })
+
+  SCENES['evidence-ask'] = {
+    leaveOverlay: true,
+    expect: 'Run verify on this Mac for the first time?',
+    run: async () => {
+      await stageEvidence()
+      await runVerify()
+    },
+    verify: async () => {
+      const shown = await cdp.eval(`document.querySelector('[role="alertdialog"] pre')?.textContent ?? ''`)
+      if (shown !== 'node --test') throw new Error(`the question shows ${q(shown)}, not the command verbatim`)
+      const said = await cdp.eval(`document.querySelector('[role="alertdialog"]')?.textContent ?? ''`)
+      if (!said.includes('It runs with your full authority, as it would in your terminal')) {
+        throw new Error('the question does not say what running it means')
+      }
+      if ((await cardOne()).text.includes('verify ✓')) throw new Error('verify ran before anyone answered')
+    },
+  }
+
+  const armed = () =>
+    waitForSnapshot(
+      () =>
+        cdp.eval(
+          `[...document.querySelectorAll('[role="alertdialog"] button')].some((one) => one.textContent?.trim() === 'Run verify' && !one.disabled)`,
+        ),
+      Boolean,
+      { attempts: 50 },
+    )
+
+  SCENES['evidence-fresh'] = {
+    expect: 'verify ✓ @',
+    run: async () => {
+      await armed()
+      if (!(await click('Run verify', '[role="alertdialog"]'))) throw new Error('the question has no Run verify')
+      await cardSays(
+        (card) => card.column === 'Ready' && /verify ✓ @[0-9a-f]{7}/.test(card.text) && !card.text.includes('since'),
+      )
+    },
+  }
+
+  SCENES['evidence-observed'] = {
+    expect: 'What the desk observed on #1',
+    run: async () => {
+      if (!(await press({ selector: 'button[aria-label^="What the desk observed on #1"]' }, { wait: 600 }))) {
+        throw new Error('card #1 carries no evidence row')
+      }
+    },
+    verify: async () => {
+      const text = await cdp.eval(`document.querySelector('[role="dialog"]')?.textContent ?? ''`)
+      for (const words of ['Fresh: nothing has landed on its branch since.', 'node --test', 'It exited 0.']) {
+        if (!text.includes(words)) throw new Error(`the dialog does not say ${q(words)}`)
+      }
+    },
+  }
+
+  SCENES['evidence-stale'] = {
+    expect: '1 commit since',
+    run: async () => {
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+      await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+      execFileSync('git', ['-C', REPO, 'commit', '--allow-empty', '-q', '-m', 'Log the retry count'], { stdio: 'pipe' })
+      await cdp.eval(`${STORE}.loadBoardEvidence(${q(evidenceRoom)})`, 60_000)
+      await cardSays(
+        (card) =>
+          card.column === 'Needs you' &&
+          card.text.includes('verify out of date') &&
+          card.text.includes('1 commit since'),
+      )
+    },
+  }
+
+  SCENES['evidence-refreshed'] = {
+    expect: 'verify ✓ @',
+    run: async () => {
+      await runVerify()
+      await sleep(400)
+      if (await cdp.eval(`Boolean(document.querySelector('[role="alertdialog"]'))`)) {
+        throw new Error('a command this Mac has approved asked again')
+      }
+      await cardSays((card) => card.column === 'Ready' && /verify ✓ @[0-9a-f]{7}/.test(card.text))
+    },
+  }
+
+  const seatRecordSays = async () => {
+    const text = await cdp.eval(`document.querySelector('[aria-label="Seat record"]')?.textContent ?? ''`)
+    for (const words of ['Code reviewer', 'In storefront', 'Read · asked']) {
+      if (!text.includes(words)) throw new Error(`the Seat record does not say ${q(words)}: ${q(text)}`)
+    }
+  }
+
+  SCENES['seat-record'] = {
+    leaveOverlay: true,
+    expect: 'Seat record',
+    run: async () => {
+      await openStorefront()
+      const key = await cdp.eval(`${STORE}.startAsAgent('code-reviewer')`, 180_000)
+      if (!key) throw new Error('Code reviewer was not seated')
+      writeFileSync(join(HOME, 'seat-record-scene.json'), `${JSON.stringify({ key })}\n`)
+      await cdp.eval(`${STORE}.openDetailsTab('agents'); true`)
+      await sleep(2500)
+    },
+    verify: seatRecordSays,
+  }
+
+  SCENES['project-checks'] = {
+    leaveOverlay: true,
+    expect: 'node --test',
+    run: async () => {
+      await cdp.eval(`${STORE}.askSettings('workspaces', ${q(REPO)}); true`)
+      await sleep(1500)
+    },
+    verify: async () => {
+      const text = await cdp.eval(`document.querySelector('section[aria-label="Checks"]')?.textContent ?? ''`)
+      if (!text.includes('Approved on this Mac')) {
+        throw new Error(`the project's checks do not say verify was approved here: ${q(text)}`)
+      }
+    },
+  }
+
+  SCENES['seat-record-restarted'] = {
+    leaveOverlay: true,
+    expect: 'Seat record',
+    run: async () => {
+      const { key } = JSON.parse(readFileSync(join(HOME, 'seat-record-scene.json'), 'utf8'))
+      const { runtime, sessionId } = splitKey(key)
+      await openStorefront()
+      const record = await cdp.json(`${STORE}.seatRecord(${q(runtime)}, ${q(sessionId)})`, 60_000)
+      if (record?.agent?.id !== 'code-reviewer') {
+        throw new Error(`no Seat record for Code reviewer after the restart: ${q(record)}`)
+      }
+      await cdp.eval(`${STORE}.openSession(${q(sessionId)}, { runtime: ${q(runtime)} })`, 120_000)
+      await cdp.eval(`${STORE}.openDetailsTab('agents'); true`)
+      await sleep(2500)
+    },
+    verify: seatRecordSays,
+  }
 
   /* Every `--scene` on the line, not just the first: a take is usually two or
      three scenes, and silently shooting only one of them is the kind of miss

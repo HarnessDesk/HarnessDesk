@@ -21,11 +21,11 @@
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
+import { HOME, SHOT_ENV, WORK } from './config.mjs'
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 /* `agent.mjs`, not the repository's `fake-acp-agent.mjs` fixture: that one is
@@ -39,7 +39,6 @@ const REGISTERED_CAST = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
   ? CAST.filter((agent) => agent.id !== 'codex')
   : CAST
 
-export const HOME = process.env['HD_SHOTS_HOME'] ?? join(homedir(), '.harnessdesk-shots')
 /**
  * The repositories live under the real `$HOME`, not under the staged home.
  *
@@ -49,20 +48,6 @@ export const HOME = process.env['HD_SHOTS_HOME'] ?? join(homedir(), '.harnessdes
  * somebody's checkout. A folder under `~/.harnessdesk-shots/work` photographs
  * as a rig.
  */
-export const WORK = process.env['HD_SHOTS_WORK'] ?? join(homedir(), 'work')
-
-// The built-in adapter is constructed even when a camera ACP row replaces it.
-// Both capture drivers therefore isolate its home and executable before boot.
-export const SHOT_ENV = {
-  ...process.env,
-  CODEX_HOME: join(HOME, 'codex-home'),
-  HARNESSDESK_CODEX_BINARY: join(APP, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
-  // Where a scene "installs" a newer Codex under the running desk; see the
-  // fixture. Cleared with the rest of a take's residue, so every take boots
-  // on the build the fixture plays by default.
-  FAKE_CODEX_VERSION_FILE: join(HOME, 'codex-version'),
-}
-
 const say = (line) => process.stdout.write(`  ${line}\n`)
 
 /**
@@ -82,7 +67,7 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * profile, not app state, and rebuilding it costs seconds of cold start for
  * nothing.
  */
-const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version']
+const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence', 'commands-seen.json', 'commands-seen.key', 'seat-record-scene.json']
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 
 if (process.argv.includes('--clean')) {
@@ -158,6 +143,21 @@ const buildRepo = (dir, blurb) => {
 
 const roots = Object.fromEntries(REPOS.map((repo) => [repo.dir, buildRepo(repo.dir, repo.blurb)]))
 say(`repositories: ${REPOS.map((one) => one.dir).join(', ')}  (under ${WORK})`)
+
+// ------------------------------------------------------------------ the check
+if (!existsSync(join(roots.storefront, '.harnessdesk', 'checks.yml'))) {
+  mkdirSync(join(roots.storefront, '.harnessdesk'), { recursive: true })
+  mkdirSync(join(roots.storefront, 'test'), { recursive: true })
+  writeFileSync(join(roots.storefront, '.harnessdesk', 'checks.yml'), 'verify: { run: node --test, timeout: 120 }\n')
+  writeFileSync(
+    join(roots.storefront, 'test', 'retry.test.mjs'),
+    "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\n\ntest('a 502 is retried', () => {\n  assert.ok([502, 503, 504].includes(502))\n})\n",
+  )
+  const git = (...args) => execFileSync('git', args, { cwd: roots.storefront, stdio: 'pipe' })
+  git('add', '-A')
+  git('commit', '-m', 'Name the verify check')
+}
+say('checks: storefront names verify (node --test)')
 
 // ------------------------------------------------------------------ the desks
 /**
@@ -270,6 +270,19 @@ writeAgent(
       'You review a change to the storefront that somebody else wrote. Read the whole diff before you report, and hold every change to the checkout rules: money in minor units, retries capped, nothing charged twice.\n\n## How to report\n\nEvery finding with its file and line, blocking ones first, then a verdict: approve, or request changes.',
   }),
 )
+
+/* The evidence scenes run a check bound to a commit. The project Agent is a
+   project file too, so leaving it untracked would make that check about dirty
+   work and its passing fact could never make the card Ready. */
+{
+  const status = execFileSync('git', ['-C', roots.storefront, 'status', '--porcelain', '--', '.harnessdesk/agents'], {
+    encoding: 'utf8',
+  })
+  if (status.trim()) {
+    execFileSync('git', ['-C', roots.storefront, 'add', '.harnessdesk/agents'], { stdio: 'pipe' })
+    execFileSync('git', ['-C', roots.storefront, 'commit', '-m', 'Add the storefront reviewer'], { stdio: 'pipe' })
+  }
+}
 
 writeAgent(
   join(HOME, 'agents', 'release-checker'),

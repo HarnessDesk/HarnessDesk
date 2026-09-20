@@ -289,7 +289,7 @@ Every task carries one line under its **Files** block — `**Proof needs:** neit
 | `packages/ui/src/preview/evidence-fixture.ts` (new) | B | The evidence fixtures the preview and the tests share |
 | `packages/ui/src/preview/harness.tsx`, `main.tsx` | B | Fixtures and frames for every new surface; two dialogs on the preview's dial |
 | `packages/ui/src/components/TeamBoardPane.test.tsx`, `TeamRoomPane.test.tsx`, `ProjectPage.test.tsx` | B | Named edits and deletions (Tasks 16, 17, 19; 16; 21) |
-| `script/shots/seed.mjs`, `shoot.mjs`, `script/shots-isolation.test.mjs` | B | The storefront's check, eight scenes, one gate test (Task 23) |
+| `script/shots/config.mjs`, `seed.mjs`, `shoot.mjs`, `agent.mjs`, `script/shots-isolation.test.mjs` | B | Inert rig paths, the storefront's check, restart-safe camera conversations, eight scenes, and gate tests (Task 23) |
 | `docs/interface.md`, `docs/multi-agent.md`, `docs/data-boundaries.md` | B | What ships |
 
 ### Where this plan and phase 2's Part B meet
@@ -309,7 +309,7 @@ Phase 2's Part B was not built when this plan was written. These are every file 
 | `packages/ui/src/components/ProjectPage.tsx` | Created (17) | One section added (21) | An insertion after its Agents section |
 | `packages/ui/src/components/ProjectPage.test.tsx` | Created (17) | Its store gains `projectChecks`; one test appended (21) | A named edit to phase 2's test |
 | `packages/ui/src/lib/agents.ts` | Created (12, 18) | Read only: `ceilingWords`, `originWords`, `passedWords` (20) | Consumed, never edited |
-| `script/shots/seed.mjs`, `shoot.mjs`, `script/shots-isolation.test.mjs` | Staged Agents and ten scenes, with `openStorefront` (22) | The storefront's check, eight scenes, one gate test (23), using phase 2's `openStorefront` and `startAsAgent` | Additions after phase 2's |
+| `script/shots/config.mjs`, `seed.mjs`, `shoot.mjs`, `agent.mjs`, `script/shots-isolation.test.mjs` | Staged Agents and ten scenes, with `openStorefront` (22) | The storefront's check, restart-safe camera conversations, eight scenes and gate tests (23), using phase 2's `openStorefront` and `startAsAgent` | Additions after phase 2's; inert configuration keeps a capture import from reseeding |
 | `packages/ui/src/preview/harness.tsx`, `main.tsx` | Roster fixtures and frames (12–20) | Evidence, Seat record and checks fixtures, three frames, two dialogs on the dial (15–21) | Additions |
 | `script/check-reachable.mjs` | Unpins the agent verbs (12–19) | Pins and unpins the evidence verbs (4–21) | Different lines |
 | `docs/interface.md`, `docs/multi-agent.md` | Agents in the app (21) | Evidence, columns, the Seat record (22) | Different sections |
@@ -12740,14 +12740,16 @@ The roadmap's *Done when*, in the app: a card's *verify ✓* goes stale when a c
 | `seat-record-restarted` | The Agents inspector, after the app quit and opened again | the same Seat record, read back from disk |
 
 **Files:**
+- Add: `script/shots/config.mjs` (inert paths/environment shared by seed and capture)
 - Modify: `script/shots/seed.mjs` (the storefront's check, committed; what a take leaves is cleared)
 - Modify: `script/shots/shoot.mjs` (eight scenes)
-- Test: `script/shots-isolation.test.mjs` (one test appended)
+- Modify: `script/shots/agent.mjs` (new camera conversations remain listable after the agent restarts)
+- Test: `script/shots-isolation.test.mjs` (isolation, refresh-history, import-side-effect, and restart guards)
 
 **Proof needs:** the rendered UI — the real app, launched on the rig's isolated home. A writer whose sandbox denies launching the app leaves the take to the controller and says so.
 
 **Interfaces:**
-- Consumes: every surface of Tasks 15–21; phase 2's Task 22 rig — `openStorefront`, `click`, `STORE`, `q`, `sleep`, `splitKey`, `makeRoom`, `waitForSnapshot`, `HOME`, `REPO`; `store.startAsAgent` (phase 2's Task 14); `store.openDetailsTab`; `readChecks` (`packages/server/dist/src/evidence/checks-file.js`) in the gate test.
+- Consumes: every surface of Tasks 15–21; phase 2's Task 22 rig — `openStorefront`, `click`, `STORE`, `q`, `sleep`, `splitKey`, `makeRoom`, `waitForSnapshot`, `HOME`, `REPO`; `store.startAsAgent` (phase 2's Task 14); `store.openDetailsTab`; `readChecks` (`packages/server/dist/src/evidence/checks-file.js`) in the gate test. `shoot.mjs` reads `HOME`, `WORK`, and `SHOT_ENV` from inert `config.mjs`, never from the executable staging module; the camera agent records each `session/new` in its synthetic store so a fresh process can list and load it.
 - Produces: eight scenes, and their frames in a scratch folder — never committed.
 
 - [ ] **Step 1: Write the failing gate test**
@@ -12824,6 +12826,8 @@ if (!existsSync(join(roots.storefront, '.harnessdesk', 'checks.yml'))) {
 say('checks: storefront names verify (node --test)')
 ```
 
+Phase 2's rig now writes the storefront's project Agent after the repository is built. Commit that project file too, when it changed, before the seed ends: otherwise the checkout is dirty, the real check is bound to no commit, and a passing fact correctly cannot put the card in *Ready*. The isolation test's clean-worktree assertion pins both the check and the Agent as committed fixture inputs.
+
 - [ ] **Step 4: The scenes**
 
 In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_process'` as the first import and `writeFileSync` to the `node:fs` import if it is not there, and just before the line that reads `--scene` arguments (`const named = argv.flatMap(…)`), add:
@@ -12852,27 +12856,9 @@ In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_proce
     return evidenceRoom
   }
 
-  /**
-   * A real press — pointer down and up at the middle of what the selector
-   * names — for a control that opens on the pointer rather than on a synthetic
-   * click, as a menu's trigger does.
-   */
-  const press = async (selector) => {
-    const point = await cdp.json(`(() => {
-      const node = document.querySelector(${q(selector)})
-      if (!node) throw new Error('nothing to press: ' + ${q(selector)})
-      const rect = node.getBoundingClientRect()
-      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-    })()`)
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await cdp.send('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 })
-    }
-    await sleep(600)
-  }
-
-  /** Card #1's menu, and its *Run verify*. */
+  /** Card #1's menu, and its *Run verify*, through the rig's existing trusted pointer helper. */
   const runVerify = async () => {
-    await press('button[aria-label="What to do with #1"]')
+    await press({ selector: 'button[aria-label="What to do with #1"]' }, { wait: 600 })
     if (!(await click('Run verify', '[role="menu"]'))) throw new Error('card #1 offers no Run verify')
   }
 
@@ -12931,7 +12917,7 @@ In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_proce
   SCENES['evidence-observed'] = {
     expect: 'What the desk observed on #1',
     run: async () => {
-      await press('button[aria-label^="What the desk observed on #1"]')
+      await press({ selector: 'button[aria-label^="What the desk observed on #1"]' }, { wait: 600 })
     },
     verify: async () => {
       const text = await cdp.eval(`document.querySelector('[role="dialog"]')?.textContent ?? ''`)
@@ -12961,7 +12947,9 @@ In `script/shots/shoot.mjs`, add `import { execFileSync } from 'node:child_proce
       if (await cdp.eval(`Boolean(document.querySelector('[role="alertdialog"]'))`)) {
         throw new Error('a command this Mac has approved asked again')
       }
-      await cardSays((card) => card.column === 'Ready' && !card.text.includes('since'))
+      // The earlier diff stays in the ledger as stale history. Acceptance is
+      // the new current check and the card's fact-derived return to Ready.
+      await cardSays((card) => card.column === 'Ready' && /verify ✓ @[0-9a-f]{7}/.test(card.text))
     },
   }
 
@@ -13058,7 +13046,7 @@ Open each PNG and look: both themes, and the narrow board. The stale chip is str
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 mkdir -p /tmp/hdv && TMPDIR=/tmp/hdv pnpm verify; echo "verify exit: $?"
-git add script/shots/seed.mjs script/shots/shoot.mjs script/shots-isolation.test.mjs
+git add script/shots/config.mjs script/shots/seed.mjs script/shots/shoot.mjs script/shots/agent.mjs script/shots-isolation.test.mjs
 git commit -m "test(evidence): the phase's done, photographed in the real app
 
 The staged storefront names verify and commits it with the test it runs. The
