@@ -77,6 +77,7 @@ export interface HarnessContext {
    * `ref_3` from `readPage` is resolved by the page and needs no such
    * correction.
    */
+  /** Browser ownership comes from the live host invocation, never a plugin argument. */
   readonly browser: {
     /** `handedOff` when the setting sent the page to the default browser, which cannot be looked at. */
     open(url: string): Promise<{ url: string; title: string; handedOff?: true }>
@@ -186,6 +187,11 @@ export interface HarnessContext {
      */
     awaitWork(
       options: { readonly blockMs?: number; readonly cycle?: number },
+      scope?: ScopeQuery,
+    ): Promise<string>
+    /** Wait for one member's currently running turn without sending or polling. */
+    awaitMember(
+      options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
       scope?: ScopeQuery,
     ): Promise<string>
     conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string>

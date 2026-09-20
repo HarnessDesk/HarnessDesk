@@ -7,6 +7,18 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## 0.2.4 — 2026-09-18
 
+- **Projects can now hold finite Goals** — create a Goal without changing the
+  ordinary conversation path, seat an Agent or assign a loose conversation,
+  track dependency/activity state, and keep wrapped work in a collapsed history
+  group.
+- **Isolated Seats keep their own lane** — each receives a retained worktree,
+  disjoint port block and optional persistent browser profile, with machine-wide
+  defaults and explicit port release under Workspaces › Lanes.
+- **Wrapping produces a reviewable, immutable receipt** — cards, answers,
+  evidence, revisions, citations and retained lanes are captured before the
+  final action and survive restart. Backups restore these facts as read-only
+  history without reviving agents, ports or browser authority.
+
 Usage now reflects what each agent actually keeps and reports, so balances and
 spend no longer disappear behind a generic unsupported state or get described
 as public-price estimates when they came from the agent itself.

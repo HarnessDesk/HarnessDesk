@@ -111,7 +111,8 @@ const isCeiling = (value: unknown): value is SeatCeiling =>
 /** Either generation of a standing order, as it said itself — and nothing that is neither. */
 const isStanding = (value: unknown): value is StandingOrder =>
   isRecord(value) &&
-  ((value['kind'] === 'permission' && PERMISSIONS.has(value['permission'] as string)) ||
+  (value['kind'] === 'unknown' ||
+    (value['kind'] === 'permission' && PERMISSIONS.has(value['permission'] as string)) ||
     (value['kind'] === 'ceiling' && LEVELS.has(value['level'] as string)))
 
 const isRestored = (value: unknown): value is Restored => isRecord(value) && isTime(value['at'])

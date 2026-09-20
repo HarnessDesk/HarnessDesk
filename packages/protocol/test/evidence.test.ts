@@ -33,9 +33,10 @@ test('a Seat record has a ceiling slot in exactly the seam shape, null until pha
  * them and without changing this type — and a reader always knows which it
  * holds.
  */
-test("a Seat record's standing order is either generation's, tagged, and never both or neither", () => {
+test("a Seat record's standing order is either generation's or an explicit unknown import", () => {
   const today: SeatRecord['standing'] = { kind: 'permission', permission: 'read' }
   const phase3: SeatRecord['standing'] = { kind: 'ceiling', level: 'edit' }
+  const imported: SeatRecord['standing'] = { kind: 'unknown' }
   // @ts-expect-error a ceiling-only Agent's order is never written as a permission it did not say
   const invented: SeatRecord['standing'] = { kind: 'permission', level: 'edit' }
   // @ts-expect-error nor a permission as a ceiling
@@ -45,7 +46,9 @@ test("a Seat record's standing order is either generation's, tagged, and never b
   // @ts-expect-error the order is required on every record
   const missing: Pick<SeatRecord, 'standing'> = {}
   void [invented, mixed, offLadder, missing]
-  const words = (standing: SeatRecord['standing']): string =>
-    standing.kind === 'permission' ? `permission: ${standing.permission}` : `ceiling: ${standing.level}`
-  assert.deepEqual([words(today), words(phase3)], ['permission: read', 'ceiling: edit'])
+  const words = (standing: SeatRecord['standing']): string => {
+    if (standing.kind === 'unknown') return 'not recorded'
+    return standing.kind === 'permission' ? `permission: ${standing.permission}` : `ceiling: ${standing.level}`
+  }
+  assert.deepEqual([words(today), words(phase3), words(imported)], ['permission: read', 'ceiling: edit', 'not recorded'])
 })

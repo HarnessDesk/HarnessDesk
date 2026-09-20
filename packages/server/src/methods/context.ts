@@ -43,6 +43,7 @@ import type { SessionNames } from '../names.js'
 import type { SeatedAs, SessionRecord, SessionRegistry } from '../registry.js'
 import type { StateStore } from '../state.js'
 import type { Flows } from '../flows.js'
+import type { GoalPlane } from '../goals/plane.js'
 import type { Team } from '../team.js'
 import type { Terminals } from '../terminals.js'
 import type { TranscriptStore } from '../transcripts.js'
@@ -81,6 +82,16 @@ export interface HostContext {
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows
+  readonly goals: GoalPlane
+  readonly lanes: import('../goals/lanes.js').LaneAllocator
+  readonly laneSettings: {
+    read(): import('@harnessdesk/protocol').LanePreferences
+    set(value: import('@harnessdesk/protocol').LanePreferences): Promise<import('@harnessdesk/protocol').LanePreferences>
+  }
+  readonly laneEnvironment: {
+    forCheckout(cwd: string): Readonly<Record<string, string>> | undefined
+    forSession(runtime: string, sessionId: string): Promise<Readonly<Record<string, string>> | undefined>
+  }
   /**
    * The Agent roster: who can be seated, and what each one is for.
    *
@@ -176,7 +187,14 @@ export interface HostContext {
      * (`recordAgent`), retired, or discarded; only while it is held can it be
      * discarded.
      */
-    open(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat>
+    open(
+      seat: FlowSeat,
+      where: {
+        readonly cwd: string
+        readonly title: string
+        readonly environment?: Readonly<Record<string, string>>
+      },
+    ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
     order(runtime: string, sessionId: string, text: string): Promise<void>
     /**

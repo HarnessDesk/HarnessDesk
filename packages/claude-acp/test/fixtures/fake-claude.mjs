@@ -74,6 +74,21 @@ process.on('exit', () => log(`exit ${process.pid}`))
 // A signal death skips 'exit'; the SDK ends a replaced process with SIGTERM.
 process.on('SIGTERM', () => process.exit(0))
 
+if (process.env.FAKE_LANE_ENV_LOG && process.env.HARNESSDESK_LANE_ID) {
+  const keys = [
+    'HARNESSDESK_GOAL_ID',
+    'HARNESSDESK_LANE_ID',
+    'HARNESSDESK_PORT_START',
+    'HARNESSDESK_PORT_END',
+    'HARNESSDESK_PORT_COUNT',
+    'PORT',
+  ]
+  appendFileSync(
+    process.env.FAKE_LANE_ENV_LOG,
+    `${JSON.stringify(Object.fromEntries(keys.map((key) => [key, process.env[key]])))}\n`,
+  )
+}
+
 const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`)
 
 const MODELS = [

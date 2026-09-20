@@ -1,5 +1,6 @@
 import {
   Button,
+  Chip,
   ContextMenu,
   Dot,
   Input,
@@ -22,6 +23,7 @@ import { openingOf, sessionKey, type Session, type SessionSummary, type TeamStat
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, projectRootOf, type ProjectGroup } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
+import { goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
 
@@ -55,7 +57,6 @@ import {
 } from './Icons'
 import { SessionHoverCard } from './AgentCards'
 import { RuntimeMark } from './BrandIcons'
-import { DeleteRoom, RenameRoom } from './RoomActions'
 import { DeleteSession } from './DeleteSession'
 import { WorkspaceMenu } from './WorkspaceMenu'
 import styles from './Sidebar.module.css'
@@ -620,8 +621,6 @@ const RoomRow = ({
   open,
   onToggle,
   onDelete,
-  onRename,
-  onDeleteRoom,
 }: {
   readonly room: TeamState
   /** The project's conversations — members are matched against these. */
@@ -630,12 +629,10 @@ const RoomRow = ({
   readonly open: boolean
   readonly onToggle: () => void
   readonly onDelete: (summary: SessionSummary) => void
-  readonly onRename: (room: TeamState) => void
-  readonly onDeleteRoom: (room: TeamState) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const menu = useContextMenu()
+  const goal = snapshot.goals.get(room.id)
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -676,9 +673,7 @@ const RoomRow = ({
         size="navigation"
         className={styles.roomRow}
         {...(held > 0 ? { 'data-held': '' } : {})}
-        {...(menu.at ? { 'data-menu-open': '' } : {})}
         tabIndex={0}
-        onContextMenu={menu.open}
         aria-label={`Room ${room.name}`}
         title={
           held > 0
@@ -715,6 +710,10 @@ const RoomRow = ({
           <TeamIcon size={12} />
         </Text>
         <Text role="navigation" fade className={styles.groupName}>{room.name}</Text>
+        {goal ? (() => {
+          const words = goalWords({ goal: goal.goal, activity: goal.activity })
+          return <Chip tone={words.tone}>{words.label}</Chip>
+        })() : null}
         {/* A state and a size, and they must not read as one number. Drawn
             plainly the row said "1 0" — two counts in the same grey, the same
             size, a gap apart, and the second with nothing on it to say what it
@@ -745,44 +744,7 @@ const RoomRow = ({
         >
           {members.length}
         </Text>
-        {/* The same ⋯ a conversation row has, in the same place, because a
-            room is another thing this project holds and the two rows must not
-            teach different habits. */}
-        <span className={styles.rowMenu} {...(menu.at ? { 'data-open': '' } : {})}>
-          <Button
-            type="button"
-            variant="ghost" size="icon-sm" className={styles.rowMenuButton}
-            aria-haspopup="menu"
-            aria-expanded={menu.at !== null}
-            onClick={(event) => {
-              event.stopPropagation()
-              menu.open(event)
-            }}
-            title={`Actions for ${room.name}`}
-            aria-label={`Actions for ${room.name}`}
-          >
-            <MoreIcon size={12} />
-          </Button>
-        </span>
       </Button>
-      <ContextMenu at={menu.at} label={`Actions for ${room.name}`} onClose={menu.close}>
-        <MenuItem
-          icon={<PencilIcon size={13} />}
-          label="Rename…"
-          onSelect={() => onRename(room)}
-        />
-        <MenuSeparator />
-        <MenuItem
-          icon={<TrashIcon size={13} />}
-          danger
-          label="Delete room…"
-          /* The room, not the conversations. Saying which is the whole of what
-             somebody needs to know before pressing it, and the dialog behind
-             it says it again with the counts. */
-          title="Puts the board and the chat away. The conversations carry on."
-          onSelect={() => onDeleteRoom(room)}
-        />
-      </ContextMenu>
       {open && (
         <div className={styles.nested}>
           {members.length === 0 ? (
@@ -1086,17 +1048,6 @@ export const SessionTree = ({ now }: { now: number }) => {
   // one can be open, and a row that unmounts while its own dialog was open —
   // which is exactly what a delete does — would take the dialog with it.
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
-  /* The room being renamed, and the room being put away — held by *id*, not
-     by the object. A captured `TeamState` is a photograph: later pushes
-     replace the room in the snapshot and never touch what the dialog is
-     reading, so a Delete opened on an empty room went on saying "there is
-     nothing on its board" while a job was added to it, and pressing it would
-     have taken that job with no warning. Resolved from the snapshot on every
-     render instead, and the dialog closes on its own if the room goes. */
-  const [renaming, setRenaming] = useState<string | null>(null)
-  const [closing, setClosing] = useState<string | null>(null)
-  const renamingRoom = renaming === null ? null : (snapshot.teams.get(renaming) ?? null)
-  const closingRoom = closing === null ? null : (snapshot.teams.get(closing) ?? null)
   const currentRoot = projectRootOf(snapshot.workspace)
   const near = groups.filter(
     (group) =>
@@ -1213,15 +1164,18 @@ export const SessionTree = ({ now }: { now: number }) => {
 
   const renderGroup = (group: ProjectGroup) => {
     const open = !collapsed.has(group.root)
-    const rooms = projectRoots(group)
+    const allRooms = projectRoots(group)
       .flatMap((root) => roomsByProject.get(root) ?? [])
       .sort((a, b) => b.updatedAt - a.updatedAt)
+    const rooms = allRooms.filter((room) => snapshot.goals.get(room.id)?.goal.state !== 'wrapped')
+    const wrapped = allRooms.filter((room) => snapshot.goals.get(room.id)?.goal.state === 'wrapped')
+    const wrappedKey = `${group.root}\u0000wrapped`
     /* A conversation is listed once: under its room if it is in one, under
        the project if it is not. Two rows for one session — the room's copy
        and a loose copy — would make the tree's own count disagree with
        itself, and there would be no way to tell which of them was the one
        that could be dragged, pinned or deleted. */
-    const inRooms = new Set(rooms.flatMap((room) => room.members.map(String)))
+    const inRooms = new Set(allRooms.flatMap((room) => room.members.map(String)))
     const loose = group.sessions.filter(
       (summary) => !inRooms.has(String(sessionKey(summary.runtime, summary.id))),
     )
@@ -1261,12 +1215,12 @@ export const SessionTree = ({ now }: { now: number }) => {
           onNewWorktree={(root) => store.askNewWorktree(root)}
           drag={drag}
         />
-        {open && rooms.length === 0 && group.sessions.length === 0 && (
+        {open && allRooms.length === 0 && group.sessions.length === 0 && (
           <Text as="div" role="meta" className={styles.groupBlank}>
             No conversations yet — ⌘N starts one here.
           </Text>
         )}
-        {open && (rooms.length > 0 || loose.length > 0) && (
+        {open && (allRooms.length > 0 || loose.length > 0) && (
           <div className={styles.nested}>
             {rows.map((row) =>
               row.kind === 'room' ? (
@@ -1278,8 +1232,6 @@ export const SessionTree = ({ now }: { now: number }) => {
                   open={!collapsed.has(row.room.id)}
                   onToggle={() => toggle(row.room.id)}
                   onDelete={setDeleting}
-                  onRename={(one) => setRenaming(one.id)}
-                  onDeleteRoom={(one) => setClosing(one.id)}
                 />
               ) : (
                 <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} />
@@ -1296,6 +1248,34 @@ export const SessionTree = ({ now }: { now: number }) => {
                 Show {loose.length - COLLAPSED_LIMIT} more
               </Button>
             )}
+            {wrapped.length > 0 ? (
+              <>
+                <Button
+                  type="button"
+                  variant="row" size="row" className={styles.showMore}
+                  aria-expanded={expanded.has(wrappedKey)}
+                  onClick={() => setExpanded((current) => {
+                    const next = new Set(current)
+                    if (next.has(wrappedKey)) next.delete(wrappedKey)
+                    else next.add(wrappedKey)
+                    return next
+                  })}
+                >
+                  Wrapped · {wrapped.length}
+                </Button>
+                {expanded.has(wrappedKey) ? wrapped.map((room) => (
+                  <RoomRow
+                    key={room.id}
+                    room={room}
+                    sessions={group.sessions}
+                    now={now}
+                    open={!collapsed.has(room.id)}
+                    onToggle={() => toggle(room.id)}
+                    onDelete={setDeleting}
+                  />
+                )) : null}
+              </>
+            ) : null}
           </div>
         )}
       </div>
@@ -1370,8 +1350,6 @@ export const SessionTree = ({ now }: { now: number }) => {
         </>
       )}
       {deleting && <DeleteSession summary={deleting} onClose={() => setDeleting(null)} />}
-      {renamingRoom && <RenameRoom room={renamingRoom} onClose={() => setRenaming(null)} />}
-      {closingRoom && <DeleteRoom room={closingRoom} onClose={() => setClosing(null)} />}
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place
           for someone who cannot see the list move. */}

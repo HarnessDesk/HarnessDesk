@@ -16,6 +16,7 @@ import {
   turnId,
   type AgentEvent,
   type FlowRun,
+  type GoalView,
   type HostMethodName,
   type HostParams,
   type HostToClient,
@@ -71,6 +72,7 @@ test('host/hello reports the protocol version, the runtimes and the home to shor
     hostVersion: string
     runtimes: { id: string }[]
     home: string
+    goalMigrationPending: boolean
   }
   assert.equal(hello.protocolVersion, 1)
   assert.equal(hello.hostVersion, '9.9.9')
@@ -78,6 +80,7 @@ test('host/hello reports the protocol version, the runtimes and the home to shor
   // The renderer has no home of its own; without this it cannot write `~` and
   // prints the machine's username into every screenshot of a path.
   assert.equal(hello.home, homedir())
+  assert.equal(hello.goalMigrationPending, false)
 })
 
 test('an unknown method is refused rather than dispatched', async (t) => {
@@ -1836,6 +1839,7 @@ type FolderMethod = {
  * and without a line here fails the build rather than going untested.
  */
 const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => HostParams<M> } = {
+  'goal/create': (cwd) => ({ root: cwd, sentence: 'Finish the probe' }),
   'session/list': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
   'runtime/sessionDefaults': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
   'runtime/skills': (cwd) => ({ runtime: FAKE_RUNTIME_ID, cwd }),
@@ -1856,6 +1860,7 @@ const RELATIVE_FOLDER_ASKS: { readonly [M in FolderMethod]: (cwd: string) => Hos
  * before its handler runs, in the shape's own words, and handed to nothing.
  */
 const EMPTY_CWD_SHAPE_REFUSALS: { readonly [M in FolderMethod]?: string } = {
+  'goal/create': 'message.params.root: expected a non-empty string',
   'agent/seat': 'message.params.cwd: expected a non-empty string',
 }
 
@@ -2095,7 +2100,7 @@ roles:
 seed: { role: worker, title: "Do it" }
 `
 
-test('team/room/create refuses a repository nobody opened, flow/start refuses a room whose folder was closed, and a room in any folder or repository opened here still starts its flow', async (t) => {
+test('goal/create refuses a repository nobody opened, flow/start refuses a Goal whose folder was closed, and a Goal in any folder or repository opened here still starts its flow', async (t) => {
   // The team plane took a room's root as it came, and the host's `isolate`
   // hands a room's folder straight to the worktree service, past the handler
   // that holds `worktree/create` to what is open. So with one repository open,
@@ -2135,15 +2140,15 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
   // A room made there and its flow started, the way the room dialog does both,
   // or the refusal of the room.
   const attempt = async (root: string, name: string): Promise<unknown> => {
-    let room: TeamState
+    let room: GoalView
     try {
-      room = (await client.call('team/room/create', { root, name })) as TeamState
+      room = (await client.call('goal/create', { root, sentence: name })) as GoalView
     } catch (error) {
       return { refused: (error as Error).message }
     }
-    return startFlow(room.id).then(
-      (run) => ({ room: room.root, flow: run.state }),
-      (error: Error) => ({ room: room.root, flow: error.message }),
+    return startFlow(room.goal.id).then(
+      (run) => ({ room: room.goal.root, flow: run.state }),
+      (error: Error) => ({ room: room.goal.root, flow: error.message }),
     )
   }
 
@@ -2194,9 +2199,9 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
     // room, and so does every launch after it.
     const closed = await repository(join(scratch, 'closed'))
     await client.call('workspace/open', { path: closed })
-    const room = (await client.call('team/room/create', { root: closed, name: 'was open' })) as TeamState
+    const room = (await client.call('goal/create', { root: closed, sentence: 'was open' })) as GoalView
     await client.call('workspace/forget', { path: closed })
-    const answer = await startFlow(room.id).then(
+    const answer = await startFlow(room.goal.id).then(
       (run) => ({ flow: run.state }),
       (error: Error) => ({ refused: error.message }),
     )
@@ -2205,11 +2210,11 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
   })
 
   await t.test('a room in the open repository still isolates its flow', async () => {
-    const room = (await client.call('team/room/create', { root: opened, name: 'here' })) as TeamState
-    const run = await startFlow(room.id)
+    const room = (await client.call('goal/create', { root: opened, sentence: 'here' })) as GoalView
+    const run = await startFlow(room.goal.id)
     assert.equal(run.state, 'running')
     const held = await holds(opened)
-    assert.match(held.branches.join(' '), /^harnessdesk\/worker-1-[^ ]+$/)
+    assert.match(held.branches.join(' '), /^harnessdesk\/lane-[a-f0-9-]{36}$/)
     assert.deepEqual(held.checkouts, [opened, ...run.seats.map((seat) => seat.cwd)])
   })
 
@@ -2222,9 +2227,9 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
     await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
     await client.call('workspace/open', { path: linked })
     await assert.rejects(() => client.call('git/status', { root: main }), /outside every open workspace/)
-    const room = (await client.call('team/room/create', { root: main, name: 'from the worktree' })) as TeamState
-    assert.equal(room.root, main)
-    assert.equal((await startFlow(room.id)).state, 'running')
+    const room = (await client.call('goal/create', { root: main, sentence: 'from the worktree' })) as GoalView
+    assert.equal(room.goal.root, main)
+    assert.equal((await startFlow(room.goal.id)).state, 'running')
     assert.equal((await holds(main)).branches.length, 1)
   })
 
@@ -2236,8 +2241,8 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
     await gitIn(superproject, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', library, 'vendored')
     const vendored = join(superproject, 'vendored')
     await client.call('workspace/open', { path: vendored })
-    const room = (await client.call('team/room/create', { root: vendored, name: 'vendored' })) as TeamState
-    assert.equal((await startFlow(room.id)).state, 'running')
+    const room = (await client.call('goal/create', { root: vendored, sentence: 'vendored' })) as GoalView
+    assert.equal((await startFlow(room.goal.id)).state, 'running')
     assert.equal((await holds(vendored)).branches.length, 1)
   })
 
@@ -2247,8 +2252,8 @@ test('team/room/create refuses a repository nobody opened, flow/start refuses a 
     const plain = join(scratch, 'plain')
     await mkdir(plain)
     await client.call('workspace/open', { path: plain })
-    const room = (await client.call('team/room/create', { root: plain, name: 'plain' })) as TeamState
-    const run = (await client.call('flow/start', { room: room.id, source: SEATING_FLOW })) as FlowRun
+    const room = (await client.call('goal/create', { root: plain, sentence: 'plain' })) as GoalView
+    const run = (await client.call('flow/start', { room: room.goal.id, source: SEATING_FLOW })) as FlowRun
     assert.equal(run.state, 'running')
     assert.deepEqual(
       run.seats.map((seat) => seat.cwd),
@@ -2640,5 +2645,3 @@ test('preview-frame endpoint restricts navigation and form actions in CSP (#474)
   assert.match(csp, /form-action 'none'/, 'CSP must forbid form submission navigation')
   assert.match(csp, /navigate-to 'none'/, 'CSP must forbid document navigation')
 })
-
-

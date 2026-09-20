@@ -353,6 +353,7 @@ export interface AcpModelState {
 }
 
 export interface AcpNewSessionResult {
+  readonly _meta?: Readonly<Record<string, unknown>>
   readonly sessionId: string
   readonly modes?: AcpSessionModeState | null
   /** Observed live from Claude Code 0.16.2: the agent's model picker. */

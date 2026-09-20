@@ -19,8 +19,9 @@ import { basename, join, resolve } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { Readable, Writable } from 'node:stream'
 
-import { opensEnvelope } from '@harnessdesk/protocol'
+import { laneEnvironmentOf, opensEnvelope } from '@harnessdesk/protocol'
 
+import { childEnvironment, environmentAck, environmentIn } from './lane-environment.js'
 import {
   CHAT_ID,
   chatPath,
@@ -186,6 +187,7 @@ const MODE_IDS: readonly string[] = MODES.map((mode) => mode.id)
 interface StoredSession {
   sessionId: string
   cwd: string
+  environment?: Readonly<Record<string, string>>
   /**
    * The first thing the user asked here, kept so a chat still reads as
    * something when Cursor's own store cannot be read. Older index files
@@ -618,6 +620,7 @@ const readIndex = (): StoredSession[] => {
     return parsed.sessions.map((row) => ({
       sessionId: row.sessionId,
       cwd: row.cwd,
+      ...(row.environment ? { environment: laneEnvironmentOf(row.environment) } : {}),
       preview: row.preview ?? row.title ?? null,
       updatedAt: row.updatedAt,
     }))
@@ -826,6 +829,7 @@ interface JsonRpcMessage {
 interface Session {
   readonly chatId: string
   readonly cwd: string
+  readonly environment?: Readonly<Record<string, string>>
   modeId: string
   /** The resolved concrete catalog id ('auto' when the family is auto). */
   modelId: string
@@ -967,7 +971,13 @@ export class CursorAcpBridge {
           authMethods: [],
           // ACP can list a chat but not remove one. This bridge knows where
           // Cursor keeps them, so it serves the extension that can.
-          _meta: { harnessdesk: { [SESSION_DELETE_CAPABILITY]: true, [INSTRUCTIONS_CAPABILITY]: true } },
+          _meta: {
+            harnessdesk: {
+              [SESSION_DELETE_CAPABILITY]: true,
+              [INSTRUCTIONS_CAPABILITY]: true,
+              sessionEnvironment: true,
+            },
+          },
         }
       case 'session/new':
         return this.#newSession(params)
@@ -1237,11 +1247,13 @@ export class CursorAcpBridge {
     modeId: string | null = null,
     pluginDir: string | null = null,
     briefing: string | null = null,
+    environment?: Readonly<Record<string, string>>,
   ): Promise<unknown> {
     const families = await this.#families()
     const session: Session = {
       chatId,
       cwd,
+      ...(environment ? { environment: laneEnvironmentOf(environment) } : {}),
       modeId: modeId ?? 'default',
       modelId: 'auto',
       familyId: 'auto',
@@ -1264,26 +1276,29 @@ export class CursorAcpBridge {
     // After the reply, never before it: a client has no session to attach
     // the list to until it has read the id.
     queueMicrotask(() => this.#declareSkills(session))
-    return {
-      sessionId: chatId,
-      modes: {
-        currentModeId: session.modeId,
-        availableModes: MODES.map((mode) => ({ ...mode })),
+    return environmentAck(
+      {
+        sessionId: chatId,
+        modes: {
+          currentModeId: session.modeId,
+          availableModes: MODES.map((mode) => ({ ...mode })),
+        },
+        ...(families.length > 0
+          ? {
+              models: {
+                currentModelId: session.familyId,
+                availableModels: families.map((family) => ({
+                  modelId: family.id,
+                  name: family.name,
+                  ...metaOf(family),
+                })),
+              },
+            }
+          : {}),
+        configOptions: this.#optionsOf(session, families.find((entry) => entry.id === session.familyId)),
       },
-      ...(families.length > 0
-        ? {
-            models: {
-              currentModelId: session.familyId,
-              availableModels: families.map((family) => ({
-                modelId: family.id,
-                name: family.name,
-                ...metaOf(family),
-              })),
-            },
-          }
-        : {}),
-      configOptions: this.#optionsOf(session, families.find((entry) => entry.id === session.familyId)),
-    }
+      environment,
+    )
   }
 
   /**
@@ -1318,7 +1333,14 @@ export class CursorAcpBridge {
     // Not remembered yet: a chat becomes a conversation on its first prompt.
     // Options probes and abandoned drafts create chats too, and indexing
     // them filled the session list with untitled rows nobody had spoken to.
-    return this.#openSession(chatId, cwd, null, servers ? writeToolPlugin(chatId, servers) : null, briefingOf(params))
+    return this.#openSession(
+      chatId,
+      cwd,
+      null,
+      servers ? writeToolPlugin(chatId, servers) : null,
+      briefingOf(params),
+      environmentIn(params['_meta']),
+    )
   }
 
   /**
@@ -1340,9 +1362,10 @@ export class CursorAcpBridge {
     // resumable all the same: the id is Cursor's and `--resume` takes it.
     // What has to be found is the workspace, since the store is keyed by a
     // hash of the path — so the workspaces this bridge knows are asked.
+    const indexed = readIndex().find((entry) => entry.sessionId === sessionId)
     const cwd =
       asked ??
-      readIndex().find((entry) => entry.sessionId === sessionId)?.cwd ??
+      indexed?.cwd ??
       findChatWorkspace(sessionId, this.#knownWorkspaces()) ??
       readAllChats().find((chat) => chat.chatId === sessionId)?.cwd ??
       null
@@ -1361,6 +1384,7 @@ export class CursorAcpBridge {
       readChatMode(sessionId, cwd, MODE_IDS),
       servers ? writeToolPlugin(sessionId, servers) : null,
       briefingOf(params),
+      environmentIn(params['_meta']) ?? indexed?.environment,
     )
   }
 
@@ -1489,12 +1513,18 @@ export class CursorAcpBridge {
     return preview
   }
 
-  #rememberSession(chatId: string, cwd: string, preview: string | null): void {
+  #rememberSession(
+    chatId: string,
+    cwd: string,
+    preview: string | null,
+    environment?: Readonly<Record<string, string>>,
+  ): void {
     const rows = readIndex().filter((entry) => entry.sessionId !== chatId)
     const existing = readIndex().find((entry) => entry.sessionId === chatId)
     rows.push({
       sessionId: chatId,
       cwd,
+      ...(environment ? { environment: laneEnvironmentOf(environment) } : {}),
       preview: preview ?? existing?.preview ?? null,
       updatedAt: new Date().toISOString(),
     })
@@ -1637,7 +1667,7 @@ export class CursorAcpBridge {
 
       session.cancelled = false
       const asked = readIndex().find((entry) => entry.sessionId === session.chatId)?.preview
-      this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text))
+      this.#rememberSession(session.chatId, session.cwd, previewFor(asked, text), session.environment)
 
       for (let attempt = 1; ; attempt += 1) {
         const spoke = { yet: false }
@@ -1725,7 +1755,7 @@ export class CursorAcpBridge {
     const child = spawn(this.#command, [...args], {
       cwd: session.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CURSOR_CONFIG_DIR: configHome },
+      env: childEnvironment({ ...process.env, CURSOR_CONFIG_DIR: configHome }, session.environment),
     })
     session.child = child
 

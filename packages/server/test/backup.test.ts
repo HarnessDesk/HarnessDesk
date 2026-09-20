@@ -6,14 +6,18 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { SEAT_PREFERENCE_LIMIT, type MachineSeating, type RuntimeId } from '@harnessdesk/protocol'
+import { SEAT_PREFERENCE_LIMIT, type BackupReport, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
 
 import { exportAgentFolders } from '../src/agent-files.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX } from '../src/agents.js'
 import { Host, Logger, StateStore } from '../src/index.js'
+import { migrateDesk } from '../src/goals/migration.js'
+import { GoalStore, restoredLane, type GoalDocument } from '../src/goals/store.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { goal } from './fixtures/goals.js'
+import { Client, halt, start as startHarness } from './fixtures/harness.js'
 
 /**
  * Backup and restore, proven the only way that counts: everything one host
@@ -157,8 +161,9 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   // Nothing credential-shaped travels: the file has exactly the stores a backup owns.
   assert.deepEqual(
     Object.keys(backup).sort(),
-    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'hostVersion', 'kind', 'preferences', 'seating', 'transcripts', 'version'],
+    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'goals', 'hostVersion', 'kind', 'preferences', 'seating', 'transcripts', 'version'],
   )
+  assert.deepEqual(backup.goals, { version: 1, documents: [], lanes: [] })
   assert.deepEqual(backup.agentFolders, [])
   assert.equal(backup.seating, null)
 
@@ -185,6 +190,81 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   const again = await b.host.call('backup/import', { backup })
   assert.deepEqual(again.agents, { restored: 0, skipped: 1 })
   assert.deepEqual(again.transcripts, { restored: 0, skipped: 1 })
+})
+
+test('restored Goals are inert history and never acquire local lane authority', async (t) => {
+  const source = await mkdtemp(join(tmpdir(), 'hd-backup-goal-source-'))
+  const target = await mkdtemp(join(tmpdir(), 'hd-backup-goal-target-'))
+  t.after(async () => {
+    await rm(source, { recursive: true, force: true })
+    await rm(target, { recursive: true, force: true })
+  })
+  await migrateDesk(source, async () => {})
+  await migrateDesk(target, async () => {})
+  const original: GoalDocument = {
+    version: 1,
+    goal: goal('portable-goal'),
+    board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+    citations: [], receipt: null, operation: null,
+  }
+  const from = new GoalStore(source)
+  await from.load()
+  await from.save(original, null)
+  const into = new GoalStore(target)
+  await into.load()
+  assert.equal(await into.restore(from.read('portable-goal'), 1234), 'restored')
+  assert.deepEqual(into.read('portable-goal').restored, { at: 1234 })
+  assert.equal(into.read('portable-goal').operation, null)
+  assert.equal(await into.restore(from.read('portable-goal'), 9999), 'duplicate')
+  const changed = { ...original, goal: { ...original.goal, sentence: 'Different history' } }
+  assert.equal(await into.restore(changed, 1234), 'conflict')
+
+  const lane: Lane = {
+    id: 'lane-history', goal: 'portable-goal', seat: 'seat-history', cwd: '/workspace/demo',
+    branch: 'goal/demo', ports: { start: 62000, end: 62017 }, browserProfile: 'lane-11111111-1111-1111-1111-111111111111',
+    state: 'active', createdAt: 1,
+  }
+  assert.deepEqual(restoredLane(lane), {
+    ...lane, seat: null, browserProfile: null, state: 'released',
+  })
+})
+
+test('a real backup restores wrapped Goals as readable history without replaying work', async (t) => {
+  const work = await mkdtemp(join(tmpdir(), 'hd-backup-goal-work-'))
+  const source = await startHarness()
+  const target = await startHarness()
+  const sourceClient = await Client.connect(source.server)
+  const targetClient = await Client.connect(target.server)
+  t.after(async () => {
+    sourceClient.close()
+    targetClient.close()
+    await halt(source).catch(() => {})
+    await halt(target).catch(() => {})
+    await rm(source.stateDir, { recursive: true, force: true })
+    await rm(target.stateDir, { recursive: true, force: true })
+    await rm(work, { recursive: true, force: true })
+  })
+  await sourceClient.call('workspace/open', { path: work })
+  const created = await sourceClient.call('goal/create', { root: work, sentence: 'Keep the reviewed history' }) as GoalView
+  const choices = { summary: 'Reviewed before export.', cards: [] }
+  const preview = await sourceClient.call('goal/preview', { goal: created.goal.id, choices }) as WrapPreview
+  await sourceClient.call('goal/wrap', { goal: created.goal.id, stamp: preview.stamp, choices })
+  const backup = await sourceClient.call('backup/export', {})
+  const report = await targetClient.call('backup/import', { backup }) as BackupReport
+  assert.deepEqual(report.goals, {
+    restored: 1, duplicate: 0, conflict: 0,
+    lanesRestored: 0, lanesDuplicate: 0, lanesConflict: 0,
+  })
+  const restored = await targetClient.call('goal/read', { goal: created.goal.id }) as GoalView
+  assert.equal(restored.goal.state, 'wrapped')
+  assert.equal(restored.receipt?.summary, choices.summary)
+  assert.match(restored.problem ?? '', /came from a backup/)
+  await assert.rejects(
+    targetClient.call('goal/update', { goal: created.goal.id, revision: restored.goal.revision, sentence: 'Revive it' }),
+    /came from a backup|read-only/,
+  )
+  const again = await targetClient.call('backup/import', { backup }) as BackupReport
+  assert.equal(again.goals?.duplicate, 1)
 })
 
 test("a backup carries this machine's Agents and seats, and restore only adds what is missing", async (t) => {

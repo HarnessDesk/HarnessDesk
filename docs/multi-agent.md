@@ -444,10 +444,18 @@ reopened #3 from the board; both moves appeared as signals in the channel.
 
 ### Goals and batch hand-outs
 
-- **Goals**: a goal groups related intents. Goals can be marked as wrapped up
-  once all associated intents are done or abandoned. A room is permanent, but a
-  goal is finite; this is the only element on the board that can reach a
-  "finished" state.
+- **Goals**: a Goal is the finite container for one board, channel and set of
+  Seats. Its sentence says what finishes it. Open Seats — not an editable room
+  member array — define membership. A released Seat remains evidence but no
+  longer receives Goal messages.
+- **Assignment**: “Give this to…” creates a Seat for an existing loose
+  same-project conversation. The host rechecks that it is still loose and idle;
+  it never steals a conversation from another Goal.
+- **Release**: closes the Seat record without deleting the conversation,
+  checkout or retained lane. A busy Seat must finish its turn first.
+- **Wrap**: the person reviews card resolutions and a summary, then commits one
+  immutable receipt. Every later Goal/board/channel mutation is refused. A
+  restored receipt is history and cannot be resumed.
 - **Hand out**: the board's *Hand out* button pairs open intents with idle
   members (matching by name first, then board order) using a template with
   `{{card}}`, `{{title}}`, `{{detail}}`, `{{files}}`, and `{{member}}`. The
@@ -645,6 +653,7 @@ the MCP bridge:
 | `claim_work` | `intent` (required), `files?` | Atomically claims an open intent. Passing `files` merges path locks with the intent's paths, locking them against concurrent edits. |
 | `claim_next` | `files?` | Atomically claims the next lowest-numbered open, unblocked, non-conflicting intent. Returns the intent, detail, and dependencies' context packages. A card addressed to a role is skipped unless the caller holds that role, and unless the caller is holding no other addressed card. |
 | `await_work` | `cycle?`, `block_ms?` | Blocks until this conversation's board has a card it can take, then returns one line: `work: #N …`, `nothing yet`, or `stand down`. Costs nothing while waiting — the board wakes it rather than it polling — which is what lets a seat live inside one turn. `cycle` is the number the previous answer asked for, so no two calls are identical. |
+| `await_member` | `member`, `cycle?`, `block_ms?` | Waits for the named Goal member's currently running turn to finish. It sends nothing, starts nothing and is woken by the host rather than polling. |
 | `check_conflicts` | `paths` (required) | Checks whether specified file paths or globs overlap any active claim on the board. |
 | `complete_claim` | `intent` (required), `note?`, `context?`, `outcome?` | Marks a held intent as done. `note` updates the card; `context` stores the context package for dependent tasks; `outcome` is the one machine-readable word a flow's rules branch on. Free-form here; a card belonging to a flow is held to the outcomes its role declared. |
 | `release_claim` | `intent` (required), `reason?`, `blocked?` | Releases a held intent back to the board. If `blocked: true`, marks it `blockedBy: 'hand'`. |

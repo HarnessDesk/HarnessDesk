@@ -48,6 +48,7 @@ export interface SeatCeiling {
 export type StandingOrder =
   | { readonly kind: 'permission'; readonly permission: FlowPermission }
   | { readonly kind: 'ceiling'; readonly level: CeilingLevel }
+  | { readonly kind: 'unknown' }
 
 /** When a backup brought a record here, rather than this desk writing it. */
 export interface Restored {

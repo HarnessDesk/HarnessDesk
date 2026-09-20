@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import { Context } from '@deepseek-ai/cordis'
 
 import { asActor } from './provenance.js'
@@ -26,6 +28,7 @@ import {
 
 import { FsService, HttpService, ShellService, WorkspaceService } from './capabilities.js'
 import { BrowserService, setBrowserSettings, type BrowserSettings } from './browser.js'
+import { runBrowserInvocation, type BrowserIdentity } from './browser-scopes.js'
 import { EditorService } from './editor.js'
 import { TeamService } from './team.js'
 import { ForgeService } from './forge.js'
@@ -391,14 +394,24 @@ export class ExtensionKernel implements CapabilityRegistry {
     return [...this.#plugins.values()].map((entry) => this.#describe(entry))
   }
 
+  #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
   readonly #invocations = new Map<string, number>()
+
+  setBrowserResolver(resolve: (scope: ScopeQuery) => string | undefined): void {
+    this.#browserResolver = resolve
+  }
 
   /** Tool invocations served per plugin instance: the isolation accounting. */
   invocationCounts(): Readonly<Record<string, number>> {
     return Object.fromEntries(this.#invocations)
   }
 
-  async invokeTool(id: ContributionId, args: unknown, scope: ScopeQuery): Promise<ToolResult> {
+  async invokeTool(
+    id: ContributionId,
+    args: unknown,
+    scope: ScopeQuery,
+    inherited?: BrowserIdentity | null,
+  ): Promise<ToolResult> {
     const entry = this.#store.get(id)
     if (!entry?.executor) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
@@ -416,7 +429,10 @@ export class ExtensionKernel implements CapabilityRegistry {
       // Tools are what agents call — nothing else reaches this method — so the
       // cause travels with the call and `ctx.editor` can refuse a write that
       // is really an agent's. See `provenance.ts` and the editor-plane decision.
-      return await asActor('agent', () => entry.executor!(args, scope))
+      const profile = inherited === undefined ? this.#browserResolver(scope) : inherited?.profile
+      const identity = inherited ?? (profile ? { invocation: randomUUID(), profile } : null)
+      const execute = () => asActor('agent', () => entry.executor!(args, scope))
+      return identity ? await runBrowserInvocation(identity, execute) : await execute()
     } catch (error) {
       if (error instanceof PermissionDenied) {
         return { ok: false, error: error.message }

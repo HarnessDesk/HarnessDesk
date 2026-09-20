@@ -13,10 +13,14 @@ import {
   type AgentOrigin,
   type AgentRuntime,
   type FlowSeat,
+  type HostMethods,
   type MachineSeating,
   type ModelInfo,
   type RuntimeHealth,
   type SeatPlan,
+  type SeatGrant,
+  type SeatId,
+  type SeatRecord,
   type UsageReport,
 } from '@harnessdesk/protocol'
 
@@ -157,93 +161,8 @@ export const agentMethods = {
    * seat's permission is until the tool surface holds seats to it.
    */
   'agent/seat': async (ctx, params) => {
-    // The host would resolve a relative folder against wherever it was started.
-    if (!isAbsolute(params.cwd)) throw new Error(`${params.cwd} is not an absolute path.`)
-    // The same confinement agent/list and agent/read apply, through the same
-    // helper. A second way to turn a renderer-supplied path into a directory to
-    // read is a second place to get it wrong — and what is read here becomes a
-    // model's standing order.
-    const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
-    if (!entry) throw new Error(`No Agent called “${params.id}”.`)
-    const { definition, digest } = entry
-    // A definition only exists when nothing was wrong enough to refuse it, and a
-    // digest only when the file was read; both are narrowed here rather than
-    // trusted, so the compiler holds that reasoning and not a comment.
-    if (!definition || digest === null) throw new Error(unusable(entry))
-
-    const permission = permissionWithin(definition.permission, params.permission ?? 'read')
-    const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
-    if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
-    const candidates = list.seats
-    const desk = await readDesk(ctx, candidates)
-    const offers = desk.offers
-    const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
-    const said = (list: readonly PassedOver[]) => list.map((one) => candidateOf(one, words))
-    const passed: PassedOver[] = []
-    for (let rest = candidates; ; ) {
-      const chosen = chooseSeat(rest, offers)
-      passed.push(...chosen.passed)
-      if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
-      const seat = chosen.seat
-      // Every candidate above the one chosen was passed over, so what is left starts just below it.
-      rest = rest.slice(chosen.passed.length + 1)
-      const opened = await openAsAsked(ctx, seat, { cwd: params.cwd, title: definition.name })
-      if ('reason' in opened) {
-        passed.push(opened)
-        continue
-      }
-
-      try {
-        await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
-      } catch (error) {
-        await ctx.seats.retire(opened.runtime, opened.sessionId)
-        // In the seat's own words, never its spec (`SeatCandidate.seat`'s "never
-        // shown" applies here too) — and its own code, the way `SeatRefusedError`
-        // carries one, so a surface can tell this apart from a refusal it never
-        // opened anything for.
-        throw new BriefNotHandedOverError(
-          `${definition.name} was seated on ${describeSeat(seat, words)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
-        )
-      }
-      /* `ceiling` is the one value phase 3 changes here: the ceiling this seat
-         actually runs under, and whether the runtime holds it. Null until then,
-         on the record the host keeps and on the durable one alike. */
-      const seated: SeatedAs = {
-        agent: definition.id,
-        name: definition.name,
-        briefDigest: digest,
-        permission,
-        seatLabel: opened.label,
-        passedOver: said(passed),
-        ceiling: null,
-      }
-      /* Written before the seat is kept, and awaited. A seat whose record could
-         not be written is closed, as one whose brief could not be handed over
-         is: no conversation works as an Agent with no record that it did. */
-      try {
-        await ctx.evidence.seats.opened({
-          agent: { id: definition.id, name: definition.name, origin: entry.origin },
-          briefDigest: digest,
-          seat,
-          seatLabel: seated.seatLabel,
-          passedOver: seated.passedOver,
-          // Today's generation of standing order, as the Agent's file said it. Phase 3
-          // writes `{ kind: 'ceiling', level }` here for an Agent that says only `ceiling:`.
-          standing: { kind: 'permission', permission },
-          ceiling: seated.ceiling,
-          cwd: params.cwd,
-          session: { runtime: opened.runtime, sessionId: opened.sessionId },
-          board: null,
-          role: null,
-        })
-      } catch (error) {
-        await ctx.seats.retire(opened.runtime, opened.sessionId)
-        throw new Error(
-          `${definition.name} was seated on ${describeSeat(seat, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
-        )
-      }
-      return ctx.seats.recordAgent(opened.runtime, opened.sessionId, seated)
-    }
+    const result = await seatAgent(ctx, params, { board: null, role: null })
+    return result.session
   },
 
   'agent/seating/read': (ctx) => ctx.seating.read(),
@@ -472,6 +391,100 @@ export const agentMethods = {
     return null
   },
 } satisfies MethodsUnder<'agent/'>
+
+export interface AgentSeatContext {
+  board: string | null
+  role: string | null
+  environment?: Readonly<Record<string, string>>
+  openingId?: SeatId
+  grant?: SeatGrant
+}
+
+/** The one seating operation used by a plain Agent and by Goal staffing. */
+export async function seatAgent(
+  ctx: HostContext,
+  params: HostMethods['agent/seat']['params'],
+  context: AgentSeatContext,
+): Promise<{ session: HostMethods['agent/seat']['result']; record: SeatRecord }> {
+  if (!isAbsolute(params.cwd)) throw new Error(`${params.cwd} is not an absolute path.`)
+  if (context.environment !== undefined) {
+    throw new Error('This runtime cannot pass a lane environment to a session yet. Choose a shared checkout for this Seat.')
+  }
+  if (context.grant?.kind === 'ceiling') {
+    throw new Error('This build cannot hold a ceiling grant yet. Use an Agent with a permission standing order.')
+  }
+  const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
+  if (!entry) throw new Error(`No Agent called “${params.id}”.`)
+  const { definition, digest } = entry
+  if (!definition || digest === null) throw new Error(unusable(entry))
+
+  const requested = context.grant?.kind === 'permission' ? context.grant.permission : params.permission
+  const permission = permissionWithin(definition.permission, requested ?? 'read')
+  const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
+  if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
+  const candidates = list.seats
+  const desk = await readDesk(ctx, candidates)
+  const offers = desk.offers
+  const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
+  const said = (values: readonly PassedOver[]) => values.map((one) => candidateOf(one, words))
+  const passed: PassedOver[] = []
+  for (let rest = candidates; ; ) {
+    const chosen = chooseSeat(rest, offers)
+    passed.push(...chosen.passed)
+    if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
+    const selected = chosen.seat
+    rest = rest.slice(chosen.passed.length + 1)
+    const opened = await openAsAsked(ctx, selected, { cwd: params.cwd, title: definition.name })
+    if ('reason' in opened) {
+      passed.push(opened)
+      continue
+    }
+
+    const seated: SeatedAs = {
+      agent: definition.id,
+      name: definition.name,
+      briefDigest: digest,
+      permission,
+      seatLabel: opened.label,
+      passedOver: said(passed),
+      ceiling: null,
+    }
+    let record: SeatRecord
+    try {
+      if (context.openingId !== undefined) {
+        throw new Error('A fixed Goal opening must be staged by the Goal assignment journal.')
+      }
+      record = await ctx.evidence.seats.opened({
+        agent: { id: definition.id, name: definition.name, origin: entry.origin },
+        briefDigest: digest,
+        seat: selected,
+        seatLabel: seated.seatLabel,
+        passedOver: seated.passedOver,
+        standing: { kind: 'permission', permission },
+        ceiling: seated.ceiling,
+        cwd: params.cwd,
+        session: { runtime: opened.runtime, sessionId: opened.sessionId },
+        board: context.board,
+        role: context.role,
+      })
+    } catch (error) {
+      await ctx.seats.retire(opened.runtime, opened.sessionId)
+      throw new Error(
+        `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
+      )
+    }
+    try {
+      await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
+    } catch (error) {
+      await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
+      await ctx.seats.retire(opened.runtime, opened.sessionId)
+      throw new BriefNotHandedOverError(
+        `${definition.name} was seated on ${describeSeat(selected, words)}, and its brief could not be handed over, so the conversation was closed: ${messageOf(error)}`,
+      )
+    }
+    return { session: ctx.seats.recordAgent(opened.runtime, opened.sessionId, seated), record }
+  }
+}
 
 /**
  * The project a request named, held to the folders opened here.

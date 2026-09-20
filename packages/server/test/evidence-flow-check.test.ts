@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import type { BoardEvidence, FlowRun, TeamState, WireNotification } from '@harnessdesk/protocol'
+import type { BoardEvidence, FlowRun, GoalView, TeamState, WireNotification } from '@harnessdesk/protocol'
 
 import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
@@ -78,10 +78,10 @@ seed:
 
 test("through the host: a flow's check step leaves a check fact on its card", async (t) => {
   const { host, repo } = await evidenceDesk(t)
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Gate' })) as TeamState
-  const run = (await host.call('flow/start', { room: room.id, source: GATE })) as FlowRun
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Gate' })) as GoalView
+  const run = (await host.call('flow/start', { room: room.goal.id, source: GATE })) as FlowRun
   const board = await until(async () => {
-    const read = (await host.call('evidence/board', { room: room.id })) as BoardEvidence
+    const read = (await host.call('evidence/board', { room: room.goal.id })) as BoardEvidence
     return read.cards.length > 0 ? read : null
   }, "the gate's check fact")
   const fact = board.cards[0]?.facts[0]?.record

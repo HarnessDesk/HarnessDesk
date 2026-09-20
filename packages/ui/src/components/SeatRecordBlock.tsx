@@ -58,7 +58,9 @@ const LEVEL_WORDS: Readonly<Record<CeilingLevel, string>> = {
 export const orderWords = (standing: SeatRecord['standing']): string =>
   standing.kind === 'permission'
     ? ceilingWords(standing.permission)
-    : `${LEVEL_WORDS[standing.level]} · its ceiling`
+    : standing.kind === 'ceiling'
+      ? `${LEVEL_WORDS[standing.level]} · its ceiling`
+      : 'Unknown · its ceiling was not kept'
 
 export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
   const snapshot = useSnapshot()
