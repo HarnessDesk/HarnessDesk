@@ -308,7 +308,10 @@ test('a registered linked checkout reads, toggles, and retries its canonical pro
   })
   try {
     await plane.start()
-    await waitUntil(async () => (await plane.status()).length === 1, 'canonical project registration')
+    await waitUntil(async () => {
+      if ((await plane.status()).length !== 1) return false
+      return (await plane.status(linked).catch(() => []))[0]?.project === repo.dir
+    }, 'linked checkout alias registration')
     assert.equal((await plane.status(linked))[0]?.project, repo.dir)
     await plane.setCapture(linked, false)
     assert.equal((await plane.status(repo.dir))[0]?.enabled, false)
