@@ -56,12 +56,16 @@ export const EvidenceChips = ({
       <Button
         variant="ghost"
         size="inline"
-        className="flex flex-wrap items-center gap-1"
+        className="flex min-w-0 max-w-full basis-full shrink flex-wrap items-center justify-start gap-1 whitespace-normal"
         aria-label={`What the desk observed on #${id}: ${chips.map(spokenChip).join(', ')}`}
         onClick={() => setOpen(true)}
       >
         {chips.map((one) => (
-          <FactChipView key={one.key} chip={one} />
+          <FactChipView
+            key={one.key}
+            chip={one}
+            className="h-auto min-h-(--hd-chip-h) max-w-full py-1 leading-(--hd-line-sm) whitespace-normal [&_[data-slot=chip-words]]:break-words"
+          />
         ))}
       </Button>
       {open && <ObservedDialog id={id} title={title} card={card} onClose={() => setOpen(false)} />}
