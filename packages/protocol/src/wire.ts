@@ -13,7 +13,7 @@ import type { EditorDocument, EditorEvent } from './editor.js'
 import type { BoardEvidence, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type {
-  GoalCitation, GoalCreateInput, GoalId, GoalReceipt, GoalSeatRequest, GoalView, WrapChoices, WrapPreview,
+  GoalCitation, GoalCreateInput, GoalId, GoalReceipt, GoalSeatRequest, GoalView, Lane, WrapChoices, WrapPreview,
 } from './goal.js'
 import type {
   Library,
@@ -146,6 +146,12 @@ export interface BackupFile {
     /** Lines the exporting build could not read — a newer build's, or damaged — left out, and counted so the export says so. */
     readonly unreadable?: number
   }[]
+  /** Complete Goal records and lane descriptors; the host validates these as untrusted input. */
+  readonly goals?: {
+    readonly version: 1
+    readonly documents: readonly unknown[]
+    readonly lanes: readonly Lane[]
+  }
 }
 
 /**
@@ -182,6 +188,14 @@ export interface BackupReport {
     readonly duplicate: number
     readonly refused: number
     readonly failed: number
+  }
+  readonly goals?: {
+    readonly restored: number
+    readonly duplicate: number
+    readonly conflict: number
+    readonly lanesRestored: number
+    readonly lanesDuplicate: number
+    readonly lanesConflict: number
   }
 }
 
@@ -612,6 +626,8 @@ export interface HostMethods {
        * `seating.json` there — the folder actually read, never a guess.
        */
       readonly stateDir: string
+      /** A successful non-empty room migration still needs acknowledgement. */
+      readonly goalMigrationPending: boolean
     }
   }
 
@@ -1431,23 +1447,6 @@ export interface HostMethods {
     result: Intent
   }
   /**
-   * Name a goal. Creates nothing but the heading — the jobs are added to it
-   * afterwards, so there is a moment in between where a person can look at
-   * what is about to happen.
-   */
-  'team/plan': {
-    params: { readonly room: string; readonly goal: string }
-    result: Plan
-  }
-  /**
-   * Put a finished goal away. Refused while anything on it is still live, and
-   * the refusal names what — the jobs stay either way, as the record.
-   */
-  'team/wrap': {
-    params: { readonly room: string; readonly plan: number }
-    result: string
-  }
-  /**
    * The user's verbs over an intent: reopen it, abandon it, mark it done, stop
    * it, or take a claim away from an agent that stopped. The host is the
    * referee, so the person always outranks a claim.
@@ -1552,34 +1551,6 @@ export interface HostMethods {
    * way it holds sessions, and each has a board of its own.
    */
   'team/rooms': { params: { readonly root: string }; result: readonly TeamState[] }
-  'team/room/create': {
-    params: { readonly root: string; readonly name: string }
-    result: TeamState
-  }
-  'team/room/rename': { params: { readonly room: string; readonly name: string }; result: null }
-  /**
-   * Puts a room away for good. Never refused — the person is the referee on
-   * this plane — and the result says what went, so the surface can report it.
-   * The conversations that were in it are untouched and carry on.
-   */
-  'team/room/delete': {
-    params: { readonly room: string }
-    result: {
-      readonly name: string
-      readonly intents: number
-      readonly members: number
-      readonly messages: number
-    }
-  }
-  /** Puts a conversation in a room; it leaves whichever room it was in. */
-  'team/room/join': {
-    params: { readonly room: string; readonly runtime: RuntimeId; readonly sessionId: string }
-    result: null
-  }
-  'team/room/leave': {
-    params: { readonly room: string; readonly runtime: RuntimeId; readonly sessionId: string }
-    result: null
-  }
   'team/peers': { params: { readonly room: string }; result: readonly TeamPeerInfo[] }
 
   // -- flows: the referee's policy, declared up front. The board is still the

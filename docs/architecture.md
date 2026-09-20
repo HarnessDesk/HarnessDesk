@@ -158,6 +158,15 @@ name when none is available.
   coordination in `team/`: shared intent boards, non-overlapping file claim
   enforcement, and attributed, quarantined inter-agent messages with loop guards
   and delivery tracking.
+- **Goals, Seats and lanes** — finite work lives in `goals/`, while append-only
+  Seat/evidence records say who belonged. Isolated Seats receive a retained git
+  worktree, a durable port block and an invocation-scoped browser profile. The
+  six-value lane environment is supplied by the host to each new/resumed agent
+  process; the renderer never reads or invents it.
+- **Reviewed receipts** — wrapping snapshots cards, Seats, answers, evidence,
+  revisions, lanes and citations before committing an immutable receipt. A
+  small operation journal makes restart recovery idempotent; wrapped and
+  backup-restored Goals are read-only.
 - **Spend ledger and usage** — token counts, cache hit ratios, and vendor
   rate-limit windows calculated across backends (`packages/server/src/ledger/`,
   `packages/server/src/usage/`).

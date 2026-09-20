@@ -77,6 +77,16 @@ contextBridge.exposeInMainWorld('harnessdesk', {
     return () => ipcRenderer.removeListener('harnessdesk:open-session', listener)
   },
 
+  /** A clicked Goal notification names the durable Goal it was about. */
+  onOpenGoal: (handler) => {
+    if (typeof handler !== 'function') return () => {}
+    const listener = (_event, request) => {
+      if (typeof request?.goal === 'string') handler({ goal: request.goal })
+    }
+    ipcRenderer.on('harnessdesk:open-goal', listener)
+    return () => ipcRenderer.removeListener('harnessdesk:open-goal', listener)
+  },
+
   /** Menu items dispatch here so the renderer owns one implementation of each action. */
   onShortcut: (handler) => {
     if (typeof handler !== 'function') return () => {}

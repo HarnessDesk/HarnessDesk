@@ -37,6 +37,11 @@ const approval = (fields) => ({
   },
 })
 
+const goalActivity = (activity, previous = 'working') => ({
+  method: 'goal/activity',
+  params: { goal: 'g1', previous, activity, sentence: 'Ship the release' },
+})
+
 test('a finished turn names the agent and the conversation', () => {
   const plan = decide(turnCompleted('completed'), context())
   assert.ok(plan)
@@ -105,6 +110,20 @@ test('each kind honours its own switch, and the master wins over all', () => {
   assert.ok(still)
   // The master switch silences everything at once.
   assert.equal(decide(turnCompleted('completed'), context({ prefs: { enabled: false } })), null)
+  assert.equal(decide(goalActivity('needs-you'), context({ prefs: { goalNeedsYou: false } })), null)
+  assert.equal(decide(goalActivity('ready-to-wrap'), context({ prefs: { goalReadyToWrap: false } })), null)
+})
+
+test('real Goal activity transitions name and target the Goal', () => {
+  assert.deepEqual(decide(goalActivity('needs-you'), context()), {
+    kind: 'goalNeedsYou', goal: 'g1', title: 'A Goal needs you', body: 'Ship the release',
+  })
+  assert.deepEqual(decide(goalActivity('ready-to-wrap'), context()), {
+    kind: 'goalReadyToWrap', goal: 'g1', title: 'A Goal is ready to wrap', body: 'Ship the release',
+  })
+  assert.equal(decide(goalActivity('needs-you', 'needs-you'), context()), null)
+  assert.equal(decide({ method: 'goal/changed', params: {} }, context()), null)
+  assert.equal(decide(goalActivity('needs-you'), context({ focused: true })), null)
 })
 
 test('a body is one line and never a novel', () => {
@@ -119,7 +138,7 @@ test('a body is one line and never a novel', () => {
 test('the settings page and the decider agree on the kinds', () => {
   assert.deepEqual(
     SYSTEM_NOTIFICATION_KINDS.map((entry) => entry.kind).sort(),
-    ['approvals', 'failures', 'needsYou', 'turns'],
+    ['approvals', 'failures', 'goalNeedsYou', 'goalReadyToWrap', 'needsYou', 'turns'],
   )
 })
 
@@ -131,6 +150,7 @@ test('the cheap pre-check never filters what decide would have shown', () => {
   assert.equal(relevant(turnCompleted('completed')), true)
   assert.equal(relevant(turnCompleted('failed')), true)
   assert.equal(relevant(approval({ type: 'command', command: 'ls', options: [] })), true)
+  assert.equal(relevant(goalActivity('needs-you')), true)
 
   const noise = [
     null,

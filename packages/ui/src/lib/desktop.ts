@@ -61,6 +61,7 @@ export interface DesktopBridge {
    * open that conversation.
    */
   onOpenSession?(handler: (request: { runtime: string; sessionId: string }) => void): () => void
+  onOpenGoal?(handler: (request: { goal: string }) => void): () => void
   /**
    * The browser pane's side of the agent-driven browser. The pane reports
    * its `<webview>` by id once the page can be driven, and says when it
@@ -156,6 +157,9 @@ export const onShortcut = (handler: (name: string) => void): (() => void) =>
 export const onOpenSession = (
   handler: (request: { runtime: string; sessionId: string }) => void,
 ): (() => void) => desktop()?.onOpenSession?.(handler) ?? (() => {})
+
+export const onOpenGoal = (handler: (request: { goal: string }) => void): (() => void) =>
+  desktop()?.onOpenGoal?.(handler) ?? (() => {})
 
 /**
  * Whether the window's top-left is occupied by macOS traffic lights. The

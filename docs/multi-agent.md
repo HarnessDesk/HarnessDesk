@@ -444,10 +444,18 @@ reopened #3 from the board; both moves appeared as signals in the channel.
 
 ### Goals and batch hand-outs
 
-- **Goals**: a goal groups related intents. Goals can be marked as wrapped up
-  once all associated intents are done or abandoned. A room is permanent, but a
-  goal is finite; this is the only element on the board that can reach a
-  "finished" state.
+- **Goals**: a Goal is the finite container for one board, channel and set of
+  Seats. Its sentence says what finishes it. Open Seats — not an editable room
+  member array — define membership. A released Seat remains evidence but no
+  longer receives Goal messages.
+- **Assignment**: “Give this to…” creates a Seat for an existing loose
+  same-project conversation. The host rechecks that it is still loose and idle;
+  it never steals a conversation from another Goal.
+- **Release**: closes the Seat record without deleting the conversation,
+  checkout or retained lane. A busy Seat must finish its turn first.
+- **Wrap**: the person reviews card resolutions and a summary, then commits one
+  immutable receipt. Every later Goal/board/channel mutation is refused. A
+  restored receipt is history and cannot be resumed.
 - **Hand out**: the board's *Hand out* button pairs open intents with idle
   members (matching by name first, then board order) using a template with
   `{{card}}`, `{{title}}`, `{{detail}}`, `{{files}}`, and `{{member}}`. The

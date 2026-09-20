@@ -30,6 +30,16 @@ desk already publishes with.
 
 **Retention:** yours. Deleting the folder deletes it.
 
+### Goal backups carry history, not authority
+
+A HarnessDesk backup includes Goal documents, receipts, migration metadata and
+lane descriptors after pending Goal writes settle. It does not include browser
+cookies or storage, browser profile directories, worktree contents, live Seat
+ownership, port reservations or the machine's lane preferences. On restore,
+Goals are stamped as imported read-only history, operation journals are cleared,
+and lane descriptors become released archives with no Seat or browser binding.
+Nothing restored starts an agent, reserves a port or replays a wrap.
+
 ---
 
 ## Vendor clouds — already happening, and not ours to promise about

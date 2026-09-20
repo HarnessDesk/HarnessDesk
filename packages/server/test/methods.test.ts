@@ -116,41 +116,6 @@ test('a worktree is only created where the git confinement admits, in the folder
 })
 
 /**
- * The same for a room, with one difference: the engine is handed the path as
- * it was asked for. A room in a folder in no repository is keyed by the open
- * folder as it is spelled, which is where the conversations in it resolve to,
- * so a room made at the resolved path of a folder opened through a link is one
- * none of them can join.
- */
-test('a room is only made where the room confinement admits, at the path it was asked for', async () => {
-  const made: string[] = []
-  const ctx = contextWith({
-    workspaces: {
-      confineRoom: async (folder: string) => {
-        if (folder !== '/open/through-a-link') {
-          throw new Error(`${folder} is outside every folder and repository opened here. Open it first.`)
-        }
-      },
-    },
-    team: {
-      flush: async () => {},
-      createRoom: async (root: string) => {
-        made.push(root)
-        return { id: 'room-1' }
-      },
-      stateFor: (id: string) => ({ id }),
-    },
-  })
-  await assert.rejects(
-    dispatch(ctx, 'team/room/create', { root: '/elsewhere', name: 'Elsewhere' }),
-    /outside every folder and repository opened here/,
-  )
-  assert.deepEqual(made, [], 'nothing is made where the confinement refused')
-  await dispatch(ctx, 'team/room/create', { root: '/open/through-a-link', name: 'Here' })
-  assert.deepEqual(made, ['/open/through-a-link'])
-})
-
-/**
  * The two verbs that change a repository, and the read both of their dialogs
  * make first, answer to the boundary the rest of the git surface does: the
  * folders the window has open. A worktree lives in

@@ -302,6 +302,14 @@ export class GoalPlane {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
       const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where))
+      if (input.card !== undefined) {
+        try {
+          await this.port.claim(input.goal, input.card, record)
+        } catch (error) {
+          await this.port.closeId(record.id, 'released')
+          throw error
+        }
+      }
       await this.refresh(input.goal)
       return record
     })

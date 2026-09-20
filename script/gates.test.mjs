@@ -922,13 +922,13 @@ test('the method list is the validator table\u2019s own keys, not the fields ins
   const source = [
     "const paramsValidators = {",
     "  'session/list': shape({ runtime: isString }),",
-    "  'team/room/join': shape({",
+    "  'team/post': shape({",
     "    'not/a/method': isString,",
     "    runtime: isString,",
     "  }),",
     "}",
   ].join('\n')
-  assert.deepEqual(methodsIn(source), ['session/list', 'team/room/join'])
+  assert.deepEqual(methodsIn(source), ['session/list', 'team/post'])
 })
 
 test('a longer method name does not make a shorter one look called', () => {

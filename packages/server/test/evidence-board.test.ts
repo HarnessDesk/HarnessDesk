@@ -11,6 +11,7 @@ import {
   type EvidenceRecord,
   type Intent,
   type Session,
+  type GoalView,
   type TeamState,
   type WireNotification,
 } from '@harnessdesk/protocol'
@@ -158,13 +159,13 @@ test("through the host: a room's evidence is read from its project's store, with
   await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'verify: { run: pnpm verify }\nodd: { run: pnpm odd, cwd: x }\n')
   await repo.git('add', '.harnessdesk')
   await repo.git('commit', '-q', '-m', 'checks')
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Checks' })) as TeamState
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Checks' })) as GoalView
   const at = await repo.git('rev-parse', 'HEAD')
   await new EvidenceStore(join(stateDir, 'evidence')).append(await canonical(repo.dir), 'evidence', [
-    { type: 'evidence', record: check({ id: 'f1', at, cwd: repo.dir, observedAt: 1, board: room.id, card: 1 }) },
+    { type: 'evidence', record: check({ id: 'f1', at, cwd: repo.dir, observedAt: 1, board: room.goal.id, card: 1 }) },
   ])
 
-  const board = (await host.call('evidence/board', { room: room.id })) as BoardEvidence
+  const board = (await host.call('evidence/board', { room: room.goal.id })) as BoardEvidence
   assert.deepEqual(board.checks, ['verify'])
   // A check the file refuses is named, with why, so a card can offer it greyed rather than hide it.
   assert.deepEqual(board.refused.map((one) => one.name), ['odd'])
@@ -174,12 +175,12 @@ test("through the host: a room's evidence is read from its project's store, with
 
   // What runs is what is committed: a change in the working copy changes nothing until it is.
   await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'verify: { run: pnpm verify }\nlint: { run: pnpm lint }\n')
-  assert.deepEqual(((await host.call('evidence/board', { room: room.id })) as BoardEvidence).checks, ['verify'])
+  assert.deepEqual(((await host.call('evidence/board', { room: room.goal.id })) as BoardEvidence).checks, ['verify'])
 
   // A file that does not parse leaves nothing to run, and says why.
   await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'verify: { run: pnpm verify\n')
   await repo.git('commit', '-q', '-am', 'broken checks')
-  const unreadable = (await host.call('evidence/board', { room: room.id })) as BoardEvidence
+  const unreadable = (await host.call('evidence/board', { room: room.goal.id })) as BoardEvidence
   assert.deepEqual([unreadable.checks, unreadable.refused], [[], []])
   assert.match(unreadable.unreadable ?? '', /^It does not parse: /)
   await assert.rejects(host.call('evidence/board', { room: 'no-such-room' }), /^Error: There is no room no-such-room on this desk\.$/)
@@ -269,15 +270,13 @@ test("a message between agents is never evidence: an agent telling another the t
   const { host, stateDir, repo } = await evidenceDesk(t)
   await writeAgent(stateDir, 'scout', 'Scout')
   await writeAgent(stateDir, 'critic', 'Critic')
-  const scout = (await host.call('agent/seat', { id: 'scout', cwd: repo.dir })) as Session
-  const critic = (await host.call('agent/seat', { id: 'critic', cwd: repo.dir })) as Session
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Claims' })) as TeamState
-  for (const one of [scout, critic]) {
-    await host.call('team/room/join', { room: room.id, runtime: runtimeId('fake'), sessionId: String(one.id) })
-  }
-  await host.call('team/add', { room: room.id, title: 'Fix the build' })
-  const scope = { runtime: 'fake', sessionId: String(scout.id) }
-  assert.match(await host.teamPlane.claim(1, scope), /^Claimed #1/)
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Claims' })) as GoalView
+  const first = await host.call('team/add', { room: room.goal.id, title: 'Fix the build' }) as { id: number }
+  const scoutSeat = await host.call('goal/seat', { goal: room.goal.id, card: first.id, agent: 'scout' })
+  const second = await host.call('team/add', { room: room.goal.id, title: 'Review the build' }) as { id: number }
+  await host.call('goal/seat', { goal: room.goal.id, card: second.id, agent: 'critic' })
+  const scout = scoutSeat.session
+  const scope = { runtime: 'fake', sessionId: scout.sessionId }
 
   // Delivered, or queued while Critic is still reading its brief: either way it was sent, as Scout's words.
   assert.match(
@@ -285,12 +284,19 @@ test("a message between agents is never evidence: an agent telling another the t
     /^(Delivered|Queued)/,
   )
 
-  const after = (await host.call('team/state', { room: room.id })) as TeamState
+  const after = (await host.call('team/state', { room: room.goal.id })) as TeamState
   const said = after.channel.find((entry) => entry.kind === 'message' && entry.text.includes('all tests pass'))
   assert.ok(said?.kind === 'message' && said.from.kind === 'agent', "drawn as the agent's words, and only that")
   assert.equal(after.intents.find((intent) => intent.id === 1)?.state, 'claimed', 'the card stays where its holder left it')
-  const board = (await host.call('evidence/board', { room: room.id })) as BoardEvidence
-  assert.deepEqual(board.cards, [], 'the agent said so; the desk observed nothing, so there is nothing to draw')
+  const board = await until(async () => {
+    const observed = (await host.call('evidence/board', { room: room.goal.id })) as BoardEvidence
+    return observed.cards.some((card) => card.card === first.id) ? observed : null
+  }, 'the claimed card observation')
+  assert.ok(board.cards.some((card) => card.card === first.id && card.facts.some((fact) => fact.record.fact.kind === 'diff')),
+    'the holder claim can record its own observed diff')
+  const checkFacts = board.cards.flatMap((card) => card.facts.filter((fact) => fact.record.fact.kind === 'check'))
+  assert.deepEqual(checkFacts, [], 'the agent said so; the desk observed no check run, so there is no check evidence to draw')
+  assert.deepEqual(board.cards.flatMap((card) => card.running), [], 'speech starts no check run')
 })
 
 test('the wire refuses a board read that names no room', () => {

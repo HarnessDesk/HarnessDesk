@@ -22,6 +22,7 @@ import {
   type ConfigOption,
   type FlowPermission,
   type FlowRun,
+  type GoalView,
   type FlowSeat,
   type ModelInfo,
   type OptionValue,
@@ -38,7 +39,6 @@ import {
   type SessionOptions,
   type SessionSettings,
   type TeamPeerInfo,
-  type TeamState,
   type TurnId,
   type UsageReport,
   type UserContent,
@@ -461,8 +461,8 @@ seed:
 `
 
 const runFlow = async (client: Client, work: string, seat: string): Promise<FlowRun> => {
-  const room = (await client.call('team/room/create', { root: work, name: 'Seat room' })) as TeamState
-  const run = (await client.call('flow/start', { room: room.id, source: FLOW(seat) })) as FlowRun
+  const room = (await client.call('goal/create', { root: work, sentence: 'Seat room' })) as GoalView
+  const run = (await client.call('flow/start', { room: room.goal.id, source: FLOW(seat) })) as FlowRun
   await client.call('flow/stop', { run: run.id })
   return run
 }
@@ -521,7 +521,7 @@ test('a pick the runtime drops is reported in the label and logged, and the flow
  */
 test('a flow that cannot seat every role closes the seats it opened, and the host lets them go', async (t) => {
   const { harness, seats, client, work } = await desk(t)
-  const room = (await client.call('team/room/create', { root: work, name: 'Seat room' })) as TeamState
+  const room = (await client.call('goal/create', { root: work, sentence: 'Seat room' })) as GoalView
   const source = `
 name: Two seats
 roles:
@@ -541,13 +541,13 @@ seed:
   role: first
   title: The first thing
 `
-  await assert.rejects(client.call('flow/start', { room: room.id, source }), /"huge" is not one of the values Model offers/)
+  await assert.rejects(client.call('flow/start', { room: room.goal.id, source }), /"huge" is not one of the values Model offers/)
   const [first] = seats.opened
   assert.ok(first && seats.opened.length === 1)
   assert.equal(first.closed, true)
   assert.deepEqual(first.sent, [], 'no order went to a seat of a run that never started')
   assert.equal(harness.host.registry.get(runtimeId('seatfake'), first.id)?.live ?? null, null)
-  assert.deepEqual(await client.call('flow/runs', { room: room.id }), [])
+  assert.deepEqual(await client.call('flow/runs', { room: room.goal.id }), [])
 })
 
 // ------------------------------------------------------ the method, by itself
@@ -1540,12 +1540,12 @@ test('through the host: seated on its picks, handed the brief once, and recorded
 test('through the host: members seated as the same Agent are disambiguated by their recorded Seat labels', async (t) => {
   const { harness, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=big/high')
-  const room = (await client.call('team/room/create', { root: work, name: 'Review' })) as TeamState
+  const room = (await client.call('goal/create', { root: work, sentence: 'Review' })) as GoalView
   for (let n = 0; n < 2; n += 1) {
-    const seated = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
-    await client.call('team/room/join', { room: room.id, runtime: 'seatfake', sessionId: String(seated.id) })
+    const card = await client.call('team/add', { room: room.goal.id, title: `Review ${n + 1}` }) as { id: number }
+    await client.call('goal/seat', { goal: room.goal.id, card: card.id, agent: 'reviewer' })
   }
-  const peers = (await client.call('team/peers', { room: room.id })) as TeamPeerInfo[]
+  const peers = (await client.call('team/peers', { room: room.goal.id })) as TeamPeerInfo[]
   assert.deepEqual(peers.map((one) => one.nickname).sort(), [
     'Reviewer · Seat Fake · Big · High',
     'Reviewer · Seat Fake · Big · High 2',

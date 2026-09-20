@@ -53,13 +53,9 @@ const rig = (
     getSnapshot: () => snapshot,
     newDraft: vi.fn(),
     openTeamRoom: vi.fn(),
-    createRoom: vi.fn().mockResolvedValue('r1'),
-    /* A project with no flows: the picker says so and the dialog is the
-       dialog it has always been, which is what every test below asserts. */
-    listFlows: vi.fn().mockResolvedValue([]),
-    readFlow: vi.fn(),
-    dryRunFlow: vi.fn(),
-    startFlow: vi.fn(),
+    createGoal: vi.fn().mockResolvedValue({ goal: { id: 'g1' } }),
+    seatGoal: vi.fn(),
+    openGoal: vi.fn(),
     loadAgents: vi.fn(async () => {}),
     startAsAgent: vi.fn(async () => null),
   } as unknown as AppStore
@@ -95,42 +91,26 @@ it('offers both shapes of work, and starting a session is still a draft', () => 
   expect(onClose).toHaveBeenCalled()
 })
 
-it('asks for the room’s name, and creates it under the open project', async () => {
-  /* Picking "A room" used to call `openTeamRoom(root)`, which opened a surface
-     keyed by the folder that had never been created: nothing was written,
-     nothing appeared in the tree, and the next launch had no memory of it. A
-     project holds several rooms, so the folder cannot name one — and an
-     unnamed room is a row nobody can tell from the row above it. */
+it('opens Goal creation under the open project', async () => {
   const { store } = rig()
   const onClose = render(store)
 
-  act(() => choice('A room').click())
-  expect(store.createRoom).not.toHaveBeenCalled()
-
-  const field = document.querySelector<HTMLInputElement>('[aria-label="Room name"]')
-  if (!field) throw new Error('the name was never asked for')
+  act(() => choice('A Goal').click())
+  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
   act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
-      field,
-      'Checkout rewrite',
-    )
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the release')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => choice('Create room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
+  act(() => choice('Create Goal').click())
+  await act(async () => {})
 
-  expect(store.createRoom).toHaveBeenCalledWith('/repo', 'Checkout rewrite')
+  expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'Ship the release', checkout: 'shared' })
+  expect(store.openGoal).toHaveBeenCalledWith('g1')
   expect(store.newDraft).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
 })
 
-it('a room made from a worktree is keyed by the project it belongs to', async () => {
-  /* The count above already used the project root; this used `workspace.path`
-     directly. From a linked worktree the two disagreed, and the room was made
-     under a folder `SessionTree` never looks up — present on disk, absent
-     from its own project's tree the moment the dialog closed. */
+it('keys Goal creation from a worktree to its project and disables it without a folder', () => {
   const { store } = rig()
   const snapshot = store.getSnapshot() as unknown as { workspace: unknown }
   snapshot.workspace = {
@@ -140,186 +120,14 @@ it('a room made from a worktree is keyed by the project it belongs to', async ()
     repo: { root: '/repo', worktree: true },
   }
   render(store)
+  act(() => choice('A Goal').click())
+  expect(document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')).not.toBeNull()
 
-  act(() => choice('A room').click())
-  const field = document.querySelector<HTMLInputElement>('[aria-label="Room name"]')!
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Auth')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  act(() => choice('Create room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
-
-  expect(store.createRoom).toHaveBeenCalledWith('/repo', 'Auth')
-})
-
-it('will not create a room with no name', () => {
-  const { store } = rig()
+  act(() => root.unmount())
+  root = createRoot(container)
+  snapshot.workspace = null
   render(store)
-  act(() => choice('A room').click())
-  expect(choice('Create room').disabled).toBe(true)
-})
-
-it('keeps the name and says why when the host will not make the room', async () => {
-  const { store } = rig()
-  ;(store.createRoom as ReturnType<typeof vi.fn>).mockRejectedValue(
-    new Error('That project is not open any more.'),
-  )
-  const onClose = render(store)
-
-  act(() => choice('A room').click())
-  const field = document.querySelector<HTMLInputElement>('[aria-label="Room name"]')!
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Auth')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  act(() => choice('Create room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
-
-  expect(onClose).not.toHaveBeenCalled()
-  expect(document.body.textContent).toContain('not open any more')
-  expect(
-    document.querySelector<HTMLInputElement>('[aria-label="Room name"]')?.value,
-  ).toBe('Auth')
-})
-
-it('counts what the sidebar counts when it is filtered to one agent', () => {
-  // `SessionTree` filters history by `listPrefs.agent` *before* grouping. This
-  // dialog grouped the whole history, so with the list narrowed to one agent
-  // the tree said 1 and the option beneath it said 2.
-  const snapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
-    workspaces: [{ path: '/repo' }],
-    listPrefs: { ...emptySnapshot().listPrefs, agent: 'codex' },
-    runtimes: [
-      { id: 'codex', presentation: { name: 'Codex' }, capabilities: {} },
-      { id: 'cursor', presentation: { name: 'Cursor' }, capabilities: {} },
-    ],
-    history: [
-      { cwd: '/repo', runtime: 'codex', repo: { root: '/repo' } },
-      { cwd: '/repo', runtime: 'cursor', repo: { root: '/repo' } },
-    ],
-  } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-    loadAgents: vi.fn(async () => {}),
-  } as unknown as AppStore
-  render(store)
-  expect(choice('A room').textContent).toContain('1 conversation is already')
-})
-
-it('counts a subfolder the way the sidebar folds it', () => {
-  // `groupByProject` folds a repository root, its subfolders and its worktrees
-  // into one project. A path-prefix filter does not: with `/repo/packages/ui`
-  // open, the sidebar counted two and this dialog counted one, directly
-  // beneath it.
-  const snapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    workspace: { path: '/repo/packages/ui', name: 'ui', lastOpenedAt: 1 },
-    workspaces: [{ path: '/repo/packages/ui' }],
-    history: [
-      { cwd: '/repo/packages/ui', repo: { root: '/repo' } },
-      { cwd: '/repo', repo: { root: '/repo' } },
-    ],
-  } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-    loadAgents: vi.fn(async () => {}),
-  } as unknown as AppStore
-  render(store)
-  expect(choice('A room').textContent).toContain('2 conversations are already')
-})
-
-it('says how many conversations are already in the folder', () => {
-  // A room is not created — it is the board this folder already has — so the
-  // option describes what is there rather than promising to make something.
-  // Counted the way the sidebar counts, or the dialog contradicts the tree
-  // directly above it — which it did, saying three over a folder marked two.
-  const { store } = rig([
-    { cwd: '/repo' },
-    { cwd: '/repo/packages/ui' },
-    { cwd: '/repo', archived: true },
-    { cwd: '/elsewhere' },
-  ])
-  render(store)
-  expect(choice('A room').textContent).toContain('2 conversations are already')
-})
-
-it('cannot open a room with no folder open', () => {
-  const snapshot = { ...emptySnapshot(), status: 'open' } as unknown as AppSnapshot
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
-    loadAgents: vi.fn(async () => {}),
-  } as unknown as AppStore
-  render(store)
-  expect(choice('A room').disabled).toBe(true)
-})
-
-it('counts the rooms a project already has when the folder you have open is a subfolder', () => {
-  /* `projectRootOf` names the subfolder, the host keys the room it makes at
-     the repository above it, and comparing those as strings told somebody
-     standing in `packages/ui` that their project had no rooms — then offered
-     to make a second one with no way to tell it from the first. */
-  const sub = '/repo/packages/ui'
-  const repo = { root: '/repo', worktree: false }
-  const { store } = rig([{ cwd: sub, repo }], {
-    workspace: { path: sub, name: 'ui', lastOpenedAt: 1, repo },
-    teams: new Map([
-      ['r1', { id: 'r1', name: 'Checkout rewrite', root: '/repo', members: [], intents: [], channel: [] }],
-    ]),
-  })
-  render(store)
-  act(() => choice('A room').click())
-  const note = [...document.body.querySelectorAll('p')].find((one) =>
-    one.textContent?.includes('room'),
-  )
-  expect(note?.textContent).toContain('One room already in this project: Checkout rewrite')
-})
-
-it('says a project has no flows when the host says it has none', async () => {
-  // The control for the test below: an empty list is the one answer that reads as "none".
-  const { store } = rig()
-  render(store)
-  act(() => choice('A room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
-  expect(document.body.textContent).toContain('No flows in this project yet')
-})
-
-it('says why a project’s flows could not be read, rather than that it has none', async () => {
-  /* A folder the host was refused used to arrive here as `[]`, one layer after
-     the host stopped sending it that way — and read as the sentence above: the
-     same words as the truth, with no path and no reason in them to act on. */
-  const { store } = rig()
-  ;(store.listFlows as ReturnType<typeof vi.fn>).mockRejectedValue(
-    new Error("EACCES: permission denied, scandir '/repo/.harnessdesk/flows'"),
-  )
-  render(store)
-  act(() => choice('A room').click())
-  await act(async () => {
-    await Promise.resolve()
-  })
-  expect(document.body.textContent).toContain(
-    "EACCES: permission denied, scandir '/repo/.harnessdesk/flows'",
-  )
-  expect(document.body.textContent).not.toContain('No flows in this project yet')
+  expect(choice('A Goal').disabled).toBe(true)
 })
 
 /*

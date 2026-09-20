@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import type { Goal, GoalBoard, GoalCitation, GoalId, GoalReceipt, Plan, SeatId } from '@harnessdesk/protocol'
+import type { Goal, GoalBoard, GoalCitation, GoalId, GoalReceipt, Lane, Plan, SeatId } from '@harnessdesk/protocol'
 
 import type { RememberedMember } from './migration.js'
 import type { GoalOperation } from './operations.js'
@@ -23,6 +23,16 @@ export interface GoalDocument {
   readonly citations: readonly GoalCitation[]
   readonly receipt: GoalReceipt | null
   readonly operation: GoalOperation | null
+}
+
+/** A restored Goal is inert history: its bytes survive, its executable journal does not. */
+export function restoredGoal(document: GoalDocument, at: number): GoalDocument {
+  return { ...structuredClone(document), restored: { at }, operation: null }
+}
+
+/** Imported lanes describe retained history but confer no local port, Seat or profile authority. */
+export function restoredLane(lane: Lane): Lane {
+  return { ...structuredClone(lane), state: 'released', seat: null, browserProfile: null }
 }
 
 export const GOAL_DOCUMENT_LIMIT = 8 * 1024 * 1024
@@ -146,7 +156,7 @@ export function documentOf(value: unknown): GoalDocument {
     (goal.state !== 'wrapping' || !sha(value.operation.stamp) ||
       !receiptOf(value.operation.receipt, String(goal.id), object(value.operation.receipt) ? value.operation.receipt.id : null))) return bad()
   if ((goal.state === 'wrapped') !== (value.receipt !== null) ||
-    (goal.state === 'wrapping') !== (object(value.operation) && value.operation.kind === 'wrap')) return bad()
+    (value.restored === undefined && (goal.state === 'wrapping') !== (object(value.operation) && value.operation.kind === 'wrap'))) return bad()
   if (value.restored !== undefined && (!object(value.restored) || !Number.isFinite(value.restored.at))) return bad()
   goalFile(goal.id)
   return value as unknown as GoalDocument
@@ -256,12 +266,28 @@ export class GoalStore {
     })
   }
 
-  #enqueue(write: () => Promise<void>): Promise<void> {
+  restore(document: GoalDocument, at: number): Promise<'restored' | 'duplicate' | 'conflict'> {
+    const imported = restoredGoal(documentOf(structuredClone(document)), at)
+    documentOf(imported)
+    const canonical = (value: GoalDocument): string => JSON.stringify({ ...value, restored: undefined, operation: null })
+    return this.#enqueue(async () => {
+      const current = this.#documents.get(imported.goal.id)
+      if (current) return canonical(current) === canonical(imported) ? 'duplicate' : 'conflict'
+      await this.#persist(join(this.#directory, goalFile(imported.goal.id)), imported)
+      const index: GoalIndex = { ...this.#index, ids: [...this.#index.ids, imported.goal.id].sort() }
+      await this.#persist(join(this.#directory, 'index.json'), index)
+      this.#documents.set(imported.goal.id, imported)
+      this.#index = index
+      return 'restored'
+    })
+  }
+
+  #enqueue<T>(write: () => Promise<T>): Promise<T> {
     const result = this.#tail.then(async () => {
       if (this.#problem) throw this.#problem
-      await write()
+      return write()
     })
-    this.#tail = result.catch(() => {})
+    this.#tail = result.then(() => undefined, () => undefined)
     return result
   }
 

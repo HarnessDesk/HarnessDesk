@@ -119,7 +119,7 @@ export class LaneAllocator {
   #read(id: string): Lane { const lane = this.port.list().find((one) => one.id === id); if (!lane) throw new Error('This lane was not found. Read the Goal again.'); return lane }
 }
 
-function readLane(value: unknown): Lane {
+export function laneOf(value: unknown): Lane {
   const bad = (): never => { throw new Error('The lane registry cannot be read. Its bytes and port ownership were kept.') }
   if (typeof value !== 'object' || value === null) return bad()
   const lane = value as Lane
@@ -141,7 +141,7 @@ export class LaneStore {
     if (Buffer.byteLength(raw) > 8 * 1024 * 1024) throw new Error('The lane registry is larger than 8 MiB.')
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null || (parsed as { version?: unknown }).version !== 1 || !Array.isArray((parsed as { lanes?: unknown }).lanes)) throw new Error('The lane registry version cannot be read. Update the desk before allocating a lane.')
-    const lanes = (parsed as { lanes: unknown[] }).lanes.map(readLane); const ids = new Set<string>(); const seats = new Set<string>(); const intervals: Lane[] = []
+    const lanes = (parsed as { lanes: unknown[] }).lanes.map(laneOf); const ids = new Set<string>(); const seats = new Set<string>(); const intervals: Lane[] = []
     for (const lane of lanes) {
       if (ids.has(lane.id) || lane.seat !== null && seats.has(lane.seat)) throw new Error('The lane registry names an owner twice. Repair it before allocating a lane.')
       ids.add(lane.id); if (lane.seat !== null) seats.add(lane.seat); if (lane.state === 'released') continue
@@ -150,9 +150,10 @@ export class LaneStore {
     }
     this.#lanes = lanes; this.#loaded = true
   }
+  get loaded(): boolean { return this.#loaded }
   list(): readonly Lane[] { if (!this.#loaded) throw new Error('Read the lane registry before allocating a lane.'); return this.#lanes.map((lane) => structuredClone(lane)) }
   save(lane: Lane): Promise<void> { return this.#serial.run(async () => {
-    this.list(); const next = [...this.#lanes.filter((one) => one.id !== lane.id), readLane(lane)]
+    this.list(); const next = [...this.#lanes.filter((one) => one.id !== lane.id), laneOf(lane)]
     await mkdir(join(this.#file, '..'), { recursive: true }); await this.write(this.#file, { version: 1, lanes: next }); this.#lanes = next
   }) }
 }

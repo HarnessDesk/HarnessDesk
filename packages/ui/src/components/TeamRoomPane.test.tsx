@@ -6,6 +6,7 @@ import {
   sessionId,
   sessionKey,
   type RuntimeInfo,
+  type GoalView,
   type Session,
   type SessionKey,
   type TeamPeerInfo,
@@ -142,6 +143,7 @@ const rig = (
      unchanged; overridable because "has this member done anything" only means
      something once there is something to do. */
   board: Partial<TeamState> = {},
+  goal: GoalView | null = null,
 ) => {
   const session = {
     id: 'c1',
@@ -167,6 +169,7 @@ const rig = (
       runtimes: runtimes as unknown as RuntimeInfo[],
       sessions: new Map([[sessionKey('codex', 'c1'), session]]),
       teams: new Map([[ROOM, team]]),
+      goals: new Map(goal ? [[ROOM, goal]] : []),
     }) as AppSnapshot
   let snapshot = snapshotOf()
   const store = {
@@ -184,7 +187,7 @@ const rig = (
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     setRoomWatching: vi.fn(),
-    leaveRoom: vi.fn().mockResolvedValue(undefined),
+    releaseGoal: vi.fn().mockResolvedValue(undefined),
     setTeamInbound: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   /** Something new is said in the room, from outside this surface. */
@@ -1279,14 +1282,20 @@ it('does not accuse a member that is not open of ignoring the board', async () =
  *
  * Membership used to end whenever a conversation stopped being open, which is
  * what emptied every room after a relaunch. A room keeps its members, so the
- * way out has to be something a person does — `team/room/leave` had been on
- * the wire the whole time with nothing to press. On the card with Open and
+ * way out has to be something a person does — release the durable Goal Seat.
+ * On the card with Open and
  * Watch, never on the row: a destructive verb one pixel from the thing it
  * destroys is how a roster gets emptied by accident.
  */
-it('takes a member out of the room from its card, and leaves the conversation alone', async () => {
+it('releases a Goal member from its card, and leaves the conversation alone', async () => {
   vi.useFakeTimers()
-  const { store } = rig()
+  const goal = {
+    goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: null },
+    activity: 'working', waitingOn: [],
+    members: [{ id: 'seat-1', closed: null, session: { runtime: 'codex', sessionId: 'c1' } }],
+    board: state, receipt: null, problem: null,
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
   await render(store)
 
   // The whole row is the trigger, so it holds the row rather than sitting in it.
@@ -1307,7 +1316,7 @@ it('takes a member out of the room from its card, and leaves the conversation al
   expect(remove).toBeDefined()
 
   act(() => (remove as HTMLButtonElement).click())
-  expect(store.leaveRoom).toHaveBeenCalledWith(ROOM, 'codex', 'c1')
+  expect(store.releaseGoal).toHaveBeenCalledWith(ROOM, 'seat-1')
   // The conversation itself is untouched: nothing here closes or deletes it.
   expect(store.openSession).not.toHaveBeenCalled()
   vi.useRealTimers()

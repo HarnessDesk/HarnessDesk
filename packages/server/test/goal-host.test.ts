@@ -8,7 +8,7 @@ import { EvidenceStore } from '../src/evidence/store.js'
 import { Client, halt, start } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
-test('a live compatibility join writes a durable Goal Seat before restart', async () => {
+test('live Goal assignments write durable Seats before restart', async () => {
   const work = tempDir('hd-goal-host-work-')
   const harness = await start()
   const client = await Client.connect(harness.server)
@@ -16,17 +16,19 @@ test('a live compatibility join writes a durable Goal Seat before restart', asyn
   let secondClient: Client | null = null
   try {
     await client.call('workspace/open', { path: work })
-    const room = await client.call('team/room/create', { root: work, name: 'Finish the probe' }) as TeamState
+    const goal = await client.call('goal/create', { root: work, sentence: 'Finish the probe' }) as GoalView
     const session = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: session.id })
+    const first = await client.call('team/add', { room: goal.goal.id, title: 'First probe' }) as { id: number }
+    await client.call('goal/assign', { goal: goal.goal.id, card: first.id, session: { runtime: 'fake', sessionId: session.id } })
     const another = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: another.id })
-    await client.call('team/post', { room: room.id, text: 'Kick-off.' })
+    const secondCard = await client.call('team/add', { room: goal.goal.id, title: 'Second probe' }) as { id: number }
+    await client.call('goal/assign', { goal: goal.goal.id, card: secondCard.id, session: { runtime: 'fake', sessionId: another.id } })
+    await client.call('team/post', { room: goal.goal.id, text: 'Kick-off.' })
     client.close()
     await halt(harness)
     const evidence = new EvidenceStore(`${harness.stateDir}/evidence`)
     const { lines } = await evidence.read(work, 'seats')
-    assert.equal(lines.filter((line) => line.type === 'seat' && line.record.board === room.id).length, 2)
+    assert.equal(lines.filter((line) => line.type === 'seat' && line.record.board === goal.goal.id).length, 2)
     second = await start({}, harness.stateDir)
     secondClient = await Client.connect(second.server)
     await secondClient.call('workspace/open', { path: work })
@@ -87,6 +89,27 @@ test('Goal create and board mutation route through the real Host and survive res
   }
 })
 
+test('a board mutation publishes the refreshed Goal view used by wrap', async (t) => {
+  const work = tempDir('hd-goal-host-push-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+    await rm(work, { recursive: true, force: true })
+  })
+  await client.call('workspace/open', { path: work })
+  const created = await client.call('goal/create', { root: work, sentence: 'Publish the board' }) as GoalView
+  await client.call('team/add', { room: created.goal.id, title: 'One reviewed card' })
+  await client.until(() => client.notifications.some((entry) =>
+    'method' in entry && entry.method === 'goal/changed' &&
+    entry.params.view.goal.id === created.goal.id && entry.params.view.board.intents.length === 1,
+  ), 1_000, 'the refreshed Goal view')
+  assert.equal(client.notifications.some((entry) => 'method' in entry && entry.method === 'goal/changed'), true)
+})
+
 test('the real Host previews, durably wraps, recovers the receipt, and refuses later board mutation', async () => {
   const work = tempDir('hd-goal-wrap-host-work-')
   const harness = await start()
@@ -111,17 +134,11 @@ test('the real Host previews, durably wraps, recovers the receipt, and refuses l
       () => client.call('goal/cite', { goal: created.goal.id, citation: {
         goal: created.goal.id, receipt: receipt.id, project: work, path: 'README.md', at: 'a'.repeat(40),
       } }),
-      () => client.call('team/plan', { room: created.goal.id, goal: 'Late plan' }),
-      () => client.call('team/wrap', { room: created.goal.id, plan: 1 }),
       () => client.call('team/intent', { room: created.goal.id, id: 1, action: 'done' }),
       () => client.call('team/post', { room: created.goal.id, text: 'late' }),
       () => client.call('team/handout', { room: created.goal.id, template: 'late', recipients: [] }),
       () => client.call('team/messaging', { room: created.goal.id, enabled: false }),
       () => client.call('team/deliver', { room: created.goal.id, entryId: 'missing' }),
-      () => client.call('team/room/rename', { room: created.goal.id, name: 'Late rename' }),
-      () => client.call('team/room/delete', { room: created.goal.id }),
-      () => client.call('team/room/leave', { room: created.goal.id, runtime: 'fake', sessionId: loose.id }),
-      () => client.call('team/room/join', { room: created.goal.id, runtime: 'fake', sessionId: loose.id }),
       () => client.call('flow/start', { room: created.goal.id, source: 'name: Late flow' }),
       () => client.call('evidence/check/run', { room: created.goal.id, card: 1, name: 'late' }),
     ]

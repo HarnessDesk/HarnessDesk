@@ -55,10 +55,6 @@ const CALLERS = ['packages/ui/src', 'packages/desktop/electron']
  * true, and those are worse than no claim at all.
  */
 const UNREACHED = {
-  'lane/list': 'Workspaces Lanes is connected by Goal Task 9',
-  'lane/preferences': 'Workspaces Lanes is connected by Goal Task 9',
-  'lane/preferences/set': 'Workspaces Lanes is connected by Goal Task 9',
-  'lane/release': 'the retained-lane action is connected by Goal Task 9',
   'team/state':
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':

@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { desktop, isDesktop, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
+import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySummary, setWindowTitle } from '../lib/desktop'
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ImportOffer } from '../components/ImportOffer'
+import { GoalMigrationBanner } from '../components/GoalMigrationBanner'
 import { Toaster } from '../design'
 import { Notices, StatusBanner } from '../components/Notices'
 import { ChangesReview } from '../components/ChangesReview'
@@ -201,6 +202,7 @@ export const App = () => {
       ),
     [store],
   )
+  useEffect(() => onOpenGoal(({ goal }) => store.openGoal(goal)), [store])
 
   /**
    * The menu bar's status item.
@@ -382,6 +384,7 @@ export const App = () => {
             style={{ left: `${noticeLeft}px` }}
           >
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
+            <GoalMigrationBanner />
             <ImportOffer
               onReview={() => {
                 setLibraryImport(true)

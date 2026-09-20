@@ -723,6 +723,8 @@ const start = async () => {
                 runtime: plan.runtime,
                 sessionId: String(plan.sessionId),
               })
+            } else if (plan.goal && mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('harnessdesk:open-goal', { goal: String(plan.goal) })
             }
           })
         })

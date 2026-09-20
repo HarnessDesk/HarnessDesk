@@ -10159,7 +10159,7 @@ Record this evidence table with the exact head, commands, observed text and scre
 | Concurrent CDP title and screenshot requests from A and B | A returns `Lane A` and its own frame; B returns `Lane B` and its own frame; the fronted dock view follows each command |
 | Open another tab in A, select it, then drive B | A retains both tabs and its driven mark; B's tab set and history remain independent |
 | Close B with `browser_close`, then read A | A remains open with `1/1`; closing B cannot drain A's events or clear its profile |
-| Restart the desk and resume the retained A/B Seats | A restores `1/1`; B restores `0/0`; neither inherits the default profile |
+| Restart the desk and resume the retained A/B Seats | A restores persistent localStorage as `1` while its session cookie correctly resets to `0`; B restores `0/0`; neither inherits the default profile |
 | Turn lane browser isolation off, create a new lane | The machine preference shows the shared-browser consequence; the new lane uses only the default partition; existing A/B descriptors are unchanged |
 | Open a plain conversation and its browser | Its previous default tabs and the persistent/once preference behave as before |
 | Switch Pages open to a separate window | Two lane Chrome processes use distinct `browser-profiles/<opaque key>` directories; `HARNESSDESK_BROWSER_PROFILE` cannot redirect them into default |
@@ -10516,7 +10516,7 @@ export async function citationBlob(root: string, path: string, at: string): Prom
 6. `goal-wrap-recovery.test.ts` — **dispatch and observation cannot race freeze**: suspend a check completion/resume while wrapping; settle before queue, recheck before spawn/delivery, no deadlock or late board mutation. Try every mutating Goal/Team/flow/check handler with `Host.call` against wrapped state; refuse before side effects. No port-only substitute.
 7. `goal-citation.test.ts` — **citation stays at its committed revision**: synthetic git repo with two commits, regular file with brackets, symlink, tree and gitlink; accept exact old file after HEAD moves, reject link/nonfile/traversal/missing/SHA aliases. Mutation: remove mode check; symlink case fails. No shell interpolation or copied contents.
 8. `goal-citation.test.ts` — **citation plus dependency is atomic**: wrong receipt, other project, cycle, concurrently wrapped target and injected save failure; no partial edge/citation. Duplicate tuple is a no-op; valid call saves both together.
-9. `evidence-check-runs.test.ts` — **wrapped refuses immediately before spawn**: shared fixture gets `canMutateBoard: () => true`; new case flips it while approval/preparation awaits, records zero command spawn. `evidence-board.test.ts` tests settlement failure instead of an empty success; `evidence-seats.test.ts` retains close-id idempotence.
+9. `evidence-check-runs.test.ts` — **wrapped refuses immediately before spawn**: shared fixture gets `canMutateBoard: () => true`; new case flips it while approval/preparation awaits, records zero command spawn. `evidence-board.test.ts` tests settlement failure and proves an agent message creates no check evidence even when the holder's automatic diff observation fills its card; `evidence-seats.test.ts` retains close-id idempotence.
 10. `goal-wire.test.ts` — **wire accepts choices, never a receipt**: use `parseClientMessage` for forged receipt fields, summary/reason/count bounds, duplicate card IDs, malformed stamp/SHA/path and host-owned fields. Valid request reaches real methods/goals through `Host.call`.
 
 **Run:**

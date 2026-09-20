@@ -60,7 +60,7 @@ export const FLOW_DIR = '.harnessdesk/flows'
 /** What this needs from the host: opening conversations, folders, and a shell. */
 export interface FlowPort {
   /** Opens and durably records a legacy role before its first standing-order turn. */
-  openLegacySeat?(input: {
+  openLegacySeat(input: {
     goal: string
     spec: FlowSeat
     permission: FlowPermission
@@ -70,17 +70,7 @@ export interface FlowPort {
     lane?: string
   }): Promise<SeatRecord>
   /** Closes only the Goal Seat this failed flow opened, after its turn has stopped. */
-  releaseGoalSeat?(goal: string, seat: SeatId): Promise<void>
-  /** Legacy test adapter; production uses openLegacySeat. */
-  seat?(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<{
-    readonly runtime: string; readonly sessionId: string; readonly label: string
-  }>
-  /** Legacy test adapter; production membership comes from the durable Seat. */
-  join?(room: string, runtime: string, sessionId: string): Promise<void>
-  /** Legacy test adapter; production isolation is a lane. */
-  isolate?(root: string, name: string): Promise<string>
-  /** Legacy test observation only; production writes synchronously before returning. */
-  recorded?(room: string, seat: FlowSeatRecord): void
+  releaseGoalSeat(goal: string, seat: SeatId): Promise<void>
   /** Hands a seat its standing order. One turn, and the whole job is inside it. */
   order(runtime: string, sessionId: string, text: string): Promise<void>
   /**
@@ -429,11 +419,7 @@ export class Flows implements TeamFlows {
         try {
           await this.#port.retire(seat.runtime, seat.sessionId)
           const seatId = openedIds.get(`${seat.runtime}\u0000${seat.sessionId}`)
-          if (seatId && this.#port.releaseGoalSeat) await this.#port.releaseGoalSeat(request.room, seatId)
-          else {
-            this.#team.setRole(request.room, seat.runtime, seat.sessionId, null)
-            this.#team.leaveRoom(request.room, seat.runtime as RuntimeId, seat.sessionId)
-          }
+          if (seatId) await this.#port.releaseGoalSeat(request.room, seatId)
         } catch (error) {
           failures.push(error instanceof Error ? error.message : String(error))
         }
@@ -452,42 +438,15 @@ export class Flows implements TeamFlows {
         for (let index = 0; index < role.count; index += 1) {
           const spec = seatAt(role, index)
           const title = `${role.id}${role.count > 1 ? ` ${index + 1}` : ''} · ${board.name} · ${flow.name}`
-          const durable = this.#port.openLegacySeat
-            ? await this.#port.openLegacySeat({
-                goal: request.room,
-                spec,
-                permission: role.permission,
-                role: role.id,
-                isolate: Boolean(role.isolate),
-                title,
-                lane: `${role.id}-${index + 1}-${id.slice(-4)}`,
-              })
-            : await (async (): Promise<SeatRecord> => {
-                if (!this.#port.seat || !this.#port.join) throw new Error('This flow port cannot open a Seat.')
-                const cwd = role.isolate
-                  ? await this.#port.isolate?.(folder, `${role.id}-${index + 1}-${id.slice(-4)}`)
-                  : folder
-                if (!cwd) throw new Error('This flow port cannot isolate a Seat.')
-                const live = await this.#port.seat(spec, { cwd, title })
-                await this.#port.join(request.room, live.runtime, live.sessionId)
-                this.#team.setRole(request.room, live.runtime, live.sessionId, role.id)
-                return {
-                  id: `legacy-test-${live.runtime}-${live.sessionId}`,
-                  agent: null,
-                  briefDigest: null,
-                  seat: spec,
-                  seatLabel: live.label,
-                  passedOver: [],
-                  standing: { kind: 'permission', permission: role.permission },
-                  ceiling: null,
-                  checkout: { cwd, project: board.root, branch: null, head: null },
-                  session: { runtime: live.runtime, sessionId: live.sessionId },
-                  board: request.room,
-                  role: role.id,
-                  openedAt: now(),
-                  closed: null,
-                }
-              })()
+          const durable = await this.#port.openLegacySeat({
+            goal: request.room,
+            spec,
+            permission: role.permission,
+            role: role.id,
+            isolate: Boolean(role.isolate),
+            title,
+            lane: `${role.id}-${index + 1}-${id.slice(-4)}`,
+          })
           openedIds.set(`${durable.session.runtime}\u0000${durable.session.sessionId}`, durable.id)
           const held: FlowSeatRecord = {
             key: `${durable.session.runtime}\u0000${durable.session.sessionId}`,
@@ -556,8 +515,6 @@ export class Flows implements TeamFlows {
       startedAt: now(),
     }
     this.#runs.set(id, run)
-    if (!this.#port.openLegacySeat) for (const seat of seats) this.#port.recorded?.(request.room, seat)
-
     /* Past this line the run exists, so a failure is *stopped* rather than
        unwound: its seats have their orders and are already waiting, and a run
        that vanished from under them would leave four turns paid for and

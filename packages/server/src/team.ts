@@ -282,6 +282,7 @@ export interface TeamPort {
     readonly seats: readonly SeatRecord[]
     readonly legacy?: Readonly<Record<string, string>>
     readonly sentence?: string
+    readonly runtimeNames?: Readonly<Record<string, string>>
   }
   /** The live turn state for one of those Seats. */
   memberStatus?(seat: SeatRecord): MemberStatus
@@ -3386,8 +3387,27 @@ export class Team {
    */
   #awayPeer(board: Board, key: SessionKey): TeamPeer | null {
     const remembered = board.roster[String(key)]
-    if (!remembered) return null
     const { runtime, id } = splitSessionKey(key)
+    if (!remembered) {
+      const membership = this.#goalMembership(board.id)
+      const seat = membership?.seats.find((candidate) =>
+        candidate.session.runtime === runtime && candidate.session.sessionId === String(id),
+      )
+      if (!seat) return null
+      return {
+        runtime,
+        sessionId: String(id),
+        title: null,
+        cwd: seat.checkout.cwd,
+        agent: seat.agent?.name ?? membership?.runtimeNames?.[runtime] ?? runtime,
+        busy: false,
+        canSteer: false,
+        queuedByUser: 0,
+        ...(seat.seat.model !== undefined ? { model: cleanModel(seat.seat.model) } : {}),
+        seatedAs: seat.agent?.name ?? null,
+        here: false,
+      }
+    }
     return {
       runtime,
       sessionId: String(id),

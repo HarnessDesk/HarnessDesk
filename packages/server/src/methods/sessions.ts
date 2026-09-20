@@ -203,7 +203,7 @@ export const sessionMethods = {
          conversation is in a room: membership does, and a member of a room
          that is not open is drawn as such and reopened by the next thing
          addressed to it. Closing a pane is window management; leaving a room
-         is `team/room/leave`. */
+         is releasing its durable Goal Seat. */
       record.detached = false
     }
     return null

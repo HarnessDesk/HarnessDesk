@@ -59,6 +59,7 @@ import {
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
+import { PREVIEW_GOALS } from './goal-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -876,7 +877,9 @@ class PreviewStore {
         [EMPTY_ROOM, { ...TEAM, id: EMPTY_ROOM, name: 'Empty room', intents: [], plans: [] }],
         [EDGE_ROOM, EDGE_TEAM],
         [EVIDENCE_ROOM, EVIDENCE_TEAM],
+        ...PREVIEW_GOALS.map((view) => [view.goal.id, view.board] as const),
       ]),
+      goals: new Map(PREVIEW_GOALS.map((view) => [view.goal.id, view])),
       boardEvidence: new Map([[EVIDENCE_ROOM, EVIDENCE_BOARD]]),
       /*
        * Every session here carries `turns`, and that is not optional padding.

@@ -545,8 +545,6 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     dependsOn: optional(arrayOf(isNumber)),
     plan: optional(isNumber),
   }),
-  'team/plan': shape({ room: isString, goal: isString }),
-  'team/wrap': shape({ room: isString, plan: isNumber }),
   'team/intent': shape({
     room: isString,
     id: isNumber,
@@ -587,11 +585,6 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'team/peers': shape({ room: isString }),
 
   'team/rooms': shape({ root: isString }),
-  'team/room/create': shape({ root: isString, name: isString }),
-  'team/room/rename': shape({ room: isString, name: isString }),
-  'team/room/delete': shape({ room: isString }),
-  'team/room/join': shape({ room: isString, runtime: isString, sessionId: isString }),
-  'team/room/leave': shape({ room: isString, runtime: isString, sessionId: isString }),
 
   'flow/list': shape({ root: isString }),
   'flow/read': shape({ root: isString, path: isString }),

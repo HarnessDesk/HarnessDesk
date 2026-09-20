@@ -61,6 +61,16 @@ import {
   type FlowPermission,
   type FlowRun,
   type FlowSeat,
+  type GoalCreateInput,
+  type GoalId,
+  type GoalReceipt,
+  type GoalSeatRequest,
+  type GoalView,
+  type Lane,
+  type LanePreferences,
+  type SessionPointer,
+  type WrapChoices,
+  type WrapPreview,
   type TerminalSize,
   type UiDecoration,
   type UserContent,
@@ -414,6 +424,10 @@ export class AppStore {
           teams.set(state.id, state)
           this.#patch({ teams })
         }
+        if (notification.method === 'goal/changed') {
+          this.#goalEvents += 1
+          this.#keepGoal(notification.params.view)
+        }
         if (notification.method === 'flow/changed') {
           // Whole, for the reason the board is: a round opening changes what
           // every card beside it means.
@@ -481,11 +495,16 @@ export class AppStore {
       credentialProtection: hello.credentialProtection,
       home: hello.home,
       stateDir: hello.stateDir,
+      goalMigrationPending: hello.goalMigrationPending,
     })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
     await this.loadPreferences()
     await Promise.all([this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
+    // Goal history is additive to the ordinary conversation path. A damaged
+    // migration stays visible as Goal-specific recovery state without making
+    // the rest of the desk unusable.
+    await this.loadGoals().catch(() => undefined)
     // The header strip is up from the first frame, so what every plan has left
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
@@ -3482,20 +3501,6 @@ export class AppStore {
     await this.transport.request('team/add', { room, ...args })
   }
 
-  /** Names a goal. Creates the heading and nothing else — the work follows. */
-  async teamPlan(room: string, goal: string): Promise<void> {
-    await this.transport.request('team/plan', { room, goal })
-  }
-
-  /**
-   * Puts a finished goal away. The host refuses while anything on it is live
-   * and says what — returned rather than thrown, because it is an answer the
-   * person needs to read, not a failure.
-   */
-  async teamWrap(room: string, plan: number): Promise<string> {
-    return (await this.transport.request('team/wrap', { room, plan })) as string
-  }
-
   /**
    * The user's verbs over an intent; the host referees, so these always win.
    *
@@ -3586,28 +3591,128 @@ export class AppStore {
     return await this.transport.request('team/peers', { room })
   }
 
-  /**
-   * Starts a room in a project, and shows it.
-   *
-   * Nothing makes a room implicitly. Being open in a folder used to be enough
-   * to share a board, which is why "New session → A room" opened a surface
-   * that had never been created and could not be listed anywhere: there was
-   * no object to list. A room exists because somebody made one and named it.
-   */
-  async createRoom(root: string, name: string): Promise<string> {
-    const state = (await this.transport.request('team/room/create', {
-      root,
-      name,
-    })) as TeamState
+  // ------------------------------------------------------------------- Goals
+
+  /** Live events invalidate list snapshots that began before them. */
+  #goalEvents = 0
+  #goalLoads = 0
+
+  #keepGoal(view: GoalView): void {
+    const current = this.#snapshot.goals.get(view.goal.id)
+    if (current && current.goal.revision > view.goal.revision) return
+    const goals = new Map(this.#snapshot.goals)
     const teams = new Map(this.#snapshot.teams)
-    teams.set(state.id, state)
-    this.#patch({ teams })
-    this.openTeamRoom(state.id)
-    return state.id
+    goals.set(view.goal.id, view)
+    teams.set(view.goal.id, view.board)
+    this.#patch({ goals, teams, goalProblem: null })
   }
 
-  async renameRoom(room: string, name: string): Promise<void> {
-    await this.transport.request('team/room/rename', { room, name })
+  async loadGoals(root?: string): Promise<void> {
+    const generation = ++this.#goalLoads
+    const events = this.#goalEvents
+    try {
+      const views = await this.transport.request('goal/list', root ? { root } : {})
+      if (generation !== this.#goalLoads || events !== this.#goalEvents) return
+      const goals = new Map(this.#snapshot.goals)
+      const teams = new Map(this.#snapshot.teams)
+      for (const [id, existing] of goals) {
+        if (root === undefined || existing.goal.root === root) {
+          goals.delete(id)
+          teams.delete(id)
+        }
+      }
+      for (const view of views) {
+        const existing = this.#snapshot.goals.get(view.goal.id)
+        const kept = existing && existing.goal.revision > view.goal.revision ? existing : view
+        goals.set(kept.goal.id, kept)
+        teams.set(kept.goal.id, kept.board)
+      }
+      this.#patch({ goals, teams, goalProblem: null })
+    } catch (error) {
+      if (generation === this.#goalLoads) this.#patch({ goalProblem: describe(error) })
+      throw error
+    }
+  }
+
+  async #refreshGoal(goal: GoalId): Promise<GoalView> {
+    const view = await this.transport.request('goal/read', { goal })
+    this.#keepGoal(view)
+    return view
+  }
+
+  async createGoal(input: Omit<GoalCreateInput, 'origin'>): Promise<GoalView> {
+    const view = await this.transport.request('goal/create', input)
+    this.#keepGoal(view)
+    return view
+  }
+
+  async updateGoal(
+    goal: GoalId,
+    revision: number,
+    patch: { readonly sentence?: string; readonly dependsOn?: readonly GoalId[] },
+  ): Promise<GoalView> {
+    const view = await this.transport.request('goal/update', { goal, revision, ...patch })
+    this.#keepGoal(view)
+    return view
+  }
+
+  async seatGoal(input: GoalSeatRequest): Promise<SeatRecord> {
+    const seat = await this.transport.request('goal/seat', input)
+    await this.#refreshGoal(input.goal)
+    return seat
+  }
+
+  async assignGoal(goal: GoalId, card: number, session: SessionPointer): Promise<SeatRecord> {
+    const seat = await this.transport.request('goal/assign', { goal, card, session })
+    await this.#refreshGoal(goal)
+    return seat
+  }
+
+  async releaseGoal(goal: GoalId, seat: string): Promise<void> {
+    await this.transport.request('goal/release', { goal, seat })
+    await this.#refreshGoal(goal)
+  }
+
+  async previewGoalWrap(goal: GoalId, choices: WrapChoices): Promise<WrapPreview> {
+    return this.transport.request('goal/preview', { goal, choices })
+  }
+
+  async wrapGoal(goal: GoalId, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
+    const receipt = await this.transport.request('goal/wrap', { goal, stamp, choices })
+    await this.#refreshGoal(goal)
+    return receipt
+  }
+
+  async readGoalReceipt(goal: GoalId): Promise<GoalReceipt | null> {
+    return this.transport.request('goal/receipt', { goal })
+  }
+
+  async loadLanePreferences(): Promise<void> {
+    const [lanePreferences, lanes] = await Promise.all([
+      this.transport.request('lane/preferences', {}),
+      this.transport.request('lane/list', {}),
+    ])
+    this.#patch({ lanePreferences, lanes })
+  }
+
+  async saveLanePreferences(prefs: LanePreferences): Promise<void> {
+    const lanePreferences = await this.transport.request('lane/preferences/set', prefs)
+    this.#patch({ lanePreferences })
+  }
+
+  async releaseLane(lane: string): Promise<Lane> {
+    const released = await this.transport.request('lane/release', { lane })
+    this.#patch({ lanes: this.#snapshot.lanes.map((entry) => entry.id === released.id ? released : entry) })
+    return released
+  }
+
+  async ackGoalMigration(): Promise<void> {
+    await this.transport.request('goal/migration/ack', {})
+    this.#patch({ goalMigrationPending: false })
+  }
+
+  openGoal(goal: string): void {
+    this.openDefaultView({ kind: 'room', room: goal })
   }
 
   // ------------------------------------------------------------------- flows
@@ -3738,24 +3843,6 @@ export class AppStore {
     this.#patch({ boardEvidence, boardEvidenceFailed })
   }
 
-  /**
-   * Puts a room away for good, and returns what went with it so the surface
-   * can say so. The conversations that were in it are untouched.
-   */
-  async deleteRoom(room: string): Promise<{
-    name: string
-    intents: number
-    members: number
-    messages: number
-  }> {
-    return (await this.transport.request('team/room/delete', { room })) as {
-      name: string
-      intents: number
-      members: number
-      messages: number
-    }
-  }
-
   /** Closes every pane and panel showing one room, wherever they are docked. */
   #closeViewsOf(room: string): void {
     const showing = (view: PaneView): boolean =>
@@ -3766,16 +3853,6 @@ export class AppStore {
     for (const entry of mountedViewsIn(this.#snapshot.workbench)) {
       if (showing(entry.mounted.view)) this.closeView(entry.mounted.id)
     }
-  }
-
-  /** Puts a conversation in a room. The host refuses one from another project. */
-  async joinRoom(room: string, runtime: RuntimeId, sessionId: SessionId): Promise<void> {
-    await this.transport.request('team/room/join', { room, runtime, sessionId })
-  }
-
-  /** Takes a conversation out of a room; it keeps running, on its own. */
-  async leaveRoom(room: string, runtime: RuntimeId, sessionId: SessionId): Promise<void> {
-    await this.transport.request('team/room/leave', { room, runtime, sessionId })
   }
 
   /** Asks the shell to open a settings page — and a thing inside it — or clears the request once it has. */

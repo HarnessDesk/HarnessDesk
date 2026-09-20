@@ -10,6 +10,7 @@ import {
   type CheckUnseen,
   type EvidenceRecord,
   type Intent,
+  type GoalView,
   type TeamState,
 } from '@harnessdesk/protocol'
 
@@ -597,16 +598,16 @@ test('through the host: the refusal reaches the caller with its code and the com
   await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'verify: { run: pnpm verify }\n')
   await repo.git('add', '.')
   await repo.git('commit', '-q', '-m', 'checks')
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Checks' })) as TeamState
-  await host.call('team/add', { room: room.id, title: 'Fix the build' })
-  await unseen(host.call('evidence/check/run', { room: room.id, card: 1, name: 'verify' }))
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Checks' })) as GoalView
+  await host.call('team/add', { room: room.goal.id, title: 'Fix the build' })
+  await unseen(host.call('evidence/check/run', { room: room.goal.id, card: 1, name: 'verify' }))
 
   const refused = [
-    { room: room.id, card: 1, name: '' },
+    { room: room.goal.id, card: 1, name: '' },
     { room: '', card: 1, name: 'verify' },
-    { room: room.id, card: '1', name: 'verify' },
-    { room: room.id, card: 1, name: 'verify', seen: 42 },
-    { room: room.id, card: 1, name: 'verify', seen: 'pnpm verify', digest: 7 },
+    { room: room.goal.id, card: '1', name: 'verify' },
+    { room: room.goal.id, card: 1, name: 'verify', seen: 42 },
+    { room: room.goal.id, card: 1, name: 'verify', seen: 'pnpm verify', digest: 7 },
   ]
   for (const params of refused) {
     assert.throws(() => parseClientMessage({ id: 1, method: 'evidence/check/run', params }), ValidationError)

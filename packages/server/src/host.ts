@@ -106,7 +106,7 @@ import { Flows, runCheck } from './flows.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
-import { availablePorts, LaneAllocator, LaneStore } from './goals/lanes.js'
+import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
   environmentForCheckout,
   environmentForSession,
@@ -114,7 +114,7 @@ import {
   requireLaneSupport,
 } from './goals/lane-environment.js'
 import { importMigrationSeats, migrateDesk } from './goals/migration.js'
-import { GoalStore, type GoalDocument } from './goals/store.js'
+import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
@@ -494,6 +494,7 @@ export class Host {
   readonly #goals: GoalPlane
   #goalWriter: Awaited<ReturnType<typeof acquireDeskWriter>> | null = null
   #goalsReady = false
+  #publishingTeamProjection = false
   /**
    * The roster, watched (`AgentWatch`). Made at start rather than in the
    * constructor, so a host that is built and never started watches nothing.
@@ -728,6 +729,8 @@ export class Host {
           seats: goalMembers(document, this.#evidence.seats.all()),
           legacy: document.legacy?.nicknames,
           sentence: document.goal.sentence,
+          runtimeNames: Object.fromEntries([...this.#runtimes.entries()].map(([id, runtime]) =>
+            [id, runtime.info.presentation.name])),
         }
       },
       memberStatus: (seat) => {
@@ -763,9 +766,7 @@ export class Host {
          that conversation no longer applies. See `TeamPort.membershipChanged`
          and `#teamRefusals`. */
       membershipChanged: (runtime, sessionId) => {
-        this.#teamRefusals.delete(sessionKey(runtime, makeSessionId(sessionId)))
-        const record = this.registry.get(runtime, makeSessionId(sessionId))
-        if (record) record.reopenRefusals = 0
+        this.#membershipChanged(runtime, sessionId)
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
@@ -826,7 +827,8 @@ export class Host {
         const agent = this.#runtimes.get(runtime)
         if (!agent) return null
         const id = makeSessionId(session)
-        const held = this.registry.get(runtime as RuntimeId, id)?.session ?? await agent.readSession(id).catch(() => null)
+        const record = this.registry.get(runtime as RuntimeId, id)
+        const held = record?.live ? record.session : await agent.readSession(id).catch(() => null)
         if (!held) return null
         const project = await this.#boardRootOf(held.cwd)
         return project ? { project, busy: isBusy(held) } : null
@@ -834,7 +836,10 @@ export class Host {
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
       opening: async (goal: string, session, id: SeatId): Promise<SeatOpening> => {
         const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
-        const known = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))?.session
+        const runtime = this.#runtimes.get(session.runtime)
+        const held = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
+        const known = held?.live ? held.session :
+          await runtime?.readSession(makeSessionId(session.sessionId)).catch(() => null)
         if (!known) throw new Error('Choose a conversation its runtime can still open.')
         const revision = await revisionOf(known.cwd)
         const document = this.#goalStore.read(goal)
@@ -877,7 +882,9 @@ export class Host {
         return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
       },
       changed: (view) => {
-        this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+        if (!this.#publishingTeamProjection) {
+          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+        }
         this.#push({ method: 'goal/changed', params: { view } })
       },
       activity: (goal, previous, activity, sentence) => this.#push({
@@ -934,9 +941,11 @@ export class Host {
       },
       importOpening: async (project: string, opening: SeatOpening) => {
         await this.#evidence.seats.importOpening(project, opening)
+        this.#membershipChanged(opening.session.runtime as RuntimeId, opening.session.sessionId)
       },
       closeId: async (id: SeatId, reason: string) => {
-        await this.#evidence.seats.closeId(id, reason)
+        const record = await this.#evidence.seats.closeId(id, reason)
+        this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
       },
       claim: async (goal: string, card: number, opening: SeatOpening) => {
         await this.#claimGoalCard(goal, card, opening)
@@ -1609,7 +1618,6 @@ export class Host {
   }
 
   async #saveTeamProjection(state: TeamState): Promise<void> {
-    await this.#syncProjectionSeats(state)
     const legacy = this.#team.legacyFor(state.id)
     let document: GoalDocument
     try {
@@ -1650,6 +1658,7 @@ export class Host {
         receipt: null,
         operation: null,
       }, null)
+      await this.#refreshTeamProjection(state.id)
       return
     }
     if (document.restored || document.goal.state !== 'open' || document.operation) {
@@ -1679,45 +1688,15 @@ export class Host {
         },
       } : {}),
     }, document.goal.revision)
+    await this.#refreshTeamProjection(state.id)
   }
 
-  async #syncProjectionSeats(state: TeamState): Promise<void> {
-    const wanted = new Set(state.members.map(String))
-    for (const record of this.#evidence.seats.all()) {
-      if (record.board !== state.id || record.closed || record.restored) continue
-      const key = String(sessionKey(record.session.runtime, record.session.sessionId))
-      if (!wanted.has(key)) await this.#evidence.seats.closeId(record.id, 'released')
-    }
-    for (const member of state.members) {
-      const { runtime, id } = splitSessionKey(member)
-      const existing = this.#evidence.seats.all().some((record) => !record.closed && !record.restored &&
-        record.board === state.id && record.session.runtime === runtime && record.session.sessionId === String(id))
-      if (existing) continue
-      const known = this.registry.get(runtime, id)?.session
-      const previous = this.#evidence.seats.latestKeptOf(runtime, String(id))
-      const cwd = known?.cwd ?? state.cwd ?? state.root
-      const revision = await revisionOf(cwd)
-      const opening: SeatOpening = {
-        id: `legacy-${createHash('sha256').update(JSON.stringify([state.id, member])).digest('hex')}`,
-        agent: previous?.agent ?? null,
-        briefDigest: previous?.briefDigest ?? null,
-        seat: previous?.seat ?? { runtime },
-        seatLabel: previous?.seatLabel ?? runtime,
-        passedOver: previous?.passedOver ?? [],
-        standing: previous?.standing ?? { kind: 'unknown' },
-        ceiling: previous?.ceiling ?? null,
-        checkout: {
-          cwd,
-          project: state.root,
-          branch: revision?.branch ?? null,
-          head: revision?.head ?? null,
-        },
-        session: { runtime, sessionId: String(id) },
-        board: state.id,
-        role: state.roles?.[String(member)] ?? null,
-        openedAt: state.updatedAt || Date.now(),
-      }
-      await this.#evidence.seats.importOpening(state.root, opening)
+  async #refreshTeamProjection(goal: string): Promise<void> {
+    this.#publishingTeamProjection = true
+    try {
+      await this.#goals.refresh(goal)
+    } finally {
+      this.#publishingTeamProjection = false
     }
   }
 
@@ -2260,6 +2239,7 @@ export class Host {
    * another machine, and a restore is followed by signing in again.
    */
   async #backupExport(): Promise<BackupFile> {
+    await this.#goalStore.flush()
     return {
       kind: 'harnessdesk-backup',
       version: 1,
@@ -2273,6 +2253,14 @@ export class Host {
       ),
       seating: await this.#machineSeating.raw(),
       evidence: await this.#evidence.backup(),
+      goals: {
+        version: 1,
+        documents: this.#goalStore.list(),
+        // Backup export has always been callable before Host.start() in the
+        // diagnostics and migration tests. An unopened desk owns no live lane
+        // authority yet, so its portable Goal history has no lanes to export.
+        lanes: this.#laneStore.loaded ? this.#lanes.list() : [],
+      },
     }
   }
 
@@ -2293,6 +2281,35 @@ export class Host {
       file.version !== 1
     ) {
       throw new Error('That file is not a HarnessDesk backup.')
+    }
+
+    /* Validate the whole Goal payload before restoring any other part of the
+       backup. A malformed document cannot arrive after preferences, Agents or
+       transcripts have already changed this desk. */
+    let goalDocuments: GoalDocument[] = []
+    let goalLanes: ReturnType<typeof laneOf>[] = []
+    if (file.goals !== undefined) {
+      const payload = file.goals as { version?: unknown; documents?: unknown; lanes?: unknown }
+      let bytes = 0
+      try { bytes = Buffer.byteLength(JSON.stringify(payload)) } catch { throw new Error('The Goal backup cannot be read.') }
+      if (payload.version !== 1 || !Array.isArray(payload.documents) || !Array.isArray(payload.lanes) ||
+        payload.documents.length > 10_000 || payload.lanes.length > 10_000 || bytes > 64 * 1024 * 1024) {
+        throw new Error('The Goal backup cannot be read.')
+      }
+      goalDocuments = payload.documents.map(documentOf)
+      goalLanes = payload.lanes.map(laneOf)
+      const ids = new Set<string>()
+      for (const document of goalDocuments) {
+        if (ids.has(document.goal.id)) throw new Error('The Goal backup names a Goal twice.')
+        ids.add(document.goal.id)
+      }
+      const laneIds = new Set<string>()
+      for (const lane of goalLanes) {
+        if (laneIds.has(lane.id) || (!ids.has(lane.goal) && !this.#goalStore.list().some((one) => one.goal.id === lane.goal))) {
+          throw new Error('The Goal backup contains an invalid lane reference.')
+        }
+        laneIds.add(lane.id)
+      }
     }
 
     const agents = { restored: 0, skipped: 0 }
@@ -2404,8 +2421,35 @@ export class Host {
     }
     // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
     const evidence = await this.#evidence.restore(file.evidence)
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence })
-    return { agents, preferences, transcripts, agentFolders, seating, evidence }
+    const goals = file.goals === undefined ? undefined : {
+      restored: 0, duplicate: 0, conflict: 0,
+      lanesRestored: 0, lanesDuplicate: 0, lanesConflict: 0,
+    }
+    if (goals) {
+      const at = Date.now()
+      for (const document of goalDocuments) {
+        const outcome = await this.#goalStore.restore(document, at)
+        goals[outcome] += 1
+        if (outcome === 'restored') {
+          const view = await this.#goals.view(document.goal.id)
+          this.#team.installProjection(view.board)
+          this.#push({ method: 'goal/changed', params: { view } })
+        }
+      }
+      for (const lane of goalLanes) {
+        const imported = restoredLane(lane)
+        const current = this.#laneStore.list().find((one) => one.id === imported.id)
+        if (!current) {
+          await this.#laneStore.save(imported)
+          goals.lanesRestored += 1
+        } else if (current.state === 'released' && current.seat === null && current.browserProfile === null &&
+          JSON.stringify(current) === JSON.stringify(imported)) {
+          goals.lanesDuplicate += 1
+        } else goals.lanesConflict += 1
+      }
+    }
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, goals })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, ...(goals ? { goals } : {}) }
   }
 
   /**
@@ -2853,6 +2897,13 @@ export class Host {
    * the moment a reopen succeeds. See `#teamLive`.
    */
   readonly #teamRefusals = new Map<string, number>()
+
+  #membershipChanged(runtime: RuntimeId, sessionId: string): void {
+    const id = makeSessionId(sessionId)
+    this.#teamRefusals.delete(sessionKey(runtime, id))
+    const record = this.registry.get(runtime, id)
+    if (record) record.reopenRefusals = 0
+  }
 
   /** Why a conversation would not come back, in the agent's name and its own words. */
   #cannotReopen(runtime: AgentRuntime, error: unknown): string {

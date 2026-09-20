@@ -13,10 +13,12 @@ import {
  * between the two lists fails a suite on whichever side moved.
  */
 
-it('names exactly the four kinds the desktop decider knows', () => {
+it('names exactly the six kinds the desktop decider knows', () => {
   expect(SYSTEM_NOTIFICATION_KINDS.map((entry) => entry.kind).sort()).toEqual([
     'approvals',
     'failures',
+    'goalNeedsYou',
+    'goalReadyToWrap',
     'needsYou',
     'turns',
   ])
@@ -27,6 +29,8 @@ it('everything defaults on, each switch is its own, and the master wins', () => 
   expect(systemNotificationOn({ turns: false }, 'turns')).toBe(false)
   expect(systemNotificationOn({ turns: false }, 'failures')).toBe(true)
   expect(systemNotificationOn({ enabled: false, turns: true }, 'turns')).toBe(false)
+  expect(systemNotificationOn({}, 'goalNeedsYou')).toBe(true)
+  expect(systemNotificationOn({ goalReadyToWrap: false }, 'goalReadyToWrap')).toBe(false)
 })
 
 it('reads stored switches defensively', () => {

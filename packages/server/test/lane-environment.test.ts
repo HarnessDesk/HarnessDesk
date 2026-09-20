@@ -111,9 +111,9 @@ test('real Goal seating sends the durable lane map to the runtime and the first 
   })) as Session
   const order = session.turns
     .flatMap((turn) => turn.items)
-    .find((item) => item.type === 'userMessage')
-  assert.ok(order?.type === 'userMessage')
-  const text = order.content.map((part) => (part.type === 'text' ? part.text : '')).join('')
+    .find((item) => item.type === 'notice')
+  assert.ok(order?.type === 'notice')
+  const text = order.text
   for (const [key, value] of Object.entries(handed ?? {})) {
     assert.match(text, new RegExp(`^${key}=${value}$`, 'm'))
   }
