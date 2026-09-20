@@ -139,6 +139,38 @@ describe('an opened tool step', () => {
     ])
   })
 
+  it('draws notebook source instead of fabricating a blank addition', () => {
+    render(call({
+      tool: 'NotebookEdit /w/notebook.ipynb',
+      args: { notebook_path: '/w/notebook.ipynb', new_source: 'print("ready")' },
+    }))
+
+    expect(diffText()).toEqual(['print("ready")'])
+  })
+
+  it.each([
+    ['empty', []],
+    ['partial', [{ old_string: 'const one = 1' }]],
+  ])('keeps raw arguments for an %s MultiEdit payload', (_name, edits) => {
+    open(call({
+      tool: 'MultiEdit /w/src/app.ts',
+      args: { file_path: '/w/src/app.ts', edits },
+    }))
+
+    expect(container.querySelector('table')).toBeNull()
+    expect(container.textContent).toContain('edits')
+    expect(container.textContent).toContain(JSON.stringify(edits, null, 1))
+  })
+
+  it('marks a completed tool call carrying an error as failed in its row', () => {
+    render({
+      ...call({ tool: 'fetch_page', args: { url: 'https://example.test' } }),
+      error: 'connection refused',
+    } as ToolCallItem)
+
+    expect(title()).toContain('failed')
+  })
+
   it('keeps a failed file edit error instead of replacing it with a diff', () => {
     const item = {
       ...call({

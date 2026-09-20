@@ -56,6 +56,31 @@ describe('DiffView hunk navigation (#390)', () => {
     expect(container.textContent).toContain('Hunk 1 of 2')
   })
 
+  it.each([
+    [
+      'binary change',
+      ['diff --git a/pic.bin b/pic.bin', 'index 1111111..2222222 100644', 'Binary files a/pic.bin and b/pic.bin differ'].join('\n'),
+      'Binary files a/pic.bin and b/pic.bin differ',
+    ],
+    [
+      'rename-only change',
+      ['diff --git a/old.txt b/new.txt', 'similarity index 100%', 'rename from old.txt', 'rename to new.txt'].join('\n'),
+      'rename to new.txt',
+    ],
+    [
+      'mode-only change',
+      ['diff --git a/run.sh b/run.sh', 'old mode 100644', 'new mode 100755'].join('\n'),
+      'new mode 100755',
+    ],
+  ])('keeps the meaningful metadata for a %s', (_name, diff, expected) => {
+    act(() => {
+      root.render(<DiffView diff={diff} />)
+    })
+
+    expect(container.textContent).toContain(expected)
+    expect(container.querySelectorAll('tbody tr').length).toBeGreaterThan(0)
+  })
+
   it('uses one line-number column and no hunk navigation inline', () => {
     act(() => {
       root.render(<DiffView diff={makeDiffWithHunks(2)} inline />)

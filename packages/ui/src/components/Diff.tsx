@@ -57,7 +57,10 @@ export const DiffView = ({ diff, wholeFile = false, wrap = false, inline = false
   const displayLines = useMemo(() => {
     // The post-hunk "no newline" marker is a fact about the change, not part
     // of git's file introduction, so it keeps the quiet metadata treatment.
-    const withoutHeaders = lines.filter((line) => line.kind !== 'meta' || line.text.startsWith('\\'))
+    const hasContent = lines.some((line) => line.kind !== 'meta')
+    const withoutHeaders = hasContent
+      ? lines.filter((line) => line.kind !== 'meta' || line.text.startsWith('\\'))
+      : lines
     const hunks = withoutHeaders.filter((line) => line.kind === 'hunk')
     if (hunks.length === 1 && startsAtFirstNewLine(hunks[0]!.text)) {
       return withoutHeaders.filter((line) => line !== hunks[0])

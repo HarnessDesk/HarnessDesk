@@ -1,4 +1,4 @@
-import type { AgentItem, FileChange, Turn } from '@harnessdesk/protocol'
+import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
 import { countFileChange } from './diff'
@@ -29,6 +29,15 @@ export interface TurnView {
 
 const isAnswer = (item: AgentItem): boolean =>
   item.type === 'assistantMessage' && item.phase !== 'commentary'
+
+/** The status a reader sees after a step has supplied its final result. */
+export const effectiveItemStatus = (item: AgentItem): ItemStatus | undefined => {
+  if (!('status' in item)) return undefined
+  if (item.status !== 'completed') return item.status
+  if (item.type === 'toolCall' && item.error) return 'failed'
+  if (item.type === 'command' && typeof item.exitCode === 'number' && item.exitCode !== 0) return 'failed'
+  return item.status
+}
 
 /**
  * What opens a turn: the person's message, or a notice standing in for one —
@@ -297,13 +306,9 @@ const troubles = (work: readonly AgentItem[]): { readonly failed: number; readon
      line above it stayed untinted and folded a turn whose tests had just gone
      red. The two now agree on what went wrong. */
   for (const item of work) {
-    if (!('status' in item)) continue
-    if (item.status === 'declined') declined += 1
-    else if (item.status === 'failed') failed += 1
-    else if (item.type === 'toolCall' && item.error) failed += 1
-    else if (item.type === 'command' && typeof item.exitCode === 'number' && item.exitCode !== 0) {
-      failed += 1
-    }
+    const status = effectiveItemStatus(item)
+    if (status === 'declined') declined += 1
+    else if (status === 'failed') failed += 1
   }
   return { failed, declined }
 }

@@ -113,6 +113,28 @@ it('names one edited file in the title with its totals', async () => {
   expect(container.querySelector('button[title="Open src/retry.ts"]')).toBeNull()
 })
 
+it('names a one-file addition as created', async () => {
+  await rig([], [{
+    path: '/work/storefront/src/new.ts',
+    kind: { type: 'add' },
+    diff: 'export const ready = true\n',
+  }])
+
+  expect(container.textContent).toContain('Created new.ts')
+  expect(container.textContent).not.toContain('Edited new.ts')
+})
+
+it('names a one-file removal as deleted', async () => {
+  await rig([], [{
+    path: '/work/storefront/src/old.ts',
+    kind: { type: 'delete' },
+    diff: 'export const retired = true\n',
+  }])
+
+  expect(container.textContent).toContain('Deleted old.ts')
+  expect(container.textContent).not.toContain('Edited old.ts')
+})
+
 it('shows three file rows and expands the rest from an N more row', async () => {
   const changes = Array.from({ length: 5 }, (_, index): FileChange => ({
     path: `/work/storefront/src/file-${index + 1}.ts`,

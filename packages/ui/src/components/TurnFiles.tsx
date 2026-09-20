@@ -53,6 +53,11 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const one = files.length === 1 ? files[0] : undefined
   const shown = one ? [] : expanded ? files : files.slice(0, 3)
   const remaining = one ? 0 : files.length - shown.length
+  const verb = files.every((file) => file.kind === 'add')
+    ? 'Created'
+    : files.every((file) => file.kind === 'delete')
+      ? 'Deleted'
+      : 'Edited'
 
   const apply = async (direction: 'undo' | 'redo', skipUnrecoverable = false): Promise<void> => {
     if (!key || busy) return
@@ -82,7 +87,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
         </span>
         <span className={styles.title}>
           <span className={styles.titleLine}>
-            Edited {one ? basename(one.path) : `${files.length} files`}{' '}
+            {verb} {one ? basename(one.path) : `${files.length} files`}{' '}
             <span className={styles.counts}>
               <span className={styles.added}>+{added}</span> <span className={styles.removed}>−{removed}</span>
             </span>

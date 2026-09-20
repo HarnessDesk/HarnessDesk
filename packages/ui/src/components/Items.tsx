@@ -47,6 +47,7 @@ import {
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
 import { findTodos, type Todo } from '../lib/todos'
+import { effectiveItemStatus } from '../lib/turn-view'
 import {
   shellCommandOf,
   shortestUniquePathLabels,
@@ -680,7 +681,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
           {formatDuration(item.durationMs)}
         </>
       }
-      status={item.status}
+      status={effectiveItemStatus(item)}
       defaultOpen={item.status === 'inProgress'}
       bareBody
     >
@@ -976,7 +977,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
           formatDuration(item.durationMs)
         )
       }
-      status={item.status}
+      status={effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
       bareBody={Boolean(change) || Boolean(command)}
     >

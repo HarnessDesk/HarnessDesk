@@ -84,7 +84,9 @@ describe('step sentences', () => {
         cwd: '/w',
         origin: 'agent',
         actions: [{ type: 'unknown', command: 'pnpm test' }],
-        status: 'failed',
+        // Some runtimes settle the item before they report the process exit.
+        // The non-zero exit is still the effective failure the turn receipt uses.
+        status: 'completed',
         exitCode: 1,
         output: 'failed',
       },
