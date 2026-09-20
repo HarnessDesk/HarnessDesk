@@ -721,7 +721,7 @@ export const SectionHead = ({
 
 const TEXT_ROLE = {
   wordmark: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
-  page: 'text-(length:--hd-title) leading-(--hd-line-title) font-normal tracking-[-0.02em]',
+  page: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
   subject: 'text-base leading-(--hd-line) font-medium',
   row: 'text-sm leading-(--hd-line-sm) font-medium',
   navigation: 'text-sm leading-(--hd-line-sm) font-normal',

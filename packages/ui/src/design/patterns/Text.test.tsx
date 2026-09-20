@@ -61,7 +61,7 @@ it('keeps the wordmark and navigation-name roles distinct from page and row titl
   expect(navigation?.className).not.toContain('truncate')
 })
 
-it('keeps page titles at 24px regular while the wordmark alone stays 20px semibold', () => {
+it('page titles match the wordmark: 20px semibold (owner decision 2026-09-19)', () => {
   act(() =>
     root.render(
       <>
@@ -72,12 +72,34 @@ it('keeps page titles at 24px regular while the wordmark alone stays 20px semibo
   )
 
   const pageRole = container.querySelector<HTMLElement>('[data-role="page"]')
-  expect(pageRole?.className).toContain('text-(length:--hd-title)')
-  expect(pageRole?.className).toContain('leading-(--hd-line-title)')
-  expect(pageRole?.className).toContain('font-normal')
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-title\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-title\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-normal\)/s)
+  expect(pageRole?.className).toContain('text-(length:--hd-heading)')
+  expect(pageRole?.className).toContain('leading-(--hd-line-heading)')
+  expect(pageRole?.className).toContain('font-semibold')
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-heading\)/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-heading\)/s)
+  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
+})
+
+it('page title and wordmark compute the same size, line-height and weight', () => {
+  act(() =>
+    root.render(
+      <>
+        <Text role="wordmark">HarnessDesk</Text>
+        <Text role="page">General</Text>
+      </>,
+    ),
+  )
+
+  const wordmark = container.querySelector<HTMLElement>('[data-role="wordmark"]')
+  const page = container.querySelector<HTMLElement>('[data-role="page"]')
+  expect(wordmark).toBeTruthy()
+  expect(page).toBeTruthy()
+  expect(page?.className).toContain('text-(length:--hd-heading)')
+  expect(wordmark?.className).toContain('text-(length:--hd-heading)')
+  expect(page?.className).toContain('leading-(--hd-line-heading)')
+  expect(wordmark?.className).toContain('leading-(--hd-line-heading)')
+  expect(page?.className).toContain('font-semibold')
+  expect(wordmark?.className).toContain('font-semibold')
 })
 
 it('owns the keycap and matched-text roles used by search surfaces', () => {

@@ -46,8 +46,8 @@ furniture is smaller than a row's own title.
 | `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
 | `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
 | `--hd-text-lg` | 16px | a dialog's title | 16 |
-| `--hd-heading` | 20px | a section's own name, the wordmark | 13 |
-| `--hd-title` | 24px | a page's title; Markdown's h1 fallback | 1 |
+| `--hd-heading` | 20px | a section's own name, the wordmark, a page's title | 13 |
+| `--hd-title` | 24px | Markdown's h1 fallback | 1 |
 | `--hd-display` | 36px | a figure that fills a card | 1 |
 
 The counts are measured, not aspirational. The sizes above 14 are rare because
@@ -124,7 +124,7 @@ are doing; screens do not invent a new spelling for the same job:
 | role | spelling | what wears it |
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
-| page | 24 / regular | the name of a place — a settings page, a review; it stands one step above the wordmark |
+| page | 20 / semibold | the name of a place — a settings page, a review; it matches the wordmark (owner decision 2026-09-19) |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |
 | navigation | 13 / normal | the name of one thing in a navigable list |

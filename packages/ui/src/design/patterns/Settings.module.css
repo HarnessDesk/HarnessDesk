@@ -681,13 +681,14 @@
   min-width: 0;
 }
 
-/* A page names a place at 24px regular. The app's own wordmark is the sole
-   20px semibold name; keeping those roles separate prevents a fifth spelling. */
+/* A page title matches the wordmark: 20px semibold. The owner decided on
+   2026-09-19 that a page title should not outsize the wordmark; --hd-title
+   (24px) is kept for Markdown's h1 fallback only. */
 .pageTitle {
-  font-size: var(--hd-title); /* desk: --hd-heading → --hd-title, the canonical page spelling */
-  line-height: var(--hd-line-title); /* desk: --hd-line-heading → --hd-line-title, with the size */
-  font-weight: var(--hd-weight-normal); /* desk: semibold → regular, names do not shout */
-  letter-spacing: -0.02em; /* desk: -0.01em → -0.02em, the 24px title tracking */
+  font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, page title matches the wordmark */
+  line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, with the size */
+  font-weight: var(--hd-weight-semibold); /* desk: normal → semibold, page title matches the wordmark */
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, the wordmark's tracking */
 }
 
 /* One sentence, in the support size, on a reading measure. The blurb ran the
@@ -941,10 +942,10 @@
   display: flex;
   align-items: baseline;
   gap: var(--hd-space-2);
-  font-size: var(--hd-title); /* desk: 20 → 24, the canonical page spelling */
-  line-height: var(--hd-line-title); /* desk: 28 → 30, with the size */
-  font-weight: var(--hd-weight-normal); /* desk: semibold → regular, names do not shout */
-  letter-spacing: -0.02em; /* desk: -0.01em → -0.02em, the 24px title tracking */
+  font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, page title matches the wordmark */
+  line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, with the size */
+  font-weight: var(--hd-weight-semibold); /* desk: normal → semibold, page title matches the wordmark */
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, the wordmark's tracking */
 }
 
 .detailOwner {
