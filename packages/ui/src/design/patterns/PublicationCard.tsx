@@ -7,12 +7,33 @@ import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { softTone, type Tone } from '../ui/tone'
 
-const STATE: Record<NonNullable<ForgeReference['state']>, { label: string; tone: Tone }> = {
+/** A published change or check outcome that the interface can judge in a word. */
+export type StateToneState =
+  | 'open'
+  | 'draft'
+  | 'merged'
+  | 'closed'
+  | 'passed'
+  | 'failed'
+  | 'running'
+  | 'skipped'
+  | 'timed out'
+
+const STATE_TONE = {
   open: { label: 'Open', tone: 'success' },
   draft: { label: 'Draft', tone: 'neutral' },
   merged: { label: 'Merged', tone: 'brand' },
   closed: { label: 'Closed', tone: 'danger' },
-}
+  passed: { label: 'Passed', tone: 'success' },
+  failed: { label: 'Failed', tone: 'danger' },
+  running: { label: 'Running', tone: 'info' },
+  skipped: { label: 'Skipped', tone: 'neutral' },
+  'timed out': { label: 'Timed out', tone: 'warning' },
+} as const satisfies Record<StateToneState, { label: string; tone: Tone }>
+
+/** The one label and tone for a pull-request state or check outcome. */
+export const stateTone = (state: StateToneState): { label: string; tone: Tone } =>
+  STATE_TONE[state]
 
 /** The verb the transcript row leads with: what the conversation did. */
 export const publicationVerb = (reference: ForgeReference): string => {
@@ -48,7 +69,7 @@ export const KindGlyph = ({ kind, size = 14 }: { kind: ForgeReference['kind']; s
 /** A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not. */
 export const StatePill = ({ state, className }: { state: ForgeReference['state']; className?: string }) => {
   if (!state) return null
-  const { label, tone } = STATE[state]
+  const { label, tone } = stateTone(state)
   return (
     <span
       data-slot="publication-state"

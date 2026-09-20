@@ -1,0 +1,143 @@
+import { describe, expect, it } from 'vitest'
+
+import { runtimeId, type FlowRun, type Intent } from '@harnessdesk/protocol'
+
+import { cardEvidence, checkView, ciView, diffView, prView } from '../preview/evidence-fixture'
+import { flowRoleOf, placeCard, type PlaceInput } from './board-facts'
+
+const intent = (over: Partial<Intent> = {}): Intent => ({
+  id: 1,
+  title: 'Retry the checkout call on a 502',
+  detail: null,
+  state: 'done',
+  files: [],
+  dependsOn: [],
+  claim: null,
+  blockedReason: null,
+  handoff: null,
+  note: null,
+  createdAt: 1,
+  updatedAt: 1,
+  ...over,
+})
+
+const place = (over: Partial<PlaceInput> = {}) =>
+  placeCard({
+    intent: intent(),
+    evidence: undefined,
+    stranded: false,
+    holderWaits: false,
+    forPerson: false,
+    ...over,
+  })
+
+const HELD = { runtime: runtimeId('alpha'), sessionId: 'c1', at: 1 }
+
+describe('work that is not finished', () => {
+  it('nobody has started is To do; its holder is on it is Working', () => {
+    expect(place({ intent: intent({ state: 'open' }) })).toEqual({ column: 'todo', why: null })
+    expect(place({ intent: intent({ state: 'blocked', blockedBy: 'graph', dependsOn: [2] }) })).toEqual({
+      column: 'todo',
+      why: null,
+    })
+    expect(place({ intent: intent({ state: 'claimed', claim: HELD }) })).toEqual({
+      column: 'working',
+      why: null,
+    })
+  })
+
+  it('anything that cannot move without a person Needs you, and says why', () => {
+    expect(place({ intent: intent({ state: 'blocked', blockedBy: 'hand', blockedReason: 'waits on the rename' }) })).toEqual({ column: 'needs', why: 'stopped' })
+    expect(place({ intent: intent({ state: 'claimed', claim: HELD }), stranded: true })).toEqual({ column: 'needs', why: null })
+    expect(place({ intent: intent({ state: 'claimed', claim: HELD }), holderWaits: true })).toEqual({ column: 'needs', why: 'waiting on you' })
+    expect(place({ intent: intent({ state: 'open' }), forPerson: true })).toEqual({ column: 'needs', why: 'needs your answer' })
+  })
+})
+
+describe('finished work, on its facts', () => {
+  it('is Ready on a current fact that says it is good: a fresh passing check, fresh passing CI, a merged pull request', () => {
+    expect(place({ evidence: cardEvidence(1, [checkView()]) })).toEqual({ column: 'ready', why: null })
+    expect(place({ evidence: cardEvidence(1, [ciView(['passed', 'skipped'])]) })).toEqual({ column: 'ready', why: null })
+    expect(place({ evidence: cardEvidence(1, [prView('merged')]) })).toEqual({ column: 'ready', why: null })
+    expect(place({ evidence: cardEvidence(1, [prView('merged', { freshness: { state: 'final' } })]) })).toEqual({ column: 'ready', why: null })
+  })
+
+  it('a merged pull request is no exception: out of date or unknown, it is no verdict', () => {
+    expect(place({ evidence: cardEvidence(1, [prView('merged', { freshness: { state: 'behind', commits: 1 } })]) })).toEqual({ column: 'needs', why: 'PR #12 out of date' })
+    expect(place({ evidence: cardEvidence(1, [prView('merged', { freshness: { state: 'unknown', why: 'its checkout is gone' } })]) })).toEqual({ column: 'needs', why: 'PR #12 unknown' })
+  })
+
+  it('cancelled CI is not a pass, alone or beside passes', () => {
+    expect(place({ evidence: cardEvidence(1, [ciView(['cancelled'])]) })).toEqual({ column: 'needs', why: 'CI cancelled' })
+    expect(place({ evidence: cardEvidence(1, [ciView(['passed', 'cancelled', 'passed'])]) })).toEqual({ column: 'needs', why: 'CI cancelled' })
+  })
+
+  it('a fact a backup brought is unknown here, and never makes a card Ready', () => {
+    const brought = checkView({ freshness: { state: 'unknown', why: 'it came from a backup, and this desk has not observed it' } })
+    expect(place({ evidence: cardEvidence(1, [brought]) })).toEqual({ column: 'needs', why: 'verify unknown' })
+  })
+
+  it('a fresh failure outranks anything that passed, and names itself', () => {
+    expect(place({ evidence: cardEvidence(1, [checkView({ exit: 1 }), ciView(['passed'])]) })).toEqual({ column: 'needs', why: 'verify failed' })
+    expect(place({ evidence: cardEvidence(1, [ciView(['passed', 'failed'])]) })).toEqual({ column: 'needs', why: 'CI failed' })
+    expect(place({ evidence: cardEvidence(1, [prView('closed')]) })).toEqual({ column: 'needs', why: 'PR #12 closed' })
+  })
+
+  it('is In review while its evidence is still arriving', () => {
+    expect(place({ evidence: cardEvidence(1, [], [{ name: 'verify', since: 1 }]) })).toEqual({ column: 'review', why: 'verify running' })
+    expect(place({ evidence: cardEvidence(1, [ciView(['passed', 'pending'])]) })).toEqual({ column: 'review', why: 'CI running' })
+    expect(place({ evidence: cardEvidence(1, [prView('open'), diffView()]) })).toEqual({ column: 'review', why: 'PR #12 open' })
+  })
+
+  it('a pass that has gone stale is not a pass: the card waits for the check to run again', () => {
+    const stale = cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 1 } })])
+    expect(place({ evidence: stale })).toEqual({ column: 'needs', why: 'verify out of date' })
+    expect(place({ evidence: cardEvidence(1, [checkView()]) }).column).toBe('ready')
+  })
+
+  it('every fact that could decide a card says which it is, and how it stands, when it is not current', () => {
+    const behind = { state: 'behind', commits: 2 } as const
+    const unknown = { state: 'unknown', why: 'its checkout is gone' } as const
+    expect(place({ evidence: cardEvidence(1, [checkView({ freshness: unknown })]) })).toEqual({ column: 'needs', why: 'verify unknown' })
+    expect(place({ evidence: cardEvidence(1, [ciView(['passed'], { freshness: behind })]) })).toEqual({ column: 'needs', why: 'CI out of date' })
+    expect(place({ evidence: cardEvidence(1, [ciView(['passed'], { freshness: unknown })]) })).toEqual({ column: 'needs', why: 'CI unknown' })
+    expect(place({ evidence: cardEvidence(1, [prView('open', { freshness: behind })]) })).toEqual({ column: 'needs', why: 'PR #12 out of date' })
+    expect(place({ evidence: cardEvidence(1, [prView('open', { freshness: unknown })]) })).toEqual({ column: 'needs', why: 'PR #12 unknown' })
+    expect(place({ evidence: cardEvidence(1, [diffView({ freshness: behind })]) })).toEqual({ column: 'needs', why: 'nothing checked' })
+  })
+
+  it('finished with nothing checked, it Needs you and says so', () => {
+    expect(place()).toEqual({ column: 'needs', why: 'nothing checked' })
+    expect(place({ evidence: cardEvidence(1, [diffView()]) })).toEqual({ column: 'needs', why: 'nothing checked' })
+  })
+
+  it('abandoned work is set aside, never Ready — whatever was observed on it', () => {
+    expect(place({ intent: intent({ state: 'abandoned' }) })).toEqual({ column: 'aside', why: null })
+    expect(place({ intent: intent({ state: 'abandoned' }), evidence: cardEvidence(1, [checkView(), prView('merged')]) })).toEqual({ column: 'aside', why: null })
+  })
+})
+
+describe('a message is never evidence', () => {
+  it('an agent saying the tests pass — in its finish note, its outcome, its hand-off — moves nothing', () => {
+    const said = intent({ note: 'verify passed, all tests pass — ready to merge', outcome: 'pass', handoff: 'All green.' })
+    expect(place({ intent: said })).toEqual({ column: 'needs', why: 'nothing checked' })
+    expect(place({ intent: { ...said, state: 'claimed', claim: HELD } })).toEqual({ column: 'working', why: null })
+  })
+})
+
+describe('a card a flow addressed to the person', () => {
+  const run = (intents: readonly number[]): FlowRun =>
+    ({
+      state: 'running',
+      flow: { roles: [{ id: 'approver', kind: 'person', outcomes: ['approve', 'reject'] }] },
+      rounds: [{ n: 1, role: 'approver', intents, openedAt: 1 }],
+    }) as unknown as FlowRun
+
+  it("is the running flow's only when one of that run's rounds opened it", () => {
+    const card = intent({ id: 7, state: 'open', role: 'approver' })
+    expect(flowRoleOf(card, run([7]))?.kind).toBe('person')
+    expect(flowRoleOf(card, run([3, 4]))).toBeNull()
+    expect(flowRoleOf(card, undefined)).toBeNull()
+    expect(flowRoleOf(intent({ id: 7, state: 'open' }), run([7]))).toBeNull()
+  })
+})

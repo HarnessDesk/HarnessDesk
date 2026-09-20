@@ -26,7 +26,7 @@
  *   <store>.prompt-fails `session/prompt` fails as an agent whose session another process holds does
  *   <store>.page         a number: `session/list` answers that many rows a page
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -72,6 +72,19 @@ const newSession = (id, cwd) => {
   const state = { id, cwd, modelId: MODELS[0].modelId, modeId: 'default' }
   sessions.set(id, state)
   return state
+}
+
+const remember = (state) => {
+  if (!STORE) return
+  const store = readStore()
+  store[state.id] = {
+    sessionId: state.id,
+    cwd: state.cwd,
+    title: `${NAME} conversation`,
+    updatedAt: new Date().toISOString(),
+    turns: [],
+  }
+  writeFileSync(STORE, `${JSON.stringify(store, null, 2)}\n`)
 }
 
 /* ------------------------------------------------------------------ the turn */
@@ -226,6 +239,7 @@ const handlers = {
   'session/new': (id, params) => {
     seq += 1
     const state = newSession(`s-${seq}`, params?.cwd ?? process.cwd())
+    remember(state)
     reply(id, {
       sessionId: state.id,
       models: { currentModelId: state.modelId, availableModels: MODELS },

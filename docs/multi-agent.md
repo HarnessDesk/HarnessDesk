@@ -314,40 +314,75 @@ it in Waiting until that prerequisite finished.
 
 ### Board columns and card interactions
 
-The board uses five fixed columns that wrap to fit the room width:
+The board's columns are what is known about each card, not places a card is
+put. A card sits where its state and what the desk observed on it put it
+(`lib/board-facts.ts`):
 
 | Column | Contents |
 | --- | --- |
-| Waiting | Work whose dependencies are unfinished (blocked by graph). Clears automatically when prerequisites complete. |
-| Ready | Work in the `open` state with no unresolved dependencies. |
-| Claimed | Work currently held by an agent (displays holder nickname). |
-| Blocked | Work blocked manually (`blockedBy: 'hand'`). Only a deliberate reopen frees it. |
-| Done | Completed work, alongside abandoned intents. |
+| To do | Work nobody has started: open, or waiting on unfinished dependencies — it starts itself when they land. |
+| Working | Work its holder is on. |
+| Needs you | Work that cannot move without a person: stopped by hand, a stranded claim, a holder waiting on your answer, a flow step addressed to you — or finished work whose facts are not good: a check or CI that failed, CI that was cancelled, a closed pull request, a fact gone stale or one nobody can place, or nothing checked at all. The card says which — *verify out of date*, *CI unknown*, *PR #12 out of date*. |
+| In review | Finished work whose evidence is still arriving: a check running, CI running, a pull request open. |
+| Ready | Finished work a current fact says is good: a fresh passing check, fresh passing CI, or a merged pull request — fresh, or final once its branch is gone after the merge. Nothing else: not a pass gone stale, not a fact restored from a backup. |
+| Set aside | Work a person abandoned. Settled, never good news, and never *Ready* whatever was observed on it; the column is drawn only while it holds something. |
 
-Waiting and Blocked are split because they resolve differently: one clears
-itself when dependencies finish; the other requires human intervention.
-Abandoned work is settled but not completed; it is folded into the Done column
-wearing its own chip.
+A column moves on a check, a diff, a pull request or CI — never on anybody
+saying the work is done. A message in the channel, a finish note or an outcome
+that says the tests pass moves nothing: a card finished that way, with nothing
+observed, waits in *Needs you* and says *nothing checked*. A stranded claim is
+in *Needs you* too, because somebody has to take it over.
 
-Cards can be moved between columns via drag-and-drop or the card's ⋮ menu:
-- **Drop on Ready**: releases the claim if claimed, otherwise reopens it.
-- **Drop on Done**: marks the intent as `done`.
-- **Drop on Blocked**: prompts for a reason, marks `blockedBy: 'hand'`, and
-  posts the reason to the channel.
-- **Drop on Claimed**: refused with an on-screen warning (*"A job is claimed by
-  the agent that takes it, never handed out. Ask someone to pick it up."*).
-- **Drop on Waiting**: refused with an on-screen warning (*"Waiting is the
-  dependency graph’s to decide; it clears when the work it waits on lands."*).
+Nothing is dragged, and no column takes a title: there is no column to put a
+card in, only the one its facts put it in, and work goes on through *New job*.
+An empty column says *Nothing here*. Every verb is in the card's ⋮ menu —
+*Mark done*, *Take it back off …*, *Put back in play*, *Stop it — say why*,
+*Abandon* — and, when the project names checks, *Run <check>* for each. A
+check that cannot run now stays in the menu, greyed, and says why: the file
+refuses it, or another check is running on that card, since one runs on a
+card at a time.
 
-Refusals and permitted actions are rendered directly on the target column while
-a card is dragged mid-air, preventing confusion before the drop occurs.
+### Evidence on a card
 
-`block` is a dedicated user action. Previously, pausing work required
-`release(blocked)`, which belongs to the claim holder; a user who needed to
-halt work could only abandon it. The user `block` verb revokes the claim, sets
-`blockedBy: 'hand'`, and records the mandatory explanation on the card and in
-the channel. A hand-blocked intent stays blocked even after its dependencies
-finish, until an explicit reopen frees it.
+The desk records what it observed, never what an agent said: a named check it
+ran, the branch's diff, and its pull request with the forge's checks on that
+pull request's head — each bound to the commit it was true at, and kept under
+`~/.harnessdesk/evidence/`, one append-only store per project, never in the
+repository. A card carries its facts as chips — *verify ✓ @a1b2c3d*, *CI ✓*,
+*PR #12 open*, *+120 −30 in 6 files* — and a fact no longer about its
+branch's head says how far behind it is (*verify ✓ @a1b2c3d — 2 commits
+since*), struck through and never green; one the desk cannot place is drawn
+neutral, and its dialog says why. The chips open *What the desk observed*:
+when, at which commit, by which Seat, and how each stands now.
+
+Staleness is read, not watched: the board reads its evidence when it is shown,
+when the window comes back to the front, and every thirty seconds while it is
+on screen. The diff, pull request and CI are looked at when a card is finished
+and, at most every five minutes a card, when a board is read.
+
+A project names its checks in `checks.yml` in its `.harnessdesk` folder —
+`verify: { run: pnpm verify, timeout: 1200 }` — and every card offers *Run
+verify*. What runs is the file as committed: a change in your working copy
+runs nothing until it is committed, and the project's page says when the two
+differ. That file is committed in a repository someone may have cloned, so a
+command runs only after a person has approved it, verbatim, on this Mac: the
+first run shows the command, where it runs and the file it came from, says
+that it runs with your full authority, as it would in your terminal, and runs
+it only when you press *Run*. Any change to the file asks again — a changed,
+renamed, added or re-added command, even a new comment — and so does another
+repository cloned at the same path. An approved check can read and change
+anything you can and use the network: the desk does not sandbox it; it only
+keeps its own variables and tokens out of the check's environment. What you
+approved is kept in `commands-seen.json` in the desk's own folder, signed with
+a key only this Mac can read, and travels in no backup. A check the file
+refuses — a command that is not plain printable ASCII, a key other than `run`
+and `timeout` — stays in the card's menu, greyed, and the project's page says
+why. A flow's check step is recorded the same way, in its round.
+
+A backup carries what the desk observed, and a restore adds it as history:
+marked as restored, drawn as unknown until this desk observes the same
+question itself, never able to put a card in *Ready*, and never able to close,
+replace or stand in for a Seat this desk kept.
 
 ### Claiming work and file safety
 
