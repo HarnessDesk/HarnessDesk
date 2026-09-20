@@ -75,6 +75,23 @@ export const inkTone = cva('', {
   defaultVariants: { tone: 'neutral' },
 })
 
+/** An identity tint as ink alone, for a glyph or name on the surface's ground. */
+export const inkTint = cva('', {
+  variants: {
+    tint: {
+      blue: 'text-(--hd-tint-blue-ink)',
+      green: 'text-(--hd-tint-green-ink)',
+      amber: 'text-(--hd-tint-amber-ink)',
+      violet: 'text-(--hd-tint-violet-ink)',
+      rose: 'text-(--hd-tint-rose-ink)',
+      teal: 'text-(--hd-tint-teal-ink)',
+      orange: 'text-(--hd-tint-orange-ink)',
+      sky: 'text-(--hd-tint-sky-ink)',
+    },
+  },
+  defaultVariants: { tint: 'blue' },
+})
+
 /** A tone as a solid dot — a status light, a column marker. */
 export const dotTone = cva('', {
   variants: {

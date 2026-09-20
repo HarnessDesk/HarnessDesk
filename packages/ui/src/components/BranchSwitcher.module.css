@@ -9,28 +9,13 @@
   margin: 2px 6px 4px;
 }
 
-.searchIcon {
-  position: absolute;
-  left: 9px;
-  color: var(--hd-muted-foreground);
-  pointer-events: none;
-}
-
 .filter {
   width: 100%;
-
 }
 
 .list {
-  max-height: 260px;
   overflow-y: auto;
-}
-
-.note {
-  padding: 6px 10px 8px;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
-  color: var(--hd-muted-foreground);
+  max-height: min(260px, 50vh);
 }
 
 .create {
@@ -48,7 +33,4 @@
 
 .createButton {
   flex: none;
-
- /* desk: #fff → the ink named for a brand fill */
-
 }

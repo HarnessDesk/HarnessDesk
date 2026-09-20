@@ -30,7 +30,7 @@ import {
   SearchIcon,
   TrashIcon,
 } from './Icons'
-import { CodeText, PageHead } from '../design'
+import { ActionError, Chip, CodeText, LibraryReachMark, MetaList, PageHead, Search, Text } from '../design'
 import {
   Button,
   EmptyState,
@@ -41,7 +41,14 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-  Input,
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '../design'
 import {
   installSource,
@@ -109,29 +116,6 @@ type Filter =
  * not a glyph: nothing is wrong, and a symbol there would compete with the
  * ones that mean something.
  */
-const ReachMark = ({ state }: { state: ReachState }) => {
-  // `rejected` wears `hollow`'s glyph, and deliberately: both mean *there is
-  // something here and nothing loads*, both are the person's to fix, and a
-  // ninth shape would be a ninth thing to learn for a distinction the note
-  // already draws in the agent's own words.
-  if (state === 'hollow' || state === 'rejected') return <AlertIcon size={13} />
-  if (state === 'differs') return <DiffIcon size={13} />
-  if (state === 'unhostable') return <CrossIcon size={13} />
-  if (state === 'unscanned') return <span className={styles.ring} />
-  // `stale` is the dot it is about to be, drawn as an outline and in the
-  // neutral ink: the difference from `unscanned` has to be a *shape* and not
-  // two rings three percent apart, because the two states mean opposite
-  // things — one is in the right place, the other never will be.
-  if (state === 'stale') return <span className={styles.soon} />
-  if (state === 'reaches') return <span className={styles.here} />
-  // Switched off draws as the dot it would have, struck through: the shape
-  // says "this one is present" and the bar says "and not loading". Drawing
-  // it as `absent` would hide the difference between a skill you do not have
-  // and one you turned off, which is the whole reason it has a state.
-  if (state === 'off') return <span className={styles.off} />
-  return <span className={styles.none} />
-}
-
 /**
  * What the marks in the table mean — the ones actually on screen, and no
  * others.
@@ -165,16 +149,16 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
   }, [rows])
   if (present.length < 2) return null
   return (
-    <p className={styles.legend} data-slot="library-legend">
-      {present.map((state) => (
-        <span key={state} className={styles.legendItem}>
-          <span className={styles.legendMark} data-state={state}>
-            <ReachMark state={state} />
+    <div data-slot="library-legend">
+      <Text as="p" role="meta" className={styles.legend}>
+        {present.map((state) => (
+          <span key={state} className={styles.legendItem}>
+            <LibraryReachMark state={state} label={REACH_NAME[state]} />
+            {REACH_NAME[state]}
           </span>
-          {REACH_NAME[state]}
-        </span>
-      ))}
-    </p>
+        ))}
+      </Text>
+    </div>
   )
 }
 
@@ -551,9 +535,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         }
       />
 
-      {failed !== null && (
-        <p className={styles.failed}>The library could not be read: {failed}</p>
-      )}
+      {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 
       {kind === 'skill' && (hollowCopies.length > 0 || overloaded.length > 0) && (
         <div
@@ -638,12 +620,12 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             the settings pane actually is, `flex-1` gave the search box four
             hundred pixels of empty field and pushed nothing useful anywhere
             — a text input's size is a claim about how much you type in it. */}
-        <Input
+        <Search
           className="min-w-0 flex-1 basis-44 md:max-w-64"
           value={query}
           placeholder={kind === 'skill' ? 'Search skills' : 'Search servers'}
-          aria-label="Filter the library by name"
-          onChange={(event) => setQuery(event.target.value)}
+          label="Filter the library by name"
+          onChange={setQuery}
         />
         <Label className="gap-1.5 text-sm font-normal whitespace-nowrap text-(--hd-secondary-foreground)">
           <Switch
@@ -863,46 +845,51 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         </SkillList>
       ) : (
         <>
-        {/* Above the table, not below it. A seventeen-row grid is taller than
-            any window, so a key underneath is a key nobody reaches — and the
-            marks it explains are met at the top. */}
-        <Legend rows={rows} />
-        <div className={styles.scroll}>
-          <table className={styles.grid}>
-            <caption className={styles.caption}>
+          {/* Above the table, not below it. A seventeen-row grid is taller than
+              any window, so a key underneath is a key nobody reaches — and the
+              marks it explains are met at the top. */}
+          <Legend rows={rows} />
+          <Table variant="framed" containerClassName={styles.scroll} className={styles.grid}>
+            <TableCaption variant="sr-only">
               Each row is one entry; each column is one agent. A dot means the agent loads it.
               {kind === 'skill' &&
                 usage !== null &&
                 ` Fired-counts come from the ${usage.sessionsScanned} conversations this desk stores — what ran elsewhere is not counted.`}
-            </caption>
-            <thead>
-              <tr>
-                <th scope="col" className={styles.nameHead}>
-                  Name
-                </th>
+            </TableCaption>
+            <TableHeader>
+              <TableRow variant="matrix">
+                <TableHead variant="matrix" pinned scope="col" className={styles.nameHead}>
+                  <Text role="muted">Name</Text>
+                </TableHead>
                 {columns.map((column) => (
-                  <th scope="col" key={column.id} className={styles.agentHead}>
-                    <span className={styles.agentName} title={column.label}>
+                  <TableHead
+                    variant="matrix"
+                    align="center"
+                    scope="col"
+                    key={column.id}
+                    className={styles.agentHead}
+                  >
+                    <Text role="muted" className={styles.agentName} title={column.label} truncate>
                       {column.info && <RuntimeMark runtime={column.info} size={13} />}
                       {column.head}
-                    </span>
-                  </th>
+                    </Text>
+                  </TableHead>
                 ))}
-              </tr>
-            </thead>
+              </TableRow>
+            </TableHeader>
             {kind === 'skill' && (
-              <tfoot>
-                <tr className={styles.foot}>
+              <TableFooter variant="plain">
+                <TableRow variant="matrix">
                   {/* Summed over the rows on screen, so the number under a
                       filtered table is true of that table — the tile lesson,
                       applied before it is relearned. */}
-                  <th
+                  <TableHead
+                    variant="footer"
                     scope="row"
-                    className={styles.footHead}
                     title="Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not. How each agent advertises varies; this prices the standard line."
                   >
                     Advertised each turn{filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}
-                  </th>
+                  </TableHead>
                   {columns.map((column, index) => {
                     const total = rows.reduce(
                       (sum, entry) =>
@@ -912,36 +899,36 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                       0,
                     )
                     return (
-                      <td key={column.id} className={styles.footCell}>
+                      <TableCell variant="footer" key={column.id}>
                         {total > 0 ? `≈${total.toLocaleString()} tok` : '—'}
-                      </td>
+                      </TableCell>
                     )
                   })}
-                </tr>
+                </TableRow>
                 {usage !== null && (
-                  <tr className={styles.foot}>
-                    <th
+                  <TableRow variant="matrix">
+                    <TableHead
+                      variant="footer"
                       scope="row"
-                      className={styles.footHead}
                       title="Of the rows on screen, how many this agent loaded in a conversation this desk stores. Conversations held elsewhere are not counted."
                     >
                       Fired here, ever
-                    </th>
+                    </TableHead>
                     {columns.map((column) => {
                       const fired = rows.filter(
                         (entry) => usage.skills[entry.name]?.byRuntime?.[column.id] !== undefined,
                       ).length
                       return (
-                        <td key={column.id} className={styles.footCell}>
+                        <TableCell variant="footer" key={column.id}>
                           {fired > 0 ? `${fired} of ${rows.length}` : '—'}
-                        </td>
+                        </TableCell>
                       )
                     })}
-                  </tr>
+                  </TableRow>
                 )}
-              </tfoot>
+              </TableFooter>
             )}
-            <tbody>
+            <TableBody>
               {ordered.map((entry) => (
                 <Entry
                   key={`${entry.kind}:${entry.name}`}
@@ -957,9 +944,8 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                   onToggle={() => setOpen((current) => (current === entry.name ? null : entry.name))}
                 />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
         </>
       )}
 
@@ -968,9 +954,9 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
             return (
-              <p key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
+              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
                 <strong>{runtime?.label ?? gap.runtime}</strong> {gap.reason}
-              </p>
+              </Text>
             )
           })}
         </div>
@@ -983,15 +969,15 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
          * click to read each agent's own reason.
          */
         <details className={styles.gaps}>
-          <summary className={styles.gapsFold}>
+          <Text as="summary" role="meta" className={styles.gapsFold}>
             {gaps.length} columns are read from disk rather than from their agents — show why
-          </summary>
+          </Text>
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
             return (
-              <p key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
+              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
                 <strong>{runtime?.label ?? gap.runtime}</strong> {gap.reason}
-              </p>
+              </Text>
             )
           })}
         </details>
@@ -1123,62 +1109,71 @@ const Entry = ({
   const mcpSource = entry.copies.find((copy) => copy.readBy.length > 0) ?? entry.copies[0]
 
   return (
-  <>
-    <tr className={styles.row} {...(open ? { 'data-open': '' } : {})}>
-      <th scope="row" className={styles.name}>
-        <Button type="button" variant="link" size="content" className={styles.nameButton} onClick={onToggle} aria-expanded={open}>
-          <span className={styles.title}>{entry.title ?? entry.name}</span>
-          {entry.description && <span className={styles.desc}>{entry.description}</span>}
-        </Button>
-      </th>
-      {entry.reach.map((reach, index) => {
-        const runtime = columns[index]
-        const label = `${entry.name} — ${runtime?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
-        return (
-          <td
-            key={reach.runtime}
-            className={styles.cell}
-            data-state={reach.state}
-            {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
-            title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
+    <>
+      <TableRow variant="matrix" interactive {...(open ? { 'data-state': 'selected' } : {})}>
+        <TableHead variant="row" pinned scope="row" className={styles.name}>
+          <Button
+            type="button"
+            variant="link"
+            size="content"
+            className={styles.nameButton}
+            onClick={onToggle}
+            aria-expanded={open}
           >
-            <span className={styles.mark} aria-label={label} role="img">
-              <ReachMark state={reach.state} />
-            </span>
-          </td>
-        )
-      })}
-    </tr>
-    {open && (
-      <tr>
-        <td className={styles.detail} colSpan={columns.length + 1}>
-          <div className={styles.detailBody}>
-            <p className={styles.detailHead}>
+            <Text role="navigation">{entry.title ?? entry.name}</Text>
+            {entry.description && <Text role="meta" truncate>{entry.description}</Text>}
+          </Button>
+        </TableHead>
+        {entry.reach.map((reach, index) => {
+          const runtime = columns[index]
+          const label = `${entry.name} — ${runtime?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
+          return (
+            <TableCell
+              variant="matrix"
+              key={reach.runtime}
+              data-state={reach.state}
+              {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
+              title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
+            >
+              <LibraryReachMark state={reach.state} label={label} placement="cell" />
+            </TableCell>
+          )
+        })}
+      </TableRow>
+      {open && (
+        <TableRow variant="matrix">
+          <TableCell variant="detail" colSpan={columns.length + 1}>
+            <div className={styles.detailBody}>
+            <Text as="p" role="meta" ink="secondary" className={styles.detailHead}>
               {entry.copies.length === 1 ? 'One copy on disk' : `${entry.copies.length} copies on disk`}
-            </p>
-            <ul className={styles.copies}>
+            </Text>
+            <div className={styles.copies} role="list">
               {entry.copies.map((copy) => {
                 const order = orderOf(copy)
                 return (
-                  <li key={copy.path} className={`${styles.copy} group/copy`}>
+                  <div key={copy.path} role="listitem" className={`${styles.copy} group/copy`}>
                     <span className={styles.copyLine}>
                       <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
                       {order.wins.length > 0 && (
-                        <span
-                          className={styles.orderChip}
-                          data-wins=""
+                        <Chip
+                          tone="neutral"
+                          size="sm"
+                          variant="outline"
+                          emphasis
                           title="More than one copy sits where this agent looks; by scan order — project scope over user, per this build’s location table — this one loads. The agent itself was not asked."
                         >
                           loads for {order.wins.join(', ')}
-                        </span>
+                        </Chip>
                       )}
                       {order.shadowed.length > 0 && (
-                        <span
-                          className={styles.orderChip}
+                        <Chip
+                          tone="neutral"
+                          size="sm"
+                          variant="outline"
                           title="Another copy sits earlier in this agent’s scan order, so this one is never loaded there."
                         >
                           shadowed for {order.shadowed.join(', ')}
-                        </span>
+                        </Chip>
                       )}
                       {entry.kind === 'skill' && !copy.readOnly && (
                         <Button
@@ -1215,7 +1210,7 @@ const Entry = ({
                         </Button>
                       )}
                     </span>
-                    <span className={styles.copyNote}>
+                    <Text role="meta">
                       {copy.hollow
                         ? 'No definition inside it — an agent that scans this directory lists the name and loads nothing.'
                         : copy.readBy.length === 0
@@ -1226,11 +1221,11 @@ const Entry = ({
                               .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                               .join(', ')}.`}
                       {copy.readOnly && ' Shipped by the agent.'}
-                    </span>
-                  </li>
+                    </Text>
+                  </div>
                 )
               })}
-            </ul>
+            </div>
             <div className={styles.rowActions}>
               {/*
                * The drawer peeks — every copy and who reads it, without
@@ -1368,8 +1363,8 @@ const Entry = ({
               </div>
             )}
             {entry.kind === 'skill' && (
-              <p className={styles.facts}>
-                <span className={styles.fact}>
+              <MetaList className={styles.facts}>
+                <span>
                   {entry.catalogTokens
                     ? `Catalogue ≈${entry.catalogTokens} tok/turn`
                     : 'No catalogue line to price'}
@@ -1379,7 +1374,7 @@ const Entry = ({
                     const fired = usage.skills[entry.name]
                     if (!fired) {
                       return (
-                        <span className={styles.fact}>
+                        <span>
                           Never fired in a conversation this desk stores
                         </span>
                       )
@@ -1401,40 +1396,42 @@ const Entry = ({
                     if (rest > 0) parts.push(`${rest}× under earlier registrations`)
                     return (
                       <>
-                        <span className={styles.fact}>
+                        <span>
                           Fired {fired.activations}×{' '}
                           {`in ${fired.sessions} ${fired.sessions === 1 ? 'conversation' : 'conversations'}`}
                           {parts.length > 0 ? ` (${parts.join(', ')})` : ''}
                         </span>
                         {fired.lastAt > 0 && (
-                          <span className={styles.fact}>
+                          <span>
                             Last {new Date(fired.lastAt).toLocaleDateString()}
                           </span>
                         )}
                       </>
                     )
                   })()}
-              </p>
+              </MetaList>
             )}
             {entry.reach.some((reach) => reach.note) && (
-              <ul className={styles.notes}>
+              <div className={styles.notes} role="list">
                 {entry.reach
                   .filter((reach) => reach.note)
                   .map((reach) => (
-                    <li key={reach.runtime}>
-                      <strong>
-                        {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
-                      </strong>
-                      {' \u2014 '}
-                      {reach.note}
-                    </li>
+                    <div role="listitem" key={reach.runtime}>
+                      <Text role="meta" ink="secondary">
+                        <strong>
+                          {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
+                        </strong>
+                        {' \u2014 '}
+                        {reach.note}
+                      </Text>
+                    </div>
                   ))}
-              </ul>
+              </div>
             )}
-          </div>
-        </td>
-      </tr>
-    )}
-  </>
+            </div>
+          </TableCell>
+        </TableRow>
+      )}
+    </>
   )
 }

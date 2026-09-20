@@ -15,37 +15,23 @@
 }
 
 .mini {
+  width: 100%;
+}
+
+.miniArt {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: var(--hd-radius-lg);
-  box-shadow: var(--hd-hairline);
-  transition: box-shadow var(--hd-duration-fast) var(--hd-ease);
 }
 
-.card:hover .mini {
-  box-shadow: inset 0 0 0 1px var(--hd-border-emphasis);
-}
-
-.card[data-on] .mini {
-  box-shadow: inset 0 0 0 2px var(--hd-ring);
-}
-
-
-.cardLabel {
-  line-height: var(--hd-line-sm);
-}
 
 /* The sample: a short file in the real editor, inside the card the rows use. */
 .sample {
-  border: var(--hd-border-width) solid var(--hd-card-border, var(--hd-border));
-  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hd-card));
   overflow: hidden;
   margin-bottom: var(--hd-space-1-5);
 }
 
 .sampleEditor,
 .sampleBlank {
-  height: 176px;
+  height: 100%; /* desk: 176px → 100%, CardViewport owns the fixed preview height */
 }

@@ -306,6 +306,7 @@ it('reports a failed scan instead of an empty library', async () => {
     )
   })
   expect(document.body.textContent).toContain('the host said no')
+  expect(document.body.querySelector('[role="alert"]')?.textContent).toContain('the host said no')
 })
 
 it('usage joins the matrix: the never-fired tile isolates paid-and-idle', async () => {

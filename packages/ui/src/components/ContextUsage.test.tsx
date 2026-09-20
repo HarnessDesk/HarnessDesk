@@ -98,7 +98,7 @@ const withSession = (info: RuntimeInfo, usage: SessionUsage | null, extra: Parti
   }
 }
 
-const ring = (): HTMLElement | null => container.querySelector('button [role="img"]')
+const ring = (): HTMLElement | null => container.querySelector('button [data-slot="progress-ring"]')
 const open = (): void => {
   const trigger = container.querySelector('button')
   if (!trigger) throw new Error('no trigger')
@@ -128,9 +128,9 @@ describe('ContextUsage', () => {
     )
     const glyph = ring()
     expect(glyph?.getAttribute('aria-label')).toBe('Context window 66% full — 171K of 258K tokens')
-    expect(glyph?.dataset['tone']).toBe('good')
+    expect(glyph?.dataset['tone']).toBe('brand')
     expect(glyph?.hasAttribute('data-unknown')).toBe(false)
-    expect(glyph?.style.getPropertyValue('--ring-fill')).toMatch(/^66\.2/)
+    expect(glyph?.getAttribute('aria-valuenow')).toBe('66')
 
     open()
     const text = panelText()
@@ -152,9 +152,9 @@ describe('ContextUsage', () => {
       mount(withSession(runtime('alpha', 'Alpha', false), { total: tokens(1), last: tokens(1), contextUsed: used, contextWindow: 100 }))
       return ring()?.dataset['tone']
     }
-    expect(at(50)).toBe('good')
-    expect(at(75)).toBe('warn')
-    expect(at(95)).toBe('bad')
+    expect(at(50)).toBe('brand')
+    expect(at(75)).toBe('warning')
+    expect(at(95)).toBe('danger')
   })
 
   it('draws a dashed ring and says so, in the agent\'s name, when there is no window', () => {
@@ -172,6 +172,7 @@ describe('ContextUsage', () => {
       windows: [
         { label: '5-hour', usedPercent: 54, windowMinutes: 300, resetsAt: null },
         { label: 'Weekly', usedPercent: 45, windowMinutes: 10080, resetsAt: null },
+        { label: 'Daily', usedPercent: 100, windowMinutes: 1440, resetsAt: null },
       ],
     }
     const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
@@ -184,6 +185,11 @@ describe('ContextUsage', () => {
     // the other before they could tell the two agreed.
     expect(panelText()).toContain('5-hour46% left')
     expect(panelText()).toContain('Weekly55% left')
+    expect(panelText()).toContain('Daily0% left')
+    const spent = [...document.querySelectorAll<HTMLElement>('[data-slot="text"]')].find((node) =>
+      node.textContent === '0% left',
+    )
+    expect(spent?.dataset['tone']).toBe('danger')
 
     // Not metered: the same limits are somebody else's.
     mount(withSession(runtime('alpha', 'Alpha', false), usage, { limits }))

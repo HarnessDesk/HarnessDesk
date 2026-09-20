@@ -1,4 +1,20 @@
-import { Button, Input } from '../design'
+import {
+  Button,
+  ContextMenu,
+  Dot,
+  Input,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  Popover,
+  PopoverGroupLabel,
+  Separator,
+  Text,
+  buttonVariants,
+  useContextMenu,
+  type Tone,
+} from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent } from 'react'
 
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
@@ -41,7 +57,6 @@ import { SessionHoverCard } from './AgentCards'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteRoom, RenameRoom } from './RoomActions'
 import { DeleteSession } from './DeleteSession'
-import { Menu, MenuItem, MenuLabel, MenuSeparator, ContextMenu, Popover, useContextMenu } from '../design'
 import { WorkspaceMenu } from './WorkspaceMenu'
 import styles from './Sidebar.module.css'
 
@@ -65,6 +80,12 @@ const relativeTime = (timestamp: number, now: number): string => {
   const days = Math.round(hours / 24)
   if (days < 30) return `${days}d ago`
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+const traceTone = (trace: ReturnType<typeof traceOf>): Tone | undefined => {
+  if (trace === 'waiting') return 'warning'
+  if (trace === 'failed') return 'danger'
+  return trace !== null && ACTIVE_STATES.has(trace) ? 'brand' : undefined
 }
 
 const SessionRow = ({
@@ -114,6 +135,16 @@ const SessionRow = ({
   // says so, in green, so a person browsing other conversations knows this
   // one has something to look at — the Background tasks panel, once opened.
   const backgrounded = (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length
+  const dotState =
+    backgrounded > 0
+      ? 'ready'
+      : traceShown && trace === 'waiting'
+        ? 'limit'
+        : traceShown && trace === 'failed'
+          ? 'broken'
+          : traceShown || summary.status.type === 'active'
+            ? 'signin'
+            : 'available'
   const worktree = isWorktreeSession(summary)
   const folderGone = snapshot.foldersGone.get(summary.cwd) ?? null
   const active = snapshot.activeSessionKey === key
@@ -182,7 +213,7 @@ const SessionRow = ({
                 That is the card's whole case here. */}
             <SessionHoverCard
               session={summary}
-              className={styles.statusTarget}
+              className={`${styles.statusTarget} px-(--rail)`}
               actions={[
                 ...(snapshot.activeSessionKey === key
                   ? []
@@ -203,8 +234,11 @@ const SessionRow = ({
                 },
               ]}
             >
-              <span
+              <Dot
+                state={dotState}
+                variant="navigation"
                 className={styles.statusGlyph}
+                pulse={trace !== null && ACTIVE_STATES.has(trace)}
                 {...(backgrounded > 0 ? { 'data-tasks': '' } : {})}
                 {...(summary.status.type === 'active' ? { 'data-live': '' } : {})}
                 {...(traceShown ? { 'data-trace': trace } : {})}
@@ -213,7 +247,7 @@ const SessionRow = ({
             </SessionHoverCard>
             <span className={styles.rowBody}>
               <span className={styles.rowHead}>
-                <span className={styles.rowTitle}>{label}</span>
+                <Text role="navigation" fade className={styles.rowTitle}>{label}</Text>
                 {/* One project, several checkouts. The row says which it ran
                     in with a branch glyph rather than a group of its own —
                     a worktree is where a conversation happened, not what it
@@ -227,7 +261,7 @@ const SessionRow = ({
                     aria-label={`Worktree ${summary.git?.branch ?? folderName(summary.cwd)}`}
                     title={`Worktree · ${summary.git?.branch ?? folderName(summary.cwd)}\n${summary.cwd}`}
                   >
-                    <BranchIcon size={11} />
+                    <Text role="meta"><BranchIcon size={11} /></Text>
                   </span>
                 )}
                 {/* The folder this conversation ran in is no longer on the
@@ -245,7 +279,7 @@ const SessionRow = ({
                     aria-label={`Folder is gone — ${folderName(summary.cwd)}`}
                     title={`${folderGone}\nThe transcript can be read; nothing more can be sent to it.`}
                   >
-                    <FolderGoneIcon size={11} />
+                    <Text role="meta"><FolderGoneIcon size={11} /></Text>
                   </span>
                 )}
               </span>
@@ -253,23 +287,23 @@ const SessionRow = ({
                 <span className={styles.rowMeta}>
                   {snapshot.runtimes.length > 1 && (
                     <>
-                      <span className={styles.rowMetaItem}>{agentName}</span>
-                      <span className={styles.dot} />
+                      <Text role="meta" className={styles.rowMetaItem}>{agentName}</Text>
+                      <Text role="meta" aria-hidden="true">·</Text>
                     </>
                   )}
                   {traceShown ? (
-                    <span className={styles.rowMetaItem} data-trace={trace}>
+                    <Text role="meta" tone={traceTone(trace)} className={styles.rowMetaItem} data-trace={trace}>
                       {TRACE_LABEL[trace]}
-                    </span>
+                    </Text>
                   ) : (
-                    <span className={styles.rowMetaItem}>{relativeTime(summary.updatedAt, now)}</span>
+                    <Text role="meta" className={styles.rowMetaItem}>{relativeTime(summary.updatedAt, now)}</Text>
                   )}
                   {summary.git?.branch && (
                     <>
-                      <span className={styles.dot} />
-                      <span className={`${styles.rowMetaItem} ${styles.rowMetaBranch}`}>
+                      <Text role="meta" aria-hidden="true">·</Text>
+                      <Text role="meta" truncate className={`${styles.rowMetaItem} ${styles.rowMetaBranch}`}>
                         {summary.git.branch}
-                      </span>
+                      </Text>
                     </>
                   )}
                 </span>
@@ -371,7 +405,13 @@ export const SessionListControls = () => {
 
   return (
     <span className={styles.listControls} {...(filtered ? { 'data-filtered': '' } : {})}>
-      <Popover title="How this list is shown" drop="down" align="left" label={<SlidersIcon size={13} />}>
+      <Popover
+        title="How this list is shown"
+        drop="down"
+        align="left"
+        triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-sm' })}
+        label={<SlidersIcon size={13} />}
+      >
         {(close) => (
           <Menu close={close}>
             {/* Folding is first because it is the one row here that answers
@@ -445,6 +485,7 @@ export const SessionListControls = () => {
           </Menu>
         )}
       </Popover>
+      {filtered && <Dot state="signin" className={styles.filterState} aria-hidden="true" />}
     </span>
   )
 }
@@ -503,27 +544,28 @@ const GroupHead = ({
         type="button"
         variant="navigation" size="navigation" className={styles.groupRow}
         data-draggable=""
+        {...(edge ? { 'data-insert': edge } : {})}
+        {...(drag.dragging === group.root ? { 'data-dragging': '' } : {})}
         {...(current ? { 'data-current': '' } : {})}
         onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
         title={`${current ? 'The folder this app is working in.\n' : ''}${group.root}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
       >
         <ChevronIcon
           className={styles.groupChevron}
+          data-chevron=""
           size={11}
           {...(open ? { 'data-open': '' } : {})}
         />
         {/* An open folder for the one you are in, a closed one for the rest:
             the same distinction the OS file manager makes, and the one Codex
             makes in this exact list. */}
-        {current ? (
-          <FolderOpenIcon size={12} className={styles.groupIcon} />
-        ) : (
-          <FolderIcon size={12} className={styles.groupIcon} />
-        )}
+        <Text role={current ? 'row' : 'meta'} tone={current ? 'brand' : undefined} className={styles.groupIcon}>
+          {current ? <FolderOpenIcon size={12} /> : <FolderIcon size={12} />}
+        </Text>
         <span className={styles.groupBody}>
-          <span className={styles.groupName}>{group.name}</span>
-          {pinned && <PinIcon size={11} className={styles.groupPin} />}
-          <span className={styles.groupCount}>{group.sessions.length}</span>
+          <Text role="navigation" fade className={styles.groupName}>{group.name}</Text>
+          {pinned && <Text role="meta" className={styles.groupPin}><PinIcon size={11} /></Text>}
+          <Text role="meta" numeric className={styles.groupCount}>{group.sessions.length}</Text>
         </span>
       </Button>
       <span className={styles.groupTools}>
@@ -667,10 +709,12 @@ const RoomRow = ({
             onToggle()
           }}
         >
-          <ChevronIcon className={styles.groupChevron} size={11} {...(open ? { 'data-open': '' } : {})} />
+          <ChevronIcon data-chevron="" className={styles.groupChevron} size={11} {...(open ? { 'data-open': '' } : {})} />
         </Button>
-        <TeamIcon size={12} className={styles.roomIcon} />
-        <span className={styles.groupName}>{room.name}</span>
+        <Text role="meta" tint="violet" className={styles.roomIcon}>
+          <TeamIcon size={12} />
+        </Text>
+        <Text role="navigation" fade className={styles.groupName}>{room.name}</Text>
         {/* A state and a size, and they must not read as one number. Drawn
             plainly the row said "1 0" — two counts in the same grey, the same
             size, a gap apart, and the second with nothing on it to say what it
@@ -678,12 +722,14 @@ const RoomRow = ({
             glyph qualifies the count beside it, so what is a state looks like
             a state. */}
         {claimed > 0 && (
-          <span className={styles.roomClaimed} title={`${claimed} of this room's jobs ${claimed === 1 ? 'is' : 'are'} claimed`}>
+          <Text role="meta" numeric className={styles.roomClaimed} title={`${claimed} of this room's jobs ${claimed === 1 ? 'is' : 'are'} claimed`}>
             <TodoActiveIcon size={11} />
             {claimed}
-          </span>
+          </Text>
         )}
-        <span
+        <Text
+          role="meta"
+          numeric
           className={styles.groupCount}
           /* `members` is resolved against what the tree is showing, so under an
              agent filter it is a subset — saying "N conversations in this
@@ -698,7 +744,7 @@ const RoomRow = ({
           }
         >
           {members.length}
-        </span>
+        </Text>
         {/* The same ⋯ a conversation row has, in the same place, because a
             room is another thing this project holds and the two rows must not
             teach different habits. */}
@@ -740,7 +786,7 @@ const RoomRow = ({
       {open && (
         <div className={styles.nested}>
           {members.length === 0 ? (
-            <div className={styles.emptyGroup}>No agents in here yet — open it to add one.</div>
+            <Text as="div" role="meta" className={styles.groupBlank}>No agents in here yet — open it to add one.</Text>
           ) : (
             members.map((summary) => (
               <SessionRow key={summary.id} summary={summary} now={now} onDelete={onDelete} />
@@ -1216,9 +1262,9 @@ export const SessionTree = ({ now }: { now: number }) => {
           drag={drag}
         />
         {open && rooms.length === 0 && group.sessions.length === 0 && (
-          <div className={styles.emptyGroup}>
+          <Text as="div" role="meta" className={styles.groupBlank}>
             No conversations yet — ⌘N starts one here.
-          </div>
+          </Text>
         )}
         {open && (rooms.length > 0 || loose.length > 0) && (
           <div className={styles.nested}>
@@ -1262,7 +1308,9 @@ export const SessionTree = ({ now }: { now: number }) => {
           workspace, one list. The words come from the live trace. */}
       {triage.waiting.length > 0 && (
         <div className={styles.triage} data-tone="waiting">
-          <div className={styles.triageLabel}>Needs you · {triage.waiting.length}</div>
+          <PopoverGroupLabel inset={false}>
+            <Text role="muted" tone="warning">Needs you · {triage.waiting.length}</Text>
+          </PopoverGroupLabel>
           {triage.waiting.map((summary) => (
             <SessionRow
               key={`w-${summary.runtime}-${summary.id}`}
@@ -1271,11 +1319,12 @@ export const SessionTree = ({ now }: { now: number }) => {
               onDelete={setDeleting}
             />
           ))}
+          <Separator />
         </div>
       )}
       {triage.working.length > 0 && (
         <div className={styles.triage} data-tone="working">
-          <div className={styles.triageLabel}>Working · {triage.working.length}</div>
+          <PopoverGroupLabel inset={false}>Working · {triage.working.length}</PopoverGroupLabel>
           {triage.working.map((summary) => (
             <SessionRow
               key={`a-${summary.runtime}-${summary.id}`}
@@ -1284,6 +1333,7 @@ export const SessionTree = ({ now }: { now: number }) => {
               onDelete={setDeleting}
             />
           ))}
+          <Separator />
         </div>
       )}
       {near.map(renderGroup)}
@@ -1312,9 +1362,9 @@ export const SessionTree = ({ now }: { now: number }) => {
               setOver(null)
             }}
           >
-            <ChevronIcon className={styles.groupChevron} size={11} {...(othersOpen ? { 'data-open': '' } : {})} />
-            Other projects
-            <span className={styles.groupCount}>{far.length}</span>
+            <ChevronIcon data-chevron="" className={styles.groupChevron} size={11} {...(othersOpen ? { 'data-open': '' } : {})} />
+            <Text role="navigation">Other projects</Text>
+            <Text role="meta" numeric className={styles.groupCount}>{far.length}</Text>
           </Button>
           {othersOpen && far.map(renderGroup)}
         </>
@@ -1325,7 +1375,7 @@ export const SessionTree = ({ now }: { now: number }) => {
       {/* Reordering by hand is silent by nature; this is the same move said
           out loud, so the keyboard rows and the drag land in the same place
           for someone who cannot see the list move. */}
-      <div className={styles.srOnly} role="status" aria-live="polite">
+      <div className="sr-only" role="status" aria-live="polite">
         {announcement}
       </div>
     </>

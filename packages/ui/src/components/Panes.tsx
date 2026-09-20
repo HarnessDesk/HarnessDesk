@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 
-import { ResizeHandle } from '../design'
+import { PaneSurface, ResizeHandle, Text } from '../design'
 import { DockPanelActions, DockPanelBar } from '../design'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
 import { MountProvider } from '../panels/mount'
@@ -65,7 +65,8 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
   return (
     <PaneProvider scope={{ paneId: pane.id, view: pane.view, sessionKey: sessionOf(pane) }}>
       <MountProvider scope={{ area: 'main', id: pane.id, view: pane.view }}>
-        <section
+        <PaneSurface
+          as="section"
           className={styles.pane}
           /* A strip above the view is the row in the window's corner, so it is
              the one that leaves room for the window buttons and the view below
@@ -91,14 +92,14 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
             */}
           {needsStrip(pane.view) && (
             <DockPanelBar>
-              <span className={styles.paneTitle}>{titleOf(pane.view)}</span>
+              <Text role="row" truncate className={styles.paneTitle}>{titleOf(pane.view)}</Text>
               <DockPanelActions>
                 <PanelActions where="strip" />
               </DockPanelActions>
             </DockPanelBar>
           )}
           <ViewHost view={pane.view} />
-        </section>
+        </PaneSurface>
       </MountProvider>
     </PaneProvider>
   )
@@ -255,6 +256,7 @@ const SplitView = ({ split }: { split: Split }) => {
           shadcn wraps was not taken with it. */}
       <ResizeHandle
         className={styles.handle}
+        appearance="line"
         {...(zoom ? { 'data-hidden': '' } : {})}
         orientation={split.direction === 'row' ? 'vertical' : 'horizontal'}
         value={split.ratio}

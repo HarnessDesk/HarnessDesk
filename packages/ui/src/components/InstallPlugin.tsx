@@ -1,6 +1,16 @@
 import { useCallback, useState } from 'react'
 
-import { ActionError, Button, Dialog, Input } from '../design'
+import {
+  ActionError,
+  Button,
+  CodeText,
+  Dialog,
+  Input,
+  Note,
+  Section,
+  SectionBody,
+  Text,
+} from '../design'
 import { useStore } from '../state/context'
 import { AlertIcon, FolderIcon, PluginIcon } from './Icons'
 import styles from './InstallPlugin.module.css'
@@ -92,10 +102,10 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
     >
       {!inspected ? (
         <>
-          <p className={styles.blurb}>
+          <Text as="p" role="muted" className={styles.blurb}>
             A folder on this machine, or a package on npm. Its manifest is read and shown to you
             before anything is installed or run.
-          </p>
+          </Text>
           <div className={styles.ask}>
             <Input
               placeholder="/path/to/plugin  or  @scope/plugin-name"
@@ -110,43 +120,42 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
               {busy ? 'Reading…' : 'Continue'}
             </Button>
           </div>
-          <p className={styles.note}>
-            <FolderIcon size={13} />
-            <span>
-              A plugin folder needs a <code className={styles.mono}>harnessdesk.plugin.json</code> at
-              its root.
-            </span>
-          </p>
+          <Note className={styles.note} ink="muted" icon={<FolderIcon size={13} />}>
+            A plugin folder needs a <CodeText as="code" size="inherit">harnessdesk.plugin.json</CodeText> at
+            its root.
+          </Note>
         </>
       ) : (
         <>
-          <div className={styles.name}>{inspected.name}</div>
-          <p className={styles.blurb}>
+          <Text as="div" role="subject">{inspected.name}</Text>
+          <Text as="p" role="muted" className={styles.blurb}>
             {inspected.description ?? 'No description provided.'}
             {inspected.version ? ` · v${inspected.version}` : ''}
-          </p>
+          </Text>
 
-          <section className={styles.grant}>
-            <div className={styles.grantLabel}>This plugin will be able to</div>
-            <ul className={styles.permissions}>
-              {inspected.permissions.map((line) => (
-                <li key={line}>{line}</li>
-              ))}
-            </ul>
-          </section>
+          <Section variant="quiet" className={styles.grant}>
+            <SectionBody spacing="compact">
+              <Text as="div" role="muted">This plugin will be able to</Text>
+              <div className={styles.permissions} role="list">
+                {inspected.permissions.map((line) => (
+                  <div className={styles.permission} role="listitem" key={line}>
+                    <Text aria-hidden="true" role="muted">•</Text>
+                    <Text role="muted">{line}</Text>
+                  </div>
+                ))}
+              </div>
+            </SectionBody>
+          </Section>
 
-          <p className={styles.note}>
-            <AlertIcon size={13} />
-            <span>
-              Plugins run in the HarnessDesk plugin host. Permissions are enforced at every call,
-              but a plugin is still code from its author — install ones you would be willing to run.
-            </span>
-          </p>
+          <Note className={styles.note} ink="muted" icon={<AlertIcon size={13} />}>
+            Plugins run in the HarnessDesk plugin host. Permissions are enforced at every call,
+            but a plugin is still code from its author — install ones you would be willing to run.
+          </Note>
 
           {inspected.alreadyInstalled && (
-            <p className={styles.note}>
+            <Note className={styles.note} ink="muted">
               A plugin with this id is already installed and will be replaced.
-            </p>
+            </Note>
           )}
         </>
       )}

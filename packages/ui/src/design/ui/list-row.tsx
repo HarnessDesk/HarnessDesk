@@ -34,6 +34,8 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
   lead?: React.ReactNode
   title: React.ReactNode
   subtitle?: React.ReactNode
+  /** An earned sentence wraps whole; names, paths and compact facts truncate. */
+  wrapSubtitle?: boolean
   /** The reading: a figure, a chip, a `Delta`, a menu. */
   trail?: React.ReactNode
   /** Below the title, full width — a `Progress`, a set of chips. */
@@ -79,7 +81,7 @@ type ListRowProps = Omit<React.ComponentProps<'div'>, 'title'> & {
    * the caller knows whether the keyboard reaches this row here or through
    * something inside it.
    */
-  as?: 'div' | 'button'
+  as?: 'div' | 'button' | 'label'
 }
 
 const ListRow = ({
@@ -87,6 +89,7 @@ const ListRow = ({
   lead,
   title,
   subtitle,
+  wrapSubtitle,
   trail,
   meta,
   interactive,
@@ -140,8 +143,8 @@ const ListRow = ({
     )}
     {...props}
   >
-    {lead != null && <span className="shrink-0">{lead}</span>}
-    <div className="min-w-0 flex-1">
+    {lead != null && <span data-slot="list-row-lead" className="inline-flex shrink-0 items-center gap-2">{lead}</span>}
+    <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
         className={cn(
           'truncate leading-(--hd-line)',
@@ -154,7 +157,11 @@ const ListRow = ({
       {subtitle != null && (
         <div
           data-slot="list-row-subtitle"
-          className="truncate text-xs text-(--hd-muted-foreground)"
+          {...(wrapSubtitle ? { 'data-wrap-subtitle': '' } : {})}
+          className={cn(
+            'text-xs text-(--hd-muted-foreground)',
+            wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
+          )}
         >
           {subtitle}
         </div>

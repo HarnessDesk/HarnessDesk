@@ -1,29 +1,3 @@
-.body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-4);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-1);
-}
-
-.label {
-  display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-2);
-  font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  color: var(--hd-foreground);
-}
-
-.optional {
-  font-weight: var(--hd-weight-normal); /* desk: the rung’s token rather than the number */
-  color: var(--hd-muted-foreground);
-}
-
 /* Two short fields side by side. A goal and a recipient are both one-line
    picks, and stacking them pushes the dependency list off the bottom of a
    dialog whose whole job is to be read in one go. */
@@ -44,21 +18,12 @@
 
 }
 
-.hint {
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-muted-foreground);
-}
-
 .deps {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-1);
-  max-height: 140px;
+  max-block-size: 140px;
   overflow-y: auto;
-  padding: var(--hd-space-2);
-  border: 1px solid var(--hd-border);
-  border-radius: var(--hd-radius-sm);
 }
 
 .dep {
@@ -66,23 +31,10 @@
   align-items: center;
   gap: var(--hd-space-2);
   min-width: 0;
-  font-size: var(--hd-text-sm);
-}
-
-.depId {
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
 }
 
 .depTitle {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--hd-secondary-foreground);
-}
-
-.problem {
-  margin: 0;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-danger-ink);
 }

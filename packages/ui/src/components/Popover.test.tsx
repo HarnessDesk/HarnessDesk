@@ -80,6 +80,20 @@ describe('Popover', () => {
     expect(document.querySelector('[data-slot="popover-popup"]')).toBeNull()
   })
 
+  it('can place a popup beside and align it to the end of its trigger', () => {
+    act(() => {
+      root.render(
+        <Popover label="Menu" side="right" sideAlign="end">
+          {() => <span>Beside</span>}
+        </Popover>,
+      )
+    })
+    click(trigger())
+    const popup = document.querySelector<HTMLElement>('[data-slot="popover-popup"]')
+    expect(popup?.dataset['side']).toBe('right')
+    expect(popup?.dataset['align']).toBe('end')
+  })
+
   it('a row closes the menu, and Escape returns focus to the trigger', () => {
     render()
     click(trigger())

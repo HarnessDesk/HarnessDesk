@@ -62,8 +62,33 @@ import {
   ZoomOutIcon,
 } from './Icons'
 import { RuntimeMark } from './BrandIcons'
-import { Button, ContextMenu, Input, Menu, MenuItem, MenuSeparator, MenuToggle, Popover, useContextMenu } from '../design'
-import { stripEdges, useTabStrip } from './TabStrip'
+import {
+  Button,
+  Chip,
+  ContextMenu,
+  Dot,
+  Input,
+  Menu,
+  MenuItem,
+  MenuSeparator,
+  MenuToggle,
+  Popover,
+  Spinner,
+  Text,
+  ToolPane,
+  ToolPaneActivity,
+  ToolPaneActivityMark,
+  ToolPaneBar,
+  ToolPaneBody,
+  ToolPaneDocumentTab,
+  ToolPaneEmptyState,
+  ToolPaneFooter,
+  ToolPaneTabIcon,
+  ToolPaneTabViewport,
+  ToolPaneToolGroup,
+  useContextMenu,
+} from '../design'
+import { useTabStrip } from './TabStrip'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
 
@@ -492,7 +517,11 @@ const BrowserTabPage = ({
       aria-hidden={!active}
       {...(active ? { 'data-active': '' } : {})}
     >
-      <div className={styles.stage} ref={stage} {...(spec.size ? { 'data-framed': '' } : {})}>
+      <div
+        className={`${styles.stage}${spec.size ? ' bg-(--hd-muted)' : ''}`}
+        ref={stage}
+        {...(spec.size ? { 'data-framed': '' } : {})}
+      >
         {inline
           ? createElement('webview', {
               key: guestKey,
@@ -509,12 +538,12 @@ const BrowserTabPage = ({
               */
               allowpopups: 'true',
               ...(spec.userAgent ? { useragent: spec.userAgent } : {}),
-              className: styles.webview,
+              className: `${styles.webview} border-0 bg-(--hd-card)${spec.size ? ' rounded-(--hd-radius-sm) shadow-(--hd-hairline)' : ''}`,
               style: framed,
             })
           : tab.url !== BLANK && (
               <iframe
-                className={styles.webview}
+                className={`${styles.webview} border-0 bg-(--hd-card)${spec.size ? ' rounded-(--hd-radius-sm) shadow-(--hd-hairline)' : ''}`}
                 style={framed}
                 src={tab.url}
                 sandbox="allow-scripts allow-forms allow-same-origin"
@@ -530,17 +559,14 @@ const BrowserTabPage = ({
         a tool may be about to drive it.
       */}
       {tab.url === BLANK && (
-        <div className={styles.browserEmpty} {...(inline ? { 'data-over': '' } : {})}>
-          <span className={styles.browserEmptyMark}>
-            <GlobeIcon size={40} />
-          </span>
-          <span className={styles.browserEmptyTitle}>Nothing open yet</span>
-          <p>
-            {inline
-              ? 'Type a URL above, or let a turn open one. Whatever an agent does in the marked tab happens here, in front of you.'
-              : 'Type a URL above. In the desktop app this pane is a full browser; here it shows what allows itself to be framed.'}
-          </p>
-        </div>
+        <ToolPaneEmptyState
+          over={inline}
+          icon={<GlobeIcon size={40} />}
+          title="Nothing open yet"
+          description={inline
+            ? 'Type a URL above, or let a turn open one. Whatever an agent does in the marked tab happens here, in front of you.'
+            : 'Type a URL above. In the desktop app this pane is a full browser; here it shows what allows itself to be framed.'}
+        />
       )}
     </div>
   )
@@ -1283,13 +1309,13 @@ export const BrowserPane = () => {
   if (!mount || !view || !tab || !paneId) return null
 
   return (
-    <div className={styles.pane}>
+    <ToolPane variant="integrated">
       <ToolPaneHeader
         title="Browser"
         lead={
           <div className={styles.tabStrip}>
-            <div
-              className={styles.tabs}
+            <ToolPaneTabViewport
+              edges={strip.edges}
               role="tablist"
               aria-label="Browser tabs"
               onDoubleClick={(event) => {
@@ -1298,16 +1324,15 @@ export const BrowserPane = () => {
               }}
               ref={strip.strip}
               onScroll={strip.measure}
-              {...stripEdges(strip.edges)}
             >
               {tabs.map((entry, index) => {
                 const isActive = entry.id === view.active
                 const name = tabName(entry)
                 const icon = icons[entry.id]
                 return (
-                  <span
+                  <ToolPaneDocumentTab
                     key={entry.id}
-                    className={`${styles.tab} group/tab`}
+                    className="group/tab"
                     role="tab"
                     id={`browser-tab-${entry.id}`}
                     aria-controls={`browser-page-${entry.id}`}
@@ -1356,11 +1381,11 @@ export const BrowserPane = () => {
                     title={entry.url === BLANK ? name : `${name}\n${entry.url}`}
                   >
                     {icon ? (
-                      <img className={styles.tabIcon} src={icon} alt="" aria-hidden="true" />
+                      <ToolPaneTabIcon src={icon} alt="" aria-hidden="true" />
                     ) : (
                       <GlobeIcon size={13} />
                     )}
-                    <span className={styles.tabLabel}>{name}</span>
+                    <span className="max-w-40 truncate">{name}</span>
                     {/* The mark is *offered* on capability — `drivingRuntime`,
                         which falls back to the selected backend, because "can
                         anything here drive a page" is a question the window can
@@ -1369,10 +1394,10 @@ export const BrowserPane = () => {
                         name on a tab it has never touched, and a room of Cursor
                         and Claude Code read "Codex". */}
                     {entry.id === view.driven && canDrive && (
-                      <span className={styles.tabDriven} title={`${namedDriver?.presentation.name ?? 'Agents'} drive${namedDriver ? 's' : ''} this tab`}>
-                        <span className={styles.tabDrivenDot} />
+                      <Chip tone="brand" emphasis size="sm" title={`${namedDriver?.presentation.name ?? 'Agents'} drive${namedDriver ? 's' : ''} this tab`}>
+                        <Dot state="signin" />
                         {namedDriver?.presentation.name ?? 'Agents'}
-                      </span>
+                      </Chip>
                     )}
                     <Button
                       type="button"
@@ -1386,10 +1411,10 @@ export const BrowserPane = () => {
                     >
                       <CrossIcon size={11} />
                     </Button>
-                  </span>
+                  </ToolPaneDocumentTab>
                 )
               })}
-            </div>
+            </ToolPaneTabViewport>
             <Button
               type="button"
               variant="ghost" size="icon-sm" className={styles.tabAdd}
@@ -1502,7 +1527,7 @@ export const BrowserPane = () => {
           )}
         </Popover>
       </ToolPaneHeader>
-      <form className={styles.addressBar} onSubmit={go}>
+      <ToolPaneBar as="form" variant="address" onSubmit={go}>
         <Button variant="ghost"
           type="button"
           onClick={() => act((element) => element.goBack())}
@@ -1543,7 +1568,7 @@ export const BrowserPane = () => {
           onBlur={() => setTyping(false)}
           aria-label="Address"
         />
-        {busy && <span className={styles.addressLoading} aria-label="Loading" />}
+        {busy && <Spinner size="sm" tone="brand" aria-label="Loading" />}
         {/* Chrome shows the level in the omnibox while a page is not at
             100%, and offers the way back in one click. So does this. */}
         {(zoom[view.active] ?? 0) !== 0 && (
@@ -1598,15 +1623,15 @@ export const BrowserPane = () => {
         >
           <AnnotateIcon size={14} />
         </Button>
-      </form>
+      </ToolPaneBar>
       {/*
         The annotating bar, under the address row for the same reason the
         find bar is: a control drawn over the page covers the very thing it
         is about. It stays while marks are made and leaves with them.
       */}
       {annotate && (
-        <div className={styles.annotateBar}>
-          <div className={styles.annotateTools} role="group" aria-label="Annotation tool">
+        <ToolPaneBar variant="annotate">
+          <ToolPaneToolGroup role="group" aria-label="Annotation tool">
             <Button
               type="button"
               variant="quiet" size="content" className={styles.annotateTool}
@@ -1627,15 +1652,15 @@ export const BrowserPane = () => {
               <PencilIcon size={13} />
               Draw
             </Button>
-          </div>
-          <span className={styles.annotateHint}>
+          </ToolPaneToolGroup>
+          <Text role="meta" truncate className="min-w-0 flex-1">
             {annotate === 'comment'
               ? 'Click an element or drag a region, then say what you mean.'
               : 'Draw on the page, then say what you mean.'}
-          </span>
-          <span className={styles.findCount} aria-live="polite">
+          </Text>
+          <Text role="muted" ink="muted" align="end" numeric className={styles.findCount} aria-live="polite">
             {marks === 0 ? '' : `${marks} mark${marks === 1 ? '' : 's'}`}
-          </span>
+          </Text>
           <Button variant="ghost"
             type="button"
             onClick={clearAnnotations}
@@ -1661,7 +1686,7 @@ export const BrowserPane = () => {
           >
             <CrossIcon size={14} />
           </Button>
-        </div>
+        </ToolPaneBar>
       )}
       {/*
         The find bar. It sits under the address bar rather than floating over
@@ -1670,7 +1695,7 @@ export const BrowserPane = () => {
         it was.
       */}
       {find && (
-        <div className={styles.findBar}>
+        <ToolPaneBar variant="find">
           <Input
             ref={findBox}
             variant="chrome" className={styles.address}
@@ -1694,9 +1719,9 @@ export const BrowserPane = () => {
               search(find.query, { next: true, forward: !event.shiftKey })
             }}
           />
-          <span className={styles.findCount} aria-live="polite">
+          <Text role="muted" ink="muted" align="end" numeric className={styles.findCount} aria-live="polite">
             {find.query === '' ? '' : find.total === 0 ? 'No results' : `${find.active}/${find.total}`}
-          </span>
+          </Text>
           <Button variant="ghost"
             type="button"
             onClick={() => search(find.query, { next: true, forward: false })}
@@ -1723,7 +1748,7 @@ export const BrowserPane = () => {
           >
             <CrossIcon size={14} />
           </Button>
-        </div>
+        </ToolPaneBar>
       )}
       {/*
         A right-click inside the page. Chromium's own menu would offer
@@ -1839,7 +1864,7 @@ export const BrowserPane = () => {
           </>
         )}
       </ContextMenu>
-      <div className={styles.body} data-browser="">
+      <ToolPaneBody bleed className={`${styles.body} relative overflow-hidden`}>
         {tabs.map((entry) => (
           <BrowserTabPage
             key={`${profile ?? 'default'}:${entry.id}`}
@@ -1859,16 +1884,16 @@ export const BrowserPane = () => {
           />
         ))}
         {driving && (
-          <div className={styles.doing}>
-            <span className={styles.doingMark}>
+          <ToolPaneActivity className={styles.doing}>
+            <ToolPaneActivityMark>
               {driving.info ? <RuntimeMark runtime={driving.info} size={13} /> : <GlobeIcon size={13} />}
-            </span>
-            <span className={styles.doingText}>
+            </ToolPaneActivityMark>
+            <Text as="div" role="muted" ink="primary" className="min-w-0 flex-1">
               {driving.what}
-              <span className={styles.doingWho}>
+              <Text as="span" role="muted" ink="muted" className="block">
                 {driving.key ? `${driving.who} — step ${driving.step} of this turn` : driving.who}
-              </span>
-            </span>
+              </Text>
+            </Text>
             {/* Offered only where it can be aimed. With two turns in the page
                 at once there is no "the" turn to stop, and a button that
                 interrupts whichever conversation was opened first is worse
@@ -1882,23 +1907,23 @@ export const BrowserPane = () => {
                 Stop
               </Button>
             )}
-          </div>
+          </ToolPaneActivity>
         )}
-      </div>
+      </ToolPaneBody>
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
-      <div className={styles.browserFoot}>
+      <ToolPaneFooter>
         {driving ? (
           <>
-            <span className={styles.footDot} />
+            <Dot state="signin" pulse />
             Being driven
           </>
         ) : (
           'Idle'
         )}
-        <span className={styles.footSpace} />
+        <span className="flex-1" />
         {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
-      </div>
-    </div>
+      </ToolPaneFooter>
+    </ToolPane>
   )
 }

@@ -4,6 +4,7 @@ import composerCss from './Composer.module.css?raw'
 import conversationCss from './Conversation.module.css?raw'
 import itemsCss from './Items.module.css?raw'
 import roomCss from './TeamRoomPane.module.css?raw'
+import composerSystem from '../design/ui/composer.tsx?raw'
 
 /**
  * One measure, in both places a person reads a conversation.
@@ -16,11 +17,9 @@ import roomCss from './TeamRoomPane.module.css?raw'
  * *and* for the composer under them, which is the first thing anyone noticed
  * about the pair.
  *
- * It drifted because nothing said they were the same thing. The composer's
- * paint is pinned across its two implementations by `composer.parity.test.ts`
- * — corner, shadow, hairline, the send coin — and every one of those checks
- * passed while the two boxes were 280px apart in width. Paint was watched;
- * measure was not.
+ * It drifted because nothing said they were the same thing. The composer now
+ * has one presentation implementation, but the reading column still belongs
+ * to the surface around it: paint can stay shared while placement moves.
  *
  * So this watches the measure. It reads the sheets rather than the screen
  * because jsdom does no layout, which is the same trade `composer.parity`
@@ -113,13 +112,16 @@ it.each([
  */
 it.each([
   { what: 'the transcript’s bars', css: conversationCss, selector: '.bars' },
-  { what: 'the transcript’s composer', css: composerCss, selector: '.composer' },
   { what: 'the room’s composer', css: roomCss, selector: '.composer' },
   { what: 'the room’s alert line', css: roomCss, selector: '.trouble' },
 ])('$what is inset by the gutter its stream reserves', ({ css, selector }) => {
   // The room's two docked rules read `--room-dock`, which is that sum
   // named once; the conversation's spell it out. Either is the gutter.
   expect(rule(css, selector)).toMatch(/var\(--hd-scrollbar-width|var\(--room-dock\)/)
+})
+
+it('the transcript’s composer is inset by the gutter its stream reserves', () => {
+  expect(composerSystem).toContain('px-[calc(var(--hd-space-6)+var(--hd-scrollbar-width,8px))]')
 })
 
 /**
@@ -134,7 +136,7 @@ it.each([
  */
 it('every read of the scrollbar gutter carries its own fallback', () => {
   for (const [what, css] of [
-    ['Composer.module.css', composerCss],
+    ['design/ui/composer.tsx', composerSystem],
     ['Conversation.module.css', conversationCss],
     ['TeamRoomPane.module.css', roomCss],
   ] as const) {

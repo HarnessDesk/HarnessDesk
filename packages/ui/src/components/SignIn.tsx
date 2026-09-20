@@ -31,8 +31,36 @@ import {
   KeyboardIcon,
   TerminalIcon,
 } from './Icons'
-import { Button, Dot, Input, Search } from '../design'
-import { DialogContent, DialogRoot, DialogTitle } from '../design'
+import {
+  AccessCode,
+  AccessDetail,
+  AccessFact,
+  AccessHeader,
+  AccessRail,
+  AccessRailFooter,
+  AccessRailHeader,
+  AccessRailList,
+  ActionError,
+  Alert,
+  AlertContent,
+  AlertDescription,
+  AlertTitle,
+  Button,
+  DialogContent,
+  DialogRoot,
+  DialogTitle,
+  Dot,
+  Input,
+  ListRow,
+  ListRows,
+  Note,
+  Search,
+  SectionHead,
+  Spinner,
+  StateStrip,
+  StatusSummary,
+  Text,
+} from '../design'
 import own from './SignIn.module.css'
 
 /**
@@ -201,57 +229,53 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
         aria-label="Sign in"
         showCloseButton={false}
       >
-        <div className={own.head}>
-          <DialogTitle className={own.headTitle}>Sign in</DialogTitle>
+        <AccessHeader>
+          <DialogTitle><Text role="subject">Sign in</Text></DialogTitle>
           <span className={own.fill} />
           <Button variant="ghost" size="icon-sm" onClick={close} aria-label="Close">
             <CrossIcon size={16} />
           </Button>
-        </div>
+        </AccessHeader>
 
         <div className={own.split}>
-          <nav className={own.roster} aria-label="Agents">
-            <div className={own.railHead}>
-              <div className={own.railTitle}>Your agents</div>
-              <div className={own.spineCount}>
+          <AccessRail aria-label="Agents">
+            <AccessRailHeader>
+              <Text as="div" role="subject">Your agents</Text>
+              <Text as="div" role="muted" className={own.spineCount}>
                 {connected} of {rows.length} connected
-              </div>
-              <div className={own.segs}>
-                {rows.map((entry) => (
-                  <span key={entry.info.id} className={own.seg} data-state={entry.state} />
-                ))}
-              </div>
-            </div>
+              </Text>
+              <StateStrip states={rows.map((entry) => entry.state)} />
+            </AccessRailHeader>
 
-            <div className={own.railScroll}>
+            <AccessRailList>
+              <ListRows size="sm">
               {rows.map((entry) => (
-                <Button variant="ghost" size="row"
+                <ListRow
                   key={entry.info.id}
-                  type="button"
-                  className={own.rosterRow}
-                  data-selected={entry.info.id === row?.info.id || undefined}
+                  as="button"
+                  size="sm"
+                  interactive
+                  selected={entry.info.id === row?.info.id}
                   onClick={() => setSelected(entry.info.id)}
-                >
-                  <span className={own.rosterMark}>
-                    <RuntimeMark runtime={entry.info} size={16} />
-                  </span>
-                  <span className={own.rosterText}>
-                    <span className={own.rosterName}>{entry.info.presentation.name}</span>
-                    <span className={own.rosterDetail} data-state={entry.state}>
+                  lead={<RuntimeMark runtime={entry.info} size={16} />}
+                  title={<Text role="row">{entry.info.presentation.name}</Text>}
+                  subtitle={
+                    <Text role="meta" tone={entry.state === 'signin' ? 'brand' : entry.state === 'limit' ? 'warning' : undefined}>
                       {entry.pending ? 'Waiting…' : entry.detail}
-                    </span>
-                  </span>
-                  {entry.pending ? (
-                    <span className={own.spinner} aria-hidden="true" />
+                    </Text>
+                  }
+                  trail={entry.pending ? (
+                    <Spinner size="sm" tone="brand" aria-hidden="true" />
                   ) : (
                     <Dot state={entry.state} />
                   )}
-                </Button>
+                />
               ))}
+              </ListRows>
 
               {registryRows.length > 0 && (
                 <>
-                  <div className={own.railSection}>From the ACP registry</div>
+                  <SectionHead name="From the ACP registry" />
                   {/* Two agents need no finding aid; forty do. */}
                   {registryRows.length > 8 && (
                     <Search
@@ -262,51 +286,48 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                       onChange={setRegistryQuery}
                     />
                   )}
+                  <ListRows size="sm">
                   {listedRegistry.map((agent) => (
-                    <Button variant="ghost" size="row"
+                    <ListRow
                       key={agent.id}
-                      type="button"
-                      className={own.rosterRow}
-                      data-selected={agent.id === fromRegistry?.id || undefined}
-                      data-blocked={agent.available ? undefined : ''}
+                      as="button"
+                      size="sm"
+                      interactive
+                      selected={agent.id === fromRegistry?.id}
                       onClick={() => setSelected(agent.id)}
-                    >
-                      <span className={own.rosterMark}>
-                        <RuntimeMark
+                      lead={<RuntimeMark
                           runtime={{ id: agent.id, presentation: { name: agent.name } }}
                           size={16}
-                        />
-                      </span>
-                      <span className={own.rosterText}>
-                        <span className={own.rosterName}>{agent.name}</span>
-                        {agent.run === 'binary' && agent.integrity === 'none' && !agent.installed && (
-                          <span className={own.rosterDetail}>Unverified</span>
-                        )}
-                      </span>
-                    </Button>
+                        />}
+                      title={<Text role="row" ink={agent.available ? 'primary' : 'muted'}>{agent.name}</Text>}
+                      subtitle={agent.run === 'binary' && agent.integrity === 'none' && !agent.installed
+                        ? <Text role="meta">Unverified</Text>
+                        : undefined}
+                    />
                   ))}
+                  </ListRows>
                   {listedRegistry.length === 0 && (
-                    <div className={own.railNote}>Nothing in the registry matches.</div>
+                    <Text as="div" role="meta" className={own.railNote}>Nothing in the registry matches.</Text>
                   )}
                 </>
               )}
               {registryRows.length === 0 && registry?.unavailable && (
                 <>
-                  <div className={own.railSection}>From the ACP registry</div>
-                  <div className={own.railNote}>{registry.unavailable}</div>
+                  <SectionHead name="From the ACP registry" />
+                  <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
                 </>
               )}
-            </div>
+            </AccessRailList>
 
-            <div className={own.rosterFoot}>
-              <div className={own.rosterFootText}>
+            <AccessRailFooter>
+              <Text as="div" role="muted">
                 Credentials stay on this machine — in each agent's own store, or here
                 under {snapshot.credentialProtection} for the keys you paste.
-              </div>
-            </div>
-          </nav>
+              </Text>
+            </AccessRailFooter>
+          </AccessRail>
 
-          <div className={own.detail}>
+          <AccessDetail>
             {fromRegistry ? (
               <RegistryAgent
                 key={fromRegistry.id}
@@ -316,35 +337,35 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
             ) : row ? (
               <Agent key={row.info.id} row={row} onSelect={setSelected} />
             ) : (
-              <p className={own.blurb}>No agents are registered yet.</p>
+              <Note>No agents are registered yet.</Note>
             )}
 
             {row && row.status !== 'out' ? (
-              <div className={own.next}>
+              <Alert tone="neutral" variant="soft" className={own.next}>
                 <span className={own.nextMark}>
                   <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
                 </span>
-                <span className={own.nextText}>
-                  <span className={own.nextTitle}>
+                <AlertContent className={own.nextText}>
+                  <AlertTitle>
                     {nextUp
                       ? `${nextUp.info.presentation.name} is still waiting`
                       : 'Everything else is already connected'}
-                  </span>
-                  <span className={own.nextHint}>
+                  </AlertTitle>
+                  <AlertDescription>
                     {nextUp
                       ? 'One more sign-in and every agent here can take a turn.'
                       : 'Nothing left to sign in — close this and start a conversation.'}
-                  </span>
-                </span>
+                  </AlertDescription>
+                </AlertContent>
                 <Button
                   variant="default"
                   onClick={() => (nextUp ? setSelected(nextUp.info.id) : close())}
                 >
                   {nextUp ? 'Sign in' : 'Done'}
                 </Button>
-              </div>
+              </Alert>
             ) : null}
-          </div>
+          </AccessDetail>
         </div>
       </DialogContent>
     </DialogRoot>
@@ -385,15 +406,11 @@ const CredentialHome = ({ info, label }: { info: RuntimeInfo; label: string }) =
   const home = credentialHome(info)
   if (home === null) return null
   return (
-    <div className={own.where}>
-      <span className={own.whereLabel}>{label}</span>
-      <code className={own.wherePath}>{home}</code>
-      <span className={own.whereNote}>
+    <AccessFact label={label} value={home}>
         {info.slot?.removable
           ? `It belongs to ${info.presentation.name}. Only the credential lives there — the sessions are the agent’s own.`
           : `It belongs to ${info.presentation.name}. Signing out here signs that CLI out too.`}
-      </span>
-    </div>
+    </AccessFact>
   )
 }
 
@@ -461,11 +478,11 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         <span className={own.whoMark}>
           <RuntimeMark runtime={info} size={22} />
         </span>
-        <span className={own.whoName}>{info.presentation.name}</span>
+        <Text role="subject" truncate>{info.presentation.name}</Text>
       </div>
-      <p className={own.blurb}>
+      <Note className={own.blurb}>
         {info.presentation.tagline ?? `${STATUS_LABEL[row.status]}.`}
-      </p>
+      </Note>
 
       {login?.outcome.type === 'pending' ? (
         <Pending
@@ -482,32 +499,19 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         />
       ) : login?.outcome.type === 'failed' ? (
         <div className={own.waiting}>
-          <div className={own.state}>
-            <span className={own.stateIcon} data-tone="bad">
-              <AlertIcon size={16} />
-            </span>
-            <span className={own.stateText}>
-              <span className={own.stateTitle}>Sign-in did not complete</span>
-              <span className={own.stateHint}>{login.outcome.error}</span>
-            </span>
-          </div>
+          <ActionError>{login.outcome.error}</ActionError>
           <div className={own.row}>
             <Button variant="secondary" onClick={() => store.dismissLogin(info.id)}>Try again</Button>
           </div>
         </div>
       ) : signedIn ? (
         <div className={own.waiting}>
-          <div className={own.state}>
-            <span className={own.stateIcon} data-tone="good">
-              <CheckIcon size={16} />
-            </span>
-            <span className={own.stateText}>
-              <span className={own.stateTitle}>{account.label || 'Already connected'}</span>
-              {/* Not the label again: for a plan account the label *is* the
-                  email, and printing both put the same address on two lines. */}
-              <span className={own.stateHint}>{connectedHint(account)}</span>
-            </span>
-          </div>
+          <StatusSummary
+            tone="success"
+            icon={<CheckIcon size={16} />}
+            title={account.label || 'Already connected'}
+            description={connectedHint(account)}
+          />
           <CredentialHome info={info} label="Credential" />
           <SignOut
             runtime={info.id}
@@ -552,8 +556,8 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         />
       ) : driveable.length > 0 ? (
         <div>
-          <div className={own.groupLabel}>How would you like to connect it?</div>
-          <div className={own.methods}>
+          <SectionHead name="How would you like to connect it?" />
+          <ListRows size="sm" className={own.methods}>
             {driveable.map((method) => {
               const Glyph = METHOD_ICON[method.flow]
               /* `row`, not `sm`: a method card is a name with the agent's own
@@ -564,31 +568,24 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
                  design system's own multi-line row: `h-auto`, a min-height,
                  and `whitespace-normal`. */
               return (
-                <Button variant="ghost" size="row"
+                <ListRow
                   key={method.id}
-                  type="button"
-                  className={own.method}
+                  as="button"
+                  size="sm"
+                  interactive
                   onClick={() => {
                     if (method.flow === 'apiKey') setOpened(method.id)
                     else void store.startLogin(info.id, method.id)
                   }}
-                >
-                  <span className={own.methodIcon}>
-                    <Glyph size={18} />
-                  </span>
-                  <span className={own.methodText}>
-                    <span className={own.methodName}>{method.label}</span>
-                    {method.description ? (
-                      <span className={own.methodHint}>{method.description}</span>
-                    ) : null}
-                  </span>
-                  <span className={own.methodGo}>
-                    <ChevronIcon size={16} />
-                  </span>
-                </Button>
+                  lead={<Glyph size={18} />}
+                  title={<Text role="subject">{method.label}</Text>}
+                  subtitle={method.description ? <Text role="muted">{method.description}</Text> : undefined}
+                  wrapSubtitle
+                  trail={<ChevronIcon size={16} />}
+                />
               )
             })}
-          </div>
+          </ListRows>
           <CredentialHome info={info} label="Where the credential lands" />
           {/* An account added and then thought better of. Removable here so it
               does not have to be walked back through the settings page. No
@@ -608,10 +605,9 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           the card — a label, the thing itself, and what it means — rather
           than a bold sentence with a shell command set in prose. */}
       {external.map((method) => (
-        <div key={method.id} className={`${own.where} ${own.aside}`}>
-          <span className={own.whereLabel}>{method.label}</span>
-          <span className={own.whereNote}>{method.description}</span>
-        </div>
+        <AccessFact key={method.id} className={own.aside} label={method.label}>
+          {method.description}
+        </AccessFact>
       ))}
 
       {/* "No ways in" and "has not said yet" are different facts and used to
@@ -627,16 +623,13 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
         status === null ? (
           broken ? (
             <div className={own.waiting}>
-              <div className={own.state}>
-                <span className={own.stateIcon} data-tone="bad">
-                  <AlertIcon size={16} />
-                </span>
-                <span className={own.stateText}>
-                  <span className={own.stateTitle}>{info.presentation.name} did not start</span>
-                  <span className={own.stateHint}>{broken.message}</span>
-                </span>
-              </div>
-              {broken.remediation ? <p className={own.note}>{broken.remediation}</p> : null}
+              <StatusSummary
+                tone="danger"
+                icon={<AlertIcon size={16} />}
+                title={`${info.presentation.name} did not start`}
+                description={broken.message}
+              />
+              {broken.remediation ? <Note className={own.note}>{broken.remediation}</Note> : null}
               {info.slot?.removable ? (
                 <div className={own.actions}>
                   <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
@@ -646,18 +639,18 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
               ) : null}
             </div>
           ) : (
-            <p className={own.note} style={{ marginTop: 0 }}>
-              <span className={own.spinner} aria-hidden="true" /> Starting{' '}
+            <Note className={own.noteFlush} icon={<Spinner size="sm" tone="brand" aria-hidden="true" />}>
+              Starting{' '}
               {info.presentation.name} — its ways in appear as soon as it answers.
-            </p>
+            </Note>
           )
         ) : (
-          <p className={own.note} style={{ marginTop: 0 }}>
+          <Note className={own.noteFlush}>
             {info.presentation.name} needs no account here
             {info.presentation.configLocation
               ? `; it reads its own configuration from ${info.presentation.configLocation}.`
               : '.'}
-          </p>
+          </Note>
         )
       ) : null}
     </>
@@ -703,30 +696,20 @@ const RegistryAgent = ({
         <span className={own.whoMark}>
           <RuntimeMark runtime={{ id: agent.id, presentation: { name: agent.name } }} size={22} />
         </span>
-        <span className={own.whoName}>{agent.name}</span>
-        <span className={own.whoMeta}>{meta}</span>
+        <Text role="subject" truncate>{agent.name}</Text>
+        <Text role="meta" className={own.whoMeta}>{meta}</Text>
       </div>
-      <p className={own.blurb}>
+      <Note className={own.blurb}>
         {agent.description ?? 'An agent from the public ACP registry.'}
-      </p>
+      </Note>
 
-      {error ? (
-        <div className={own.state}>
-          <span className={own.stateIcon} data-tone="bad">
-            <AlertIcon size={16} />
-          </span>
-          <span className={own.stateText}>
-            <span className={own.stateTitle}>Adding did not work</span>
-            <span className={own.stateHint}>{error}</span>
-          </span>
-        </div>
-      ) : null}
+      {error ? <ActionError className={own.actionError}>{error}</ActionError> : null}
 
       {agent.available ? (
         <div className={own.waiting}>
-          <p className={own.note} style={{ marginTop: 0 }}>
+          <Note className={own.noteFlush}>
             {registryRunSentence(agent)}
-          </p>
+          </Note>
           <div className={own.row}>
             <Button variant="default" disabled={busy} onClick={() => void add()}>
               {registryAddLabel(agent, busy)}
@@ -737,23 +720,20 @@ const RegistryAgent = ({
               </Button>
             ) : null}
           </div>
-          <p className={own.note}>
+          <Note className={own.note}>
             {agent.run === 'binary'
               ? 'The agent keeps its own account, configuration and history. Removing it from HarnessDesk later deletes the downloaded build and nothing else.'
               : 'Registering points HarnessDesk at it and nothing more — the agent keeps its own account, configuration and history, and removing it later uninstalls nothing.'}
-          </p>
+          </Note>
         </div>
       ) : (
         <div className={own.waiting}>
-          <div className={own.state}>
-            <span className={own.stateIcon} data-tone="bad">
-              <AlertIcon size={16} />
-            </span>
-            <span className={own.stateText}>
-              <span className={own.stateTitle}>Cannot run on this machine</span>
-              <span className={own.stateHint}>{agent.reason}</span>
-            </span>
-          </div>
+          <StatusSummary
+            tone="danger"
+            icon={<AlertIcon size={16} />}
+            title="Cannot run on this machine"
+            description={agent.reason}
+          />
           {agent.website ? (
             <div className={own.row}>
               <Button variant="ghost" onClick={() => openExternal(agent.website!)}>
@@ -818,36 +798,31 @@ const KeyField = ({
 
   return (
     <div className={own.waiting}>
-      <div className={own.groupLabel}>
-        <span className={own.fill}>{label}</span>
-        {onBack ? (
-          <Button variant="ghost" size="sm" onClick={onBack}>
+      <SectionHead
+        name={label}
+        action={onBack ? (
+          <Button variant="outline" size="sm" onClick={onBack}>
             Other ways in
           </Button>
-        ) : null}
-      </div>
+        ) : undefined}
+      />
 
       {elsewhere && !stored ? (
-        <div className={own.state}>
-          <span className={own.stateIcon} data-tone="good">
-            <CheckIcon size={16} />
-          </span>
-          <span className={own.stateText}>
-            <span className={own.stateTitle}>Already has a key</span>
-            <span className={own.stateHint}>
-              It reads one from {elsewhere}. Nothing to do — unless you want this window
-              to supply a different one, which takes precedence.
-            </span>
-          </span>
-        </div>
+        <StatusSummary
+          tone="success"
+          icon={<CheckIcon size={16} />}
+          title="Already has a key"
+          description={<>It reads one from {elsewhere}. Nothing to do — unless you want this window
+            to supply a different one, which takes precedence.</>}
+        />
       ) : null}
 
       {editing ? (
         <>
           <div className={own.keyRow}>
-            <span className={own.keyIcon} aria-hidden="true">
+            <Text role="muted" className={own.keyIcon} aria-hidden="true">
               <KeyIcon size={13} />
-            </span>
+            </Text>
             <Input
               ref={field}
               type="password"
@@ -869,7 +844,7 @@ const KeyField = ({
             </Button>
             {stored ? <Button variant="secondary" onClick={() => setReplacing(false)}>Cancel</Button> : null}
           </div>
-          <p className={own.note}>
+          <Note className={own.note}>
             {method.description ? `${method.description} ` : ''}
             The key is kept on this machine ({protection}) and handed to the agent when
             it starts; this window never sees it again.
@@ -885,22 +860,17 @@ const KeyField = ({
                 </Button>
               </>
             ) : null}
-          </p>
+          </Note>
         </>
       ) : (
         <>
-          <div className={own.state}>
-            <span className={own.stateIcon} data-tone="good">
-              <CheckIcon size={16} />
-            </span>
-            <span className={own.stateText}>
-              <span className={own.stateTitle}>{label} stored</span>
-              <span className={own.stateHint}>
-                Kept on this machine ({protection}). Restart a conversation to pick up a
-                change.
-              </span>
-            </span>
-          </div>
+          <StatusSummary
+            tone="success"
+            icon={<CheckIcon size={16} />}
+            title={`${label} stored`}
+            description={<>Kept on this machine ({protection}). Restart a conversation to pick up a
+              change.</>}
+          />
           <div className={own.row}>
             <Button variant="secondary"
               onClick={() => {
@@ -930,9 +900,9 @@ const SignOut = ({ runtime, lead }: { runtime: RuntimeId; lead?: ReactNode }) =>
     <div className={own.actions}>
       {confirming ? (
         <>
-          <span className={own.rowNote}>
+          <Text role="muted" className={own.rowNote}>
             Sign out? Running conversations keep going until they finish.
-          </span>
+          </Text>
           <Button variant="secondary" onClick={() => setConfirming(false)}>Keep</Button>
           <Button
             variant="destructive"
@@ -980,26 +950,19 @@ const Pending = ({
   const start = login.start
   return (
     <div className={own.waiting}>
-      <div className={own.state}>
-        <span className={own.stateIcon} data-tone="wait">
-          <span className={own.spinner} />
-        </span>
-        <span className={own.stateText}>
-          <span className={own.stateTitle}>
-            {start.type === 'browser' ? 'Waiting for you in the browser' : 'Enter this code'}
-          </span>
-          <span className={own.stateHint}>
-            {start.type === 'browser'
-              ? 'A sign-in page opened in your browser. This window updates on its own when you are done.'
-              : `Open ${start.url} on any device, sign in, and enter the code below.`}
-          </span>
-        </span>
-      </div>
+      <StatusSummary
+        tone="brand"
+        icon={<Spinner size="sm" tone="brand" aria-hidden="true" />}
+        title={start.type === 'browser' ? 'Waiting for you in the browser' : 'Enter this code'}
+        description={start.type === 'browser'
+          ? 'A sign-in page opened in your browser. This window updates on its own when you are done.'
+          : `Open ${start.url} on any device, sign in, and enter the code below.`}
+      />
 
       {start.type === 'browser' ? null : (
-        <div className={own.code} aria-label="One-time code">
+        <AccessCode className={own.code} aria-label="One-time code">
           {start.code}
-        </div>
+        </AccessCode>
       )}
 
       <div className={own.row}>
@@ -1018,21 +981,18 @@ const Pending = ({
       </div>
 
       {alreadyAs ? (
-        <div className={`${own.where} ${own.aside}`}>
-          <span className={own.whereLabel}>Sign in as somebody else</span>
-          <span className={own.whereNote}>
+        <AccessFact className={own.aside} label="Sign in as somebody else">
             This agent already has {alreadyAs}, and the page uses whichever account your
             browser is signed in to. Choose a different one there — one identity is one
             account here, and finishing as somebody it already has drops the extra row,
             whichever of the two you started from.
-          </span>
-        </div>
+        </AccessFact>
       ) : null}
 
-      <p className={own.note}>
+      <Note className={own.note}>
         HarnessDesk never sees your password — it reads only whether the agent's own
         sign-in worked.
-      </p>
+      </Note>
     </div>
   )
 }

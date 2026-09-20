@@ -31,6 +31,8 @@ const COARSE = 0.1
 
 type ResizeHandleProps = Omit<React.ComponentProps<'div'>, 'onChange'> & {
   orientation: 'vertical' | 'horizontal'
+  /** A quiet grip by default; `line` is the permanent seam between adjacent panes. */
+  appearance?: 'grip' | 'line'
   /** Where the split sits now, 0&ndash;1. */
   value: number
   /** Called with every new ratio, clamped by `min`/`max`. */
@@ -55,6 +57,7 @@ type ResizeHandleProps = Omit<React.ComponentProps<'div'>, 'onChange'> & {
 const ResizeHandle = ({
   className,
   orientation,
+  appearance = 'grip',
   value,
   onChange,
   onCommit,
@@ -97,6 +100,7 @@ const ResizeHandle = ({
   return (
     <div
       data-slot="resize-handle"
+      data-appearance={appearance}
       role="separator"
       tabIndex={0}
       aria-orientation={orientation}
@@ -107,7 +111,15 @@ const ResizeHandle = ({
       onKeyDown={onKeyDown}
       className={cn(
         'group/resize relative flex shrink-0 items-center justify-center',
-        orientation === 'vertical' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize',
+        appearance === 'line' &&
+          'bg-(--hd-border) hover:bg-(--hd-accent) data-[dragging]:bg-(--hd-accent) after:absolute after:content-[\'\']',
+        orientation === 'vertical'
+          ? appearance === 'line'
+            ? 'w-(--hd-border-width) cursor-col-resize after:inset-y-0 after:-inset-x-1'
+            : 'w-1 cursor-col-resize'
+          : appearance === 'line'
+            ? 'h-(--hd-border-width) cursor-row-resize after:inset-x-0 after:-inset-y-1'
+            : 'h-1 cursor-row-resize',
         className,
       )}
       {...props}
@@ -121,15 +133,17 @@ const ResizeHandle = ({
           grip goes out the moment the pointer leaves the one-pixel line, which
           on a fast drag is immediately: the thing you are holding disappears
           while you are holding it. */}
-      <span
-        aria-hidden
-        className={cn(
-          'rounded-full bg-(--hd-border-strong) opacity-0 transition-opacity',
-          'group-hover/resize:opacity-100 group-focus-visible/resize:opacity-100',
-          'group-data-[dragging]/resize:bg-(--hd-accent) group-data-[dragging]/resize:opacity-100',
-          orientation === 'vertical' ? 'h-6 w-0.5' : 'h-0.5 w-6',
-        )}
-      />
+      {appearance === 'grip' ? (
+        <span
+          aria-hidden
+          className={cn(
+            'rounded-full bg-(--hd-border-strong) opacity-0 transition-opacity',
+            'group-hover/resize:opacity-100 group-focus-visible/resize:opacity-100',
+            'group-data-[dragging]/resize:bg-(--hd-accent) group-data-[dragging]/resize:opacity-100',
+            orientation === 'vertical' ? 'h-6 w-0.5' : 'h-0.5 w-6',
+          )}
+        />
+      ) : null}
     </div>
   )
 }

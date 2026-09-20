@@ -214,6 +214,23 @@ it('asks for the log, the refs and the status together, and shows the walk', asy
   expect(document.body.textContent).toContain('2 commits')
 })
 
+it('keeps the windowed commit row borderless and marks the graph column edge', async () => {
+  await mount({
+    log: [
+      commit('aaaa1111111', 'tip', { parents: ['bbbb2222222'] }),
+      commit('bbbb2222222', 'root'),
+    ],
+  })
+  const rows = [...container.querySelectorAll<HTMLElement>('[role="option"]')]
+  expect(rows).toHaveLength(2)
+  expect(rows.every((row) => row.className.includes('border-0'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('cursor-default'))).toBe(true)
+  expect(rows.every((row) => row.className.includes('select-none'))).toBe(true)
+  expect(rows.every((row) => row.style.paddingRight === 'var(--hd-space-3)')).toBe(true)
+  const head = container.querySelector('[role="row"]')
+  expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
+})
+
 it('uses the shared search field for history and refs, with history clearable', async () => {
   await mount({})
   const history = container.querySelector<HTMLInputElement>('input[aria-label="Search history"]')

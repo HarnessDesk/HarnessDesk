@@ -40,6 +40,9 @@ const sectionVariants = cva('flex flex-col', {
       plain: '',
       /* A quiet inset panel: an aside, a summary block, a note. */
       quiet: 'rounded-(--hd-radius) bg-(--hd-muted)',
+      /* A collapsible plugin panel inside a column: one separating rule and
+         the compact inset the block vocabulary has always used. */
+      panel: 'gap-2 border-t border-(--hd-border) px-2.5 py-2',
     },
   },
   defaultVariants: { variant: 'card' },
@@ -109,11 +112,21 @@ const SectionAction = ({ className, ...props }: React.ComponentProps<'div'>) => 
 const SectionBody = ({
   className,
   inset = true,
+  spacing = 'default',
   ...props
-}: React.ComponentProps<'div'> & { inset?: boolean }) => (
+}: React.ComponentProps<'div'> & {
+  inset?: boolean
+  spacing?: 'default' | 'compact'
+}) => (
   <div
     data-slot="section-body"
-    className={cn('py-4 first:pt-4 [&:not(:first-child)]:pt-3', inset && 'px-4', className)}
+    data-spacing={spacing}
+    className={cn(
+      spacing === 'default' && 'py-4 first:pt-4 [&:not(:first-child)]:pt-3',
+      spacing === 'compact' && 'py-3',
+      inset && (spacing === 'compact' ? 'px-3' : 'px-4'),
+      className,
+    )}
     {...props}
   />
 )

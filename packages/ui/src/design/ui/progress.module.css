@@ -1,0 +1,71 @@
+@property --progress-ring-fill {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
+}
+
+.ring {
+  --progress-ring-size: 16px;
+  --progress-ring-stroke: 2px;
+  --progress-ring-fill: 0%;
+  --progress-ring-track: var(--hd-border-emphasis);
+  --progress-ring-color: var(--hd-accent);
+  display: inline-block;
+  flex: none;
+  width: var(--progress-ring-size);
+  height: var(--progress-ring-size);
+  border-radius: var(--hd-radius-full);
+  background: conic-gradient(
+    var(--progress-ring-color) var(--progress-ring-fill),
+    var(--progress-ring-track) 0
+  );
+  mask: radial-gradient(
+    farthest-side,
+    transparent calc(100% - var(--progress-ring-stroke) - 0.5px),
+    #000 calc(100% - var(--progress-ring-stroke))
+  );
+  transition: --progress-ring-fill var(--hd-duration) var(--hd-ease);
+}
+
+.ring[data-tone='warning'] {
+  --progress-ring-color: var(--hd-warning);
+}
+
+.ring[data-tone='danger'] {
+  --progress-ring-color: var(--hd-danger);
+}
+
+.ring[data-tone='success'] {
+  --progress-ring-color: var(--hd-success);
+}
+
+.ring[data-tone='neutral'] {
+  --progress-ring-color: var(--hd-muted-foreground);
+}
+
+.ring[data-unknown] {
+  box-sizing: border-box;
+  border: var(--progress-ring-stroke) dashed var(--hd-muted-foreground);
+  background: none;
+  mask: none;
+}
+
+.stackPart[data-part='0'],
+.stackSwatch[data-part='0'] {
+  background: var(--hd-accent);
+}
+
+.stackPart[data-part='1'],
+.stackSwatch[data-part='1'] {
+  background: color-mix(in srgb, var(--hd-accent) 55%, var(--hd-muted));
+}
+
+.stackPart[data-part='2'],
+.stackSwatch[data-part='2'] {
+  background: color-mix(in srgb, var(--hd-accent) 30%, var(--hd-muted));
+}
+
+.stackPart[data-part='3'],
+.stackSwatch[data-part='3'] {
+  background: color-mix(in srgb, var(--hd-accent) 15%, var(--hd-muted));
+}
