@@ -338,6 +338,13 @@ export class GoalPlane {
             `Wrapping could not finish: ${error instanceof Error ? error.message : String(error)}. Restart to retry recovery.`)
         }
       }
+      // Startup establishes the last observed state without treating recovery
+      // as an activity transition. The first later change must still notify.
+      for (const document of this.store.list()) {
+        const view = await this.view(document.goal.id)
+        if (view.activity === null) this.#activity.delete(document.goal.id)
+        else this.#activity.set(document.goal.id, view.activity)
+      }
       if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
     })
   }

@@ -92,6 +92,23 @@ test('a done card without observed evidence needs a person; a current passing ch
   assert.deepEqual(proof.transitions, ['needs-you:ready-to-wrap'])
 })
 
+test('recovery baselines open Goal activity without notifying, then publishes its first transition', async () => {
+  const proof = await rig()
+  await proof.plane.recover()
+  assert.deepEqual(proof.transitions, [], 'startup itself never notifies')
+  proof.facts({
+    room: 'g1', stamp: 2, checks: ['verify'], refused: [], unreadable: null,
+    cards: [{ card: 1, running: [], facts: [{
+      record: { id: 'fact', card: { board: 'g1', id: 1 }, observedAt: 2,
+        fact: { kind: 'check', name: 'verify', run: 'node --test', exit: 0, timedOut: false,
+          at: 'a'.repeat(40), dirty: false, tail: '' } },
+      freshness: { state: 'fresh' }, by: null,
+    }] }],
+  })
+  await proof.plane.refresh('g1')
+  assert.deepEqual(proof.transitions, ['needs-you:ready-to-wrap'])
+})
+
 test('an evidence read failure is visible and never makes settled work ready', async () => {
   const proof = await rig()
   proof.failRead()
