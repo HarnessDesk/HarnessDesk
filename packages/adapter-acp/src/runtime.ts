@@ -867,14 +867,28 @@ export class AcpRuntime implements AgentRuntime {
       // start instead of at the first conversation.
       void this.#observeToolReach()
     } catch (error) {
-      this.#setHealth({
-        state: 'unavailable',
-        reason: 'notInstalled',
-        message: `${this.#config.name} did not answer the ACP handshake: ${describeAcp(error)}`,
-        ...(this.#config.installCommand
-          ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
-          : {}),
-      })
+      const cleanExit = error instanceof AcpError && error.exitCode === 0
+      const message = cleanExit
+        ? `${this.#config.name} exited cleanly before completing the ACP handshake. Check its command and configuration.`
+        : `${this.#config.name} did not answer the ACP handshake: ${describeAcp(error)}`
+      this.#setHealth(
+        cleanExit
+          ? {
+              state: 'unavailable',
+              reason: 'unknown',
+              message,
+              remediation: "Verify the agent's profile or configuration, then select it again.",
+            }
+          : {
+              state: 'unavailable',
+              reason: 'notInstalled',
+              message,
+              ...(this.#config.installCommand
+                ? { remediation: `Install it with \`${this.#config.installCommand}\`.` }
+                : {}),
+            },
+      )
+      if (cleanExit) throw new AcpError(message, error.code, error.details, error.exitCode)
       throw error
     }
   }

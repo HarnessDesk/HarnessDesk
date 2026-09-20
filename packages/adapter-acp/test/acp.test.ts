@@ -899,6 +899,26 @@ test('an agent that never answered the handshake claims nothing', async () => {
   await runtime.dispose()
 })
 
+test('a configured agent that exits cleanly explains the handshake failure', async () => {
+  const runtime = new AcpRuntime({
+    id: 'clean-exit',
+    name: 'Clean Exit',
+    command: process.execPath,
+    args: ['-e', 'process.exit(0)'],
+  })
+  try {
+    await assert.rejects(runtime.start(), /exited cleanly before completing the ACP handshake/)
+    assert.deepEqual(runtime.health(), {
+      state: 'unavailable',
+      reason: 'unknown',
+      message: 'Clean Exit exited cleanly before completing the ACP handshake. Check its command and configuration.',
+      remediation: "Verify the agent's profile or configuration, then select it again.",
+    })
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('the handshake is what turns the protocol-level claims on', async () => {
   const runtime = make()
   assert.equal(runtime.info.capabilities.interrupt, false, 'nothing claimed before start')
