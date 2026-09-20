@@ -704,8 +704,8 @@
 
 .detailText {
   /* Actions take the next line before the blurb loses its reading measure. */
-  flex: 1 1 16rem;
-  min-width: min(16rem, 100%);
+  flex: 1 1 16rem; /* desk: 1 → 1 1 16rem, preserve the detail reading measure */
+  min-width: min(16rem, 100%); /* desk: 0 → min(16rem, 100%), keep the measure inside a narrow head */
 }
 
 .detailName {

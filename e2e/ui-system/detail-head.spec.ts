@@ -7,7 +7,7 @@ for (const theme of ['light', 'dark']) {
       await page.route('**/src/design/explorer/main.tsx*', async route => {
         const response = await route.fetch()
         const source = await response.text()
-        const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+        const reactUrl = /from ['"]([^'"\n]*\/react\.js[^'"\n]*)['"]/.exec(source)?.[1]
         if (!reactUrl) throw new Error('explorer React module import was not found')
         await route.fulfill({
           response,
