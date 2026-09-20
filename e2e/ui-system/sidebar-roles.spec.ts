@@ -79,3 +79,24 @@ test('a settings group label is smaller than its page title', async ({ page }) =
   ])
   expect(sizes[1]).toBeLessThan(sizes[0])
 })
+
+test('a page title computes the wordmark type', async ({ page }) => {
+  await page.goto('/preview.html')
+  await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+
+  const wordmark = page.locator('[data-role="wordmark"]').first()
+  const title = settings.locator('[data-slot="page-title"]')
+  await expect(wordmark).toBeVisible()
+  await expect(title).toBeVisible()
+
+  const type = (node: Element) => {
+    const style = getComputedStyle(node)
+    return {
+      size: style.fontSize,
+      line: style.lineHeight,
+      weight: style.fontWeight,
+    }
+  }
+  expect(await title.evaluate(type)).toEqual(await wordmark.evaluate(type))
+})

@@ -615,6 +615,22 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
+  "row/page-title-case/size/page": {
+    "h": 26,
+    "text": 20,
+    "weight": "600",
+    "line": 28,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "row/text/size/wordmark": {
+    "h": 28,
+    "text": 20,
+    "weight": "600",
+    "line": 28,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "section/section/variant/card": {
     "h": 88,
     "text": 14,

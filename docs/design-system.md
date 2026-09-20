@@ -1090,7 +1090,7 @@ this pattern supplies the settings-specific segmented appearance.
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
-The page's name, one line saying what it is for, and anything it acts on.
+The page's 20px semibold name, matching the wordmark, one line saying what it is for, and anything it acts on.
 
 ### `Text`
 

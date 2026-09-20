@@ -410,6 +410,11 @@ const RowBoard = () => {
   return (
     <>
       <div className={styles.stack}>
+        <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
+        <PageHead
+          title={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+          blurb="Settings for this desk."
+        />
         <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
         <SectionHead
           sticky
@@ -467,8 +472,9 @@ const RowBoard = () => {
 const HeadBoard = () => (
   <>
     <div className={styles.stack}>
+      <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
       <PageHead
-        title="Agents"
+        title={<span data-slot="page-title-case" data-catalog-size="page">Agents</span>}
         blurb="Which coding agents this app can start a session with."
         actions={<Button variant="default">Add an agent</Button>}
       />
