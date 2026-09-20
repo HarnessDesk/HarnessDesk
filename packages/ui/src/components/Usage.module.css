@@ -17,6 +17,10 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--usage-strip) + var(--hd-space-1-5));
+  /* The shared sticky heading introduced 16px below the pre-conversion band;
+     lifting this screen's layout restores the measured card position without
+     changing the shared PageHead or SectionHead rhythm. */
+  margin-top: calc(-1 * var(--hd-space-4));
 }
 
 .band {
