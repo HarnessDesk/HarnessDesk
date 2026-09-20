@@ -1745,6 +1745,56 @@ rules:
       await sleep(1800)
     } },
   })
+  /**
+   * Seating a conversation as an Agent: its brief is a real turn, but it must
+   * never appear as if a person had typed it — no bubble, no title drawn from
+   * it. `agent/seat` has no button yet, so this calls it the way `editor`
+   * calls `file/save`: straight through `store.transport`, which is a public
+   * field and exercises the real transcript and title the same as a click
+   * would once one exists.
+   */
+  const AGENT_HOME = join(HOME, 'agents', 'reviewer')
+  let agentKey = null
+  SCENES['agent'] = {
+    leaveOverlay: true,
+    expect: 'Reviewer',
+    run: async () => {
+      mkdirSync(AGENT_HOME, { recursive: true })
+      writeFileSync(
+        join(AGENT_HOME, 'AGENT.md'),
+        [
+          '---',
+          'name: Reviewer',
+          'permission: read',
+          'prefer: [codex]',
+          '---',
+          'Review the diff for correctness. Say one short sentence about what you would check first, then stop.',
+        ].join('\n'),
+      )
+      await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
+      const session = await cdp.json(`${STORE}.transport.request('agent/seat', ${q({ id: 'reviewer', cwd: REPO })})`, 60_000)
+      // `sessionKey`'s own format (`packages/protocol/src/ids.ts`): runtime, a NUL, the id.
+      agentKey = `${session.runtime}\u0000${session.id}`
+      await cdp.eval(`${STORE}.openSession(${q(String(session.id))}, ${q({ runtime: session.runtime })})`, 60_000)
+      await sleep(4000)
+    },
+    verify: async () => {
+      // The very defect this scene exists to prove absent, checked the same
+      // way the fix's own test does: the brief's turn item must never be a
+      // `userMessage` — read as something the person said — whatever text
+      // happens to be on screen. (A `notice` row legitimately still shows the
+      // brief's own words, dimmed, which is why this does not just grep the
+      // page for them.)
+      const items = await cdp.json(`(${STORE}.getSnapshot().sessions.get(${q(agentKey)})?.turns ?? []).flatMap(t => t.items).map(i => i.type)`)
+      if (!Array.isArray(items) || items.length === 0) throw new Error('agent: no turn items were read back for the seated conversation')
+      if (items.includes('userMessage')) throw new Error(`agent: the brief was recorded as userMessage — ${JSON.stringify(items)}`)
+      if (!items.includes('notice')) throw new Error(`agent: no notice item carries the brief — ${JSON.stringify(items)}`)
+    },
+    finish: () => {
+      agentKey = null
+      rmSync(AGENT_HOME, { recursive: true, force: true })
+    },
+  }
 
   /* ---------------------------------------------------------- evidence */
 

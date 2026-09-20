@@ -741,7 +741,7 @@ export class FakeSession implements AgentSession {
   /** Thrown by the next `send`, once — a turn the agent never accepted. */
   sendFailure: Error | null = null
 
-  async send(input: readonly UserContent[]): Promise<TurnId> {
+  async send(input: readonly UserContent[], opts?: { readonly recordAs?: 'user' | 'notice' }): Promise<TurnId> {
     if (this.sendFailure) {
       const failure = this.sendFailure
       this.sendFailure = null
@@ -761,7 +761,14 @@ export class FakeSession implements AgentSession {
       type: 'item/started',
       sessionId: this.id,
       turnId: id,
-      item: { id: itemId(`u-${this.#turn}`), type: 'userMessage', content: [...input] },
+      item:
+        opts?.recordAs === 'notice'
+          ? {
+              id: itemId(`u-${this.#turn}`),
+              type: 'notice',
+              text: input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
+            }
+          : { id: itemId(`u-${this.#turn}`), type: 'userMessage', content: [...input] },
     })
     this.host.emit({
       type: 'item/started',
