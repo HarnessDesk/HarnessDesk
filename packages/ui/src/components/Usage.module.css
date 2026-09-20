@@ -17,6 +17,11 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--usage-strip) + var(--hd-space-1-5));
+  /* Collapses with the page head's own bottom margin, so it is the whole
+     distance and not an addition to it: the first band's heading has to clear
+     the blurb by the height of the strip, or its background eats the last
+     line of it. */
+  margin-top: calc(var(--usage-strip) + var(--hd-space-2));
 }
 
 .band {
