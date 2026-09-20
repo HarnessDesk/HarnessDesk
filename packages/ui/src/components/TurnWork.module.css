@@ -52,10 +52,23 @@
 /* Trouble tints the whole line — a declined command must not read like a
    clean turn that happened to take four seconds. */
 .work[data-trouble] .headLabel,
-.work[data-trouble] .headReceipt,
 .work[data-trouble] .chevron,
 .work[data-trouble] .head:hover .headLabel {
   color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
+}
+
+.declinedReceipt,
+.failedReceipt {
+  flex: none;
+  white-space: nowrap;
+}
+
+.declinedReceipt {
+  color: var(--hd-warning-ink);
+}
+
+.failedReceipt {
+  color: var(--hd-danger-ink);
 }
 
 .chevron {

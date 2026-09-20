@@ -1,6 +1,6 @@
 /*
  * The worktree dialogs. A few shapes here rhyme with GitDialogs.module.css
- * (the stacked body, the inline refusal, the mode cards) rather than
+ * (the stacked body and the mode cards) rather than
  * importing them: a screen's stylesheet is not a library, and what deserves
  * promotion goes to design/ui or a named design/patterns contract instead.
  */
@@ -28,15 +28,6 @@
   padding: 16px;
   color: var(--hd-muted-foreground);
   font-size: var(--hd-text-sm);
-}
-
-.error {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  overflow-wrap: anywhere;
 }
 
 /* --- the list ------------------------------------------------------------ */

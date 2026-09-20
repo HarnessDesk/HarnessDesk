@@ -3,8 +3,7 @@ import { useMemo, useState } from 'react'
 import type { RuntimeId, UserContent } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
-import { Dialog } from '../design'
-import { Button, Textarea } from '../design'
+import { ActionError, Button, Dialog, Textarea } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon, CheckIcon } from './Icons'
 import { troubleHeadline, troublePrompt, type GitTrouble } from '../lib/git-trouble'
@@ -93,9 +92,9 @@ export const AskAgentDialog = ({
         <p className={styles.headline}>{troubleHeadline(trouble)}</p>
 
         {runtimes.length === 0 ? (
-          <div className={styles.error}>
+          <ActionError>
             No agents are set up yet, so there is nobody to ask. Add one in Settings first.
-          </div>
+          </ActionError>
         ) : (
           <div className={styles.agents} role="radiogroup" aria-label="Which agent">
             {runtimes.map((entry) => (

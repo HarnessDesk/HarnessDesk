@@ -5,6 +5,7 @@ import type { CapabilityContribution } from '@harnessdesk/protocol'
 import {
   bareToolName,
   shellCommandOf,
+  shortestUniquePathLabels,
   toolSentence,
   toolSentences,
   toolWords,
@@ -78,6 +79,71 @@ describe('toolSentence', () => {
 
   it('falls back to words for a tool nobody described', () => {
     expect(toolSentence('mcp__other__do_a_thing', sentences)).toBe('Do a thing')
+  })
+
+  it('names a file that was read', () => {
+    expect(toolSentence('Read', sentences, { kind: 'read', target: 'retry.ts' })).toBe(
+      'Read retry.ts',
+    )
+  })
+
+  it('names a pattern and its folder when files were searched', () => {
+    expect(
+      toolSentence('Grep', sentences, {
+        kind: 'search',
+        pattern: '50[0-9]',
+        folder: 'src/checkout',
+      }),
+    ).toBe('Searched for 50[0-9] in src/checkout')
+    expect(toolSentence('Grep', sentences, { kind: 'search', pattern: '50[0-9]' })).toBe(
+      'Searched for 50[0-9]',
+    )
+  })
+
+  it('names a file that was edited', () => {
+    expect(toolSentence('Edit', sentences, { kind: 'fileChange', target: 'retry.ts' })).toBe(
+      'Edited retry.ts',
+    )
+  })
+
+  it('names a file that was created', () => {
+    expect(toolSentence('Write', sentences, { kind: 'fileChange', target: 'retry.ts' })).toBe(
+      'Created retry.ts',
+    )
+  })
+
+  it('names the command behind its shell wrapper', () => {
+    expect(
+      toolSentence('Bash', sentences, {
+        kind: 'command',
+        command: shellCommandOf(`/bin/zsh -lc 'pnpm test'`),
+      }),
+    ).toBe('Ran pnpm test')
+  })
+
+  it('names a web search and its query', () => {
+    expect(
+      toolSentence('web_search', sentences, { kind: 'webSearch', query: 'checkout retries' }),
+    ).toBe('Searched the web for checkout retries')
+  })
+})
+
+describe('shortestUniquePathLabels', () => {
+  it('uses only as much of duplicate base names as tells them apart', () => {
+    const labels = shortestUniquePathLabels([
+      'src/checkout/retry.ts',
+      'src/billing/retry.ts',
+      'src/checkout/client.ts',
+    ])
+
+    expect(labels.get('src/checkout/retry.ts')).toBe('checkout/retry.ts')
+    expect(labels.get('src/billing/retry.ts')).toBe('billing/retry.ts')
+    expect(labels.get('src/checkout/client.ts')).toBe('client.ts')
+  })
+
+  it('does not make repeated mentions of the same path look ambiguous', () => {
+    const labels = shortestUniquePathLabels(['src/checkout/retry.ts', 'src/checkout/retry.ts'])
+    expect(labels.get('src/checkout/retry.ts')).toBe('retry.ts')
   })
 })
 

@@ -1,6 +1,13 @@
 import { useState, type JSX } from 'react'
 
+import type { AgentItem } from '@harnessdesk/protocol'
+
 import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { DiffView } from '../../components/Diff'
+import { ItemView } from '../../components/Items'
+import { Markdown } from '../../components/Markdown'
+import { StoreProvider } from '../../state/context'
+import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   Alert,
   AlertContent,
@@ -8,12 +15,15 @@ import {
   AlertTitle,
   Banner,
   BannerAction,
+  ActionError,
   Button,
   AgentCard,
   ApprovalDialog,
   ChannelMessage,
   ChannelSignal,
   Chip,
+  CodeBlock,
+  CopyButton,
   ConfirmDialog,
   DetailHead,
   Face,
@@ -68,7 +78,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
+const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
 const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
@@ -366,6 +376,7 @@ const BannerBoard = () => (
           </AlertContent>
         </Alert>
       ))}
+      <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>
@@ -415,6 +426,84 @@ const BannerBoard = () => (
       settling that in the banner&rsquo;s favour would look like.
     </p>
   </>
+)
+
+/* The prose renderer reads the app's theme through the store, and this page
+   has none; it gets the empty desk's snapshot, kept in one place so the store
+   hands back the same object each time it is asked. */
+const catalogueSnapshot = emptySnapshot()
+const catalogueStore = { subscribe: () => () => {}, getSnapshot: () => catalogueSnapshot } as unknown as AppStore
+const CATALOGUE_DIFF = [
+  'diff --git a/src/new.ts b/src/new.ts',
+  'new file mode 100644',
+  'index 0000000..734dfc9',
+  '--- /dev/null',
+  '+++ b/src/new.ts',
+  '@@ -0,0 +1,2 @@',
+  '+export const opened = true',
+  '+export const count = 2',
+  'diff --git a/src/existing.ts b/src/existing.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/existing.ts',
+  '+++ b/src/existing.ts',
+  '@@ -8,2 +8,2 @@',
+  '-const label = "Before"',
+  '+const label = "After"',
+  ' render(label)',
+].join('\n')
+
+const CATALOGUE_INLINE_EDIT = {
+  id: 'catalogue-inline-edit',
+  type: 'toolCall',
+  tool: 'Edit src/existing.ts',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: {
+    file_path: '/workspace/src/existing.ts',
+    old_string: 'const label = "Before"',
+    new_string: 'const label = "After"',
+  },
+} as AgentItem
+
+const CodeBoard = () => (
+  <div className={styles.stack}>
+    <Case label="command, output, and failure">
+      <div className="w-full" data-testid="code-block-sample">
+        <CodeBlock
+          command="pnpm --filter @harnessdesk/ui exec vitest run src/components/Items"
+          output={'Tests 1 failed\nDuration 1.8s'}
+          exitCode={1}
+        />
+      </div>
+    </Case>
+    <Case label="the copy control">
+      <CopyButton text="pnpm verify" label="Copy this command" />
+    </Case>
+    <Case label="the same plate in prose">
+      <div className="w-full" data-testid="markdown-code-sample">
+        <StoreProvider store={catalogueStore}>
+          <Markdown text={'```ts\nconst opened = true\n```'} />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="two hunks, including a new file">
+      <div className="w-full" data-testid="diff-sample">
+        <DiffView diff={CATALOGUE_DIFF} />
+      </div>
+    </Case>
+    <Case label="the same plate in an opened step">
+      <div className="w-full" data-testid="inline-diff-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_INLINE_EDIT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <p className={styles.rule}>
+      A command and what it printed are one exact record, so they share one
+      plate and one code register. Prose keeps its horizontal scroll because a
+      source line is not a shell command and should not be reflowed.
+    </p>
+  </div>
 )
 
 const DialogBoard = () => {
@@ -720,6 +809,12 @@ export const BOARDS: Board[] = [
     title: 'Banner',
     about: 'Something the app needs to say that nobody asked for.',
     render: BannerBoard,
+  },
+  {
+    id: 'code',
+    title: 'CodeBlock',
+    about: 'A command and its output, kept together as one exact record.',
+    render: CodeBoard,
   },
   {
     id: 'channel',

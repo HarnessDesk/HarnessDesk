@@ -8,8 +8,15 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { useStore } from '../state/context'
-import { Dialog } from '../design'
-import { Button, Input, NativeSelect, Switch } from '../design'
+import {
+  ActionError,
+  Button,
+  Dialog,
+  Field,
+  Input,
+  NativeSelect,
+  Switch,
+} from '../design'
 import {
   BranchIcon,
   CommitIcon,
@@ -271,7 +278,9 @@ export const WorktreeDialog = ({
           </div>
         )}
 
-        {error && <div className={styles.error}>{error}</div>}
+        {error && (
+          <ActionError>{error}</ActionError>
+        )}
       </div>
     </Dialog>
   )
@@ -670,25 +679,34 @@ export const AddWorktreeDialog = ({
         )}
 
         {kind === 'existing' && (
-          <label className={styles.field}>
-            <span className={styles.label}>Branch</span>
-            <NativeSelect
-              variant="filled" controlSize="compact"
-              value={pick}
-              aria-label="Which branch to check out"
-              onChange={(event) => setExisting(event.target.value)}
-            >
-              {branches.length === 0 && <option value="">No branches yet</option>}
-              {branches.map((entry) => {
-                const where = held.get(entry.name)
-                return (
-                  <option key={entry.name} value={entry.name} disabled={where !== undefined}>
-                    {where ? `${entry.name} — already in ${folderOf(where)}` : entry.name}
-                  </option>
-                )
-              })}
-            </NativeSelect>
-          </label>
+          <Field
+            label="Branch"
+            error={
+              taken
+                ? `${pick} is already checked out in ${folderOf(taken)}; a branch lives in one worktree at a time.`
+                : undefined
+            }
+          >
+            {(control) => (
+              <NativeSelect
+                {...control}
+                variant="filled" controlSize="compact"
+                value={pick}
+                aria-label="Which branch to check out"
+                onChange={(event) => setExisting(event.target.value)}
+              >
+                {branches.length === 0 && <option value="">No branches yet</option>}
+                {branches.map((entry) => {
+                  const where = held.get(entry.name)
+                  return (
+                    <option key={entry.name} value={entry.name} disabled={where !== undefined}>
+                      {where ? `${entry.name} — already in ${folderOf(where)}` : entry.name}
+                    </option>
+                  )
+                })}
+              </NativeSelect>
+            )}
+          </Field>
         )}
 
         {kind === 'detach' && (
@@ -732,12 +750,9 @@ export const AddWorktreeDialog = ({
           <span>Open it here once it is made.</span>
         </div>
 
-        {taken && (
-          <div className={styles.error}>
-            {pick} is already checked out in {folderOf(taken)}; a branch lives in one worktree at a time.
-          </div>
+        {error && (
+          <ActionError>{error}</ActionError>
         )}
-        {error && <div className={styles.error}>{error}</div>}
       </div>
     </Dialog>
   )

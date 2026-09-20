@@ -258,13 +258,39 @@
  * with shiki's — `block.parentElement?.replaceWith(shiki)`, and shiki's root
  * element is itself a `<pre class="shiki github-light">`.
  */
-.markdown pre {
+.codeBlock {
   margin: 0 0 var(--prose-gap, 16px); /* desk: 12 → 16, the block gap; see the rhythm note at the head of this file */
-  padding: 0;
-  border-radius: var(--hd-radius);
+  border-radius: var(--hd-code-radius);
   overflow: hidden;
-  background: var(--hd-muted);
-  box-shadow: var(--hd-hairline);
+  background: var(--hd-code-fill);
+  box-shadow: var(--hd-code-edge);
+}
+
+.codeHeader {
+  display: flex;
+  align-items: center;
+  min-height: var(--hd-icon-target);
+  padding: var(--hd-space-2) var(--hd-code-inset) 0;
+  color: var(--hd-muted-foreground);
+  font-family: var(--hd-font-family);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+}
+
+.codeHeader [data-code-language] {
+  margin-right: auto;
+}
+
+.codeCopy {
+  margin: calc(var(--hd-space-1) * -1);
+  margin-left: auto;
+}
+
+.markdown pre {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent; /* desk: var(--hd-code-fill) → transparent, the outer code plate owns the shared fill */
 }
 
 /*
@@ -282,20 +308,43 @@
  * nothing.
  */
 .markdown pre:global(.shiki) {
-  background: var(--hd-muted) !important;
+  background: var(--hd-code-fill) !important;
 }
 
 /* The text inside, from either renderer: shiki's `<code>` is a child of its
    own `pre`, ours is a child of ours, and this reaches both. */
 .markdown pre code {
   display: block;
-  padding: var(--prose-gap, 16px); /* desk: 12px 14px → the gap, on all four sides */
+  padding: var(--hd-code-inset); /* desk: 16 → 12, the shared code-plate inset */
   border-radius: 0;
   background: none;
   box-shadow: none;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 20 → 18, the line the 13px step is set on */
+  font-size: var(--hd-code-text); /* desk: 13 → 12, one code size across prose and steps */
+  line-height: var(--hd-code-line);
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.codeBlock:hover pre code,
+.codeBlock:focus-within pre code,
+.codeBlock[data-scrolling] pre code {
+  scrollbar-color: var(--hd-scrollbar-fill) transparent;
+}
+
+.markdown pre code::-webkit-scrollbar {
+  height: var(--hd-scrollbar-width);
+}
+
+.markdown pre code::-webkit-scrollbar-thumb {
+  border-radius: var(--hd-radius-full);
+  background: transparent;
+}
+
+.codeBlock:hover pre code::-webkit-scrollbar-thumb,
+.codeBlock:focus-within pre code::-webkit-scrollbar-thumb,
+.codeBlock[data-scrolling] pre code::-webkit-scrollbar-thumb {
+  background: var(--hd-scrollbar-fill);
 }
 
 /* --- tables --------------------------------------------------------------

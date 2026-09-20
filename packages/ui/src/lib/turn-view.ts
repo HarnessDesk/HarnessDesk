@@ -1,4 +1,4 @@
-import type { AgentItem, FileChange, Turn } from '@harnessdesk/protocol'
+import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
 import { countFileChange } from './diff'
@@ -29,6 +29,15 @@ export interface TurnView {
 
 const isAnswer = (item: AgentItem): boolean =>
   item.type === 'assistantMessage' && item.phase !== 'commentary'
+
+/** The status a reader sees after a step has supplied its final result. */
+export const effectiveItemStatus = (item: AgentItem): ItemStatus | undefined => {
+  if (!('status' in item)) return undefined
+  if (item.status !== 'completed') return item.status
+  if (item.type === 'toolCall' && item.error) return 'failed'
+  if (item.type === 'command' && typeof item.exitCode === 'number' && item.exitCode !== 0) return 'failed'
+  return item.status
+}
 
 /**
  * What opens a turn: the person's message, or a notice standing in for one —
@@ -187,8 +196,12 @@ export interface TurnWorkLine {
    * to say.
    */
   readonly receipt: string
-  /** Something went wrong: the head takes the warn tone and the work stays open. */
+  /** Something went wrong: the head keeps its warning posture while folded. */
   readonly trouble: boolean
+  /** Failed steps, kept separate so the receipt can use danger ink. */
+  readonly failed: number
+  /** Declined steps, kept separate because refusal is not failure. */
+  readonly declined: number
   /**
    * The work carries steps the agent described in its own words, so it reads
    * back standing rather than folded: the sentences are the record, and a
@@ -285,7 +298,7 @@ const tally = (work: readonly AgentItem[]): string[] => {
 }
 
 /** Steps that ended badly, in the words the header uses for them. */
-const troubles = (work: readonly AgentItem[]): string[] => {
+const troubles = (work: readonly AgentItem[]): { readonly failed: number; readonly declined: number } => {
   let failed = 0
   let declined = 0
   /* `summariseTurn` calls a completed command with a non-zero exit a failure
@@ -293,18 +306,11 @@ const troubles = (work: readonly AgentItem[]): string[] => {
      line above it stayed untinted and folded a turn whose tests had just gone
      red. The two now agree on what went wrong. */
   for (const item of work) {
-    if (!('status' in item)) continue
-    if (item.status === 'declined') declined += 1
-    else if (item.status === 'failed') failed += 1
-    else if (item.type === 'toolCall' && item.error) failed += 1
-    else if (item.type === 'command' && typeof item.exitCode === 'number' && item.exitCode !== 0) {
-      failed += 1
-    }
+    const status = effectiveItemStatus(item)
+    if (status === 'declined') declined += 1
+    else if (status === 'failed') failed += 1
   }
-  const parts: string[] = []
-  if (declined > 0) parts.push(`${plural(declined, 'step')} declined`)
-  if (failed > 0) parts.push(`${plural(failed, 'step')} failed`)
-  return parts
+  return { failed, declined }
 }
 
 /**
@@ -313,8 +319,9 @@ const troubles = (work: readonly AgentItem[]): string[] => {
  * Trouble is the reason this is not merely cosmetic. A turn that was blocked,
  * declined or interrupted folds away exactly like a clean one unless something
  * says otherwise, and a UI that hides a blocked command behind "Worked for 4s"
- * is quiet rather than reliable. So trouble tints the line, keeps its count,
- * and holds the work open.
+ * is quiet rather than reliable. The receipt keeps declined and failed counts
+ * distinct so the closed fold can state both without opening thousands of
+ * pixels of output.
  */
 export const describeTurnWork = (
   turn: Turn,
@@ -338,13 +345,13 @@ export const describeTurnWork = (
         : 'Worked'
 
   const hurt = troubles(work)
-  const trouble = !running && (hurt.length > 0 || turn.status === 'failed')
+  const trouble = !running && (hurt.failed > 0 || hurt.declined > 0 || turn.status === 'failed')
   const said = work.map(describedTitle).filter((title): title is string => title !== null)
   const informative = said.length > 0
 
   // While it runs the live line already says what is happening; a count that
   // changes every second under it is noise, not information.
-  if (running) return { head, receipt: '', trouble: false, informative }
+  if (running) return { head, receipt: '', trouble: false, failed: 0, declined: 0, informative }
 
   // The sentences first, as the agent wrote them; then the count of what it
   // did not describe. Codex folds a two-minute turn to "Worked for 2m 04s"
@@ -352,12 +359,12 @@ export const describeTurnWork = (
   // screen. This line is the folded case's answer to both: what a person
   // scrolling back is looking for, on the one line that stands for the turn.
   const rest = work.filter((item) => !isDescribed(item))
-  const counted = [...tally(rest), ...hurt]
+  const counted = tally(rest)
   const parts = [...(said.length > 0 ? [said.join(' · ')] : []), ...(counted.length > 0 ? [counted.join(', ')] : [])]
   // An interrupted turn is asked one question above all others, and the items
   // answer it: nothing was written, or these files were.
   if (turn.status === 'interrupted' && parts.length === 0) {
-    return { head, receipt: 'nothing was written', trouble, informative }
+    return { head, receipt: 'nothing was written', trouble, informative, ...hurt }
   }
-  return { head, receipt: parts.join(' · '), trouble, informative }
+  return { head, receipt: parts.join(' · '), trouble, informative, ...hurt }
 }
