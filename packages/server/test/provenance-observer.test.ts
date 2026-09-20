@@ -270,6 +270,57 @@ test('plane disables, re-enables, forgets and closes independent projects withou
   assert.deepEqual(await empty.status(), [])
 })
 
+test('a saved enable preference publishes stopped health when admission fails afterwards', async () => {
+  const repo = await makeRepo()
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const notices: import('@harnessdesk/protocol').CaptureHealth[] = []
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
+    stateDir: repo.stateDir, projects: () => [repo.dir],
+    push: (notice) => { if (notice.method === 'provenance/changed') notices.push(notice.params.health) }, log: () => {},
+  })
+  try {
+    await plane.start()
+    await waitUntil(async () => (await plane.status()).length === 1, 'project registration')
+    await plane.setCapture(repo.dir, false)
+    await rm(join(repo.dir, '.git'), { recursive: true, force: true })
+    await assert.rejects(plane.setCapture(repo.dir, true))
+    const health = (await plane.status(repo.dir))[0]
+    assert.equal(health?.enabled, true)
+    assert.equal(health?.state, 'stopped')
+    assert.equal(notices.at(-1)?.enabled, true)
+    assert.equal(notices.at(-1)?.state, 'stopped')
+  } finally {
+    await plane.close()
+  }
+})
+
+test('a registered linked checkout reads, toggles, and retries its canonical project capture', async () => {
+  const repo = await makeRepo()
+  const head = await repo.commitTree(null, { 'work.ts': 'export const work = true\n' }, 'head')
+  await repo.git('update-ref', 'refs/heads/main', head)
+  const linked = join(repo.stateDir, 'linked-checkout')
+  await repo.git('worktree', 'add', '--detach', linked, head)
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
+    stateDir: repo.stateDir, projects: () => [repo.dir, linked], push: () => {}, log: () => {},
+  })
+  try {
+    await plane.start()
+    await waitUntil(async () => (await plane.status()).length === 1, 'canonical project registration')
+    assert.equal((await plane.status(linked))[0]?.project, repo.dir)
+    await plane.setCapture(linked, false)
+    assert.equal((await plane.status(repo.dir))[0]?.enabled, false)
+    await plane.setCapture(linked, true)
+    assert.equal((await plane.status(linked))[0]?.enabled, true)
+    await plane.retry(linked)
+    assert.equal((await plane.status(repo.dir))[0]?.project, repo.dir)
+  } finally {
+    await plane.close()
+  }
+})
+
 
 test('restart rebuilds a local fact from durable fingerprints after its original object disappears', async () => {
   const repo = await makeRepo()

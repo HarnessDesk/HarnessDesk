@@ -398,10 +398,16 @@ export class ProvenancePlane {
       })
       await this.#load(state)
       if (enabled && !this.#closed && this.#roots.includes(root)) {
-        state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
-        state.fatal = false
-        state.issues.clear()
-        await this.#open(state)
+        try {
+          state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+          state.fatal = false
+          state.issues.clear()
+          await this.#open(state)
+        } catch (error) {
+          state.handle = null
+          this.#problem(state, 'stopped', 'external-metadata')
+          throw error
+        }
       }
       this.#publish(state)
       return state.health
@@ -427,7 +433,13 @@ export class ProvenancePlane {
       const preference = this.#preferences.get(state.project)
       if (preference.problem) this.#problem(state, 'stopped', preference.problem)
       if (preference.enabled && !this.#closed) {
-        state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+        try {
+          state.handle = await admitProject(root, this.#port.stateDir, this.#roots)
+        } catch (error) {
+          state.handle = null
+          this.#problem(state, 'stopped', 'external-metadata')
+          throw error
+        }
       }
       await this.#open(state)
       this.#publish(state)
