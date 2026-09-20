@@ -272,8 +272,31 @@ for (const [look, theme] of [
 
     // The sticky heading's words start one spacing step above the pre-fix
     // position, which returns the first card to the measured pre-conversion band.
+    expect.soft(measurement.blurbToHeading).toBeGreaterThanOrEqual(54)
     expect.soft(measurement.blurbToHeading).toBeLessThanOrEqual(56)
     expect(measurement.headingToCard).toBeGreaterThan(0)
+
+    const sticky = await firstBand.evaluate(node => {
+      const page = node.closest<HTMLElement>('[data-slot="app-window-page"]')!
+      page.scrollTop = page.scrollHeight
+      const words = document.createRange()
+      words.selectNodeContents(node)
+      const text = words.getBoundingClientRect()
+      const pageBox = page.getBoundingClientRect()
+      return {
+        scrollTop: page.scrollTop,
+        textTop: text.top,
+        pageTop: pageBox.top,
+        offset: text.top - pageBox.top,
+      }
+    })
+    await testInfo.attach('dashboard-sticky-layout', { body: JSON.stringify(sticky, null, 2), contentType: 'application/json' })
+    // Scrolling the page must leave the first sticky band's words in the page
+    // viewport: Desk reserves its 26px title strip, while Studio reaches the
+    // page edge. A static heading would be above both after this full scroll.
+    expect(sticky.scrollTop).toBeGreaterThan(0)
+    expect(sticky.offset).toBeGreaterThanOrEqual(0)
+    expect(sticky.offset).toBeLessThanOrEqual(27)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     for (const reading of ['78%']) {
       expect(measurement.figures.find(figure => figure.reading === reading)?.color, reading).toBe(measurement.foreground)
