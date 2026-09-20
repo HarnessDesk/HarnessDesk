@@ -64,7 +64,7 @@ export const EvidenceChips = ({
           <FactChipView
             key={one.key}
             chip={one}
-            className="h-auto min-h-(--hd-chip-h) max-w-full py-1 leading-(--hd-line-sm) whitespace-normal [&_[data-slot=chip-words]]:break-words"
+            className="h-auto! min-h-(--hd-chip-h) max-w-full! py-1! leading-(--hd-line-sm)! whitespace-normal! [&_[data-slot=chip-words]]:break-words!"
           />
         ))}
       </Button>

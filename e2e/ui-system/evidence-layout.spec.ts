@@ -4,6 +4,14 @@ test('stale evidence wraps every readable chip inside its narrow board card', as
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/preview.html')
 
+  /* Production bundles the Chip module after the utility sheet, while Vite's
+     development graph happens to put the utilities last. Reproduce the
+     shipped cascade: a screen-level wrapping utility has to survive Chip's
+     canonical one-line rule, not merely win in the dev server. */
+  await page.addStyleTag({
+    content: '[data-tone] { height: var(--hd-chip-h); line-height: 1; white-space: nowrap; }',
+  })
+
   const frame = page.getByRole('heading', { name: 'Board — what the desk observed' }).locator('..')
   const card = frame.locator('[data-slot="board-card"]').filter({ hasText: 'Cap the backoff and add jitter' })
   const evidence = card.getByRole('button', { name: /What the desk observed on #2:/ })
@@ -24,6 +32,12 @@ test('stale evidence wraps every readable chip inside its narrow board card', as
     if (!chipBox) throw new Error('a stale evidence chip was not laid out')
     expect(chipBox.x).toBeGreaterThanOrEqual(cardBox.x)
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
-  }
 
+    const words = chip.locator('[data-slot="chip-words"]')
+    const wordsBox = await words.boundingBox()
+    if (!wordsBox) throw new Error('a stale evidence chip has no readable words')
+    expect(wordsBox.x).toBeGreaterThanOrEqual(chipBox.x)
+    expect(wordsBox.x + wordsBox.width).toBeLessThanOrEqual(chipBox.x + chipBox.width)
+    expect(await words.evaluate((node) => getComputedStyle(node.parentElement!).whiteSpace)).toBe('normal')
+  }
 })
