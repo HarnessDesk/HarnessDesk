@@ -92,7 +92,7 @@ export const ConversationMap = ({
   return (
     <nav
       ref={rail}
-      className={styles.rail}
+      className={`${styles.rail} pl-(--hd-space-2)`}
       aria-label="Jump to a message"
       onPointerMove={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
@@ -121,8 +121,18 @@ export const ConversationMap = ({
           >
             {/* The dash is the drawing; the control around it is the target,
                 because two pixels is not something anybody can hit. */}
-            <span aria-hidden className={styles.dash} />
-            {near > SNAP / RADIUS && <span className={styles.preview}>{mark.preview}</span>}
+            <span
+              aria-hidden
+              className={`${styles.dash} h-(--hd-space-0-5) rounded-full`}
+              style={{ background: mark.kind === 'prompt' ? 'var(--hd-foreground)' : 'var(--hd-muted-foreground)' }}
+            />
+            {near > SNAP / RADIUS && (
+              <span
+                className={`${styles.preview} max-h-[calc(var(--hd-line-sm)*4)] p-(--hd-space-2) px-(--hd-space-2-5) rounded-(--hd-radius-md) bg-(--hd-card) shadow-(--hd-shadow) text-(--hd-foreground) text-sm leading-(--hd-line-sm)`}
+              >
+                {mark.preview}
+              </span>
+            )}
           </Button>
         )
       })}

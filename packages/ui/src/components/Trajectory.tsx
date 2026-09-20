@@ -188,15 +188,15 @@ export const Trajectory = ({
   return (
     <>
       {overview.segments.length > 0 && (
-        <div className={styles.overview}>
-          <div className={styles.overviewLabel}>
+        <div className={`${styles.overview} py-2.5 px-3 border-b border-(--hd-border)`}>
+          <div className="mb-1.5 text-sm text-(--hd-secondary-foreground)">
             Where the time went · {formatMs(overview.measured)} measured
           </div>
-          <div className={styles.bar}>
+          <div className={`${styles.bar} h-2 rounded-(--hd-radius-xs) bg-(--hd-muted)`}>
             {overview.segments.map((segment) => (
               <span
                 key={segment.kind}
-                className={styles.segment}
+                className={`${styles.segment} h-full`}
                 style={{
                   width: `${segment.share * 100}%`,
                   background: KIND_COLOUR[segment.kind] ?? 'var(--hd-muted-foreground)',
@@ -205,11 +205,11 @@ export const Trajectory = ({
               />
             ))}
           </div>
-          <div className={styles.legend}>
+          <div className={`${styles.legend} mt-2 text-xs text-(--hd-muted-foreground) tabular-nums`}>
             {overview.segments.map((segment) => (
               <span key={segment.kind} className={styles.legendItem}>
                 <span
-                  className={styles.swatch}
+                  className={`${styles.swatch} h-2 rounded-(--hd-radius-2xs)`}
                   style={{ background: KIND_COLOUR[segment.kind] ?? 'var(--hd-muted-foreground)' }}
                 />
                 {KIND_LABEL[segment.kind] ?? segment.kind}
@@ -220,11 +220,11 @@ export const Trajectory = ({
         </div>
       )}
 
-      <div className={styles.list}>
+      <div className={`${styles.list} py-1.5 px-2 pb-5`}>
         {filtered.length === 0 && <PanelEmpty>No steps match that filter.</PanelEmpty>}
         {filtered.map(({ turn, items }) => (
           <div key={turn.id}>
-            <div className={styles.turnLabel}>
+            <div className="sticky top-0 z-1 py-2 px-1.5 pb-1 text-sm text-(--hd-secondary-foreground) bg-(--hd-background)">
               Turn {turns.indexOf(turn) + 1}
               {turn.durationMs ? ` · ${formatMs(turn.durationMs)}` : ''}
               {turn.status !== 'completed' ? ` · ${turn.status}` : ''}
@@ -232,18 +232,18 @@ export const Trajectory = ({
             {items.map((item) => {
               const duration = durationOf(item)
               return (
-                <div key={item.id} className={styles.row}>
-                  <span className={styles.role}>{ROLE[item.type] ?? item.type}</span>
-                  <span className={styles.rowDot} style={{ background: colourOf(item) }} />
+                <div key={item.id} className={`${styles.row} py-1 px-1.5 rounded-(--hd-radius-sm) text-sm hover:bg-(--hd-hover)`}>
+                  <span className={`${styles.role} text-xs font-semibold tracking-[0.05em] uppercase text-(--hd-muted-foreground)`}>{ROLE[item.type] ?? item.type}</span>
+                  <span className={`${styles.rowDot} h-[7px] rounded-(--hd-radius-2xs)`} style={{ background: colourOf(item) }} />
                   <span
                     className={`${styles.rowLabel} ${
-                      item.type === 'command' || item.type === 'toolCall' ? styles.rowMono : ''
+                      item.type === 'command' || item.type === 'toolCall' ? 'font-(family-name:--hd-font-code) text-xs' : ''
                     }`}
                     title={labelOf(item)}
                   >
                     {labelOf(item)}
                   </span>
-                  <span className={styles.rowTime}>{duration ? formatMs(duration) : ''}</span>
+                  <span className="flex-none text-xs text-(--hd-muted-foreground) tabular-nums">{duration ? formatMs(duration) : ''}</span>
                 </div>
               )
             })}

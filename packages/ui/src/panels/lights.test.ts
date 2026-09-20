@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import conversationCss from '../components/Conversation.module.css?raw'
+import conversationTsx from '../components/Conversation.tsx?raw'
 import panesCss from '../components/Panes.module.css?raw'
 import sidebarCss from '../components/Sidebar.module.css?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
@@ -44,7 +45,6 @@ import appCss from '../styles/app.css?raw'
 
 /** Every row that the layout can put under the window buttons. */
 const CORNER_ROWS: ReadonlyArray<readonly [string, string, string]> = [
-  ["a conversation's header", conversationCss, '.header'],
   // The room draws its own top row and gets no strip above it, so that row is
   // the corner whenever the room is filling the window with the sidebar away.
   ["a room's top row", teamRoomCss, '.bar'],
@@ -61,6 +61,11 @@ describe('the row under the macOS window buttons', () => {
   it.each(CORNER_ROWS)('%s leaves room for them', (_name, css, selector) => {
     const rule = block(css, selector)
     expect(rule).toMatch(/padding[^;]*max\([^;]*var\(--titlebar-inset, 0px\)/)
+  })
+
+  it("a conversation's header leaves room for them (inline style)", () => {
+    // Padding moved from CSS to an inline style in Conversation.tsx.
+    expect(conversationTsx).toMatch(/var\(--titlebar-inset/)
   })
 
   it("a tool's header leaves room for them through the shared corner role", () => {

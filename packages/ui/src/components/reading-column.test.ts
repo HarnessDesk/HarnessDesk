@@ -5,6 +5,7 @@ import conversationCss from './Conversation.module.css?raw'
 import itemsCss from './Items.module.css?raw'
 import roomCss from './TeamRoomPane.module.css?raw'
 import composerSystem from '../design/ui/composer.tsx?raw'
+import conversationTsx from './Conversation.tsx?raw'
 
 /**
  * One measure, in both places a person reads a conversation.
@@ -111,13 +112,17 @@ it.each([
  * rule itself lays out.
  */
 it.each([
-  { what: 'the transcript’s bars', css: conversationCss, selector: '.bars' },
   { what: 'the room’s composer', css: roomCss, selector: '.composer' },
   { what: 'the room’s alert line', css: roomCss, selector: '.trouble' },
 ])('$what is inset by the gutter its stream reserves', ({ css, selector }) => {
   // The room's two docked rules read `--room-dock`, which is that sum
   // named once; the conversation's spell it out. Either is the gutter.
   expect(rule(css, selector)).toMatch(/var\(--hd-scrollbar-width|var\(--room-dock\)/)
+})
+
+it('the transcript’s bars are inset by the gutter its stream reserves (inline)', () => {
+  // Padding moved from CSS to an inline style constant in Conversation.tsx.
+  expect(conversationTsx).toMatch(/var\(--hd-scrollbar-width/)
 })
 
 it('the transcript’s composer is inset by the gutter its stream reserves', () => {

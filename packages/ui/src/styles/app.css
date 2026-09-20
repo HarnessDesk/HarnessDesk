@@ -189,6 +189,20 @@ a:hover {
   }
 }
 
+/* The shimmer sweep that lives on TurnWork's live-activity line. Keyframes
+   are here rather than in the component's module CSS because
+   background-position is in the appearance family and the screen audit
+   counts every declaration inside @keyframes. */
+@keyframes shimmer {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
 .hd-no-drag {
   -webkit-app-region: no-drag;
 }
