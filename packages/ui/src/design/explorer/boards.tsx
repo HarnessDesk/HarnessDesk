@@ -410,6 +410,11 @@ const RowBoard = () => {
   return (
     <>
       <div className={styles.stack}>
+        <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
+        <PageHead
+          title={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+          blurb="Settings for this desk."
+        />
         <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
         <SectionHead
           sticky
