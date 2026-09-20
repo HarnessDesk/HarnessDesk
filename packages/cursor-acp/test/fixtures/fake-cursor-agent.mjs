@@ -43,6 +43,7 @@ if (argv[0] === 'models') {
       'brain-9-low - Brain 9 Low\nbrain-9-high - Brain 9\nbrain-9-high-fast - Brain 9 Fast\n' +
       'brain-9-thinking-low - Brain 9 Low Thinking\nbrain-9-thinking-high - Brain 9 Thinking\n' +
       'brain-9-max - Brain 9 Max\n' +
+      'gemini-3.8-flash-low - Gemini 3.8 Flash Low\ngemini-3.8-flash-medium - Gemini 3.8 Flash Medium\ngemini-3.8-flash-high - Gemini 3.8 Flash High\n' +
       // FAKE_CURSOR_EXTRA_MODELS names a file of `id - label` lines that
       // plays models Cursor added after the bridge started: read on every
       // ask, so a test can add one between two asks.
@@ -85,6 +86,24 @@ if (prompt.includes('flaky-start')) {
     // The refusal, and one diagnostic line after it — the real CLI does not
     // always die on its last word, and the bridge reads a tail, not a line.
     process.stderr.write(`Cannot use this model: ${model}. Available models: \nexiting\n`)
+    process.exit(1)
+  }
+}
+// A newer Cursor catalogue failure calls the requested model invalid even
+// though the next catalogue read accepts it. It too happens before output.
+if (prompt.includes('modern-model-not-found')) {
+  const counter = process.env.FAKE_CURSOR_MODERN_FLAKY_COUNTER ?? join(process.cwd(), '.modern-flaky-count')
+  if (model !== 'gemini-3.8-flash-high') {
+    process.stderr.write(`expected the selected Gemini variant, received: ${model}\n`)
+    process.exit(1)
+  }
+  let n = 0
+  try {
+    n = Number(readFileSync(counter, 'utf8')) || 0
+  } catch {}
+  writeFileSync(counter, String(n + 1))
+  if (n < 2) {
+    process.stderr.write(`ActionRequiredError: AI Model Not Found Model name is not valid: "${model}"\n`)
     process.exit(1)
   }
 }

@@ -448,7 +448,7 @@ const START_RETRY_MS = Math.max(0, Number(process.env['CURSOR_ACP_START_RETRY_MS
  * one diagnostic line after the refusal would hide it.
  */
 const STARTUP_TRANSIENT =
-  /Available models:\s*(?:$|·)|Unexpected end of JSON input|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|Too Many Requests|\b429\b|rate limit/i
+  /Available models:\s*(?:$|·)|AI Model Not Found.*Model name is not valid|Unexpected end of JSON input|fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|socket hang up|Too Many Requests|\b429\b|rate limit/i
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 

@@ -1252,6 +1252,29 @@ test('a CLI that dies before its first word is started again, and the turn compl
   }
 })
 
+test('a current Cursor model-not-found startup failure is retried', async () => {
+  const counter = join(tempDir('cursor-acp-modern-flaky-'), 'count')
+  const runtime = new AcpRuntime({
+    id: 'cursor',
+    name: 'Cursor Agent',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CURSOR_ACP_COMMAND: FAKE, CURSOR_ACP_STATE_DIR: STATE, CURSOR_CONFIG_DIR: CURSOR_HOME, FAKE_CURSOR_MODERN_FLAKY_COUNTER: counter, CURSOR_ACP_START_RETRY_MS: '100' },
+  })
+  await runtime.start()
+  const tape = record(runtime)
+  try {
+    const session = await runtime.createSession({ cwd: WORKDIR })
+    await session.setOption('model', 'gemini-3.8-flash')
+    await session.send([{ type: 'text', text: 'modern-model-not-found: say hello' }])
+    const turn = completedTurn(await tape.until((event) => event.type === 'turn/completed'))
+    assert.equal(turn.status, 'completed', turn.error?.message)
+    assert.equal(readFileSync(counter, 'utf8'), '3', 'two transient refusals, then the boot that answered')
+  } finally {
+    await runtime.dispose()
+  }
+})
+
 test('a refusal that names the models the account offers is the account\'s answer, and is not retried', async () => {
   const log = join(tempDir('cursor-acp-named-'), 'spawns')
   const runtime = new AcpRuntime({
