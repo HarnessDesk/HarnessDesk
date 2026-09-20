@@ -681,13 +681,13 @@
   min-width: 0;
 }
 
-/* A page names a place at 24px regular. The app's own wordmark is the sole
-   20px semibold name; keeping those roles separate prevents a fifth spelling. */
+/* A page title and the app's own name carry the same role: one 20px semibold
+   heading, rather than the page outsizing the wordmark that leads to it. */
 .pageTitle {
-  font-size: var(--hd-title); /* desk: --hd-heading → --hd-title, the canonical page spelling */
-  line-height: var(--hd-line-title); /* desk: --hd-line-heading → --hd-line-title, with the size */
-  font-weight: var(--hd-weight-normal); /* desk: semibold → regular, names do not shout */
-  letter-spacing: -0.02em; /* desk: -0.01em → -0.02em, the 24px title tracking */
+  font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, a page title matches the wordmark rather than outsizing it */
+  line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, a page title matches the wordmark rather than outsizing it */
+  font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, a page title matches the wordmark rather than outsizing it */
+  letter-spacing: -0.01em; /* desk: -0.02em → -0.01em, a page title matches the wordmark rather than outsizing it */
 }
 
 /* One sentence, in the support size, on a reading measure. The blurb ran the
