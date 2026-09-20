@@ -900,20 +900,31 @@ test('an agent that never answered the handshake claims nothing', async () => {
 })
 
 test('a configured agent that exits cleanly explains the handshake failure', async () => {
+  let repaired = false
   const runtime = new AcpRuntime({
     id: 'clean-exit',
     name: 'Clean Exit',
     command: process.execPath,
     args: ['-e', 'process.exit(0)'],
+    resolveLaunch: async () => repaired
+      ? { command: process.execPath, args: [FAKE], version: null }
+      : null,
   })
   try {
-    await assert.rejects(runtime.start(), /exited cleanly before completing the ACP handshake/)
+    await assert.rejects(runtime.start(), (error: unknown) => {
+      assert.match(String(error), /The agent exited \(code 0\) while requests were waiting/)
+      assert.equal((error as { exitCode?: unknown }).exitCode, 0)
+      return true
+    })
     assert.deepEqual(runtime.health(), {
       state: 'unavailable',
-      reason: 'unknown',
+      reason: 'crashed',
       message: 'Clean Exit exited cleanly before completing the ACP handshake. Check its command and configuration.',
       remediation: "Verify the agent's profile or configuration, then select it again.",
     })
+    repaired = true
+    assert.deepEqual(await runtime.refreshCatalog(), { refreshed: true })
+    assert.equal(runtime.health().state, 'ready')
   } finally {
     await runtime.dispose()
   }

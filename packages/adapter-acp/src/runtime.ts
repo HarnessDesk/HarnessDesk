@@ -875,7 +875,7 @@ export class AcpRuntime implements AgentRuntime {
         cleanExit
           ? {
               state: 'unavailable',
-              reason: 'unknown',
+              reason: 'crashed',
               message,
               remediation: "Verify the agent's profile or configuration, then select it again.",
             }
@@ -888,7 +888,6 @@ export class AcpRuntime implements AgentRuntime {
                 : {}),
             },
       )
-      if (cleanExit) throw new AcpError(message, error.code, error.details, error.exitCode)
       throw error
     }
   }
