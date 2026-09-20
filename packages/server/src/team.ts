@@ -287,6 +287,8 @@ export interface TeamPort {
   memberStatus?(seat: SeatRecord): MemberStatus
   /** Rechecked after a live handle is prepared and immediately before delivery. */
   canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
+  /** Refuses every board mutation once a durable Goal starts wrapping. */
+  canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
   /** Goal-backed desks persist the board payload before announcing it. */
@@ -1107,7 +1109,7 @@ export class Team {
       plan?: number
     },
   ): Intent {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     /* Refused rather than filtered, the same way the agent's `add_intent` is.
        `#addIntent` drops a path the board cannot own, which is right for what
        it stores and wrong as an answer: the long form closed on a card owning
@@ -1135,7 +1137,7 @@ export class Team {
    * a person can look.
    */
   planWork(id: string, goal: string): Plan {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const text = goal.trim()
     if (text === '') throw new Error('A goal needs saying. Nothing was started.')
     const plan: Plan = { id: board.nextPlan, goal: text, state: 'running', createdAt: Date.now() }
@@ -1154,7 +1156,7 @@ export class Team {
    * of what happened, and the board simply stops leading with them.
    */
   wrapPlan(room: string, id: number): string {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     const plan = board.plans.find((entry) => entry.id === id)
     if (!plan) return `There is no goal #${id} on this board.`
     if (plan.state === 'wrapped') return `“${plan.goal}” is already wrapped up.`
@@ -1196,7 +1198,7 @@ export class Team {
     /** The person's own context package, for the round that depends on this. */
     context?: string,
   ): void {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     const intent = board.intents.find((entry) => entry.id === id)
     if (!intent) throw new Error(`There is no intent #${id} on this board.`)
     const by: TeamActor = { kind: 'user' }
@@ -1273,7 +1275,7 @@ export class Team {
    * switch exists to stop agents, not the person.
    */
   setMessaging(id: string, enabled: boolean): void {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     board.messaging = enabled
     if (!enabled) {
       this.#sweepPending(
@@ -1333,7 +1335,7 @@ export class Team {
   ): Promise<void> {
     const body = text.trim()
     if (body === '') return
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     if (body.length > this.#settings.messageChars) {
       this.#message(board, {
         from: { kind: 'user' },
@@ -1421,7 +1423,7 @@ export class Team {
       readonly vars?: Readonly<Record<string, string>>
     }[],
   ): Promise<{ batch: string; delivered: number; queued: number; refused: number }> {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const batch = { id: this.#entryId(), size: recipients.length, template }
     const tally = { batch: batch.id, delivered: 0, queued: 0, refused: 0 }
     if (recipients.length === 0 || template.trim() === '') return tally
@@ -1516,7 +1518,7 @@ export class Team {
     if (this.#releasing.has(entryId)) {
       throw new Error('That message is already being released.')
     }
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const entry = board.channel.find(
       (candidate): candidate is TeamMessage =>
         candidate.id === entryId && candidate.kind === 'message',
@@ -1594,6 +1596,7 @@ export class Team {
   ): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
     const title = (args.title ?? '').trim()
     if (title === '') return 'An intent needs a title. Nothing was added.'
     for (const dep of args.dependsOn ?? []) {
@@ -1896,6 +1899,12 @@ export class Team {
     this.#waitingInvocations.clear()
   }
 
+  /** A wrapping Goal settles only its own member waits. */
+  closeGoalWaits(goal: string, reason = 'the Goal wrapped'): void {
+    this.#memberWaits.get(goal)?.close(reason)
+    this.#memberWaits.delete(goal)
+  }
+
   /** Waits for the turn that is running now; it never starts or messages one. */
   async awaitMember(
     scope: TeamCallScope,
@@ -1962,7 +1971,7 @@ export class Team {
       role: string
     },
   ): Intent {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     return this.#addIntent(board, args, { kind: 'user' })
   }
 
@@ -2013,6 +2022,7 @@ export class Team {
   async claim(intentId: number, scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board)}`
 
@@ -2182,6 +2192,7 @@ export class Team {
   ): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}.`
     if (
@@ -2242,6 +2253,7 @@ export class Team {
   ): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}.`
     if (
@@ -2347,6 +2359,7 @@ export class Team {
        has to mean. */
     const board = this.#roomOf(caller.runtime, caller.sessionId)
     if (!board) return NOT_IN_ROOM
+    this.#assertMutable(board)
     // Declared before the first refusal, not after the last guard. Six paths
     // used to return above the point where this was created — board-only,
     // empty, oversized, unknown recipient, repeat, rate limit — so the
@@ -2911,6 +2924,25 @@ export class Team {
   }
 
   /**
+   * A Goal board is writable only while its durable document says so.
+   *
+   * This check is synchronous on purpose. The Goal store is the authority,
+   * and checking it before touching this projection prevents a rejected
+   * persistence write from leaving memory ahead of disk. Legacy standalone
+   * boards have no Goal guard and keep their original behaviour.
+   */
+  #assertMutable(board: Board): void {
+    const allowed = this.#port.canMutateBoard?.(board.id)
+    if (allowed && !allowed.ok) throw new Error(allowed.reason)
+  }
+
+  #mutableBoardById(id: string): Board {
+    const board = this.#boardById(id)
+    this.#assertMutable(board)
+    return board
+  }
+
+  /**
    * Start a room in a project.
    *
    * A project can hold as many as the work wants, the way it holds sessions,
@@ -2996,7 +3028,7 @@ export class Team {
      */
     card?: RememberedMember,
   ): Promise<void> {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const key = keyOf(runtime, sessionId)
     this.#deletedMembers.delete(key)
     const live = this.#port
@@ -3020,6 +3052,7 @@ export class Team {
     }
     for (const other of this.#boards.values()) {
       if (other.id === id || !other.members.includes(key)) continue
+      this.#assertMutable(other)
       other.members = other.members.filter((one) => one !== key)
       delete other.roster[String(key)]
       this.#commit(other)
@@ -3098,7 +3131,7 @@ export class Team {
 
   /** Takes a conversation out of a room, leaving it on its own. */
   leaveRoom(id: string, runtime: RuntimeId, sessionId: string): void {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const key = keyOf(runtime, sessionId)
     this.#deletedMembers.delete(key)
     if (!board.members.includes(key)) return
@@ -3119,7 +3152,7 @@ export class Team {
   }
 
   renameRoom(id: string, name: string): void {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const called = name.trim()
     if (called === '' || called === board.name) return
     board.name = called
@@ -3145,7 +3178,7 @@ export class Team {
   async deleteRoom(
     id: string,
   ): Promise<{ name: string; intents: number; members: number; messages: number }> {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const gone = {
       name: board.name,
       intents: board.intents.length,
@@ -3504,7 +3537,7 @@ export class Team {
    * `claim_next` has to answer.
    */
   setRole(room: string, runtime: string, sessionId: string, role: string | null): void {
-    const board = this.#boardById(room)
+    const board = this.#mutableBoardById(room)
     const key = keyOf(runtime, sessionId)
     if (role === null) {
       if (!(key in board.roles)) return
@@ -3627,6 +3660,7 @@ export class Team {
     },
     by: TeamActor,
   ): Intent {
+    this.#assertMutable(board)
     const dependsOn = [...new Set(args.dependsOn ?? [])].filter((dep) =>
       board.intents.some((intent) => intent.id === dep),
     )
@@ -3672,6 +3706,7 @@ export class Team {
   }
 
   #patchIntent(board: Board, id: number, patch: Partial<Intent>): void {
+    this.#assertMutable(board)
     board.intents = board.intents.map((intent) =>
       intent.id === id ? { ...intent, ...patch, updatedAt: Date.now() } : intent,
     )
@@ -3715,6 +3750,7 @@ export class Team {
     intent: Intent,
     detail: string | null,
   ): void {
+    this.#assertMutable(board)
     board.channel.push({
       id: this.#entryId(),
       at: Date.now(),
@@ -3740,6 +3776,7 @@ export class Team {
       batch?: TeamMessage['batch']
     },
   ): TeamMessage {
+    this.#assertMutable(board)
     const entry: TeamMessage = {
       id: this.#entryId(),
       at: Date.now(),
@@ -4012,7 +4049,7 @@ export class Team {
   /** Rename a member. Refused rather than silently deduped: two members
       answering to one name is exactly the state the nickname exists to end. */
   rename(id: string, runtime: string, sessionId: string, to: string): string {
-    const board = this.#boardById(id)
+    const board = this.#mutableBoardById(id)
     const name = to.trim()
     if (name === '') return 'A member needs a name. Nothing was changed.'
     const key = keyOf(runtime as RuntimeId, sessionId)

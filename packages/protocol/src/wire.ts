@@ -12,7 +12,9 @@ import type {
 import type { EditorDocument, EditorEvent } from './editor.js'
 import type { BoardEvidence, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
-import type { GoalCreateInput, GoalId, GoalSeatRequest, GoalView } from './goal.js'
+import type {
+  GoalCitation, GoalCreateInput, GoalId, GoalReceipt, GoalSeatRequest, GoalView, WrapChoices, WrapPreview,
+} from './goal.js'
 import type {
   Library,
   LibraryDefinition,
@@ -572,6 +574,10 @@ export interface HostMethods {
   'goal/seat': { params: GoalSeatRequest; result: SeatRecord }
   'goal/assign': { params: { goal: GoalId; card: number; session: SessionPointer }; result: SeatRecord }
   'goal/release': { params: { goal: GoalId; seat: SeatId }; result: null }
+  'goal/preview': { params: { goal: GoalId; choices: WrapChoices }; result: WrapPreview }
+  'goal/wrap': { params: { goal: GoalId; stamp: string; choices: WrapChoices }; result: GoalReceipt }
+  'goal/receipt': { params: { goal: GoalId }; result: GoalReceipt | null }
+  'goal/cite': { params: { goal: GoalId; citation: GoalCitation }; result: null }
   'goal/migration/ack': { params: Record<string, never>; result: null }
   'host/hello': {
     params: { readonly clientVersion: string }

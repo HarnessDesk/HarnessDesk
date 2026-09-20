@@ -29,6 +29,7 @@ const rig = (failAt: string | null) => {
     claim: async () => { step('claim') },
     releaseClaim: async () => { step('release') },
     refuseMail: async () => { step('mail') },
+    retainLane: async () => { step('lane') },
     finish: async () => { step('finish'); finished = true },
     wake: () => { step('wake') },
     finishWrap: async () => { throw new Error('wrap is not part of this operation') },

@@ -9,6 +9,7 @@ import {
   ValidationError,
   type BoardEvidence,
   type EvidenceRecord,
+  type Intent,
   type Session,
   type TeamState,
   type WireNotification,
@@ -19,6 +20,7 @@ import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { evidenceDesk, makeRepo, until, writeAgent } from './fixtures/evidence-desk.js'
+import { tempDir } from './scratch.js'
 
 /*
  * A board's evidence: the latest fact of each kind per card, each named check
@@ -132,6 +134,22 @@ test('a fact with nowhere recorded is unknown, and a check running for a card is
   )
   running.end('room-1', 7)
   assert.deepEqual(running.of('room-1'), [])
+})
+
+test('settling a board surfaces an observation write failure instead of previewing empty evidence', async () => {
+  const root = tempDir('hd-evidence-settle-')
+  const card = {
+    id: 1, title: 'Finish', state: 'done', files: [], dependsOn: [],
+    claim: { runtime: runtimeId('fake'), sessionId: 'one', at: 1 }, createdAt: 1, updatedAt: 2,
+  } as Intent
+  const board = { id: 'g1', root, cwd: root, intents: [card] } as unknown as TeamState
+  const plane = new EvidencePlane(
+    { dir: join(root, 'evidence'), seenFile: join(root, 'seen.json') },
+    { board: () => board, cwdOf: () => root, push: () => {}, log: () => {} },
+  )
+  plane.observer.observe = async () => { throw new Error('observation write failed') }
+  plane.settled('g1', card)
+  await assert.rejects(plane.settledFor('g1'), /observation write failed/)
 })
 
 test("through the host: a room's evidence is read from its project's store, with the checks the project names", async (t) => {

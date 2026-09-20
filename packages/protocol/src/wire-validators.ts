@@ -258,6 +258,38 @@ const goalGrant = taggedUnion<import('./goal.js').SeatGrant, 'kind'>('kind', {
   ceiling: goalShape({ kind: literalUnion('ceiling'), level: literalUnion('read', 'edit', 'publish', 'merge') }),
 })
 
+const goalHex = (lengths: readonly number[]): Validator<string> => (value, path = '') => {
+  const text = isString(value, path)
+  if (!lengths.includes(text.length) || !/^[0-9a-f]+$/.test(text)) {
+    throw new ValidationError(path, `expected ${lengths.join(' or ')} lowercase hexadecimal characters`)
+  }
+  return text
+}
+const wrapReason: Validator<string | null> = (value, path = '') =>
+  value === null ? null : atMost(2000, isString)(value, path)
+const wrapCards: Validator<import('./goal.js').WrapChoices['cards']> = (value, path = '') => {
+  const cards = arrayOf(goalShape({
+    id: goalInteger(1), resolution: literalUnion('finished', 'dropped'), reason: wrapReason,
+  }))(value, path)
+  if (cards.length > 1000) throw new ValidationError(path, 'expected at most 1000 card choices')
+  if (new Set(cards.map((card) => card.id)).size !== cards.length) throw new ValidationError(path, 'expected each card once')
+  return cards
+}
+const wrapChoices = goalShape({ summary: atMost(4000, isString), cards: wrapCards })
+const citationPath: Validator<string> = (value, path = '') => {
+  const text = atMost(4096, isFilled)(value, path)
+  const parts = text.split('/')
+  if (text.includes('\\') || text.startsWith('/') || /^[A-Za-z]:/.test(text) ||
+      parts.some((part) => part === '' || part === '.' || part === '..')) {
+    throw new ValidationError(path, 'expected a literal relative document path')
+  }
+  return text
+}
+const goalCitation = goalShape({
+  goal: goalId, receipt: goalIdentifier, project: atMost(4096, isFilled), path: citationPath,
+  at: goalHex([40, 64]),
+})
+
 const goalValidators = {
   'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
   'goal/read': goalShape({ goal: goalId }),
@@ -277,6 +309,10 @@ const goalValidators = {
     session: goalShape({ runtime: goalIdentifier, sessionId: goalIdentifier }),
   }),
   'goal/release': goalShape({ goal: goalId, seat: goalIdentifier }),
+  'goal/preview': goalShape({ goal: goalId, choices: wrapChoices }),
+  'goal/wrap': goalShape({ goal: goalId, stamp: goalHex([64]), choices: wrapChoices }),
+  'goal/receipt': goalShape({ goal: goalId }),
+  'goal/cite': goalShape({ goal: goalId, citation: goalCitation }),
   'goal/migration/ack': goalShape({}),
 }
 

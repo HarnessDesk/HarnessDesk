@@ -59,7 +59,12 @@ interface Rig {
   facts(): Promise<EvidenceRecord[]>
 }
 
-const rig = async (text: string, options: { cards?: readonly Intent[]; cwdOf?: (runtime: string, id: string) => string | null; root?: string } = {}): Promise<Rig> => {
+const rig = async (text: string, options: {
+  cards?: readonly Intent[]
+  cwdOf?: (runtime: string, id: string) => string | null
+  root?: string
+  canMutateBoard?: (board: string) => boolean
+} = {}): Promise<Rig> => {
   const repo = await makeRepo()
   const state = tempDir('hd-check-runs-state-')
   const markers = tempDir('hd-check-runs-markers-')
@@ -83,6 +88,7 @@ const rig = async (text: string, options: { cards?: readonly Intent[]; cwdOf?: (
       cwdOf: options.cwdOf ?? (() => null),
       push: () => {},
       log: () => {},
+      canMutateBoard: options.canMutateBoard ?? (() => true),
     },
   )
   // Only checks: a run announces the room, and the board read that follows may look at the card's diff.
@@ -92,6 +98,31 @@ const rig = async (text: string, options: { cards?: readonly Intent[]; cwdOf?: (
     )
   return { repo, plane, markers, seenFile, checks, facts }
 }
+
+test('a Goal that starts wrapping during admission refuses immediately before spawn', async () => {
+  let mutable = true
+  const r = await rig('verify: { run: touch MARKERS/verify, timeout: 30 }\n', {
+    canMutateBoard: () => mutable,
+  })
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const approved = r.plane.seen.approved.bind(r.plane.seen)
+  let release!: () => void
+  let entered!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const reached = new Promise<void>((resolve) => { entered = resolve })
+  r.plane.seen.approved = async (...args) => {
+    entered()
+    await held
+    return approved(...args)
+  }
+  const admitting = r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  await reached
+  mutable = false
+  release()
+  await assert.rejects(admitting, /Goal is closing or wrapped/)
+  assert.equal(await exists(join(r.markers, 'verify')), false)
+  assert.deepEqual(await r.facts(), [])
+})
 
 /** The refusal a check not yet approved gets, with what it carries. */
 const unseen = async (attempt: Promise<unknown>): Promise<CheckUnseen> => {

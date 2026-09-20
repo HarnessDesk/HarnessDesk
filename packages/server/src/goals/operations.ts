@@ -21,6 +21,7 @@ export interface GoalOperationPort {
   claim(goal: string, card: number, seat: SeatOpening): Promise<void>
   releaseClaim(goal: string, seat: SeatId): Promise<void>
   refuseMail(goal: string, seat: SeatId): Promise<void>
+  retainLane(seat: SeatId): Promise<void>
   wake(goal: string): void
   finish(goal: string, operation: string): Promise<void>
   finishWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void>
@@ -44,6 +45,12 @@ export async function recoverOperation(operation: GoalOperation, port: GoalOpera
       port.wake(operation.goal)
       return
     case 'wrap':
+      for (const seat of operation.receipt.seats) {
+        await port.closeId(seat, 'wrapped')
+        await port.releaseClaim(operation.goal, seat)
+        await port.refuseMail(operation.goal, seat)
+        await port.retainLane(seat)
+      }
       await port.finishWrap(operation)
   }
 }

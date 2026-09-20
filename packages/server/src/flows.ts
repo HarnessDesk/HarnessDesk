@@ -122,6 +122,8 @@ export interface FlowPort {
    * like any other, which keep working in a folder somebody has since closed.
    */
   confine(folder: string): Promise<void>
+  /** Refuses a new run before it opens Seats or writes cards. */
+  canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
   /**
    * Runs a check's command. Resolves with its exit status, or null if it ran
    * over. `card` says which card and round it is for, so the desk can record
@@ -375,6 +377,8 @@ export class Flows implements TeamFlows {
     if (!this.#team.hasRoom(request.room)) {
       throw new Error(`There is no room ${request.room}.`)
     }
+    const allowed = this.#port.canMutateBoard?.(request.room)
+    if (allowed && !allowed.ok) throw new Error(allowed.reason)
     const board = this.#team.stateFor(request.room)
     if (this.#liveIn(request.room)) {
       throw new Error(

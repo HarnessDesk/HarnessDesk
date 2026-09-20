@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto'
 import {
   activityOf, checkedDependencies, flowRoleOf, placeCard,
   type BoardEvidence, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCreateInput, type GoalSeatRequest, type GoalView,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type SeatId, type SeatRecord, type SessionPointer, type TeamState,
+  type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
 import type { SeatOpening } from '../evidence/records.js'
@@ -13,6 +14,7 @@ import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
 import { recoverOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
+import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
 
 export interface GoalPlanePort extends GoalOperationPort {
   seats: {
@@ -25,11 +27,18 @@ export interface GoalPlanePort extends GoalOperationPort {
   opening(goal: string, session: SessionPointer, id: SeatId): Promise<SeatOpening>
   board(goal: string): TeamState
   evidence(goal: string): Promise<BoardEvidence>
+  evidenceIds(goal: string, project: string): Promise<readonly string[]>
   flow(goal: string): FlowRun | undefined
   busy(session: SessionPointer): boolean
   waits(session: SessionPointer): boolean
   stranded(goal: string, card: number): boolean
   held(goal: string): boolean
+  settledFor(goal: string): Promise<void>
+  answer(seat: SeatRecord): Promise<{
+    readonly answer: GoalReceipt['answers'][number] | null
+    readonly gaps: readonly string[]
+  }>
+  revision(cwd: string): Promise<{ readonly head: string | null; readonly dirty: boolean | null }>
   changed(view: GoalView): void
   activity(goal: string, previous: NonNullable<GoalView['activity']>, activity: NonNullable<GoalView['activity']>, sentence: string): void
   ready(): { ok: true } | { ok: false; reason: string }
@@ -48,15 +57,18 @@ export interface GoalPlanePort extends GoalOperationPort {
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
   readonly #assignments: Assignments
+  readonly #wraps: Wraps
   #lanes: LaneAllocator | null = null
   #lanePreferences: (() => import('@harnessdesk/protocol').LanePreferences) | null = null
   readonly #activity = new Map<string, NonNullable<GoalView['activity']>>()
+  readonly #recoveryProblems = new Map<string, string>()
 
   constructor(
     readonly store: GoalStore,
     private readonly port: GoalPlanePort,
     readonly serial = new Serial(),
     private readonly now: () => number = Date.now,
+    private readonly citationCheck: typeof citationBlob = citationBlob,
   ) {
     this.#assignments = new Assignments({
       goal: (id) => { this.#dispatch(id); return this.store.read(id).goal },
@@ -64,6 +76,12 @@ export class GoalPlane {
       known: (runtime, session) => port.known(runtime, session),
       claimable: (goal, card, session) => port.claimable(goal, card, session),
       commit: (goal, card, session) => this.#assign(goal, card, session),
+    }, serial)
+    this.#wraps = new Wraps({
+      read: (goal) => this.#wrapInput(goal),
+      stage: (goal, receipt, stamp) => this.#stageWrap(goal, receipt, stamp),
+      closeSeats: (goal, ids) => this.#closeWrapSeats(goal, ids),
+      finish: (goal, receipt) => this.#finishWrap(goal, receipt),
     }, serial)
   }
 
@@ -88,7 +106,7 @@ export class GoalPlane {
     const members = goalMembers(document, this.port.seats.all())
     const board = { ...this.port.board(id), ...memberProjection(document, this.port.seats.all()) }
     let evidence: BoardEvidence | null = null
-    let problem = this.store.problem
+    let problem = this.#recoveryProblems.get(id) ?? this.store.problem
     try {
       evidence = await this.port.evidence(id)
     } catch (error) {
@@ -235,6 +253,50 @@ export class GoalPlane {
     })
   }
 
+  async preview(goal: string, choices: WrapChoices): Promise<WrapPreview> {
+    await this.port.settledFor(goal)
+    return this.serial.run(async () => previewWrap(await this.#wrapInput(goal), structuredClone(choices)))
+  }
+
+  async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
+    await this.port.settledFor(goal)
+    return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
+  }
+
+  async receipt(goal: string): Promise<GoalReceipt | null> {
+    return this.store.read(goal).receipt
+  }
+
+  cite(goal: string, citation: GoalCitation): Promise<void> {
+    return this.serial.run(async () => {
+      let target = this.store.read(goal)
+      this.#editable(target)
+      const source = this.store.read(citation.goal)
+      if (source.goal.root !== target.goal.root || citation.project !== target.goal.root) {
+        throw new Error('Citations must come from a wrapped Goal in this project.')
+      }
+      if (source.goal.state !== 'wrapped' || source.receipt?.id !== citation.receipt) {
+        throw new Error('Choose an existing wrapped receipt.')
+      }
+      await this.citationCheck(target.goal.root, citation.path, citation.at)
+      target = this.store.read(goal)
+      this.#editable(target)
+      const currentSource = this.store.read(citation.goal)
+      if (currentSource.goal.state !== 'wrapped' || currentSource.receipt?.id !== citation.receipt ||
+          currentSource.goal.root !== target.goal.root) throw new Error('Choose an existing wrapped receipt.')
+      const exact = JSON.stringify(citation)
+      if (target.citations.some((one) => JSON.stringify(one) === exact)) return
+      const dependsOn = checkedDependencies(target.goal,
+        target.goal.dependsOn.includes(citation.goal) ? target.goal.dependsOn : [...target.goal.dependsOn, citation.goal],
+        this.store.list().map((one) => one.goal))
+      await this.store.save({
+        ...target,
+        citations: [...target.citations, structuredClone(citation)],
+        goal: { ...target.goal, dependsOn, revision: target.goal.revision + 1, updatedAt: this.now() },
+      }, target.goal.revision)
+    })
+  }
+
   seat(input: GoalSeatRequest): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
@@ -258,10 +320,92 @@ export class GoalPlane {
   async recover(): Promise<void> {
     await this.serial.run(async () => {
       for (const document of this.store.list()) {
-        if (!document.restored && document.operation) await recoverOperation(document.operation, this.port)
+        if (document.restored || !document.operation) continue
+        try {
+          await recoverOperation(document.operation, this.port)
+          this.#recoveryProblems.delete(document.goal.id)
+        } catch (error) {
+          if (document.operation.kind !== 'wrap') throw error
+          this.#recoveryProblems.set(document.goal.id,
+            `Wrapping could not finish: ${error instanceof Error ? error.message : String(error)}. Restart to retry recovery.`)
+        }
       }
       if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
     })
+  }
+
+  async #wrapInput(id: string): Promise<WrapInput> {
+    const document = this.store.read(id)
+    const evidence = await this.port.evidence(id)
+    if (evidence.unreadable) throw new Error(`This Goal's evidence cannot be read: ${evidence.unreadable}`)
+    const seats = this.port.seats.all()
+      .filter((seat) => seat.board === id && !seat.restored)
+      .sort((left, right) => left.openedAt - right.openedAt || String(left.id).localeCompare(String(right.id)))
+    const answersRead = await Promise.all(seats.map((seat) => this.port.answer(seat)))
+    const lanes = (this.#lanes?.list() ?? []).filter((lane) => lane.goal === id && lane.state !== 'released')
+    const folders = [...new Set([document.goal.cwd, ...seats.map((seat) => seat.checkout.cwd), ...lanes.map((lane) => lane.cwd)].filter(Boolean))].sort()
+    const revisions = await Promise.all(folders.map(async (cwd) => ({ cwd, ...await this.port.revision(cwd) })))
+    const revisionByCwd = new Map(revisions.map((revision) => [revision.cwd, revision]))
+    const evidenceIds = [...await this.port.evidenceIds(id, document.goal.root)].sort()
+    const gaps = [
+      ...answersRead.flatMap((read) => read.gaps),
+      ...(evidenceIds.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
+      ...revisions.filter((revision) => revision.head === null || revision.dirty === null)
+        .map((revision) => `Revision state was unavailable for ${revision.cwd}.`),
+    ]
+    return structuredClone({
+      goal: document.goal,
+      cards: document.board.intents.map((card) => ({ id: card.id, state: card.state })),
+      dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
+      busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
+        evidence.cards.some((card) => card.running.length > 0),
+      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? ''),
+      pending: document.board.channel.some((entry) => entry.kind === 'message' && ['queued', 'held'].includes(entry.state)) ||
+        goalMembers(document, this.port.seats.all()).some((seat) => this.port.waits(seat.session)),
+      seats: seats.map((seat) => seat.id),
+      evidence: evidenceIds,
+      answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),
+      lanes: lanes.map((lane) => ({
+        lane: lane.id,
+        cwd: lane.cwd,
+        dirty: revisionByCwd.get(lane.cwd)?.dirty ?? null,
+        retained: true as const,
+      })).sort((left, right) => left.lane.localeCompare(right.lane)),
+      citations: [...document.citations].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
+      gaps: [...new Set(gaps)].sort(),
+      revisions,
+    } satisfies WrapInput)
+  }
+
+  async #stageWrap(goal: string, receipt: GoalReceipt, stamp: string): Promise<void> {
+    const document = this.store.read(goal)
+    this.#editable(document)
+    const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt } as const
+    await this.store.save({
+      ...document,
+      operation,
+      goal: { ...document.goal, state: 'wrapping', revision: document.goal.revision + 1, updatedAt: this.now() },
+    }, document.goal.revision)
+  }
+
+  async #closeWrapSeats(goal: string, ids: readonly string[]): Promise<void> {
+    for (const id of ids) {
+      const seat = this.port.seats.byId(id)
+      if (!seat || seat.board !== goal || seat.restored) throw new Error('A reviewed Seat no longer belongs to this Goal. Finish recovery before wrapping again.')
+      if (!seat.closed) await this.port.closeId(id, 'wrapped')
+      await this.port.releaseClaim(goal, id)
+      await this.port.refuseMail(goal, id)
+      await this.port.retainLane(id)
+    }
+  }
+
+  async #finishWrap(goal: string, receipt: GoalReceipt): Promise<void> {
+    const document = this.store.read(goal)
+    const operation = document.operation
+    if (operation?.kind !== 'wrap' || operation.receipt.id !== receipt.id) {
+      throw new Error('Another Goal operation replaced this wrap. Finish recovery first.')
+    }
+    await this.port.finishWrap(operation)
   }
 
   async #withLane(goal: Goal, isolate: boolean, open: (where: Goal) => Promise<SeatRecord>): Promise<SeatRecord> {

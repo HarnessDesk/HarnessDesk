@@ -57,6 +57,7 @@ import {
   type ContributionId,
   type ScopeQuery,
   type GoalSeatRequest,
+  type GoalReceipt,
   type SecretReload,
   type SeatId,
   type SeatRecord,
@@ -114,6 +115,7 @@ import {
 } from './goals/lane-environment.js'
 import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { GoalStore, type GoalDocument } from './goals/store.js'
+import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
 import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
@@ -664,6 +666,14 @@ export class Host {
           this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
         push: (notification) => this.#push(notification),
         log: (message, details) => this.#logger.warn(message, details ?? {}),
+        canMutateBoard: (goal) => {
+          try {
+            const document = this.#goalStore.read(goal)
+            return document.goal.state === 'open' && document.operation === null
+          } catch {
+            return false
+          }
+        },
       },
     )
     // A conversation seen for the first time wears the Agent its Seat record names.
@@ -734,6 +744,18 @@ export class Host {
         }
       },
       canDispatch: (goal) => this.#goals.canDispatch(goal),
+      canMutateBoard: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return !document.restored && document.goal.state === 'open' && document.operation === null
+            ? { ok: true as const }
+            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+        } catch {
+          // A legacy room has no Goal document and retains the Team engine's
+          // standalone behaviour until migration gives it one.
+          return { ok: true as const }
+        }
+      },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
       mutate: (state) => this.#goalSerial.run(() => this.#saveTeamProjection(state)),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
@@ -773,6 +795,16 @@ export class Host {
       },
       retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
       confine: (folder) => this.#confineRoom(folder),
+      canMutateBoard: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return !document.restored && document.goal.state === 'open' && document.operation === null
+            ? { ok: true as const }
+            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+        } catch {
+          return { ok: true as const }
+        }
+      },
       run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
@@ -829,6 +861,7 @@ export class Host {
       },
       board: (goal: string) => this.#goalState(goal),
       evidence: (goal: string) => this.#evidence.board(goal),
+      evidenceIds: (goal: string, project: string) => this.#evidence.factIdsOfGoal(goal, project),
       flow: (goal: string) => this.#flows.runsFor(goal).find((run) => run.state === 'running' || run.state === 'stalled'),
       busy: (session) => {
         const record = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
@@ -837,6 +870,12 @@ export class Host {
       waits: () => false,
       stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
       held: (goal: string) => this.#goalState(goal).channel.some((entry) => entry.kind === 'message' && entry.state === 'held'),
+      settledFor: (goal: string) => this.#evidence.settledFor(goal),
+      answer: (seat: SeatRecord) => this.#goalAnswer(seat),
+      revision: async (cwd: string) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
+      },
       changed: (view) => {
         this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
         this.#push({ method: 'goal/changed', params: { view } })
@@ -897,11 +936,7 @@ export class Host {
         await this.#evidence.seats.importOpening(project, opening)
       },
       closeId: async (id: SeatId, reason: string) => {
-        const record = this.#evidence.seats.byId(id)
         await this.#evidence.seats.closeId(id, reason)
-        if (record?.board && this.#team.hasRoom(record.board)) {
-          this.#team.leaveRoom(record.board, record.session.runtime as RuntimeId, record.session.sessionId)
-        }
       },
       claim: async (goal: string, card: number, opening: SeatOpening) => {
         await this.#claimGoalCard(goal, card, opening)
@@ -913,11 +948,13 @@ export class Host {
         const record = this.#evidence.seats.byId(seat)
         if (record) this.#team.refuseSeatMail(goal, record.session.runtime, record.session.sessionId, String(seat))
       },
+      retainLane: async (seat: SeatId) => {
+        const lane = this.#lanes.forSeat(seat)
+        if (lane) await this.#lanes.retain(lane.id)
+      },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
-      finishWrap: async () => {
-        throw new Error('A pending wrap needs this build’s receipt recovery. The Goal remains read-only.')
-      },
+      finishWrap: (operation) => this.#finishGoalWrap(operation),
     } satisfies GoalPlanePort
     this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
     this.#goals.attachLanes(this.#lanes, () => this.#lanePreferences())
@@ -1789,6 +1826,98 @@ export class Host {
       operation: null,
       goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: Date.now() },
     }, document.goal.revision)
+  }
+
+  async #goalAnswer(seat: SeatRecord): Promise<{
+    readonly answer: GoalReceipt['answers'][number] | null
+    readonly gaps: readonly string[]
+  }> {
+    const runtime = this.#runtimes.get(seat.session.runtime)
+    if (!runtime) return { answer: null, gaps: [`${seat.seatLabel}'s transcript is unavailable.`] }
+    let session: Session
+    try {
+      session = await this.#read(runtime, makeSessionId(seat.session.sessionId))
+    } catch {
+      return { answer: null, gaps: [`${seat.seatLabel}'s transcript is unavailable.`] }
+    }
+    const turn = session.turns.at(-1)
+    const raw = turn?.items.filter((item) => item.type === 'assistantMessage')
+      .map((item) => (item as { readonly text?: string }).text ?? '')
+      .filter((text) => text.trim() !== '').at(-1) ?? ''
+    const clipped = raw.length <= 16_000 ? raw : `${raw.slice(0, 7_990)}\n… answer truncated …\n${raw.slice(-7_989)}`
+    const partial = turn !== undefined && turn.status !== 'completed'
+    const gaps = [
+      ...(raw ? [] : [`${seat.seatLabel} has no recorded answer.`]),
+      ...(raw.length > 16_000 ? [`${seat.seatLabel}'s answer was truncated to 16000 characters.`] : []),
+      ...(partial ? [`${seat.seatLabel}'s last answer was partial (${turn.status}).`] : []),
+      ...(session.usage === null || session.usage === undefined
+        ? [`${seat.seatLabel}'s spend was not recorded.`]
+        : session.usage.total.outputExact === false
+          ? [`${seat.seatLabel}'s output spend is a lower bound.`]
+          : []),
+    ]
+    return {
+      answer: {
+        seat: seat.id,
+        session: seat.session,
+        turn: turn ? String(turn.id) : null,
+        text: clipped,
+        partial,
+        stopReason: !turn || turn.status === 'completed' ? null : (turn.error?.message ?? turn.status),
+      },
+      gaps,
+    }
+  }
+
+  async #finishGoalWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void> {
+    const document = this.#goalStore.read(operation.goal)
+    if (document.operation === null && document.receipt?.id === operation.receipt.id) return
+    if (document.operation?.kind !== 'wrap' || document.operation.id !== operation.id ||
+        document.operation.receipt.id !== operation.receipt.id) {
+      throw new Error('Another Goal operation replaced this wrap. Finish recovery first.')
+    }
+    const resolutions = new Map(operation.receipt.cards.map((card) => [card.id, card]))
+    const at = operation.receipt.wrappedAt
+    const board = {
+      ...document.board,
+      intents: document.board.intents.map((intent) => {
+        const resolution = resolutions.get(intent.id)
+        if (!resolution) throw new Error(`Receipt ${operation.receipt.id} has no disposition for card ${intent.id}.`)
+        return {
+          ...intent,
+          state: resolution.resolution === 'finished' ? 'done' as const : 'abandoned' as const,
+          claim: null,
+          blockedBy: null,
+          blockedReason: null,
+          ...(resolution.reason?.trim() ? { note: resolution.reason.trim() } : {}),
+          updatedAt: at,
+        }
+      }),
+    }
+    await this.#goalStore.save({
+      ...document,
+      board,
+      receipt: operation.receipt,
+      operation: null,
+      goal: {
+        ...document.goal,
+        state: 'wrapped',
+        receipt: operation.receipt.id,
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+    }, document.goal.revision)
+    this.#team.closeGoalWaits(operation.goal)
+    try {
+      const view = await this.#goals.view(operation.goal)
+      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster)
+      this.#push({ method: 'goal/changed', params: { view } })
+    } catch (error) {
+      this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
+        goal: operation.goal,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 
   /**

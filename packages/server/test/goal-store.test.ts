@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { migrateDesk } from '../src/goals/migration.js'
-import { atomicJson, GoalStore, type GoalDocument } from '../src/goals/store.js'
+import { atomicJson, documentOf, GoalStore, type GoalDocument } from '../src/goals/store.js'
 import { goal } from './fixtures/goals.js'
 import { tempDir } from './scratch.js'
 
@@ -90,4 +90,26 @@ test('the 8 MiB limit refuses before making a temporary file', async () => {
   const home = await empty()
   await assert.rejects(atomicJson(join(home, 'goals', 'huge.json'), { text: 'x'.repeat(8 * 1024 * 1024) }), /larger than 8 MiB/)
   assert.deepEqual(await readdir(join(home, 'goals')), ['index.json'])
+})
+
+test('wrap journals and receipts are validated as complete durable facts', () => {
+  const receipt = {
+    version: 1 as const, id: 'receipt-1', goal: 'g1', sentence: 'Finish the Goal', wrappedAt: 3,
+    summary: 'Finished.', cards: [], seats: [], evidence: [], answers: [], lanes: [], revisions: [],
+    citations: [], gaps: [],
+  }
+  const open = document()
+  const wrapping = {
+    ...open,
+    goal: { ...open.goal, state: 'wrapping' as const, revision: 1 },
+    operation: { kind: 'wrap' as const, id: 'operation-1', goal: 'g1', stamp: 'a'.repeat(64), receipt },
+  }
+  assert.equal(documentOf(wrapping).operation?.kind, 'wrap')
+  assert.throws(() => documentOf({ ...wrapping, operation: { ...wrapping.operation, stamp: 'short' } }), /cannot be read/)
+  assert.throws(() => documentOf({ ...wrapping, operation: { ...wrapping.operation,
+    receipt: { ...receipt, answers: [{ seat: 's1', session: {}, turn: null, text: '', partial: false, stopReason: null }] },
+  } }), /cannot be read/)
+  assert.throws(() => documentOf({ ...wrapping, goal: { ...wrapping.goal, receipt: 'receipt-1' }, receipt }), /cannot be read/)
+  const wrapped = { ...open, goal: { ...open.goal, state: 'wrapped' as const, receipt: 'receipt-1', revision: 1 }, receipt }
+  assert.equal(documentOf(wrapped).receipt?.id, 'receipt-1')
 })

@@ -78,6 +78,33 @@ const object = (value: unknown): value is Record<string, unknown> =>
 const strings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((one) => typeof one === 'string')
 
+const sha = (value: unknown): value is string =>
+  typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
+
+const citationOf = (value: unknown): value is GoalCitation =>
+  object(value) && typeof value.goal === 'string' && typeof value.receipt === 'string' &&
+  typeof value.project === 'string' && typeof value.path === 'string' && sha(value.at)
+
+const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalReceipt => {
+  if (!object(value) || value.version !== 1 || value.goal !== goal || value.id !== id ||
+    typeof value.id !== 'string' || typeof value.sentence !== 'string' ||
+    !Number.isFinite(value.wrappedAt) || typeof value.summary !== 'string' ||
+    !Array.isArray(value.cards) || !strings(value.seats) || !strings(value.evidence) ||
+    !Array.isArray(value.answers) || !Array.isArray(value.lanes) ||
+    !Array.isArray(value.revisions) || !Array.isArray(value.citations) || !strings(value.gaps)) return false
+  if (!value.cards.every((card) => object(card) && Number.isSafeInteger(card.id) && Number(card.id) > 0 &&
+    ['finished', 'dropped'].includes(String(card.resolution)) && (card.reason === null || typeof card.reason === 'string'))) return false
+  if (!value.answers.every((answer) => object(answer) && typeof answer.seat === 'string' &&
+    object(answer.session) && typeof answer.session.runtime === 'string' && typeof answer.session.sessionId === 'string' &&
+    (answer.turn === null || typeof answer.turn === 'string') && typeof answer.text === 'string' &&
+    typeof answer.partial === 'boolean' && (answer.stopReason === null || typeof answer.stopReason === 'string'))) return false
+  if (!value.lanes.every((lane) => object(lane) && typeof lane.lane === 'string' && typeof lane.cwd === 'string' &&
+    (lane.dirty === null || typeof lane.dirty === 'boolean') && lane.retained === true)) return false
+  if (!value.revisions.every((revision) => object(revision) && typeof revision.cwd === 'string' &&
+    (revision.head === null || sha(revision.head)) && (revision.dirty === null || typeof revision.dirty === 'boolean'))) return false
+  return value.citations.every(citationOf)
+}
+
 /** Refuse a partial or newer document; do not repair it by dropping fields. */
 export function documentOf(value: unknown): GoalDocument {
   const bad = (): never => { throw new Error('A Goal document cannot be read. Its original bytes were kept.') }
@@ -96,7 +123,8 @@ export function documentOf(value: unknown): GoalDocument {
     'members' in goal || 'members' in board || 'roles' in board || 'plans' in board ||
     !Number.isSafeInteger(board.nextIntent) || Number(board.nextIntent) < 1 ||
     typeof board.messaging !== 'boolean' || !Array.isArray(board.intents) || !Array.isArray(board.channel) ||
-    !Array.isArray(value.citations) || !('receipt' in value) || !('operation' in value)
+    !Array.isArray(value.citations) || !value.citations.every(citationOf) ||
+    !('receipt' in value) || !('operation' in value)
   ) return bad()
   for (const card of board.intents) {
     if (!object(card) || !Number.isSafeInteger(card.id) || Number(card.id) < 1 ||
@@ -111,11 +139,14 @@ export function documentOf(value: unknown): GoalDocument {
     if (entry.kind === 'message' && (typeof entry.text !== 'string' || !object(entry.from) ||
       !['delivered', 'queued', 'held', 'refused', 'shown'].includes(String(entry.state)))) return bad()
   }
-  if (value.receipt !== null && (!object(value.receipt) || value.receipt.version !== 1 ||
-    value.receipt.goal !== goal.id || value.receipt.id !== goal.receipt)) return bad()
+  if (value.receipt !== null && !receiptOf(value.receipt, String(goal.id), goal.receipt)) return bad()
   if (value.operation !== null && (!object(value.operation) || value.operation.goal !== goal.id ||
     typeof value.operation.id !== 'string' || !['assignment', 'release', 'wrap'].includes(String(value.operation.kind)))) return bad()
-  if (goal.state === 'wrapped' && value.receipt === null) return bad()
+  if (value.operation !== null && value.operation.kind === 'wrap' &&
+    (goal.state !== 'wrapping' || !sha(value.operation.stamp) ||
+      !receiptOf(value.operation.receipt, String(goal.id), object(value.operation.receipt) ? value.operation.receipt.id : null))) return bad()
+  if ((goal.state === 'wrapped') !== (value.receipt !== null) ||
+    (goal.state === 'wrapping') !== (object(value.operation) && value.operation.kind === 'wrap')) return bad()
   if (value.restored !== undefined && (!object(value.restored) || !Number.isFinite(value.restored.at))) return bad()
   goalFile(goal.id)
   return value as unknown as GoalDocument
