@@ -105,6 +105,12 @@ import { Flows, runCheck } from './flows.js'
 import { Serial } from './goals/assignments.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
 import { availablePorts, LaneAllocator, LaneStore } from './goals/lanes.js'
+import {
+  environmentForCheckout,
+  environmentForSession,
+  laneStandingOrder,
+  requireLaneSupport,
+} from './goals/lane-environment.js'
 import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { GoalStore, type GoalDocument } from './goals/store.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
@@ -1764,6 +1770,20 @@ export class Host {
           return checked
         },
       },
+      laneEnvironment: {
+        forCheckout: (cwd) => environmentForCheckout(cwd, this.#lanes.list()),
+        forSession: async (runtime, sessionId) => {
+          const owner = this.#runtime({ runtime })
+          const environment = environmentForSession(
+            String(owner.info.id),
+            sessionId,
+            this.#lanes.list(),
+            this.#evidence.seats.all(),
+          )
+          requireLaneSupport(owner.info, environment)
+          return environment
+        },
+      },
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
@@ -2757,7 +2777,8 @@ export class Host {
     }
     let live: AgentSession
     try {
-      live = await runtime.resumeSession(id, {})
+      const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      live = await runtime.resumeSession(id, environment ? { environment } : {})
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // The sentence is the same either way; what differs is whether asking
@@ -3036,8 +3057,17 @@ export class Host {
    * runtime would hear it as theirs. The failure is noted `alreadyHeld`, so the
    * seating passes the candidate over as that; a flow's seat fails in its words.
    */
-  async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
+  async #openSeat(
+    seat: FlowSeat,
+    where: {
+      readonly cwd: string
+      readonly title: string
+      readonly environment?: Readonly<Record<string, string>>
+    },
+  ): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
+    const environment = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
+    requireLaneSupport(runtime.info, environment)
     const held = new Set(
       this.registry
         .all()
@@ -3048,6 +3078,7 @@ export class Host {
     try {
       live = await runtime.createSession({
         cwd: where.cwd,
+        ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         options: {
           ...(seat.effort ? { effort: seat.effort } : {}),
@@ -3106,7 +3137,8 @@ export class Host {
   /** Hands a seated conversation its standing order: one message, and the whole job is inside its turn. */
   async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
-    await live.send([{ type: 'text', text }])
+    const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
+    await live.send([{ type: 'text', text: laneStandingOrder(text, environment) }])
   }
 
   /** Closes a conversation a seating opened and will not use, and lets it go — the seating's hold with it. */

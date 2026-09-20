@@ -152,6 +152,7 @@ export type LoginStart =
 
 /** What a runtime can do, so the UI can hide controls rather than fail calls. */
 export interface RuntimeCapabilities {
+  readonly sessionEnvironment: boolean
   readonly resume: boolean
   readonly fork: boolean
   readonly steer: boolean
@@ -244,6 +245,7 @@ export interface RuntimeCapabilities {
  * process (an account answered by a CLI, say).
  */
 export const NO_CAPABILITIES: RuntimeCapabilities = {
+  sessionEnvironment: false,
   resume: false,
   fork: false,
   steer: false,

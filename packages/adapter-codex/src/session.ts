@@ -89,6 +89,7 @@ export interface CodexSessionDeps {
    * up like this one needs the route again, not just the provider's name.
    */
   readonly route?: ResolvedModelRoute | null
+  readonly environment?: Readonly<Record<string, string>> | undefined
   /**
    * Starts a new thread set up like the one given and registers it with the
    * runtime, as `createSession` would — see `CodexRuntime.#startBeside`.
@@ -235,6 +236,7 @@ export class CodexSession implements AgentSession {
   startLike(): {
     readonly start: LikeParams
     readonly route: ResolvedModelRoute | null
+    readonly environment: Readonly<Record<string, string>> | undefined
     readonly sandbox: CodexProtocol.v2.SandboxPolicy | null
     readonly after: readonly (readonly [string, OptionValue])[]
   } {
@@ -242,6 +244,7 @@ export class CodexSession implements AgentSession {
     return {
       start: startParamsLike(this.#state),
       route: this.deps.route ?? null,
+      environment: this.deps.environment,
       sandbox: this.#state.sandbox,
       after: ['mode', 'effort'].flatMap((id) => {
         const value = findOption(options, id)?.currentValue

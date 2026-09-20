@@ -290,6 +290,7 @@ export class FakeRuntime implements AgentRuntime {
     // the runtime rather than assumed OpenAI-shaped.
     supportedWireProtocols: ['fakewire'],
     capabilities: {
+      sessionEnvironment: true,
       resume: true,
       fork: true,
       steer: true,

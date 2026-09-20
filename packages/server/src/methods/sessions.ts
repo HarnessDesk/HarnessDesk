@@ -11,6 +11,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
+import { requireLaneSupport } from '../goals/lane-environment.js'
 import { assertAbsoluteCwd } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 import { checkOption } from './runtimes.js'
@@ -75,7 +76,9 @@ export const sessionMethods = {
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
-    const live = await runtime.createSession(options)
+    const environment = ctx.laneEnvironment.forCheckout(options.cwd)
+    requireLaneSupport(runtime.info, environment)
+    const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
@@ -91,7 +94,11 @@ export const sessionMethods = {
     }
     let live: AgentSession
     try {
-      live = await runtime.resumeSession(makeSessionId(params.sessionId), options)
+      const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+      live = await runtime.resumeSession(makeSessionId(params.sessionId), {
+        ...options,
+        ...(environment ? { environment } : {}),
+      })
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.
@@ -134,7 +141,11 @@ export const sessionMethods = {
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
-    const live = await runtime.forkSession(makeSessionId(params.sessionId), options)
+    const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+    const live = await runtime.forkSession(makeSessionId(params.sessionId), {
+      ...options,
+      ...(environment ? { environment } : {}),
+    })
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
