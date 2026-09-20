@@ -23,7 +23,7 @@ import {
 } from '../lib/annotate'
 import { handOverToComposer, type ComposeRequest } from '../lib/compose'
 import { noteKey, wrapContext } from '../lib/context-envelope'
-import { desktop, hasInlineBrowser, openExternal } from '../lib/desktop'
+import { browserPartition, desktop, hasInlineBrowser, openExternal } from '../lib/desktop'
 import { bareToolName, toolsOfPlugin, toolWords } from '../lib/tool-names'
 import { useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
@@ -672,9 +672,11 @@ export const BrowserPane = () => {
      tab in a panel strip. Every verb below takes it, and none of them cares
      which kind it is; that is what let the browser leave the middle. */
   const paneId = mount?.id ?? null
+  const profile = view?.profile ?? null
   const inline = hasInlineBrowser()
   const prefs = snapshot.browserPrefs
-  const driving = useDriving()
+  const observedDriving = useDriving()
+  const driving = profile === null ? observedDriving : null
 
   /** The runtime of the conversation beside this pane, for the driven mark. */
   const activeRuntime = useMemo(() => {
@@ -707,7 +709,7 @@ export const BrowserPane = () => {
    * turn would drive it. Never the selected backend: in a room of Cursor and
    * Claude Code that put "Codex" on a tab Codex has never touched.
    */
-  const namedDriver = driving?.info ?? activeRuntime
+  const namedDriver = profile === null ? driving?.info ?? activeRuntime : null
 
   const tab = view ? activeBrowserTab(view) : null
   const spec = browserDevice(tab?.device)
@@ -772,7 +774,7 @@ export const BrowserPane = () => {
 
   // Sessions are kept or not; either way the guests are the app's own, never
   // the person's Chrome profile.
-  const partition = prefs.persistSession ? 'persist:harnessdesk-browser' : 'harnessdesk-browser-once'
+  const partition = browserPartition(profile, prefs.persistSession)
 
   const register = useCallback((tabId: string, element: WebviewElement | null, ready: () => boolean) => {
     if (element) elements.current.set(tabId, { element, ready })
@@ -926,14 +928,14 @@ export const BrowserPane = () => {
     const id = guests.current.get(driven)
     if (id === undefined || id === reported.current) return
     reported.current = id
-    desktop()?.browserReady?.(id)
+    desktop()?.browserReady?.({ profile, webContentsId: id })
   })
 
   useEffect(() => {
     if (!inline) return
     const bridge = desktop()
-    return () => bridge?.browserGone?.()
-  }, [inline])
+    return () => bridge?.browserGone?.({ profile, webContentsId: reported.current })
+  }, [inline, profile])
 
   // A page's `target=_blank` is handled in the shell, which either hands the
   // link back here as a tab or sends it to the OS browser. The preference
@@ -944,8 +946,10 @@ export const BrowserPane = () => {
 
   useEffect(() => {
     if (!paneId) return
-    return desktop()?.onBrowserOpenTab?.((url) => store.newBrowserTab(paneId, url))
-  }, [paneId, store])
+    return desktop()?.onBrowserOpenTab?.((request) => {
+      if (request.profile === profile) store.newBrowserTab(paneId, request.url)
+    })
+  }, [paneId, profile, store])
 
   // While the person is typing, the bar is theirs; otherwise it follows the
   // tab, including when an agent navigates it under them.
@@ -1487,7 +1491,7 @@ export const BrowserPane = () => {
                 disabled={inline ? false : 'Only in the desktop app.'}
                 onSelect={() => {
                   void desktop()
-                    ?.clearBrowserData?.()
+                    ?.clearBrowserData?.(profile)
                     .then(() => store.notice('info', 'The browser pane’s cookies and storage were cleared.'))
                     .catch((error: unknown) =>
                       store.notice('error', error instanceof Error ? error.message : String(error)),
@@ -1838,7 +1842,7 @@ export const BrowserPane = () => {
       <div className={styles.body} data-browser="">
         {tabs.map((entry) => (
           <BrowserTabPage
-            key={entry.id}
+            key={`${profile ?? 'default'}:${entry.id}`}
             tab={entry}
             active={entry.id === view.active}
             partition={partition}

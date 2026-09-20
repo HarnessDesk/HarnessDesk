@@ -77,6 +77,7 @@ export interface HarnessContext {
    * `ref_3` from `readPage` is resolved by the page and needs no such
    * correction.
    */
+  /** Browser ownership comes from the live host invocation, never a plugin argument. */
   readonly browser: {
     /** `handedOff` when the setting sent the page to the default browser, which cannot be looked at. */
     open(url: string): Promise<{ url: string; title: string; handedOff?: true }>

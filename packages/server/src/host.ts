@@ -147,6 +147,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   setWorkspace(state: { root: string | null; branch: string | null }): void
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
+  setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -414,6 +415,13 @@ export type Broadcast = (notification: WireNotification) => void
 const REOPEN_REFUSALS_TO_LET_GO = 2
 
 export class Host {
+  /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
+  browserProfileAllowed(profile: string): boolean {
+    return this.#lanes
+      .list()
+      .some((lane) => lane.browserProfile === profile && lane.state !== 'released')
+  }
+
   readonly registry = new SessionRegistry()
   readonly #runtimes = new Map<string, AgentRuntime>()
   readonly #subscriptions: Unsubscribe[] = []
@@ -896,6 +904,20 @@ export class Host {
       },
     })
     this.#extensions = options.extensions ?? null
+    this.#extensions?.setBrowserResolver?.((scope) => {
+      if (!scope.runtime || !scope.sessionId) return undefined
+      const record = this.registry.get(scope.runtime, scope.sessionId)
+      if (!record) return undefined
+      const matches = this.#lanes
+        .list()
+        .filter((lane) => lane.cwd !== '' && lane.cwd === record.session.cwd)
+      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
+      const lane = matches[0]
+      if (lane?.state === 'released') {
+        throw new Error('This lane was released. Open a new isolated Seat.')
+      }
+      return lane?.browserProfile ?? 'default'
+    })
     if (this.#extensions) {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),
@@ -3068,6 +3090,11 @@ export class Host {
     const runtime = this.#runtime({ runtime: seat.runtime })
     const environment = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
     requireLaneSupport(runtime.info, environment)
+    if (environment && this.#extensions && !this.#extensions.setBrowserResolver) {
+      throw new Error(
+        'This extension host cannot isolate a lane browser. Choose a supported extension host or turn isolation off.',
+      )
+    }
     const held = new Set(
       this.registry
         .all()

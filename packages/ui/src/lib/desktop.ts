@@ -67,16 +67,17 @@ export interface DesktopBridge {
    * goes; the shell asks for the pane to be shown or closed when a tool
    * needs it. Absent in the browser build, where tools drive Chrome instead.
    */
-  browserReady?(webContentsId: number): void
-  browserGone?(): void
-  onBrowserShow?(handler: (request: { url: string }) => void): () => void
-  onBrowserClose?(handler: () => void): () => void
+  browserReady?(request: { profile: string | null; webContentsId: number }): void
+  browserGone?(request: { profile: string | null; webContentsId: number | null }): void
+  browserFocused?(request: number): void
+  onBrowserShow?(handler: (request: { profile: string | null; url: string }) => void): () => void
+  onBrowserClose?(handler: (request: { profile: string | null }) => void): () => void
   /**
    * The shell asking for the driven tab to be brought forward, which it does
    * before every tool command: Chromium freezes a `<webview>` nobody is
    * looking at, so a backgrounded tab screenshots stale.
    */
-  onBrowserFocus?(handler: () => void): () => void
+  onBrowserFocus?(handler: (request: { profile: string | null; request: number }) => void): () => void
   /**
    * Photographs one of the pane's tabs — named by `webContents` id, which
    * the shell checks against the tabs the pane itself reported — and writes
@@ -85,7 +86,7 @@ export interface DesktopBridge {
    */
   saveBrowserScreenshot?(webContentsId: number, name: string): Promise<string | null>
   /** Empties the browser pane's persistent partition. */
-  clearBrowserData?(): Promise<void>
+  clearBrowserData?(profile?: string | null): Promise<void>
   /**
    * Runs the annotation overlay's code in an *isolated world* of one of the
    * pane's tabs, named by `webContents` id and checked in the shell to be a
@@ -102,13 +103,13 @@ export interface DesktopBridge {
    */
   setBrowserLinksInPane?(inPane: boolean): void
   /** A link a page tried to open in a window of its own, to be shown as a tab. */
-  onBrowserOpenTab?(handler: (url: string) => void): () => void
+  onBrowserOpenTab?(handler: (request: { url: string; profile: string | null }) => void): () => void
   /**
    * A download a page in the pane started has ended. The shell put it in the
    * Downloads folder under the server's name; this is where, and whether it
    * finished, for a notice to say.
    */
-  onBrowserDownload?(handler: (outcome: { name: string; path: string; ok: boolean; message: string }) => void): () => void
+  onBrowserDownload?(handler: (outcome: { name: string; path: string; ok: boolean; message: string; profile: string | null }) => void): () => void
   /** Shows a downloaded file in the Finder; the shell reveals only files it saved itself. */
   revealDownload?(path: string): void
 }
@@ -165,3 +166,11 @@ export const hasTrafficLights = (): boolean => desktop()?.platform === 'darwin'
 
 /** Whether this shell can render a real browser pane (Electron's `<webview>`). */
 export const hasInlineBrowser = (): boolean => typeof desktop()?.browserReady === 'function'
+
+export function browserPartition(profile: string | null, keep: boolean): string {
+  if (profile === null) return keep ? 'persist:harnessdesk-browser' : 'harnessdesk-browser-once'
+  if (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n')) {
+    throw new Error('The host did not name a lane browser profile.')
+  }
+  return `persist:hd-${profile}`
+}

@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
 
 import {
+  BrowserInvocations,
   setEditorEngine,
   setForgeEngine,
   setTeamEngine,
@@ -112,6 +113,7 @@ export class PluginHostProcess {
   #child: ChildProcess | null = null
   #nextId = 0
   readonly #pending = new Map<number, Pending>()
+  readonly #browserInvocations = new BrowserInvocations()
   #plugins: readonly PluginInstance[] = []
   #contributions: readonly CapabilityContribution[] = []
   /**
@@ -590,6 +592,19 @@ export class PluginHostProcess {
         }
       }
 
+      const invocation = (request.params as { invocation?: unknown })?.invocation
+      const identity = this.#browserInvocations.resolve(invocation)
+      const owner = this.#browserInvocations.owner(invocation)
+      if (
+        !this.#plugins.some(
+          (plugin) =>
+            String(plugin.instanceId) === owner &&
+            plugin.enabled &&
+            plugin.permissions.browser,
+        )
+      ) {
+        throw new Error('This plugin no longer has a browser grant.')
+      }
       const engine = this.#options.browserEngine
       if (!engine) {
         refuse('The host has no browser of its own.')
@@ -597,22 +612,22 @@ export class PluginHostProcess {
       }
       switch (request.method) {
         case 'browser/ensure':
-          await engine.ensure()
+          await engine.ensure(identity)
           reply({ response: request.request, result: null })
           return
         case 'browser/send': {
           const { method, params } = request.params as { method: string; params?: Record<string, unknown> }
-          const sender = await engine.ensure()
+          const sender = await engine.ensure(identity)
           reply({ response: request.request, result: (await sender.send(method, params)) ?? null })
           return
         }
         case 'browser/events': {
-          const sender = await engine.ensure()
+          const sender = await engine.ensure(identity)
           reply({ response: request.request, result: (await sender.drain?.()) ?? [] })
           return
         }
         case 'browser/close':
-          await engine.close()
+          await engine.close(identity)
           reply({ response: request.request, result: null })
           return
         default:
@@ -632,12 +647,36 @@ export class PluginHostProcess {
     method: M,
     params: PluginHostMethods[M]['params'],
   ): Promise<PluginHostMethods[M]['result']> {
+    await this.ensure()
+    let browserInvocation: string | undefined
+    if (method === 'tool/invoke') {
+      const input = params as PluginHostMethods['tool/invoke']['params']
+      const namespaced = childContributionId(input.id as ContributionId)
+      const owner = this.#plugins.find((plugin) =>
+        plugin.contributions.some((entry) => entry.id === namespaced),
+      )
+      if (
+        input.browser &&
+        owner?.enabled &&
+        owner.permissions.browser &&
+        owner.contributions.some(
+          (entry) => entry.id === namespaced && scopeApplies(entry.scope, input.scope),
+        )
+      ) {
+        const identity = this.#browserInvocations.begin(input.browser.profile, String(owner.instanceId))
+        browserInvocation = identity.invocation
+        params = { ...input, browser: identity } as PluginHostMethods[M]['params']
+      } else if (input.browser) {
+        const { browser: _browser, ...plain } = input
+        params = plain as PluginHostMethods[M]['params']
+      }
+    }
     const armKeys = this.#armedScopesFor(method, params)
-    if (armKeys.length === 0) return this.#dispatch(method, params)
     for (const key of armKeys) this.#teamScopes.set(key, (this.#teamScopes.get(key) ?? 0) + 1)
     try {
       return await this.#dispatch(method, params)
     } finally {
+      if (browserInvocation) this.#browserInvocations.end(browserInvocation)
       for (const key of armKeys) {
         const count = (this.#teamScopes.get(key) ?? 1) - 1
         if (count <= 0) this.#teamScopes.delete(key)
@@ -833,6 +872,7 @@ export class SupervisedExtensionHost {
   readonly #listeners = new Set<(event: ExtensionEvent) => void>()
   readonly #logger: KernelLogger
   #workspace: { root: string | null; branch: string | null } = { root: null, branch: null }
+  #browserResolver: (scope: ScopeQuery) => string | undefined = () => 'default'
 
   constructor(kernel: ExtensionKernel, options: SupervisedExtensionHostOptions = {}) {
     this.#kernel = kernel
@@ -920,13 +960,24 @@ export class SupervisedExtensionHost {
     return [...this.#kernel.plugins(), ...this.#child.plugins]
   }
 
+  setBrowserResolver(resolve: (scope: ScopeQuery) => string | undefined): void {
+    this.#browserResolver = resolve
+    this.#kernel.setBrowserResolver(resolve)
+  }
+
   async invokeTool(id: ContributionId, args: unknown, scope: ScopeQuery): Promise<ToolResult> {
     if (this.#ownsInProcess(id)) return this.#kernel.invokeTool(id, args, scope)
     if (!isChildContributionId(id)) {
       return { ok: false, error: `No tool is registered with id ${String(id)}` }
     }
     try {
-      return await this.#child.call('tool/invoke', { id: stripChildContributionId(id), args, scope })
+      const profile = this.#browserResolver(scope)
+      return await this.#child.call('tool/invoke', {
+        id: stripChildContributionId(id),
+        args,
+        scope,
+        ...(profile ? { browser: { invocation: 'pending-parent-lease', profile } } : {}),
+      })
     } catch (error) {
       // The failure is the answer: the turn goes on, told plainly why.
       return { ok: false, error: error instanceof Error ? error.message : String(error) }

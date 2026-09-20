@@ -125,7 +125,12 @@ export interface PluginHostMethods {
     result: { readonly handled: boolean }
   }
   'tool/invoke': {
-    params: { readonly id: string; readonly args: unknown; readonly scope: ScopeQuery }
+    params: {
+      readonly id: string
+      readonly args: unknown
+      readonly scope: ScopeQuery
+      readonly browser?: { readonly invocation: string; readonly profile: string }
+    }
     result: ToolResult
   }
   'hooks/run': { params: { readonly invocation: HookInvocation }; result: HookVerdict }
@@ -185,14 +190,18 @@ export interface CdpEventWire {
  * one direction and one buffer, and a turn that never asks costs nothing.
  */
 export interface ChildToHostMethods {
-  'browser/ensure': { params: Record<string, never>; result: null }
+  'browser/ensure': { params: { readonly invocation: string }; result: null }
   'browser/send': {
-    params: { readonly method: string; readonly params?: Record<string, unknown> }
+    params: {
+      readonly invocation: string
+      readonly method: string
+      readonly params?: Record<string, unknown>
+    }
     result: unknown
   }
   /** Everything the page has said since the last drain; the reading empties it. */
-  'browser/events': { params: Record<string, never>; result: readonly CdpEventWire[] }
-  'browser/close': { params: Record<string, never>; result: null }
+  'browser/events': { params: { readonly invocation: string }; result: readonly CdpEventWire[] }
+  'browser/close': { params: { readonly invocation: string }; result: null }
 
   /**
    * The editor plane — the same four shapes as the browser above, for the

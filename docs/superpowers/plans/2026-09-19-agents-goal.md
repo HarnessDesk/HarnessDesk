@@ -7299,7 +7299,7 @@ A host-selected identity follows one tool invocation through the built-in kernel
 - Modify: UI `lib/desktop.ts`, `components/BrowserPane.tsx`, `state/store.ts`, `state/layout.ts`, `state/snapshot.ts`, `app/App.tsx`; create `components/BrowserPane.lanes.test.tsx`, `preview/browser-lanes.html`.
 - Named existing test edits: `BrowserPane.test.tsx` now reports `{profile:null,webContentsId}`; existing IPC tests retain sender and guest-ownership checks. The workbench already keeps inactive dock views mounted; a separate BrowserView per profile reuses that behavior and its existing persistence.
 
-**Proof needs:** the rendered UI. **Routing:** Sonnet. The planning proof covers the concurrent scope and desktop routing kernels. Actual Chromium cookies, guest visibility, light/dark and narrow layout require the Electron sitting in Step 11; no such sitting is claimed here.
+**Proof needs:** the rendered UI. **Routing:** delegated pure driving/screenshots use Luna high, full mode, profile sol; no video or recording. The planning proof covers the concurrent scope and desktop routing kernels. Actual Chromium cookies, guest visibility, light/dark and narrow layout require the Electron sitting in Step 11; no such sitting is claimed here.
 
 **Interfaces:** `BrowserIdentity {invocation:string,profile:string}`, `withBrowserIdentity`, `BrowserScopes<T>`, `browserPartition`; `BrowserEngine.ensure(identity?:BrowserIdentity)` and `close(identity?:BrowserIdentity)`. The only profile carried in child-to-parent browser requests is the parent-issued invocation's lookup result. Requests carry `{invocation:string}` plus their method arguments. The host's resolver is installed on the extension host; plugin context exposes neither that resolver nor the authority map.
 
@@ -8491,10 +8491,10 @@ export class Host {
   }
 ```
 
-The optional setter keeps other extension kernels source-compatible. An extension kernel that does not implement it cannot be used for Goal browser isolation: add this refusal to Task 5's `#openSeat`, immediately after its `requireLaneSupport(runtime.info, environment)` line:
+The optional setter keeps other extension kernels source-compatible. An installed extension kernel that does not implement it cannot be used for Goal browser isolation; a host with no extension kernel has no browser tools to misroute and remains valid for headless/test use. Add this refusal to Task 5's `#openSeat`, immediately after its `requireLaneSupport(runtime.info, environment)` line:
 
 ```ts
-    if (environment && !this.#extensions?.setBrowserResolver) {
+    if (environment && this.#extensions && !this.#extensions.setBrowserResolver) {
       throw new Error('This extension host cannot isolate a lane browser. Choose a supported extension host or turn isolation off.')
     }
 ```
@@ -10175,7 +10175,7 @@ Expected: Exit 0, unpiped, before the implementation commit. The plan writer doe
 
 ```bash
 git add packages/cordis-host/src/browser-scopes.ts packages/cordis-host/test/browser-scopes.test.ts packages/cordis-host/src/browser.ts packages/cordis-host/src/kernel.ts packages/cordis-host/src/context.ts packages/cordis-host/src/index.ts packages/extension-protocol/src/index.ts packages/extension-host/src/child.ts packages/extension-host/src/supervisor.ts packages/extension-host/test/isolation.test.ts packages/server/src/host.ts packages/desktop/electron/browser-scopes.mjs packages/desktop/electron/browser-scopes.test.mjs packages/desktop/electron/browser-engine.mjs packages/desktop/electron/main.mjs packages/desktop/electron/preload.cjs packages/desktop/electron/ipc-channels.test.mjs packages/ui/src/lib/desktop.ts packages/ui/src/components/BrowserPane.tsx packages/ui/src/components/BrowserPane.test.tsx packages/ui/src/components/BrowserPane.lanes.test.tsx packages/ui/src/state/store.ts packages/ui/src/state/layout.ts packages/ui/src/state/snapshot.ts packages/ui/src/app/App.tsx packages/ui/src/preview/browser-lanes.html
-git commit -m "feat(agents): isolate browser state by lane invocation" -m "Co-Authored-By: Codex <agent@harnessdesk.app>"
+git commit -m "feat(agents): isolate browser state by lane invocation" -m "Co-authored-by: HarnessDesk Agent <agent@harnessdesk.app>"
 ```
 
 ### Task 7: Move the guarded channel and add event-driven member waiting

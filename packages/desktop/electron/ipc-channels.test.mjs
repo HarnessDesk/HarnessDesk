@@ -20,7 +20,11 @@ import { test } from 'node:test'
 const here = dirname(fileURLToPath(import.meta.url))
 const read = (name) => readFileSync(join(here, name), 'utf8')
 
-const main = [read('main.mjs'), read('browser-engine.mjs')].join('\n')
+const main = [
+  read('main.mjs'),
+  read('browser-engine.mjs'),
+  read('browser-scopes.mjs').replaceAll('ipc.on(', 'ipcMain.on('),
+].join('\n')
 const preload = read('preload.cjs')
 
 const found = (source, pattern) => [...source.matchAll(pattern)].map((match) => match[1]).sort()
@@ -42,7 +46,12 @@ test('every channel the shell speaks on is one the renderer listens to', () => {
 test('the browser pane’s own channels are all present', () => {
   // Named rather than counted, so removing one is a failing test and not a
   // quietly smaller number.
-  for (const channel of ['harnessdesk:browser-ready', 'harnessdesk:browser-gone', 'harnessdesk:browser-links']) {
+  for (const channel of [
+    'harnessdesk:browser-ready',
+    'harnessdesk:browser-gone',
+    'harnessdesk:browser-focused',
+    'harnessdesk:browser-links',
+  ]) {
     assert.ok(mainReceives.includes(channel), `${channel} is not handled in the shell`)
   }
   for (const channel of ['harnessdesk:browser-save-screenshot', 'harnessdesk:browser-clear-data']) {
@@ -63,13 +72,14 @@ test('the profile picture can request a native Dock icon', () => {
   assert.match(main, /ipcMain\.on\('harnessdesk:set-dock-icon'/)
 })
 
-test('the shell fronts the driven tab before it drives it', () => {
-  // Chromium stops rasterising a <webview> nobody is looking at, so a driven
-  // tab left behind another screenshots stale. `ensure` is the one place
-  // every tool command passes through.
-  const engine = read('browser-engine.mjs')
-  const ensure = engine.slice(engine.indexOf('async ensure()'))
-  assert.match(ensure.slice(0, 200), /front\(\)/, 'ensure() must front the driven tab')
+test('the shell awaits a fronted profile before sending a command', () => {
+  const engine = read('browser-scopes.mjs')
+  const send = engine.slice(engine.indexOf('send: (method, params) =>'))
+  assert.match(send, /await front\(profile\)/)
+  assert.ok(send.indexOf('await front(profile)') < send.indexOf('sendCommand(method'))
+  assert.match(engine, /event\.sender === currentWindow\(\)\?\.webContents/)
+  assert.match(engine, /wc\.hostWebContents !== currentWindow\(\)\?\.webContents/)
+  assert.match(engine, /wc\.session === sessionForPartition/)
 })
 
 test('a screenshot can only be taken of a tab the pane itself named', () => {

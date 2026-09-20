@@ -2360,11 +2360,11 @@ export class AppStore {
     // Closing the panel is "I need the room", not "throw these pages away":
     // the tabs are kept and the next open brings them back. Only a tab's own
     // × discards a page, which is the one gesture that says so.
-    if (view.kind === 'browser') this.#closedBrowser = view
+    if (view.kind === 'browser') this.#closedBrowsers.set(view.profile ?? 'default', view)
   }
 
   /** The tabs the browser had when its pane last closed; see `#release`. */
-  #closedBrowser: BrowserView | null = null
+  readonly #closedBrowsers = new Map<string, BrowserView>()
 
   // -------------------------------------------------------------------- tools
 
@@ -2567,8 +2567,8 @@ export class AppStore {
    * verbs stopped caring — which is what let the browser take the right-hand
    * edge, where a page being *referred to* belongs.
    */
-  #browserPane(): { readonly id: string; readonly view: BrowserView } | null {
-    const found = findViewIn(this.#snapshot.workbench, browserView(BLANK))
+  #browserPane(profile: string | null = null): { readonly id: string; readonly view: BrowserView } | null {
+    const found = findViewIn(this.#snapshot.workbench, browserView(BLANK, profile))
     if (!found) return null
     const id = found.area === 'main' ? found.pane : found.mounted.id
     const view = viewAt(this.#snapshot.workbench, id)
@@ -2617,8 +2617,15 @@ export class AppStore {
    * Chromium freezes a `<webview>` nobody is looking at, so a driven tab
    * hidden behind another would screenshot as a stale frame.
    */
-  openBrowser(url?: string, options: { readonly split?: Split['direction'] | null } = {}): void {
-    const existing = this.#browserPane()
+  openBrowser(
+    url?: string,
+    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null } = {},
+  ): void {
+    const profile = options.profile ?? null
+    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
+      throw new Error('Invalid browser profile.')
+    }
+    const existing = this.#browserPane(profile)
     const sendDriven = (view: BrowserView): BrowserView => {
       if (!url) return view
       const driven = drivenBrowserTab(view)
@@ -2632,9 +2639,9 @@ export class AppStore {
     // A closed panel gets its pages back — including when it is an agent
     // reopening it, which then navigates the driven tab as usual rather
     // than landing on top of whatever the person was reading.
-    const restored = this.#closedBrowser
-    this.#closedBrowser = null
-    const view = sendDriven(restored ?? browserView(BLANK))
+    const restored = this.#closedBrowsers.get(profile ?? 'default')
+    this.#closedBrowsers.delete(profile ?? 'default')
+    const view = sendDriven(restored ?? browserView(BLANK, profile))
     // An explicit split is still a split — `/browser --split` and the pane
     // menu both mean the middle. Otherwise it goes where its definition says,
     // which is the right-hand edge: a page you are working *from* belongs
@@ -2667,9 +2674,10 @@ export class AppStore {
   }
 
   /** Brings the driven tab to the front, before the tools act on it. */
-  focusDrivenBrowserTab(): void {
-    const pane = this.#browserPane()
+  focusDrivenBrowserTab(profile: string | null = null): void {
+    const pane = this.#browserPane(profile)
     if (!pane) return
+    this.revealView(pane.id)
     // A browser hidden behind another pane's expansion cannot paint, and a
     // frozen webview screenshots as a stale frame — the tools are about to
     // look, so the expansion ends first.
@@ -2711,17 +2719,19 @@ export class AppStore {
    * Pages closed by their own ×, newest first — what ⌘⇧T puts back. Bounded,
    * because this is an undo for a slip, not a second history.
    */
-  #closedTabs: BrowserTab[] = []
+  readonly #closedTabs = new Map<string, BrowserTab[]>()
 
   /** Puts back the last tab closed by its ×, on the page it was on. */
   reopenClosedBrowserTab(paneId: PaneId): void {
-    const last = this.#closedTabs.pop()
+    const view = viewAt(this.#snapshot.workbench, paneId)
+    if (view?.kind !== 'browser') return
+    const last = this.#closedTabs.get(view.profile ?? 'default')?.pop()
     if (!last) return
     this.#patchBrowser(paneId, (view) => addBrowserTab(view, last.url))
   }
 
   get hasClosedBrowserTabs(): boolean {
-    return this.#closedTabs.length > 0
+    return (this.#closedTabs.get('default')?.length ?? 0) > 0
   }
 
   /** Closing the last tab closes the pane, the way closing a window's last tab does. */
@@ -2732,12 +2742,17 @@ export class AppStore {
     const closing = viewAt(this.#snapshot.workbench, paneId)
     if (closing?.kind === 'browser') {
       const tab = closing.tabs.find((entry) => entry.id === tabId)
-      if (tab && tab.url !== BLANK) this.#closedTabs = [...this.#closedTabs.slice(-9), tab]
+      if (tab && tab.url !== BLANK) {
+        const key = closing.profile ?? 'default'
+        this.#closedTabs.set(key, [...(this.#closedTabs.get(key) ?? []).slice(-9), tab])
+      }
     }
     this.#patchBrowser(paneId, (view) => removeBrowserTab(view, tabId))
     // That last tab was closed on purpose, so unlike closing the panel there
     // is nothing to bring back — `#release` will have kept it otherwise.
-    if (!this.#browserPane()) this.#closedBrowser = null
+    if (closing?.kind === 'browser' && !this.#browserPane(closing.profile ?? null)) {
+      this.#closedBrowsers.delete(closing.profile ?? 'default')
+    }
   }
 
   /** Drags a tab along the strip, as every browser lets you. */
@@ -2769,8 +2784,8 @@ export class AppStore {
     this.#patchBrowser(paneId, (view) => patchBrowserTab(view, tabId, { device }))
   }
 
-  closeBrowser(): void {
-    const existing = this.#browserPane()
+  closeBrowser(profile: string | null = null): void {
+    const existing = this.#browserPane(profile)
     if (!existing) return
     // A pane in the middle or a view in a dock: `closePane` knows only the
     // split tree, and the browser has opened on the right since the panel
@@ -3042,7 +3057,8 @@ export class AppStore {
     const saved = readWorkbench(raw)
     // Pages belong to the project they were opened for: a browser closed in
     // one workspace must not reappear in the next one.
-    this.#closedBrowser = null
+    this.#closedBrowsers.clear()
+    this.#closedTabs.clear()
     // The terminals of a document written before the bottom panel existed. The
     // processes are still running on the host, so they are re-docked rather
     // than dropped — see `strayTerminals`.

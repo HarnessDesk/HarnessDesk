@@ -250,9 +250,13 @@ export const App = () => {
   // `<webview>` nobody is looking at stops painting, and screenshots blank.
   useEffect(() => {
     const bridge = desktop()
-    const offShow = bridge?.onBrowserShow?.(({ url }) => store.openBrowser(url === 'about:blank' ? undefined : url)) ?? (() => {})
-    const offClose = bridge?.onBrowserClose?.(() => store.closeBrowser()) ?? (() => {})
-    const offFocus = bridge?.onBrowserFocus?.(() => store.focusDrivenBrowserTab()) ?? (() => {})
+    const offShow = bridge?.onBrowserShow?.(({ url, profile }) =>
+      store.openBrowser(url === 'about:blank' ? undefined : url, { profile })) ?? (() => {})
+    const offClose = bridge?.onBrowserClose?.(({ profile }) => store.closeBrowser(profile)) ?? (() => {})
+    const offFocus = bridge?.onBrowserFocus?.(({ profile, request }) => {
+      store.focusDrivenBrowserTab(profile)
+      requestAnimationFrame(() => requestAnimationFrame(() => bridge.browserFocused?.(request)))
+    }) ?? (() => {})
     // A download a page started lands in the Downloads folder; the notice
     // says so, and offers the file. Listened for here rather than in the
     // pane, because a download outlives the tab that began it.

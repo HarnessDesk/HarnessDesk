@@ -638,7 +638,7 @@ export interface AppSnapshot {
    * answer, so it lives here beside the theme.
    */
   readonly browserPrefs: {
-    /** Guests use a persistent partition, so logins survive a restart. */
+    /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
     /** A page's `target=_blank` opens a tab here rather than leaving for the OS browser. */
     readonly linksInPane: boolean

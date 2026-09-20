@@ -586,3 +586,68 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+test('concurrent child browser invocations keep the host-resolved lane, refusing an unscoped call', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-browser-lanes-'))
+  const store = join(dir, 'plugins')
+  await cp(join(FIXTURES, 'plugin-browser'), join(store, 'browserish'), { recursive: true })
+  const profiles: string[] = []
+  const host = new SupervisedExtensionHost(new ExtensionKernel(), {
+    invokeTimeoutMs: 5000,
+    env: { HARNESSDESK_PLUGINS: store },
+    browserEngine: {
+      async ensure(identity) {
+        assert.ok(identity)
+        const profile = identity.profile
+        profiles.push(profile)
+        await Promise.resolve()
+        return {
+          async send(method, params) {
+            if (method === 'Page.captureScreenshot') {
+              return { data: Buffer.from(profile).toString('base64') }
+            }
+            if (method === 'Runtime.evaluate') {
+              const expression = String(params?.['expression'] ?? '')
+              return {
+                result: {
+                  value: expression.startsWith('JSON.stringify')
+                    ? JSON.stringify({ url: 'https://example.com/', title: profile })
+                    : profile,
+                },
+              }
+            }
+            return {}
+          },
+          drain: async () => [],
+        }
+      },
+      async close(identity) {
+        assert.ok(identity)
+      },
+    },
+  })
+  host.setBrowserResolver((browserScope) =>
+    browserScope.sessionId === 'a' ? 'lane-a' : browserScope.sessionId === 'b' ? 'lane-b' : undefined,
+  )
+  try {
+    await host.loadInstalledPlugins()
+    const tool = host.list('tool').find((entry) => entry.name === 'look')
+    assert.ok(tool)
+    const results = await Promise.all(
+      ['a', 'b'].map((sessionId) =>
+        host.invokeTool(tool.id, { url: 'https://example.com/' }, { sessionId: sessionId as SessionId }),
+      ),
+    )
+    assert.ok(results.every((result) => result.ok), JSON.stringify(results))
+    assert.match(JSON.stringify(results[0]), /lane-a/)
+    assert.doesNotMatch(JSON.stringify(results[0]), /lane-b/)
+    assert.match(JSON.stringify(results[1]), /lane-b/)
+    const before = profiles.length
+    const refused = await host.invokeTool(tool.id, {}, {})
+    assert.equal(refused.ok, false)
+    assert.equal(profiles.length, before)
+  } finally {
+    await host.dispose()
+    await rm(dir, { recursive: true, force: true })
+  }
+})
