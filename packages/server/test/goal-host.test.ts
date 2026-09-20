@@ -110,6 +110,43 @@ test('a board mutation publishes the refreshed Goal view used by wrap', async (t
   assert.equal(client.notifications.some((entry) => 'method' in entry && entry.method === 'goal/changed'), true)
 })
 
+test('the first Goal activity transition after restart is announced once', async () => {
+  const work = tempDir('hd-goal-activity-restart-work-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  let second: Awaited<ReturnType<typeof start>> | null = null
+  let secondClient: Client | null = null
+  try {
+    await client.call('workspace/open', { path: work })
+    const goal = await client.call('goal/create', { root: work, sentence: 'Recover the activity baseline' }) as GoalView
+    const card = await client.call('team/add', { room: goal.goal.id, title: 'Wait for a decision' }) as { id: number }
+    client.close()
+    await halt(harness)
+
+    second = await start({}, harness.stateDir)
+    secondClient = await Client.connect(second.server)
+    await secondClient.call('team/intent', { room: goal.goal.id, id: card.id, action: 'block', reason: 'A decision is needed' })
+    const activities = () => secondClient!.notifications.filter((entry) =>
+      'method' in entry && entry.method === 'goal/activity' && entry.params.goal === goal.goal.id,
+    )
+    assert.deepEqual(activities().map((entry) =>
+      'method' in entry && entry.method === 'goal/activity' ? entry.params : null,
+    ), [{ goal: goal.goal.id, previous: 'working', activity: 'needs-you', sentence: goal.goal.sentence }])
+
+    await secondClient.call('team/intent', { room: goal.goal.id, id: card.id, action: 'block', reason: 'Still waiting' })
+    assert.equal(activities().length, 1, 'an unchanged needs-you activity is not announced again')
+  } finally {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    secondClient?.close()
+    await second?.server.close().catch(() => {})
+    await second?.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+    await rm(work, { recursive: true, force: true })
+  }
+})
+
 test('the real Host previews, durably wraps, recovers the receipt, and refuses later board mutation', async () => {
   const work = tempDir('hd-goal-wrap-host-work-')
   const harness = await start()

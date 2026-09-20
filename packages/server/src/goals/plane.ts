@@ -154,6 +154,20 @@ export class GoalPlane {
     }
   }
 
+  /**
+   * Restores the comparison point for activity notifications after a host
+   * restart. This deliberately publishes nothing: the first notification on a
+   * new launch must describe a change that happened after the baseline, not
+   * the state that was merely read back from disk.
+   */
+  async hydrateActivity(): Promise<void> {
+    for (const document of this.store.list()) {
+      const view = await this.view(document.goal.id)
+      if (view.activity === null) this.#activity.delete(document.goal.id)
+      else this.#activity.set(document.goal.id, view.activity)
+    }
+  }
+
   async create(input: GoalCreateInput): Promise<GoalView> {
     return this.serial.run(async () => {
       const ready = this.port.ready()

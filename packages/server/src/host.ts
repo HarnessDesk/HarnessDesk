@@ -1257,6 +1257,10 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    // Both room and flow recovery can change a Goal's activity. Seed the
+    // in-memory comparison point only after they have settled, so the first
+    // later change can cross the notification boundary normally.
+    await this.#goals.hydrateActivity()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
