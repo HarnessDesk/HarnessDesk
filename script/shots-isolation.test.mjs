@@ -49,9 +49,9 @@ test('the unavailable evidence scene withholds completed work without replacing 
     shoot.indexOf('const seatRecordSays'),
   )
   assert.match(unavailable, /boardEvidence\.delete\(room\)/)
-  assert.match(unavailable, /boardEvidenceFailed\.add\(room\)/)
-  assert.match(unavailable, /loadBoardEvidence = async \(\) => undefined/)
-  assert.match(unavailable, /await store\.loadFlowRuns\(room\)/)
+  assert.match(unavailable, /const request = store\.transport\.request\.bind\(store\.transport\)/)
+  assert.match(unavailable, /method === 'evidence\/board'/)
+  assert.match(unavailable, /await store\.loadBoardEvidence\(room\)/)
   assert.match(unavailable, /Facts must be hidden/)
   assert.match(unavailable, /nothing checked/)
 })

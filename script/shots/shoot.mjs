@@ -1838,9 +1838,13 @@ rules:
         const room = ${q(evidenceRoom)}
         const snapshot = store.getSnapshot()
         snapshot.boardEvidence.delete(room)
-        snapshot.boardEvidenceFailed.add(room)
-        store.loadBoardEvidence = async () => undefined
-        await store.loadFlowRuns(room)
+        snapshot.boardEvidenceFailed.delete(room)
+        const request = store.transport.request.bind(store.transport)
+        store.transport.request = async (method, params) => {
+          if (method === 'evidence/board') throw new Error('synthetic unavailable evidence')
+          return request(method, params)
+        }
+        await store.loadBoardEvidence(room)
         return true
       })()`)
       await waitForSnapshot(
