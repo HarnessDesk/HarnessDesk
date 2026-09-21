@@ -595,7 +595,13 @@ export const scanQwenTranscript = async (
         thoughts: observedCount(usage.thoughtsTokenCount),
         tool: observedCount(usage.toolUsePromptTokenCount),
       })
-    add(into, target.path, target.runtime, at, model, project, aggregateTokens(tokens))
+    // Aggregate rows retain the existing scanner normalisation; only the
+    // source-qualified detail path must preserve a field's absence.
+    const aggregate = fromGeminiCounts({
+      prompt: positive(usage.promptTokenCount), cached: positive(usage.cachedContentTokenCount),
+      answer: positive(usage.candidatesTokenCount), thoughts: positive(usage.thoughtsTokenCount), tool: positive(usage.toolUsePromptTokenCount),
+    })
+    add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
   })
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
@@ -691,7 +697,10 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
         thoughts: observedCount(tokens.thoughts),
         tool: observedCount(tokens.tool),
       })
-    add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(normalized))
+    const aggregate = fromGeminiCounts({
+      prompt: positive(tokens.input), cached: positive(tokens.cached), answer: positive(tokens.output), thoughts: positive(tokens.thoughts), tool: positive(tokens.tool),
+    })
+    add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(aggregate))
     emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
