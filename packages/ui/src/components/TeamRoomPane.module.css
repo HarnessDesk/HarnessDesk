@@ -10,9 +10,7 @@
 .pane {
   display: flex;
   flex-direction: column;
-  height: 100%;
   min-height: 0;
-  background: var(--hd-background);
   container: hd-room / inline-size;
 }
 
@@ -37,9 +35,6 @@
   align-items: center;
   gap: var(--hd-space-2); /* desk: 10 → 8, one row rather than the rail head's two-line block */
   flex: none; /* desk: the rail head's growing text box is a fixed-height row now */
-  height: var(--hd-bar-h);
-  padding: 0 var(--hd-space-2) 0 max(var(--hd-space-3), var(--titlebar-inset, 0px)); /* desk: 12 all round → a bar row's 12/8, and the window buttons' room on the left */
-  border-bottom: var(--hd-border-width) solid var(--hd-border);
 }
 
 .barName {
@@ -59,7 +54,6 @@
   min-width: 2rem;
   max-width: 22rem;
   overflow: hidden;
-  font-weight: var(--hd-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -77,8 +71,6 @@
   flex: 0 100 auto;
   min-width: 0;
   overflow: hidden;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
   white-space: nowrap;
 }
 
@@ -87,10 +79,8 @@
 .barRule {
   flex: none;
   width: 1px;
-  height: 18px;
   margin: 0 var(--hd-space-1);
   margin-left: auto;
-  background: var(--hd-border);
 }
 
 .barVerbs {
@@ -103,10 +93,6 @@
 .barTrouble {
   flex: none;
   margin: 0;
-  padding: var(--hd-space-1-5) var(--hd-space-3);
-  border-bottom: var(--hd-border-width) solid var(--hd-border);
-  font-size: var(--hd-text-xs);
-  color: var(--hd-danger-ink);
 }
 
 /* The two halves, under the row that names them both. */
@@ -125,7 +111,6 @@
   flex-shrink: 0;
   width: 232px;
   min-height: 0;
-  border-right: var(--hd-border-width) solid var(--hd-border);
 }
 
 /* The room's own heartbeat: something in here is mid-turn. Same light as the
@@ -133,10 +118,7 @@
    obviously the same fact at two scales. */
 .pulse {
   width: 6px;
-  height: 6px;
   flex: none;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-success);
   animation: hd-room-pulse 2s ease-in-out infinite;
 }
 
@@ -168,8 +150,6 @@
   /* Even padding now that the room's name is on the row above rather than in a
      head of its own: this is the top of the rail, and it was leaning on that
      head for its own breathing room. */
-  padding: var(--hd-space-2); /* desk: 0 8 8 → 8, the head above it that supplied the top is gone */
-  border-bottom: var(--hd-border-width) solid var(--hd-border);
 }
 
 /* The word over the rail's agent list. On `--hd-label-*` like the sidebar's
@@ -182,12 +162,6 @@
   align-items: center;
   gap: var(--hd-space-2);
   flex-shrink: 0;
-  padding: var(--hd-label-space, var(--hd-space-3)) var(--hd-space-3) var(--hd-space-1);
-  font-size: var(--hd-label-size, var(--hd-text-xs));
-  font-weight: var(--hd-label-weight, var(--hd-weight-medium));
-  letter-spacing: var(--hd-label-tracking, 0.04em);
-  text-transform: var(--hd-label-transform, uppercase);
-  color: var(--hd-label-ink, var(--hd-muted-foreground));
 }
 
 /* The filter, drawn as a line rather than a field: a box with its own border
@@ -198,15 +172,10 @@
   gap: var(--hd-space-1-5);
   flex-shrink: 0;
   margin: 0 var(--hd-space-2) var(--hd-space-1);
-  padding-inline: var(--hd-space-2);
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-muted);
-  color: var(--hd-muted-foreground);
 }
 
 .railFilter svg {
   width: 13px;
-  height: 13px;
   flex: none;
 }
 
@@ -219,16 +188,11 @@
 .railList {
   flex: 1;
   min-height: 0;
-  padding: 0 var(--hd-space-2) var(--hd-space-2);
   overflow-y: auto;
 }
 
 .railEmpty {
   margin: 0;
-  padding: 0 var(--hd-space-1) var(--hd-space-2);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-sm);
-  color: var(--hd-muted-foreground);
 }
 
 /* `margin-left: auto` here and nowhere else in the row. The roster heading
@@ -238,15 +202,6 @@
    a number that belongs to nothing. */
 .count {
   margin-left: auto;
-  font-variant-numeric: tabular-nums;
-  color: var(--hd-muted-foreground);
-}
-
-/* Held messages are the one count in this rail that is a problem rather than a
-   quantity, so it wears the ink that says so. */
-.heldCount {
-  font-variant-numeric: tabular-nums;
-  color: var(--hd-warning-ink);
 }
 
 /* --- a member ------------------------------------------------------------
@@ -279,12 +234,6 @@
   right: -2px;
   bottom: -2px;
   width: 7px;
-  height: 7px;
-  border-radius: var(--hd-radius-full);
-  background: var(--hd-success);
-  /* A ring in the row's own ground, so the light reads as sitting on the tile
-     rather than as a pixel of the tile that went green. */
-  box-shadow: 0 0 0 2px var(--hd-background);
   animation: hd-room-pulse 2s ease-in-out infinite;
 }
 
@@ -294,30 +243,11 @@
   }
 }
 
-/* What the conversation calls itself, trailing the nickname on the same run of
-   text. Not a flex sibling: the row already truncates from the right, which
-   drops this and keeps the nickname — exactly the right order — and a flex row
-   would have eaten the space between the two names. */
-.memberAlso {
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
-
-/* The job's number, which is the part a person types back to an agent. It
-   leads the second line, so the row's truncation can never be what removes
-   it. */
-.memberTaskId {
-  font-family: var(--hd-font-code);
-  color: var(--hd-tint-violet-ink);
-}
-
 /* A doubt rather than a refusal: the harness says it can reach the tools and
    the board has never seen it use one. Muted rather than warning ink, so it
    cannot be mistaken for the line above it, which is a fact. */
 .memberIdle {
   overflow: hidden;
-  color: var(--hd-muted-foreground);
-  font-style: italic;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -329,7 +259,6 @@
    alarm. */
 .memberInbound {
   overflow: hidden;
-  color: var(--hd-muted-foreground);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -342,7 +271,6 @@
   gap: var(--hd-space-1);
   min-width: 0;
   overflow: hidden;
-  color: var(--hd-warning-ink);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -410,7 +338,6 @@
 .stream {
   flex: 1;
   min-height: 0;
-  padding: var(--hd-space-2) var(--hd-space-6); /* desk: 0 → 24, the room stops being full-bleed */
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
 }
@@ -455,9 +382,6 @@
   width: 100%;
   max-width: calc(var(--hd-column) + 2 * var(--room-dock));
   margin: 0 auto; /* desk: 0 → centred, the line now sits in the column */
-  padding: 0 calc(var(--room-dock) + var(--hd-space-3)) var(--hd-space-1); /* desk: 12 → 44, the dock's gutter plus the line's own */
-  font-size: var(--hd-text-xs);
-  color: var(--hd-danger-ink);
 }
 
 /* No rule above it, and the reading column's own gutter beside it.
@@ -481,7 +405,6 @@
  * reason; see `.composerShell` for the measure itself. */
 .composer {
   flex-shrink: 0;
-  padding: 0 var(--room-dock) var(--hd-space-4); /* desk: 16 → 32, the reading column's inset */
 }
 
 .composerShell {
@@ -511,7 +434,6 @@
 @container hd-room (max-width: 38rem) {
   .rail {
     width: 100%;
-    border-right: 0;
   }
 
   .pane[data-showing='body'] .rail {
@@ -548,7 +470,6 @@
   grid-auto-columns: 1fr;
   min-width: 0;
   min-height: 0;
-  height: 100%;
 }
 
 .column {
@@ -556,10 +477,6 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border-inline-start: 1px solid var(--hd-border);
-}
-.column:first-child {
-  border-inline-start: 0;
 }
 
 /* One bar height, like every other edge row in the window. */
@@ -567,10 +484,7 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2);
-  height: var(--hd-bar-h);
   flex: none;
-  padding-inline: var(--hd-space-3);
-  border-block-end: 1px solid var(--hd-border);
 }
 
 /* One member watched, and the rail beside it already saying who: the mark, the
@@ -623,8 +537,6 @@
 }
 
 .columnName {
-  font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -635,8 +547,6 @@
 .columnSub {
   flex: 1;
   min-width: 0;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
