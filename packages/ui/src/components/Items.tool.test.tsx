@@ -89,6 +89,19 @@ const diffText = (): string[] =>
   [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
 
 describe('an opened tool step', () => {
+  it('keeps an expanded non-bare body inside its row surface instead of drawing a second card', () => {
+    open(call({ tool: 'search_files', args: { query: 'row surface' } }))
+
+    const row = byClass('row')[0]
+    const body = byClass('rowBody')[0]
+    expect(row?.className).toContain('bg-(--hd-card)')
+    expect(row?.className).toContain('shadow-(--hd-hairline)')
+    expect(body?.className).toContain('pt-(--hd-space-2)')
+    expect(body?.className).not.toContain('rounded-(--hd-radius)')
+    expect(body?.className).not.toContain('bg-(--hd-card)')
+    expect(body?.className).not.toContain('shadow-(--hd-hairline)')
+  })
+
   it('draws a two-line Write with one marker, not a second + in the file text', () => {
     render(call({
       tool: 'Write /w/src/new.ts',

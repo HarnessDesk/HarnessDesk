@@ -250,7 +250,7 @@ const Row = ({
         )}
       </Button>
       {collapsible && open && (
-        <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} pt-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6) rounded-(--hd-radius) bg-(--hd-card) shadow-(--hd-hairline)`}>{children}</div>
+        <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} pt-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6)`}>{children}</div>
       )}
     </div>
   )
