@@ -240,18 +240,6 @@
   gap: 8px;
 }
 
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 /* Ambient state between the transcript and the composer. Zero height when
    nothing is running and no goal is set, so it costs nothing at rest.
 

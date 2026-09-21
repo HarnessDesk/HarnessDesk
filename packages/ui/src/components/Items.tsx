@@ -192,7 +192,7 @@ const formatDuration = (ms: number | undefined): string | null => {
 }
 
 const StatusMark = ({ status }: { status: ItemStatus }) => {
-  if (status === 'inProgress') return <span className="flex-none size-3 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[spin_0.7s_linear_infinite]" />
+  if (status === 'inProgress') return <span className="flex-none size-3 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[hd-spin_0.7s_linear_infinite]" />
   if (status === 'completed') return null
   if (status === 'failed') return <span className="text-(--hd-danger-ink) text-xs font-medium">failed</span>
   return (
@@ -414,6 +414,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const { injections, text } = splitContext(raw)
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
+  const singleImage = images.length === 1
   const [preview, setPreview] = useState<number | null>(null)
 
   return (
@@ -442,12 +443,12 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               key={index}
               type="button"
               role="listitem"
-              variant="quiet" size="content" className={styles.imageTile}
+              variant="quiet" size="content" className={`${styles.imageTile} ${singleImage ? 'h-auto max-h-[280px]' : ''}`}
               title={image.name}
               aria-label={`View ${image.name}`}
               onClick={() => setPreview(position)}
             >
-              <img className={styles.imageThumb} src={image.url} alt={image.name} loading="lazy" draggable={false} />
+              <img className={`${styles.imageThumb} ${singleImage ? 'h-auto max-h-[280px]' : 'h-full'}`} src={image.url} alt={image.name} loading="lazy" draggable={false} />
             </Button>
           ))}
         </div>
@@ -579,7 +580,7 @@ const AssistantMessage = ({
 }) => (
   <div className={`py-(--hd-space-1-5) ${item.phase === 'commentary' ? 'text-(--hd-secondary-foreground)' : ''}`}>
     <Markdown text={item.text} />
-    {streaming && <span className={`${styles.caret} h-[1.15em] ms-(--hd-space-0-5) rounded-full bg-(--hd-accent) animate-[blink_1.1s_steps(2,start)_infinite]`} />}
+    {streaming && <span className={`${styles.caret} h-[1.15em] ms-(--hd-space-0-5) rounded-full bg-(--hd-accent) animate-[hd-blink_1.1s_steps(2,start)_infinite]`} />}
     {/* No actions here: they sit once at the end of the turn (TurnTail), for
         the whole answer, rather than under every paragraph of it. */}
   </div>
@@ -1190,6 +1191,7 @@ export const ItemView = ({
   root,
   streaming = false,
   sentAt,
+  register,
 }: {
   item: AgentItem
   /** Session working directory, used to shorten absolute paths. */
@@ -1197,6 +1199,8 @@ export const ItemView = ({
   streaming?: boolean
   /** When the turn began, for a user message that does not carry its own time. */
   sentAt?: number
+  /** The compact turn-work register passes its density explicitly. */
+  register?: 'light'
 }) => {
   const body = ((): ReactNode => {
     switch (item.type) {
@@ -1234,5 +1238,5 @@ export const ItemView = ({
   })()
 
   if (body === null) return null
-  return <div className={`${styles.item} py-(--hd-space-1)`}>{body}</div>
+  return <div className={`${styles.item} ${register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'}`}>{body}</div>
 }

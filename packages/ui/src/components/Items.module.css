@@ -146,12 +146,6 @@
   vertical-align: text-bottom;
 }
 
-@keyframes blink {
-  to {
-    visibility: hidden;
-  }
-}
-
 /* --- generic collapsible row ------------------------------------------- */
 
 .row {
@@ -340,6 +334,8 @@
   white-space: nowrap;
 }
 
+.groupBody {}
+
 .groupBody .item {
   max-width: none;
 }
@@ -365,7 +361,5 @@
 [data-register='light'] .rowBodyBare {
   margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6);
 }
-
-/* Light register: groupBody .item padding composed in TSX. */
 
 /* @design-owners MessageActions, StepGroup */
