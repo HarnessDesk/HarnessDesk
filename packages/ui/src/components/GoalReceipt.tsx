@@ -1,13 +1,17 @@
 import type { GoalReceipt as GoalReceiptRecord } from '@harnessdesk/protocol'
 
 import { Chip, CodeText, Note, Row, Rows, SectionHead, Text } from '../design'
+import { InsightCost } from './InsightCost'
 
 export interface GoalReceiptProps {
   readonly receipt: GoalReceiptRecord | Omit<GoalReceiptRecord, 'id' | 'wrappedAt'>
   readonly root: string
+  /** Supplied by the receipt owner after an explicit Insight read; omitted by previews and isolated renderers. */
+  readonly insight?: Omit<import('./InsightCost').InsightCostProps, 'onSeat' | 'onSession' | 'onMessage'>
 }
 
-export const GoalReceipt = ({ receipt }: GoalReceiptProps) => (
+export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
+  return (
   <div>
     <Chip tone="neutral">As recorded when wrapped</Chip>
     <SectionHead name="What finished" />
@@ -67,5 +71,7 @@ export const GoalReceipt = ({ receipt }: GoalReceiptProps) => (
         {receipt.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       </>
     ) : null}
+    {'id' in receipt && insight ? <InsightCost {...insight} onSeat={() => {}} onSession={() => {}} onMessage={() => {}} /> : null}
   </div>
-)
+  )
+}

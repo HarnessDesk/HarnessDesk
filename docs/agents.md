@@ -104,6 +104,13 @@ under *On this Mac*, and validated on the way in: an entry that does not read
 seating it on the list it replaced; and a file that is not JSON is never
 written over (`packages/server/src/agent-seating-file.ts`).
 
+Insight can show source-qualified historical seat usage beside this local
+order. It is observational: unknown or partial money does not rank a seat, and
+an order preview is read-only until its short-lived host stamp is applied. The
+apply path compares the raw `seating.json` text inside its write queue, so a
+change made while reviewing is refused rather than overwritten. It changes
+only this machine's override, never an `AGENT.md` or a receipt.
+
 **Refuse, never substitute.** A candidate is passed over when its runtime is
 not added or not installed, cannot start, is signed out, has used up its plan
 window, does not offer the model or effort asked for, does not answer within

@@ -15,6 +15,14 @@ Two things follow from the promise and apply to every section below:
 - **No new lane may quietly widen a boundary you already agreed to.** Turning
   on one thing is never consent for the next thing.
 
+## Insight observations
+
+Insight reads agent-owned transcript corpora and foreign database snapshots;
+it never writes them. Source identifiers emitted to the renderer are opaque
+and do not contain transcript paths. Historical turn observations live beside
+the host transcript, not in evidence or receipts. They are absent for old
+transcripts rather than inferred from current configuration.
+
 ---
 
 ## Local — the default, and today the only one

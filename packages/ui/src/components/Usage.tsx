@@ -35,6 +35,7 @@ import {
 import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowPage } from './AppWindow'
 import { RuntimeMark } from './BrandIcons'
+import { InsightUsage } from './InsightUsage'
 import {
   AlertIcon,
   CheckIcon,
@@ -58,6 +59,7 @@ import {
   Chip,
   EmptyState,
   PageHead,
+  Note,
   Progress,
   SectionHead,
   Segmented,
@@ -155,6 +157,7 @@ export const Usage = ({
   const [scope, setScope] = useState<RuntimeId | null>(runtime)
   const [ledger, setLedger] = useState<LedgerReport | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [insightView, setInsightView] = useState<'goal' | 'agent' | null>(null)
 
   useEffect(dismissOverlays, [])
 
@@ -453,6 +456,10 @@ export const Usage = ({
               action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={setPivot} />}
             />
             <Ranked ledger={ledger} pivot={pivot} byId={byId} tintOf={agentTints} />
+          </section>
+          <section className={styles.band} aria-label="Project usage">
+            <BandHead name="Project usage" action={<Segmented label="Project usage view" options={[{ value: 'goal', label: 'By Goal' }, { value: 'agent', label: 'By Agent' }]} value={insightView ?? 'goal'} onChange={(next) => setInsightView(next as 'goal' | 'agent')} />} />
+            {insightView ? <InsightUsage root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null} view={insightView} onGoal={() => {}} onAgent={() => {}} /> : <Note>Choose By Goal or By Agent to read source-qualified project usage.</Note>}
           </section>
         </div>
       </WindowPage>

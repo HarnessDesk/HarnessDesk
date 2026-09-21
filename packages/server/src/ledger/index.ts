@@ -132,6 +132,48 @@ export class Ledger {
     }
     if (query.to - query.from > 90 * DAY) throw new Error('Insight reads at most 90 days at once.')
     if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
+    /* Insight deliberately reads the source records once at their native granularity.
+       The SQLite ledger remains the fast aggregate dashboard, but has already
+       discarded the call identity needed for conservative historical joins. */
+    await this.warm()
+    const detailSamples: UsageSample[] = []
+    const gaps: string[] = []
+    let bytes = 0
+    let targets: ScanTarget[] = []
+    try { targets = await listTargets(this.#options.corpora) }
+    catch (error) { return { samples: [], sources: [], gaps: [error instanceof Error ? error.message : String(error)], complete: false } }
+    if (targets.length > 10_000) {
+      gaps.push('Insight stopped before more than 10,000 source files. Choose a narrower range.')
+      targets = targets.slice(0, 10_000)
+    }
+    for (const target of targets) {
+      if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
+      if (bytes + target.size > 64 * 1024 * 1024) { gaps.push('Insight stopped at 64 MiB of source data. Choose a narrower range.'); break }
+      bytes += target.size
+      try {
+        await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: 64 * 1024 * 1024 - bytes })
+      } catch (error) {
+        if ((error as { name?: string }).name === 'AbortError') throw error
+        gaps.push(`A recorded usage source could not be read: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const selected = detailSamples.filter((sample) => sample.project === query.root && sample.from !== null && sample.from >= query.from && sample.from < query.to)
+    const priced = selected.map((sample) => {
+      if (sample.usd.value !== null || !sample.model) return sample
+      const rates = this.#pricing.rateObservation(sample.model).rates
+      if (!rates) return sample
+      const parts = [sample.input, sample.output, sample.cacheRead, sample.cacheWrite]
+      if (parts.some((part) => part.value === null)) return sample
+      const value = sample.input.value! * rates.input + sample.output.value! * rates.output + sample.cacheRead.value! * rates.cacheRead + sample.cacheWrite.value! * rates.cacheWrite
+      return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
+    })
+    const detailSources = [...new Map(priced.map((sample) => [sample.source.id, sample.source])).values()]
+    return {
+      samples: priced, sources: detailSources, gaps: [...gaps, ...(priced.some((sample) => sample.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [])],
+      complete: priced.length > 0 && gaps.length === 0 && priced.every((sample) => sample.usd.value !== null),
+    }
+    /* c8 ignore next -- retained below as the aggregate implementation's
+       reference for migrations; normal Insight reads return from source rows. */
     if (options.refresh) await this.scan()
     const checkedAt = this.#now()
     const rows = this.#store.since(startOfDay(query.from)).filter((row) => row.day < query.to && row.project === query.root)

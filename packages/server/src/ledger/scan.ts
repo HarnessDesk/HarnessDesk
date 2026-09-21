@@ -1,4 +1,5 @@
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -8,6 +9,8 @@ import type { DatabaseSync } from 'node:sqlite'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
 import { readForeignDatabase } from './foreign-db.js'
 import type { UsageRow } from './store.js'
+import type { InsightScanOptions, UsageSample } from './insight.js'
+import type { Measure } from '@harnessdesk/protocol'
 
 /**
  * Reading the agents' own transcripts.
@@ -189,6 +192,44 @@ export const sumCost = (a: number | null, b: number | null): number | null =>
 const positive = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
 
+const measure = (value: unknown): Measure =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? { value: Math.round(value), quality: 'exact' }
+    : { value: null, quality: 'unknown' }
+
+/** Detail rows never reveal agent-owned paths over the wire; the source key is stable only for this read. */
+const sourceFor = (target: ScanTarget, at: number | null) => {
+  const digest = createHash('sha256').update(target.path).digest('hex').slice(0, 16)
+  return {
+    id: `corpus:${target.kind}:${target.runtime}:${digest}`,
+    kind: 'corpus' as const,
+    label: `${target.kind} recorded usage`,
+    observedAt: at,
+    checkedAt: Date.now(),
+    stale: false,
+    problem: null,
+  }
+}
+
+const emit = (
+  insight: InsightScanOptions | undefined, target: ScanTarget, identity: string, at: number | null, model: string | null,
+  project: string | null, tokens: { input: unknown; output: unknown; cacheRead: unknown; cacheWrite: unknown }, scope: 'call' | 'session',
+  vendorCost: number | null = null,
+): void => {
+  if (!insight) return
+  if (insight.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
+  const source = sourceFor(target, at)
+  const sourceKey = `${source.id}:${identity}`
+  insight.emit({
+    key: createHash('sha256').update(sourceKey).digest('hex'), source, runtime: target.runtime,
+    sessionId: null, turnId: null, requestId: identity || null, project, model, from: at, to: at,
+    scope, includesChildren: null, input: measure(tokens.input), output: measure(tokens.output),
+    cacheRead: measure(tokens.cacheRead), cacheWrite: measure(tokens.cacheWrite),
+    usd: vendorCost === null ? { value: null, quality: 'unknown' } : { value: vendorCost, quality: 'exact' },
+    moneyBasis: vendorCost === null ? 'unknown' : 'vendorMetered',
+  })
+}
+
 const parseTime = (value: unknown): number | null => {
   if (typeof value !== 'string') return null
   const at = Date.parse(value)
@@ -307,6 +348,7 @@ export const scanCodexRollout = async (
   target: ScanTarget,
   offset: number,
   tail: readonly string[] = [],
+  insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
   const into: Accumulator = { rows: new Map() }
   /* The model and the project are said near the top — `session_meta`, then
@@ -329,7 +371,7 @@ export const scanCodexRollout = async (
     const input = positive(last.input_tokens)
     const at = parseTime(record.timestamp)
     if (at === null) return
-    add(into, target.path, target.runtime, at, context.model, context.project, {
+    const tokens = {
       // Codex counts cached tokens inside `input_tokens`; every consumer here
       // expects them beside it, so the cached share comes out.
       input: Math.max(0, input - cached),
@@ -337,7 +379,12 @@ export const scanCodexRollout = async (
       cacheWrite: 0,
       output: positive(last.output_tokens),
       reasoning: positive(last.reasoning_output_tokens),
-    })
+    }
+    add(into, target.path, target.runtime, at, context.model, context.project, tokens)
+    emit(insight, target, JSON.stringify(raw), at, context.model, context.project || null, {
+      input: typeof last.input_tokens === 'number' && typeof last.cached_input_tokens === 'number' ? Math.max(0, last.input_tokens - last.cached_input_tokens) : last.input_tokens,
+      output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
+    }, 'call')
   })
   return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)] }
 }
@@ -420,6 +467,7 @@ export const scanClaudeTranscript = async (
   target: ScanTarget,
   offset: number,
   tail: readonly string[],
+  insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
   const into: Accumulator = { rows: new Map() }
   // The same assistant message is written on more than one line. Dedup by the
@@ -441,13 +489,18 @@ export const scanClaudeTranscript = async (
     if (at === null) return
     const model = record.message?.model
     if (typeof model !== 'string' || model === '') return
-    add(into, target.path, target.runtime, at, model, projectRootOf(record.cwd ?? ''), {
+    const project = projectRootOf(record.cwd ?? '')
+    const tokens = {
       input: positive(usage.input_tokens),
       output: positive(usage.output_tokens),
       cacheRead: positive(usage.cache_read_input_tokens),
       cacheWrite: positive(usage.cache_creation_input_tokens),
       reasoning: 0,
-    })
+    }
+    add(into, target.path, target.runtime, at, model, project, tokens)
+    emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, {
+      input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
+    }, 'call')
   })
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
 }
@@ -494,6 +547,7 @@ export const scanQwenTranscript = async (
   target: ScanTarget,
   offset: number,
   tail: readonly string[],
+  insight?: InsightScanOptions,
 ): Promise<ScanResult> => {
   const into: Accumulator = { rows: new Map() }
   const seen = new Set<string>(tail)
@@ -516,21 +570,16 @@ export const scanQwenTranscript = async (
     if (at === null) return
     const model = record.model
     if (typeof model !== 'string' || model === '') return
-    add(
-      into,
-      target.path,
-      target.runtime,
-      at,
-      model,
-      projectRootOf(record.cwd ?? ''),
-      fromGeminiCounts({
+    const project = projectRootOf(record.cwd ?? '')
+    const tokens = fromGeminiCounts({
         prompt: positive(usage.promptTokenCount),
         cached: positive(usage.cachedContentTokenCount),
         answer: positive(usage.candidatesTokenCount),
         thoughts: positive(usage.thoughtsTokenCount),
         tool: positive(usage.toolUsePromptTokenCount),
-      }),
-    )
+      })
+    add(into, target.path, target.runtime, at, model, project, tokens)
+    emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
   })
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
 }
@@ -583,7 +632,7 @@ const geminiProjectOf = (chatFile: string): string => {
  * them; neither un-spends a call that was made, so both are read as more
  * copies of messages already seen and nothing is subtracted.
  */
-export const scanGeminiChat = async (target: ScanTarget): Promise<ScanResult> => {
+export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
   const text = await readFile(target.path, 'utf8')
   const calls = new Map<string, GeminiMessage>()
   const note = (message: unknown): void => {
@@ -618,21 +667,15 @@ export const scanGeminiChat = async (target: ScanTarget): Promise<ScanResult> =>
     if (at === null) continue
     if (typeof call.model !== 'string' || call.model === '') continue
     const tokens = call.tokens ?? {}
-    add(
-      into,
-      target.path,
-      target.runtime,
-      at,
-      call.model,
-      project,
-      fromGeminiCounts({
+    const normalized = fromGeminiCounts({
         prompt: positive(tokens.input),
         cached: positive(tokens.cached),
         answer: positive(tokens.output),
         thoughts: positive(tokens.thoughts),
         tool: positive(tokens.tool),
-      }),
-    )
+      })
+    add(into, target.path, target.runtime, at, call.model, project, normalized)
+    emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
 }
@@ -709,7 +752,7 @@ const opencodeModel = (value: string | null): string => {
  * kept as that rather than re-priced. A session's spend falls on the day it was
  * last touched: the table keeps totals, not calls.
  */
-export const scanOpencodeDatabase = async (target: ScanTarget): Promise<ScanResult> => {
+export const scanOpencodeDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
   const sessions = readForeign(target.path, (database) => {
     requireColumns(database, 'session', OPENCODE_COLUMNS)
     return database.prepare(`SELECT ${OPENCODE_COLUMNS.join(', ')} FROM session`).all() as unknown as OpencodeSession[]
@@ -728,10 +771,12 @@ export const scanOpencodeDatabase = async (target: ScanTarget): Promise<ScanResu
     }
     const cost = typeof session.cost === 'number' && Number.isFinite(session.cost) && session.cost >= 0 ? session.cost : null
     if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0 && !cost) continue
-    add(into, target.path, target.runtime, at, opencodeModel(session.model), projectRootOf(session.directory ?? ''), {
+    const model = opencodeModel(session.model); const project = projectRootOf(session.directory ?? '')
+    add(into, target.path, target.runtime, at, model, project, {
       ...tokens,
       vendorCost: cost,
     })
+    emit(insight, target, JSON.stringify(session), at, model, project || null, tokens, 'session', cost)
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
 }
@@ -765,7 +810,7 @@ interface ClineUsage {
  * subagent would count twice. Like OpenCode's, the figure is a session total,
  * and falls on the day the session was last touched.
  */
-export const scanClineDatabase = async (target: ScanTarget): Promise<ScanResult> => {
+export const scanClineDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
   const sessions = readForeign(target.path, (database) => {
     requireColumns(database, 'sessions', CLINE_COLUMNS)
     return database.prepare(`SELECT ${CLINE_COLUMNS.join(', ')} FROM sessions`).all() as unknown as ClineSession[]
@@ -792,28 +837,30 @@ export const scanClineDatabase = async (target: ScanTarget): Promise<ScanResult>
       typeof usage.totalCost === 'number' && Number.isFinite(usage.totalCost) && usage.totalCost >= 0 ? usage.totalCost : null
     if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0 && !cost) continue
     const model = typeof session.model === 'string' && session.model !== '' ? session.model : 'unknown'
-    add(into, target.path, target.runtime, at, model, projectRootOf(session.workspace_root || session.cwd || ''), {
+    const project = projectRootOf(session.workspace_root || session.cwd || '')
+    add(into, target.path, target.runtime, at, model, project, {
       ...tokens,
       vendorCost: cost,
     })
+    emit(insight, target, JSON.stringify(session), at, model, project || null, tokens, 'session', cost)
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
 }
 
-export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[]): Promise<ScanResult> => {
+export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[], insight?: InsightScanOptions): Promise<ScanResult> => {
   switch (target.kind) {
     case 'codex':
-      return scanCodexRollout(target, offset, tail)
+      return scanCodexRollout(target, offset, tail, insight)
     case 'claude':
-      return scanClaudeTranscript(target, offset, tail)
+      return scanClaudeTranscript(target, offset, tail, insight)
     case 'qwen':
-      return scanQwenTranscript(target, offset, tail)
+      return scanQwenTranscript(target, offset, tail, insight)
     case 'gemini':
-      return scanGeminiChat(target)
+      return scanGeminiChat(target, insight)
     case 'opencode':
-      return scanOpencodeDatabase(target)
+      return scanOpencodeDatabase(target, insight)
     case 'cline':
-      return scanClineDatabase(target)
+      return scanClineDatabase(target, insight)
   }
 }
 

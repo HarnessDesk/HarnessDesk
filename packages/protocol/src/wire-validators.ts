@@ -316,6 +316,50 @@ const goalValidators = {
   'goal/migration/ack': goalShape({}),
 }
 
+/** Read-only Insight accepts selectors, never values the host is responsible for measuring. */
+const insightMillis: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 0) throw new ValidationError(path, 'expected a non-negative safe millisecond timestamp')
+  return number
+}
+const insightQuery = (value: unknown, path = '') => {
+  const query = goalShape({ root: atMost(4096, isFilled), from: insightMillis, to: insightMillis })(value, path)
+  if (query.from >= query.to) throw new ValidationError(path, 'expected from before to')
+  if (query.to - query.from > 90 * 86_400_000) throw new ValidationError(path, 'expected a range of at most 90 days')
+  return query
+}
+const insightSelector = goalShape({
+  agent: goalIdentifier,
+  origin: literalUnion('project', 'user', 'builtin'),
+  briefDigest: nullableString,
+  seat: (value: unknown, path = '') => value === null ? null : flowSeatValidator(value, path),
+})
+const insightGoals: Validator<string[]> = (value, path = '') => {
+  const goals = arrayOf(goalId)(value, path)
+  if (goals.length === 0 || goals.length > 50 || new Set(goals).size !== goals.length) {
+    throw new ValidationError(path, 'expected 1 to 50 distinct Goal ids')
+  }
+  return goals
+}
+const insightCompare = (value: unknown, path = '') => {
+  const object = isObject(value, path)
+  const query = insightQuery({ root: object.root, from: object.from, to: object.to }, path)
+  const read = goalShape({ root: atMost(4096, isFilled), from: insightMillis, to: insightMillis, goals: insightGoals, left: insightSelector, right: insightSelector })(value, path)
+  if (query.from !== read.from || query.to !== read.to) throw new ValidationError(path, 'invalid Insight range')
+  return read
+}
+const insightValidators = {
+  'insight/goal': goalShape({ goal: goalId }),
+  'insight/usage': insightQuery,
+  'insight/agent': goalShape({ root: optional(atMost(4096, isFilled)), agent: goalIdentifier, origin: literalUnion('project', 'user', 'builtin') }),
+  'insight/compare': insightCompare,
+  'insight/order/preview': goalShape({
+    root: atMost(4096, isFilled), from: insightMillis, to: insightMillis, goals: insightGoals,
+    left: insightSelector, right: insightSelector, agent: goalIdentifier, origin: literalUnion('project', 'user', 'builtin'),
+  }),
+  'insight/order/apply': goalShape({ stamp: atMost(256, isFilled) }),
+}
+
 /**
  * Per-method params validators. A method missing from this table is rejected,
  * so the table doubles as the host's method allowlist.
@@ -329,6 +373,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   },
   'lane/release': goalShape({ lane: goalIdentifier }),
   ...goalValidators,
+  ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
 
   'runtime/health': shape({ runtime: isString }),

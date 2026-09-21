@@ -12,6 +12,20 @@ popover and the window the work happens in are not the same problem.*
 
 ## The question
 
+## Insight
+
+Insight is the read-only historical companion to the account dashboard. It
+reads the same agent-owned corpora at call or session granularity and carries
+the source, observation time, price basis and missing fields with every total.
+An unavailable value is **Unknown**, never zero. List-price equivalents are
+estimates; agent-recorded vendor USD is labelled separately. Account balances,
+quota windows and context occupancy are not attributed as spend.
+
+Project and Goal views leave corpus rows without a unique historical Seat
+unattributed. They never divide a total among Goals, rewrite receipts, or
+append evidence. A comparison accepts only an explicit selected cohort with
+compatible complete money observations on both sides.
+
 When you run four agents, you have four plans, four reset clocks and four bills,
 and the one that ran out is never the one in front of you. Quota used to be
 buried in settings panes you never opened before sending a turn, or missing

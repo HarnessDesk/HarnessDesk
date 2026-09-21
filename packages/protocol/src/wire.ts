@@ -12,6 +12,7 @@ import type {
 import type { EditorDocument, EditorEvent } from './editor.js'
 import type { BoardEvidence, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
+import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
   GoalCitation, GoalCreateInput, GoalId, GoalReceipt, GoalSeatRequest, GoalView, Lane, WrapChoices, WrapPreview,
 } from './goal.js'
@@ -675,6 +676,13 @@ export interface HostMethods {
   'usage/ledger': { params: LedgerQuery; result: LedgerReport }
   /** Starts a ledger scan if one is not already running; progress arrives as an event. */
   'usage/scan': { params: { readonly full?: boolean }; result: ScanProgress }
+  /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
+  'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
+  'insight/usage': { params: InsightQuery; result: InsightReport }
+  'insight/agent': { params: { readonly root?: string; readonly agent: string; readonly origin: AgentOrigin }; result: InsightReport }
+  'insight/compare': { params: InsightCompareQuery; result: InsightComparison }
+  'insight/order/preview': { params: InsightOrderQuery; result: InsightOrderPreview }
+  'insight/order/apply': { params: { readonly stamp: string }; result: MachineSeating }
   'runtime/options': { params: { readonly runtime: RuntimeId }; result: readonly ConfigOption[] }
   /**
    * Re-asks a runtime what it offers, now — see `AgentRuntime.refreshCatalog`
