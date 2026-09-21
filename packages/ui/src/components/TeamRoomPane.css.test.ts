@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { compile } from 'tailwindcss'
 
 import css from './TeamRoomPane.module.css?raw'
 import source from './TeamRoomPane.tsx?raw'
@@ -114,11 +115,19 @@ describe('appearance ownership', () => {
     expect(source).toContain('<Text role="meta" numeric')
   })
 
-  it('drops the rail border at the room narrow breakpoint without returning its appearance to screen CSS', () => {
+  it('drops the rail border only below the room narrow breakpoint without returning its appearance to screen CSS', async () => {
     /* The base edge is a public utility role. The same named room container
        must remove it when the rail becomes the whole pane, or it leaves a
-       stray right rule at widths below 38rem. */
+       stray right rule at widths below 38rem. Tailwind's bare arbitrary
+       container form is min-width, so compile the actual class to hold the
+       wide and narrow meanings apart. */
     expect(source).toContain('border-r border-(--hd-border)')
-    expect(source).toContain('@[38rem]/hd-room:border-r-0')
+    const reset = source.match(/@(?:max-\[38rem\]|\[38rem\])\/hd-room:border-r-0/)?.[0]
+    expect(reset).toBe('@max-[38rem]/hd-room:border-r-0')
+
+    const tailwind = await compile('@tailwind utilities;')
+    const generated = tailwind.build([reset!])
+    expect(generated).toContain('@container hd-room (width < 38rem)')
+    expect(generated).not.toContain('@container hd-room (width >= 38rem)')
   })
 })

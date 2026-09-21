@@ -770,7 +770,7 @@ export const TeamRoomPane = ({
       )}
 
       <div className={styles.split}>
-        <aside className={`${styles.rail} border-r border-(--hd-border) @[38rem]/hd-room:border-r-0`}>
+        <aside className={`${styles.rail} border-r border-(--hd-border) @max-[38rem]/hd-room:border-r-0`}>
           {/* The work before the chatter: a reader arriving at a group project
               wants the state of the board before they want the conversation.
 
