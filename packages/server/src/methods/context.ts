@@ -35,6 +35,7 @@ import type { CatalogRefresher } from '../catalog-refresher.js'
 import type { CredentialBroker } from '../credentials.js'
 import type { EditorPlane } from '../editor-plane.js'
 import type { EvidencePlane } from '../evidence/plane.js'
+import type { ProvenancePlane } from '../provenance/plane.js'
 import type { ExtensionHost, HostOptions, ModelRouteRecord, OpenedSeat } from '../host.js'
 import type { CorpusSpec, Ledger } from '../ledger/index.js'
 import type { LibraryUsageReader } from '../library-usage.js'
@@ -108,6 +109,7 @@ export interface HostContext {
    * the usage ledger (`ledger()`).
    */
   readonly evidence: EvidencePlane
+  readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
   readonly catalogs: CatalogRefresher
@@ -283,6 +285,8 @@ export interface HostContext {
     fileRoots(mode: 'read' | 'write'): string[]
     /** A repository root the renderer named, confined and made real. A relative one is refused. */
     confineGitRoot(root: string): Promise<string>
+    /** The canonical project of an open linked checkout, confined for provenance controls. */
+    confineProvenanceRoot(root: string): Promise<string>
     /** The top of the checkout a folder is in — a linked worktree's own — or null outside git. */
     topLevel(path: string): Promise<string | null>
     /**

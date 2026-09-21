@@ -13,12 +13,11 @@
  * machine it was taken on.
  */
 
-/** The addresses are on `harnessdesk.app` on purpose — an invented company
- *  domain in an account row reads as a real customer's. This one is ours. */
-const person = (name) => ({ name, email: `${name.toLowerCase()}@harnessdesk.app` })
+/** Rig identities are placeholders, never a desk owner or a real account. */
+const person = (name, email) => ({ name, email })
 
-export const SHANE = person('Shane')
-export const OLIVIA = person('Olivia')
+export const SHANE = person('Jane Doe', 'dev@example.com')
+export const OLIVIA = person('Alex Smith', 'alex@example.com')
 
 /** Whose desk the reader is looking at. */
 export const PRIMARY = SHANE

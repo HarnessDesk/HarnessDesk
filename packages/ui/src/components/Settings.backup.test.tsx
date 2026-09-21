@@ -94,6 +94,7 @@ const REPORT: BackupReport = {
   transcripts: { restored: 4, skipped: 0 },
   agentFolders: { restored: 3, skipped: 0 },
   seating: { restored: 1, skipped: 0 },
+  provenance: { restored: 0, duplicate: 0, refused: 0 },
   evidence: { restored: 5, duplicate: 2, refused: 0, failed: 0 },
 }
 

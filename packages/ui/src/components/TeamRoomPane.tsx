@@ -51,6 +51,7 @@ import {
   Input,
   ListRow,
   ListRows,
+  Text,
 } from '../design'
 import styles from './TeamRoomPane.module.css'
 
@@ -634,7 +635,7 @@ export const TeamRoomPane = ({
   }, [seen])
 
   return (
-    <div className={styles.pane} data-showing={onRail ? 'rail' : 'body'}>
+    <div className={`${styles.pane} h-full bg-(--hd-background)`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
@@ -671,7 +672,7 @@ export const TeamRoomPane = ({
         * a room could only be dragged by the conversation header underneath
         * it.
         */}
-      <header className={`${styles.bar} hd-drag`}>
+      <header className={`${styles.bar} h-(--hd-bar-h) px-2 border-b border-(--hd-border) hd-drag`} style={{ paddingLeft: 'max(var(--hd-space-3), var(--titlebar-inset, 0px))' }}>
         {/* The window's own controls, as a conversation's header carries them
             whenever the sidebar is not standing beside it. A room is the other
             thing the middle can show, and a narrow window's sidebar is only
@@ -684,7 +685,7 @@ export const TeamRoomPane = ({
         <IconTile tint="violet" size="sm">
           <TeamIcon />
         </IconTile>
-        <span className={styles.barName}>{team?.name ?? 'Room'}</span>
+        <span className={`${styles.barName} font-medium`}>{team?.name ?? 'Room'}</span>
         {/* The room in one line, and every number in it is a live count of
             something on this screen. `working` is first because it is the only
             one that changes minute to minute — and the only one a person keeps
@@ -694,12 +695,12 @@ export const TeamRoomPane = ({
             roster. `0 here` from a request that failed is the same sentence as
             `0 here` from an empty room, and only one of them is true. The
             board's count survives, because it comes from the board. */}
-        <span className={styles.barFacts}>
+        <span className={`${styles.barFacts} text-xs text-(--hd-muted-foreground)`}>
           {peers !== null && (
             <>
               {working > 0 && (
                 <>
-                  <span className={styles.pulse} aria-hidden />
+                  <span className={`${styles.pulse} h-1.5 rounded-full bg-(--hd-success)`} aria-hidden />
                   <span className="text-(--hd-foreground)">{working} working</span>
                   {' · '}
                 </>
@@ -721,7 +722,7 @@ export const TeamRoomPane = ({
         {/* Everything to the left of this states a fact; everything to the
             right does something. The conversation's header draws the same
             rule for the same reason. */}
-        <span className={styles.barRule} />
+        <span className={`${styles.barRule} h-[18px] bg-(--hd-border)`} />
         {/* A real box, not `display: contents`: app-region is a property of a
             box, and a boxless wrapper leaves its buttons inside the drag
             region, where a click moves the window instead of pressing them. */}
@@ -764,13 +765,13 @@ export const TeamRoomPane = ({
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
       {barTrouble && (
-        <p className={styles.barTrouble} role="alert">
+        <p className={`${styles.barTrouble} py-1.5 px-3 border-b border-(--hd-border) text-xs text-(--hd-danger-ink)`} role="alert">
           {barTrouble}
         </p>
       )}
 
       <div className={styles.split}>
-        <aside className={styles.rail}>
+        <aside className={`${styles.rail} border-r border-(--hd-border) @max-[38rem]/hd-room:border-r-0`}>
           {/* The work before the chatter: a reader arriving at a group project
               wants the state of the board before they want the conversation.
 
@@ -781,7 +782,7 @@ export const TeamRoomPane = ({
               a list of destinations must show its destination here. The board
               still has a pane of its own for when it is the work, from the Team
               panel and the command palette. */}
-          <div className={styles.railPinned}>
+          <div className={`${styles.railPinned} p-2 border-b border-(--hd-border)`}>
             {/* `as="button"`: these two switch the pane, and nothing else in
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
@@ -799,7 +800,7 @@ export const TeamRoomPane = ({
               }
               title="Board"
               subtitle={`${intents.filter((one: Intent) => one.state === 'open').length} unclaimed`}
-              trail={<span className={styles.count}>{intents.length}</span>}
+              trail={<Text role="meta" numeric className={styles.count}>{intents.length}</Text>}
             />
             <ListRow
               as="button"
@@ -823,7 +824,7 @@ export const TeamRoomPane = ({
                  here would be a permanent reminder of a state that is fine. */
               trail={
                 held > 0 ? (
-                  <span className={styles.heldCount}>{held} held</span>
+                  <Text role="muted" numeric tone="warning">{held} held</Text>
                 ) : undefined
               }
             />
@@ -834,9 +835,9 @@ export const TeamRoomPane = ({
               to mean leaving the room, starting a session somewhere else,
               sending it something, and coming back to see whether it had
               appeared. */}
-          <div className={styles.railLabel}>
+          <div className={`${styles.railLabel} py-(--hd-label-space,var(--hd-space-3)) px-3 pb-1 text-xs font-medium tracking-[0.04em] uppercase text-(--hd-muted-foreground)`}>
             <span>Agents</span>
-            <span className={styles.count}>{roster.length}</span>
+            <Text role="meta" numeric className={styles.count}>{roster.length}</Text>
             {goal ? <Button
               type="button"
               variant="ghost" size="icon-sm" className={styles.railAdd}
@@ -853,8 +854,8 @@ export const TeamRoomPane = ({
               being a list — and below it the box would be a control that costs
               a row to save nothing. */}
           {roster.length > 4 && (
-            <div className={styles.railFilter}>
-              <SearchIcon />
+            <div className={`${styles.railFilter} px-2 rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)`}>
+              <SearchIcon className="!h-[13px]" />
               <Input
                 value={filter}
                 placeholder="Filter agents"
@@ -876,7 +877,7 @@ export const TeamRoomPane = ({
             </div>
           )}
 
-          <ListRows size="sm" className={styles.railList}>
+          <ListRows size="sm" className={`${styles.railList} px-2 pb-2`}>
             {peers !== null && roster.length === 0 && (
               /* A zero says what it looked for *and* what it found — and it is
                  only said once the host has actually answered. Drawn from a
@@ -894,7 +895,7 @@ export const TeamRoomPane = ({
                  folder was a board. Nothing joins by itself now — the + above is
                  the way in — and telling somebody to wait for something that
                  will never happen is worse than saying nothing. */
-              <p className={styles.railEmpty}>
+              <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`}>
                 {/* "In this room", not "here": the two used to be one word
                     because a member only appeared while its conversation was
                     open, so an empty roster and an empty room were the same
@@ -909,10 +910,10 @@ export const TeamRoomPane = ({
               </p>
             )}
             {roster.length > 0 && shown.length === 0 && (
-              <p className={styles.railEmpty}>No agent here matches “{filter.trim()}”.</p>
+              <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`}>No agent here matches “{filter.trim()}”.</p>
             )}
             {railTrouble && (
-              <p className={styles.railEmpty} role="alert">
+              <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`} role="alert">
                 {railTrouble}
               </p>
             )}
@@ -964,7 +965,7 @@ export const TeamRoomPane = ({
                 const member = memberOf(key)
                 const entry = roster.find((one) => one.key === key) ?? null
                 return (
-                  <section key={key} className={styles.column}>
+                  <section key={key} className={`${styles.column} border-s border-(--hd-border) first:border-s-0`}>
                     {/* Whose column this is — drawn when the rail is not already
                         saying it. One member watched, with the roster beside it,
                         is the case where this row is pure repetition: the rail
@@ -975,7 +976,7 @@ export const TeamRoomPane = ({
                         of the transcript. The stylesheet takes it away at one
                         column and hands it straight back when the room is narrow
                         enough to have dropped the rail. */}
-                    <header className={styles.columnHead}>
+                    <header className={`${styles.columnHead} h-(--hd-bar-h) px-3 border-b border-(--hd-border)`}>
                       {/* The mark, the name and what it runs, as one trigger:
                           resting on the name asks what resting on the mark
                           does. The ✕ stays outside, so reaching for it never
@@ -997,9 +998,9 @@ export const TeamRoomPane = ({
                           <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
                             {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                           </IconTile>
-                          {entry?.busy && <span className={styles.dotOn} aria-hidden />}
+                          {entry?.busy && <span className={`${styles.dotOn} h-[7px] rounded-full bg-(--hd-success) shadow-[0_0_0_2px_var(--hd-background)]`} aria-hidden />}
                         </span>
-                        <span className={styles.columnName}>{member?.nickname ?? 'Member'}</span>
+                        <Text role="row" className={styles.columnName}>{member?.nickname ?? 'Member'}</Text>
                         {/* What it runs, beside what it is called — two Cursor
                             conversations on two models are told apart here or
                             nowhere.
@@ -1009,11 +1010,11 @@ export const TeamRoomPane = ({
                             the first Codex conversation on a board is "Codex", so
                             the head read "Codex — Codex · gpt-5.6". A word printed
                             twice in four is not context, it is noise. */}
-                        <span className={styles.columnSub}>
+                        <Text role="meta" className={styles.columnSub}>
                           {[member?.agent === member?.nickname ? null : member?.agent, member?.model]
                             .filter(Boolean)
                             .join(' · ')}
-                        </span>
+                        </Text>
                       </MemberCard>
                       {columns.length > 1 && (
                         <Button
@@ -1302,7 +1303,7 @@ const MemberRow = ({
           </IconTile>
           {/* Working is a light, not a word. Announced to a screen reader on
               the name below, where it is a sentence rather than a colour. */}
-          {member.busy && <span className={styles.dotOn} aria-hidden />}
+          {member.busy && <span className={`${styles.dotOn} h-[7px] rounded-full bg-(--hd-success) shadow-[0_0_0_2px_var(--hd-background)]`} aria-hidden />}
         </span>
       }
       /* One run of text, not a flex row of two. The row's own `truncate` then
@@ -1321,7 +1322,7 @@ const MemberRow = ({
               own. Beside the nickname rather than under it: a member holding a
               job has not stopped being the conversation somebody named, and
               the line below is spoken for. */}
-          {member.title && <span className={styles.memberAlso}> {member.title}</span>}
+          {member.title && <span className="text-xs text-(--hd-muted-foreground)"> {member.title}</span>}
           {member.busy && <span className="sr-only"> — working</span>}
           {!member.here && <span className="sr-only"> — not open</span>}
         </>
@@ -1333,7 +1334,7 @@ const MemberRow = ({
              HarnessDesk's tools reach an agent through a server the agent has
              to accept, and one that refused it can claim nothing — which used
              to be discoverable only by an agent trying and being refused. */
-          <span className={styles.memberWarn}>
+          <span className={`${styles.memberWarn} text-(--hd-warning-ink)`}>
             <ShieldOffIcon size={11} />
             cannot take jobs — tools not reachable
           </span>
@@ -1345,10 +1346,10 @@ const MemberRow = ({
              the messages are going nowhere, which is the state this control
              exists to make visible. `accept` says nothing at all: it is the
              default on every member of every room. */
-          <span className={styles.memberInbound}>{inboundState}</span>
+          <span className={`${styles.memberInbound} text-(--hd-muted-foreground)`}>{inboundState}</span>
         ) : member.onTask ? (
           <>
-            <span className={styles.memberTaskId}>#{member.onTask.id}</span>{' '}
+            <span className="font-(family-name:--hd-font-code) text-(--hd-tint-violet-ink)">#{member.onTask.id}</span>{' '}
             {member.onTask.title}
           </>
         ) : member.idleOnBoard ? (
@@ -1357,14 +1358,14 @@ const MemberRow = ({
              has seen. A member can read as able, take nothing, and until now
              nothing on screen said so. No glyph — it is a doubt, not a refusal,
              and it must not shout as loudly as one. */
-          <span className={styles.memberIdle}>has not used the board</span>
+          <span className={`${styles.memberIdle} text-(--hd-muted-foreground) italic`}>has not used the board</span>
         ) : !member.here ? (
           /* Last of the four, because the three above are all *more* specific
              and a row shows one. It is here at all because a dimmed mark on
              its own is a hint, and this row's whole job after a relaunch is to
              say that the room is intact and nothing is warm yet — including
              what will happen if you write to it. */
-          <span className={styles.memberIdle}>not open — a message opens it</span>
+          <span className={`${styles.memberIdle} text-(--hd-muted-foreground) italic`}>not open — a message opens it</span>
         ) : undefined
       }
       trail={
@@ -1608,7 +1609,7 @@ const Room = ({
         <div
           ref={stream}
           data-slot="room-stream"
-          className={styles.stream}
+          className={`${styles.stream} py-2 px-6`}
           onScroll={(event) => {
             const box = event.currentTarget
             const near = box.scrollHeight - box.scrollTop - box.clientHeight < 64
@@ -1674,12 +1675,12 @@ const Room = ({
           restart — the person needs to know before they act on it. `trouble`
           is this surface's: the last thing you pressed did not land. */}
       {problem && (
-        <p className={styles.trouble} role="alert">
+        <p className={`${styles.trouble} px-[calc(var(--room-dock)+var(--hd-space-3))] pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
           {problem}
         </p>
       )}
       {trouble && (
-        <p className={styles.trouble} role="alert">
+        <p className={`${styles.trouble} px-[calc(var(--room-dock)+var(--hd-space-3))] pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
           {trouble}
         </p>
       )}
@@ -1693,7 +1694,7 @@ const Room = ({
           What is different is what is genuinely different: the audience,
           which lives with the words because choosing it is part of writing
           the message. */}
-      <div className={styles.composer}>
+      <div className={`${styles.composer} px-[var(--room-dock)] pb-4`}>
         {/* The reading column, the same one the stream above hangs in. The
             wrapper rather than a prop: `RoomComposer` draws the shell and
             knows nothing about how wide the pane it sits in is, which is the

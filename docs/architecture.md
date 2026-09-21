@@ -354,3 +354,9 @@ second runtimes and kernels adapters rather than rewrites:
 
 See [AGENTS.md](../AGENTS.md) for the maintainer rules and
 [extending.md](extending.md) for how to add a runtime adapter or plugin.
+
+## Provenance capture
+
+The host owns a `ProvenancePlane` beside the evidence plane. It registers open projects, reads admitted Git metadata through a private Git view and journals observations beneath the evidence project's folder. Metadata watches and polling enqueue bounded work; startup resumes durable catch-up. Neither a turn nor a Git action waits for capture. History reads one bounded batch of indexed provenance beside its ordinary Git log.
+
+An association needs a locally observed diff fact, a matching checkout and a compatible Seat lifetime. Reconciliation adds links to immutable original observations; it does not move checks or reviews to a rewritten commit. Capture preferences belong to this machine, default to on, and are shared by a project's linked checkouts.
