@@ -40,3 +40,21 @@ it('offers an explicit reviewed order only for two historical candidates with a 
   expect(container.textContent).toContain('Expensive')
   expect(readAgentInsight).toHaveBeenCalledWith('/repo', 'reviewer', 'project')
 })
+
+it('shows the actual current order beside a reviewed swap', async () => {
+  const readAgentInsight = vi.fn(async () => report())
+  const previewInsightOrder = vi.fn(async () => ({
+    stamp: 'swap', expiresAt: 20, current: entry.definition!.prefer, proposed: [...entry.definition!.prefer].reverse(), labels: ['Expensive', 'Cheap'],
+    report: { leftPerGoalUsd: metric(12), sources: [] }, reason: null,
+  }))
+  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } }, seating: { revision: 0, path: '/tmp/seating.json', entries: [{ id: 'reviewer', seats: entry.definition!.prefer }], problems: [] } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight, previewInsightOrder, applyInsightOrder: vi.fn() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+  await act(async () => {})
+  const order = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Order by cost')
+  await act(async () => order?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await act(async () => {})
+  expect(previewInsightOrder).toHaveBeenCalledOnce()
+  expect(document.body.textContent).toContain('Current orderExpensive, Cheap')
+  expect(document.body.textContent).toContain('Proposed ordercheap, expensive')
+})

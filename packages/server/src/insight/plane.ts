@@ -112,16 +112,16 @@ export class InsightPlane implements InsightReadApi {
 
   async usage(query: InsightQuery): Promise<InsightReport> { return this.#usage(query) }
 
-  async #usage(query: InsightQuery, receiptSeats?: ReadonlySet<string>): Promise<InsightReport> {
+  async #usage(query: InsightQuery, selectedSeatIds?: ReadonlySet<string>): Promise<InsightReport> {
     this.#range(query)
     const generatedAt = this.#now()
     const detail = await this.port.ledger().readInsight(query, { refresh: true })
     if (detail.samples.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
     const allGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
     const projectSeats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
-    const seats = receiptSeats ? projectSeats.filter((seat) => receiptSeats.has(seat.id)) : projectSeats
-    const selectedSamples = receiptSeats ? detail.samples.filter((sample) => {
-      const id = seatFor(sample, projectSeats.map(seatWindowOf)); return id !== null && receiptSeats.has(id)
+    const seats = selectedSeatIds ? projectSeats.filter((seat) => selectedSeatIds.has(seat.id)) : projectSeats
+    const selectedSamples = selectedSeatIds ? detail.samples.filter((sample) => {
+      const id = seatFor(sample, projectSeats.map(seatWindowOf)); return id !== null && selectedSeatIds.has(id)
     }) : detail.samples
     const total = amounts(selectedSamples, detail.sources, detail.gaps)
     const bySeat = new Map<string, import('../ledger/insight.js').UsageSample[]>()
@@ -149,7 +149,7 @@ export class InsightPlane implements InsightReadApi {
     })
     const unallocated = amounts(unattributed, sourceFor(unattributed), detail.gaps)
     return {
-      id: randomUUID(), generatedAt, query, goals: allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
+      id: randomUUID(), generatedAt, query, goals: selectedSeatIds ? allGoals.filter((goal) => seats.some((seat) => seat.board === goal.id)) : allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
       breakdowns: [
         { dimension: 'seat', rows: seatRows, unattributed: unallocated, reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.' },
         { dimension: 'goal', rows: goalRows, unattributed: unallocated, reason: 'Not attributed to a Goal.' },
@@ -174,8 +174,8 @@ export class InsightPlane implements InsightReadApi {
     const projects = this.port.goals.store.list().map((document) => document.goal.root)
     const selectedRoot = root ?? projects[0]
     if (!selectedRoot) return emptyReport(null, from, to, to)
-    const report = await this.usage({ root: selectedRoot, from, to })
-    const seats = this.port.seats().filter((seat) => seat.agent?.id === agent && seat.agent.origin === origin && (root === undefined || seat.checkout.project === root))
+    const seats = this.port.seats().filter((seat) => seat.agent?.id === agent && seat.agent.origin === origin && seat.checkout.project === selectedRoot)
+    const report = await this.#usage({ root: selectedRoot, from, to }, new Set(seats.map((seat) => seat.id)))
     return { ...report, seats, gaps: seats.length === 0 ? [...report.gaps, 'No historical Seats were recorded for this Agent.'] : report.gaps }
   }
 
@@ -229,7 +229,7 @@ export class InsightPlane implements InsightReadApi {
     const proposed = [...current]
     const leftAt = proposed.findIndex((seat) => JSON.stringify(seat) === leftKey); const rightAt = proposed.findIndex((seat) => JSON.stringify(seat) === rightKey)
     if (leftAt < 0 || rightAt < 0 || report.leftPerGoalUsd.value === null || report.rightPerGoalUsd.value === null || report.leftPerGoalUsd.value <= report.rightPerGoalUsd.value) {
-      return { stamp: null, expiresAt: null, current, proposed, labels: current.map((seat) => seat.runtime), report, reason: 'These seats are already in this order or cannot be compared from complete recorded usage.' }
+      return { stamp: null, expiresAt: null, current, proposed, labels: current.map((seat) => seat.model ?? seat.runtime), report, reason: 'These seats are already in this order or cannot be compared from complete recorded usage.' }
     }
     ;[proposed[leftAt], proposed[rightAt]] = [proposed[rightAt]!, proposed[leftAt]!]
     const fingerprint = await this.port.seating.fingerprint(); const stamp = randomUUID()
@@ -238,7 +238,7 @@ export class InsightPlane implements InsightReadApi {
       query, reportFingerprint: comparisonFingerprint(report),
     })
     while (this.#stamps.size > 20) this.#stamps.delete(this.#stamps.keys().next().value!)
-    return { stamp, expiresAt: this.#now() + 5 * 60_000, current, proposed, labels: proposed.map((seat) => seat.runtime), report, reason: null }
+    return { stamp, expiresAt: this.#now() + 5 * 60_000, current, proposed, labels: current.map((seat) => seat.model ?? seat.runtime), report, reason: null }
   }
 
   async applyOrder(stamp: string): Promise<import('@harnessdesk/protocol').MachineSeating> {

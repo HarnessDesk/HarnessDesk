@@ -203,7 +203,7 @@ const sourceFor = (target: ScanTarget, at: number | null) => {
   return {
     id: `corpus:${target.kind}:${target.runtime}:${digest}`,
     kind: 'corpus' as const,
-    label: `${target.kind} recorded usage`,
+    label: 'Recorded usage',
     observedAt: at,
     checkedAt: Date.now(),
     stale: false,

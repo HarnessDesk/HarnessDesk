@@ -71,7 +71,7 @@ export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
         {receipt.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       </>
     ) : null}
-    {'id' in receipt && insight ? <InsightCost {...insight} onSeat={() => {}} onSession={() => {}} onMessage={() => {}} /> : null}
+    {'id' in receipt && insight ? <InsightCost {...insight} /> : null}
   </div>
   )
 }

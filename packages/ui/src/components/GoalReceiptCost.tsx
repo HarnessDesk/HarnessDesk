@@ -39,5 +39,5 @@ export const GoalReceiptCost = ({ receipt }: { readonly receipt: GoalReceipt }) 
     return () => { generation.current += 1 }
   }, [load])
 
-  return <InsightCost report={report} loading={loading} problem={problem} onRefresh={load} onSeat={() => {}} onSession={() => {}} onMessage={() => {}} />
+  return <InsightCost report={report} loading={loading} problem={problem} onRefresh={load} />
 }

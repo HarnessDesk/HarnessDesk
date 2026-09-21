@@ -40,12 +40,34 @@ test('a reviewed order uses only the selected historical seats, never a copied p
   }
   const preview = await plane.previewOrder(query)
   assert.ok(preview.stamp, preview.reason ?? 'a comparable expensive seat should issue a review stamp')
+  assert.deepEqual(preview.labels, ['expensive', 'cheap'], 'the displayed current order is not the proposed swap')
   assert.deepEqual(preview.proposed, [right, left])
   assert.equal(preview.report.leftPerGoalUsd.value, 10)
   assert.equal(preview.report.rightPerGoalUsd.value, 2)
   rightUsd = 4
   await assert.rejects(() => plane.applyOrder(preview.stamp!), /recorded usage changed/i)
   assert.equal(writes, 0, 'a changed report is refused before the seating writer')
+})
+
+test('an Agent report contains only that Agent’s historical Seats and measurements', async () => {
+  const source = { id: 'source', kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null }
+  const sample = (sessionId: string, usd: number) => ({ key: sessionId, source, runtime: 'runtime', sessionId, turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const })
+  const seat = (id: string, agent: string, sessionId: string, board: string) => ({ id, agent: { id: agent, name: agent, origin: 'project' as const }, briefDigest: 'same', seat: { runtime: 'runtime', model: agent }, seatLabel: agent, checkout: { project: '/repo' }, board, session: { runtime: 'runtime', sessionId }, openedAt: 0, closed: null, restored: null })
+  const selected = seat('selected-seat', 'selected', 'selected-session', 'goal-selected')
+  const other = seat('other-seat', 'other', 'other-session', 'goal-other')
+  const plane = new InsightPlane({
+    ledger: () => ({ readInsight: async () => ({ samples: [sample('selected-session', 7), sample('other-session', 11)], sources: [source], gaps: [], complete: true }) }) as never,
+    goals: { store: { list: () => [{ goal: { id: 'goal-selected', root: '/repo', sentence: 'Selected', state: 'wrapped' } }, { goal: { id: 'goal-other', root: '/repo', sentence: 'Other', state: 'wrapped' } }] } } as never,
+    seats: () => [selected, other] as never,
+    seating: {} as never,
+    now: () => 90 * 86_400_000 + 20,
+  })
+
+  const report = await plane.agent('/repo', 'selected', 'project')
+  assert.deepEqual(report.seats.map((entry) => entry.id), ['selected-seat'])
+  assert.equal(report.totals.usd.value, 7, 'another Agent’s spend is absent from the total')
+  assert.deepEqual(report.breakdowns.flatMap((breakdown) => breakdown.rows.map((row) => row.label)), ['selected', 'Selected', 'selected'])
+  assert.ok(report.breakdowns.every((breakdown) => breakdown.unattributed.usd.value === null), 'unattributed amounts do not retain another Agent’s usage')
 })
 
 test('one Goal receipt and comparison include every one of its Seats, never another Goal', async () => {

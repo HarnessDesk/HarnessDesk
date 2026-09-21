@@ -20,7 +20,7 @@ afterEach(() => {
 })
 
 const source: InsightSource = {
-  id: 'source-1', kind: 'corpus', label: 'Recorded transcript', observedAt: 0, checkedAt: 60_000,
+  id: 'source-1', kind: 'corpus', label: 'Recorded usage', observedAt: 0, checkedAt: 60_000,
   stale: true, problem: null,
 }
 const metric = (value: number | null, quality: InsightMetric['quality'], coverage: InsightMetric['coverage'] = 'complete'): InsightMetric => ({
@@ -50,6 +50,14 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('$3.00')
   expect(container.textContent).toContain('Agent one')
   expect(container.textContent).toContain('At least')
-  expect(container.textContent).toContain('Recorded transcript')
+  expect(container.textContent).toContain('Recorded usage')
   expect(container.textContent).toContain('minutes since observation')
+})
+
+it('leaves receipt rows inert when no navigation handler exists', () => {
+  act(() => root.render(<InsightCost report={report()} loading={false} problem={null} onRefresh={() => {}} />))
+  const title = [...container.querySelectorAll('[class*="_rowTitle_"]')].find((node) => node.textContent === 'Seat one')
+  const seat = title?.closest('div[class*="_row_"]')
+  expect(seat).toBeTruthy()
+  expect(() => act(() => seat?.dispatchEvent(new MouseEvent('click', { bubbles: true })))).not.toThrow()
 })

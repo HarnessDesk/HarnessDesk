@@ -23,6 +23,7 @@ test('scanner detail preserves source identity and unknown numeric fields withou
   assert.equal(samples[0]?.cacheRead.value, 4)
   assert.equal(samples[0]?.cacheWrite.value, null)
   assert.ok(!samples[0]?.source.id.includes(dir), 'wire source id does not disclose its path')
+  assert.equal(samples[0]?.source.label, 'Recorded usage', 'source presentation does not name the scanner backend')
   assert.equal(samples[0]?.sessionId, 'session-1', 'the source session remains joinable after scanning')
   assert.equal(seatFor(samples[0]!, [{ id: 'seat-1', runtime: 'codex', sessionId: 'session-1', project: '/work/project', openedAt: 0, closedAt: null, restored: false }]), 'seat-1')
   const document = { goal: { id: 'goal-1', root: '/work/project', sentence: 'Account for it', state: 'wrapped' }, receipt: { id: 'receipt-1', seats: ['seat-1'] } }

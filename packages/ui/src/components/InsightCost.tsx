@@ -9,9 +9,9 @@ export interface InsightCostProps {
   readonly loading: boolean
   readonly problem: string | null
   readonly onRefresh: () => void
-  readonly onSeat: (seat: string) => void
-  readonly onSession: (session: SessionPointer) => void
-  readonly onMessage: (message: MessageCharge) => void
+  readonly onSeat?: (seat: string) => void
+  readonly onSession?: (session: SessionPointer) => void
+  readonly onMessage?: (message: MessageCharge) => void
 }
 
 /** Shared, deliberately textual accounting presentation: unknown is never formatted as free. */
@@ -53,7 +53,8 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
       {selected && <Rows>
         {selected.rows.map((row) => {
           const rowWords = metricWords(row.amounts.usd, report.sources, Date.now())
-          const action = row.seat ? () => onSeat(row.seat!) : row.message ? () => onMessage(row.message!) : row.session ? () => onSession(row.session!) : undefined
+          const { seat, message, session } = row
+          const action = seat !== null && onSeat ? () => onSeat(seat) : message !== null && onMessage ? () => onMessage(message) : session !== null && onSession ? () => onSession(session) : undefined
           return <Row key={row.key} title={row.label} {...(action ? { onClick: action } : {})} desc={[row.note, rowWords.qualifier, rowWords.coverage, rowWords.source, rowWords.freshness].filter(Boolean).join(' · ') || undefined} control={<RowValue>{rowWords.value}</RowValue>} />
         })}
         <Row title="Unattributed" desc={selected.reason ?? 'No unique historical Seat could be established.'} control={<RowValue>{metricWords(selected.unattributed.usd, report.sources, Date.now()).value}</RowValue>} />
