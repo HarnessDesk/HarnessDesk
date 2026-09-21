@@ -94,6 +94,15 @@ describe("the room's top row", () => {
   })
 })
 
+describe('watched conversation layout', () => {
+  it('gives watched columns a definite full height for their embedded conversations', () => {
+    /* `.columnBody` and the Conversation beneath it both size through their
+       flex ancestors. Without this definite height on the grid, the columns
+       shrink to their headers instead of filling the room body. */
+    expect(body('.columns')).toMatch(/height:\s*100%/)
+  })
+})
+
 describe('appearance ownership', () => {
   it('composes the top-level room roles instead of redrawing them in the screen stylesheet', () => {
     /* jsdom does not compute the Tailwind-backed role classes, so this is a
@@ -103,5 +112,13 @@ describe('appearance ownership', () => {
     expect(source).toContain('bg-(--hd-background)')
     expect(source).toContain('border-b border-(--hd-border)')
     expect(source).toContain('<Text role="meta" numeric')
+  })
+
+  it('drops the rail border at the room narrow breakpoint without returning its appearance to screen CSS', () => {
+    /* The base edge is a public utility role. The same named room container
+       must remove it when the rail becomes the whole pane, or it leaves a
+       stray right rule at widths below 38rem. */
+    expect(source).toContain('border-r border-(--hd-border)')
+    expect(source).toContain('@[38rem]/hd-room:border-r-0')
   })
 })
