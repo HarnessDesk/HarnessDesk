@@ -9,6 +9,7 @@ import type {
 import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { GoalPlane } from '../goals/plane.js'
 import type { Ledger } from '../ledger/index.js'
+import { seatFor, seatWindowOf } from './attribution.js'
 import { pairedCosts } from './compare.js'
 import { sumMeasures } from './measures.js'
 
@@ -22,7 +23,10 @@ const metric = (
   const total = sumMeasures(parts)
   return {
     ...total, unit, basis, sourceIds: sources.map((source) => source.id),
-    coverage: parts.length === 0 ? 'none' : gaps.length > 0 || total.quality !== 'exact' ? 'partial' : 'complete',
+    // Estimate describes the basis, not missing source records.  A fully
+    // observed list-price total is comparable (and says that it is an
+    // estimate); a floor or an actual source gap is not silently complete.
+    coverage: parts.length === 0 ? 'none' : gaps.length > 0 || total.quality === 'floor' ? 'partial' : 'complete',
     missing: gaps,
   }
 }
@@ -49,6 +53,18 @@ const emptyReport = (root: string | null, from: number, to: number, generatedAt:
   }
 }
 
+const seatKey = (seat: import('@harnessdesk/protocol').FlowSeat): string => JSON.stringify([
+  seat.runtime, seat.model ?? null, seat.effort ?? null, seat.thinking ?? null,
+])
+
+const row = (
+  key: string, label: string, samples: readonly import('../ledger/insight.js').UsageSample[], sources: readonly InsightSource[], gaps: readonly string[],
+  extra: Pick<import('@harnessdesk/protocol').InsightRow, 'seat' | 'goal' | 'session' | 'message' | 'note'>,
+): import('@harnessdesk/protocol').InsightRow => {
+  const total = amounts(samples, sources, gaps)
+  return { key, label, amounts: total, ...extra, elapsedMs: total.activeMs }
+}
+
 export interface InsightReadApi {
   goal(goal: string): Promise<InsightReport>
   usage(query: InsightQuery): Promise<InsightReport>
@@ -61,7 +77,22 @@ interface Stamp {
   readonly fingerprint: string
   readonly agent: string
   readonly proposed: readonly import('@harnessdesk/protocol').FlowSeat[]
+  readonly query: InsightOrderQuery
+  readonly reportFingerprint: string
 }
+
+/** Presentation timestamps do not invalidate a review; recorded values and their evidence do. */
+const comparisonFingerprint = (report: InsightComparison): string => createHash('sha256').update(JSON.stringify({
+  included: report.included,
+  excluded: report.excluded,
+  left: report.left.usd,
+  right: report.right.usd,
+  leftPerGoalUsd: report.leftPerGoalUsd,
+  rightPerGoalUsd: report.rightPerGoalUsd,
+  differenceUsd: report.differenceUsd,
+  ratio: report.ratio,
+  sources: report.sources.map((source) => ({ id: source.id, observedAt: source.observedAt, stale: source.stale, problem: source.problem })),
+})).digest('hex')
 
 /** A deliberately narrow, read-first host plane. It never receives evidence writers or Goal mutators. */
 export class InsightPlane implements InsightReadApi {
@@ -87,9 +118,40 @@ export class InsightPlane implements InsightReadApi {
     const allGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
     const seats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
     const total = amounts(detail.samples, detail.sources, detail.gaps)
+    const bySeat = new Map<string, import('../ledger/insight.js').UsageSample[]>()
+    const unattributed: import('../ledger/insight.js').UsageSample[] = []
+    for (const sample of detail.samples) {
+      const id = seatFor(sample, seats.map(seatWindowOf))
+      if (!id) { unattributed.push(sample); continue }
+      bySeat.set(id, [...(bySeat.get(id) ?? []), sample])
+    }
+    const sourceFor = (samples: readonly import('../ledger/insight.js').UsageSample[]) =>
+      [...new Map(samples.map((sample) => [sample.source.id, sample.source])).values()]
+    const seatRows = seats.map((seat) => row(
+      `seat:${seat.id}`, seat.seatLabel, bySeat.get(seat.id) ?? [], sourceFor(bySeat.get(seat.id) ?? []), detail.gaps,
+      { seat: seat.id, goal: seat.board, session: seat.session, message: null, note: seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable' },
+    ))
+    const goalRows = seats.flatMap((seat) => {
+      if (!seat.board) return []
+      const goal = allGoals.find((candidate) => candidate.id === seat.board)
+      if (!goal) return []
+      const samples = bySeat.get(seat.id) ?? []
+      return [row(`goal:${goal.id}:seat:${seat.id}`, goal.sentence, samples, sourceFor(samples), detail.gaps, {
+        seat: seat.id, goal: goal.id, session: seat.session, message: null, note: seat.agent?.name ?? 'Historical Seat',
+      })]
+    })
+    const agentRows = [...new Map(seats.filter((seat) => seat.agent).map((seat) => [`${seat.agent!.origin}:${seat.agent!.id}`, seat.agent!] as const)).entries()].map(([key, agent]) => {
+      const selected = seats.filter((seat) => seat.agent?.id === agent.id && seat.agent.origin === agent.origin).flatMap((seat) => bySeat.get(seat.id) ?? [])
+      return row(`agent:${key}`, agent.name, selected, sourceFor(selected), detail.gaps, { seat: null, goal: null, session: null, message: null, note: 'Historical Agent Seats' })
+    })
+    const unallocated = amounts(unattributed, sourceFor(unattributed), detail.gaps)
     return {
       id: randomUUID(), generatedAt, query, goals: allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
-      breakdowns: [{ dimension: 'goal', rows: [], unattributed: total, reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.' }],
+      breakdowns: [
+        { dimension: 'seat', rows: seatRows, unattributed: unallocated, reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.' },
+        { dimension: 'goal', rows: goalRows, unattributed: unallocated, reason: 'Not attributed to a Goal.' },
+        { dimension: 'agent', rows: agentRows, unattributed: unallocated, reason: 'Recorded usage without a historical Agent Seat remains unassigned.' },
+      ],
       sources: detail.sources, recordedSpend: [], provenance: { state: 'unavailable', note: 'Commit associations are unavailable; recorded usage is still shown.' }, gaps: detail.gaps,
     }
   }
@@ -117,16 +179,27 @@ export class InsightPlane implements InsightReadApi {
   async compare(query: InsightCompareQuery): Promise<InsightComparison> {
     this.#range(query)
     const report = await this.usage(query)
-    const basis: 'listPrice' | 'vendorMetered' | 'mixed' | 'unknown' = report.totals.usd.basis === 'listPrice' || report.totals.usd.basis === 'vendorMetered' || report.totals.usd.basis === 'mixed'
-      ? report.totals.usd.basis : 'unknown'
-    const rows = query.goals.flatMap((goal) => [
-      { goal, side: 'left' as const, value: report.totals.usd.value, basis, complete: report.totals.usd.coverage === 'complete' },
-      { goal, side: 'right' as const, value: report.totals.usd.value, basis, complete: report.totals.usd.coverage === 'complete' },
-    ])
+    const selected = report.breakdowns.find((breakdown) => breakdown.dimension === 'goal')?.rows ?? []
+    const historical = new Map(report.seats.map((seat) => [seat.id, seat]))
+    const metricFor = (goal: string, selector: InsightSelector): InsightMetric | null => {
+      const found = selected.find((entry) => {
+        if (entry.goal !== goal || entry.seat === null) return false
+        const seat = historical.get(entry.seat)
+        return seat?.agent?.id === selector.agent && seat.agent.origin === selector.origin
+          && seat.briefDigest === selector.briefDigest && selector.seat !== null && seatKey(seat.seat) === seatKey(selector.seat)
+      })
+      return found?.amounts.usd ?? null
+    }
+    const rows: import('./compare.js').ComparableCost[] = query.goals.flatMap((goal) => (['left', 'right'] as const).map((side) => {
+      const value = metricFor(goal, query[side])
+      const basis: import('./compare.js').ComparableCost['basis'] = value?.basis === 'listPrice' || value?.basis === 'vendorMetered' || value?.basis === 'mixed' ? value.basis : 'unknown'
+      return { goal, side, value: value?.value ?? null, basis, complete: value?.coverage === 'complete' }
+    }))
     const paired = pairedCosts(rows)
-    const copied = (value: number | null, unit: InsightMetric['unit']): InsightMetric => ({ ...report.totals.usd, value, unit, quality: value === null ? 'unknown' : report.totals.usd.quality })
-    const left = copied(paired.left, 'usd'); const right = copied(paired.right, 'usd')
     const included = paired.goals
+    const sourceMetric = metricFor(included[0] ?? '', query.left) ?? report.totals.usd
+    const copied = (value: number | null, unit: InsightMetric['unit']): InsightMetric => ({ ...sourceMetric, value, unit, quality: value === null ? 'unknown' : sourceMetric.quality, coverage: value === null ? 'none' : sourceMetric.coverage })
+    const left = copied(paired.left, 'usd'); const right = copied(paired.right, 'usd')
     return {
       query, included, excluded: query.goals.filter((goal) => !included.includes(goal)).map((goal) => ({ goal, reason: 'This Goal did not have a compatible complete measurement on both selected sides.' })),
       left: { ...report.totals, usd: left }, right: { ...report.totals, usd: right },
@@ -153,7 +226,10 @@ export class InsightPlane implements InsightReadApi {
     }
     ;[proposed[leftAt], proposed[rightAt]] = [proposed[rightAt]!, proposed[leftAt]!]
     const fingerprint = await this.port.seating.fingerprint(); const stamp = randomUUID()
-    this.#stamps.set(stamp, { expiresAt: this.#now() + 5 * 60_000, fingerprint, agent: query.agent, proposed })
+    this.#stamps.set(stamp, {
+      expiresAt: this.#now() + 5 * 60_000, fingerprint, agent: query.agent, proposed,
+      query, reportFingerprint: comparisonFingerprint(report),
+    })
     while (this.#stamps.size > 20) this.#stamps.delete(this.#stamps.keys().next().value!)
     return { stamp, expiresAt: this.#now() + 5 * 60_000, current, proposed, labels: proposed.map((seat) => seat.runtime), report, reason: null }
   }
@@ -161,6 +237,11 @@ export class InsightPlane implements InsightReadApi {
   async applyOrder(stamp: string): Promise<import('@harnessdesk/protocol').MachineSeating> {
     const saved = this.#stamps.get(stamp)
     if (!saved || saved.expiresAt <= this.#now()) throw new Error('This reviewed order expired. Refresh and try again.')
+    const fresh = await this.compare(saved.query)
+    if (comparisonFingerprint(fresh) !== saved.reportFingerprint) {
+      this.#stamps.delete(stamp)
+      throw new Error('Recorded usage changed while this order was being reviewed. Refresh and try again.')
+    }
     const outcome = await this.port.seating.set(saved.agent, saved.proposed, { expectedTextHash: saved.fingerprint })
     this.#stamps.delete(stamp)
     return outcome.seating
