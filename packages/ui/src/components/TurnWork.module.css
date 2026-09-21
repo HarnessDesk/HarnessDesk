@@ -21,7 +21,7 @@
 
 }
 
-.head:hover .headLabel {
+.work:not([data-trouble]) .head:hover .headLabel {
   color: var(--hd-secondary-foreground);
 }
 

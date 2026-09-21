@@ -20,3 +20,8 @@ it('keeps conversation-map, file-card, and turn-work appearance in design roles'
   expect(workCss).not.toMatch(/\.live\s*\{[^}]*\b(min-height|padding|font-size|color)\s*:/s)
   expect(workCss).not.toMatch(/\.shimmer\s*\{/s)
 })
+
+it('does not let a work-header hover erase trouble ink', () => {
+  expect(workCss).toMatch(/\.work:not\(\[data-trouble\]\)\s+\.head:hover\s+\.headLabel\s*\{[^}]*color:\s*var\(--hd-secondary-foreground\)/s)
+  expect(workCss).not.toMatch(/^\.head:hover\s+\.headLabel\s*\{/m)
+})
