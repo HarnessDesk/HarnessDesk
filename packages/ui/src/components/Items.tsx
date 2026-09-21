@@ -147,6 +147,7 @@ const filePathOf = (item: AgentItem): string | null => {
 }
 
 const StepPathLabels = createContext<ReadonlyMap<string, string> | null>(null)
+const ItemRegister = createContext<'light' | undefined>(undefined)
 
 /** File labels shared by every step in one turn, including folded groups. */
 export const StepNameScope = ({
@@ -192,11 +193,11 @@ const formatDuration = (ms: number | undefined): string | null => {
 }
 
 const StatusMark = ({ status }: { status: ItemStatus }) => {
-  if (status === 'inProgress') return <span className={styles.spinner} />
+  if (status === 'inProgress') return <span className="flex-none size-3 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[hd-spin_0.7s_linear_infinite]" />
   if (status === 'completed') return null
-  if (status === 'failed') return <span className={styles.statusFailed}>failed</span>
+  if (status === 'failed') return <span className="text-(--hd-danger-ink) text-xs font-medium">failed</span>
   return (
-    <span className={styles.badge} data-status={status}>
+    <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground) data-[status=declined]:line-through" data-status={status}>
       declined
     </span>
   )
@@ -224,10 +225,11 @@ const Row = ({
   children?: ReactNode
 }) => {
   const [open, setOpen] = useState(defaultOpen)
+  const register = useContext(ItemRegister)
   const collapsible = Boolean(children)
 
   return (
-    <div className={styles.row}>
+    <div className={`${styles.row}${register === 'light' ? '' : ' rounded-(--hd-radius) bg-(--hd-card) shadow-(--hd-hairline)'}`}>
       <Button
         type="button" variant="quiet" size="row" className={styles.rowHeader}
         onClick={() => collapsible && setOpen((value) => !value)}
@@ -235,22 +237,22 @@ const Row = ({
         style={collapsible ? undefined : { cursor: 'default' }}
         title={hoverTitle}
       >
-        <span className={styles.rowIcon}>{icon}</span>
-        <span className={styles.rowTitle}>{title}</span>
-        <span className={styles.rowMeta}>
+        <span className={`${styles.rowIcon} text-(--hd-muted-foreground)`}>{icon}</span>
+        <span className={`${styles.rowTitle} font-(family-name:--hd-font-family) text-base leading-(--hd-line) text-(--hd-foreground)`}>{title}</span>
+        <span className={`${styles.rowMeta} text-xs text-(--hd-muted-foreground) tabular-nums`}>
           {meta}
           {status && <StatusMark status={status} />}
         </span>
         {collapsible && (
           <ChevronIcon
-            className={styles.chevron}
+            className={`${styles.chevron} text-(--hd-muted-foreground)`}
             size={14}
             {...(open ? { 'data-open': '' } : {})}
           />
         )}
       </Button>
       {collapsible && open && (
-        <div className={bareBody ? styles.rowBodyBare : styles.rowBody}>{children}</div>
+        <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} pt-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6)`}>{children}</div>
       )}
     </div>
   )
@@ -300,8 +302,8 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   const when = sentAt(at)
   const copyFailed = useCopyFailed()
   return (
-    <div className={styles.userFooter}>
-      {when && <span className={styles.userTime}>{when}</span>}
+    <div className={`${styles.userFooter} min-h-(--hd-chip-h) pr-(--hd-space-0-5)`}>
+      {when && <span className={"mr-(--hd-space-1-5) text-xs text-(--hd-muted-foreground) tabular-nums"}>{when}</span>}
       <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
         variant="quiet" size="icon-xs"
@@ -393,12 +395,12 @@ const UserText = ({ text }: { text: string }) => {
   }, [expanded, text])
 
   return (
-    <div className={styles.bubble}>
-      <div ref={body} className={styles.bubbleText} {...(!expanded ? { 'data-collapsed': '' } : {})}>
+    <div className={`${styles.bubble} py-(--hd-space-2-5) px-(--hd-space-4) rounded-(--hd-radius-xl) bg-(--hd-muted) text-base leading-(--hd-line)`}>
+      <div ref={body} className={`${styles.bubbleText} ${!expanded ? 'max-h-[calc(var(--hd-line)*12)] overflow-hidden' : ''}`}>
         {linkedText(text)}
       </div>
       {overflowed && (
-        <Button variant="quiet" size="sm" className={styles.bubbleToggle} onClick={() => setExpanded((value) => !value)}>
+        <Button variant="quiet" size="sm" className={`${styles.bubbleToggle} mt-(--hd-space-1)`} onClick={() => setExpanded((value) => !value)}>
           {expanded ? 'Show less' : 'Show all'}
         </Button>
       )}
@@ -414,10 +416,11 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const { injections, text } = splitContext(raw)
   const attachments = item.content.filter((part) => part.type !== 'text')
   const images = imagesOf(item)
+  const singleImage = images.length === 1
   const [preview, setPreview] = useState<number | null>(null)
 
   return (
-    <div className={styles.userRow}>
+    <div className={`${styles.userRow} py-(--hd-space-3) pb-(--hd-space-1)`}>
       {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {injections.map((injection, index) => (
@@ -447,7 +450,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               aria-label={`View ${image.name}`}
               onClick={() => setPreview(position)}
             >
-              <img className={styles.imageThumb} src={image.url} alt={image.name} loading="lazy" draggable={false} />
+              <img className={`${styles.imageThumb} ${singleImage ? 'h-auto max-h-[280px]' : 'h-full'}`} src={image.url} alt={image.name} loading="lazy" draggable={false} />
             </Button>
           ))}
         </div>
@@ -463,16 +466,16 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               // A skill is an instruction bundle, not a file: badging it as one
               // would hide that the agent was handed a procedure to follow.
               return (
-                <span key={index} className={styles.chip} title={part.path}>
+                <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.path}>
                   <SparkIcon size={12} />
                   {part.name}
-                  <span className={styles.badge}>skill</span>
+                  <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">skill</span>
                 </span>
               )
             }
             if (part.type === 'mention') {
               return (
-                <span key={index} className={styles.chip} title={part.path}>
+                <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.path}>
                   <FileIcon size={12} />
                   {part.name}
                 </span>
@@ -487,7 +490,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
                   ? part.name ?? 'Image'
                   : 'Image'
             return (
-              <span key={index} className={styles.chip} title={part.type === 'localImage' ? part.path : undefined}>
+              <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.type === 'localImage' ? part.path : undefined}>
                 <ImageIcon size={12} />
                 {name}
               </span>
@@ -548,21 +551,21 @@ const ContextInjection = ({
     })()
   return (
     <div
-      className={styles.injectionWrap}
+      className={`${styles.injectionWrap} rounded-(--hd-radius) ${open ? 'bg-(--hd-card) shadow-(--hd-hairline) overflow-hidden' : ''} ${fromAgent ? 'shadow-[inset_2px_0_0_0_var(--hd-primary)] bg-(--hd-primary-muted)' : ''}`}
       {...(open ? { 'data-open': '' } : {})}
       {...(fromAgent ? { 'data-peer': '' } : {})}
     >
       <Button type="button" variant={fromAgent ? 'quiet' : 'row'} size="row" className={styles.injection} onClick={() => setOpen((value) => !value)}>
-        <ChevronIcon size={11} {...(open ? { 'data-open': '' } : {})} className={styles.chevron} />
+        <ChevronIcon size={11} {...(open ? { 'data-open': '' } : {})} className={`${styles.chevron} text-(--hd-muted-foreground)`} />
         {fromAgent ? <TeamIcon size={12} /> : <FileIcon size={12} />}
         {fromAgent ? 'From another agent' : origin === 'agent' ? 'Sent with your message' : 'Context added'}
-        <span className={styles.injectionLabel}>{fromAgent ? label.replace(/^Message from /, '') : label}</span>
+        <span className="text-xs font-medium text-(--hd-secondary-foreground)">{fromAgent ? label.replace(/^Message from /, '') : label}</span>
       </Button>
       {/* The body is prose, not terminal output: a git note, a hand-off
           packet, a plugin's summary — all written in Markdown by whoever
           composed them. A <pre> here printed that authoring as source. */}
       {open && (
-        <div className={styles.injectionBody}>
+        <div className="py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-2-5) border-t border-(--hd-border) max-h-[380px] overflow-auto [&>div]:text-sm [&>div]:leading-(--hd-line) [&>div]:text-(--hd-secondary-foreground) [&_h1]:text-base [&_h2]:text-base [&_h3]:text-sm [&_h4]:text-sm">
           <Markdown text={text} />
         </div>
       )}
@@ -577,9 +580,9 @@ const AssistantMessage = ({
   item: AssistantMessageItem
   streaming: boolean
 }) => (
-  <div className={`${styles.assistant} ${item.phase === 'commentary' ? styles.commentary : ''}`}>
+  <div className={`py-(--hd-space-1-5) ${item.phase === 'commentary' ? 'text-(--hd-secondary-foreground)' : ''}`}>
     <Markdown text={item.text} />
-    {streaming && <span className={styles.caret} />}
+    {streaming && <span className={`${styles.caret} h-[1.15em] ms-(--hd-space-0-5) rounded-full bg-(--hd-accent) animate-[hd-blink_1.1s_steps(2,start)_infinite]`} />}
     {/* No actions here: they sit once at the end of the turn (TurnTail), for
         the whole answer, rather than under every paragraph of it. */}
   </div>
@@ -598,7 +601,7 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
       meta={item.content.length > 0 ? 'reasoning' : undefined}
     >
       {body.length > 0 && (
-        <div className={styles.reasoningBody}>
+        <div className="py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) text-base leading-(--hd-line) text-(--hd-secondary-foreground)">
           {body.map((paragraph, index) => (
             <p key={index} className={styles.reasoningSummary}>
               {paragraph}
@@ -677,7 +680,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
       hoverTitle={described.path}
       meta={
         <>
-          {item.origin === 'user' && <span className={styles.badge}>you</span>}
+          {item.origin === 'user' && <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">you</span>}
           {formatDuration(item.durationMs)}
         </>
       }
@@ -759,16 +762,16 @@ const FileEntry = ({
   const added = counts.added
 
   return (
-    <div className={styles.fileEntry}>
+    <div className="border-t border-(--hd-border) first:border-t-0">
       <Button type="button" variant="quiet" size="content" className={styles.fileHeader} onClick={() => setOpen((v) => !v)}>
-        <ChevronIcon className={styles.chevron} size={12} {...(open ? { 'data-open': '' } : {})} />
-        <span className={styles.filePath} title={change.path}>
+        <ChevronIcon className={`${styles.chevron} text-(--hd-muted-foreground)`} size={12} {...(open ? { 'data-open': '' } : {})} />
+        <span className={`${styles.filePath} font-(family-name:--hd-font-code) text-sm`} title={change.path}>
           {relativeTo(change.path, root)}
         </span>
         <ChangeStats added={added} removed={counts.removed} />
       </Button>
       {open && (
-        <div className={styles.fileBody}>
+        <div className="px-(--hd-space-2-5) pb-(--hd-space-2-5)">
           <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />
         </div>
       )}
@@ -804,14 +807,13 @@ const findDiff = (value: unknown): string | null => {
 }
 
 const TodoListView = ({ todos }: { todos: readonly Todo[] }) => (
-  <ul className={styles.todoList}>
+  <ul className="m-0 py-(--hd-space-2) px-(--hd-space-3) list-none flex flex-col gap-(--hd-space-0-5)">
     {todos.map((todo, index) => (
       <li
         key={index}
-        className={styles.todoRow}
-        {...(todo.done ? { 'data-done': '' } : todo.active ? { 'data-active': '' } : {})}
+        className={`flex gap-(--hd-space-2) items-start text-base leading-(--hd-line) ${todo.done ? 'text-(--hd-muted-foreground) line-through' : ''} ${todo.active ? 'text-(--hd-foreground) font-medium' : ''}`}
       >
-        <span className={styles.todoMark} aria-hidden="true">
+        <span className={`flex-none inline-flex items-center w-3.5 h-(--hd-line) ${todo.active ? 'text-(--hd-accent)' : 'text-(--hd-muted-foreground)'}`} aria-hidden="true">
           {todo.done ? <TodoDoneIcon size={13} /> : todo.active ? <TodoActiveIcon size={13} /> : <TodoPendingIcon size={13} />}
         </span>
         {todo.label}
@@ -842,7 +844,7 @@ const headlineArg = (args: unknown, root: string | undefined): string | null => 
 const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) {
     return args === null || args === undefined ? null : (
-      <pre className={styles.json}>{JSON.stringify(args, null, 2)}</pre>
+      <pre data-role="json" className="m-0 py-(--hd-space-2-5) px-(--hd-space-3) max-h-[300px] overflow-auto font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre-wrap text-(--hd-secondary-foreground)">{JSON.stringify(args, null, 2)}</pre>
     )
   }
   const argTodos = findTodos(args)
@@ -850,11 +852,11 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   const entries = Object.entries(args as Record<string, unknown>)
   if (entries.length === 0) return null
   return (
-    <dl className={styles.argList}>
+    <dl className="m-0 py-(--hd-space-2) px-(--hd-space-3) grid grid-cols-[max-content_minmax(0,1fr)] gap-x-(--hd-space-2-5) gap-y-(--hd-space-0-5) items-baseline border-b border-(--hd-border)">
       {entries.map(([key, value]) => (
         <div key={key} className={styles.argRow}>
-          <dt className={styles.argKey}>{key}</dt>
-          <dd className={styles.argValue}>
+          <dt className="text-xs text-(--hd-muted-foreground) font-(family-name:--hd-font-code)">{key}</dt>
+          <dd className="m-0 min-w-0 max-h-[132px] overflow-auto font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre-wrap break-anywhere text-(--hd-secondary-foreground)">
             {typeof value === 'string' ? relativeTo(value, root) : JSON.stringify(value, null, 1)}
           </dd>
         </div>
@@ -956,7 +958,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
         headline ? (
           <>
             {label}
-            <span className={styles.rowSubtitle}>{headline}</span>
+            <span className="ms-(--hd-space-2) text-sm font-(family-name:--hd-font-code) text-(--hd-muted-foreground) font-normal">{headline}</span>
           </>
         ) : (
           label
@@ -974,7 +976,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
       bareBody={Boolean(change) || Boolean(command)}
     >
-      {wire && <div className={styles.wireName}>{wire}</div>}
+      {wire && <div data-role="wire-name" className="py-(--hd-space-2) px-(--hd-space-3) border-b border-(--hd-border) font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) break-anywhere text-(--hd-muted-foreground)">{wire}</div>}
       {item.error ? (
         <CodeBlock output={stripAnsi(item.error)} />
       ) : change ? (
@@ -1017,13 +1019,13 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
             const diff = findDiff(part.value)
             if (diff) {
               return (
-                <div key={index} className={styles.fileBody}>
+                <div key={index} className="px-(--hd-space-2-5) pb-(--hd-space-2-5)">
                   <DiffView diff={diff} inline />
                 </div>
               )
             }
             return (
-              <pre key={index} className={styles.json}>
+              <pre key={index} data-role="json" className="m-0 py-(--hd-space-2-5) px-(--hd-space-3) max-h-[300px] overflow-auto font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre-wrap break-anywhere text-(--hd-secondary-foreground)">
                 {JSON.stringify(part.value, null, 2)}
               </pre>
             )
@@ -1095,14 +1097,14 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                     })}
               >
                 <AgentIcon size={12} />
-                <span className={styles.filePath}>
+                <span className={`${styles.filePath} font-(family-name:--hd-font-code) text-sm`}>
                   {member.nickname ?? member.sessionId.slice(0, 8)}
                 </span>
-                {member.role && <span className={styles.badge}>{member.role}</span>}
-                {member.state && <span className={styles.badge}>{member.state}</span>}
+                {member.role && <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">{member.role}</span>}
+                {member.state && <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">{member.state}</span>}
                 {member.usage && member.usage.totalTokens > 0 && (
                   <span
-                    className={styles.badge}
+                    className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)"
                     {...(member.usage.outputExact === false
                       ? { title: 'At least this much: the child was still streaming when its last count was taken.' }
                       : {})}
@@ -1135,10 +1137,10 @@ const Plan = ({ item }: { item: PlanItem }) => {
 
   return (
     <Row icon={<PlanIcon size={14} />} title="Plan" defaultOpen>
-      <ol className={styles.planList}>
+      <ol className="m-0 py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) list-none flex flex-col gap-(--hd-space-0-5)">
         {steps.map((step, index) => (
-          <li key={index} className={styles.planStep} data-status="pending">
-            <span className={styles.planBullet} />
+          <li key={index} className={`${styles.planStep} py-(--hd-space-0-5) text-base leading-(--hd-line)`} data-status="pending">
+            <span className={`${styles.planBullet} h-3.5 mt-(--hd-space-1) rounded-full border-[1.5px] border-(--hd-border-heavy)`} />
             {step}
           </li>
         ))}
@@ -1148,10 +1150,10 @@ const Plan = ({ item }: { item: PlanItem }) => {
 }
 
 const Compaction = (_: { item: CompactionItem }) => (
-  <div className={styles.marker}>
-    <span className={styles.markerLine} />
+  <div className={`${styles.marker} py-(--hd-space-2-5) text-(--hd-muted-foreground) text-xs`}>
+    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
     Earlier messages were summarised to free up context
-    <span className={styles.markerLine} />
+    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
   </div>
 )
 
@@ -1161,17 +1163,17 @@ const Compaction = (_: { item: CompactionItem }) => (
  * it is the setting for what follows, not something to read.
  */
 const Notice = ({ item }: { item: NoticeItem }) => (
-  <div className={styles.notice}>
-    <InfoIcon size={12} className={styles.noticeIcon} />
+  <div className={`${styles.notice} min-h-(--hd-chip-h) py-(--hd-space-0-5) text-(--hd-muted-foreground) text-xs leading-(--hd-line-sm)`}>
+    <InfoIcon size={12} className={`${styles.noticeIcon} mt-(--hd-space-1)`} />
     <span>{item.text}</span>
   </div>
 )
 
 const Review = ({ item }: { item: ReviewItem }) => (
-  <div className={styles.marker}>
-    <span className={styles.markerLine} />
+  <div className={`${styles.marker} py-(--hd-space-2-5) text-(--hd-muted-foreground) text-xs`}>
+    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
     {item.phase === 'entered' ? `Started review: ${item.review}` : 'Finished review'}
-    <span className={styles.markerLine} />
+    <span className={`${styles.markerLine} h-px bg-(--hd-border-strong)`} />
   </div>
 )
 
@@ -1191,6 +1193,7 @@ export const ItemView = ({
   root,
   streaming = false,
   sentAt,
+  register,
 }: {
   item: AgentItem
   /** Session working directory, used to shorten absolute paths. */
@@ -1198,6 +1201,8 @@ export const ItemView = ({
   streaming?: boolean
   /** When the turn began, for a user message that does not carry its own time. */
   sentAt?: number
+  /** The compact turn-work register passes its density explicitly. */
+  register?: 'light'
 }) => {
   const body = ((): ReactNode => {
     switch (item.type) {
@@ -1235,5 +1240,9 @@ export const ItemView = ({
   })()
 
   if (body === null) return null
-  return <div className={styles.item}>{body}</div>
+  return (
+    <ItemRegister.Provider value={register}>
+      <div className={`${styles.item} ${register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'}`}>{body}</div>
+    </ItemRegister.Provider>
+  )
 }

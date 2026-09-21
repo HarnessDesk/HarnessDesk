@@ -73,3 +73,44 @@ it('keeps a failed turn and its failed step closed until each is opened', () => 
   act(() => step?.click())
   expect(container.textContent).toContain('one suite failed')
 })
+
+it('keeps an expanded step surface-free in the light work register', () => {
+  const command = {
+    id: 'command-1',
+    type: 'command',
+    command: 'pnpm test',
+    cwd: '/work',
+    origin: 'agent',
+    actions: [{ type: 'unknown', command: 'pnpm test' }],
+    status: 'completed',
+    output: 'all clear',
+  } as unknown as AgentItem
+  const turn: Turn = {
+    id: turnId('turn-1'),
+    items: [command],
+    status: 'completed',
+    durationMs: 25_000,
+    diff: null,
+  }
+  const snapshot = emptySnapshot()
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+  } as unknown as AppStore
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnWork turn={turn} work={[command]} root="/work" />
+      </StoreProvider>,
+    )
+  })
+
+  const fold = container.querySelector<HTMLButtonElement>('[data-testid="turn-work"] > button')
+  act(() => fold?.click())
+
+  const row = container.querySelector<HTMLElement>('[data-testid="turn-work"] [class*="_row_"]')
+  expect(row?.className).not.toContain('rounded-(--hd-radius)')
+  expect(row?.className).not.toContain('bg-(--hd-card)')
+  expect(row?.className).not.toContain('shadow-(--hd-hairline)')
+})
