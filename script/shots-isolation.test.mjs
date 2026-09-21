@@ -213,3 +213,36 @@ test('the storefront names one check and commits it, and every take starts with 
     assert.equal(existsSync(join(home, name)), false, `${name} survived a seed`)
   }
 })
+
+test('each provenance take removes residue and seeds only synthetic local facts', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-provenance-shots-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  for (const path of ['evidence', 'provenance']) {
+    mkdirSync(join(home, path), { recursive: true })
+    writeFileSync(join(home, path, 'previous-take'), 'must not survive')
+  }
+  writeFileSync(join(home, 'provenance-preferences.json'), 'must not survive')
+  execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0', HD_SHOTS_PROVENANCE: '1' }, stdio: 'pipe',
+  })
+  assert.equal(existsSync(join(home, 'provenance-preferences.json')), false)
+  assert.equal(existsSync(join(home, 'provenance')), false)
+  assert.equal(existsSync(join(home, 'evidence', 'previous-take')), false)
+  const { EvidenceStore } = await import('../packages/server/dist/src/evidence/store.js')
+  const evidence = new EvidenceStore(join(home, 'evidence'))
+  const projects = await evidence.projects()
+  assert.equal(projects.length, 1)
+  const seats = (await evidence.read(projects[0], 'seats')).lines
+  const facts = (await evidence.read(projects[0], 'evidence')).lines
+  assert.equal(seats.length, 2)
+  assert.equal(facts.length, 2)
+  assert.deepEqual(seats.map((line) => line.record.agent.name), ['Contributor 1', 'Contributor 2'])
+  assert.ok(seats.every((line) => line.record.checkout.project === projects[0]))
+  assert.ok(facts.every((line) => line.record.fact.kind === 'diff' && !line.record.restored))
+  execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0', HD_SHOTS_PROVENANCE: '0' }, stdio: 'pipe',
+  })
+  assert.equal(existsSync(join(home, 'evidence')), false)
+})

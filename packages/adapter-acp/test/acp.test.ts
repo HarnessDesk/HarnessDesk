@@ -899,7 +899,7 @@ test('an agent that never answered the handshake claims nothing', async () => {
   await runtime.dispose()
 })
 
-test('a configured agent that exits cleanly explains the handshake failure', async () => {
+test('a configured agent that exits cleanly stays restart-recoverable', async () => {
   let repaired = false
   const runtime = new AcpRuntime({
     id: 'clean-exit',

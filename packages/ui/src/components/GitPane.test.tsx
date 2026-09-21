@@ -89,6 +89,9 @@ interface Script {
   readonly home?: string
   /** Answers for the write verbs, by method name. */
   readonly on?: Readonly<Record<string, unknown>>
+  readonly provenance?: readonly import('@harnessdesk/protocol').CommitProvenance[]
+  /** Sequential batch answers; an Error models a rejected host read. */
+  readonly provenanceReads?: readonly (readonly import('@harnessdesk/protocol').CommitProvenance[] | Error)[]
 }
 
 const mount = async (script: Script) => {
@@ -128,7 +131,7 @@ const mount = async (script: Script) => {
   const send = vi.fn(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
   })
-  const snapshot = {
+  let snapshot = {
     ...emptySnapshot(),
     status: 'open',
     activeRuntime: 'claude',
@@ -139,10 +142,23 @@ const mount = async (script: Script) => {
       { id: 'codex', name: 'Codex', capabilities: {}, presentation: { name: 'Codex', brand: 'codex' } },
     ],
   } as unknown as AppSnapshot
+  const subscribers = new Set<() => void>()
+  let provenanceRead = 0
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => { subscribers.add(listener); return () => { subscribers.delete(listener) } },
     getSnapshot: () => snapshot,
     transport: { request },
+    readProvenance: vi.fn(async (root: string, shas: readonly string[]) => {
+      const answer = script.provenanceReads?.[provenanceRead++]
+      if (answer instanceof Error) throw answer
+      return {
+      project: root,
+      revision: 0,
+      health: { project: root, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 0 },
+      commits: answer ?? script.provenance ?? shas.map((sha) => ({ sha, state: 'unattributed', coverage: 'none', seats: [], via: null, reason: 'not-observed', explanation: 'No local observation.', evidenceIds: [], cards: [], observedAt: null })),
+    }
+    }),
+    readProvenanceSeat: vi.fn(async () => ({ seat: null, session: null, unavailable: null })),
     setDetailsTab,
     openDetailsTab,
     notice,
@@ -166,7 +182,11 @@ const mount = async (script: Script) => {
       </StoreProvider>,
     )
   })
-  return { request, setDetailsTab, openDetailsTab, notice, openWorkspace, newSession, send, store }
+  const updateSnapshot = (next: Partial<AppSnapshot>) => {
+    snapshot = { ...snapshot, ...next }
+    for (const listener of subscribers) listener()
+  }
+  return { request, setDetailsTab, openDetailsTab, notice, openWorkspace, newSession, send, store, updateSnapshot }
 }
 
 const button = (label: string): HTMLButtonElement => {
@@ -229,6 +249,41 @@ it('keeps the windowed commit row borderless and marks the graph column edge', a
   expect(rows.every((row) => row.style.paddingRight === 'var(--hd-space-3)')).toBe(true)
   const head = container.querySelector('[role="row"]')
   expect(head?.querySelector('[data-slot="separator"][data-orientation="vertical"]')).not.toBeNull()
+})
+
+it('keeps a loaded history Seat actionable in selected detail when the refresh is refused', async () => {
+  const sha = 'aaaa1111111'
+  await mount({
+    log: [commit(sha, 'tip')],
+    provenance: [{ sha, state: 'attributed', coverage: 'complete', seats: [{ id: 'seat-1', agentName: 'Contributor 1', runtime: 'fixture', seatLabel: 'Alpha', session: { runtime: 'fixture', sessionId: 'one' } }], via: 'observed', reason: null, explanation: 'Observed.', evidenceIds: [], cards: [], observedAt: 1 }],
+  })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  expect(container.textContent).toContain('Contributor 1')
+  expect([...container.querySelectorAll('button')].some((item) => item.textContent === 'Seat record')).toBe(true)
+})
+
+it('refreshes selected provenance detail from a successful newer batch', async () => {
+  const sha = 'aaaa1111111'
+  const original = { sha, state: 'attributed' as const, coverage: 'complete' as const, seats: [], via: 'observed' as const, reason: null, explanation: 'Original evidence.', evidenceIds: [], cards: [], observedAt: 1 }
+  const refreshed = { ...original, explanation: 'Refreshed evidence.' }
+  const { updateSnapshot } = await mount({ log: [commit(sha, 'tip')], provenanceReads: [[original], [original], [refreshed], [refreshed]] })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  expect(container.textContent).toContain('Original evidence.')
+  await act(async () => {
+    updateSnapshot({ provenanceRevision: new Map([['/repo/app', 1]]) })
+    await Promise.resolve()
+  })
+  expect(container.textContent).toContain('Refreshed evidence.')
+  expect(container.textContent).not.toContain('Original evidence.')
+})
+
+it('offers a provenance retry when the selected batch and detail read both fail', async () => {
+  const sha = 'aaaa1111111'
+  await mount({ log: [commit(sha, 'tip')], provenanceReads: [new Error('offline'), new Error('offline')] })
+  await act(async () => container.querySelector<HTMLElement>('[role="option"]')?.click())
+  const detail = container.querySelector<HTMLElement>('section[aria-label="Commit provenance"]')!
+  expect(detail.textContent).toContain('Provenance could not be read.')
+  expect([...detail.querySelectorAll('button')].some((item) => item.textContent === 'Retry provenance')).toBe(true)
 })
 
 it('uses the shared search field for history and refs, with history clearable', async () => {

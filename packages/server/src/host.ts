@@ -102,6 +102,7 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { revisionOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
@@ -505,6 +506,8 @@ export class Host {
    * append-only store per project under `evidence/` in the state directory.
    */
   readonly #evidence: EvidencePlane
+  readonly #provenance: ProvenancePlane
+  #provenanceGeneration = 0
   readonly #goalStore: GoalStore
   readonly #goalSerial = new Serial()
   readonly #goals: GoalPlane
@@ -1031,6 +1034,13 @@ export class Host {
       // defaults it was supposed to replace.
       this.#applyBrowserSettings()
     }
+    this.#provenance = new ProvenancePlane({
+      evidence: this.#evidence,
+      stateDir: this.#state.directory,
+      projects: () => [],
+      push: (notice) => this.#push(notice),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
     this.#context = this.#buildContext()
   }
 
@@ -1292,9 +1302,11 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
-    /* Before any runtime starts, so the first conversation listed already
-       wears the Agent its Seat record names. Caught like the flow runs above:
-       records that cannot be read cost the restored names, not the desk. */
+    // Start capture after the stored names and rooms have recovered, so its
+    // first project snapshot cannot describe a partially restored desk.
+    void this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
+      this.#logger.warn('provenance could not start')
+    })
     /* From here on a file changed under any of the roster's roots is one
        notice to every window. Guarded on `#disposed`: everything above this
        point can yield, and a quit landing in one of those gaps must find no
@@ -1439,6 +1451,9 @@ export class Host {
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#provenance.close().catch(() => {
+      this.#logger.warn('provenance observations could not be saved')
+    })
     await this.#evidence.close()
     await this.#goalStore.flush()
     await this.#goalWriter?.release()
@@ -1978,6 +1993,13 @@ export class Host {
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
+      provenance: {
+        read: (root, shas) => this.#provenance.read(root, shas),
+        status: (root) => this.#provenance.status(root),
+        setCapture: (root, enabled) => this.#provenance.setCapture(root, enabled),
+        retry: (root) => this.#provenance.retry(root),
+        seat: (root, id) => this.#provenance.seat(root, id),
+      },
       editor: this.#editor,
       gateways: this.#gateways,
       catalogs: this.#catalogs,
@@ -2079,6 +2101,7 @@ export class Host {
         openRoots: () => this.#openRoots(),
         fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
         topLevel: (path) => gitOps.topLevel(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
@@ -2229,6 +2252,27 @@ export class Host {
   }
 
   /**
+   * Provenance is keyed by Git's canonical project rather than a particular
+   * checkout. A linked checkout is an open root, but its main checkout is not;
+   * admit precisely that canonical project for provenance controls without
+   * broadening ordinary Git RPC confinement.
+   */
+  async #confineProvenanceRoot(root: string): Promise<string> {
+    assertAbsolute(root)
+    try {
+      const confined = await this.#confineGitRoot(root)
+      return (await this.#repoOf(confined))?.root ?? (await this.#topLevelOf(confined)) ?? confined
+    } catch (refusal) {
+      const real = await this.#realPath(root)
+      for (const open of this.#openRoots()) {
+        const repository = await this.#repoOf(open)
+        if (repository !== null && (await this.#realPath(repository.root)) === real) return real
+      }
+      throw refusal
+    }
+  }
+
+  /**
    * Where a room may work: in a folder opened here or in a repository opened
    * here, by the folder rule above or by the repository rule the worktree
    * verbs answer to, whichever admits it. A room's folder is where its flows
@@ -2289,6 +2333,7 @@ export class Host {
       ),
       seating: await this.#machineSeating.raw(),
       evidence: await this.#evidence.backup(),
+      provenance: await this.#provenance.backup(),
       goals: {
         version: 1,
         documents: this.#goalStore.list(),
@@ -2457,6 +2502,7 @@ export class Host {
     }
     // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
     const evidence = await this.#evidence.restore(file.evidence)
+    const provenance = await this.#provenance.restore(file.provenance)
     const goals = file.goals === undefined ? undefined : {
       restored: 0, duplicate: 0, conflict: 0,
       lanesRestored: 0, lanesDuplicate: 0, lanesConflict: 0,
@@ -2484,8 +2530,8 @@ export class Host {
         } else goals.lanesConflict += 1
       }
     }
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, goals })
-    return { agents, preferences, transcripts, agentFolders, seating, evidence, ...(goals ? { goals } : {}) }
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, goals })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, ...(goals ? { goals } : {}) }
   }
 
   /**
@@ -2751,6 +2797,7 @@ export class Host {
    * never re-add a folder the newer call had already let go of.
    */
   async #watchProjects(): Promise<void> {
+    this.#captureProjects()
     const watch = this.#agentWatch
     if (!watch) return
     const generation = ++this.#watchGeneration
@@ -4642,6 +4689,22 @@ export class Host {
    * The promise itself is cached, not its result, so a page listing twenty
    * conversations in one folder starts one `rev-parse` rather than twenty.
    */
+  /** Register canonical open checkouts without making the opening wait for capture. */
+  #captureProjects(): void {
+    if (this.#disposed) return
+    const generation = ++this.#provenanceGeneration
+    const roots = this.#openRoots()
+    void Promise.all(roots.map(async (root) => {
+      const [checkout, repository] = await Promise.all([this.#topLevelOf(root), this.#repoOf(root)])
+      return [checkout ?? root, ...(repository === null ? [] : [repository.root])]
+    }))
+      .then((projects) => {
+        if (this.#disposed || generation !== this.#provenanceGeneration) return
+        this.#provenance.setProjects(projects.flat())
+      })
+      .catch(() => this.#logger.warn('provenance projects could not be registered'))
+  }
+
   #repoOf(cwd: string): Promise<RepoInfo | null> {
     const held = this.#repos.get(cwd)
     if (held) return held
@@ -4900,6 +4963,13 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
+      this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
+    }
+    if (!this.#disposed && (notification.method === 'session/removed' ||
+      (notification.method === 'event' && notification.params.event.type === 'session/started'))) {
+      this.#captureProjects()
+    }
     for (const broadcast of this.#broadcasters) {
       try {
         broadcast(notification)

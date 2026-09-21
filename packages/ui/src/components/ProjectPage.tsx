@@ -8,6 +8,7 @@ import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
 import { FolderIcon } from './Icons'
 import { ProjectChecks } from './ProjectChecks'
+import { ProjectProvenance } from './ProjectProvenance'
 import {
   BackLink,
   Button,
@@ -148,6 +149,7 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
         )}
       </section>
       <ProjectChecks root={root} />
+      <ProjectProvenance root={root} />
     </>
   )
 }

@@ -1,5 +1,6 @@
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import type { CaptureHealth, ProjectProvenance, ProvenanceBackup, ProvenanceSeatDetail } from './provenance.js'
 import type {
   CapabilityContribution,
   ContextImage,
@@ -133,6 +134,8 @@ export interface BackupFile {
   }[]
   /** This machine's `seating.json`, or null when it was absent or could not be read. */
   readonly seating?: Readonly<Record<string, unknown>> | null
+  /** Historical provenance only; never capture preferences or live cursors. */
+  readonly provenance?: ProvenanceBackup
   /**
    * What the desk observed and every Seat it kept: each project's evidence
    * store, as the lines it holds. Never the commands this machine has approved —
@@ -176,6 +179,11 @@ export interface BackupReport {
   readonly transcripts: { readonly restored: number; readonly skipped: number }
   readonly agentFolders: { readonly restored: number; readonly skipped: number }
   readonly seating: { readonly restored: number; readonly skipped: number }
+  readonly provenance: {
+    readonly restored: number
+    readonly duplicate: number
+    readonly refused: number
+  }
   /**
    * Evidence and Seat records, counted by what became of each: `duplicate` was
    * already here; `refused` could not be read, or asked for what a backup may
@@ -574,6 +582,26 @@ export interface AgentRegisterRequest {
  * runtime 'unknown method'.
  */
 export interface HostMethods {
+  'provenance/commits': {
+    params: { readonly root: string; readonly shas: readonly string[] }
+    result: ProjectProvenance
+  }
+  'provenance/status': {
+    params: { readonly root?: string }
+    result: readonly CaptureHealth[]
+  }
+  'provenance/capture': {
+    params: { readonly root: string; readonly enabled: boolean }
+    result: CaptureHealth
+  }
+  'provenance/retry': {
+    params: { readonly root: string }
+    result: CaptureHealth
+  }
+  'provenance/seat': {
+    params: { readonly root: string; readonly seat: string }
+    result: ProvenanceSeatDetail
+  }
   'lane/preferences': { params: Record<string, never>; result: import('./goal.js').LanePreferences }
   'lane/list': { params: Record<string, never>; result: readonly import('./goal.js').Lane[] }
   'lane/preferences/set': { params: import('./goal.js').LanePreferences; result: import('./goal.js').LanePreferences }
@@ -2181,6 +2209,14 @@ export type WireResponse =
 export type WireNotification =
   | { method: 'goal/changed'; params: { view: GoalView } }
   | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }
+  | {
+      readonly method: 'provenance/changed'
+      readonly params: {
+        readonly project: string
+        readonly revision: number
+        readonly health: CaptureHealth
+      }
+    }
   | {
       /**
        * One agent event, tagged with the runtime that produced it. Events

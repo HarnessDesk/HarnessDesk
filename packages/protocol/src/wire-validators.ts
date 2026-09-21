@@ -323,7 +323,38 @@ const goalValidators = {
  * Per-method params validators. A method missing from this table is rejected,
  * so the table doubles as the host's method allowlist.
  */
+const provenanceRoot: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!text.length || text.length > 4096 || text.includes('\x00')) {
+    throw new ValidationError(path, 'expected a project root')
+  }
+  return text
+}
+const provenanceOptionalRoot: Validator<string | undefined> = (value, path = '') =>
+  value === undefined ? undefined : provenanceRoot(value, path)
+
+const provenanceShas: Validator<string[]> = (value, path = '') => {
+  if (!Array.isArray(value) || value.length > 1000 || value.some((sha) =>
+    typeof sha !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(sha),
+  )) {
+    throw new ValidationError(path, 'expected at most 1000 full object ids')
+  }
+  return [...new Set(value)] as string[]
+}
+const provenanceSeat: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!text.length || text.length > 200 || /[\x00-\x1f\x7f]/.test(text)) {
+    throw new ValidationError(path, 'expected a Seat id')
+  }
+  return text
+}
+
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'provenance/commits': shape({ root: provenanceRoot, shas: provenanceShas }),
+  'provenance/status': shape({ root: provenanceOptionalRoot }),
+  'provenance/capture': shape({ root: provenanceRoot, enabled: isBoolean }),
+  'provenance/retry': shape({ root: provenanceRoot }),
+  'provenance/seat': shape({ root: provenanceRoot, seat: provenanceSeat }),
   'lane/preferences': goalShape({}),
   'lane/list': goalShape({}),
   'lane/preferences/set': (value, path = '') => {
