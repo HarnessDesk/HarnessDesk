@@ -191,8 +191,12 @@ export class ProvenancePlane {
       }
     }
     state.entries = read.entries
-    state.seats = foldSeats((await this.#port.evidence.store.read(state.project, 'seats')).lines)
-    state.facts = (await this.#port.evidence.store.read(state.project, 'evidence')).lines.flatMap((line) =>
+    const seats = await this.#port.evidence.store.read(state.project, 'seats')
+    const facts = await this.#port.evidence.store.read(state.project, 'evidence')
+    state.issues.delete('evidence-skipped')
+    if (seats.skipped || facts.skipped) state.issues.add('evidence-skipped')
+    state.seats = foldSeats(seats.lines)
+    state.facts = facts.lines.flatMap((line) =>
       line.type === 'evidence' ? [line.record] : [],
     )
   }
@@ -267,10 +271,20 @@ export class ProvenancePlane {
     const ranges = storedRanges.filter((range) => !range.id.startsWith('fact-'))
     let links = localValues<LinkObservation>(entries, 'link')
     const sources: ProvenanceSource[] = []
+    const checkoutRoots = new Map<string, Promise<string | null>>()
+    const canonicalRoot = (cwd: string): Promise<string | null> => {
+      let root = checkoutRoots.get(cwd)
+      if (!root) {
+        root = checkoutRoot(state.handle!, cwd)
+        checkoutRoots.set(cwd, root)
+      }
+      return root
+    }
     for (const record of state.facts) {
       signal.throwIfAborted()
-      if (record.restored || record.fact.kind !== 'diff' || !record.checkout || !state.handle ||
-        !await checkoutRoot(state.handle, record.checkout.cwd)) continue
+      if (record.restored || record.fact.kind !== 'diff' || !record.checkout || !state.handle) continue
+      const cwd = await canonicalRoot(record.checkout.cwd)
+      if (!cwd) continue
       const fact = record.fact
       try {
         let source = state.factSources.get(record.id)
@@ -279,8 +293,12 @@ export class ProvenancePlane {
           const saved = storedRanges.find((range) => range.id === factId)
           const observed = commits.find((commit) => commit.sha === fact.to && commit.parents[0] === fact.from)
           const patch = saved?.patch ?? observed?.patch ?? await git.patch(record.fact.from, record.fact.to, signal)
-          source = factSource(state.project, record.checkout.cwd, record.fact.from, record.fact.to,
-            patch, state.seats, [record]) ?? undefined
+          const seats = (await Promise.all(state.seats.map(async (seat) =>
+            await canonicalRoot(seat.checkout.cwd) === cwd ? { ...seat, checkout: { ...seat.checkout, cwd } } : null,
+          ))).filter((seat): seat is SeatRecord => seat !== null)
+          const canonical = { ...record, checkout: { ...record.checkout, cwd } }
+          source = factSource(state.project, cwd, record.fact.from, record.fact.to,
+            patch, seats, [canonical]) ?? undefined
           if (source) {
             // An exact fact range is not a first-parent decomposition. Keep its
             // fingerprint for replay, but never offer it as a squash candidate.

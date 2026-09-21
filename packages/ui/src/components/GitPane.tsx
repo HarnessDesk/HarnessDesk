@@ -211,7 +211,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   const [needle, setNeedle] = useState('')
   const [search, setSearch] = useState<GitLogSearch>('message')
   const [selected, setSelected] = useState<string | null>(null)
-  const [selectedProvenance, setSelectedProvenance] = useState<import('@harnessdesk/protocol').CommitProvenance | null>(null)
+  const [selectedProvenance, setSelectedProvenance] = useState<import('@harnessdesk/protocol').CommitProvenance | undefined>()
   const [railOpen, setRailOpen] = useState(true)
   const [railError, setRailError] = useState<string | null>(null)
   const [branchAt, setBranchAt] = useState<string | null>(null)
@@ -333,7 +333,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
 
   const select = useCallback((sha: string | null): void => {
     setSelected(sha)
-    setSelectedProvenance(sha === null ? null : provenance.values.get(sha) ?? null)
+    setSelectedProvenance(sha === null ? undefined : provenance.values.get(sha))
   }, [provenance.values])
 
   const scrollToIndex = useCallback((index: number): void => {
@@ -985,7 +985,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <CommitDetail
               root={root}
               sha={selected}
-              provenance={selectedProvenance ?? provenance.values.get(selected) ?? null}
+              provenance={provenance.error ? selectedProvenance : provenance.values.get(selected)}
               wide={fit.sideBySide}
               remotes={remoteNames}
               onClose={() => select(null)}
@@ -1942,7 +1942,7 @@ const CommitDetail = ({
 }: {
   root: string
   sha: string
-  provenance: import('@harnessdesk/protocol').CommitProvenance | null
+  provenance: import('@harnessdesk/protocol').CommitProvenance | null | undefined
   wide: boolean
   remotes: ReadonlySet<string>
   onClose: () => void
