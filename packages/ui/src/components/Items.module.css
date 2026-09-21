@@ -334,12 +334,6 @@
   white-space: nowrap;
 }
 
-.groupBody {}
-
-.groupBody .item {
-  max-width: none;
-}
-
 /* ---------------------------------------------------- tool call arguments */
 
 .argRow {

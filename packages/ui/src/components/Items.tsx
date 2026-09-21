@@ -443,7 +443,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
               key={index}
               type="button"
               role="listitem"
-              variant="quiet" size="content" className={`${styles.imageTile} ${singleImage ? 'h-auto max-h-[280px]' : ''}`}
+              variant="quiet" size="content" className={styles.imageTile}
               title={image.name}
               aria-label={`View ${image.name}`}
               onClick={() => setPreview(position)}

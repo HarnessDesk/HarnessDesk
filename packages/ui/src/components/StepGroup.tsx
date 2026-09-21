@@ -62,7 +62,7 @@ export const StepGroup = ({
           {running && <span className="flex-none size-3 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[hd-spin_0.7s_linear_infinite]" />}
         </Button>
         {expanded && (
-          <div className={`${styles.groupBody} flex flex-col [&>div]:py-0 ${register === 'light' ? 'pl-(--hd-space-5) pb-(--hd-space-0-5) border-t-0 gap-(--hd-space-px)' : 'pt-(--hd-space-0-5) px-(--hd-space-2) pb-(--hd-space-2) border-t border-(--hd-border) gap-(--hd-space-1)'}`}>
+          <div className={`flex flex-col [&>div]:max-w-none [&>div]:py-0 ${register === 'light' ? 'pl-(--hd-space-5) pb-(--hd-space-0-5) border-t-0 gap-(--hd-space-px)' : 'pt-(--hd-space-0-5) px-(--hd-space-2) pb-(--hd-space-2) border-t border-(--hd-border) gap-(--hd-space-1)'}`}>
             {items.map((item) => (
               <ItemView key={item.id} item={item} root={root} register={register} />
             ))}

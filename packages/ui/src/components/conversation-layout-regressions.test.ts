@@ -23,12 +23,15 @@ it('keeps transcript animations bound to shared global keyframes', () => {
 it('keeps the light work register compact and its grouped body visibly nested', () => {
   expect(itemsTsx).toContain("register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'")
   expect(stepGroupTsx).toContain("register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'")
-  expect(stepGroupTsx).toContain('flex flex-col [&>div]:py-0')
+  expect(stepGroupTsx).toContain('flex flex-col [&>div]:max-w-none [&>div]:py-0')
   expect(stepGroupTsx).toContain("'pl-(--hd-space-5) pb-(--hd-space-0-5) border-t-0 gap-(--hd-space-px)'")
   expect(stepGroupTsx).toContain("'pt-(--hd-space-0-5) px-(--hd-space-2) pb-(--hd-space-2) border-t border-(--hd-border) gap-(--hd-space-1)'")
+  expect(stepGroupTsx).toContain('[&>div]:max-w-none')
+  expect(stepGroupTsx).not.toContain('styles.groupBody')
+  expect(itemsCss).not.toMatch(/\.groupBody\s*\{\s*\}/)
 })
 
 it('caps a single attached image in both its tile and thumbnail', () => {
-  expect(itemsTsx).toContain("singleImage ? 'h-auto max-h-[280px]' : ''")
   expect(itemsTsx).toContain("singleImage ? 'h-auto max-h-[280px]' : 'h-full'")
+  expect(itemsTsx).not.toContain("className={`${styles.imageTile} ${singleImage ? 'h-auto max-h-[280px]' : ''}`}")
 })
