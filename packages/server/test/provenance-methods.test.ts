@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { join } from 'node:path'
+import { mkdir } from 'node:fs/promises'
+import { join, relative } from 'node:path'
 import { test } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -11,14 +12,25 @@ import type { HostContext } from '../src/methods/context.js'
 import { provenanceMethods } from '../src/methods/provenance.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { makeRepo } from './fixtures/provenance-repo.js'
-import { Host } from '../src/host.js'
+import { Host, serve } from '../src/index.js'
 import { Logger } from '../src/log.js'
 import { StateStore } from '../src/state.js'
 import { tempDir } from './scratch.js'
+import { Client } from './fixtures/harness.js'
 
 const health: CaptureHealth = {
   project: '/work/project', enabled: false, state: 'stopped', reason: 'Capture is off on this machine.',
   nextStep: 'Turn capture on.', checkedAt: null, lastCapturedAt: null, pending: 0, gaps: 0, revision: 1,
+}
+
+const waitForProject = async (host: Host, root: string, project: string): Promise<void> => {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const status = await host.call('provenance/status', { root }).catch(() => null)
+    if (status?.[0]?.project === project) return
+    await delay(20)
+  }
+  assert.fail(`Timed out waiting for ${project} to register from ${root}`)
 }
 
 test('every named-root handler confines before reaching its narrow provenance port', async () => {
@@ -143,18 +155,77 @@ test('a linked-only workspace captures through its canonical project controls', 
   try {
     await host.start()
     await host.call('workspace/open', { path: linked })
-    const deadline = Date.now() + 10_000
-    let status: readonly CaptureHealth[] | null = null
-    while (Date.now() < deadline) {
-      status = await host.call('provenance/status', { root: repo.dir }).catch(() => null)
-      if (status?.[0]?.project === repo.dir) break
-      await delay(20)
-    }
-    assert.equal(status?.[0]?.project, repo.dir, 'the linked workspace registers its canonical project')
-    const capture = await host.call('provenance/capture', { root: repo.dir, enabled: false })
+    await waitForProject(host, repo.dir, repo.dir)
+    await waitForProject(host, linked, repo.dir)
+    assert.equal((await host.call('provenance/status', { root: linked }))[0]?.project, repo.dir)
+    const capture = await host.call('provenance/capture', { root: linked, enabled: false })
     assert.equal(capture.project, repo.dir)
-    assert.equal((await host.call('provenance/status', { root: linked }))[0]?.enabled, false)
+    assert.equal((await host.call('provenance/status', { root: repo.dir }))[0]?.enabled, false)
+    await host.call('provenance/capture', { root: repo.dir, enabled: true })
+    assert.equal((await host.call('provenance/retry', { root: linked })).project, repo.dir)
   } finally {
     await host.dispose()
   }
+})
+
+test('an ordinary nested workspace root reaches canonical provenance controls', async () => {
+  const repo = await makeRepo()
+  const head = await repo.commitTree(null, { 'work.ts': 'export const work = true\n' }, 'head')
+  await repo.git('update-ref', 'refs/heads/main', head)
+  const nested = join(repo.dir, 'nested')
+  await mkdir(nested)
+  const host = new Host({
+    state: new StateStore(join(repo.stateDir, 'state.json')),
+    logger: new Logger('test', { level: 'error', console: false }),
+    catalogRefreshMs: 0,
+  })
+  try {
+    await host.start()
+    await host.call('workspace/open', { path: nested })
+    await waitForProject(host, nested, repo.dir)
+    assert.equal((await host.call('provenance/capture', { root: nested, enabled: false })).project, repo.dir)
+    assert.equal((await host.call('provenance/commits', { root: nested, shas: [head] })).project, repo.dir)
+    assert.equal((await host.call('provenance/seat', { root: nested, seat: 'missing' })).unavailable,
+      'This Seat record is unavailable in this project.')
+    await host.call('provenance/capture', { root: nested, enabled: true })
+    assert.equal((await host.call('provenance/retry', { root: nested })).project, repo.dir)
+  } finally {
+    await host.dispose()
+  }
+})
+
+test('relative provenance roots are refused by the wire and direct host calls', async (t) => {
+  const repo = await makeRepo()
+  const head = await repo.commitTree(null, { 'work.ts': 'export const work = true\n' }, 'head')
+  await repo.git('update-ref', 'refs/heads/main', head)
+  const linked = join(repo.stateDir, 'linked-checkout')
+  await repo.git('worktree', 'add', '--detach', linked, head)
+  const host = new Host({
+    state: new StateStore(join(repo.stateDir, 'state.json')),
+    logger: new Logger('test', { level: 'error', console: false }),
+    catalogRefreshMs: 0,
+  })
+  await host.start()
+  const server = await serve({ host, logger: new Logger('test', { level: 'error', console: false }), port: 0 })
+  const client = await Client.connect(server)
+  t.after(async () => { client.close(); await server.close(); await host.dispose() })
+  await host.call('workspace/open', { path: linked })
+  await waitForProject(host, linked, repo.dir)
+  const root = relative(process.cwd(), repo.dir)
+  const wireCalls = [
+    ['provenance/commits', { root, shas: [head] }],
+    ['provenance/status', { root }],
+    ['provenance/capture', { root, enabled: false }],
+    ['provenance/retry', { root }],
+    ['provenance/seat', { root, seat: 'missing' }],
+  ] as const
+  for (const [method, params] of wireCalls) {
+    await assert.rejects(client.call(method, params), /not an absolute path/)
+  }
+  await assert.rejects(host.call('provenance/commits', { root, shas: [head] }), /not an absolute path/)
+  await assert.rejects(host.call('provenance/status', { root }), /not an absolute path/)
+  await assert.rejects(host.call('provenance/capture', { root, enabled: false }), /not an absolute path/)
+  await assert.rejects(host.call('provenance/retry', { root }), /not an absolute path/)
+  await assert.rejects(host.call('provenance/seat', { root, seat: 'missing' }), /not an absolute path/)
+  await assert.equal((await host.call('provenance/status', { root: linked }))[0]?.enabled, true)
 })

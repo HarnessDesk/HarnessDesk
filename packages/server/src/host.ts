@@ -2226,8 +2226,10 @@ export class Host {
    * broadening ordinary Git RPC confinement.
    */
   async #confineProvenanceRoot(root: string): Promise<string> {
+    assertAbsolute(root)
     try {
-      return await this.#confineGitRoot(root)
+      const confined = await this.#confineGitRoot(root)
+      return (await this.#repoOf(confined))?.root ?? (await this.#topLevelOf(confined)) ?? confined
     } catch (refusal) {
       const real = await this.#realPath(root)
       for (const open of this.#openRoots()) {
