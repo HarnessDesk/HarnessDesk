@@ -12,6 +12,7 @@ const report = (over: Partial<BackupReport> = {}): BackupReport => ({
   transcripts: { restored: 4, skipped: 0 },
   agentFolders: { restored: 1, skipped: 0 },
   seating: { restored: 1, skipped: 0 },
+  provenance: { restored: 0, duplicate: 0, refused: 0 },
   evidence: { restored: 12, duplicate: 0, refused: 0, failed: 0 },
   ...over,
 })

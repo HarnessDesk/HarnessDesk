@@ -240,6 +240,63 @@ export type {
 export { emptySnapshot } from './snapshot'
 
 export class AppStore {
+  #captureEpoch = 0
+  #captureList = 0
+
+  #keepCaptureHealth(health: import('@harnessdesk/protocol').CaptureHealth): void {
+    if (health.revision < (this.#snapshot.provenanceRevision.get(health.project) ?? -1)) return
+    this.#patch({
+      captureHealth: new Map(this.#snapshot.captureHealth).set(health.project, health),
+      provenanceRevision: new Map(this.#snapshot.provenanceRevision).set(health.project, health.revision),
+    })
+  }
+
+  async readProvenance(root: string, shas: readonly string[]): Promise<import('@harnessdesk/protocol').ProjectProvenance> {
+    const epoch = this.#captureEpoch
+    const value = await this.transport.request('provenance/commits', { root, shas })
+    if (epoch === this.#captureEpoch) this.#keepCaptureHealth(value.health)
+    return value
+  }
+
+  readProvenanceSeat(root: string, seat: string): Promise<import('@harnessdesk/protocol').ProvenanceSeatDetail> {
+    return this.transport.request('provenance/seat', { root, seat })
+  }
+
+  async loadCaptureHealth(root?: string): Promise<void> {
+    const epoch = this.#captureEpoch
+    const sequence = root === undefined ? ++this.#captureList : this.#captureList
+    const before = this.#snapshot.captureHealth
+    const values = await this.transport.request('provenance/status', root === undefined ? {} : { root })
+    if (epoch !== this.#captureEpoch || (root === undefined && sequence !== this.#captureList)) return
+    if (root === undefined) {
+      const present = new Set(values.map((value) => value.project))
+      const captureHealth = new Map(this.#snapshot.captureHealth)
+      const provenanceRevision = new Map(this.#snapshot.provenanceRevision)
+      for (const [project, health] of before) {
+        if (!present.has(project) && captureHealth.get(project) === health) {
+          captureHealth.delete(project)
+          provenanceRevision.delete(project)
+        }
+      }
+      this.#patch({ captureHealth, provenanceRevision })
+    }
+    for (const health of values) this.#keepCaptureHealth(health)
+  }
+
+  async setCapture(root: string, enabled: boolean): Promise<import('@harnessdesk/protocol').CaptureHealth> {
+    const epoch = this.#captureEpoch
+    const health = await this.transport.request('provenance/capture', { root, enabled })
+    if (epoch === this.#captureEpoch) this.#keepCaptureHealth(health)
+    return health
+  }
+
+  async retryCapture(root: string): Promise<import('@harnessdesk/protocol').CaptureHealth> {
+    const epoch = this.#captureEpoch
+    const health = await this.transport.request('provenance/retry', { root })
+    if (epoch === this.#captureEpoch) this.#keepCaptureHealth(health)
+    return health
+  }
+
   #snapshot: AppSnapshot = emptySnapshot()
   #listeners = new Set<() => void>()
   readonly transport: Transport
@@ -248,6 +305,10 @@ export class AppStore {
     this.transport = new Transport(url, {
       onEvent: (runtime, event) => this.#onEvent(runtime, event),
       onNotification: (notification) => {
+        if (notification.method === 'provenance/changed') {
+          const { project, revision, health } = notification.params
+          if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
+        }
         if (notification.method === 'sync') {
           const sessions = new Map(this.#snapshot.sessions)
           const rawSessions = Array.isArray(notification.params.sessions)
@@ -471,7 +532,16 @@ export class AppStore {
           }
         }
       },
-      onStatus: (status) => this.#patch({ status }),
+      onStatus: (status) => {
+        const previous = this.#snapshot.status
+        if (status !== 'open') {
+          this.#captureEpoch += 1
+          this.#patch({ status, captureHealth: new Map(), provenanceRevision: new Map() })
+        } else {
+          this.#patch({ status })
+          if (previous !== 'open') void this.loadCaptureHealth().catch(() => {})
+        }
+      },
     })
     this.#watchWindowWidth()
   }

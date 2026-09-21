@@ -20,7 +20,7 @@
  *   node script/shots/seed.mjs --clean    # tear it down and stage it again
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -67,7 +67,7 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * profile, not app state, and rebuilding it costs seconds of cold start for
  * nothing.
  */
-const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence', 'commands-seen.json', 'commands-seen.key', 'seat-record-scene.json']
+const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence', 'provenance', 'provenance-preferences.json', 'provenance-shots.json', 'commands-seen.json', 'commands-seen.key', 'seat-record-scene.json']
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 
 if (process.argv.includes('--clean')) {
@@ -303,4 +303,49 @@ writeFileSync(
 say('agents: storefront’s Code reviewer (shadows the one that ships), Release checker (yours), seats for this Mac')
 
 say(`agents: ${REGISTERED_CAST.length} registered  (${REGISTERED_CAST.map((one) => one.name).join(', ')})`)
+
+/* The optional provenance takes start with historical Phase 4 facts, not a
+   renderer-only response. The host still discovers/reconciles commits after
+   it starts. A small JSON manifest is a rig seam, not production state: the
+   camera driver reads it without importing this staging script (which would
+   rebuild the desk while the app is running). */
+if (process.env.HD_SHOTS_PROVENANCE === '1') {
+  const { EvidenceStore } = await import('../../packages/server/dist/src/evidence/store.js')
+  const project = realpathSync(roots.storefront)
+  const git = (...args) => execFileSync('git', ['-C', project, ...args], { encoding: 'utf8' }).trim()
+  const commits = git('rev-list', '--reverse', '--no-merges', 'HEAD').split('\n').slice(1, 3)
+  if (commits.length !== 2) throw new Error('The provenance camera needs two non-root changes.')
+  const evidence = new EvidenceStore(join(HOME, 'evidence'))
+  const at = Date.now()
+  const observations = []
+  for (const [index, sha] of commits.entries()) {
+    const agent = REGISTERED_CAST[index]
+    if (!agent) throw new Error('The provenance camera needs two scripted agents.')
+    const sessionId = `${agent.id}-0`
+    const id = `provenance-seat-${index + 1}`
+    const from = git('rev-parse', `${sha}^`)
+    const session = { runtime: rigRuntimeId(agent.id), sessionId }
+    await evidence.append(project, 'seats', [{
+      type: 'seat', record: {
+        id, agent: { id: `contributor-${index + 1}`, name: `Contributor ${index + 1}`, origin: 'project' },
+        briefDigest: null, seat: { runtime: session.runtime }, seatLabel: agent.name, passedOver: [],
+        standing: { kind: 'permission', permission: 'read' }, ceiling: null,
+        checkout: { cwd: project, project, branch: 'main', head: from }, session, board: null, role: null, openedAt: at - 1,
+      },
+    }])
+    const counts = git('diff', '--numstat', from, sha).split('\n').filter(Boolean).map((line) => line.split('\t'))
+    await evidence.append(project, 'evidence', [{
+      type: 'evidence', record: {
+        id: `provenance-fact-${index + 1}`,
+        fact: { kind: 'diff', files: counts.length, added: counts.reduce((sum, line) => sum + (Number(line[0]) || 0), 0), removed: counts.reduce((sum, line) => sum + (Number(line[1]) || 0), 0), from, to: sha },
+        seat: id, checkout: { cwd: project, branch: 'main' }, observedAt: at,
+      },
+    }])
+    observations.push({ project, sha, seat: id, name: `Contributor ${index + 1}` })
+  }
+  await evidence.flush()
+  writeFileSync(join(HOME, 'provenance-shots.json'), `${JSON.stringify(observations)}\n`)
+  say('provenance: two synthetic Seats and local diff facts')
+}
+
 say(`home:   ${HOME}`)
