@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { devNull } from 'node:os'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
 
 import type { FilePatch, Patch } from './model.js'
@@ -85,14 +85,16 @@ export const oid = (value: string): string => {
 
 /** Resolve a recorded working directory to its admitted checkout root, if any. */
 export const checkoutRoot = async (handle: RepoHandle, cwd: string): Promise<string | null> => {
-  const resolved = await realpath(cwd).catch((error: unknown) => {
-    if (missing(error)) return null
-    throw error
-  })
-  if (resolved === null || !(await lstat(resolved)).isDirectory()) return null
-  return [...handle.checkouts.keys()]
-    .sort((left, right) => right.length - left.length)
-    .find((root) => inside(root, resolved)) ?? null
+  if (!isAbsolute(cwd)) return null
+  try {
+    const resolved = await realpath(cwd)
+    if (!(await lstat(resolved)).isDirectory()) return null
+    return [...handle.checkouts.keys()]
+      .sort((left, right) => right.length - left.length)
+      .find((root) => inside(root, resolved)) ?? null
+  } catch {
+    return null
+  }
 }
 
 /** A name is a map key. No name read here is passed to join or to a shell. */

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { watch } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 
@@ -384,6 +384,7 @@ const assertNestedCheckoutAttribution = async (
   repo: Repo,
   checkout: string,
   roots: readonly string[],
+  invalidCwds: (nested: string) => readonly string[] = () => [],
 ): Promise<void> => {
   const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
   const first = await repo.commitTree(base, { one: 'nested Seat work\n' }, 'nested Seat work')
@@ -398,15 +399,31 @@ const assertNestedCheckoutAttribution = async (
     session: { runtime: 'fixture', sessionId: 'nested-session' }, board: null, role: null,
     openedAt: 1, closed: null,
   }
+  const invalidSeats = invalidCwds(nested).map((cwd, index): SeatRecord => ({
+    ...seat,
+    id: `invalid-seat-${index}`,
+    checkout: { ...seat.checkout, cwd },
+    session: { runtime: 'fixture', sessionId: `invalid-session-${index}` },
+  }))
   const { closed, ...opening } = seat
   void closed
-  await store.append(repo.dir, 'seats', [{ type: 'seat', record: opening }])
-  await store.append(repo.dir, 'evidence', [{ type: 'evidence', record: {
+  await store.append(repo.dir, 'seats', [
+    ...invalidSeats.map(({ closed: _closed, ...record }) => ({ type: 'seat' as const, record })),
+    { type: 'seat', record: opening },
+  ])
+  await store.append(repo.dir, 'evidence', [
+    ...invalidSeats.map((invalid, index) => ({ type: 'evidence' as const, record: {
+      id: `invalid-fact-${index}`, seat: invalid.id, checkout: { cwd: invalid.checkout.cwd, branch: 'main' }, observedAt: 10,
+      fact: { kind: 'diff' as const, from: base, to: first, files: 1, added: 1, removed: 1 },
+    } })),
+    { type: 'evidence', record: {
     id: 'nested-fact', seat: seat.id, checkout: { cwd: nested, branch: 'main' }, observedAt: 10,
     fact: { kind: 'diff', from: base, to: first, files: 1, added: 1, removed: 1 },
-  } }])
+  } },
+  ])
+  const seats = new Map([...invalidSeats, seat].map((record) => [record.id, record]))
   const plane = new ProvenancePlane({
-    evidence: { store, seats: { byId: () => seat } } as unknown as EvidencePlane,
+    evidence: { store, seats: { byId: (id: string) => seats.get(id) ?? null } } as unknown as EvidencePlane,
     stateDir: repo.stateDir, projects: () => roots, push: () => {}, log: () => {},
   })
   t.after(() => plane.close())
@@ -430,6 +447,14 @@ test('a nested linked-worktree CWD is admitted through its canonical checkout ro
   const linked = join(repo.stateDir, 'linked-checkout')
   await repo.git('worktree', 'add', '--detach', linked, base)
   await assertNestedCheckoutAttribution(t, repo, linked, [repo.dir, linked])
+})
+
+test('malformed and relative stored CWDs skip without blocking canonical nested attribution', async (t) => {
+  const repo = await makeRepo()
+  await assertNestedCheckoutAttribution(t, repo, repo.dir, [repo.dir], (nested) => [
+    relative(process.cwd(), nested),
+    `${nested}\0`,
+  ])
 })
 
 
