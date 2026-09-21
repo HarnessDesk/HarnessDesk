@@ -150,6 +150,8 @@ export interface InsightComparison {
 export interface InsightOrderQuery extends InsightCompareQuery {
   readonly agent: string
   readonly origin: AgentOrigin
+  /** The Agent's effective default when this machine has not overridden it. */
+  readonly current?: readonly FlowSeat[]
 }
 
 export interface InsightOrderPreview {

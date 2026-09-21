@@ -20,4 +20,9 @@ describe('metricWords', () => {
   it('does not freshen old observations from a read timestamp', () => {
     expect(metricWords(metric(2, 'exact'), [source], 24 * 60 * 60_000).freshness).toContain('1440 minutes since observation')
   })
+
+  it('names mixed vendor-metered and list-price totals', () => {
+    const mixed = { ...metric(2, 'estimate'), basis: 'mixed' as const }
+    expect(metricWords(mixed, [source], 60_000).qualifier).toContain('Vendor-metered and list-price cost')
+  })
 })

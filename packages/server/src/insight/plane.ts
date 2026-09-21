@@ -85,8 +85,8 @@ interface Stamp {
 const comparisonFingerprint = (report: InsightComparison): string => createHash('sha256').update(JSON.stringify({
   included: report.included,
   excluded: report.excluded,
-  left: report.left.usd,
-  right: report.right.usd,
+  left: report.left,
+  right: report.right,
   leftPerGoalUsd: report.leftPerGoalUsd,
   rightPerGoalUsd: report.rightPerGoalUsd,
   differenceUsd: report.differenceUsd,
@@ -231,16 +231,16 @@ export class InsightPlane implements InsightReadApi {
     }
     const leftAmounts = amountsFor(query.left)
     const rightAmounts = amountsFor(query.right)
-    const sourceMetric = metricFor(included[0] ?? '', query.left) ?? report.totals.usd
-    const copied = (value: number | null, unit: InsightMetric['unit']): InsightMetric => ({ ...sourceMetric, value, unit, quality: value === null ? 'unknown' : sourceMetric.quality, coverage: value === null ? 'none' : sourceMetric.coverage })
-    const left = copied(paired.left, 'usd'); const right = copied(paired.right, 'usd')
+    const withValue = (metric: InsightMetric, value: number | null, unit = metric.unit): InsightMetric => ({ ...metric, value, unit, quality: value === null ? 'unknown' : metric.quality, coverage: value === null ? 'none' : metric.coverage })
+    const left = withValue(leftAmounts.usd, paired.left); const right = withValue(rightAmounts.usd, paired.right)
+    const derived = (value: number | null, unit: InsightMetric['unit']): InsightMetric => withValue(combinedMetric([left, right], unit), value, unit)
     return {
       query, included, excluded: query.goals.filter((goal) => !included.includes(goal)).map((goal) => ({ goal, reason: 'This Goal did not have a compatible complete measurement on both selected sides.' })),
       left: { ...leftAmounts, usd: left }, right: { ...rightAmounts, usd: right },
-      leftPerGoalUsd: copied(left.value === null || included.length === 0 ? null : left.value / included.length, 'usd'),
-      rightPerGoalUsd: copied(right.value === null || included.length === 0 ? null : right.value / included.length, 'usd'),
-      differenceUsd: copied(left.value === null || right.value === null ? null : right.value - left.value, 'usd'),
-      ratio: copied(left.value === null || right.value === null || left.value === 0 ? null : right.value / left.value, 'ratio'),
+      leftPerGoalUsd: withValue(left, left.value === null || included.length === 0 ? null : left.value / included.length),
+      rightPerGoalUsd: withValue(right, right.value === null || included.length === 0 ? null : right.value / included.length),
+      differenceUsd: derived(left.value === null || right.value === null ? null : right.value - left.value, 'usd'),
+      ratio: derived(left.value === null || right.value === null || left.value === 0 ? null : right.value / left.value, 'ratio'),
       sources: report.sources, generatedAt: report.generatedAt, reason: included.length === 0 ? 'Choose completed Goals with compatible complete recorded usage.' : null,
     }
   }
@@ -251,7 +251,7 @@ export class InsightPlane implements InsightReadApi {
       throw new Error('Choose two resolved Seats of one Agent with the same recorded brief.')
     }
     const report = await this.compare(query)
-    const current = (await this.port.seating.read()).entries.find((entry) => entry.id === query.agent)?.seats ?? []
+    const current = (await this.port.seating.read()).entries.find((entry) => entry.id === query.agent)?.seats ?? query.current ?? []
     const leftKey = JSON.stringify(query.left.seat); const rightKey = JSON.stringify(query.right.seat)
     const proposed = [...current]
     const leftAt = proposed.findIndex((seat) => JSON.stringify(seat) === leftKey); const rightAt = proposed.findIndex((seat) => JSON.stringify(seat) === rightKey)

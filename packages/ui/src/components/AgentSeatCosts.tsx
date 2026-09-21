@@ -50,7 +50,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
   const review = async (): Promise<void> => {
     if (!root || !comparable || ordering) return
     setOrdering(true); setOrderProblem(null)
-    try { setPreview(await store.previewInsightOrder({ root, from: Date.now() - 90 * 86_400_000, to: Date.now(), goals: comparable.goals, agent: entry.id, origin: entry.origin, left: { agent: entry.id, origin: entry.origin, briefDigest: comparable.digest, seat: comparable.left }, right: { agent: entry.id, origin: entry.origin, briefDigest: comparable.digest, seat: comparable.right } })) }
+    try { setPreview(await store.previewInsightOrder({ root, from: Date.now() - 90 * 86_400_000, to: Date.now(), goals: comparable.goals, agent: entry.id, origin: entry.origin, current: candidates, left: { agent: entry.id, origin: entry.origin, briefDigest: comparable.digest, seat: comparable.left }, right: { agent: entry.id, origin: entry.origin, briefDigest: comparable.digest, seat: comparable.right } })) }
     catch (error) { setOrderProblem(error instanceof Error ? error.message : 'The local order could not be reviewed.') }
     finally { setOrdering(false) }
   }

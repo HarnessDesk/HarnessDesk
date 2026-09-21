@@ -140,7 +140,11 @@ export class Ledger {
     const gaps: string[] = []
     let bytes = 0
     let targets: ScanTarget[] = []
-    try { targets = await listTargets(this.#options.corpora) }
+    try {
+      targets = await listTargets(this.#options.corpora, {
+        unreadable: (folder, error) => gaps.push(`A recorded usage source could not be discovered: ${folder}: ${error instanceof Error ? error.message : String(error)}`),
+      })
+    }
     catch (error) { return { samples: [], sources: [], gaps: [error instanceof Error ? error.message : String(error)], complete: false } }
     if (targets.length > 10_000) {
       gaps.push('Insight stopped before more than 10,000 source files. Choose a narrower range.')

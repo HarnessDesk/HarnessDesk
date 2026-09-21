@@ -15,10 +15,11 @@ test('a reviewed order uses only the selected historical seats, never a copied p
   const left = { runtime: 'runtime', model: 'expensive' } as const
   const right = { runtime: 'runtime', model: 'cheap' } as const
   const source = { id: 'source', kind: 'corpus' as const, label: 'Transcript', observedAt: 10, checkedAt: 10, stale: false, problem: null }
+  let rightInput = 1
   const sample = (sessionId: string, usd: number) => ({
     key: sessionId, source, runtime: 'runtime', sessionId, turnId: null, requestId: null, project: '/repo', model: null,
     from: 10, to: 11, scope: 'call' as const, includesChildren: false,
-    input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const },
+    input: { value: sessionId === 'right' ? rightInput : 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const },
     usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const,
   })
   const seat = (id: string, sessionId: string, candidate: { readonly runtime: string; readonly model: string }) => ({
@@ -46,9 +47,53 @@ test('a reviewed order uses only the selected historical seats, never a copied p
   assert.deepEqual(preview.proposed, [right, left])
   assert.equal(preview.report.leftPerGoalUsd.value, 10)
   assert.equal(preview.report.rightPerGoalUsd.value, 2)
-  rightUsd = 4
+  rightInput = 2
   await assert.rejects(() => plane.applyOrder(preview.stamp!), /recorded usage changed/i)
-  assert.equal(writes, 0, 'a changed report is refused before the seating writer')
+  assert.equal(writes, 0, 'a non-USD change is refused before the seating writer')
+})
+
+test('comparison sides retain their own complete provenance across multiple Goals', async () => {
+  const left = { runtime: 'runtime', model: 'left' } as const
+  const right = { runtime: 'runtime', model: 'right' } as const
+  const source = (id: string) => ({ id, kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null })
+  const sample = (session: string, board: string, choice: typeof left | typeof right, usd: number, sourceId: string) => ({
+    key: session, source: source(sourceId), runtime: 'runtime', sessionId: session, turnId: null, requestId: null, project: '/repo', model: choice.model, from: 10, to: 11, scope: 'call' as const, includesChildren: false,
+    input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const,
+  })
+  const seat = (id: string, board: string, choice: typeof left | typeof right) => ({ id, agent: { id: 'reviewer', name: 'Reviewer', origin: 'project' as const }, briefDigest: 'same', seat: choice, seatLabel: choice.model, checkout: { project: '/repo' }, board, session: { runtime: 'runtime', sessionId: id }, openedAt: 0, closed: null, restored: null })
+  const seats = [seat('left-a', 'a', left), seat('right-a', 'a', right), seat('left-b', 'b', left), seat('right-b', 'b', right)]
+  const samples = [sample('left-a', 'a', left, 10, 'left-a-source'), sample('right-a', 'a', right, 4, 'right-a-source'), sample('left-b', 'b', left, 8, 'left-b-source'), sample('right-b', 'b', right, 3, 'right-b-source')]
+  const plane = new InsightPlane({
+    ledger: () => ({ readInsight: async () => ({ samples, sources: samples.map((entry) => entry.source), gaps: [], complete: true }) }) as never,
+    goals: { store: { list: () => ['a', 'b'].map((id) => ({ goal: { id, root: '/repo', sentence: id, state: 'wrapped' } })) } } as never,
+    seats: () => seats as never, seating: {} as never, now: () => 20,
+  })
+  const compared = await plane.compare({ root: '/repo', from: 0, to: 20, goals: ['a', 'b'], left: { agent: 'reviewer', origin: 'project', briefDigest: 'same', seat: left }, right: { agent: 'reviewer', origin: 'project', briefDigest: 'same', seat: right } })
+  assert.deepEqual([...compared.left.usd.sourceIds].sort(), ['left-a-source', 'left-b-source'])
+  assert.deepEqual([...compared.right.usd.sourceIds].sort(), ['right-a-source', 'right-b-source'])
+  assert.deepEqual([...compared.leftPerGoalUsd.sourceIds].sort(), ['left-a-source', 'left-b-source'])
+  assert.deepEqual([...compared.rightPerGoalUsd.sourceIds].sort(), ['right-a-source', 'right-b-source'])
+  assert.deepEqual([...compared.differenceUsd.sourceIds].sort(), ['left-a-source', 'left-b-source', 'right-a-source', 'right-b-source'])
+})
+
+test('a default preference can be reviewed and applied when no seating override exists', async () => {
+  const expensive = { runtime: 'runtime', model: 'expensive' } as const
+  const cheap = { runtime: 'runtime', model: 'cheap' } as const
+  const source = { id: 'source', kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null }
+  const sample = (id: string, usd: number) => ({ key: id, source, runtime: 'runtime', sessionId: id, turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const })
+  const seat = (id: string, choice: typeof expensive | typeof cheap) => ({ id, agent: { id: 'reviewer', name: 'Reviewer', origin: 'project' as const }, briefDigest: 'same', seat: choice, seatLabel: choice.model, checkout: { project: '/repo' }, board: 'goal', session: { runtime: 'runtime', sessionId: id }, openedAt: 0, closed: null, restored: null })
+  let written: readonly unknown[] = []
+  const plane = new InsightPlane({
+    ledger: () => ({ readInsight: async () => ({ samples: [sample('expensive', 10), sample('cheap', 2)], sources: [source], gaps: [], complete: true }) }) as never,
+    goals: { store: { list: () => [{ goal: { id: 'goal', root: '/repo', sentence: 'Goal', state: 'wrapped' } }] } } as never,
+    seats: () => [seat('expensive', expensive), seat('cheap', cheap)] as never,
+    seating: { read: async () => ({ entries: [] }), fingerprint: async () => 'base', set: async (_agent: string, seats: readonly unknown[]) => { written = seats; return { seating: { entries: [] }, wrote: true } } } as never, now: () => 20,
+  })
+  const query = { root: '/repo', from: 0, to: 20, goals: ['goal'], agent: 'reviewer', origin: 'project' as const, current: [expensive, cheap], left: { agent: 'reviewer', origin: 'project' as const, briefDigest: 'same', seat: expensive }, right: { agent: 'reviewer', origin: 'project' as const, briefDigest: 'same', seat: cheap } }
+  const preview = await plane.previewOrder(query)
+  assert.ok(preview.stamp, preview.reason ?? 'a default preference with comparable seats should issue a review stamp')
+  await plane.applyOrder(preview.stamp!)
+  assert.deepEqual(written, [cheap, expensive])
 })
 
 test('an Agent report contains only that Agent’s historical Seats and measurements', async () => {

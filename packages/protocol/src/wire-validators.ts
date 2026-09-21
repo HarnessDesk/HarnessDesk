@@ -355,7 +355,7 @@ const insightValidators = {
   'insight/compare': insightCompare,
   'insight/order/preview': goalShape({
     root: atMost(4096, isFilled), from: insightMillis, to: insightMillis, goals: insightGoals,
-    left: insightSelector, right: insightSelector, agent: goalIdentifier, origin: literalUnion('project', 'user', 'builtin'),
+    left: insightSelector, right: insightSelector, agent: goalIdentifier, origin: literalUnion('project', 'user', 'builtin'), current: optional(seatListValidator),
   }),
   'insight/order/apply': goalShape({ stamp: atMost(256, isFilled) }),
 }

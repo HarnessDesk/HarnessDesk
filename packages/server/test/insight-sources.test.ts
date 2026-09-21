@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
+import { DatabaseSync } from 'node:sqlite'
 
-import { scanClaudeTranscript, scanCodexRollout } from '../src/ledger/scan.js'
+import { Ledger } from '../src/ledger/index.js'
+import { scanClaudeTranscript, scanClineDatabase, scanCodexRollout, scanGeminiChat, scanOpencodeDatabase, scanQwenTranscript } from '../src/ledger/scan.js'
 import { seatFor } from '../src/insight/attribution.js'
 import { InsightPlane } from '../src/insight/plane.js'
 import { tempDir } from './scratch.js'
@@ -55,4 +57,45 @@ test('a scanner read gap remains visible when no usage samples were recovered', 
   assert.deepEqual(report.gaps, ['Recorded usage could not be read: Permission denied.'])
   assert.deepEqual(report.sources, [source])
   assert.equal(report.totals.usd.coverage, 'none')
+})
+
+test('scanner omissions remain unknown detail fields instead of zero across every scanner shape', async () => {
+  const dir = tempDir('hd-insight-unknown-')
+  const emitted = async (scan: (emit: (sample: import('../src/ledger/insight.js').UsageSample) => void) => Promise<unknown>) => {
+    const samples: import('../src/ledger/insight.js').UsageSample[] = []
+    await scan((sample) => samples.push(sample))
+    assert.equal(samples.length, 1)
+    assert.equal(samples[0]?.output.value, null, 'missing output is unavailable, not a known zero')
+    assert.equal(samples[0]?.cacheRead.value, null, 'missing cache read is unavailable, not a known zero')
+  }
+  const qwen = join(dir, 'qwen.jsonl')
+  await writeFile(qwen, `${JSON.stringify({ uuid: 'q', type: 'assistant', timestamp: '2026-09-20T00:00:00.000Z', cwd: '/work/project', model: 'qwen', usageMetadata: { promptTokenCount: 10 } })}\n`)
+  await emitted((emit) => scanQwenTranscript({ runtime: 'qwen', kind: 'qwen', path: qwen, size: 0, mtime: 0 }, 0, [], { emit, byteLimit: 1024 }))
+
+  const geminiDir = join(dir, 'gemini', 'project', 'chats'); await mkdir(geminiDir, { recursive: true })
+  const gemini = join(geminiDir, 'chat.jsonl')
+  await writeFile(gemini, `${JSON.stringify({ type: 'gemini', id: 'g', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10 } })}\n`)
+  await emitted((emit) => scanGeminiChat({ runtime: 'gemini', kind: 'gemini', path: gemini, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+
+  const opencode = join(dir, 'opencode.db'); const openDb = new DatabaseSync(opencode)
+  openDb.exec('CREATE TABLE session (directory TEXT, model TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER, time_updated INTEGER)')
+  openDb.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('/work/project', 'open', 1, 10, null, null, null, 0, 20); openDb.close()
+  await emitted((emit) => scanOpencodeDatabase({ runtime: 'opencode', kind: 'opencode', path: opencode, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+
+  const cline = join(dir, 'cline.db'); const clineDb = new DatabaseSync(cline)
+  clineDb.exec('CREATE TABLE sessions (model TEXT, cwd TEXT, workspace_root TEXT, started_at TEXT, updated_at TEXT, metadata_json TEXT)')
+  clineDb.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run('cline', '/work/project', '/work/project', '2026-09-20T00:00:00.000Z', '2026-09-20T00:00:00.000Z', JSON.stringify({ usage: { inputTokens: 10, totalCost: 1 } })); clineDb.close()
+  await emitted((emit) => scanClineDatabase({ runtime: 'cline', kind: 'cline', path: cline, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+})
+
+test('an unreadable corpus root is a source-read gap, not an empty project', async () => {
+  const dir = tempDir('hd-insight-unreadable-')
+  const notADirectory = join(dir, 'not-a-directory')
+  await writeFile(notADirectory, 'not a corpus')
+  const ledger = new Ledger({ stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora: [{ runtime: 'codex', kind: 'codex', root: notADirectory }] })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: 0, to: 10 })
+    assert.equal(detail.samples.length, 0)
+    assert.ok(detail.gaps.some((gap) => gap.includes('could not be discovered')), 'the failed root walk remains visible')
+  } finally { ledger.close() }
 })

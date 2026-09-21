@@ -192,6 +192,13 @@ export const sumCost = (a: number | null, b: number | null): number | null =>
 const positive = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
 
+/** A missing field in a source record is evidence we do not have, never a zero. */
+const observedCount = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.round(value) : null
+
+const observedSum = (...values: readonly (number | null)[]): number | null =>
+  values.every((value) => value !== null) ? values.reduce((sum, value) => sum + value!, 0) : null
+
 const measure = (value: unknown): Measure =>
   typeof value === 'number' && Number.isFinite(value) && value >= 0
     ? { value: Math.round(value), quality: 'exact' }
@@ -536,17 +543,21 @@ interface QwenRecord {
  * the prompt and billed as input.
  */
 const fromGeminiCounts = (counts: {
-  prompt: number
-  cached: number
-  answer: number
-  thoughts: number
-  tool: number
-}): { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning: number } => ({
-  input: Math.max(0, counts.prompt - counts.cached) + counts.tool,
-  cacheRead: Math.min(counts.cached, counts.prompt),
+  prompt: number | null
+  cached: number | null
+  answer: number | null
+  thoughts: number | null
+  tool: number | null
+}): { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; reasoning: number | null } => ({
+  input: counts.prompt === null || counts.cached === null || counts.tool === null ? null : Math.max(0, counts.prompt - counts.cached) + counts.tool,
+  cacheRead: counts.cached === null || counts.prompt === null ? null : Math.min(counts.cached, counts.prompt),
   cacheWrite: 0,
-  output: counts.answer + counts.thoughts,
+  output: observedSum(counts.answer, counts.thoughts),
   reasoning: counts.thoughts,
+})
+
+const aggregateTokens = (tokens: { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; reasoning: number | null }) => ({
+  input: tokens.input ?? 0, output: tokens.output ?? 0, cacheRead: tokens.cacheRead ?? 0, cacheWrite: tokens.cacheWrite ?? 0, reasoning: tokens.reasoning ?? 0,
 })
 
 export const scanQwenTranscript = async (
@@ -578,13 +589,13 @@ export const scanQwenTranscript = async (
     if (typeof model !== 'string' || model === '') return
     const project = projectRootOf(record.cwd ?? '')
     const tokens = fromGeminiCounts({
-        prompt: positive(usage.promptTokenCount),
-        cached: positive(usage.cachedContentTokenCount),
-        answer: positive(usage.candidatesTokenCount),
-        thoughts: positive(usage.thoughtsTokenCount),
-        tool: positive(usage.toolUsePromptTokenCount),
+        prompt: observedCount(usage.promptTokenCount),
+        cached: observedCount(usage.cachedContentTokenCount),
+        answer: observedCount(usage.candidatesTokenCount),
+        thoughts: observedCount(usage.thoughtsTokenCount),
+        tool: observedCount(usage.toolUsePromptTokenCount),
       })
-    add(into, target.path, target.runtime, at, model, project, tokens)
+    add(into, target.path, target.runtime, at, model, project, aggregateTokens(tokens))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
   })
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
@@ -674,13 +685,13 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
     if (typeof call.model !== 'string' || call.model === '') continue
     const tokens = call.tokens ?? {}
     const normalized = fromGeminiCounts({
-        prompt: positive(tokens.input),
-        cached: positive(tokens.cached),
-        answer: positive(tokens.output),
-        thoughts: positive(tokens.thoughts),
-        tool: positive(tokens.tool),
+        prompt: observedCount(tokens.input),
+        cached: observedCount(tokens.cached),
+        answer: observedCount(tokens.output),
+        thoughts: observedCount(tokens.thoughts),
+        tool: observedCount(tokens.tool),
       })
-    add(into, target.path, target.runtime, at, call.model, project, normalized)
+    add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(normalized))
     emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
@@ -775,6 +786,12 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
       cacheWrite: positive(session.tokens_cache_write),
       reasoning,
     }
+    const observed = {
+      input: observedCount(session.tokens_input),
+      output: observedSum(observedCount(session.tokens_output), observedCount(session.tokens_reasoning)),
+      cacheRead: observedCount(session.tokens_cache_read),
+      cacheWrite: observedCount(session.tokens_cache_write),
+    }
     const cost = typeof session.cost === 'number' && Number.isFinite(session.cost) && session.cost >= 0 ? session.cost : null
     if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0 && !cost) continue
     const model = opencodeModel(session.model); const project = projectRootOf(session.directory ?? '')
@@ -782,7 +799,7 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
       ...tokens,
       vendorCost: cost,
     })
-    emit(insight, target, JSON.stringify(session), at, model, project || null, tokens, 'session', cost)
+    emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
 }
@@ -839,6 +856,10 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
       cacheWrite: positive(usage.cacheWriteTokens),
       reasoning: 0,
     }
+    const observed = {
+      input: observedCount(usage.inputTokens), output: observedCount(usage.outputTokens),
+      cacheRead: observedCount(usage.cacheReadTokens), cacheWrite: observedCount(usage.cacheWriteTokens),
+    }
     const cost =
       typeof usage.totalCost === 'number' && Number.isFinite(usage.totalCost) && usage.totalCost >= 0 ? usage.totalCost : null
     if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0 && !cost) continue
@@ -848,7 +869,7 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
       ...tokens,
       vendorCost: cost,
     })
-    emit(insight, target, JSON.stringify(session), at, model, project || null, tokens, 'session', cost)
+    emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
   return { rows: [...into.rows.values()], offset: target.size, tail: [] }
 }
