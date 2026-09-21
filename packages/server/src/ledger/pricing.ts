@@ -232,6 +232,26 @@ export class Pricing {
     return best ? ratesFrom(best.cost) : null
   }
 
+  /** The same choice as rateFor, with enough provenance for a read-only report. */
+  rateObservation(model: string): {
+    rates: ModelRates | null
+    observedAt: number | null
+    kind: 'catalogue' | 'overlay' | 'unknown'
+    fingerprint: string
+  } {
+    const key = model.trim().toLowerCase()
+    const vendor = vendorFor(key)
+    const overlay = key === '' ? undefined : this.#overlay.get(key) ?? (vendor ? this.#overlay.get(`${vendor}/${key}`) : undefined)
+    const rates = this.rateFor(model)
+    const kind = overlay ? 'overlay' : rates ? 'catalogue' : 'unknown'
+    return {
+      rates,
+      observedAt: kind === 'catalogue' && this.#fetchedAt > 0 ? this.#fetchedAt : null,
+      kind,
+      fingerprint: JSON.stringify({ kind, rates }),
+    }
+  }
+
   async #loadOverlay(): Promise<void> {
     this.#overlay.clear()
     let raw: string

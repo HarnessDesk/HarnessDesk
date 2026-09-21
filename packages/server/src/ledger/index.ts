@@ -8,11 +8,14 @@ import { runtimeId, type LedgerDay,
   type ScanProgress,
   type SpendCoverage,
   type SpendSummary,
+  type InsightQuery,
+  type InsightSource,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
 import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
+import { type UsageDetail, type UsageSample } from './insight.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
@@ -116,6 +119,70 @@ export class Ledger {
 
   get progress(): ScanProgress {
     return this.#progress
+  }
+
+  /**
+   * Read the already-scanned ledger without changing it. Aggregated historical
+   * rows deliberately retain no guessed session or turn identity; callers must
+   * leave those amounts unattributed rather than manufacture a join.
+   */
+  async readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
+    if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
+      throw new Error('Choose a valid Insight time range.')
+    }
+    if (query.to - query.from > 90 * DAY) throw new Error('Insight reads at most 90 days at once.')
+    if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
+    if (options.refresh) await this.scan()
+    const checkedAt = this.#now()
+    const rows = this.#store.since(startOfDay(query.from)).filter((row) => row.day < query.to && row.project === query.root)
+    const sources = new Map<string, InsightSource>()
+    const samples: UsageSample[] = rows.map((row, index) => {
+      const sourceId = `ledger:${index}:${row.runtime}:${row.day}`
+      const source: InsightSource = {
+        id: sourceId,
+        kind: 'corpus',
+        label: 'Recorded agent usage',
+        observedAt: row.day,
+        checkedAt,
+        stale: false,
+        problem: null,
+      }
+      sources.set(sourceId, source)
+      const tokens = row.input + row.output + row.cacheRead + row.cacheWrite
+      const observed = this.#pricing.rateObservation(row.model)
+      const vendor = typeof row.vendorCost === 'number'
+      const priced = vendor
+        ? { value: row.vendorCost!, quality: 'exact' as const }
+        : observed.rates === null
+          ? { value: null, quality: 'unknown' as const }
+          : { value: row.input * observed.rates.input + row.output * observed.rates.output + row.cacheRead * observed.rates.cacheRead + row.cacheWrite * observed.rates.cacheWrite, quality: 'estimate' as const }
+      return {
+        key: `aggregate:${row.file}:${row.day}:${row.runtime}:${row.model}:${row.project}`,
+        source,
+        runtime: row.runtime,
+        sessionId: null,
+        turnId: null,
+        requestId: null,
+        project: row.project || null,
+        model: row.model || null,
+        from: row.day,
+        to: row.day + DAY,
+        scope: 'session',
+        includesChildren: null,
+        input: { value: row.input, quality: 'exact' },
+        output: { value: row.output, quality: 'exact' },
+        cacheRead: { value: row.cacheRead, quality: 'exact' },
+        cacheWrite: { value: row.cacheWrite, quality: 'exact' },
+        usd: priced,
+        moneyBasis: vendor ? 'vendorMetered' : observed.rates ? 'listPrice' : 'unknown',
+      }
+    })
+    return {
+      samples,
+      sources: [...sources.values()],
+      gaps: samples.some((sample) => sample.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [],
+      complete: samples.length > 0 && samples.every((sample) => sample.usd.value !== null),
+    }
   }
 
   /** Prices load once, lazily: nothing is fetched for a screen nobody opened. */
