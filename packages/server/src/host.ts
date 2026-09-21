@@ -937,6 +937,7 @@ export class Host {
         const cwd = goal.cwd
         const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
         try {
+          const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
           const record = await this.#evidence.seats.opened({
             agent: null,
             briefDigest: null,
@@ -944,7 +945,7 @@ export class Host {
             seatLabel: opened.label,
             passedOver: [],
             standing: { kind: 'permission', permission: input.permission },
-            ceiling: null,
+            ceiling: held.ceiling,
             cwd,
             session: { runtime: opened.runtime, sessionId: opened.sessionId },
             board: goal.id,
