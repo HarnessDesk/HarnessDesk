@@ -308,7 +308,9 @@ test('a restore reads no more than its limits: projects past the first ones, and
     backup: backupOf([...crowd, { project, seats: [], facts: [good('late')] }]),
   })) as BackupReport
   assert.deepEqual(past.evidence, { restored: 0, duplicate: 0, refused: 1, failed: 0 })
-  assert.deepEqual(await new EvidenceStore(join(stateDir, 'evidence')).projects(), [])
+  const store = new EvidenceStore(join(stateDir, 'evidence'))
+  assert.deepEqual(await store.projects(), [project], 'only passive capture registered the open project')
+  assert.deepEqual((await store.read(project, 'evidence')).lines, [], 'the over-limit restore wrote no fact')
 
   // Lines: each counts against the budget whether or not it can be read.
   const junk = Array.from({ length: RESTORE_LINE_LIMIT }, () => 'x')

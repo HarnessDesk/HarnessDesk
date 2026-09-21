@@ -61,7 +61,7 @@ const session = (id: string, cwd: string, repo: { root: string; worktree: boolea
 const workspace = (path: string, repo: { root: string; worktree: boolean }): WorkspaceEntry =>
   ({ path, name: path.split('/').at(-1) ?? path, lastOpenedAt: 1, repo })
 
-const render = (history: SessionSummary[], open: WorkspaceEntry): void => {
+const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<AppSnapshot> = {}): void => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -70,6 +70,7 @@ const render = (history: SessionSummary[], open: WorkspaceEntry): void => {
     history,
     workspace: open,
     workspaces: [open],
+    ...over,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -130,4 +131,17 @@ it('still gives a folder you have just opened a row of its own', () => {
 
   expect(projects().sort()).toEqual(['other', 'repo'])
   expect(currentProject()).toBe('other')
+})
+
+it('only a stopped project adds capture text, including its folded canonical alias', () => {
+  const tree = `${REPO}/.claude/worktrees/hours-bug`
+  const off = { project: REPO, enabled: false, state: 'stopped' as const, reason: 'Capture is off.', nextStep: 'Turn capture on.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 }
+  render(
+    [session('a', REPO, { root: REPO, worktree: false }), session('b', tree, { root: REPO, worktree: true })],
+    workspace(tree, { root: REPO, worktree: true }),
+    { captureHealth: new Map([[REPO, off]]) },
+  )
+  expect(container.textContent).toContain('Capture stopped')
+  render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
+  expect(container.textContent).not.toContain('Capture stopped')
 })
