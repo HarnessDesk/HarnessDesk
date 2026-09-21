@@ -34,6 +34,6 @@ export const InsightUsage = ({ root, view, onGoal, onAgent }: InsightUsageProps)
       const words = metricWords(row.amounts.usd, report.sources, Date.now())
       return <Row key={row.key} title={row.label} desc={[row.note, words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ') || undefined} {...(click ? { onClick: click } : {})} control={<RowValue>{words.value}</RowValue>} />
     })}
-    <Row title="Not attributed to a Goal" desc={breakdown.reason ?? 'No unique historical Seat could be established.'} control={<RowValue>{metricWords(breakdown.unattributed.usd, report.sources, Date.now()).value}</RowValue>} />
+    <Row title={view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'} desc={breakdown.reason ?? `No unique historical ${view === 'goal' ? 'Seat' : 'Agent Seat'} could be established.`} control={<RowValue>{metricWords(breakdown.unattributed.usd, report.sources, Date.now()).value}</RowValue>} />
   </Rows>
 }

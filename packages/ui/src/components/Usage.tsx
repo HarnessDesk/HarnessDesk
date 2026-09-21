@@ -382,8 +382,8 @@ export const Usage = ({
         <PageHead title={scoped ? scoped.presentation.name : 'Dashboard'} blurb={blurb} />
 
         <div className={styles.body}>
+          <BandHead name="What is left" note={summary.headline} className={styles.firstBandHead} />
           <section className={styles.band} aria-label="What is left">
-            <BandHead name="What is left" note={summary.headline} />
 
             <div className={styles.cards}>
               {reports.map((report) => (
@@ -471,15 +471,17 @@ const BandHead = ({
   name,
   note,
   action,
+  className,
 }: {
   name: string
   note?: ReactNode
   action?: ReactNode
+  className?: string
 }) => (
   <SectionHead
     sticky
     level="heading"
-    className={styles.bandHead}
+    className={`${styles.bandHead}${className ? ` ${className}` : ''}`}
     name={name}
     description={note}
     action={

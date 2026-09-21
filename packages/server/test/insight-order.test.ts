@@ -47,3 +47,19 @@ test('a reviewed order uses only the selected historical seats, never a copied p
   await assert.rejects(() => plane.applyOrder(preview.stamp!), /recorded usage changed/i)
   assert.equal(writes, 0, 'a changed report is refused before the seating writer')
 })
+
+test('one Goal receipt and comparison include every one of its Seats, never another Goal', async () => {
+  const source = { id: 'source', kind: 'corpus' as const, label: 'Transcript', observedAt: 10, checkedAt: 10, stale: false, problem: null }
+  const sample = (sessionId: string, usd: number) => ({ key: sessionId, source, runtime: 'runtime', sessionId, turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const })
+  const choices = { left: { runtime: 'runtime', model: 'left' }, right: { runtime: 'runtime', model: 'right' } } as const
+  const seat = (id: string, board: string, choice: typeof choices.left | typeof choices.right) => ({ id, agent: { id: 'reviewer', name: 'Reviewer', origin: 'project' as const }, briefDigest: 'same', seat: choice, seatLabel: choice.model, checkout: { project: '/repo' }, board, session: { runtime: 'runtime', sessionId: id }, openedAt: 0, closed: null, restored: null })
+  const seats = [seat('left-a', 'goal-a', choices.left), seat('left-b', 'goal-a', choices.left), seat('right-a', 'goal-a', choices.right), seat('right-b', 'goal-a', choices.right), seat('other', 'goal-b', choices.left)]
+  const docs = [{ goal: { id: 'goal-a', root: '/repo', sentence: 'A', state: 'wrapped' }, receipt: { id: 'receipt-a', seats: ['left-a', 'left-b', 'right-a', 'right-b'] } }, { goal: { id: 'goal-b', root: '/repo', sentence: 'B', state: 'wrapped' }, receipt: { id: 'receipt-b', seats: ['other'] } }]
+  const plane = new InsightPlane({ ledger: () => ({ readInsight: async () => ({ samples: [sample('left-a', 10), sample('left-b', 10), sample('right-a', 5), sample('right-b', 20), sample('other', 99)], sources: [source], gaps: [], complete: true }) }) as never, goals: { store: { list: () => docs, read: (id: string) => docs.find(doc => doc.goal.id === id)! } } as never, seats: () => seats as never, seating: {} as never, now: () => 20 })
+  const receipt = await plane.goal('goal-a')
+  assert.equal(receipt.totals.usd.value, 45)
+  assert.equal(receipt.breakdowns.find(row => row.dimension === 'goal')?.rows.length, 1)
+  const compared = await plane.compare({ root: '/repo', from: 0, to: 20, goals: ['goal-a'], left: { agent: 'reviewer', origin: 'project', briefDigest: 'same', seat: choices.left }, right: { agent: 'reviewer', origin: 'project', briefDigest: 'same', seat: choices.right } })
+  assert.equal(compared.left.usd.value, 20)
+  assert.equal(compared.right.usd.value, 25)
+})

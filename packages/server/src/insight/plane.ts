@@ -110,17 +110,23 @@ export class InsightPlane implements InsightReadApi {
     }
   }
 
-  async usage(query: InsightQuery): Promise<InsightReport> {
+  async usage(query: InsightQuery): Promise<InsightReport> { return this.#usage(query) }
+
+  async #usage(query: InsightQuery, receiptSeats?: ReadonlySet<string>): Promise<InsightReport> {
     this.#range(query)
     const generatedAt = this.#now()
     const detail = await this.port.ledger().readInsight(query, { refresh: true })
     if (detail.samples.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
     const allGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
-    const seats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
-    const total = amounts(detail.samples, detail.sources, detail.gaps)
+    const projectSeats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
+    const seats = receiptSeats ? projectSeats.filter((seat) => receiptSeats.has(seat.id)) : projectSeats
+    const selectedSamples = receiptSeats ? detail.samples.filter((sample) => {
+      const id = seatFor(sample, projectSeats.map(seatWindowOf)); return id !== null && receiptSeats.has(id)
+    }) : detail.samples
+    const total = amounts(selectedSamples, detail.sources, detail.gaps)
     const bySeat = new Map<string, import('../ledger/insight.js').UsageSample[]>()
     const unattributed: import('../ledger/insight.js').UsageSample[] = []
-    for (const sample of detail.samples) {
+    for (const sample of selectedSamples) {
       const id = seatFor(sample, seats.map(seatWindowOf))
       if (!id) { unattributed.push(sample); continue }
       bySeat.set(id, [...(bySeat.get(id) ?? []), sample])
@@ -131,14 +137,11 @@ export class InsightPlane implements InsightReadApi {
       `seat:${seat.id}`, seat.seatLabel, bySeat.get(seat.id) ?? [], sourceFor(bySeat.get(seat.id) ?? []), detail.gaps,
       { seat: seat.id, goal: seat.board, session: seat.session, message: null, note: seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable' },
     ))
-    const goalRows = seats.flatMap((seat) => {
-      if (!seat.board) return []
-      const goal = allGoals.find((candidate) => candidate.id === seat.board)
-      if (!goal) return []
-      const samples = bySeat.get(seat.id) ?? []
-      return [row(`goal:${goal.id}:seat:${seat.id}`, goal.sentence, samples, sourceFor(samples), detail.gaps, {
-        seat: seat.id, goal: goal.id, session: seat.session, message: null, note: seat.agent?.name ?? 'Historical Seat',
-      })]
+    const goalRows = allGoals.flatMap((goal) => {
+      const goalSeats = seats.filter((seat) => seat.board === goal.id)
+      if (goalSeats.length === 0) return []
+      const samples = goalSeats.flatMap((seat) => bySeat.get(seat.id) ?? [])
+      return [row(`goal:${goal.id}`, goal.sentence, samples, sourceFor(samples), detail.gaps, { seat: null, goal: goal.id, session: null, message: null, note: 'Historical Seats' })]
     })
     const agentRows = [...new Map(seats.filter((seat) => seat.agent).map((seat) => [`${seat.agent!.origin}:${seat.agent!.id}`, seat.agent!] as const)).entries()].map(([key, agent]) => {
       const selected = seats.filter((seat) => seat.agent?.id === agent.id && seat.agent.origin === agent.origin).flatMap((seat) => bySeat.get(seat.id) ?? [])
@@ -159,9 +162,9 @@ export class InsightPlane implements InsightReadApi {
   async goal(id: string): Promise<InsightReport> {
     const document = this.port.goals.store.read(id)
     const to = this.#now(); const from = Math.max(0, to - 90 * DAY)
-    const report = await this.usage({ root: document.goal.root, from, to })
     const receipt = document.receipt
     const seatIds = new Set(receipt?.seats ?? [])
+    const report = await this.#usage({ root: document.goal.root, from, to }, receipt ? seatIds : undefined)
     return { ...report, goal: id, receipt: receipt?.id ?? null, goals: [document.goal], seats: this.port.seats().filter((seat) => seatIds.has(seat.id)),
       gaps: receipt ? report.gaps : [...report.gaps, 'This Goal is not wrapped; its history is so far, not a receipt.'] }
   }
@@ -179,16 +182,20 @@ export class InsightPlane implements InsightReadApi {
   async compare(query: InsightCompareQuery): Promise<InsightComparison> {
     this.#range(query)
     const report = await this.usage(query)
-    const selected = report.breakdowns.find((breakdown) => breakdown.dimension === 'goal')?.rows ?? []
+    const selected = report.breakdowns.find((breakdown) => breakdown.dimension === 'seat')?.rows ?? []
     const historical = new Map(report.seats.map((seat) => [seat.id, seat]))
     const metricFor = (goal: string, selector: InsightSelector): InsightMetric | null => {
-      const found = selected.find((entry) => {
+      const found = selected.filter((entry) => {
         if (entry.goal !== goal || entry.seat === null) return false
         const seat = historical.get(entry.seat)
         return seat?.agent?.id === selector.agent && seat.agent.origin === selector.origin
           && seat.briefDigest === selector.briefDigest && selector.seat !== null && seatKey(seat.seat) === seatKey(selector.seat)
       })
-      return found?.amounts.usd ?? null
+      if (found.length === 0) return null
+      const metrics = found.map((entry) => entry.amounts.usd)
+      const first = metrics[0]!
+      if (metrics.some((value) => value.value === null || value.coverage !== 'complete' || value.basis !== first.basis)) return null
+      return { ...first, value: metrics.reduce((sum, value) => sum + value.value!, 0) }
     }
     const rows: import('./compare.js').ComparableCost[] = query.goals.flatMap((goal) => (['left', 'right'] as const).map((side) => {
       const value = metricFor(goal, query[side])
