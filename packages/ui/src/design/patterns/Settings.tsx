@@ -1,14 +1,17 @@
 import { Button } from '../ui/button'
-import { createElement, useId, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
+
+import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, SearchIcon } from '../../components/Icons'
+import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, FilterIcon, SearchIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { softTone, type Tone } from '../ui/tone'
+import { IconTile } from '../ui/icon-tile'
+import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import styles from './Settings.module.css'
 
 /**
@@ -25,9 +28,313 @@ const cx = (...parts: readonly (string | false | undefined)[]): string =>
 
 /* --- readiness ----------------------------------------------------------- */
 
-export const Dot = ({ state, className }: { state: Readiness; className?: string }) => (
-  <span className={cx(styles.dot, className)} data-state={state} />
+export const Dot = ({ state, pulse = false, variant = 'default', className, ...props }: HTMLAttributes<HTMLSpanElement> & { state: Readiness; pulse?: boolean; variant?: 'default' | 'navigation' }) => (
+  <span {...props} className={cx(styles.dot, className)} data-slot="dot" data-state={state} data-variant={variant} {...(pulse ? { 'data-pulse': '' } : {})} />
 )
+
+const SPINNER_TONE: Record<Tone, string> = {
+  neutral: 'border-t-(--hd-muted-foreground)',
+  brand: 'border-t-(--hd-primary)',
+  success: 'border-t-(--hd-success)',
+  warning: 'border-t-(--hd-warning)',
+  danger: 'border-t-(--hd-danger)',
+  info: 'border-t-(--hd-tint-sky-ink)',
+}
+
+const SPINNER_SIZE = { sm: 'size-3', default: 'size-4' } as const
+
+export type SpinnerProps = ComponentProps<'span'> & {
+  tone?: Tone
+  size?: keyof typeof SPINNER_SIZE
+}
+
+/** A running operation whose words live beside it. */
+export const Spinner = ({ className, tone = 'neutral', size = 'default', ...props }: SpinnerProps) => (
+  <span
+    data-slot="spinner"
+    data-tone={tone}
+    data-size={size}
+    className={cx(
+      'inline-block shrink-0 animate-spin rounded-full border border-(--hd-border-emphasis) motion-reduce:animate-none',
+      SPINNER_TONE[tone],
+      SPINNER_SIZE[size],
+      className,
+    )}
+    {...props}
+  />
+)
+
+const STATE_STRIP_FILL: Record<Readiness, string> = {
+  ready: 'bg-(--hd-success)',
+  signin: 'bg-(--hd-primary)',
+  limit: 'bg-(--hd-warning)',
+  broken: 'bg-(--hd-danger)',
+  available: 'bg-(--hd-border-emphasis)',
+}
+
+/** A compact whole-roster reading: one segment per agent, in readiness order. */
+export const StateStrip = ({ states, className }: { states: readonly Readiness[]; className?: string }) => {
+  const counts = new Map<Readiness, number>()
+  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1)
+  const named = ([
+    ['ready', 'ready'],
+    ['signin', 'needs sign-in'],
+    ['limit', 'at a limit'],
+    ['broken', 'unavailable'],
+    ['available', 'not added'],
+  ] as const)
+    .flatMap(([state, label]) => counts.has(state) ? [`${counts.get(state)} ${label}`] : [])
+    .join(', ')
+  return (
+    <span
+      data-slot="state-strip"
+      role="img"
+      aria-label={`${states.length} agents: ${named}`}
+      className={cx('flex gap-1', className)}
+    >
+      {states.map((state, index) => (
+        <span
+          key={`${state}:${index}`}
+          data-state={state}
+          aria-hidden="true"
+          className={cx('h-1 flex-1 rounded-(--hd-radius-2xs)', STATE_STRIP_FILL[state])}
+        />
+      ))}
+    </span>
+  )
+}
+
+/** One operation or account state: judged mark, title, and the reason beneath it. */
+export const StatusSummary = ({
+  icon,
+  title,
+  description,
+  tone = 'neutral',
+  className,
+}: {
+  icon: ReactNode
+  title: ReactNode
+  description?: ReactNode
+  tone?: Tone
+  className?: string
+}) => (
+  <div data-slot="status-summary" data-tone={tone} className={cx('flex items-center gap-3', className)}>
+    <IconTile size="default" shape="round" tone={tone}>{icon}</IconTile>
+    <span className="flex min-w-0 flex-col gap-px">
+      <span data-slot="status-summary-title" className="text-base font-medium text-(--hd-foreground)">
+        {title}
+      </span>
+      {description != null ? (
+        <span data-slot="status-summary-description" className="text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground)">
+          {description}
+        </span>
+      ) : null}
+    </span>
+  </div>
+)
+
+/** The horizontal title band of an account-access sheet. */
+export const AccessHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-header"
+    className={cx('flex shrink-0 items-center gap-2.5 border-b border-(--hd-border) px-4 py-4', className)}
+    {...props}
+  />
+)
+
+/** The roster column of an account-access sheet. */
+export const AccessRail = ({ className, ...props }: ComponentProps<'nav'>) => (
+  <nav
+    data-slot="access-rail"
+    className={cx('flex min-h-0 flex-col border-r border-(--hd-border) bg-(--hd-sidebar-plate) max-[720px]:border-r-0 max-[720px]:border-b', className)}
+    {...props}
+  />
+)
+
+export const AccessRailHeader = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-rail-header"
+    className={cx('shrink-0 border-b border-(--hd-border) p-3', className)}
+    {...props}
+  />
+)
+
+export const AccessRailList = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-rail-list"
+    className={cx('min-h-0 flex-1 overflow-y-auto p-2', className)}
+    {...props}
+  />
+)
+
+export const AccessRailFooter = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-rail-footer"
+    className={cx('shrink-0 border-t border-(--hd-border) px-3 py-2.5', className)}
+    {...props}
+  />
+)
+
+/** The scrolled work pane beside an access roster. */
+export const AccessDetail = ({ className, ...props }: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    data-slot="access-detail"
+    className={cx('flex min-h-0 flex-col overflow-y-auto px-6 pb-6 pt-5', className)}
+    {...props}
+  />
+)
+
+/** A labelled path or consequence in an account-access flow. */
+export const AccessFact = ({
+  label,
+  value,
+  children,
+  className,
+}: {
+  label: ReactNode
+  value?: ReactNode
+  children?: ReactNode
+  className?: string
+}) => (
+  <div data-slot="access-fact" className={cx('mb-4 flex max-w-130 flex-col items-start gap-1.5', className)}>
+    <Text role="muted">{label}</Text>
+    {value != null ? (
+      <CodeText
+        as="code"
+        className="max-w-full select-all rounded-(--hd-radius-sm) bg-(--hd-muted) px-2 py-1 text-sm leading-(--hd-line-sm) text-(--hd-secondary-foreground) [overflow-wrap:anywhere]"
+      >
+        {value}
+      </CodeText>
+    ) : null}
+    {children != null ? <Text role="muted">{children}</Text> : null}
+  </div>
+)
+
+/** A one-time code: verbatim, selectable, and visually separate from prose. */
+export const AccessCode = ({ className, ...props }: ComponentProps<'div'>) => (
+  <div
+    data-slot="access-code"
+    className={cx(
+      'select-all rounded-(--hd-radius) bg-(--hd-muted) p-4 text-center font-mono text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[0.18em]',
+      className,
+    )}
+    {...props}
+  />
+)
+
+const REACH_INK: Partial<Record<ReachState, string>> = {
+  hollow: 'text-(--hd-warning-ink)',
+  rejected: 'text-(--hd-warning-ink)',
+  differs: 'text-(--hd-warning-ink)',
+  unscanned: 'text-(--hd-warning-ink)',
+  unhostable: 'text-(--hd-muted-foreground)',
+}
+
+/** One state in the Library matrix, distinguished by shape before colour. */
+export const LibraryReachMark = ({
+  state,
+  label,
+  placement = 'inline',
+  className,
+  ...props
+}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
+  state: ReachState
+  label: string
+  placement?: 'inline' | 'cell'
+}) => {
+  let mark: ReactNode
+  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
+  else if (state === 'differs') mark = <DiffIcon size={13} />
+  else if (state === 'unhostable') mark = <CrossIcon size={13} />
+  else if (state === 'unscanned') mark = <span className="size-2 rounded-full border border-(--hd-warning-ink)" />
+  else if (state === 'stale') mark = <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
+  else if (state === 'reaches') mark = <span className="size-1.5 rounded-full bg-(--hd-success)" />
+  else if (state === 'off') {
+    mark = (
+      <span className="relative inline-flex size-3 items-center justify-center">
+        <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
+        <span className="absolute h-px w-3 bg-(--hd-muted-foreground)" />
+      </span>
+    )
+  } else mark = <span className="h-px w-2 bg-(--hd-border-emphasis)" />
+
+  return (
+    <span
+      {...props}
+      data-slot="library-reach-mark"
+      data-state={state}
+      data-placement={placement}
+      role="img"
+      aria-label={label}
+      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'h-(--hd-control-h) w-full' : 'size-3.5'} ${REACH_INK[state] ?? 'text-(--hd-muted-foreground)'} ${className ?? ''}`}
+    >
+      {mark}
+    </span>
+  )
+}
+
+/** An agent's identity mark, with reach expressed only by the plate around it. */
+export const LibraryReachFace = ({
+  state,
+  label,
+  children,
+  className,
+  ...props
+}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
+  state: ReachState
+  label: string
+  children?: ReactNode
+}) => (
+  <span
+    {...props}
+    data-slot="skill-reach"
+    data-state={state}
+    {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
+    role="img"
+    aria-label={label}
+    className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-(--hd-muted-foreground) opacity-40 data-[state=reaches]:bg-(--hd-muted) data-[state=reaches]:text-(--hd-foreground) data-[state=reaches]:opacity-100 data-[problem]:bg-(--hd-warning-dim) data-[problem]:text-(--hd-warning-ink) data-[problem]:opacity-100 ${className ?? ''}`}
+  >
+    {children}
+  </span>
+)
+
+type LibraryOperationState = 'planned' | 'refuse' | 'done' | 'failed' | 'skipped'
+
+/** The list's floor keeps a one-change plan reading as a composed preview. */
+export const LibraryOperationList = ({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement>) => (
+  <div
+    {...props}
+    data-slot="library-operation-list"
+    role="list"
+    className={`flex min-h-18 flex-col ${className ?? ''}`}
+  >
+    {children}
+  </div>
+)
+
+/** One planned operation or result, using the glyph the Library already taught. */
+export const LibraryOperationMark = ({ state }: { state: LibraryOperationState }) => {
+  const mark =
+    state === 'refuse' ? <AlertIcon size={13} />
+      : state === 'done' ? <CheckIcon size={13} />
+        : state === 'failed' ? <CrossIcon size={13} />
+          : state === 'skipped' ? <span className="opacity-60">·</span>
+            : <span className="size-1.5 rounded-full bg-current opacity-70" />
+  return (
+    <span
+      data-slot="library-operation-mark"
+      data-state={state}
+      aria-hidden="true"
+      className="inline-flex w-4 shrink-0 items-center justify-center self-center text-(--hd-muted-foreground) data-[state=done]:text-(--hd-success) data-[state=failed]:text-(--hd-warning-ink) data-[state=refuse]:text-(--hd-warning-ink)"
+    >
+      {mark}
+    </span>
+  )
+}
 
 type ChipBaseProps = {
   label?: ReactNode
@@ -35,11 +342,15 @@ type ChipBaseProps = {
   stale?: boolean
   unknown?: boolean
   children?: ReactNode
+  title?: string
+  size?: 'default' | 'sm'
+  variant?: 'default' | 'outline'
 }
 
 export type ChipProps = ChipBaseProps & (
-  | { state: Readiness; tone?: never }
-  | { state?: never; tone: Tone }
+  | { state: Readiness; tone?: never; tint?: never; emphasis?: never }
+  | { state?: never; tone: Tone; tint?: never; emphasis?: boolean }
+  | { state?: never; tone?: never; tint: Tint; emphasis?: never }
 )
 
 const READINESS_TONE: Record<Readiness, Tone> = {
@@ -52,24 +363,40 @@ const READINESS_TONE: Record<Readiness, Tone> = {
 
 /**
  * A compact state, said out loud. Readiness keeps its dot and default word;
- * every other fact takes a semantic `tone` and words from `children` or
- * `label`. Stale and unknown facts keep those meanings distinct in both ink
- * and their accessible names.
+ * a judged fact takes a semantic `tone`, while an identity takes a `tint`.
+ * The emphatic brand tone marks the current fact in a set. Stale and unknown
+ * facts keep those meanings distinct in both ink and their accessible names.
  */
 export const Chip = (props: ChipProps) => {
-  const { label, className, stale = false, unknown = false, children } = props
+  const {
+    label,
+    className,
+    stale = false,
+    unknown = false,
+    children,
+    title,
+    size = 'default',
+    variant = 'default',
+  } = props
   const state = props.state
+  const tint = props.tint
+  const emphasis = props.emphasis
   const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
   const tone = unknown || (stale && requestedTone === 'success') ? 'neutral' : requestedTone
   const words = children ?? label ?? (unknown ? 'Unknown' : state ? READINESS_LABEL[state] : null)
 
   return (
     <span
-      className={cx(styles.chip, tone && softTone({ tone }), className)}
+      className={cx(styles.chip, tone && softTone({ tone }), tint && softTint({ tint }), className)}
+      data-size={size}
+      data-variant={variant}
       {...(state ? { 'data-state': state } : {})}
       {...(tone ? { 'data-tone': tone } : {})}
+      {...(tint ? { 'data-tint': tint } : {})}
+      {...(emphasis ? { 'data-emphasis': '' } : {})}
       {...(stale ? { 'data-stale': '' } : {})}
       {...(unknown ? { 'data-unknown': '' } : {})}
+      {...(title ? { title } : {})}
     >
       {state && <Dot state={state} />}
       <span className={styles.chipWords} data-slot="chip-words">{words}</span>
@@ -94,6 +421,13 @@ export const Search = ({
   className,
   autoFocus,
   clear,
+  size = 'default',
+  icon = 'search',
+  title,
+  onFocus,
+  onBlur,
+  onKeyDown,
+  inputRef,
 }: {
   value: string
   onChange: (next: string) => void
@@ -102,23 +436,43 @@ export const Search = ({
   label?: string
   className?: string
   autoFocus?: boolean
+  size?: 'default' | 'compact'
+  /** A filter field is still a search input, but its resting glyph says what it narrows. */
+  icon?: 'search' | 'filter'
+  title?: string
+  onFocus?: FocusEventHandler<HTMLInputElement>
+  onBlur?: FocusEventHandler<HTMLInputElement>
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement>
+  /** The owning surface may use the input as its initial focus target. */
+  inputRef?: Ref<HTMLInputElement>
   /** An accessible clear action, present only while the field has a value. */
   clear?: { readonly label: string; readonly onClick: () => void }
 }) => (
   <span
     className={cx(styles.search, className)}
     data-slot="search"
+    data-size={size}
+    data-icon={icon}
     {...(clear && value ? { 'data-clear': '' } : {})}
   >
-    <SearchIcon size={14} />
+    {icon === 'filter'
+      ? <FilterIcon size={size === 'compact' ? 12 : 14} />
+      : <SearchIcon size={size === 'compact' ? 12 : 14} />}
     <Input
+      ref={inputRef}
       type="search"
       spellCheck={false}
-      className={styles.input}
+      variant={size === 'compact' ? 'quiet' : 'default'}
+      controlSize={size === 'compact' ? 'compact' : 'default'}
+      className={size === 'compact' ? styles.searchCompactInput : styles.input}
       placeholder={placeholder}
       aria-label={label ?? placeholder}
       value={value}
       autoFocus={autoFocus}
+      title={title}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
       onChange={(event) => onChange(event.target.value)}
     />
     {clear && value ? (
@@ -134,6 +488,21 @@ export const Search = ({
       </Button>
     ) : null}
   </span>
+)
+
+/** The inset around a list of destination rows. */
+export const NavigationList = ({ className, ...props }: ComponentProps<'div'>) => (
+  <div data-slot="navigation-list" className={cx(styles.navigationList, className)} {...props} />
+)
+
+/** A keyboard name shown as a physical key rather than explanatory copy. */
+export const Keycap = ({ className, ...props }: ComponentProps<'kbd'>) => (
+  <kbd data-slot="keycap" className={cx(styles.keycap, className)} {...props} />
+)
+
+/** The exact part of a search result that matched the query. */
+export const SearchMatch = ({ className, ...props }: ComponentProps<'mark'>) => (
+  <mark data-slot="search-match" className={cx(styles.searchMatch, className)} {...props} />
 )
 
 /** What `Field` hands its control: the id its label points at, and the wiring to its note. */
@@ -172,7 +541,7 @@ export const Field = ({
   const noteId = `${id}-note`
   const note = error ?? hint
   return (
-    <div className={styles.formField}>
+    <div className={styles.formField} data-slot="form-field">
       <label className={styles.formLabel} htmlFor={id}>
         {label}
       </label>
@@ -200,16 +569,39 @@ export const FormStack = ({ children }: { children: ReactNode }) => (
 )
 
 /** The short paragraph that belongs to a group of rows rather than to one of them. */
-export const Note = ({ children, tone }: { children: ReactNode; tone?: 'warn' | 'bad' }) => (
+export const Note = ({
+  children,
+  tone,
+  ink = 'secondary',
+  icon,
+  className,
+  ...props
+}: Omit<ComponentProps<'p'>, 'children'> & {
+  children: ReactNode
+  tone?: 'warn' | 'bad'
+  ink?: 'secondary' | 'muted'
+  icon?: ReactNode
+  className?: string
+}) => (
   /* A note that says something went wrong is spoken, not only shown: it
      arrives after a press, when a reader is listening for the outcome. */
   <p
-    className={styles.note}
+    className={cx(styles.note, className)}
+    data-slot="note"
+    data-ink={ink}
+    {...(icon ? { 'data-icon': '' } : {})}
     {...(tone ? { 'data-tone': tone } : {})}
     {...(tone === 'bad' ? { role: 'alert' } : {})}
+    {...props}
   >
-    {children}
+    {icon}
+    {icon ? <span>{children}</span> : children}
   </p>
+)
+
+/** Short supporting facts that belong to a notice or note. */
+export const NoteList = ({ className, ...props }: ComponentProps<'ul'>) => (
+  <ul data-slot="note-list" className={cx(styles.noteList, className)} {...props} />
 )
 
 /**
@@ -277,7 +669,7 @@ export const Segmented = <T extends string>({
 
 /* --- page furniture ------------------------------------------------------ */
 
-/** The page's name, one line saying what it is for, and anything it acts on. */
+/** The page's 20px semibold name, matching the wordmark, one line saying what it is for, and anything it acts on. */
 export const PageHead = ({
   title,
   blurb,
@@ -296,10 +688,156 @@ export const PageHead = ({
   </div>
 )
 
-export const SectionHead = ({ name, action }: { name: ReactNode; action?: ReactNode }) => (
-  <div className={styles.sectionHead}>
-    <span className={styles.sectionName}>{name}</span>
+export const SectionHead = ({
+  name,
+  description,
+  action,
+  sticky,
+  level = 'label',
+  className,
+}: {
+  name: ReactNode
+  description?: ReactNode
+  action?: ReactNode
+  sticky?: boolean
+  /** Card groups are labels by default; page bands opt into a real heading. */
+  level?: 'label' | 'heading'
+  className?: string
+}) => (
+  <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
+    <div className={styles.sectionHeadText}>
+      {createElement(
+        level === 'heading' ? 'h2' : 'span',
+        { className: styles.sectionName, 'data-slot': 'section-name', 'data-level': level },
+        name,
+      )}
+      {description != null && (
+        <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
+      )}
+    </div>
     {action}
+  </div>
+)
+
+const TEXT_ROLE = {
+  wordmark: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
+  page: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
+  subject: 'text-base leading-(--hd-line) font-medium',
+  row: 'text-sm leading-(--hd-line-sm) font-medium',
+  navigation: 'text-sm leading-(--hd-line-sm) font-normal',
+  muted: 'text-sm leading-(--hd-line-sm) font-normal',
+  meta: 'text-xs leading-(--hd-line-xs) font-normal',
+  figure:
+    'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums',
+  metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums',
+  value: 'text-base leading-(--hd-line) font-normal tabular-nums',
+} as const
+
+const TEXT_ROLE_INK = {
+  wordmark: 'text-(--hd-foreground)',
+  page: undefined,
+  subject: 'text-(--hd-foreground)',
+  row: 'text-(--hd-foreground)',
+  navigation: 'text-(--hd-foreground)',
+  muted: 'text-(--hd-secondary-foreground)',
+  meta: 'text-(--hd-muted-foreground)',
+  figure: 'text-(--hd-foreground)',
+  metric: 'text-(--hd-foreground)',
+  value: 'text-(--hd-foreground)',
+} as const
+
+const TEXT_INK = {
+  primary: 'text-(--hd-foreground)',
+  secondary: 'text-(--hd-secondary-foreground)',
+  muted: 'text-(--hd-muted-foreground)',
+  navigation: 'text-(--hd-sidebar-muted-foreground)',
+} as const
+
+export type TextRole = keyof typeof TEXT_ROLE
+export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
+  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h4' | 'summary' | 'label' | 'li'
+  children: ReactNode
+  role?: TextRole
+  tone?: Tone
+  /** Identity colour, kept separate from a tone that judges state. */
+  tint?: Tint
+  /** Preserve a role's size and weight while selecting one of the three ink tiers. */
+  ink?: keyof typeof TEXT_INK
+  align?: 'start' | 'center' | 'end'
+  truncate?: boolean
+  /** Put the ellipsis at the beginning, so a path keeps the filename end. */
+  truncateFrom?: 'start'
+  /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
+  fade?: boolean
+  numeric?: boolean
+}
+
+/** The interface's named text roles, including dashboard readouts. */
+export const Text = ({
+  as = 'span',
+  className,
+  role = 'muted',
+  tone,
+  tint,
+  ink,
+  align = 'start',
+  truncate,
+  truncateFrom,
+  fade,
+  numeric,
+  children,
+  ...props
+}: TextProps) =>
+  createElement(
+    as,
+    {
+      ...props,
+      'data-slot': 'text',
+      'data-role': role,
+      ...(tone ? { 'data-tone': tone } : {}),
+      ...(tint ? { 'data-tint': tint } : {}),
+      ...(ink ? { 'data-ink': ink } : {}),
+      ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
+      className: cx(
+        TEXT_ROLE[role],
+        tone
+          ? inkTone({ tone })
+          : tint
+            ? inkTint({ tint })
+            : ink
+              ? TEXT_INK[ink]
+              : TEXT_ROLE_INK[role],
+        align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
+        (truncate || truncateFrom) && 'truncate',
+        truncateFrom === 'start' && '[direction:rtl] text-left',
+        fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
+        numeric && 'tabular-nums',
+        className,
+      ),
+    },
+    children,
+  )
+
+/** The label line above navigation rows, including the controls that act on that list. */
+export const NavigationGroupHeader = ({
+  label,
+  filtering = false,
+  className,
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & {
+  label: ReactNode
+  filtering?: boolean
+  children?: ReactNode
+}) => (
+  <div
+    {...props}
+    data-slot="navigation-group-header"
+    {...(filtering ? { 'data-filtering': '' } : {})}
+    className={cx(styles.navigationGroupHeader, className)}
+  >
+    <span className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</span>
+    {children}
   </div>
 )
 
@@ -318,14 +856,15 @@ export const Row = ({
   desc,
   control,
   className,
+  ...props
 }: {
   mark?: ReactNode
   title: ReactNode
   desc?: ReactNode
   control?: ReactNode
   className?: string
-}) => (
-  <div className={cx(styles.row, className)}>
+} & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
+  <div className={cx(styles.row, className)} {...props}>
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
@@ -391,13 +930,19 @@ export const RowButton = ({
 export const RowChoice = ({
   title,
   desc,
+  wrapDesc = false,
   selected,
+  tabStop,
   disabled,
   onClick,
 }: {
   title: ReactNode
   desc?: ReactNode
+  /** A consequence in a narrow choice arrives whole rather than ellipsised. */
+  wrapDesc?: boolean
   selected: boolean
+  /** The Tab entry when a radio group has no selected answer. */
+  tabStop?: boolean
   disabled?: boolean
   onClick: () => void
 }) => (
@@ -405,14 +950,33 @@ export const RowChoice = ({
     type="button"
     role="radio"
     aria-checked={selected}
+    tabIndex={selected || tabStop ? 0 : -1}
     disabled={disabled}
-    className={cx(styles.row, styles.rowButton, styles.rowChoice)}
+    className={cx('w-full min-w-0', styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
+    onKeyDown={(event) => {
+      if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
+      const group = event.currentTarget.closest('[role="radiogroup"]')
+      if (!group) return
+      const choices = Array.from(group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)'))
+      const current = choices.indexOf(event.currentTarget)
+      if (current < 0 || choices.length === 0) return
+
+      const next = event.key === 'Home'
+        ? choices[0]
+        : event.key === 'End'
+          ? choices.at(-1)
+          : choices[(current + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + choices.length) % choices.length]
+      if (!next) return
+      event.preventDefault()
+      next.focus()
+      next.click()
+    }}
   >
     <span className={styles.choiceMark}>{selected ? <CheckIcon size={15} /> : null}</span>
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={styles.rowDesc}>{desc}</span> : null}
+      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
   </Button>
 )
@@ -553,13 +1117,30 @@ export const SectionToggle = ({ children, className }: { children: ReactNode; cl
 
 export const CodeText = ({
   as = 'span',
+  size = 'default',
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: 'span' | 'code' | 'pre'
+  size?: 'default' | 'inherit'
   children: ReactNode
-}) => createElement(as, { ...props, className: cx(styles.mono, className) }, children)
+}) => createElement(as, {
+  ...props,
+  'data-slot': 'code-text',
+  'data-size': size,
+  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, className),
+}, children)
+
+/** Initials inside a row's neutral mark. They identify the thing without becoming its name. */
+export const Monogram = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span data-slot="monogram" className={cx(styles.monogram, className)}>{children}</span>
+)
+
+/** Compact facts whose dot separators belong to the role, not to each caller. */
+export const MetaList = ({ children, className }: { children: ReactNode; className?: string }) => (
+  <span data-slot="meta-list" className={cx(styles.metaList, className)}>{children}</span>
+)
 
 export const WireText = ({ children, className }: { children: ReactNode; className?: string }) => (
   <span className={cx(styles.wire, className)}>{children}</span>

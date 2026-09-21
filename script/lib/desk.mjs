@@ -418,18 +418,21 @@ export const setSessionOption = async (cdp, key, id, value) =>
 
 export const makeRoom = async (cdp, { work, name, members }) => {
   const joins = members
-    .map(({ runtime, sessionId }) => `await store.joinRoom(room, ${q(runtime)}, ${q(sessionId)})`)
+    .map(({ runtime, sessionId }, index) => `{
+      const card = await store.transport.request('team/add', { room, title: ${q(`Seat ${index + 1}`)} })
+      await store.assignGoal(room, card.id, { runtime: ${q(runtime)}, sessionId: ${q(sessionId)} })
+    }`)
     .join('\n    ')
   const room = await cdp.eval(
     `(async () => {
     const store = ${STORE}
-    const room = await store.createRoom(${q(work)}, ${q(name)})
+    const room = (await store.createGoal({ root: ${q(work)}, sentence: ${q(name)} })).goal.id
     ${joins}
     return room
   })()`,
     180_000,
   )
-  if (!room) throw new Error(`the room "${name}" was not created`)
+  if (!room) throw new Error(`the Goal "${name}" was not created`)
   return room
 }
 

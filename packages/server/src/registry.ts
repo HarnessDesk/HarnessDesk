@@ -1,6 +1,8 @@
 import {
   emptyQueue,
   mergeRead,
+  permissionOfCeiling,
+  preserveNoticeItems,
   reduceSession,
   sessionKey,
   type AgentEvent,
@@ -146,18 +148,21 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
       settings.briefDigest === seated.briefDigest &&
       settings.ceiling === (seated.ceiling ?? undefined) &&
       settings.ceilingNote === (seated.ceilingNote ?? undefined) &&
+      settings.permission === permissionOfCeiling(seated.ceiling?.level ?? 'read') &&
       settings.seatLabel === seated.seatLabel &&
       settings.passedOver === seated.passedOver
     ) {
       return settings
     }
-    const { ceiling: _theirCeiling, ceilingNote: _theirCeilingNote, ...rest } = settings
+    const { ceiling: _theirCeiling, ceilingNote: _theirCeilingNote, permission: _theirPermission, ...rest } = settings
+    const permission = permissionOfCeiling(seated.ceiling?.level ?? 'read')
     return {
       ...rest,
       agent: seated.agent,
       briefDigest: seated.briefDigest,
       ...(seated.ceiling ? { ceiling: seated.ceiling } : {}),
       ...(seated.ceilingNote ? { ceilingNote: seated.ceilingNote } : {}),
+      ...(permission ? { permission } : {}),
       seatLabel: seated.seatLabel,
       passedOver: seated.passedOver,
     }
@@ -167,6 +172,7 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
     settings.briefDigest === undefined &&
     settings.ceiling === undefined &&
     settings.ceilingNote === undefined &&
+    settings.permission === undefined &&
     settings.seatLabel === undefined &&
     settings.passedOver === undefined
   ) {
@@ -177,6 +183,7 @@ export const seatedSettings = (settings: SessionSettings, seated: SeatedAs | nul
     briefDigest: _briefDigest,
     ceiling: _ceiling,
     ceilingNote: _ceilingNote,
+    permission: _permission,
     seatLabel: _seatLabel,
     passedOver: _passedOver,
     ...theirs
@@ -198,6 +205,24 @@ export const seatedSession = (session: Session, seated: SeatedAs | null): Sessio
  */
 export const QUEUE_LIMIT = 25
 export const QUEUE_CHAR_LIMIT = 100_000
+
+/**
+ * A fork copies history under a new session id. Carry only the source's
+ * notice classifications into that copied history: the fork itself is not a
+ * seated Agent, and its next message must remain ordinary speech.
+ */
+const noticesFromFork = (fork: Session, source: Session | undefined): Session => {
+  if (!source) return fork
+  const held = source.turns.flatMap((turn) => turn.items)
+  let changed = false
+  const turns = fork.turns.map((turn) => {
+    const items = preserveNoticeItems(turn.items, held)
+    if (items === turn.items) return turn
+    changed = true
+    return { ...turn, items }
+  })
+  return changed ? { ...fork, turns } : fork
+}
 
 const charsOf = (input: readonly UserContent[]): number =>
   input.reduce((total, part) => total + (part.type === 'text' ? part.text.length : 0), 0)
@@ -247,8 +272,11 @@ export class SessionRegistry {
       }
       return existing
     }
+    const inherited = session.forkedFrom
+      ? noticesFromFork(session, this.get(session.runtime, session.forkedFrom)?.session)
+      : session
     const record: SessionRecord = {
-      session,
+      session: inherited,
       runtime: session.runtime,
       live,
       detached: false,
@@ -260,7 +288,7 @@ export class SessionRegistry {
       tasks: [],
       seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
     }
-    record.session = seatedSession(this.#settle(record, session), record.seatedAs)
+    record.session = seatedSession(this.#settle(record, inherited), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)
     return record
   }

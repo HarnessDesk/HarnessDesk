@@ -23,6 +23,22 @@
     "pad": "4 4 4 4",
     "radius": 6
   },
+  "adopted/card/size/compact": {
+    "h": 68,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "12 12 12 12",
+    "radius": 6
+  },
+  "adopted/card/size/default": {
+    "h": 146,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "16 0 16 0",
+    "radius": 10
+  },
   "adopted/marker/variant/border": {
     "h": 30,
     "text": 12,
@@ -45,6 +61,22 @@
     "weight": "400",
     "line": 16,
     "pad": "12 0 12 0",
+    "radius": 0
+  },
+  "adopted/table/variant/framed": {
+    "h": 51,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "adopted/table/variant/panel": {
+    "h": 49,
+    "text": 12,
+    "weight": "400",
+    "line": 16,
+    "pad": "0 0 0 0",
     "radius": 0
   },
   "adopted/textarea/size/compact": {
@@ -150,6 +182,22 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 0
+  },
+  "banner/alert/variant/default": {
+    "h": 61,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 12 10 12",
+    "radius": 10
+  },
+  "banner/alert/variant/soft": {
+    "h": 61,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "10 12 10 12",
+    "radius": 10
   },
   "button/button/size/chip": {
     "h": 24,
@@ -294,6 +342,14 @@
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
+  },
+  "button/button/variant/floating": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
+    "radius": 33554400
   },
   "button/button/variant/ghost": {
     "h": 30,
@@ -543,6 +599,38 @@
     "pad": "0 0 0 0",
     "radius": 8
   },
+  "readings/key-value/variant/default": {
+    "h": 108,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "readings/key-value/variant/panel": {
+    "h": 38,
+    "text": 13,
+    "weight": "400",
+    "line": 18,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "row/page-title-case/size/page": {
+    "h": 26,
+    "text": 20,
+    "weight": "600",
+    "line": 28,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "row/text/size/wordmark": {
+    "h": 28,
+    "text": 20,
+    "weight": "600",
+    "line": 28,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "section/section/variant/card": {
     "h": 88,
     "text": 14,
@@ -550,6 +638,14 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 10
+  },
+  "section/section/variant/panel": {
+    "h": 111,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "8 10 8 10",
+    "radius": 0
   },
   "section/section/variant/plain": {
     "h": 86,
@@ -614,5 +710,29 @@
     "line": 21,
     "pad": "0 0 0 0",
     "radius": 6
+  },
+  "tile/icon-tile/size/xs": {
+    "h": 18,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 6
+  },
+  "tool-pane/tool-pane/variant/default": {
+    "h": 224,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 10
+  },
+  "tool-pane/tool-pane/variant/integrated": {
+    "h": 224,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
   }
 }

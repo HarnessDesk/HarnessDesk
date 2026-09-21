@@ -39,6 +39,9 @@ import { Conversation } from './Conversation'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
+import { GoalHeader } from './GoalHeader'
+import { GoalWrap } from './GoalWrap'
+import { GoalReceipt } from './GoalReceipt'
 import { WindowControls } from './WindowControls'
 import {
   Button,
@@ -145,6 +148,7 @@ export const TeamRoomPane = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const goal = snapshot.goals.get(room)
   const mount = useMount()
   /**
    * The roster, and the room it belongs to.
@@ -219,6 +223,7 @@ export const TeamRoomPane = ({
   const [filter, setFilter] = useState('')
   /** The "add an agent" dialog, opened from the roster's own heading. */
   const [adding, setAdding] = useState(false)
+  const [wrapping, setWrapping] = useState(false)
   /** The top row's own failure — the board-only switch not landing. */
   const [barTrouble, setBarTrouble] = useState<string | null>(null)
   /**
@@ -274,17 +279,20 @@ export const TeamRoomPane = ({
    */
   const leave = (key: SessionKey): void => {
     const { runtime, id } = splitSessionKey(key)
-    stopWatching(key)
     setRailTrouble(null)
-    void store
-      .leaveRoom(room, runtime, id)
+    const seat = goal?.members.find((one) => one.closed === null && one.session.runtime === runtime && one.session.sessionId === id)
+    const release = seat
+      ? store.releaseGoal(room, seat.id)
+      : Promise.reject(new Error(goal ? 'That Seat is no longer active.' : 'This compatibility room is read-only.'))
+    void release
       /* The member is dropped from the answer already in hand, rather than
          the answer being thrown away. `null` means "not asked", and the rail
          draws nothing at all for it — so clearing it made the whole roster
          vanish for as long as the refetch took, and would have left it blank
          for good if the refetch had already landed by then. Filtering is both
          the smaller flicker and the one that cannot strand the rail. */
-      .then(() =>
+      .then(() => {
+        stopWatching(key)
         setFetched((was) =>
           was === null || was.room !== room
             ? was
@@ -294,8 +302,8 @@ export const TeamRoomPane = ({
                   (one) => sessionKey(one.runtime, one.sessionId as SessionId) !== key,
                 ),
               },
-        ),
-      )
+        )
+      })
       .catch(() =>
         setRailTrouble('The host did not take that; the member is still in the room.'),
       )
@@ -629,7 +637,10 @@ export const TeamRoomPane = ({
 
   return (
     <div className={styles.pane} data-showing={onRail ? 'rail' : 'body'}>
-      {adding && <AddMember room={room} root={root} onClose={() => setAdding(false)} />}
+      {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
+      {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
+      {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
+      {goal?.receipt ? <GoalReceipt receipt={goal.receipt} root={goal.goal.root} /> : null}
 
       {/*
         * The room's one top row, across both halves.
@@ -828,15 +839,15 @@ export const TeamRoomPane = ({
           <div className={styles.railLabel}>
             <span>Agents</span>
             <span className={styles.count}>{roster.length}</span>
-            <Button
+            {goal ? <Button
               type="button"
               variant="ghost" size="icon-sm" className={styles.railAdd}
-              aria-label="Add an agent to the room"
-              title="Add an agent to the room"
+              aria-label="Seat an Agent in this Goal"
+              title="Seat an Agent in this Goal"
               onClick={() => setAdding(true)}
             >
               <PlusIcon size={13} />
-            </Button>
+            </Button> : null}
           </div>
 
           {/* A filter, once the roster is longer than the eye scans in one go.
@@ -1173,8 +1184,8 @@ const MemberCard = ({
    * The only way out, and it had to become one: membership used to end by
    * itself whenever a conversation stopped being open, which is exactly the
    * behaviour that emptied every room after a relaunch. Rooms keep their
-   * members now, so leaving has to be something a person does — `team/room/leave`
-   * existed on the wire the whole time with nothing to press.
+   * members now, so leaving has to be something a person does — releasing its
+   * durable Goal Seat is the explicit boundary.
    *
    * On the card rather than the row, with Open and Watch: a destructive verb
    * one pixel from the thing it destroys is how a roster gets emptied by

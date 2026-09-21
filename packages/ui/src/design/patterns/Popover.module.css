@@ -76,10 +76,17 @@
     inset 0 0 0 1px var(--hd-border-strong);
 }
 
+.panel[data-limit='trigger'] {
+  max-height: 300px;
+}
+
 .groupLabel {
-  padding: 8px 8px 4px;
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
+}
+
+.groupLabel[data-inset='true'] {
+  padding: 8px 8px 4px;
 }
 
 .option {

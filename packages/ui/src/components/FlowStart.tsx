@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { FlowDryRun, FlowFile } from '@harnessdesk/protocol'
 
-import { Banner, Field, Input, NativeSelect } from '../design'
+import { ActionError, Banner, Card, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Text } from '../design'
 import { useStore } from '../state/context'
 import styles from './FlowStart.module.css'
 
@@ -29,9 +29,6 @@ import styles from './FlowStart.module.css'
  * with no way out, is what this feature exists to catch here rather than at
  * the fourth round.
  */
-
-import { flowSeatCeiling } from '../lib/ceilings'
-import { CeilingChip } from './CeilingChip'
 
 /** Nothing chosen. A room without a flow is the ordinary room, and the default. */
 const NONE = ''
@@ -178,20 +175,18 @@ export const FlowStart = ({
       </Field>
 
       {problem && (
-        <Banner tone="danger" title="That flow could not be read">
-          {problem}
-        </Banner>
+        <ActionError>That flow could not be read. {problem}</ActionError>
       )}
 
       {errors.length > 0 && (
         <Banner tone="danger" title="This flow will not run yet">
-          <ul className={styles.problems}>
+          <NoteList>
             {errors.map((one) => (
               <li key={`${one.at}-${one.text}`}>
                 <code>{one.at}</code> — {one.text}
               </li>
             ))}
-          </ul>
+          </NoteList>
         </Banner>
       )}
 
@@ -209,93 +204,98 @@ export const FlowStart = ({
             </Field>
           ))}
 
-          <section className={styles.report} aria-label="What this flow would do">
-            <h4 className={styles.head}>
+          <Card as="section" spacing="compact" radius="sm" aria-label="What this flow would do">
+            <Text as="h4" role="muted" className={styles.head}>
               {report.seats.length === 0
                 ? 'It opens no agents'
                 : `It opens ${report.seats.length} ${report.seats.length === 1 ? 'agent' : 'agents'}`}
-              <span className={styles.cost}>
+              <Text role="muted">
                 {report.seatingTurns} {report.seatingTurns === 1 ? 'turn' : 'turns'} to seat
-              </span>
-            </h4>
-            <ul className={styles.seats}>
-              {report.seats.map((seat) => (
-                <li key={`${seat.role}-${seat.index}`}>
-                  <span className={styles.role}>{seat.role}</span>
-                  <span className={styles.seat}>{seat.seat}</span>
-                  <span className={styles.ceiling}>
-                    <CeilingChip ceiling={flowSeatCeiling(seat.permission)} />
-                  </span>
-                </li>
-              ))}
-            </ul>
+              </Text>
+            </Text>
+            <Text role="muted" as="div">
+              <div className={styles.seats} role="list">
+                {report.seats.map((seat) => (
+                  <div key={`${seat.role}-${seat.index}`} role="listitem">
+                    <Text role="row" className={styles.role}>{seat.role}</Text>
+                    <span className={styles.seat}>{seat.seat}</span>
+                    <Chip
+                      size="sm"
+                      tone={seat.permission === 'publish' ? 'warning' : seat.permission === 'merge' ? 'danger' : 'neutral'}
+                      className={styles.tag}
+                    >
+                      {seat.permission}
+                    </Chip>
+                  </div>
+                ))}
+              </div>
+            </Text>
 
             {report.commands.length > 0 && (
               <>
                 {/* Verbatim, and before anything runs one: a check is the only
                     thing a flow file makes happen on this machine, and a flow
                     arrives through a pull request like any other file. */}
-                <h4 className={styles.head}>It runs these commands</h4>
-                <ul className={styles.commands}>
-                  {report.commands.map((command) => (
-                    <li key={`${command.role}-${command.run}`}>
-                      <span className={styles.role}>{command.role}</span>
-                      <code>{command.run}</code>
-                    </li>
-                  ))}
-                </ul>
+                <Text as="h4" role="muted" className={styles.head}>It runs these commands</Text>
+                <Text role="muted" as="div">
+                  <div className={styles.commands} role="list">
+                    {report.commands.map((command) => (
+                      <div key={`${command.role}-${command.run}`} role="listitem">
+                        <Text role="row" className={styles.role}>{command.role}</Text>
+                        <Text role="muted" ink="primary">
+                          <CodeText as="code" size="inherit">{command.run}</CodeText>
+                        </Text>
+                      </div>
+                    ))}
+                  </div>
+                </Text>
               </>
             )}
 
-            <h4 className={styles.head}>How it would go</h4>
-            <ol className={styles.trace}>
-              {report.trace.map((step) => (
-                <li key={step.n}>
-                  <span className={styles.role}>{step.role}</span>
-                  <span className={styles.count}>
-                    {step.count === 1 ? '1 card' : `${step.count} cards`}
-                  </span>
-                  <span className={styles.answers}>{step.outcomes.join(', ')}</span>
-                  <span className={styles.next}>{step.next ? `→ ${step.next}` : 'ends here'}</span>
-                </li>
-              ))}
-            </ol>
+            <Text as="h4" role="muted" className={styles.head}>How it would go</Text>
+            <Text role="muted" as="div">
+              <div className={styles.trace} role="list">
+                {report.trace.map((step) => (
+                  <div key={step.n} role="listitem">
+                    <Text role="row" className={styles.role}>{step.role}</Text>
+                    <Text role="meta" className={styles.count}>
+                      {step.count === 1 ? '1 card' : `${step.count} cards`}
+                    </Text>
+                    <span className={styles.answers}>{step.outcomes.join(', ')}</span>
+                    <Text role="meta" className={styles.next}>{step.next ? `→ ${step.next}` : 'ends here'}</Text>
+                  </div>
+                ))}
+              </div>
+            </Text>
             {report.seats.length > 0 && (
               /* The number above is the entry fee, not the price, and a cost
                  disclosure that lets that be misread is not one. A seat lives
                  inside its one turn and keeps thinking: measured on the first
                  live runs, 26 to 46 model round trips per seat for one fix
                  and one review round. */
-              <p className={styles.note}>
+              <Note tone="warn" className={styles.note}>
                 That is what opening them costs. Each seat then keeps working inside its one turn —
                 one round trip per step, for as long as the flow runs — so on usage-based pricing the
                 run costs more than the seating.
-              </p>
-            )}
-            {report.seats.length > 0 && (
-              <p className={styles.note}>
-                A role's permission: keeps the meaning it had — its read lets a seat edit and commit,
-                so it reads as Edit — and a flow's seats are asked their ceilings, not held to them:
-                each agent is told, and the desk's own tools refuse anything above it.
-              </p>
+              </Note>
             )}
             {!report.settled && report.trace.length > 0 && (
-              <p className={styles.note}>
+              <Note tone="warn" className={styles.note}>
                 Simulated {report.trace.length} rounds without reaching an end — against these answers
                 it keeps going.
-              </p>
+              </Note>
             )}
-          </section>
+          </Card>
 
           {warnings.length > 0 && (
             <Banner tone="warning" title="Worth reading first">
-              <ul className={styles.problems}>
+              <NoteList>
                 {warnings.map((one) => (
                   <li key={`${one.at}-${one.text}`}>
                     <code>{one.at}</code> — {one.text}
                   </li>
                 ))}
-              </ul>
+              </NoteList>
             </Banner>
           )}
         </>

@@ -1,6 +1,6 @@
 import { isAbsolute, normalize } from 'node:path'
 
-import type { BackupFile, BoardEvidence, EvidenceRecord, Intent, ProjectChecks, TeamState, WireNotification } from '@harnessdesk/protocol'
+import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type Intent, type ProjectChecks, type TeamState, type WireNotification } from '@harnessdesk/protocol'
 
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
@@ -34,6 +34,7 @@ export interface EvidencePort {
   /** Tells every window. */
   push(notification: WireNotification): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
+  canMutateBoard?(board: string): boolean
 }
 
 export interface EvidenceOptions {
@@ -49,6 +50,7 @@ export interface EvidenceOptions {
 }
 
 export class EvidencePlane {
+  readonly #settling = new Map<string, Set<Promise<void>>>()
   readonly store: EvidenceStore
   readonly seats: SeatBook
   readonly seen: CommandsSeen
@@ -82,6 +84,7 @@ export class EvidencePlane {
         cwdOf: (runtime, sessionId) => port.cwdOf(runtime, sessionId),
         changed: (room) => this.announce(room),
         log: (message, details) => port.log(message, details),
+        canMutateBoard: (room) => port.canMutateBoard?.(room) ?? true,
       },
       ...(options.now ? { now: options.now } : {}),
     })
@@ -198,6 +201,13 @@ export class EvidencePlane {
     })
   }
 
+  /** Every fact attributable to a Goal, including Seat-scoped facts without a card. */
+  async factIdsOfGoal(goal: string, project: string): Promise<string[]> {
+    const { lines } = await this.store.read(project, 'evidence')
+    const records = lines.flatMap((line) => line.type === 'evidence' ? [line.record] : [])
+    return factsOfGoal(goal, this.seats.all(), records).map((record) => record.id).sort()
+  }
+
   /** Tells every window a room's evidence moved. Never throws: a fact is kept whether or not a window hears of it. */
   announce(room: string): void {
     void this.board(room).then(
@@ -227,16 +237,35 @@ export class EvidencePlane {
     const board = this.#port.board(room)
     if (!cwd || !board) return
     const seat = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null
-    void (async () => {
+    const work = (async () => {
       const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat }
       if (await this.observer.observe(look)) this.announce(room)
-    })().catch((error: unknown) =>
+    })()
+    let pending = this.#settling.get(room)
+    if (!pending) {
+      pending = new Set()
+      this.#settling.set(room, pending)
+    }
+    pending.add(work)
+    void work.finally(() => {
+      pending!.delete(work)
+      if (pending!.size === 0) this.#settling.delete(room)
+    }).catch(() => undefined)
+    void work.catch((error: unknown) =>
       this.#port.log('a finished card could not be looked at', {
         room,
         card: intent.id,
         error: error instanceof Error ? error.message : String(error),
       }),
     )
+  }
+
+  /** Drains evidence work already attached to one board; it never starts a look or check. */
+  async settledFor(room: string): Promise<void> {
+    await this.seats.settled()
+    await Promise.all([...(this.#settling.get(room) ?? [])])
+    await this.checks.settledFor(room)
+    await this.store.flush()
   }
 
   /**

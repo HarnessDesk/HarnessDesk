@@ -34,13 +34,30 @@
  */
 export {
   Dot,
+  Spinner,
+  type SpinnerProps,
+  StateStrip,
+  StatusSummary,
+  AccessHeader,
+  AccessRail,
+  AccessRailHeader,
+  AccessRailList,
+  AccessRailFooter,
+  AccessDetail,
+  AccessFact,
+  AccessCode,
   Chip,
   type ChipProps,
   Search,
+  NavigationList,
+  Keycap,
+  SearchMatch,
+  NavigationGroupHeader,
   Field,
   type FieldControl,
   FormStack,
   Note,
+  NoteList,
   Segmented,
   PageHead,
   SectionHead,
@@ -55,11 +72,20 @@ export {
   FileButton,
   AccountMark,
   CodeText,
+  Monogram,
+  MetaList,
+  LibraryOperationList,
+  LibraryOperationMark,
+  LibraryReachFace,
+  LibraryReachMark,
   DetailMark,
   PageDescription,
   RowMark,
   RowValue,
   SectionToggle,
+  Text,
+  type TextProps,
+  type TextRole,
   WireText,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'
@@ -85,10 +111,29 @@ export {
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
+export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
+export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
+export { ActionError } from './patterns/ActionError'
+export {
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
+  AppWindowSurface,
+} from './patterns/AppWindow'
+export * from './patterns/InspectorPanel'
+export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
+  ApprovalChoiceHint,
+  ApprovalCode,
   ApprovalDialog,
+  ApprovalFilePath,
+  ApprovalMeta,
+  ApprovalPermissionList,
+  ApprovalQuestionText,
+  ApprovalReason,
   type ApprovalDialogAction,
 } from './patterns/ApprovalDialog'
 export {
@@ -119,10 +164,20 @@ export {
   PopoverOptionMark,
   PopoverStrong,
   PopoverUpdateNote,
+  PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
   type DismissDetail,
 } from './patterns/Popover'
+export {
+  MessageQueueActions,
+  MessageQueueFrame,
+  MessageQueueGrip,
+  MessageQueueHeader,
+  MessageQueueList,
+  MessageQueueRow,
+  MessageQueueTiming,
+} from './patterns/MessageQueue'
 export * from './ui'
 export {
   ChannelMessage,

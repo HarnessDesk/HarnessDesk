@@ -7,6 +7,7 @@ import { shortPath } from '../lib/paths'
 import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
 import { FolderIcon } from './Icons'
+import { ProjectChecks } from './ProjectChecks'
 import {
   BackLink,
   Button,
@@ -146,6 +147,7 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
           <Note>Open this project to start its Agents, or to see each one’s page.</Note>
         )}
       </section>
+      <ProjectChecks root={root} />
     </>
   )
 }

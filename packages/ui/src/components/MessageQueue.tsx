@@ -3,7 +3,18 @@ import { useCallback, useRef, useState } from 'react'
 import { useQueue, useSessionKey, useStore } from '../state/context'
 import { noteKey, wrapContext } from '../lib/context-envelope'
 import { describeQueued, queuedLabel } from '../lib/queue'
-import { Button } from '../design'
+import {
+  Button,
+  MessageQueueActions,
+  MessageQueueFrame,
+  MessageQueueGrip,
+  MessageQueueHeader,
+  MessageQueueList,
+  MessageQueueRow,
+  MessageQueueTiming,
+  Spinner,
+  Text,
+} from '../design'
 import {
   AlertIcon,
   CrossIcon,
@@ -113,14 +124,16 @@ export const MessageQueue = () => {
   const dropAt = drag.over !== null && drag.id !== null ? drag.over : null
 
   return (
-    <div className={styles.queue} data-paused={paused ? '' : undefined}>
-      <div className={styles.header}>
-        {paused ? <AlertIcon className={styles.headerIcon} size={13} /> : <QueueIcon className={styles.headerIcon} size={13} />}
-        <span className={styles.headerText}>
+    <MessageQueueFrame className={styles.queue} paused={paused}>
+      <MessageQueueHeader>
+        <Text role="meta" {...(paused ? { tone: 'warning' as const } : { ink: 'muted' as const })}>
+          {paused ? <AlertIcon size={13} /> : <QueueIcon size={13} />}
+        </Text>
+        <Text role="meta" ink={paused ? 'primary' : 'secondary'} className={styles.headerText}>
           {paused
             ? `${queue.reason ?? 'The turn did not finish.'} ${count} message${count === 1 ? '' : 's'} waiting.`
             : `${count} message${count === 1 ? '' : 's'} waiting — sent when this turn ends`}
-        </span>
+        </Text>
         {paused && (
           <Button
             variant="quiet" size="sm" className={styles.action}
@@ -137,15 +150,14 @@ export const MessageQueue = () => {
         >
           {count === 1 ? 'Discard' : 'Discard all'}
         </Button>
-      </div>
-      <ol className={styles.list}>
+      </MessageQueueHeader>
+      <MessageQueueList>
         {queue.messages.map((message, index) => (
-          <li
+          <MessageQueueRow
             key={message.id}
-            className={styles.row}
-            data-sending={message.state === 'sending' ? '' : undefined}
-            data-dragging={drag.id === message.id ? '' : undefined}
-            data-drop={dropAt === index && drag.id !== message.id ? '' : undefined}
+            sending={message.state === 'sending'}
+            dragging={drag.id === message.id}
+            drop={dropAt === index && drag.id !== message.id}
             draggable={message.state === 'queued'}
             onDragStart={(event) => {
               if (!grabbed.current) {
@@ -174,28 +186,27 @@ export const MessageQueue = () => {
               drop(index)
             }}
           >
-            <span
-              className={styles.grip}
+            <MessageQueueGrip
               aria-hidden
               onMouseDown={() => {
                 grabbed.current = true
               }}
             >
               <GripIcon size={12} />
-            </span>
-            <span className={styles.position} aria-hidden>
-              {message.state === 'sending' ? <span className={styles.spinner} /> : index + 1}
-            </span>
-            <span className={styles.text} title={queuedLabel(message)}>
+            </MessageQueueGrip>
+            <Text role="meta" className={styles.position} aria-hidden>
+              {message.state === 'sending' ? <Spinner size="sm" tone="brand" /> : index + 1}
+            </Text>
+            <Text role="navigation" ink={message.state === 'sending' ? 'muted' : 'primary'} className={styles.text} title={queuedLabel(message)}>
               {queuedLabel(message)}
-            </span>
+            </Text>
             <Carried message={message} />
             <When paused={paused} index={index} state={message.state} />
             {message.state === 'queued' && (
-              <span className={styles.controls}>
+              <MessageQueueActions>
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
+                  variant="ghost" size="icon-sm"
                   disabled={index === 0}
                   aria-label="Move up"
                   title="Send this one earlier"
@@ -205,7 +216,7 @@ export const MessageQueue = () => {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
+                  variant="ghost" size="icon-sm"
                   disabled={index === count - 1}
                   aria-label="Move down"
                   title="Send this one later"
@@ -215,7 +226,7 @@ export const MessageQueue = () => {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
+                  variant="ghost" size="icon-sm"
                   aria-label="Edit"
                   title="Put this back in the composer"
                   onClick={() => edit(message.id)}
@@ -224,19 +235,19 @@ export const MessageQueue = () => {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost" size="icon-sm" className={styles.control}
+                  variant="ghost" size="icon-sm"
                   aria-label="Remove"
                   title="Drop this message"
                   onClick={() => void store.unqueue(message.id, key ?? undefined)}
                 >
                   <CrossIcon size={13} />
                 </Button>
-              </span>
+              </MessageQueueActions>
             )}
-          </li>
+          </MessageQueueRow>
         ))}
-      </ol>
-    </div>
+      </MessageQueueList>
+    </MessageQueueFrame>
   )
 }
 
@@ -259,19 +270,19 @@ const When = ({
   if (state === 'sending') return null
   if (paused) {
     return (
-      <span className={styles.when} data-tone="held">
+      <MessageQueueTiming>
         held
-      </span>
+      </MessageQueueTiming>
     )
   }
   if (index === 0) {
     return (
-      <span className={styles.when} data-tone="next">
+      <MessageQueueTiming tone="next">
         next
-      </span>
+      </MessageQueueTiming>
     )
   }
-  if (index === 1) return <span className={styles.when}>then</span>
+  if (index === 1) return <MessageQueueTiming>then</MessageQueueTiming>
   return null
 }
 
@@ -285,5 +296,5 @@ const Carried = ({ message }: { message: Parameters<typeof queuedLabel>[0] }) =>
   if (files > 0) parts.push(`${files} file${files === 1 ? '' : 's'}`)
   if (view.context.length > 0) parts.push(`${view.context.length} context`)
   if (parts.length === 0) return null
-  return <span className={styles.carried}>{parts.join(' · ')}</span>
+  return <Text role="meta">{parts.join(' · ')}</Text>
 }

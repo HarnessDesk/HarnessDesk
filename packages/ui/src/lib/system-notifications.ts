@@ -35,6 +35,16 @@ export const SYSTEM_NOTIFICATION_KINDS: readonly SystemNotificationKind[] = [
     title: 'Needs you',
     detail: 'An agent asked you a question.',
   },
+  {
+    kind: 'goalNeedsYou',
+    title: 'Goals that need you',
+    detail: 'A Goal changed to work that needs your decision.',
+  },
+  {
+    kind: 'goalReadyToWrap',
+    title: 'Goals ready to wrap',
+    detail: 'A Goal settled and is ready for its receipt.',
+  },
 ]
 
 /** The stored switches, defensively read. Unknown shapes are an empty record. */

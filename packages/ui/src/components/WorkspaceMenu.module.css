@@ -3,20 +3,6 @@
 
 .confirm {
   width: 250px;
-  padding: 8px var(--hd-space-2) var(--hd-space-2); /* desk: canonical One UI System scale */
-}
-
-.confirmTitle {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium);
-  color: var(--hd-foreground);
-}
-
-.confirmText {
-  margin-top: var(--hd-space-1); /* desk: canonical One UI System scale */
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs);
-  color: var(--hd-secondary-foreground);
 }
 
 .confirmActions {

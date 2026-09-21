@@ -10,6 +10,7 @@ import {
   type CheckUnseen,
   type EvidenceRecord,
   type Intent,
+  type GoalView,
   type TeamState,
 } from '@harnessdesk/protocol'
 
@@ -59,7 +60,12 @@ interface Rig {
   facts(): Promise<EvidenceRecord[]>
 }
 
-const rig = async (text: string, options: { cards?: readonly Intent[]; cwdOf?: (runtime: string, id: string) => string | null; root?: string } = {}): Promise<Rig> => {
+const rig = async (text: string, options: {
+  cards?: readonly Intent[]
+  cwdOf?: (runtime: string, id: string) => string | null
+  root?: string
+  canMutateBoard?: (board: string) => boolean
+} = {}): Promise<Rig> => {
   const repo = await makeRepo()
   const state = tempDir('hd-check-runs-state-')
   const markers = tempDir('hd-check-runs-markers-')
@@ -83,6 +89,7 @@ const rig = async (text: string, options: { cards?: readonly Intent[]; cwdOf?: (
       cwdOf: options.cwdOf ?? (() => null),
       push: () => {},
       log: () => {},
+      canMutateBoard: options.canMutateBoard ?? (() => true),
     },
   )
   // Only checks: a run announces the room, and the board read that follows may look at the card's diff.
@@ -92,6 +99,31 @@ const rig = async (text: string, options: { cards?: readonly Intent[]; cwdOf?: (
     )
   return { repo, plane, markers, seenFile, checks, facts }
 }
+
+test('a Goal that starts wrapping during admission refuses immediately before spawn', async () => {
+  let mutable = true
+  const r = await rig('verify: { run: touch MARKERS/verify, timeout: 30 }\n', {
+    canMutateBoard: () => mutable,
+  })
+  const shown = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  const approved = r.plane.seen.approved.bind(r.plane.seen)
+  let release!: () => void
+  let entered!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const reached = new Promise<void>((resolve) => { entered = resolve })
+  r.plane.seen.approved = async (...args) => {
+    entered()
+    await held
+    return approved(...args)
+  }
+  const admitting = r.plane.checks.run('room-1', 1, 'verify', answer(shown))
+  await reached
+  mutable = false
+  release()
+  await assert.rejects(admitting, /Goal is closing or wrapped/)
+  assert.equal(await exists(join(r.markers, 'verify')), false)
+  assert.deepEqual(await r.facts(), [])
+})
 
 /** The refusal a check not yet approved gets, with what it carries. */
 const unseen = async (attempt: Promise<unknown>): Promise<CheckUnseen> => {
@@ -157,6 +189,24 @@ test('the answer runs exactly the command that was shown, once, and the fact it 
   // Approved now: the next run does not ask.
   await r.plane.checks.run('room-1', 1, 'verify')
   await settled(r, 2)
+})
+
+test('an approved check runs again after a commit lands and records the new head', async () => {
+  const r = await rig('verify: { run: touch MARKERS/verify, timeout: 30 }\n')
+  const carried = await unseen(r.plane.checks.run('room-1', 1, 'verify'))
+  await r.plane.checks.run('room-1', 1, 'verify', answer(carried))
+  const [first] = await settled(r, 1)
+  const before = first?.fact.kind === 'check' ? first.fact.at : null
+
+  await r.repo.git('commit', '--allow-empty', '-q', '-m', 'landed after verify')
+  const head = await r.repo.git('rev-parse', 'HEAD')
+  assert.notEqual(head, before)
+
+  assert.deepEqual(await r.plane.checks.run('room-1', 1, 'verify'), { started: true })
+  const facts = await settled(r, 2)
+  assert.equal(facts.length, 2)
+  assert.equal(facts[1]?.fact.kind === 'check' ? facts[1].fact.at : null, head)
+  assert.equal(facts[1]?.fact.kind === 'check' ? facts[1].fact.counted : null, true)
 })
 
 test('what runs is the file as committed: a change in the working copy is not run, and not asked about', async () => {
@@ -548,16 +598,16 @@ test('through the host: the refusal reaches the caller with its code and the com
   await writeFile(join(repo.dir, '.harnessdesk', 'checks.yml'), 'verify: { run: pnpm verify }\n')
   await repo.git('add', '.')
   await repo.git('commit', '-q', '-m', 'checks')
-  const room = (await host.call('team/room/create', { root: repo.dir, name: 'Checks' })) as TeamState
-  await host.call('team/add', { room: room.id, title: 'Fix the build' })
-  await unseen(host.call('evidence/check/run', { room: room.id, card: 1, name: 'verify' }))
+  const room = (await host.call('goal/create', { root: repo.dir, sentence: 'Checks' })) as GoalView
+  await host.call('team/add', { room: room.goal.id, title: 'Fix the build' })
+  await unseen(host.call('evidence/check/run', { room: room.goal.id, card: 1, name: 'verify' }))
 
   const refused = [
-    { room: room.id, card: 1, name: '' },
+    { room: room.goal.id, card: 1, name: '' },
     { room: '', card: 1, name: 'verify' },
-    { room: room.id, card: '1', name: 'verify' },
-    { room: room.id, card: 1, name: 'verify', seen: 42 },
-    { room: room.id, card: 1, name: 'verify', seen: 'pnpm verify', digest: 7 },
+    { room: room.goal.id, card: '1', name: 'verify' },
+    { room: room.goal.id, card: 1, name: 'verify', seen: 42 },
+    { room: room.goal.id, card: 1, name: 'verify', seen: 'pnpm verify', digest: 7 },
   ]
   for (const params of refused) {
     assert.throws(() => parseClientMessage({ id: 1, method: 'evidence/check/run', params }), ValidationError)

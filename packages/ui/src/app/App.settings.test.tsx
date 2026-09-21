@@ -9,6 +9,7 @@ import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 vi.mock('../lib/desktop', () => ({
   desktop: () => undefined,
   isDesktop: () => false,
+  onOpenGoal: () => () => {},
   onOpenSession: () => () => {},
   onShortcut: () => () => {},
   setTraySummary: () => {},

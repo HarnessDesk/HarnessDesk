@@ -1,7 +1,8 @@
-import type * as React from 'react'
+import * as React from 'react'
 
 import { CrossIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
+import { Text } from '../patterns/Settings'
 import { TabsList, TabsTrigger } from './tabs'
 
 /**
@@ -32,11 +33,18 @@ import { TabsList, TabsTrigger } from './tabs'
  * draws a border nobody asked for.
  */
 
-const ToolPane = ({ className, ...props }: React.ComponentProps<'section'>) => (
+const ToolPane = ({
+  className,
+  variant = 'default',
+  ...props
+}: React.ComponentProps<'section'> & { variant?: 'default' | 'integrated' }) => (
   <section
     data-slot="tool-pane"
+    data-variant={variant}
     className={cn(
-      'flex min-h-0 flex-col overflow-hidden rounded-(--hd-radius) border border-(--hd-border) bg-(--hd-card)',
+      'flex min-h-0 flex-col overflow-hidden bg-(--hd-card)',
+      variant === 'default' && 'rounded-(--hd-radius) border border-(--hd-border)',
+      variant === 'integrated' && 'size-full rounded-none border-0',
       className,
     )}
     {...props}
@@ -47,27 +55,43 @@ const ToolPaneHeader = ({
   className,
   icon,
   title,
+  lead,
   subtitle,
   subtitleFace = 'code',
   actions,
+  corner = false,
+  variant = 'default',
+  hint,
   ...props
 }: Omit<React.ComponentProps<'header'>, 'title'> & {
   icon?: React.ReactNode
   title: React.ReactNode
+  /** Interactive content that replaces the title while the accessible name remains on the header. */
+  lead?: React.ReactNode
   subtitle?: React.ReactNode
   /** `code` for a path, a URL, a branch; `text` for a sentence. */
   subtitleFace?: 'code' | 'text'
   actions?: React.ReactNode
+  /** Leave room for the native window controls when this pane owns the corner. */
+  corner?: boolean
+  variant?: 'default' | 'window'
+  hint?: string
 }) => (
   <header
     data-slot="tool-pane-header"
+    data-variant={variant}
+    title={hint}
+    {...(corner ? { 'data-corner': '' } : {})}
     className={cn(
       /* A bar, at the height every other bar in the window stands at. It used
          to reach one by adding its padding to whatever the tallest control in
          it happened to be, which put it at 45 — one off the bar above it, and
          one off the bar in the panel beside it, which was 47 by the same
          arithmetic. */
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border) px-(--hd-bar-pad)',
+      'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
+      variant === 'default' && 'px-(--hd-bar-pad)',
+      variant === 'window' && 'pr-3 pl-4',
+      corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
       className,
     )}
     {...props}
@@ -77,24 +101,28 @@ const ToolPaneHeader = ({
         {icon}
       </span>
     )}
+    {lead != null ? (
+      <div className="flex min-w-0 flex-1 items-center">{lead}</div>
+    ) : (
     <div className="flex min-w-0 flex-1 items-baseline gap-2">
       {/* The title truncates rather than holding its width. `shrink-0` here
           meant that a pane narrow enough — a board inside a room's right half,
           a tool in a three-way split — painted its title straight over its own
           actions, because the flex parent it overflowed was already at zero.
           An ellipsis is a title you can still read the start of. */}
-      <span className="min-w-0 truncate text-sm font-medium">{title}</span>
+      <span className={cn('min-w-0 truncate font-medium', variant === 'window' ? 'text-base' : 'text-sm')}>{title}</span>
       {subtitle != null && (
         <span
           className={cn(
             'min-w-0 flex-1 truncate text-xs text-(--hd-muted-foreground)',
-            subtitleFace === 'code' && 'font-(family-name:--hd-font-code)',
+            subtitleFace === 'code' && 'text-left font-(family-name:--hd-font-code) [direction:rtl]',
           )}
         >
           {subtitle}
         </span>
       )}
     </div>
+    )}
     {actions != null && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
   </header>
 )
@@ -106,9 +134,197 @@ const ToolPaneBody = ({
 }: React.ComponentProps<'div'> & { bleed?: boolean }) => (
   <div
     data-slot="tool-pane-body"
+    {...(bleed ? { 'data-bleed': '' } : {})}
     className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-2.5', className)}
     {...props}
   />
+)
+
+/** A divider between controls for the tool and controls for its panel. */
+const ToolPaneHeaderDivider = () => (
+  <span
+    data-slot="tool-pane-header-divider"
+    aria-hidden
+    className="mx-0.5 h-3.5 w-px shrink-0 self-center bg-(--hd-border-strong)"
+  />
+)
+
+const ToolPaneBar = ({
+  as = 'div',
+  variant,
+  className,
+  ...props
+}: Omit<React.ComponentProps<'div'>, 'role'> & {
+  as?: 'div' | 'form'
+  variant: 'terminal' | 'address' | 'find' | 'annotate'
+}) => {
+  const height = variant === 'terminal' ? 'h-(--hd-control-h)' : variant === 'address' ? 'h-10' : 'h-9'
+  return React.createElement(as, {
+    ...props,
+    'data-slot': 'tool-pane-bar',
+    'data-variant': variant,
+    className: cn(
+      'flex shrink-0 items-center',
+      height,
+      variant === 'terminal'
+        ? 'gap-2 pr-2 pl-[max(var(--hd-space-2-5),var(--titlebar-inset,0px))] text-sm text-(--hd-secondary-foreground) select-none'
+        : 'gap-1 border-b border-(--hd-border) bg-(--hd-card) px-2',
+      className,
+    ),
+  })
+}
+
+const ToolPaneNotice = ({
+  tone = 'neutral',
+  placement = 'top',
+  className,
+  children,
+  ...props
+}: Omit<React.ComponentProps<'div'>, 'role'> & {
+  tone?: 'neutral' | 'warning' | 'danger'
+  placement?: 'top' | 'bottom'
+}) => (
+  <div
+    data-slot="tool-pane-notice"
+    data-placement={placement}
+    className={cn(
+      'flex shrink-0 items-center gap-2.5 bg-(--hd-muted) px-3 py-2 text-base leading-(--hd-line) text-(--hd-secondary-foreground)',
+      placement === 'top' ? 'border-b border-(--hd-border)' : 'border-t border-(--hd-border)',
+      tone === 'warning' && 'bg-(--hd-warning-dim) text-(--hd-warning-ink)',
+      tone === 'danger' && 'bg-(--hd-danger-dim) text-(--hd-danger)',
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </div>
+)
+
+const ToolPaneMessage = ({
+  as = 'p',
+  className,
+  children,
+  ...props
+}: Omit<React.ComponentProps<'p'>, 'role'> & { as?: 'p' | 'div' }) => (
+  React.createElement(as, {
+    ...props,
+    'data-slot': 'tool-pane-message',
+    className: cn('m-0 p-4 text-base leading-(--hd-line) text-(--hd-muted-foreground)', className),
+  }, children)
+)
+
+const ToolPaneEmptyState = ({
+  icon,
+  title,
+  description,
+  over = false,
+}: {
+  icon?: React.ReactNode
+  title: React.ReactNode
+  description?: React.ReactNode
+  over?: boolean
+}) => (
+  <div
+    data-slot="tool-pane-empty"
+    {...(over ? { 'data-over': '' } : {})}
+    className={cn(
+      'flex max-w-full flex-1 flex-col items-center justify-center gap-3 bg-(--hd-card) p-6 text-center',
+      over && 'absolute inset-0',
+    )}
+  >
+    {icon != null && <span className="inline-grid place-items-center text-(--hd-border-emphasis)">{icon}</span>}
+    <Text role="value" ink="secondary">{title}</Text>
+    {description != null && <Text as="p" role="muted" ink="muted" className="m-0 max-w-[40ch]">{description}</Text>}
+  </div>
+)
+
+/** A manual document tab for native guests that must remain mounted. */
+const ToolPaneDocumentTab = ({ className, ...props }: React.ComponentProps<'span'>) => (
+  <span
+    data-slot="tool-pane-document-tab"
+    className={cn(
+      'flex h-(--hd-control-h) shrink-0 cursor-pointer items-center gap-1.5 rounded-(--hd-radius-sm) py-0 pr-1 pl-2 text-base leading-(--hd-line) whitespace-nowrap text-(--hd-secondary-foreground)',
+      'hover:bg-(--hd-hover) hover:text-(--hd-foreground)',
+      'data-[active]:bg-(--hd-muted) data-[active]:text-(--hd-foreground) data-[active]:shadow-[inset_0_0_0_1px_var(--hd-border)]',
+      'data-[dragging]:opacity-40 data-[drop]:shadow-[inset_2px_0_0_var(--hd-accent)]',
+      className,
+    )}
+    {...props}
+  />
+)
+
+const ToolPaneTabViewport = React.forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<'div'> & { edges: { start: boolean; end: boolean } }
+>(({ className, edges, style, ...props }, ref) => {
+  const maskImage = edges.start && edges.end
+    ? 'linear-gradient(to right, transparent, #000 20px, #000 calc(100% - 20px), transparent)'
+    : edges.start
+      ? 'linear-gradient(to right, transparent, #000 20px)'
+      : edges.end
+        ? 'linear-gradient(to right, #000 calc(100% - 20px), transparent)'
+        : undefined
+  return (
+    <div
+      ref={ref}
+      data-slot="tool-pane-tab-viewport"
+      {...(edges.start ? { 'data-more-start': '' } : {})}
+      {...(edges.end ? { 'data-more-end': '' } : {})}
+      className={cn('flex min-w-0 flex-initial items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden', className)}
+      style={{ ...style, maskImage }}
+      {...props}
+    />
+  )
+})
+ToolPaneTabViewport.displayName = 'ToolPaneTabViewport'
+
+const ToolPaneTabIcon = ({ className, ...props }: React.ComponentProps<'img'>) => (
+  <img
+    data-slot="tool-pane-tab-icon"
+    className={cn('size-3.5 shrink-0 rounded-(--hd-radius-2xs) object-contain', className)}
+    {...props}
+  />
+)
+
+const ToolPaneActivity = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div
+    data-slot="tool-pane-activity"
+    className={cn(
+      'absolute right-3 bottom-3 left-3 flex items-center gap-2.5 rounded-(--hd-radius) bg-(--hd-card) px-3 py-2 shadow-[var(--hd-shadow),inset_0_0_0_1px_var(--hd-border-strong)]',
+      className,
+    )}
+    {...props}
+  />
+)
+
+const ToolPaneActivityMark = ({ className, ...props }: React.ComponentProps<'span'>) => (
+  <span
+    data-slot="tool-pane-activity-mark"
+    className={cn('inline-grid size-(--hd-chip-h) shrink-0 place-items-center rounded-full text-(--hd-accent) shadow-[inset_0_0_0_1.5px_var(--hd-accent)]', className)}
+    {...props}
+  />
+)
+
+const ToolPaneToolGroup = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div
+    data-slot="tool-pane-tool-group"
+    className={cn('inline-flex shrink-0 gap-0.5 rounded-(--hd-radius-sm) bg-(--hd-card-raised) p-0.5', className)}
+    {...props}
+  />
+)
+
+const ToolPaneFooter = ({ children, className, ...props }: Omit<React.ComponentProps<'div'>, 'role'>) => (
+  <div
+    data-slot="tool-pane-footer"
+    className={cn('flex shrink-0 items-center gap-2 border-t border-(--hd-border) px-2.5 py-2 text-xs leading-(--hd-line) text-(--hd-muted-foreground)', className)}
+    {...props}
+  >
+    {children}
+  </div>
+)
+
+const ToolPaneReading = ({ className, ...props }: React.ComponentProps<'div'>) => (
+  <div data-slot="tool-pane-reading" className={cn('max-w-3xl px-6 py-4', className)} {...props} />
 )
 
 /**
@@ -182,4 +398,23 @@ const ToolPaneTab = ({
   </span>
 )
 
-export { ToolPane, ToolPaneHeader, ToolPaneBody, ToolPaneTabs, ToolPaneTab }
+export {
+  ToolPane,
+  ToolPaneActivity,
+  ToolPaneActivityMark,
+  ToolPaneBar,
+  ToolPaneBody,
+  ToolPaneDocumentTab,
+  ToolPaneEmptyState,
+  ToolPaneFooter,
+  ToolPaneHeader,
+  ToolPaneHeaderDivider,
+  ToolPaneMessage,
+  ToolPaneNotice,
+  ToolPaneReading,
+  ToolPaneTab,
+  ToolPaneTabIcon,
+  ToolPaneTabViewport,
+  ToolPaneTabs,
+  ToolPaneToolGroup,
+}

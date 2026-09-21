@@ -8,6 +8,10 @@ import {
   type ExtensionEvent,
   type PluginInstance,
   type BackgroundTask,
+  type BoardEvidence,
+  type CheckUnseen,
+  type SeatRecord,
+  type ProjectChecks,
   type AgentEntry,
   type AgentEvent,
   type AgentItem,
@@ -57,6 +61,16 @@ import {
   type CeilingLevel,
   type FlowRun,
   type FlowSeat,
+  type GoalCreateInput,
+  type GoalId,
+  type GoalReceipt,
+  type GoalSeatRequest,
+  type GoalView,
+  type Lane,
+  type LanePreferences,
+  type SessionPointer,
+  type WrapChoices,
+  type WrapPreview,
   type TerminalSize,
   type UiDecoration,
   type UserContent,
@@ -412,6 +426,10 @@ export class AppStore {
           teams.set(state.id, state)
           this.#patch({ teams })
         }
+        if (notification.method === 'goal/changed') {
+          this.#goalEvents += 1
+          this.#keepGoal(notification.params.view)
+        }
         if (notification.method === 'flow/changed') {
           // Whole, for the reason the board is: a round opening changes what
           // every card beside it means.
@@ -420,11 +438,19 @@ export class AppStore {
           flowRuns.set(room, runs)
           this.#patch({ flowRuns })
         }
+        if (notification.method === 'evidence/changed') {
+          const { room, evidence } = notification.params
+          this.#keepBoardEvidence(room, evidence)
+        }
         if (notification.method === 'team/removed') {
           const { room } = notification.params
           const teams = new Map(this.#snapshot.teams)
           teams.delete(room)
-          this.#patch({ teams })
+          const boardEvidence = new Map(this.#snapshot.boardEvidence)
+          boardEvidence.delete(room)
+          const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+          boardEvidenceFailed.delete(room)
+          this.#patch({ teams, boardEvidence, boardEvidenceFailed })
           /* A pane pointed at a room that no longer exists is a surface backed
              by nothing — it would draw the empty board rather than say why. It
              goes with the room, and whatever the pane was replacing comes
@@ -471,11 +497,16 @@ export class AppStore {
       credentialProtection: hello.credentialProtection,
       home: hello.home,
       stateDir: hello.stateDir,
+      goalMigrationPending: hello.goalMigrationPending,
     })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
     await this.loadPreferences()
     await Promise.all([this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
+    // Goal history is additive to the ordinary conversation path. A damaged
+    // migration stays visible as Goal-specific recovery state without making
+    // the rest of the desk unusable.
+    await this.loadGoals().catch(() => undefined)
     // The header strip is up from the first frame, so what every plan has left
     // is loaded once here rather than on the first ⌘U. Cached readings answer
     // most of these without anyone being asked again.
@@ -2362,11 +2393,11 @@ export class AppStore {
     // Closing the panel is "I need the room", not "throw these pages away":
     // the tabs are kept and the next open brings them back. Only a tab's own
     // × discards a page, which is the one gesture that says so.
-    if (view.kind === 'browser') this.#closedBrowser = view
+    if (view.kind === 'browser') this.#closedBrowsers.set(view.profile ?? 'default', view)
   }
 
   /** The tabs the browser had when its pane last closed; see `#release`. */
-  #closedBrowser: BrowserView | null = null
+  readonly #closedBrowsers = new Map<string, BrowserView>()
 
   // -------------------------------------------------------------------- tools
 
@@ -2569,8 +2600,8 @@ export class AppStore {
    * verbs stopped caring — which is what let the browser take the right-hand
    * edge, where a page being *referred to* belongs.
    */
-  #browserPane(): { readonly id: string; readonly view: BrowserView } | null {
-    const found = findViewIn(this.#snapshot.workbench, browserView(BLANK))
+  #browserPane(profile: string | null = null): { readonly id: string; readonly view: BrowserView } | null {
+    const found = findViewIn(this.#snapshot.workbench, browserView(BLANK, profile))
     if (!found) return null
     const id = found.area === 'main' ? found.pane : found.mounted.id
     const view = viewAt(this.#snapshot.workbench, id)
@@ -2619,8 +2650,15 @@ export class AppStore {
    * Chromium freezes a `<webview>` nobody is looking at, so a driven tab
    * hidden behind another would screenshot as a stale frame.
    */
-  openBrowser(url?: string, options: { readonly split?: Split['direction'] | null } = {}): void {
-    const existing = this.#browserPane()
+  openBrowser(
+    url?: string,
+    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null } = {},
+  ): void {
+    const profile = options.profile ?? null
+    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
+      throw new Error('Invalid browser profile.')
+    }
+    const existing = this.#browserPane(profile)
     const sendDriven = (view: BrowserView): BrowserView => {
       if (!url) return view
       const driven = drivenBrowserTab(view)
@@ -2634,9 +2672,9 @@ export class AppStore {
     // A closed panel gets its pages back — including when it is an agent
     // reopening it, which then navigates the driven tab as usual rather
     // than landing on top of whatever the person was reading.
-    const restored = this.#closedBrowser
-    this.#closedBrowser = null
-    const view = sendDriven(restored ?? browserView(BLANK))
+    const restored = this.#closedBrowsers.get(profile ?? 'default')
+    this.#closedBrowsers.delete(profile ?? 'default')
+    const view = sendDriven(restored ?? browserView(BLANK, profile))
     // An explicit split is still a split — `/browser --split` and the pane
     // menu both mean the middle. Otherwise it goes where its definition says,
     // which is the right-hand edge: a page you are working *from* belongs
@@ -2669,9 +2707,10 @@ export class AppStore {
   }
 
   /** Brings the driven tab to the front, before the tools act on it. */
-  focusDrivenBrowserTab(): void {
-    const pane = this.#browserPane()
+  focusDrivenBrowserTab(profile: string | null = null): void {
+    const pane = this.#browserPane(profile)
     if (!pane) return
+    this.revealView(pane.id)
     // A browser hidden behind another pane's expansion cannot paint, and a
     // frozen webview screenshots as a stale frame — the tools are about to
     // look, so the expansion ends first.
@@ -2713,17 +2752,19 @@ export class AppStore {
    * Pages closed by their own ×, newest first — what ⌘⇧T puts back. Bounded,
    * because this is an undo for a slip, not a second history.
    */
-  #closedTabs: BrowserTab[] = []
+  readonly #closedTabs = new Map<string, BrowserTab[]>()
 
   /** Puts back the last tab closed by its ×, on the page it was on. */
   reopenClosedBrowserTab(paneId: PaneId): void {
-    const last = this.#closedTabs.pop()
+    const view = viewAt(this.#snapshot.workbench, paneId)
+    if (view?.kind !== 'browser') return
+    const last = this.#closedTabs.get(view.profile ?? 'default')?.pop()
     if (!last) return
     this.#patchBrowser(paneId, (view) => addBrowserTab(view, last.url))
   }
 
   get hasClosedBrowserTabs(): boolean {
-    return this.#closedTabs.length > 0
+    return (this.#closedTabs.get('default')?.length ?? 0) > 0
   }
 
   /** Closing the last tab closes the pane, the way closing a window's last tab does. */
@@ -2734,12 +2775,17 @@ export class AppStore {
     const closing = viewAt(this.#snapshot.workbench, paneId)
     if (closing?.kind === 'browser') {
       const tab = closing.tabs.find((entry) => entry.id === tabId)
-      if (tab && tab.url !== BLANK) this.#closedTabs = [...this.#closedTabs.slice(-9), tab]
+      if (tab && tab.url !== BLANK) {
+        const key = closing.profile ?? 'default'
+        this.#closedTabs.set(key, [...(this.#closedTabs.get(key) ?? []).slice(-9), tab])
+      }
     }
     this.#patchBrowser(paneId, (view) => removeBrowserTab(view, tabId))
     // That last tab was closed on purpose, so unlike closing the panel there
     // is nothing to bring back — `#release` will have kept it otherwise.
-    if (!this.#browserPane()) this.#closedBrowser = null
+    if (closing?.kind === 'browser' && !this.#browserPane(closing.profile ?? null)) {
+      this.#closedBrowsers.delete(closing.profile ?? 'default')
+    }
   }
 
   /** Drags a tab along the strip, as every browser lets you. */
@@ -2771,8 +2817,8 @@ export class AppStore {
     this.#patchBrowser(paneId, (view) => patchBrowserTab(view, tabId, { device }))
   }
 
-  closeBrowser(): void {
-    const existing = this.#browserPane()
+  closeBrowser(profile: string | null = null): void {
+    const existing = this.#browserPane(profile)
     if (!existing) return
     // A pane in the middle or a view in a dock: `closePane` knows only the
     // split tree, and the browser has opened on the right since the panel
@@ -3044,7 +3090,8 @@ export class AppStore {
     const saved = readWorkbench(raw)
     // Pages belong to the project they were opened for: a browser closed in
     // one workspace must not reappear in the next one.
-    this.#closedBrowser = null
+    this.#closedBrowsers.clear()
+    this.#closedTabs.clear()
     // The terminals of a document written before the bottom panel existed. The
     // processes are still running on the host, so they are re-docked rather
     // than dropped — see `strayTerminals`.
@@ -3456,20 +3503,6 @@ export class AppStore {
     await this.transport.request('team/add', { room, ...args })
   }
 
-  /** Names a goal. Creates the heading and nothing else — the work follows. */
-  async teamPlan(room: string, goal: string): Promise<void> {
-    await this.transport.request('team/plan', { room, goal })
-  }
-
-  /**
-   * Puts a finished goal away. The host refuses while anything on it is live
-   * and says what — returned rather than thrown, because it is an answer the
-   * person needs to read, not a failure.
-   */
-  async teamWrap(room: string, plan: number): Promise<string> {
-    return (await this.transport.request('team/wrap', { room, plan })) as string
-  }
-
   /**
    * The user's verbs over an intent; the host referees, so these always win.
    *
@@ -3560,28 +3593,128 @@ export class AppStore {
     return await this.transport.request('team/peers', { room })
   }
 
-  /**
-   * Starts a room in a project, and shows it.
-   *
-   * Nothing makes a room implicitly. Being open in a folder used to be enough
-   * to share a board, which is why "New session → A room" opened a surface
-   * that had never been created and could not be listed anywhere: there was
-   * no object to list. A room exists because somebody made one and named it.
-   */
-  async createRoom(root: string, name: string): Promise<string> {
-    const state = (await this.transport.request('team/room/create', {
-      root,
-      name,
-    })) as TeamState
+  // ------------------------------------------------------------------- Goals
+
+  /** Live events invalidate list snapshots that began before them. */
+  #goalEvents = 0
+  #goalLoads = 0
+
+  #keepGoal(view: GoalView): void {
+    const current = this.#snapshot.goals.get(view.goal.id)
+    if (current && current.goal.revision > view.goal.revision) return
+    const goals = new Map(this.#snapshot.goals)
     const teams = new Map(this.#snapshot.teams)
-    teams.set(state.id, state)
-    this.#patch({ teams })
-    this.openTeamRoom(state.id)
-    return state.id
+    goals.set(view.goal.id, view)
+    teams.set(view.goal.id, view.board)
+    this.#patch({ goals, teams, goalProblem: null })
   }
 
-  async renameRoom(room: string, name: string): Promise<void> {
-    await this.transport.request('team/room/rename', { room, name })
+  async loadGoals(root?: string): Promise<void> {
+    const generation = ++this.#goalLoads
+    const events = this.#goalEvents
+    try {
+      const views = await this.transport.request('goal/list', root ? { root } : {})
+      if (generation !== this.#goalLoads || events !== this.#goalEvents) return
+      const goals = new Map(this.#snapshot.goals)
+      const teams = new Map(this.#snapshot.teams)
+      for (const [id, existing] of goals) {
+        if (root === undefined || existing.goal.root === root) {
+          goals.delete(id)
+          teams.delete(id)
+        }
+      }
+      for (const view of views) {
+        const existing = this.#snapshot.goals.get(view.goal.id)
+        const kept = existing && existing.goal.revision > view.goal.revision ? existing : view
+        goals.set(kept.goal.id, kept)
+        teams.set(kept.goal.id, kept.board)
+      }
+      this.#patch({ goals, teams, goalProblem: null })
+    } catch (error) {
+      if (generation === this.#goalLoads) this.#patch({ goalProblem: describe(error) })
+      throw error
+    }
+  }
+
+  async #refreshGoal(goal: GoalId): Promise<GoalView> {
+    const view = await this.transport.request('goal/read', { goal })
+    this.#keepGoal(view)
+    return view
+  }
+
+  async createGoal(input: Omit<GoalCreateInput, 'origin'>): Promise<GoalView> {
+    const view = await this.transport.request('goal/create', input)
+    this.#keepGoal(view)
+    return view
+  }
+
+  async updateGoal(
+    goal: GoalId,
+    revision: number,
+    patch: { readonly sentence?: string; readonly dependsOn?: readonly GoalId[] },
+  ): Promise<GoalView> {
+    const view = await this.transport.request('goal/update', { goal, revision, ...patch })
+    this.#keepGoal(view)
+    return view
+  }
+
+  async seatGoal(input: GoalSeatRequest): Promise<SeatRecord> {
+    const seat = await this.transport.request('goal/seat', input)
+    await this.#refreshGoal(input.goal)
+    return seat
+  }
+
+  async assignGoal(goal: GoalId, card: number, session: SessionPointer): Promise<SeatRecord> {
+    const seat = await this.transport.request('goal/assign', { goal, card, session })
+    await this.#refreshGoal(goal)
+    return seat
+  }
+
+  async releaseGoal(goal: GoalId, seat: string): Promise<void> {
+    await this.transport.request('goal/release', { goal, seat })
+    await this.#refreshGoal(goal)
+  }
+
+  async previewGoalWrap(goal: GoalId, choices: WrapChoices): Promise<WrapPreview> {
+    return this.transport.request('goal/preview', { goal, choices })
+  }
+
+  async wrapGoal(goal: GoalId, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
+    const receipt = await this.transport.request('goal/wrap', { goal, stamp, choices })
+    await this.#refreshGoal(goal)
+    return receipt
+  }
+
+  async readGoalReceipt(goal: GoalId): Promise<GoalReceipt | null> {
+    return this.transport.request('goal/receipt', { goal })
+  }
+
+  async loadLanePreferences(): Promise<void> {
+    const [lanePreferences, lanes] = await Promise.all([
+      this.transport.request('lane/preferences', {}),
+      this.transport.request('lane/list', {}),
+    ])
+    this.#patch({ lanePreferences, lanes })
+  }
+
+  async saveLanePreferences(prefs: LanePreferences): Promise<void> {
+    const lanePreferences = await this.transport.request('lane/preferences/set', prefs)
+    this.#patch({ lanePreferences })
+  }
+
+  async releaseLane(lane: string): Promise<Lane> {
+    const released = await this.transport.request('lane/release', { lane })
+    this.#patch({ lanes: this.#snapshot.lanes.map((entry) => entry.id === released.id ? released : entry) })
+    return released
+  }
+
+  async ackGoalMigration(): Promise<void> {
+    await this.transport.request('goal/migration/ack', {})
+    this.#patch({ goalMigrationPending: false })
+  }
+
+  openGoal(goal: string): void {
+    this.openDefaultView({ kind: 'room', room: goal })
   }
 
   // ------------------------------------------------------------------- flows
@@ -3649,22 +3782,67 @@ export class AppStore {
     }
   }
 
-  /**
-   * Puts a room away for good, and returns what went with it so the surface
-   * can say so. The conversations that were in it are untouched.
-   */
-  async deleteRoom(room: string): Promise<{
-    name: string
-    intents: number
-    members: number
-    messages: number
-  }> {
-    return (await this.transport.request('team/room/delete', { room })) as {
-      name: string
-      intents: number
-      members: number
-      messages: number
+  // ------------------------------------------------------------------ evidence
+
+  async loadBoardEvidence(room: string): Promise<void> {
+    if (!this.#snapshot.boardEvidence.has(room) && this.#snapshot.boardEvidenceFailed.has(room)) {
+      const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+      boardEvidenceFailed.delete(room)
+      this.#patch({ boardEvidenceFailed })
     }
+    try {
+      this.#keepBoardEvidence(room, (await this.transport.request('evidence/board', { room })) as BoardEvidence)
+    } catch {
+      // A refresh failure leaves established facts intact. A first-read
+      // failure is different: without any answer, the board must say it does
+      // not know rather than turn absence into the factual “nothing checked”.
+      if (!this.#snapshot.boardEvidence.has(room)) {
+        const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+        boardEvidenceFailed.add(room)
+        this.#patch({ boardEvidenceFailed })
+      }
+    }
+  }
+
+  async runCheck(
+    room: string,
+    card: number,
+    name: string,
+    answer?: { readonly seen: string; readonly digest: string },
+  ): Promise<{ readonly kind: 'started' } | { readonly kind: 'unseen'; readonly unseen: CheckUnseen }> {
+    try {
+      await this.transport.request('evidence/check/run', {
+        room,
+        card,
+        name,
+        ...(answer !== undefined ? { seen: answer.seen, digest: answer.digest } : {}),
+      })
+      return { kind: 'started' }
+    } catch (error) {
+      const refusal = error as { code?: unknown; data?: unknown }
+      if (refusal.code === 'checkUnseen' && refusal.data) {
+        return { kind: 'unseen', unseen: refusal.data as CheckUnseen }
+      }
+      throw error
+    }
+  }
+
+  async seatRecord(runtime: RuntimeId, sessionId: SessionId): Promise<SeatRecord | null> {
+    return (await this.transport.request('evidence/seat', { runtime, sessionId })) as SeatRecord | null
+  }
+
+  async projectChecks(project: string): Promise<ProjectChecks> {
+    return (await this.transport.request('evidence/checks', { project })) as ProjectChecks
+  }
+
+  #keepBoardEvidence(room: string, evidence: BoardEvidence): void {
+    const drawn = this.#snapshot.boardEvidence.get(room)
+    if (drawn && drawn.stamp > evidence.stamp) return
+    const boardEvidence = new Map(this.#snapshot.boardEvidence)
+    boardEvidence.set(room, evidence)
+    const boardEvidenceFailed = new Set(this.#snapshot.boardEvidenceFailed)
+    boardEvidenceFailed.delete(room)
+    this.#patch({ boardEvidence, boardEvidenceFailed })
   }
 
   /** Closes every pane and panel showing one room, wherever they are docked. */
@@ -3677,16 +3855,6 @@ export class AppStore {
     for (const entry of mountedViewsIn(this.#snapshot.workbench)) {
       if (showing(entry.mounted.view)) this.closeView(entry.mounted.id)
     }
-  }
-
-  /** Puts a conversation in a room. The host refuses one from another project. */
-  async joinRoom(room: string, runtime: RuntimeId, sessionId: SessionId): Promise<void> {
-    await this.transport.request('team/room/join', { room, runtime, sessionId })
-  }
-
-  /** Takes a conversation out of a room; it keeps running, on its own. */
-  async leaveRoom(room: string, runtime: RuntimeId, sessionId: SessionId): Promise<void> {
-    await this.transport.request('team/room/leave', { room, runtime, sessionId })
   }
 
   /** Asks the shell to open a settings page — and a thing inside it — or clears the request once it has. */

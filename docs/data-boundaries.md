@@ -20,11 +20,25 @@ Two things follow from the promise and apply to every section below:
 ## Local — the default, and today the only one
 
 Nothing leaves. Agent credentials, API keys, vendor sessions, source, terminal
-output, diffs, transcripts, browser state and the audit log are files on your
+output, diffs, transcripts, browser state, the audit log, and what the desk
+observed — every Seat it kept and every fact it recorded — are files on your
 disk, under `~/.harnessdesk` and your own repositories. The host binds a
 loopback socket the renderer talks to; nothing listens on a routable address.
+To see a card's pull request and its CI, the desk asks your forge with your
+own `gh`, in the card's checkout — the same tool, and the same account, the
+desk already publishes with.
 
 **Retention:** yours. Deleting the folder deletes it.
+
+### Goal backups carry history, not authority
+
+A HarnessDesk backup includes Goal documents, receipts, migration metadata and
+lane descriptors after pending Goal writes settle. It does not include browser
+cookies or storage, browser profile directories, worktree contents, live Seat
+ownership, port reservations or the machine's lane preferences. On restore,
+Goals are stamped as imported read-only history, operation journals are cleared,
+and lane descriptors become released archives with no Seat or browser binding.
+Nothing restored starts an agent, reserves a port or replays a wrap.
 
 ---
 

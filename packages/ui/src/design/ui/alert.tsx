@@ -30,6 +30,10 @@ const alertVariants = cva(
   'relative flex w-full items-start gap-2.5 rounded-(--hd-radius) border px-3 py-2.5 text-base [&>svg]:mt-0.5 [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
+      variant: {
+        default: '',
+        soft: '',
+      },
       tone: {
         neutral: 'border-(--hd-border) bg-(--hd-card) [&>svg]:text-(--hd-muted-foreground)',
         info: 'border-(--hd-tint-sky-edge)/40 bg-(--hd-tint-sky-fill) [&>svg]:text-(--hd-tint-sky-ink)',
@@ -38,17 +42,25 @@ const alertVariants = cva(
         danger: 'border-(--hd-danger)/40 bg-(--hd-danger-dim) [&>svg]:text-(--hd-danger-ink)',
       },
     },
-    defaultVariants: { tone: 'neutral' },
+    compoundVariants: [
+      {
+        variant: 'soft',
+        tone: 'neutral',
+        class: 'border-(--hd-border-strong) bg-(--hd-muted)',
+      },
+    ],
+    defaultVariants: { variant: 'default', tone: 'neutral' },
   },
 )
 
 const Alert = ({
   className,
+  variant,
   tone,
   ...props
 }: React.ComponentProps<'div'> & VariantProps<typeof alertVariants>) => (
   /* No default `role`: see above. `props` carries the caller's, or nothing. */
-  <div data-slot="alert" className={cn(alertVariants({ tone }), className)} {...props} />
+  <div data-slot="alert" data-variant={variant ?? 'default'} className={cn(alertVariants({ variant, tone }), className)} {...props} />
 )
 
 const AlertTitle = ({ className, ...props }: React.ComponentProps<'div'>) => (

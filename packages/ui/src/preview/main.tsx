@@ -5,7 +5,10 @@ import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@har
 
 import { BringHome } from '../components/BringHome'
 import { Conversation } from '../components/Conversation'
-import { ChangesView, TrajectoryView } from '../components/Details'
+import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
+import { ObservedDialog } from '../components/EvidenceChips'
+import { RunCheck } from '../components/RunCheck'
+import { ProjectChecks } from '../components/ProjectChecks'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -35,6 +38,8 @@ import {
   store,
 } from './harness'
 import { PREVIEW_ROOT } from './sidebar-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
+import { PREVIEW_GOAL } from './goal-fixture'
 import '../styles/app.css'
 
 /**
@@ -176,7 +181,15 @@ const Preview = () => {
   // rail writes back here too, and it offers every page.
   const [settingsSection, setSettingsSection] = useState<Section>('general')
   const [dialog, setDialog] = useState<
-    'off' | 'remove' | 'bring back' | 'sign in' | 'new session' | 'seat sheet' | 'save as agent'
+    | 'off'
+    | 'remove'
+    | 'bring back'
+    | 'sign in'
+    | 'new session'
+    | 'seat sheet'
+    | 'save as agent'
+    | 'what was observed'
+    | 'run a check'
   >('off')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
@@ -217,7 +230,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check'] as const}
           onChange={setDialog}
         />
       </div>
@@ -226,6 +239,23 @@ const Preview = () => {
           screen here that is *only* ever a dialog — so at a narrow window
           nothing else on the page shows what it does. */}
       {dialog === 'sign in' && <SignIn onClose={() => setDialog('off')} />}
+      {dialog === 'what was observed' && (
+        <ObservedDialog
+          id={1}
+          title={EVIDENCE_TEAM.intents[0]?.title ?? ''}
+          card={EVIDENCE_BOARD.cards[0]}
+          onClose={() => setDialog('off')}
+        />
+      )}
+      {dialog === 'run a check' && (
+        <RunCheck
+          unseen={PREVIEW_UNSEEN}
+          card={2}
+          busy={false}
+          onRun={() => setDialog('off')}
+          onCancel={() => setDialog('off')}
+        />
+      )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
       {dialog === 'seat sheet' && (
         <SeatSheet
@@ -258,6 +288,11 @@ const Preview = () => {
       <Frame title="Board — the pane, with work on it">
         <div className="h-[560px]">
           <TeamBoardPane room={PREVIEW_ROOM} />
+        </div>
+      </Frame>
+      <Frame title="Board — what the desk observed">
+        <div className="h-[640px]">
+          <TeamBoardPane room={EVIDENCE_ROOM} />
         </div>
       </Frame>
       <Frame title="Board — the empty state">
@@ -398,6 +433,24 @@ const Preview = () => {
             </PaneProvider>
           </div>
         </Frame>
+        <Frame title="Side panel — Agents, with the Seat record">
+          <div className="h-[420px]">
+            <PaneProvider
+              scope={{
+                paneId: 'preview' as never,
+                view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } as never,
+                sessionKey: PREVIEW_SESSION_KEY,
+              }}
+            >
+              <AgentsView />
+            </PaneProvider>
+          </div>
+        </Frame>
+        <Frame title="Project — its checks">
+          <div className="p-4">
+            <ProjectChecks root={PREVIEW_ROOT} />
+          </div>
+        </Frame>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
@@ -419,9 +472,9 @@ const Preview = () => {
             />
           </div>
         </Frame>
-        <Frame title="Team room — the roster, and the channel">
+        <Frame title="Goal — state, roster and channel">
           <div className="h-[540px]">
-            <TeamRoomPane room={PREVIEW_ROOM} />
+            <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
           </div>
         </Frame>
         <div className="flex min-w-0 flex-col gap-4">

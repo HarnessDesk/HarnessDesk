@@ -8,6 +8,7 @@ import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/expo
 import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
 import { Agents } from './Agents'
+import { SeatRecordBlock } from './SeatRecordBlock'
 import { DiffView } from './Diff'
 import { FileIcon, ReviewIcon } from './Icons'
 import { Button } from '../design'
@@ -214,6 +215,7 @@ export const AgentsView = () => {
   const [foot, onFoot] = useFoot()
   return (
     <InspectorFrame find="Filter sub-agents" query={query} onQuery={setQuery} foot={foot}>
+      <SeatRecordBlock />
       <Agents query={query} onFoot={onFoot} />
     </InspectorFrame>
   )
@@ -390,7 +392,7 @@ const Changes = ({
                   tooltip={file.path}
                   trail={<Counts added={count.added} removed={count.removed} />}
                 />
-                <div className={styles.inline}>
+                <div className="pt-1 pb-2">
                   <DiffView diff={file.diff} />
                 </div>
               </div>
@@ -431,7 +433,7 @@ const Changes = ({
                 {...(count ? { trail: <Counts added={count.added} removed={count.removed} /> } : {})}
               />
               {selected === file.path && (
-                <div className={styles.inline}>
+                <div className="pt-1 pb-2">
                   <div className={styles.fileActions}>
                     <Button
                       type="button"

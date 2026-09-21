@@ -82,18 +82,18 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     peers: () => port.peers,
     // The fake resolves like the host: the workspace containing the folder.
     rootOf: async (cwd) => (cwd === '/repo' || cwd.startsWith('/repo/') ? '/repo' : null),
-    send: async (runtime, sessionId, text, from) => {
+    send: async (runtime, sessionId, text, _allowed, from) => {
       if (port.gate) await port.gate
       if (port.failSends > 0) {
         port.failSends -= 1
         throw new Error('backend hiccup')
       }
       port.sent.push({ runtime, sessionId, text })
-      port.from.push(from)
+      port.from.push(from ?? null)
     },
-    steer: async (runtime, sessionId, text, from) => {
+    steer: async (runtime, sessionId, text, _allowed, from) => {
       port.steered.push({ runtime, sessionId, text })
-      port.from.push(from)
+      port.from.push(from ?? null)
     },
     changed: (state) => port.changed.push(state),
     removed: (room) => port.removed.push(room),

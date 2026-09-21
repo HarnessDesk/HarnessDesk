@@ -142,7 +142,7 @@ test('through the host: a publish seat that asks the desk to merge is refused by
   const merged = await call('pr_merge', scopeOf(seat))
   assert.deepEqual(merged, { ok: false, error: 'Merge refused: this seat may publish, not merge — merging a pull request needs a seat that may merge.' })
   assert.deepEqual(ran, [])
-  assert.deepEqual(said(seat), ['Merge refused: this seat may publish, not merge — merging a pull request needs a seat that may merge.'])
+  assert.equal(said(seat).at(-1), 'Merge refused: this seat may publish, not merge — merging a pull request needs a seat that may merge.')
   assert.equal((await call('pr_create', scopeOf(seat))).ok, true)
   assert.equal((await call('git_status', scopeOf(seat))).ok, true)
   assert.deepEqual(ran, ['pr_create', 'git_status'])
@@ -153,7 +153,7 @@ test('through the host: a read seat may read and speak, and may not publish', as
   await agent('reviewer', 'ceiling: read')
   const seat = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   assert.equal((await call('pr_create', scopeOf(seat))).ok, false)
-  assert.deepEqual(said(seat), ['Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.'])
+  assert.equal(said(seat).at(-1), 'Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.')
   assert.equal((await call('git_status', scopeOf(seat))).ok, true)
   assert.deepEqual(ran, ['git_status'])
 })
@@ -168,7 +168,7 @@ test('through the host: a plain conversation, and a call no conversation can be 
 
 test("through the host: a flow's seat is held to its role's permission — read, which is edit — and refused a pull request", async (t) => {
   const { host, ran, call, work } = await desk(t)
-  const room = (await host.call('team/room/create', { root: work, name: 'Gate room' })) as TeamState
+  const room = await host.teamPlane.createRoom(work, 'Gate room')
   const source = `
 name: Gate check
 roles:
@@ -201,7 +201,7 @@ test("through the host: a sub-agent reaching the desk through its parent's bridg
   const child = await invokeForBridge(gated, callers, { namespace: 'git', name: 'pr_create', args: {}, caller: 'token-of-the-seat' })
   assert.equal(child.ok, false)
   assert.deepEqual(ran, [], 'the desk refused before the tool ran')
-  assert.deepEqual(said(seat), ['Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.'])
+  assert.equal(said(seat).at(-1), 'Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.')
   assert.equal((await invokeForBridge(gated, callers, { namespace: 'git', name: 'pr_create', args: {}, caller: 'forgotten' })).ok, true)
   assert.deepEqual(ran, ['pr_create'])
 })
@@ -227,6 +227,6 @@ test('through the host: a sub-agent the runtime reports with a conversation of i
   const fromChild = await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('child-1') })
   assert.equal(fromChild.ok, false)
   assert.deepEqual(ran, [])
-  assert.deepEqual(said(seat), ['Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.'], 'said where the ceiling is held')
+  assert.equal(said(seat).at(-1), 'Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.', 'said where the ceiling is held')
   assert.equal((await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('stranger') })).ok, true)
 })

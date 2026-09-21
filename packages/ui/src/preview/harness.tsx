@@ -4,15 +4,15 @@ import {
   runtimeId,
   sessionKey,
   type AgentEntry,
-  type CeilingLevel,
-  type CeilingUpdate,
+  type CheckUnseen,
   type FlowSeat,
   type MachineSeating,
+  type ProjectChecks,
   type ModelInfo,
   type OptionValue,
   type RuntimeInfo,
+  type SeatRecord,
   type SeatPlan,
-  type SeatCeiling,
   type Session,
   type SessionId,
   type SessionKey,
@@ -57,7 +57,9 @@ import {
   previewWorkspaces,
 } from './sidebar-fixture'
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
+import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
+import { PREVIEW_GOALS } from './goal-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -611,9 +613,8 @@ const agentEntry = (
   name: string,
   origin: AgentEntry['origin'],
   description: string,
-  ceiling: CeilingLevel = 'read',
+  permission: 'read' | 'publish' = 'read',
   shadows: AgentEntry['shadows'] = [],
-  ceilingFrom: NonNullable<AgentEntry['definition']>['ceilingFrom'] = 'ceiling',
 ): AgentEntry => ({
   id,
   origin,
@@ -630,9 +631,8 @@ const agentEntry = (
     id,
     name,
     description,
-    ceiling,
-    ceilingFrom,
-    answers: ceiling === 'read' ? ['approve', 'request-changes'] : [],
+    permission,
+    answers: permission === 'read' ? ['approve', 'request-changes'] : [],
     produces: ['review'],
     skills: [],
     prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
@@ -644,7 +644,7 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
     { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
   ]),
-  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.', 'edit', [], 'permission'),
+  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.'),
   agentEntry('implementer', 'Implementer', 'builtin', 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.', 'publish'),
   agentEntry('security-reviewer', 'Security reviewer', 'builtin', 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'),
   {
@@ -658,17 +658,11 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   },
 ]
 
-const takenOn = (
-  id: string,
-  runtime: string,
-  label: string,
-  ceiling: SeatCeiling = { level: 'read', hold: 'asked' },
-): SeatPlan => ({
+const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
   blocked: null,
-  ceiling,
   candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
@@ -680,7 +674,6 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: 0,
       blocked: null,
-      ceiling: { level: 'read', hold: 'asked' },
       candidates: [
         {
           seat: { runtime: 'cursor', model: 'gamma-pro' },
@@ -708,8 +701,8 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol', { level: 'edit', hold: 'held' })],
-  ['implementer', takenOn('implementer', 'claude', 'Beta', { level: 'edit', hold: 'asked' })],
+  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
+  ['implementer', takenOn('implementer', 'claude', 'Beta')],
   [
     'security-reviewer',
     {
@@ -717,7 +710,6 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: null,
       blocked: null,
-      ceiling: null,
       candidates: [
         { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
         { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
@@ -731,14 +723,13 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', ceiling: null, candidates: [] }],
+  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', candidates: [] }],
 ])
 
 /** The smallest store the mounted screens call. */
 class PreviewStore {
   #snapshot: AppSnapshot
   #listeners = new Set<() => void>()
-  #unheldCeilings: 'seat' | 'refuse' = 'seat'
 
   constructor(seed: Partial<AppSnapshot> = {}) {
     this.#snapshot = {
@@ -751,16 +742,7 @@ class PreviewStore {
       workspace: previewWorkspace,
       workspaces: previewWorkspaces,
       runtimes: [
-        {
-          ...runtime('codex', 'Alpha'),
-          ceilings: {
-            read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
-            edit: {
-              settings: [{ option: 'permissions', value: ':workspace' }],
-              how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
-            },
-          },
-        } as RuntimeInfo,
+        runtime('codex', 'Alpha'),
         runtime('claude', 'Beta'),
         runtime('cursor', 'Gamma'),
       ],
@@ -894,7 +876,11 @@ class PreviewStore {
         [PREVIEW_ROOM, TEAM],
         [EMPTY_ROOM, { ...TEAM, id: EMPTY_ROOM, name: 'Empty room', intents: [], plans: [] }],
         [EDGE_ROOM, EDGE_TEAM],
+        [EVIDENCE_ROOM, EVIDENCE_TEAM],
+        ...PREVIEW_GOALS.map((view) => [view.goal.id, view.board] as const),
       ]),
+      goals: new Map(PREVIEW_GOALS.map((view) => [view.goal.id, view])),
+      boardEvidence: new Map([[EVIDENCE_ROOM, EVIDENCE_BOARD]]),
       /*
        * Every session here carries `turns`, and that is not optional padding.
        * `isBusy(session)` reads `session.turns.length`, so a `Session` cast
@@ -914,8 +900,7 @@ class PreviewStore {
               agent: 'code-reviewer',
               // Not the roster's digest: the file has moved on since this was handed over.
               briefDigest: 'digest-when-it-started',
-              ceiling: { level: 'read', hold: 'held' },
-              ceilingNote: 'Read-only sandbox; anything past it asks you',
+              permission: 'read',
               seatLabel: 'Alpha · GPT-5.6 Sol',
               passedOver: [
                 { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
@@ -1102,6 +1087,15 @@ class PreviewStore {
     if (!team) return
     this.patch({ teams: new Map([[PREVIEW_ROOM, mutate(team)]]) } as Partial<AppSnapshot>)
   }
+
+  loadBoardEvidence = async (): Promise<void> => {}
+  runCheck = async (): Promise<{ readonly kind: 'unseen'; readonly unseen: CheckUnseen }> => ({
+    kind: 'unseen',
+    unseen: PREVIEW_UNSEEN,
+  })
+  seatRecord = async (runtime: string, sessionId: string): Promise<SeatRecord | null> =>
+    sessionKey(runtime, sessionId) === PREVIEW_SESSION_KEY ? PREVIEW_SEAT : null
+  projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
 
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })
@@ -1342,49 +1336,6 @@ class PreviewStore {
     if (!seating) return
     const entries = seating.entries.filter((entry) => entry.id !== id)
     this.patch({ seating: { ...seating, entries: seats ? [...entries, { id, seats }] : entries } })
-  }
-  loadUnheldCeilings = async (): Promise<'seat' | 'refuse'> => this.#unheldCeilings
-  saveUnheldCeilings = async (watched: 'seat' | 'refuse'): Promise<void> => {
-    this.#unheldCeilings = watched
-  }
-  previewCeiling = async (entry: AgentEntry, level: CeilingLevel): Promise<CeilingUpdate> => {
-    if (entry.origin === 'builtin' || !entry.definition) throw new Error('Customize this Agent before updating it.')
-    const before = entry.definition.ceilingFrom === 'permission' ? `permission: ${entry.definition.ceiling}` : null
-    const after = `ceiling: ${level}`
-    const oldLine = before === null ? [] : [`-${before}`]
-    return {
-      path: entry.path,
-      digest: `preview-${entry.digest ?? 'missing'}-${level}`,
-      line: 3,
-      before,
-      after,
-      diff: [
-        '--- a/AGENT.md',
-        '+++ b/AGENT.md',
-        before === null ? '@@ -2,0 +3 @@' : '@@ -3 +3 @@',
-        ...oldLine,
-        `+${after}`,
-        '',
-      ].join('\n'),
-    }
-  }
-  writeCeiling = async (entry: AgentEntry, level: CeilingLevel, digest: string): Promise<AgentEntry> => {
-    const shown = await this.previewCeiling(entry, level)
-    if (digest !== shown.digest) throw new Error('The Agent file changed after this preview.')
-    const written: AgentEntry = {
-      ...entry,
-      digest: `written-${entry.id}-${level}`,
-      definition: entry.definition ? { ...entry.definition, ceiling: level, ceilingFrom: 'ceiling' } : null,
-    }
-    const agents = this.#snapshot.agents
-    if (agents) {
-      this.patch({
-        agents: agents.map((one) =>
-          one.id === entry.id && one.origin === entry.origin && one.path === entry.path ? written : one,
-        ),
-      })
-    }
-    return written
   }
   // What a new session starts with, for the one agent that declares it —
   // the same shape Codex reports — so Permissions has something to show.

@@ -31,6 +31,7 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
     claim_work: 'read',
     claim_next: 'read',
     await_work: 'read',
+    await_member: 'read',
     check_conflicts: 'read',
     complete_claim: 'read',
     release_claim: 'read',

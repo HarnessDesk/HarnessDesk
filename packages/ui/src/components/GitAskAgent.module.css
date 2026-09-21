@@ -1,35 +1,12 @@
 /*
  * "Ask an agent to fix this": the dialog, and the refusal block that raises
- * it. The red block rhymes with the `.error` in the other git stylesheets
- * rather than importing one of them — a screen's stylesheet is not a library.
+ * it.
  */
 
 .body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.headline {
-  margin: 0;
-  font-size: var(--hd-text); /* desk: 13 → 14, the subject step */
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
-  color: var(--hd-foreground);
-}
-
-.note {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
-  color: var(--hd-secondary-foreground);
-}
-
-.error {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
 }
 
 /* --- who to ask ---------------------------------------------------------- */
@@ -47,29 +24,7 @@
 
 }
 
-.agentName {
-  font-size: var(--hd-text-sm);
-  color: var(--hd-foreground);
-}
-
-.agentTick {
-  display: inline-flex;
-  color: var(--hd-accent);
-}
-
 /* --- the prompt ---------------------------------------------------------- */
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.label {
-  font-size: var(--hd-text-sm); /* desk: 12 → 13, the row step */
-  font-weight: var(--hd-weight-medium);
-  color: var(--hd-secondary-foreground);
-}
 
 /* Monospaced because it is half git's output: a path that wraps mid-segment
    is a path nobody can check against the repository. */
@@ -78,24 +33,12 @@
   overflow-wrap: anywhere;
 }
 
-/* --- the refusal block --------------------------------------------------- */
-
 .trouble {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
   flex-wrap: wrap;
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
 }
 
 .troubleWhat {
   flex: 1 1 200px;
-  min-width: 0;
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line); /* desk: 1.45 → 21, its step’s own line */
-  color: var(--hd-danger);
   overflow-wrap: anywhere;
 }
 

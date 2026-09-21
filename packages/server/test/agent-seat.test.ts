@@ -12,16 +12,17 @@ import {
   findOption,
   refuseOptionValue,
   runtimeId,
-  type CeilingLevel,
   sessionId,
   turnId,
   type AgentEvent,
   type AgentSession,
   type ApprovalDecision,
   type ApprovalId,
+  type CommandApproval,
   type ConfigOption,
   type FlowPermission,
   type FlowRun,
+  type GoalView,
   type FlowSeat,
   type ModelInfo,
   type OptionValue,
@@ -38,27 +39,29 @@ import {
   type SessionOptions,
   type SessionSettings,
   type TeamPeerInfo,
-  type TeamState,
   type TurnId,
   type UsageReport,
   type UserContent,
   type MachineSeating,
+  type CeilingLevel,
+  ceilingOfPermission,
+  permissionOfCeiling,
 } from '@harnessdesk/protocol'
 
 import { AcpRegistry } from '../src/acp-registry.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
-import { CEILING_RULES, chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
+import { agentOrder, chooseSeat, fixOf, reasonAgainst, type SeatOffer, type SeatRunning } from '../src/agent-seating.js'
 import { Agents, PROJECT_AGENT_DIR } from '../src/agents.js'
-import { renderFlowTemplate } from '../src/flow.js'
-import type { OpenedSeat } from '../src/host.js'
+import { Host, type OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
-import type { SeatHold } from '../src/ceilings/hold.js'
 import type { SeatOpeningInput } from '../src/evidence/seats.js'
-import { seatedSettings, type SeatedAs } from '../src/registry.js'
+import type { SeatHold } from '../src/ceilings/hold.js'
+import type { SeatedAs } from '../src/registry.js'
 import { SEAT_READ_DEADLINE_MS } from '../src/seat-reads.js'
+import { StateStore } from '../src/state.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -461,8 +464,8 @@ seed:
 `
 
 const runFlow = async (client: Client, work: string, seat: string): Promise<FlowRun> => {
-  const room = (await client.call('team/room/create', { root: work, name: 'Seat room' })) as TeamState
-  const run = (await client.call('flow/start', { room: room.id, source: FLOW(seat) })) as FlowRun
+  const room = (await client.call('goal/create', { root: work, sentence: 'Seat room' })) as GoalView
+  const run = (await client.call('flow/start', { room: room.goal.id, source: FLOW(seat) })) as FlowRun
   await client.call('flow/stop', { run: run.id })
   return run
 }
@@ -521,7 +524,7 @@ test('a pick the runtime drops is reported in the label and logged, and the flow
  */
 test('a flow that cannot seat every role closes the seats it opened, and the host lets them go', async (t) => {
   const { harness, seats, client, work } = await desk(t)
-  const room = (await client.call('team/room/create', { root: work, name: 'Seat room' })) as TeamState
+  const room = (await client.call('goal/create', { root: work, sentence: 'Seat room' })) as GoalView
   const source = `
 name: Two seats
 roles:
@@ -541,28 +544,28 @@ seed:
   role: first
   title: The first thing
 `
-  await assert.rejects(client.call('flow/start', { room: room.id, source }), /"huge" is not one of the values Model offers/)
+  await assert.rejects(client.call('flow/start', { room: room.goal.id, source }), /"huge" is not one of the values Model offers/)
   const [first] = seats.opened
   assert.ok(first && seats.opened.length === 1)
   assert.equal(first.closed, true)
   assert.deepEqual(first.sent, [], 'no order went to a seat of a run that never started')
   assert.equal(harness.host.registry.get(runtimeId('seatfake'), first.id)?.live ?? null, null)
-  assert.deepEqual(await client.call('flow/runs', { room: room.id }), [])
+  assert.deepEqual(await client.call('flow/runs', { room: room.goal.id }), [])
 })
 
 // ------------------------------------------------------ the method, by itself
 
-/** An Agent file, with `permission: read` unless a test writes another ceiling line. */
-const agentFile = (prefer: string, ceilingLine = 'permission: read'): string =>
-  `---\nname: Reviewer\n${ceilingLine}\nprefer: [${prefer}]\n---\nRead the diff.\n`
+/** An Agent file as a person writes one, with the candidates it prefers and its ceiling. */
+const agentFile = (prefer: string, permission: FlowPermission = 'read'): string =>
+  `---\nname: Reviewer\npermission: ${permission}\nprefer: [${prefer}]\n---\nRead the diff.\n`
 
 /**
  * What a seat on this Agent is handed, working in `cwd`: the brief as written,
- * then the rule of the permission it holds — the flow's own sentence for it,
- * `GIT_RULES`, filled in as a flow seat's is.
+ * then the rule of the ceiling it holds, rendered by the same host helper as
+ * every other held seat.
  */
-const orderFor = (level: CeilingLevel, cwd: string): string =>
-  `Read the diff.\n\n${renderFlowTemplate(CEILING_RULES[level], { repo: cwd })}`
+const orderFor = (permission: FlowPermission, cwd: string): string =>
+  agentOrder('Read the diff.', ceilingOfPermission(permission), cwd)
 
 /** What one runtime on the pretend desk says about itself. Honest and ready unless a test says otherwise. */
 interface Pretend {
@@ -655,8 +658,8 @@ const rig = async (
     /** Why opening this seat fails, or null when it opens. */
     readonly openFails?: (seat: FlowSeat) => string | null
     readonly orderFails?: string
-    /** The line of its file that says the Agent's ceiling. */
-    readonly ceilingLine?: string
+    /** The Agent's ceiling, as its file declares it. */
+    readonly permission?: FlowPermission
     /** Asked for usage, the desk never answers. */
     readonly usageHangs?: boolean
     /** Asked for usage, the desk fails outright rather than staying silent. */
@@ -673,13 +676,11 @@ const rig = async (
     readonly directory?: AgentDirectory
     /** What `seating.json` holds on this machine, written before the seating; no file when absent. */
     readonly machine?: string
-    readonly preferences?: Readonly<Record<string, unknown>>
-    readonly holds?: (runtime: string, level: CeilingLevel) => SeatHold
   } = {},
 ) => {
   const root = tempDir('hd-agent-seat-')
   const user = join(root, 'user')
-  const source = agentFile(prefer, options.ceilingLine)
+  const source = agentFile(prefer, options.permission)
   await mkdir(join(user, 'reviewer'), { recursive: true })
   await writeFile(join(user, 'reviewer', 'AGENT.md'), source, 'utf8')
   if (options.machine !== undefined) await writeFile(join(root, 'seating.json'), options.machine, 'utf8')
@@ -706,6 +707,7 @@ const rig = async (
   const runtimes = new Map(Object.entries(desk).map(([id, pretend]) => [id, pretendRuntime(id, pretend)]))
 
   const ctx = {
+    state: { state: { preferences: {} } },
     evidence: {
       seats: {
         opened: async (input: SeatOpeningInput) => {
@@ -727,7 +729,6 @@ const rig = async (
       },
     },
     seating: new MachineSeatingFile(join(root, 'seating.json')),
-    state: { state: { preferences: options.preferences ?? {} } },
     runtimes: {
       get: (id: string) => runtimes.get(id),
       infoOf: (runtime: { info: { id: RuntimeId } }) => {
@@ -772,8 +773,11 @@ const rig = async (
         if (options.orderFails) throw new Error(options.orderFails)
         ordered.push(text)
       },
-      hold: async (runtime: string, _sessionId: string, level: CeilingLevel): Promise<SeatHold> =>
-        options.holds?.(runtime, level) ?? { ceiling: { level, hold: 'asked' }, how: null, why: null },
+      hold: async (_runtime: string, _sessionId: string, level: CeilingLevel): Promise<SeatHold> => ({
+        ceiling: { level, hold: 'asked' },
+        how: null,
+        why: 'this test runtime does not expose a ceiling control',
+      }),
       retire: async (runtime: string, id: string) => {
         await new Promise((resolve) => setImmediate(resolve))
         alive -= 1
@@ -788,6 +792,8 @@ const rig = async (
       },
       recordAgent: (runtime: string, id: string, seated: SeatedAs): Session => {
         recorded.push(seated)
+        const { ceiling, ceilingNote, standing: _standing, ...settings } = seated
+        const permission = permissionOfCeiling(ceiling?.level ?? 'read')
         return {
           id: sessionId(id),
           runtime: runtimeId(runtime),
@@ -795,7 +801,12 @@ const rig = async (
           status: { type: 'idle' },
           createdAt: 0,
           updatedAt: 0,
-          settings: seatedSettings({ cwd: '/tmp/x', model: 'opus-5' }, seated),
+          settings: {
+            cwd: '/tmp/x', model: 'opus-5', ...settings,
+            ...(ceiling ? { ceiling } : {}),
+            ...(ceilingNote ? { ceilingNote } : {}),
+            ...(permission ? { permission } : {}),
+          },
           turns: [],
           itemsLoaded: true,
         }
@@ -835,43 +846,36 @@ test('it seats the first candidate this machine can offer', async () => {
   assert.deepEqual(titles, ['Reviewer'], 'the conversation is named for the Agent')
 })
 
-test('the brief is handed over as the standing order, once, with the one line its ceiling is given', async () => {
+test('the brief is handed over as the standing order, once, with the held ceiling rule', async () => {
   const { ctx, ordered } = await rig('claude=opus-5/high')
   await agentMethods['agent/seat'](ctx, { id: 'reviewer', cwd: '/tmp/x' })
   assert.equal(ordered.length, 1)
   assert.match(ordered[0] ?? '', /^Read the diff\.\n\n/, 'the brief as written, first')
-  assert.match(ordered[0] ?? '', /^- Your ceiling is edit: you may change files and commit in \/tmp\/x, and you never push/m)
-  assert.equal((ordered[0] ?? '').split('\n').filter((line) => line.startsWith('- ')).length, 1, 'one line')
-  assert.equal(ordered[0], orderFor('edit', '/tmp/x'))
+  assert.match(ordered[0] ?? '', /- Your ceiling is edit: you may change files and commit/)
+  assert.equal(ordered[0], orderFor('read', '/tmp/x'))
 })
 
-test("the seat runs under the narrower of the Agent's ceiling and the seating's grant, is told it, and it is recorded in its file's words", async () => {
-  const cases: readonly (readonly [string, FlowPermission | undefined, CeilingLevel])[] = [
-    ['permission: read', undefined, 'edit'],
-    ['permission: merge', undefined, 'edit'],
+test("the seat is told the narrower of the Agent's ceiling and the seating's grant, in the flow's words, and it is recorded", async () => {
+  const cases: readonly (readonly [FlowPermission, FlowPermission | undefined, FlowPermission])[] = [
+    ['read', undefined, 'read'],
+    // No step, so no grant but the one the call makes: read, whatever the ceiling.
+    ['merge', undefined, 'read'],
     // A grant never reaches past the ceiling…
-    ['permission: read', 'merge', 'edit'],
-    ['permission: publish', 'merge', 'publish'],
+    ['read', 'merge', 'read'],
+    ['publish', 'merge', 'publish'],
     // …and a ceiling never widens a grant.
-    ['permission: merge', 'publish', 'publish'],
-    ['permission: merge', 'merge', 'merge'],
-    ['ceiling: read', undefined, 'read'],
-    ['ceiling: read', 'merge', 'read'],
-    ['ceiling: publish', undefined, 'edit'],
-    ['description: says nothing of what it may do', 'merge', 'read'],
+    ['merge', 'publish', 'publish'],
+    ['merge', 'merge', 'merge'],
   ]
-  for (const [line, grant, held] of cases) {
-    const said = `an Agent whose file says "${line}", seated with ${grant ?? 'no'} grant`
-    const seen = await rig('claude=opus-5/high', undefined, { ceilingLine: line })
+  for (const [ceiling, grant, held] of cases) {
+    const said = `a ${ceiling} Agent seated with ${grant ?? 'no'} grant`
+    const seen = await rig('claude=opus-5/high', undefined, { permission: ceiling })
     const session = await agentMethods['agent/seat'](seen.ctx, {
       id: 'reviewer',
       cwd: '/tmp/x',
       ...(grant ? { permission: grant } : {}),
     })
     assert.deepEqual(seen.ordered, [orderFor(held, '/tmp/x')], said)
-    const standing = line.startsWith('permission:')
-      ? { kind: 'permission' as const, permission: held === 'edit' ? ('read' as const) : (held as 'publish' | 'merge') }
-      : { kind: 'ceiling' as const, level: held }
     assert.deepEqual(
       seen.recorded,
       [
@@ -879,16 +883,16 @@ test("the seat runs under the narrower of the Agent's ceiling and the seating's 
           agent: 'reviewer',
           name: 'Reviewer',
           briefDigest: digestOf(seen.source),
-          standing,
+          standing: { kind: 'permission', permission: held },
           seatLabel: 'claude',
           passedOver: [],
-          ceiling: { level: held, hold: 'asked' },
-          ceilingNote: null,
+          ceiling: { level: ceilingOfPermission(held), hold: 'asked' },
+          ceilingNote: 'this test runtime does not expose a ceiling control',
         },
       ],
       said,
     )
-    assert.deepEqual(session.settings?.ceiling, { level: held, hold: 'asked' }, said)
+    assert.equal(session.settings?.permission, held, said)
   }
 })
 
@@ -1505,27 +1509,27 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
-  assert.deepEqual(session.settings?.ceiling, { level: 'edit', hold: 'asked' })
+  assert.equal(session.settings?.permission, 'read')
   assert.equal(session.settings?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(session.settings?.passedOver, [])
 
   const opened = seats.opened[0]
   assert.ok(opened)
   assert.equal(String(opened.id), String(session.id))
-  assert.deepEqual(opened.sent, [orderFor('edit', work)], 'the brief, once, and the one line of its ceiling')
+  assert.deepEqual(opened.sent, [orderFor('read', work)], 'the brief, once, and the rule it works under')
   // The same seating a flow's seat gets: the picks in, the inherited switches off.
   assert.deepEqual(opened.values(), { model: 'big', effort: 'high', thinking: false, fast: false, 'max-mode': false })
   assert.equal(opened.title, 'Reviewer')
   assert.equal(opened.closed, false)
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'every window is told')
-  assert.deepEqual(settingsSeen(client, String(session.id))?.ceiling, { level: 'edit', hold: 'asked' })
+  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
 
   // The runtime re-announces its settings whole — a model change does — and
   // has never heard of the Agent. The record stands, in the host and in what
   // every window is sent — seatLabel and passedOver survive it exactly as
-  // agent, briefDigest and the ceiling do, not only the three fields Task 5
+  // agent, briefDigest and permission do, not only the three fields Task 5
   // first laid over settings.
   await client.call('session/options/set', {
     runtime: 'seatfake',
@@ -1536,28 +1540,31 @@ test('through the host: seated on its picks, handed the brief once, and recorded
   await client.until(() => settingsSeen(client, String(session.id))?.model === 'small', 5_000, 'the model change')
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
-  assert.deepEqual(settingsSeen(client, String(session.id))?.ceiling, { level: 'edit', hold: 'asked' })
+  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read')
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(settingsSeen(client, String(session.id))?.passedOver, [])
   const held = harness.host.registry.get(runtimeId('seatfake'), session.id)?.session.settings
   assert.equal(held?.model, 'small')
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
-  assert.deepEqual(held?.ceiling, { level: 'edit', hold: 'asked' })
+  assert.equal(held?.permission, 'read')
   assert.equal(held?.seatLabel, 'Seat Fake · Big · High')
   assert.deepEqual(held?.passedOver, [])
 })
 
-test('through the host: a member seated as an Agent goes by its name in a room, numbered like any other name', async (t) => {
+test('through the host: members seated as the same Agent are disambiguated by their recorded Seat labels', async (t) => {
   const { harness, client, work } = await desk(t)
   await writeReviewer(harness.stateDir, 'seatfake=big/high')
-  const room = (await client.call('team/room/create', { root: work, name: 'Review' })) as TeamState
+  const room = (await client.call('goal/create', { root: work, sentence: 'Review' })) as GoalView
   for (let n = 0; n < 2; n += 1) {
-    const seated = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
-    await client.call('team/room/join', { room: room.id, runtime: 'seatfake', sessionId: String(seated.id) })
+    const card = await client.call('team/add', { room: room.goal.id, title: `Review ${n + 1}` }) as { id: number }
+    await client.call('goal/seat', { goal: room.goal.id, card: card.id, agent: 'reviewer' })
   }
-  const peers = (await client.call('team/peers', { room: room.id })) as TeamPeerInfo[]
-  assert.deepEqual(peers.map((one) => one.nickname).sort(), ['Reviewer', 'Reviewer 2'])
+  const peers = (await client.call('team/peers', { room: room.goal.id })) as TeamPeerInfo[]
+  assert.deepEqual(peers.map((one) => one.nickname).sort(), [
+    'Reviewer · Seat Fake · Big · High',
+    'Reviewer · Seat Fake · Big · High 2',
+  ])
 })
 
 test('through the host: a seat the runtime opens on something else is closed, passed over, and never handed the brief', async (t) => {
@@ -1600,7 +1607,7 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   const forged = {
     agent: 'forged',
     briefDigest: 'forged',
-    ceiling: { level: 'merge', hold: 'held' },
+    permission: 'merge',
     seatLabel: 'forged',
     passedOver: [
       {
@@ -1619,18 +1626,18 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   })) as Session
   const theirs = harness.runtime.sessions.get(String(session.id))?.settings()
   assert.deepEqual(
-    [theirs?.agent, theirs?.briefDigest, theirs?.ceiling, theirs?.seatLabel, theirs?.passedOver],
-    [forged.agent, forged.briefDigest, forged.ceiling, forged.seatLabel, forged.passedOver],
+    [theirs?.agent, theirs?.briefDigest, theirs?.permission, theirs?.seatLabel, theirs?.passedOver],
+    [forged.agent, forged.briefDigest, forged.permission, forged.seatLabel, forged.passedOver],
     'the runtime really opened it on the forgery — the rest of this only means something if it did',
   )
   const hostOnly = (settings: SessionSettings | undefined) => ({
     agent: settings?.agent,
     briefDigest: settings?.briefDigest,
-    ceiling: settings?.ceiling,
+    permission: settings?.permission,
     seatLabel: settings?.seatLabel,
     passedOver: settings?.passedOver,
   })
-  const none = { agent: undefined, briefDigest: undefined, ceiling: undefined, seatLabel: undefined, passedOver: undefined }
+  const none = { agent: undefined, briefDigest: undefined, permission: undefined, seatLabel: undefined, passedOver: undefined }
   // Not in the answer, which is the record the host keeps (`SessionRegistry.upsert`)…
   assert.deepEqual(hostOnly(session.settings), none, 'the conversation the call answers')
   assert.deepEqual(
@@ -1646,18 +1653,18 @@ test('a renderer cannot make a conversation wear an Agent the host never seated 
   await client.call('session/settings', {
     runtime: FAKE_RUNTIME_ID,
     sessionId: session.id,
-    patch: { agent: 'forged', briefDigest: 'forged', ceiling: { level: 'merge', hold: 'held' }, seatLabel: 'forged', passedOver: [] },
+    patch: { agent: 'forged', briefDigest: 'forged', permission: 'merge', seatLabel: 'forged', passedOver: [] },
   })
   await client.until(() => settingsSeen(client, String(session.id)) !== undefined, 5_000, 'the echoed settings')
   assert.equal(settingsSeen(client, String(session.id))?.agent, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, undefined)
-  // Least of all what it may do: a ceiling a renderer could write is a ceiling anybody could raise.
-  assert.equal(settingsSeen(client, String(session.id))?.ceiling, undefined)
+  // Least of all what it may do: a permission a renderer could write is a permission anybody could.
+  assert.equal(settingsSeen(client, String(session.id))?.permission, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, undefined)
   assert.equal(settingsSeen(client, String(session.id))?.passedOver, undefined)
   const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
   assert.equal(held?.agent, undefined)
-  assert.equal(held?.ceiling, undefined)
+  assert.equal(held?.permission, undefined)
 })
 
 test('a renderer cannot overwrite what an already-seated conversation is recorded as, either', async (t) => {
@@ -1699,7 +1706,7 @@ test('a renderer cannot overwrite what an already-seated conversation is recorde
       model: 'fake-2',
       agent: 'forged',
       briefDigest: 'forged',
-      ceiling: { level: 'merge', hold: 'held' },
+      permission: 'merge',
       seatLabel: 'forged',
       passedOver: forged,
     },
@@ -1707,7 +1714,7 @@ test('a renderer cannot overwrite what an already-seated conversation is recorde
   await client.until(() => settingsSeen(client, String(session.id))?.model === 'fake-2', 5_000, 'the patch lands')
   assert.equal(settingsSeen(client, String(session.id))?.agent, 'reviewer', 'the real Agent, not the forged one')
   assert.equal(settingsSeen(client, String(session.id))?.briefDigest, digestOf(source))
-  assert.deepEqual(settingsSeen(client, String(session.id))?.ceiling, { level: 'edit', hold: 'asked' }, 'the real ceiling, never the forged one')
+  assert.equal(settingsSeen(client, String(session.id))?.permission, 'read', 'the real permission, never the forged one')
   assert.equal(settingsSeen(client, String(session.id))?.seatLabel, 'Fake Runtime · Fake One')
   assert.notDeepEqual(settingsSeen(client, String(session.id))?.passedOver, forged)
   assert.equal(settingsSeen(client, String(session.id))?.passedOver?.length, 1)
@@ -1719,7 +1726,7 @@ test('a renderer cannot overwrite what an already-seated conversation is recorde
   const held = harness.host.registry.get(FAKE_RUNTIME_ID, session.id)?.session.settings
   assert.equal(held?.agent, 'reviewer')
   assert.equal(held?.briefDigest, digestOf(source))
-  assert.deepEqual(held?.ceiling, { level: 'edit', hold: 'asked' })
+  assert.equal(held?.permission, 'read')
   assert.equal(held?.seatLabel, 'Fake Runtime · Fake One')
   assert.notDeepEqual(held?.passedOver, forged)
   assert.equal(held?.passedOver?.length, 1)
@@ -1745,7 +1752,7 @@ test('the wire refuses a grant that is no permission, and more seats than an Age
     seats: nine.slice(1),
     permission: 'merge',
   })) as Session
-  assert.deepEqual(session.settings?.ceiling, { level: 'edit', hold: 'asked' })
+  assert.equal(session.settings?.permission, 'read')
 })
 
 // ------------------------------------------------------ down the preference list
@@ -1777,7 +1784,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
   ])
   assert.deepEqual(seen.retired, ['claude s1'], 'the first was closed')
   assert.equal(String(session.id), 's2')
-  assert.deepEqual(seen.ordered, [orderFor('edit', '/tmp/x')], 'the brief went once, to the seat that was kept')
+  assert.deepEqual(seen.ordered, [orderFor('read', '/tmp/x')], 'the brief went once, to the seat that was kept')
   assert.deepEqual(seen.recorded, [
     {
       agent: 'reviewer',
@@ -1797,7 +1804,7 @@ test('a seat that runs another effort than asked is closed, and the next candida
         },
       ],
       ceiling: { level: 'edit', hold: 'asked' },
-      ceilingNote: null,
+      ceilingNote: 'this test runtime does not expose a ceiling control',
     },
   ])
   assert.deepEqual(seen.overlaps, [], 'never two seats at once')
@@ -1861,7 +1868,7 @@ test('through the host: one seat at a time — each that fails is closed and let
   assert.deepEqual([held(lost), held(other)], [null, null], 'the host holds only the seat it kept')
   assert.ok(held(kept))
   assert.equal(String(kept.id), String(session.id))
-  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], [orderFor('edit', work)]])
+  assert.deepEqual([lost.sent, other.sent, kept.sent], [[], [], [orderFor('read', work)]])
   assert.deepEqual(kept.values(), { model: 'big', effort: 'low', thinking: false, fast: false, 'max-mode': false })
   assert.equal(session.settings?.agent, 'reviewer')
   assert.equal(session.settings?.briefDigest, digestOf(source))
@@ -2020,6 +2027,29 @@ test('over ACP: the next candidate that runs what it asked for is seated, and th
   assert.deepEqual(await ranOn(truth), [{ session: String(session.id), model: 'fam', effort: 'medium', thinking: true }])
 })
 
+test("over ACP: the brief opens as a notice, not a turn the person is shown as having typed", async (t) => {
+  const { harness, client, work } = await acpDesk(t, 'variant-acp-agent.mjs', 'variant', {})
+  await writeReviewer(harness.stateDir, 'variant=fam/medium+thinking')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  // The brief opened the conversation, but not as the person's own words —
+  // titleOf and the sidebar read only `userMessage`, and would otherwise
+  // pick the brief's own text (including its git rules) as the title.
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the brief is never recorded as something a person typed',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
 test("over ACP: a flow seat's label says what the agent settled on, not what the flow asked for", async (t) => {
   // The flow still seats — a flow says a difference, it does not refuse one —
   // but what it says is now what runs: medium comes with thinking.
@@ -2066,7 +2096,25 @@ const codexDesk = async (t: TestContext, env: Record<string, string>) => {
   harness.host.register(runtime)
   await runtime.start()
   t.after(() => runtime.dispose())
-  return { harness, client, work }
+  return { harness, client, work, runtime }
+}
+
+/** A Codex desk exercised through Host.call, with no loopback server in front of it. */
+const directCodexDesk = async (t: TestContext, env: Record<string, string>) => {
+  const stateDir = tempDir('hd-agent-seat-state-')
+  const host = new Host({
+    logger: new Heard(),
+    state: new StateStore(join(stateDir, 'state.json')),
+    version: '9.9.9',
+    pickDirectory: async () => stateDir,
+  })
+  const runtime = new CodexRuntime({ binaryPath: CODEX_FAKE, clientName: 'harnessdesk-test', env })
+  host.register(runtime)
+  await host.start()
+  t.after(() => host.dispose())
+  const work = tempDir('hd-agent-seat-work-')
+  await host.call('workspace/open', { path: work })
+  return { host, runtime, stateDir, work }
 }
 
 for (const [order, how] of [
@@ -3532,4 +3580,162 @@ test('an Agent whose own list is the one in force is weighed once', async () => 
   const [plan] = await agentMethods['agent/seat/dry'](seen.ctx, { ids: ['reviewer'] })
   assert.equal(plan?.from, 'prefer')
   assert.equal(plan !== undefined && 'own' in plan, false)
+})
+
+test('over Codex: the brief opens as a notice too — Codex echoes it back as `userMessage` on its own wire, and the session still does not read it as one', async (t) => {
+  const { harness, client, work } = await codexDesk(t, {})
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the brief is never recorded as something a person typed, even once Codex echoes it back',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the brief is still recorded, just not as speech')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: a coalesced turn/start answer and opening echo still record the brief as a notice', async (t) => {
+  const { harness, client, work } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = read.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the synchronous opening echo cannot overtake the silent-turn marker',
+  )
+  const notice = items.find((item) => item.type === 'notice')
+  assert.ok(notice, 'the coalesced echo is still recorded as a notice')
+  assert.match((notice as { text: string }).text, /^Read the diff\.\n\n/, 'the brief as written, first')
+})
+
+test('over Codex: a fuller completion and a cold read cannot turn the recorded brief back into speech', async (t) => {
+  const { host, stateDir, work } = await directCodexDesk(t, {
+    FAKE_CODEX_FULLER_COMPLETION: '1',
+    FAKE_CODEX_PERSIST_TURN: '1',
+  })
+  await writeReviewer(stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const record = host.registry.get(runtimeId('codex'), session.id)
+  const approvalDeadline = Date.now() + 5_000
+  while (record?.approvals.size === 0 && Date.now() < approvalDeadline) {
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  const approval = [...(record?.approvals.values() ?? [])].find(
+    (entry): entry is CommandApproval => entry.type === 'command',
+  )
+  assert.ok(approval, 'the silent order asks for its command approval')
+  await host.call('approval/respond', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    approvalId: approval.id,
+    decision: {
+      type: 'option',
+      optionId: approval.options.find((option) => option.intent === 'approve')!.id,
+    },
+  })
+  const completionDeadline = Date.now() + 5_000
+  while (record?.running.size !== 0 && Date.now() < completionDeadline) {
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  assert.equal(record?.session.turns[0]?.status, 'completed', 'the fuller completion reached the host')
+
+  const transcript = join(stateDir, 'transcripts', 'codex', `${encodeURIComponent(session.id)}.json`)
+  const transcriptDeadline = Date.now() + 5_000
+  while (Date.now() < transcriptDeadline) {
+    if (await readFile(transcript, 'utf8').then(() => true, () => false)) break
+    await new Promise((wake) => setTimeout(wake, 10))
+  }
+  await host.call('session/close', { runtime: session.runtime, sessionId: session.id })
+  host.registry.delete(runtimeId('codex'), session.id)
+
+  const reread = (await host.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const items = reread.turns.flatMap((turn) => turn.items)
+  assert.deepEqual(
+    items.filter((item) => item.type === 'userMessage'),
+    [],
+    'the persisted Codex opening is still not something a person typed',
+  )
+  assert.equal(items[0]?.type, 'notice', 'the host-restored classification survives without a live Codex session')
+})
+
+test('over Codex: the normal turn after a silent order is speech and supplies the opening preview', async (t) => {
+  const { harness, client, work, runtime } = await codexDesk(t, { FAKE_CODEX_TURN_START_ORDER: 'one-chunk' })
+  await writeReviewer(harness.stateDir, 'codex=gpt-5.5/high')
+
+  const session = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  await client.until(
+    () =>
+      client.events.some(
+        (event) =>
+          event.type === 'approval/requested' &&
+          event.approval.sessionId === session.id &&
+          event.approval.type === 'command',
+      ),
+    5_000,
+    'the silent order approval',
+  )
+  const approval = client.events.find(
+    (event): event is Extract<AgentEvent, { type: 'approval/requested' }> & { approval: CommandApproval } =>
+      event.type === 'approval/requested' &&
+      event.approval.sessionId === session.id &&
+      event.approval.type === 'command',
+  )!
+  await client.call('approval/respond', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    approvalId: approval.approval.id,
+    decision: {
+      type: 'option',
+      optionId: approval.approval.options.find((option) => option.intent === 'approve')!.id,
+    },
+  })
+  await client.until(
+    () => client.events.some((event) => event.type === 'turn/completed' && event.sessionId === session.id),
+    5_000,
+    'the silent order to finish',
+  )
+  const request = 'Continue with the person\'s request.'
+  await client.call('turn/send', {
+    runtime: session.runtime,
+    sessionId: session.id,
+    input: [
+      { type: 'text', text: '<context source="Git">\nStatus: ## main\n</context>' },
+      { type: 'text', text: request },
+    ],
+  })
+
+  const read = (await client.call('session/read', {
+    runtime: session.runtime,
+    sessionId: session.id,
+  })) as Session
+  const spoken = read.turns
+    .flatMap((turn) => turn.items)
+    .filter((item) => item.type === 'userMessage')
+  assert.equal(spoken.length, 1, 'only the person\'s follow-up is speech')
+  const spokenText = spoken.flatMap((item) =>
+    item.type === 'userMessage' ? item.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])) : [],
+  )
+  assert.ok(spokenText.includes(request), 'the normal message is recorded in the person\'s voice')
+  const summary = (await runtime.listSessions()).data.find((row) => row.id === session.id)
+  assert.equal(summary?.preview, request, 'the normal turn supplies the live session opening')
+  // `agent/seat` names the conversation before handing over its silent order,
+  // so this seated session cannot be renamed by a later opening message.
 })

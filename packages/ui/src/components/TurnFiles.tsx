@@ -11,11 +11,10 @@ import styles from './TurnFiles.module.css'
 /**
  * What a turn left on disk, as a card under the answer.
  *
- * "Edited 3 files · +607 −0", then a row per file with its own counts; the
- * rows open the file's diff, Review opens the Changes panel, and Undo asks
- * the host to put exactly this turn's edits back — the turn's diff reversed,
- * refused whole if a file was touched since. The card is the answer to "what
- * did it actually change", which the prose above it rarely says precisely.
+ * One file is named with its counts in the head. Several get three rows and
+ * an explicit way to reveal the rest; the rows open each diff, Review opens
+ * the Changes panel, and Undo asks the host to put exactly this turn's edits
+ * back — the turn's diff reversed, refused whole if a file was touched since.
  *
  * An undo is offered back as a Redo, because the edits it removed exist
  * nowhere else: they are not committed, and the agent would have to be asked
@@ -42,6 +41,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const key = useSessionKey()
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   // Offered only once the host has refused for this reason; never up front,
   // because most turns have nothing unrecoverable in them.
   const [partly, setPartly] = useState(false)
@@ -50,7 +50,14 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
 
   const added = files.reduce((sum, file) => sum + file.added, 0)
   const removed = files.reduce((sum, file) => sum + file.removed, 0)
-  const verb = files.every((file) => file.kind === 'add') ? 'Created' : files.every((file) => file.kind === 'delete') ? 'Deleted' : 'Edited'
+  const one = files.length === 1 ? files[0] : undefined
+  const shown = one ? [] : expanded ? files : files.slice(0, 3)
+  const remaining = one ? 0 : files.length - shown.length
+  const verb = files.every((file) => file.kind === 'add')
+    ? 'Created'
+    : files.every((file) => file.kind === 'delete')
+      ? 'Deleted'
+      : 'Edited'
 
   const apply = async (direction: 'undo' | 'redo', skipUnrecoverable = false): Promise<void> => {
     if (!key || busy) return
@@ -73,18 +80,18 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   }
 
   return (
-    <div className={styles.card} {...(reverted ? { 'data-reverted': '' } : {})}>
-      <div className={styles.head}>
-        <span className={styles.glyph}>
+    <div className={`${styles.card} rounded-(--hd-card-radius,var(--hd-radius-lg)) bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]`} {...(reverted ? { 'data-reverted': '' } : {})}>
+      <div className={`${styles.head} py-3 px-(--hd-space-4) ps-3 border-b border-(--hd-border)`}>
+        <span className={`${styles.glyph} h-9 rounded-(--hd-radius) bg-(--hd-muted) text-(--hd-secondary-foreground)`}>
           <DiffIcon size={16} />
         </span>
         <span className={styles.title}>
-          <span className={styles.titleLine}>
-            {verb} {files.length} file{files.length === 1 ? '' : 's'}
-            {reverted && <span className={styles.revertedTag}>put back</span>}
-          </span>
-          <span className={styles.counts}>
-            <span className={styles.added}>+{added}</span> <span className={styles.removed}>−{removed}</span>
+          <span className={`${styles.titleLine} text-base font-medium text-(--hd-foreground)`}>
+            {verb} {one ? basename(one.path) : `${files.length} files`}{' '}
+            <span className={`${styles.counts} text-sm tabular-nums`}>
+              <span className="text-(--hd-success)">+{added}</span> <span className="text-(--hd-danger)">−{removed}</span>
+            </span>
+            {reverted && <span className="px-1.5 rounded-lg bg-(--hd-muted) text-xs font-medium text-(--hd-muted-foreground)">put back</span>}
           </span>
         </span>
         <span className={styles.actions}>
@@ -132,33 +139,43 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           </Button>
         </span>
       </div>
-      <ul className={styles.files}>
-        {files.map((file) => {
-          const relative = relativeTo(file.path, root)
-          const name = basename(relative)
-          const dir = relative.slice(0, relative.length - name.length)
-          return (
-            <li key={file.path}>
-              <Button
-                type="button"
-                variant="row" size="row" className={styles.file}
-                onClick={() => store.openFile(file.path)}
-                title={`Open ${relative}`}
-              >
-                <span className={styles.path}>
-                  {dir && <span className={styles.dir}>{dir}</span>}
-                  {name}
-                  {file.kind === 'delete' && <span className={styles.kind}>deleted</span>}
-                  {file.kind === 'add' && <span className={styles.kind}>new</span>}
-                </span>
-                <span className={styles.counts}>
-                  <span className={styles.added}>+{file.added}</span> <span className={styles.removed}>−{file.removed}</span>
-                </span>
+      {!one && (
+        <ul className={`${styles.files} py-1`}>
+          {shown.map((file) => {
+            const relative = relativeTo(file.path, root)
+            const name = basename(relative)
+            const dir = relative.slice(0, relative.length - name.length)
+            return (
+              <li key={file.path}>
+                <Button
+                  type="button"
+                  variant="row" size="row" className={styles.file}
+                  onClick={() => store.openFile(file.path)}
+                  title={`Open ${relative}`}
+                >
+                  <span className={`${styles.path} font-(family-name:--hd-font-code) text-sm`}>
+                    {dir && <span className="text-(--hd-muted-foreground)">{dir}</span>}
+                    {name}
+                    {file.kind === 'delete' && <span className="ms-2 text-xs text-(--hd-muted-foreground)">deleted</span>}
+                    {file.kind === 'add' && <span className="ms-2 text-xs text-(--hd-muted-foreground)">new</span>}
+                  </span>
+                  <span className={`${styles.counts} text-sm tabular-nums`}>
+                    <span className="text-(--hd-success)">+{file.added}</span>{' '}
+                    <span className="text-(--hd-danger)">−{file.removed}</span>
+                  </span>
+                </Button>
+              </li>
+            )
+          })}
+          {remaining > 0 && (
+            <li>
+              <Button variant="quiet" size="row" className={styles.more} onClick={() => setExpanded(true)}>
+                {remaining} more
               </Button>
             </li>
-          )
-        })}
-      </ul>
+          )}
+        </ul>
+      )}
     </div>
   )
 }

@@ -63,8 +63,8 @@ const TITLE_CAP = 72
  *
  * Thinking arrives as markdown and often opens with its own bold lead-in
  * (`**Analyzing the diff**`), which is the best title available and unusable
- * until the markers come off. Row titles are plain — `.rowTitlePlain` sets no
- * code face and parses nothing — so every marker goes, backticks included.
+ * until the markers come off. Row titles are plain — they set no code face
+ * and parse nothing — so every marker goes, backticks included.
  */
 /**
  * The first terminator that ends a sentence rather than an abbreviation.
@@ -304,6 +304,9 @@ export const shellCommandOf = (item: Extract<AgentItem, { type: 'toolCall' }>): 
 export const editedPathOf = (item: Extract<AgentItem, { type: 'toolCall' }>): string | null =>
   editOf(item)?.path ?? null
 
+/** The argument names the adapters use for the one file a call touches. */
+export const PATH_KEYS = ['file_path', 'filePath', 'path', 'target_file', 'notebook_path', 'file']
+
 /**
  * What one of an agent's tool calls actually was. ACP flattens every step to
  * `toolCall` and Claude's bridge titles it with the raw call, so the type
@@ -329,6 +332,13 @@ export const toolCallVerb = (item: Extract<AgentItem, { type: 'toolCall' }>): To
   if (shell !== null) return 'command'
   const title = item.tool.toLowerCase()
   if (editedPathOf(item) !== null) return 'fileChange'
+  /* An agent that reports an edit by its kind rather than its contents sends
+     a title that says so and the file it touched — "Edit src/retry.ts" with
+     a `path` — and nothing to diff. That is still an edit, read the way a
+     title opening with "Read" is read. */
+  if (/^(edit|write|update|create)(?:[^a-z]|file|$)/.test(title) && args && PATH_KEYS.some((key) => typeof args[key] === 'string' && (args[key] as string).trim().length > 0)) {
+    return 'fileChange'
+  }
   /* `\b` finds no boundary before `_`, so `read_file`, `grep_search` and
      `glob_file_search` — the names MCP servers and Cursor actually use — all
      fell through to the generic bucket. A verb ends at a separator or at the

@@ -214,36 +214,6 @@ it('shows the refusal when the board will not own a path', async () => {
 })
 
 /**
- * The goal a job belongs to, chosen where the job is written.
- *
- * A Room is permanent and a goal is not, and a job added to no goal is a job
- * that can never be wrapped up with the rest of its batch. Setting it used to
- * be reachable only by an agent passing `plan`.
- */
-it('puts a job on a goal, and starts on the goal it was opened from', async () => {
-  const { store } = rig()
-  render(store, [], vi.fn(), {
-    plans: [
-      { id: 7, goal: 'Ship the limiter', state: 'running', createdAt: 1 },
-      { id: 8, goal: 'Docs pass', state: 'running', createdAt: 2 },
-    ],
-    plan: 8,
-  })
-
-  // Opened from a goal, so nobody picks it out of a menu they were just in.
-  expect((field('Goal') as unknown as HTMLSelectElement).value).toBe('8')
-  choose('Goal', '7')
-  type('What needs doing', 'Fix the token refill')
-  press('Add to board')
-  await act(async () => {})
-
-  expect(store.teamAdd).toHaveBeenCalledWith('room-1', {
-    title: 'Fix the token refill',
-    plan: 7,
-  })
-})
-
-/**
  * The field every kanban calls "Assign to", which this one cannot be.
  *
  * Nobody assigns work here: an agent *claims* it, and the claim is what makes

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lane storage probe</title>
+<body>
+<h1>Lane storage probe</h1>
+<p>Profile: <output id="lane"></output></p>
+<p>Local count: <output id="count"></output></p>
+<p>Cookie count: <output id="cookie"></output></p>
+<button id="increment" type="button">Increment this profile</button>
+<script>
+const lane = new URL(location.href).searchParams.get('lane') || 'default';
+document.title = 'Lane ' + lane;
+document.querySelector('#lane').textContent = lane;
+function show() {
+  document.querySelector('#count').textContent = localStorage.getItem('lane-count') || '0';
+  document.querySelector('#cookie').textContent = document.cookie.split('; ').find(value => value.startsWith('lane-count='))?.split('=')[1] || '0';
+}
+document.querySelector('#increment').onclick = () => {
+  const next = String(Number(localStorage.getItem('lane-count') || 0) + 1);
+  localStorage.setItem('lane-count', next);
+  document.cookie = 'lane-count=' + next + '; Path=/; SameSite=Lax';
+  show();
+};
+show();
+</script>
+</body>
+</html>

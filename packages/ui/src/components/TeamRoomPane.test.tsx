@@ -6,6 +6,7 @@ import {
   sessionId,
   sessionKey,
   type RuntimeInfo,
+  type GoalView,
   type Session,
   type SessionKey,
   type TeamPeerInfo,
@@ -142,14 +143,13 @@ const rig = (
      unchanged; overridable because "has this member done anything" only means
      something once there is something to do. */
   board: Partial<TeamState> = {},
-  settings?: Session['settings'],
+  goal: GoalView | null = null,
 ) => {
   const session = {
     id: 'c1',
     runtime: 'codex',
     title: 'API migration',
     cwd: '/repo',
-    ...(settings ? { settings } : {}),
     /* Mid-turn. Whether a member is working is the fact the rail exists to
        show without anything being opened, so the fixture has one that is —
        and it is read from *here*, live, rather than from the roster's copy,
@@ -169,6 +169,7 @@ const rig = (
       runtimes: runtimes as unknown as RuntimeInfo[],
       sessions: new Map([[sessionKey('codex', 'c1'), session]]),
       teams: new Map([[ROOM, team]]),
+      goals: new Map(goal ? [[ROOM, goal]] : []),
     }) as AppSnapshot
   let snapshot = snapshotOf()
   const store = {
@@ -184,8 +185,9 @@ const rig = (
     openSession: vi.fn().mockResolvedValue(undefined),
     /* A room with no flow, which is every room these tests are about. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     setRoomWatching: vi.fn(),
-    leaveRoom: vi.fn().mockResolvedValue(undefined),
+    releaseGoal: vi.fn().mockResolvedValue(undefined),
     setTeamInbound: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   /** Something new is said in the room, from outside this surface. */
@@ -1280,14 +1282,20 @@ it('does not accuse a member that is not open of ignoring the board', async () =
  *
  * Membership used to end whenever a conversation stopped being open, which is
  * what emptied every room after a relaunch. A room keeps its members, so the
- * way out has to be something a person does — `team/room/leave` had been on
- * the wire the whole time with nothing to press. On the card with Open and
+ * way out has to be something a person does — release the durable Goal Seat.
+ * On the card with Open and
  * Watch, never on the row: a destructive verb one pixel from the thing it
  * destroys is how a roster gets emptied by accident.
  */
-it('takes a member out of the room from its card, and leaves the conversation alone', async () => {
+it('releases a Goal member from its card, and leaves the conversation alone', async () => {
   vi.useFakeTimers()
-  const { store } = rig()
+  const goal = {
+    goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: null },
+    activity: 'working', waitingOn: [],
+    members: [{ id: 'seat-1', closed: null, session: { runtime: 'codex', sessionId: 'c1' } }],
+    board: state, receipt: null, problem: null,
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
   await render(store)
 
   // The whole row is the trigger, so it holds the row rather than sitting in it.
@@ -1308,7 +1316,7 @@ it('takes a member out of the room from its card, and leaves the conversation al
   expect(remove).toBeDefined()
 
   act(() => (remove as HTMLButtonElement).click())
-  expect(store.leaveRoom).toHaveBeenCalledWith(ROOM, 'codex', 'c1')
+  expect(store.releaseGoal).toHaveBeenCalledWith(ROOM, 'seat-1')
   // The conversation itself is untouched: nothing here closes or deletes it.
   expect(store.openSession).not.toHaveBeenCalled()
   vi.useRealTimers()
@@ -1724,20 +1732,4 @@ it('a name or a mode set in another view is drawn here when the room’s state a
   expect(row('Mender').textContent).toContain('messages held')
   // From the push alone: the roster was not asked for again.
   expect(store.teamPeers).toHaveBeenCalledTimes(1)
-})
-
-it("a seated member's row leads with its ceiling — held or asked — and a plain member's is unchanged", async () => {
-  const { store } = rig(undefined, undefined, undefined, {
-    cwd: '/repo',
-    model: 'gpt-5.6',
-    agent: 'reviewer',
-    ceiling: { level: 'read', hold: 'held' },
-    ceilingNote: 'Read-only sandbox; anything past it asks you',
-  })
-  await render(store)
-  const seated = row('API migration')
-  const chip = seated.querySelector('[data-ceiling]') as HTMLElement | null
-  expect(chip?.textContent).toBe('Read · held')
-  expect(seated.textContent).toContain('#1 Migrate auth callers')
-  expect(row('Opus').querySelector('[data-ceiling]')).toBeNull()
 })

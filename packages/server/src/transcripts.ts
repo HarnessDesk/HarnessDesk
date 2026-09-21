@@ -11,7 +11,7 @@ import type {
   Turn,
   AgentItem,
 } from '@harnessdesk/protocol'
-import { openingOf } from '@harnessdesk/protocol'
+import { openingOf, preserveNoticeItems } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { publicationsIn, withPublications } from './publications.js'
@@ -331,10 +331,15 @@ export class TranscriptStore {
       // rollout that stored more than it streamed — would drop the row the
       // host recorded. Put back at its place, whichever list stands.
       const published = publicationsIn(kept.items)
-      const carry = (items: readonly AgentItem[]): readonly AgentItem[] => withPublications(items, published)
+      const carry = (items: readonly AgentItem[]): readonly AgentItem[] => {
+        const classified = preserveNoticeItems(items, kept.items)
+        return published.every(({ item }) => classified.some((entry) => entry.id === item.id))
+          ? classified
+          : withPublications(classified, published)
+      }
       if (kept.items.length <= turn.items.length) {
         const items = carry(turn.items)
-        if (items.length === turn.items.length) return turn
+        if (items === turn.items) return turn
         changed = true
         return { ...turn, items }
       }
@@ -345,7 +350,7 @@ export class TranscriptStore {
         })
       ) {
         const items = carry(turn.items)
-        if (items.length === turn.items.length) return turn
+        if (items === turn.items) return turn
         changed = true
         return { ...turn, items }
       }

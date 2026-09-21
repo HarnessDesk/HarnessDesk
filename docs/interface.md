@@ -599,6 +599,30 @@ the settings and window Codex reports back, not the values the draft expected.
 Which pages actually carry anything varies by runtime, and the audit of that —
 along with what Settings still does not do — is recorded with the audit.
 
+## What the desk observed
+
+**On a card.** A room's board draws each card's evidence as chips in its foot,
+and its columns — To do, Working, Needs you, In review, Ready, and Set aside
+while anything is — come from those facts, so nothing on the board is dragged.
+A completed card is not placed until the first evidence read succeeds; while
+that read is pending or unavailable, the board says so rather than claiming
+that nothing was checked. The whole of it is in
+[multi-agent.md](multi-agent.md), under *The Board*.
+
+**A conversation's Seat record.** A conversation seated as an Agent shows its
+Seat record at the head of its Agents inspector, above the sub-agents it
+started: the Agent and where it came from, what it runs on, what was passed
+over on the way, what its standing order told it it may do, the checkout it
+started in, its board, and when it opened and closed. A Seat restored from a
+backup says so. It is read-only, because the record is: written once when the
+seat was kept, and closed once. A conversation never seated shows none of it.
+
+**A project's checks.** Workspaces › a project lists the checks the project
+names, as committed, each command verbatim with whether this Mac has approved
+it for this version of the file, says when your working copy of the file is
+not what is committed, and lists every check the file refuses with where and
+why. The section appears only once the project has a checks file.
+
 ## Out-of-band messages
 
 One `Banner` card for everything that is not conversation: neutral surface,
@@ -662,3 +686,24 @@ beside the conversation and lays them over it instead:
 The reading column never collapses, and nothing is unmounted on the way: the
 floating sidebar is the same sidebar, and a panel over the conversation leaves
 it exactly where it was.
+
+## Goals and retained lanes
+
+Projects list open Goals above loose conversations and keep completed work in
+one collapsed **Wrapped** group. A Goal row states Working, Needs you, Ready to
+wrap, Wrapping or Wrapped; those words describe activity, not an evidence
+verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
+Membership comes from its open Seats. Releasing a Seat closes that membership
+record without deleting the conversation or checkout.
+
+**New session → A Goal** asks what finishes the work, then optionally seats
+Agents. The ordinary conversation path is unchanged: Enter and Command-N still
+start a plain conversation immediately. “Give this to…” assigns a loose
+same-project conversation through a durable Seat; stale or busy choices are
+refused without moving it.
+
+Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
+port start, block width and browser-profile isolation. Retained descriptors show
+their Goal, Seat and checkout. Releasing ports never claims to remove files.
+Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
+partial answers, gaps, unknown spend and dirty retained lanes remain visible.

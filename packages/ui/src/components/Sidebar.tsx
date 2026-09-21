@@ -3,14 +3,32 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CaretIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CaretIcon, CheckIcon, ChevronIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
 // Imported for its side effect: the Tasks panel registers itself into the
 // `sidebar.panel` slot rendered below.
 import './TaskPanel'
-import { Button, Input, Menu, MenuItem, MenuLabel, Popover, Tooltip, TooltipContent, TooltipTrigger } from '../design'
+import {
+  AccountMark,
+  Button,
+  Chip,
+  Dot,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuNote,
+  MenuSeparator,
+  NavigationGroupHeader,
+  Popover,
+  RefusedAction,
+  Search,
+  Separator,
+  Text,
+  buttonVariants,
+  type Tone,
+} from '../design'
 import { accountKey, accountName, accountIdentity, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName } from '../lib/projects'
 import { brandOf } from '../lib/identity'
@@ -24,6 +42,7 @@ import { ProfileFace } from './ProfileFace'
 import { Clipped } from '../design'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
+import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
 
@@ -107,7 +126,13 @@ export const Sidebar = ({
 
   return (
     <div className={styles.sidebar}>
-      <div className={`${styles.titlebar} hd-drag`}>
+      <div
+        className={`${styles.titlebar} hd-drag`}
+        style={{
+          height: 'var(--hd-titlebar-height)',
+          padding: '0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px))',
+        }}
+      >
         <WindowControls />
       </div>
 
@@ -115,13 +140,13 @@ export const Sidebar = ({
           everything — sessions, files, agents, commands — which is what a
           magnifier at the top of a window promises. Narrowing the list is the
           Workspaces row's job, down where the list is. */}
-      <div className={styles.header}>
-        <span className={styles.brandMark} aria-hidden>
+      <div className={`${styles.header} h-(--hd-bar-h) pr-(--hd-bar-pad) pl-(--hd-bar-ink)`}>
+        <Text role="subject" className={styles.brandMark} aria-hidden>
           <HarnessMark size={14} />
-        </span>
-        <span className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>
+        </Text>
+        <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>
           HarnessDesk
-        </span>
+        </Text>
         <span style={{ flex: 1 }} />
         <Button
           variant="ghost" size="icon-sm" className={`${styles.iconButton} hd-no-drag`}
@@ -144,7 +169,7 @@ export const Sidebar = ({
           on-purpose visits. Changes lives in every conversation's header, and
           ⌘K reaches the rest. */}
       {starting && <NewSessionChoice onClose={() => setStarting(false)} />}
-      <nav className={styles.nav} aria-label="Workspace actions">
+      <nav className={`${styles.nav} px-(--rail) pb-(--hd-space-1)`} aria-label="Workspace actions">
         <div className={styles.navRow}>
           <Button
             variant="navigation" size="navigation" className={styles.navItem}
@@ -154,7 +179,7 @@ export const Sidebar = ({
             onClick={() => setStarting(true)}
             title="Start one agent, or a room for several."
           >
-            <PlusIcon size={15} className={styles.navIcon} />
+            <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
             New session
           </Button>
           <WorktreeMenu />
@@ -176,21 +201,21 @@ export const Sidebar = ({
             now, and a click event in its place would open the dashboard
             scoped to an object. */}
         <Button variant="navigation" size="navigation" className={styles.navItem} onClick={() => onOpenUsage()}>
-          <UsageIcon size={15} className={styles.navIcon} />
+          <Text role="muted" className={styles.navIcon}><UsageIcon size={15} /></Text>
           Dashboard
           {/* The count is the number of agents that need attention, not the
               number that report — a badge for "everything is fine" is noise. */}
           {lowAgents > 0 && (
-            <span className={styles.navCount} data-tone="warn">
+            <Text role="meta" numeric className={styles.navCount}>
               {lowAgents}
-            </span>
+            </Text>
           )}
         </Button>
         <Button variant="navigation" size="navigation" className={styles.navItem} onClick={onOpenPlugins}>
-          <PluginIcon size={15} className={styles.navIcon} />
+          <Text role="muted" className={styles.navIcon}><PluginIcon size={15} /></Text>
           Plugins
           {pluginCount > 0 && (
-            <span className={styles.navCount}>{pluginCount}</span>
+            <Text role="meta" numeric className={styles.navCount}>{pluginCount}</Text>
           )}
         </Button>
       </nav>
@@ -198,18 +223,17 @@ export const Sidebar = ({
       {/* The list's own row: what the list is, the field that narrows it, and
           the two things you do to it. It sits outside the scroller so that
           filtering stays one click away however far down the list you are. */}
-      <div className={styles.sectionLabel} {...(filtering ? { 'data-filtering': '' } : {})}>
-        <span className={styles.sectionTitle}>Workspaces</span>
+      <NavigationGroupHeader label="Workspaces" filtering={filtering}>
         <div className={styles.filter}>
-          <FilterIcon className={styles.filterIcon} size={12} />
-          <Input
-            variant="quiet" controlSize="compact" className={styles.filterInput}
-            data-icon="leading"
+          <Search
+            size="compact"
+            icon="filter"
+            className={styles.filterInput}
             placeholder={filtering ? 'Filter sessions' : ''}
-            aria-label="Filter sessions"
+            label="Filter sessions"
             title="Narrow the list below. ⌘K searches everything."
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={setQuery}
             onFocus={() => setFilterFocused(true)}
             onBlur={() => setFilterFocused(false)}
             onKeyDown={(event) => {
@@ -223,21 +247,20 @@ export const Sidebar = ({
                 event.currentTarget.blur()
               }
             }}
-            spellCheck={false}
           />
         </div>
         <SessionListControls />
         <Button
-          variant="ghost" size="icon-sm" className={styles.iconButton}
+          variant="muted" size="icon-sm" className={styles.iconButton}
           onClick={onBrowseFolders}
           title="Open a project folder"
           aria-label="Open a project folder"
         >
           <PlusIcon size={13} />
         </Button>
-      </div>
+      </NavigationGroupHeader>
 
-      <div className={styles.list} ref={listRef} onScroll={onScroll}>
+      <div className={`${styles.list} px-(--rail) pt-(--hd-space-0-5) pb-(--hd-space-3)`} ref={listRef} onScroll={onScroll}>
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
           <p className="hd-empty-line">
             {ready
@@ -298,21 +321,15 @@ const WorktreeMenu = () => {
       ? 'Connect an agent to work in a worktree.'
       : 'Worktrees need a git repository. This folder is not one.'
     return (
-      <Tooltip>
-        <TooltipTrigger
-          render={<span className={styles.navSecondaryHelp} tabIndex={0} aria-label={`Worktrees: ${reason}`} />}
+      <RefusedAction reason={reason}>
+        <Button
+          variant="ghost" size="icon-sm" className={styles.navSecondary}
+          disabled
+          aria-label="Worktrees"
         >
-          <Button
-            variant="ghost" size="icon-sm" className={styles.navSecondary}
-            disabled
-            aria-hidden="true"
-            tabIndex={-1}
-          >
-            <BranchIcon size={14} />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="right">{reason}</TooltipContent>
-      </Tooltip>
+          <BranchIcon size={14} />
+        </Button>
+      </RefusedAction>
     )
   }
 
@@ -321,7 +338,7 @@ const WorktreeMenu = () => {
       title="Worktrees of this project"
       drop="down"
       align="right"
-      triggerClassName={styles.navSecondary}
+      triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: styles.navSecondary })}
       label={<BranchIcon size={14} />}
       onOpenChange={(open) => open && void store.loadWorktrees()}
     >
@@ -406,6 +423,14 @@ interface Seat {
   readonly report: UsageReport | null
   readonly preference: AccountPrefs | undefined
 }
+
+const readinessTone = (state: Readiness): Tone | undefined => ({
+  ready: undefined,
+  available: undefined,
+  signin: 'brand',
+  limit: 'warning',
+  broken: 'danger',
+} as const)[state]
 
 export const AccountFooter = ({
   onOpenSettings,
@@ -524,13 +549,13 @@ export const AccountFooter = ({
   const accountTrigger = (
     <>
       <ProfileFace size={24} />
-      <span className={styles.accountName}>
+      <Text role="subject" className={styles.accountName}>
         <Clipped className={styles.accountLabel}>{yourName}</Clipped>
-      </span>
+      </Text>
       {here?.figure && here.tone !== 'good' && (
-        <span className={styles.accountMeta} data-tone={here.tone}>
+        <Text role="muted" tone={usageReadingTone(here.tone)} numeric className={styles.accountMeta}>
           {here.figure}
-        </span>
+        </Text>
       )}
       {here && (
         <AccountHoverCard
@@ -542,8 +567,8 @@ export const AccountFooter = ({
           onOpenUsage={onOpenUsage}
           disabled={open}
         >
-          <span
-            className={styles.seatAvatar}
+          <AccountMark
+            size="sm"
             {...(here.account
               ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
               : here.state === 'signin'
@@ -551,12 +576,11 @@ export const AccountFooter = ({
                 : {})}
           >
             <RuntimeMark runtime={here.info} size={13} />
-          </span>
+          </AccountMark>
         </AccountHoverCard>
       )}
-      <span
-        className={styles.statusDot}
-        data-state={here?.state ?? 'unknown'}
+      <Dot
+        state={here?.state ?? 'available'}
         role="img"
         aria-label={here ? `${agentName}: ${READINESS_LABEL[here.state]}` : 'No agent'}
       />
@@ -564,13 +588,15 @@ export const AccountFooter = ({
   )
 
   return (
-    <div className={styles.account} ref={accountRef}>
+    <div className={`${styles.account} h-(--hd-bar-h) px-(--rail) py-(--hd-space-1)`} ref={accountRef}>
+      <Separator className="absolute left-0 right-0 top-0" />
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
-        drop="up"
-        align="left"
+        side="right"
+        sideAlign="end"
+        sideOffset={8}
         fullWidth
-        triggerClassName={styles.accountRow}
+        triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {
           setOpen(next)
@@ -593,30 +619,28 @@ export const AccountFooter = ({
               such account yet, and a sign-in button for one would be a lie,
               so this is what is true today: your profile, kept on this Mac.
               Pressing it opens the page where it is set. */}
-          <div className={styles.menuSection}>
-            <MenuItem
-              className={styles.you}
-              title="Your name and picture. Nothing syncs between machines."
-              onSelect={() => {
-                onOpenSettings('profile')
-              }}
-            >
-              <ProfileFace size={30} />
-              <span className={styles.youText}>
-                <span className={styles.youName}>
-                  <Clipped className={styles.youLabel}>{yourName}</Clipped>
-                  <span className={styles.youTag}>Local</span>
-                </span>
+          <MenuItem
+            layout="profile"
+            title="Your name and picture. Nothing syncs between machines."
+            onSelect={() => {
+              onOpenSettings('profile')
+            }}
+          >
+            <ProfileFace size={30} />
+            <span className={styles.youText}>
+              <span className={styles.youName}>
+                <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
+                <Chip tone="neutral" size="sm">Local</Chip>
               </span>
-            </MenuItem>
-          </div>
+            </span>
+          </MenuItem>
 
-          <div className={styles.menuSection}>
-            <div className={styles.menuLabel}>Run new sessions as</div>
+          <MenuSeparator />
+          <MenuLabel size="compact">Run new sessions as</MenuLabel>
             {(accountsOpen ? seats : here ? [here] : seats).map((seat) => (
               <MenuItem
                 key={seat.key}
-                className={styles.seat}
+                layout="account"
                 current={seat.current}
                 expanded={seat.current && seats.length > 1 ? accountsOpen : undefined}
                 keepOpen={seat.current && seats.length > 1}
@@ -650,8 +674,8 @@ export const AccountFooter = ({
                      the dashboard on everything; this opens it on this seat. */
                   onOpenUsage={onOpenUsage}
                 >
-                  <span
-                    className={styles.seatAvatar}
+                  <AccountMark
+                    size="sm"
                     {...(seat.account
                       ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
                       : seat.state === 'signin'
@@ -659,26 +683,27 @@ export const AccountFooter = ({
                         : {})}
                   >
                     <RuntimeMark runtime={seat.info} size={13} />
-                  </span>
+                  </AccountMark>
                 </AccountHoverCard>
                 <span className={styles.seatText}>
-                  <span className={styles.seatName}>{seat.name}</span>
-                  <span className={styles.seatSub} data-state={seat.state}>
+                  <Text role="navigation" fade className={styles.seatName}>{seat.name}</Text>
+                  <Text role="meta" truncate tone={readinessTone(seat.state)} className={styles.seatSub}>
                     {seat.sub}
-                  </span>
+                  </Text>
                 </span>
                 {seat.figure && (
-                  <span className={styles.seatFigure} data-tone={seat.tone}>
+                  <Text role="muted" tone={usageReadingTone(seat.tone)} numeric className={styles.seatFigure}>
                     {seat.figure}
-                  </span>
+                  </Text>
                 )}
-                <span className={styles.seatTick}>
+                <Text role="meta" tone="brand" className={styles.seatTick}>
                   {seat.current ? <CheckIcon size={14} /> : null}
-                </span>
+                </Text>
               </MenuItem>
             ))}
             <MenuItem
-              className={styles.accountMenuRow}
+              icon={<PlusIcon size={13} />}
+              label="Add an account…"
               onSelect={() => {
                 // Opens the chooser rather than adding one here. "An account"
                 // does not mean "another of this one": the agent is the first
@@ -688,17 +713,10 @@ export const AccountFooter = ({
                 // behind.
                 onSignIn()
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <PlusIcon size={13} />
-                Add an account…
-              </span>
-            </MenuItem>
-          </div>
+            />
 
-          <div className={styles.menuSection}>
+          <MenuSeparator />
             <MenuItem
-              className={`${styles.accountMenuRow} ${hasUsage && usageOpen ? styles.accountMenuRowOpen : ''}`}
               expanded={hasUsage ? usageOpen : false}
               keepOpen
               onSelect={() => {
@@ -706,102 +724,86 @@ export const AccountFooter = ({
               }}
             >
               <span className={styles.accountMenuAction}>
-                <UsageIcon size={13} />
-                Usage remaining
+                <Text role="muted"><UsageIcon size={13} /></Text>
+                <span>Usage remaining</span>
               </span>
-              <span className={styles.accountMenuMeta} data-tone={here?.tone}>
+              <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
                 {here?.figure ?? '—'}
                 {hasUsage && <CaretIcon size={13} className={styles.accountMenuCaret} />}
-              </span>
+              </Text>
             </MenuItem>
             {usageOpen && usageView && (
               <div className={styles.usageDetails} data-usage-details>
                 {usageView.all.map((lane) => (
-                  <div className={styles.usageLane} key={lane.id}>
-                    <span className={styles.usageLaneName}>{lane.title}</span>
-                    <span className={styles.accountMenuMeta} data-tone={lane.tone}>
+                  <div className={`${styles.usageLane} min-h-(--hd-nav-h)`} key={lane.id}>
+                    <Text role="muted" truncate className={styles.usageLaneName}>{lane.title}</Text>
+                    <Text role="muted" tone={usageReadingTone(lane.tone)} numeric className={styles.accountMenuMeta}>
                       {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
-                    </span>
-                    <span className={styles.usageLaneReset}>
+                    </Text>
+                    <Text role="meta" numeric className={styles.usageLaneReset}>
                       {lane.shortCountdown ? `in ${lane.shortCountdown}` : '—'}
-                    </span>
+                    </Text>
                   </div>
                 ))}
                 <MenuItem
-                  className={styles.usageDetailsAction}
+                  label="Open usage dashboard"
+                  value={<ChevronIcon size={11} />}
                   onSelect={() => {
                     onOpenUsage(here?.info.id)
                   }}
-                >
-                  Open usage dashboard
-                  <span className={styles.accountMenuMeta}>›</span>
-                </MenuItem>
+                />
               </div>
             )}
             <MenuItem
-              className={styles.accountMenuRow}
+              icon={<SettingsIcon size={13} />}
+              label="Settings"
+              shortcut="⌘,"
               onSelect={() => {
                 onOpenSettings()
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <SettingsIcon size={13} />
-                Settings
-              </span>
-              <span className={styles.accountMenuMeta}>⌘,</span>
-            </MenuItem>
+            />
             <MenuItem
-              className={styles.accountMenuRow}
+              icon={<UsageIcon size={13} />}
+              label="Dashboard"
+              shortcut="⌘U"
               onSelect={() => {
                 onOpenUsage()
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <UsageIcon size={13} />
-                Dashboard
-              </span>
-              <span className={styles.accountMenuMeta}>⌘U</span>
-            </MenuItem>
+            />
             {signedIn && !confirmingSignOut && (
               <MenuItem
-                className={`${styles.accountMenuRow} ${styles.accountMenuDanger}`}
+                icon={<SignOutIcon size={13} />}
+                label={`Sign out of ${agentName}…`}
                 danger
                 keepOpen
                 onSelect={() => setConfirmingSignOut(true)}
-              >
-                <span className={styles.accountMenuAction}>
-                  <SignOutIcon size={13} />
-                  Sign out of {agentName}…
-                </span>
-              </MenuItem>
+              />
             )}
             {confirmingSignOut && (
-              <div className={styles.accountMenuConfirm}>
-                <div className={styles.accountMenuConfirmText}>
+              <div>
+                <MenuNote>
                   Sign out of {agentName}? You'll need to sign in again before the next turn.
-                </div>
+                </MenuNote>
                 <div className={styles.accountMenuConfirmActions}>
-                  <MenuItem
-                    className={styles.accountMenuButton}
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={busy}
-                    keepOpen
-                    onSelect={() => setConfirmingSignOut(false)}
+                    onClick={() => setConfirmingSignOut(false)}
                   >
                     Cancel
-                  </MenuItem>
-                  <MenuItem
-                    className={`${styles.accountMenuButton} ${styles.accountMenuButtonDanger}`}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
                     disabled={busy}
-                    danger
-                    keepOpen
-                    onSelect={() => void signOut(close)}
+                    onClick={() => void signOut(close)}
                   >
                     {busy ? 'Signing out…' : 'Sign out'}
-                  </MenuItem>
+                  </Button>
                 </div>
               </div>
             )}
-          </div>
           </Menu>
         )}
       </Popover>

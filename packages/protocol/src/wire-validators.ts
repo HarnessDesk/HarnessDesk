@@ -1,5 +1,6 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import { lanePreferences } from './goal.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import type {
   ClientToHost,
@@ -228,11 +229,109 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
 
+/** Goal writes never accept host observations or authority through an extra key. */
+const goalShape = <T extends Record<string, unknown>>(
+  fields: { [K in keyof T]: Validator<T[K]> },
+): Validator<T> => {
+  const read = shape(fields)
+  return (value: unknown, path = '') => {
+    const object = isObject(value, path)
+    for (const key of Object.keys(object)) {
+      if (!Object.hasOwn(fields, key)) throw new ValidationError(`${path}.${key}`, 'unexpected field')
+    }
+    return read(value, path)
+  }
+}
+
+const goalId = atMost(4096, isFilled)
+const goalIdentifier = atMost(200, isFilled)
+const goalSentence: Validator<string> = (value, path = '') => atMost(2000, isFilled)(isString(value, path).trim(), path)
+const goalInteger = (minimum: number): Validator<number> => (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < minimum) throw new ValidationError(path, `expected a safe integer at least ${minimum}`)
+  return number
+}
+const goalDependencies: Validator<string[]> = (value, path = '') => {
+  const ids = arrayOf(goalId)(value, path)
+  if (ids.length > 128) throw new ValidationError(path, 'expected at most 128 dependencies')
+  return ids
+}
+const goalGrant = taggedUnion<import('./goal.js').SeatGrant, 'kind'>('kind', {
+  permission: goalShape({ kind: literalUnion('permission'), permission: grantValidator }),
+  ceiling: goalShape({ kind: literalUnion('ceiling'), level: literalUnion('read', 'edit', 'publish', 'merge') }),
+})
+
+const goalHex = (lengths: readonly number[]): Validator<string> => (value, path = '') => {
+  const text = isString(value, path)
+  if (!lengths.includes(text.length) || !/^[0-9a-f]+$/.test(text)) {
+    throw new ValidationError(path, `expected ${lengths.join(' or ')} lowercase hexadecimal characters`)
+  }
+  return text
+}
+const wrapReason: Validator<string | null> = (value, path = '') =>
+  value === null ? null : atMost(2000, isString)(value, path)
+const wrapCards: Validator<import('./goal.js').WrapChoices['cards']> = (value, path = '') => {
+  const cards = arrayOf(goalShape({
+    id: goalInteger(1), resolution: literalUnion('finished', 'dropped'), reason: wrapReason,
+  }))(value, path)
+  if (cards.length > 1000) throw new ValidationError(path, 'expected at most 1000 card choices')
+  if (new Set(cards.map((card) => card.id)).size !== cards.length) throw new ValidationError(path, 'expected each card once')
+  return cards
+}
+const wrapChoices = goalShape({ summary: atMost(4000, isString), cards: wrapCards })
+const citationPath: Validator<string> = (value, path = '') => {
+  const text = atMost(4096, isFilled)(value, path)
+  const parts = text.split('/')
+  if (text.includes('\\') || text.startsWith('/') || /^[A-Za-z]:/.test(text) ||
+      parts.some((part) => part === '' || part === '.' || part === '..')) {
+    throw new ValidationError(path, 'expected a literal relative document path')
+  }
+  return text
+}
+const goalCitation = goalShape({
+  goal: goalId, receipt: goalIdentifier, project: atMost(4096, isFilled), path: citationPath,
+  at: goalHex([40, 64]),
+})
+
+const goalValidators = {
+  'goal/list': goalShape({ root: optional(atMost(4096, isFilled)) }),
+  'goal/read': goalShape({ goal: goalId }),
+  'goal/create': goalShape({
+    root: atMost(4096, isFilled), cwd: optional(atMost(4096, isFilled)), sentence: goalSentence,
+    checkout: optional(literalUnion('shared', 'isolated')), dependsOn: optional(goalDependencies),
+  }),
+  'goal/update': goalShape({
+    goal: goalId, revision: goalInteger(0), sentence: optional(goalSentence), dependsOn: optional(goalDependencies),
+  }),
+  'goal/seat': goalShape({
+    goal: goalId, agent: goalIdentifier, seats: optional(seatListValidator),
+    grant: optional(goalGrant), card: optional(goalInteger(1)), isolate: optional(isBoolean),
+  }),
+  'goal/assign': goalShape({
+    goal: goalId, card: goalInteger(1),
+    session: goalShape({ runtime: goalIdentifier, sessionId: goalIdentifier }),
+  }),
+  'goal/release': goalShape({ goal: goalId, seat: goalIdentifier }),
+  'goal/preview': goalShape({ goal: goalId, choices: wrapChoices }),
+  'goal/wrap': goalShape({ goal: goalId, stamp: goalHex([64]), choices: wrapChoices }),
+  'goal/receipt': goalShape({ goal: goalId }),
+  'goal/cite': goalShape({ goal: goalId, citation: goalCitation }),
+  'goal/migration/ack': goalShape({}),
+}
+
 /**
  * Per-method params validators. A method missing from this table is rejected,
  * so the table doubles as the host's method allowlist.
  */
 const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
+  'lane/preferences': goalShape({}),
+  'lane/list': goalShape({}),
+  'lane/preferences/set': (value, path = '') => {
+    try { return lanePreferences(value) }
+    catch (error) { throw new ValidationError(path, error instanceof Error ? error.message : String(error)) }
+  },
+  'lane/release': goalShape({ lane: goalIdentifier }),
+  ...goalValidators,
   'host/hello': shape({ clientVersion: isString }),
 
   'runtime/health': shape({ runtime: isString }),
@@ -449,8 +548,6 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     dependsOn: optional(arrayOf(isNumber)),
     plan: optional(isNumber),
   }),
-  'team/plan': shape({ room: isString, goal: isString }),
-  'team/wrap': shape({ room: isString, plan: isNumber }),
   'team/intent': shape({
     room: isString,
     id: isNumber,
@@ -491,11 +588,6 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'team/peers': shape({ room: isString }),
 
   'team/rooms': shape({ root: isString }),
-  'team/room/create': shape({ root: isString, name: isString }),
-  'team/room/rename': shape({ room: isString, name: isString }),
-  'team/room/delete': shape({ room: isString }),
-  'team/room/join': shape({ room: isString, runtime: isString, sessionId: isString }),
-  'team/room/leave': shape({ room: isString, runtime: isString, sessionId: isString }),
 
   'flow/list': shape({ root: isString }),
   'flow/read': shape({ root: isString, path: isString }),

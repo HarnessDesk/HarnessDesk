@@ -13,10 +13,13 @@ import {
   rawColours,
   rawZIndexes,
   screenAppearanceOf,
+  screenAreaOf,
+  singleScreenAreaOf,
   screenUnclassifiedOf,
   sheetsOf,
   squaresOf,
   STYLESHEET_OWNERS,
+  visualKindUnionsOf,
 } from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
 import { brandsIn } from './brands.mjs'
@@ -68,6 +71,31 @@ test('audit source cache reads each present or missing stylesheet once and prese
 test('existing stylesheet co-ownership is capped at six families and eleven modules', () => {
   assert.equal(Object.keys(STYLESHEET_OWNERS).length, 6)
   assert.equal(Object.values(STYLESHEET_OWNERS).flat().length, 11)
+})
+
+test('single-screen pattern accounting recognizes non-Git screen families', () => {
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const dashboard = path.join(repoRoot, 'packages/ui/src/components/Usage.tsx')
+  assert.equal(screenAreaOf(sidebar), 'sidebar')
+  assert.equal(screenAreaOf(dashboard), 'usage')
+  assert.equal(singleScreenAreaOf([sidebar]), 'sidebar')
+  assert.equal(singleScreenAreaOf([dashboard]), 'usage')
+})
+
+test('single-screen pattern accounting groups Git screens but exempts cross-family use', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  assert.equal(singleScreenAreaOf([gitPane, gitDialogs]), 'git')
+  assert.equal(singleScreenAreaOf([gitPane, sidebar]), null)
+})
+
+test('single-screen pattern accounting follows a pattern consumer into its screen hosts', () => {
+  const approval = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  const importers = new Map([[approval, [room, builtins]]])
+  assert.equal(singleScreenAreaOf([approval], importers), null)
 })
 
 test('the browser integration job builds workspace package entries before Vite', () => {
@@ -634,6 +662,25 @@ test('screen appearance excludes the design system and its named specialized ren
   }
 })
 
+test('a visual kind prop cannot hide a component catalogue in one string union', () => {
+  assert.deepEqual(
+    visualKindUnionsOf(`
+      type PartKind =
+        | 'surface' | 'toolbar' | 'quiet' | 'meta' | 'path'
+        | 'card' | 'row' | 'label' | 'warning'
+      type PartProps = { kind: PartKind; children?: unknown }
+    `),
+    [{ prop: 'kind', type: 'PartKind', count: 9 }],
+  )
+  assert.deepEqual(
+    visualKindUnionsOf(`
+      type Tone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+      type AlertProps = { tone: Tone }
+    `),
+    [],
+  )
+})
+
 
 test('a slot this cannot see into is reported, not skipped', () => {
   // Hoisting the action out of the tag emptied the region of JSX, so every
@@ -875,13 +922,13 @@ test('the method list is the validator table\u2019s own keys, not the fields ins
   const source = [
     "const paramsValidators = {",
     "  'session/list': shape({ runtime: isString }),",
-    "  'team/room/join': shape({",
+    "  'team/post': shape({",
     "    'not/a/method': isString,",
     "    runtime: isString,",
     "  }),",
     "}",
   ].join('\n')
-  assert.deepEqual(methodsIn(source), ['session/list', 'team/room/join'])
+  assert.deepEqual(methodsIn(source), ['session/list', 'team/post'])
 })
 
 test('a longer method name does not make a shorter one look called', () => {

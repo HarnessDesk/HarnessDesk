@@ -3,7 +3,7 @@ import type { PublicationItem } from '@harnessdesk/protocol'
 import { openExternal } from '../lib/desktop'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
-import { KindGlyph, PublicationCard, StatePill, publicationVerb } from '../design'
+import { Button, CodeText, KindGlyph, PublicationCard, StatePill, Text, publicationVerb } from '../design'
 import styles from './Publication.module.css'
 
 /**
@@ -21,27 +21,29 @@ export const Publication = ({ item }: { item: PublicationItem }) => {
   const address = `${reference.repo} #${reference.number}`
   return (
     <div className={styles.publication} data-kind={reference.kind} role="status">
-      <span className={styles.publicationIcon}>
+      <Text role="meta" className={styles.publicationIcon}>
         <KindGlyph kind={reference.kind} size={13} />
-      </span>
-      <span className={styles.publicationVerb}>{publicationVerb(reference)}</span>
+      </Text>
+      <Text role="meta" ink="secondary">{publicationVerb(reference)}</Text>
       <AgentHoverCard body={() => <PublicationCard reference={reference} />} side="bottom" align="start">
         {/* No tooltip of its own. The card opens on this same rest and prints
             the forge's title in its crest, so a `title` here was a second box
             over the first — repeating the card's heading where the forge gave
             a title, and the chip's own text where it did not. The whole of a
             long title is on the card's heading, which carries it. */}
-        <a
+        <Button
           className={styles.publicationChip}
-          href={reference.url}
+          variant="outline"
+          size="chip"
+          render={<a href={reference.url} />}
           onClick={(event) => {
             event.preventDefault()
             openExternal(reference.url)
           }}
         >
           <GitHubMark size={12} />
-          <span className={styles.publicationAddress}>{address}</span>
-        </a>
+          <CodeText size="inherit" className={styles.publicationAddress}>{address}</CodeText>
+        </Button>
       </AgentHoverCard>
       <StatePill state={reference.state} />
     </div>

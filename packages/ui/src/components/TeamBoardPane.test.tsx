@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import {
   sessionKey,
+  type BoardEvidence,
   type RuntimeInfo,
   type Session,
   type TeamState,
@@ -12,6 +13,8 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
+import { cardEvidence, checkView, ciView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
+import { ARM_MS } from './RunCheck'
 import { TeamBoardPane } from './TeamBoardPane'
 
 /**
@@ -82,7 +85,7 @@ const state = (intents: readonly unknown[], extra: Partial<TeamState> = {}): Tea
 /* `extra` carries the parts of the board state a test needs to vary — the
    nicknames, so far, because who holds a card is a property of the board and
    there is no other way to write that case. */
-const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
+const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, evidence?: BoardEvidence) => {
   /* `turns` and `itemsLoaded` are not decoration: every real session carries
      them, and anything reading a transcript — `isBusy`, `currentTurn` — reads
      `turns` without asking. A fixture that leaves them out passes until the
@@ -109,6 +112,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
     ] as unknown as RuntimeInfo[],
     sessions: new Map([[sessionKey('codex', 'c1'), held]]),
     teams: new Map([[ROOM, state(intents, extra)]]),
+    boardEvidence: new Map(evidence ? [[ROOM, evidence]] : []),
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -126,8 +130,10 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}) => {
        no card carries a role, nothing here holds one, and the pane behaves
        exactly as it did before flows existed. */
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
+    loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
+    runCheck: vi.fn().mockResolvedValue({ kind: 'started' }),
   } as unknown as AppStore
-  return { store }
+  return { store, snapshot }
 }
 
 const render = async (store: AppStore): Promise<void> => {
@@ -149,19 +155,22 @@ const button = (text: string): HTMLButtonElement => {
   return found
 }
 
-it('columns are the states, so no card has to repeat its own', async () => {
+it('columns are what is known about the work, so no card has to repeat its own', async () => {
   const { store } = rig([
     intent({ id: 1, state: 'open' }),
     intent({ id: 2, state: 'claimed', title: 'Integration tests' }),
   ])
   await render(store)
 
-  /* "Ready", not "Open": once Waiting is a column of its own, "Open" stops
-     saying which of the two it means. The engine's state is still `open` —
-     a label and a state name do not have to be the same word. */
-  expect(container.textContent).toContain('Ready')
-  expect(container.textContent).toContain('Claimed')
-  expect(container.textContent).toContain('#1')
+  expect([...container.querySelectorAll('[data-slot="board-column"] h3')].map((one) => one.textContent)).toEqual([
+    'To do',
+    'Working',
+    'Needs you',
+    'In review',
+    'Ready',
+  ])
+  expect(column('To do').textContent).toContain('#1')
+  expect(column('Working').textContent).toContain('Integration tests')
   expect(container.textContent).toContain('src/api/**')
 })
 
@@ -229,38 +238,6 @@ const column = (name: string): HTMLElement => {
   return found as HTMLElement
 }
 
-/** React tracks the value setter, so a bare assignment is a change it never hears. */
-const typeInto = (box: HTMLInputElement, text: string): void => {
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(box, text)
-    box.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-}
-
-/**
- * The quick path, which lives at the foot of Ready and not in the header.
- *
- * It is a slot until it is pressed, so opening it is part of the act: a
- * composer that were always a field would be a field sitting in a column,
- * which is the shape this replaced.
- */
-const openQuickAdd = (): HTMLInputElement => {
-  const slot = [...container.querySelectorAll<HTMLButtonElement>(
-    '[data-slot="board-add"]',
-  )].find((one) => one.tagName === 'BUTTON')
-  if (!slot) throw new Error('no add slot at the foot of Ready')
-  act(() => slot.click())
-  return quickAdd()
-}
-
-const quickAdd = (): HTMLInputElement => {
-  const found = container.querySelector<HTMLInputElement>(
-    '[data-slot="board-add"][data-open] input',
-  )
-  if (!found) throw new Error('the add slot is not open')
-  return found
-}
-
 it('the referee wins: release on a claimed intent reaches the host', async () => {
   const { store } = rig([
     intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
@@ -283,76 +260,23 @@ it('abandoning is offered, and is not the same act as finishing', async () => {
 })
 
 it('settled work can be put back in play', async () => {
-  const { store } = rig([intent({ state: 'done' })])
+  const { store } = rig([intent({ state: 'done' })], {}, observed([], []))
   await render(store)
 
   await pick(1, 'Put back in play')
   expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'reopen')
 })
 
-/**
- * Moving work by dragging it.
- *
- * The shortcut, and the reason the board is a board: a card's column is its
- * state, so moving the card is the whole of saying what happened to it. Every
- * drop is one of the same four verbs the menu offers — nothing here can do
- * something a keyboard cannot.
- */
-it('dropping a card on Done marks it done', async () => {
-  const { store } = rig([intent({ state: 'open' })])
-  await render(store)
-
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  const done = column('Done')
-  act(() => done.dispatchEvent(drag('dragover')))
-  act(() => done.dispatchEvent(drag('drop')))
-  await act(async () => {})
-
-  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
-})
-
-it('dropping a claimed card on Ready takes it back off its holder', async () => {
+it('what a drop did is in the card’s menu: done, and taking work back off its holder', async () => {
   const { store } = rig([
-    intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
+    intent({ id: 1, state: 'open' }),
+    intent({ id: 2, state: 'claimed', title: 'Round the totals', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
   ])
   await render(store)
-
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  const ready = column('Ready')
-  act(() => ready.dispatchEvent(drag('dragover')))
-  act(() => ready.dispatchEvent(drag('drop')))
-  await act(async () => {})
-
-  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'release')
-})
-
-/**
- * The honest half.
- *
- * Three of the five columns are the user's to fill and two are not: `claimed`
- * is taken by an agent, not handed out, and `waiting` belongs to the dependency
- * graph. A drop that silently did nothing would teach the reader the board is
- * broken rather than that the rule exists, so the rule is a sentence, drawn on
- * the column while the card is still in the air.
- */
-it('says why a column will not take the card, while the card is in the air', async () => {
-  const { store } = rig([intent({ state: 'open' })])
-  await render(store)
-
-  expect(column('Claimed').textContent).not.toContain('never handed out')
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-
-  expect(column('Claimed').textContent).toContain('never handed out')
-  expect(column('Waiting').textContent).toContain('dependency graph')
-  // And the columns that will take it name the verb rather than saying "drop
-  // here": four columns do four different things to a card.
-  expect(column('Done').textContent).toContain('Mark #1 done')
-  expect(column('Blocked').textContent).toContain('Stop #1')
-
-  // A drop where it is refused changes nothing.
-  act(() => column('Claimed').dispatchEvent(drag('drop')))
-  await act(async () => {})
-  expect(store.teamIntent).not.toHaveBeenCalled()
+  await pick(1, 'Mark done')
+  expect(store.teamIntent).toHaveBeenCalledWith(ROOM, 1, 'done')
+  await pick(2, 'Take it back off')
+  expect(store.teamIntent).toHaveBeenLastCalledWith(ROOM, 2, 'release')
 })
 
 /**
@@ -367,14 +291,11 @@ it('says why a column will not take the card, while the card is in the air', asy
  * that does not say what stopped it sends the next reader to the channel, which
  * is the trip the board exists to save.
  */
-it('dropping a card on Blocked asks why before it stops anything', async () => {
+it('stopping a card asks why before it stops anything', async () => {
   const { store } = rig([intent({ state: 'open' })])
   await render(store)
 
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  const blocked = column('Blocked')
-  act(() => blocked.dispatchEvent(drag('dragover')))
-  act(() => blocked.dispatchEvent(drag('drop')))
+  await pick(1, 'Stop it — say why')
   await act(async () => {})
 
   // Nothing has happened yet — the question is the point.
@@ -401,9 +322,7 @@ it('cancelling the question leaves the card where it was', async () => {
   const { store } = rig([intent({ state: 'open' })])
   await render(store)
 
-  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
-  act(() => column('Blocked').dispatchEvent(drag('drop')))
-  await act(async () => {})
+  await pick(1, 'Stop it — say why')
 
   const cancel = [...document.querySelectorAll('button')].find(
     (one) => one.textContent?.trim() === 'Cancel',
@@ -413,6 +332,7 @@ it('cancelling the question leaves the card where it was', async () => {
 
   expect(store.teamIntent).not.toHaveBeenCalled()
   expect(document.querySelector('input[aria-label="Why it is stopped"]')).toBeNull()
+  expect(column('To do').textContent).toContain('Migrate auth callers')
 })
 
 it('offers the same stop from the card’s own menu', async () => {
@@ -439,41 +359,6 @@ it('offers the same stop from the card’s own menu', async () => {
  * A title typed into the header and pressed once is how most work goes up, and
  * that path must not get slower because a longer one exists beside it.
  */
-it('adds work from the slot at the foot of Ready', async () => {
-  const { store } = rig([intent({})])
-  await render(store)
-
-  const add = openQuickAdd()
-  typeInto(add, 'Ship the docs')
-  act(() => add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
-  await act(async () => {})
-
-  expect(store.teamAdd).toHaveBeenCalledWith(ROOM, { title: 'Ship the docs' })
-  await act(async () => {})
-  // Cleared, and still open: boards are filled in runs, and closing after the
-  // first card would make the second one a second click.
-  expect(quickAdd().value).toBe('')
-})
-
-it('a title the host refuses is said back, in the words that were typed', async () => {
-  const { store } = rig([intent({})])
-  ;(store.teamAdd as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('no'))
-  await render(store)
-
-  const add = openQuickAdd()
-  typeInto(add, 'Ship the docs')
-  act(() => add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
-  await act(async () => {})
-
-  /* The field clears the moment it hands the title over and does not wait for
-     the host, because a composer that waits eats the next card typed into it
-     — and this one is meant to be typed into four times in a row. So the words
-     are not held in the box; they are quoted back in the pane's trouble line,
-     which is where the answer to "did that land" belongs anyway. */
-  expect(container.textContent).toContain('Ship the docs')
-  expect(container.textContent).toContain('the board is as it was')
-})
-
 /**
  * The long form, and everything that opens it.
  *
@@ -535,26 +420,6 @@ it('offers the same long form from an empty board', async () => {
  * person who pressed it to see what it was is left with a field they have to
  * work out how to leave.
  */
-it('Escape leaves the quick add, and takes the half-typed title with it', async () => {
-  const { store } = rig([intent({})])
-  await render(store)
-
-  const add = openQuickAdd()
-  typeInto(add, 'Half a thought')
-  act(() => add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-  await act(async () => {})
-
-  expect(container.querySelector('[data-slot="board-add"][data-open]')).toBeNull()
-  expect(store.teamAdd).not.toHaveBeenCalled()
-})
-
-it('abandoned work is settled but does not sit in Done looking finished', async () => {
-  const { store } = rig([intent({ state: 'abandoned' })])
-  await render(store)
-
-  // It folds into the last column — and says which it is.
-  expect(container.textContent).toContain('abandoned')
-})
 
 it('the claiming harness is pressable straight through to its conversation', async () => {
   const { store } = rig([
@@ -677,13 +542,10 @@ it('separates work waiting on its dependencies from work somebody stopped', asyn
   const { store } = rig([waiting, stopped] as never)
   await render(store)
 
-  const columns = [...container.querySelectorAll('[data-slot="board-column"]')]
-  const named = (title: string) =>
-    columns.find((column) => column.textContent?.startsWith(title))
-  expect(named('Waiting')?.textContent).toContain('Review the rounding change')
-  expect(named('Waiting')?.textContent).not.toContain('Migrate the pricing table')
-  expect(named('Blocked')?.textContent).toContain('Migrate the pricing table')
-  expect(named('Blocked')?.textContent).not.toContain('Review the rounding change')
+  expect(column('To do').textContent).toContain('Review the rounding change')
+  expect(column('To do').textContent).not.toContain('Migrate the pricing table')
+  expect(column('Needs you').textContent).toContain('Migrate the pricing table')
+  expect(column('Needs you').textContent).not.toContain('Review the rounding change')
 })
 
 /**
@@ -697,7 +559,7 @@ it('separates work waiting on its dependencies from work somebody stopped', asyn
  * `abandoned` stays a chip, and is the one thing that should: it shares the
  * Done column with work that actually finished, and the difference is the news.
  */
-it('says the state in the column, not on the card — except where the column cannot', async () => {
+it('says what the column cannot: why a card needs you — and work set aside needs no chip to say so', async () => {
   const { store } = rig([
     intent({ id: 1, state: 'blocked', blockedBy: 'graph', title: 'Waits on the graph' }),
     intent({ id: 2, state: 'blocked', blockedBy: 'hand', title: 'Somebody stopped it' }),
@@ -705,18 +567,12 @@ it('says the state in the column, not on the card — except where the column ca
   ] as never)
   await render(store)
 
-  const columns = [...container.querySelectorAll('[data-slot="board-column"]')]
-  const named = (title: string) => columns.find((one) => one.textContent?.startsWith(title))
-
-  // Neither blocked card wears a "blocked" chip; their columns already said it.
-  expect(named('Waiting')?.textContent).toContain('Waits on the graph')
-  expect(named('Waiting')?.textContent).not.toContain('blocked')
-  expect(named('Blocked')?.textContent).toContain('Somebody stopped it')
-  expect(named('Blocked')?.textContent?.match(/blocked/gi) ?? []).toHaveLength(1) // the heading only
-
-  // Abandoned still says so: it is sitting in Done, which would otherwise read
-  // as finished.
-  expect(named('Done')?.textContent).toContain('abandoned')
+  expect(column('To do').textContent).toContain('Waits on the graph')
+  expect(column('To do').textContent).not.toContain('blocked')
+  expect(column('Needs you').textContent).toContain('Somebody stopped it')
+  expect(column('Needs you').textContent).toContain('stopped')
+  expect(column('Set aside').textContent).toContain('Given up on')
+  expect(card('Given up on').textContent).not.toContain('abandoned')
 })
 
 /**
@@ -727,7 +583,7 @@ it('says the state in the column, not on the card — except where the column ca
  * hide the one thing worth seeing: the difference between "somebody is on it"
  * and "somebody was".
  */
-it('says when a claim has run out, and leaves it where it was', async () => {
+it('a claim that has run out needs you, and says how long', async () => {
   const stale = intent({
     id: 1,
     state: 'claimed',
@@ -743,14 +599,10 @@ it('says when a claim has run out, and leaves it where it was', async () => {
   const { store } = rig([stale, live] as never)
   await render(store)
 
-  const columns = [...container.querySelectorAll('[data-slot="board-column"]')]
-  const claimed = columns.find((one) => one.textContent?.startsWith('Claimed'))
-  // Both are still owned, so both are still in Claimed.
-  expect(claimed?.textContent).toContain('Migrate the callers')
-  expect(claimed?.textContent).toContain('Round the totals')
-  // Only the lapsed one says so, and says how long.
-  expect(claimed?.textContent).toContain('stranded 3h')
-  expect(claimed?.textContent?.match(/stranded/g) ?? []).toHaveLength(1)
+  expect(column('Needs you').textContent).toContain('Migrate the callers')
+  expect(column('Needs you').textContent).toContain('stranded 3h')
+  expect(column('Working').textContent).toContain('Round the totals')
+  expect(container.textContent?.match(/stranded/g) ?? []).toHaveLength(1)
 })
 
 /**
@@ -868,57 +720,6 @@ it('shows the holder by its room name, not by a title it may not have', async ()
 })
 
 /**
- * A goal can be finished; a Room cannot.
- *
- * The band above the work is the only line on the board that can ever say
- * "done" — and the refusal, when something is still live, is read there rather
- * than thrown away, because it is an answer the person needs.
- */
-it('offers to wrap a goal only when nothing on it is still live', async () => {
-  const live = intent({ id: 1, state: 'claimed', title: 'In progress', plan: 1 })
-  const settled = intent({ id: 2, state: 'done', title: 'Finished', plan: 1 })
-  const { store } = rig([live, settled] as never, {
-    plans: [{ id: 1, goal: 'Round half-up to whole cents', state: 'running', createdAt: 0 }],
-  } as never)
-  await render(store)
-
-  expect(container.textContent).toContain('Round half-up to whole cents')
-  expect(container.textContent).toContain('1 live')
-  const wrap = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent === 'Wrap up',
-  )
-  expect(wrap?.disabled).toBe(true)
-})
-
-it('a goal with nothing live says so, and the button works', async () => {
-  const settled = intent({ id: 1, state: 'done', title: 'Finished', plan: 1 })
-  const { store } = rig([settled] as never, {
-    plans: [{ id: 1, goal: 'Ship the migration', state: 'running', createdAt: 0 }],
-  } as never)
-  await render(store)
-
-  expect(container.textContent).toContain('all done')
-  const wrap = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent === 'Wrap up',
-  )
-  expect(wrap?.disabled).toBe(false)
-})
-
-it('a wrapped goal leaves the band, and its work stays on the board', async () => {
-  const settled = intent({ id: 1, state: 'done', title: 'Finished', plan: 1 })
-  const { store } = rig([settled] as never, {
-    plans: [{ id: 1, goal: 'Already put away', state: 'wrapped', createdAt: 0, wrappedAt: 1 }],
-  } as never)
-  await render(store)
-
-  // The heading has said what it had to say; a band that grew forever would
-  // push the work off the screen.
-  expect(container.textContent).not.toContain('Already put away')
-  // The record does not go anywhere.
-  expect(container.textContent).toContain('Finished')
-})
-
-/**
  * A card's menu is a floating panel, and it owes what every floating panel owes:
  * it goes when something takes the screen (#214).
  *
@@ -962,7 +763,7 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
       inputs: [],
     },
     seats: [],
-    rounds: [],
+    rounds: [{ n: 1, role: 'person', intents: [1], openedAt: 1 }],
     record: [],
   }
   const runs = new Map([[ROOM, [stalledRun]]])
@@ -980,18 +781,366 @@ it('displays the card role when the flow run is stalled (#557)', async () => {
   expect(labels).toContain('Answer approve')
 })
 
-it('a claimed card’s holder wears its ceiling, asked in the warning tone, and a plain holder wears none', async () => {
-  const plain = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })])
-  await render(plain.store)
-  expect(container.querySelector('[data-ceiling]')).toBeNull()
+const observed = (checks: readonly string[], cards: BoardEvidence['cards']): BoardEvidence => ({
+  room: ROOM,
+  stamp: 1,
+  checks,
+  refused: [],
+  unreadable: null,
+  cards,
+})
 
-  const seated = rig([intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })])
-  const held = seated.store.getSnapshot().sessions.get(sessionKey('codex', 'c1')) as unknown as { settings?: unknown }
-  held.settings = { ceiling: { level: 'read', hold: 'asked' } }
-  await render(seated.store)
-  const chip = container.querySelector('[data-ceiling]')
-  expect(chip?.getAttribute('data-ceiling')).toBe('read')
-  expect(chip?.getAttribute('data-hold')).toBe('asked')
-  expect(chip?.textContent).toBe('Read · asked')
-  expect(chip?.querySelector('[data-tone="warning"]')).not.toBeNull()
+const chipsOf = (id: number): HTMLButtonElement | null =>
+  container.querySelector<HTMLButtonElement>(`button[aria-label^="What the desk observed on #${id}"]`)
+
+it('a card carries what the desk observed as chips, and they open all of it', async () => {
+  const { store } = rig(
+    [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    {},
+    observed(['verify'], [cardEvidence(1, [checkView(), prView('open')])]),
+  )
+  await render(store)
+  const chips = chipsOf(1)
+  expect(chips?.textContent).toContain('verify ✓ @a1b2c3d')
+  expect(chips?.textContent).toContain('PR #12 open')
+  act(() => chips?.click())
+  await act(async () => {})
+  const dialog = document.querySelector('[role="dialog"]')
+  expect(dialog?.textContent).toContain('What the desk observed on #1')
+  expect(dialog?.textContent).toContain('Scout on Alpha · alpha-max')
+  expect(dialog?.textContent).toContain('Fresh: nothing has landed on its branch since.')
+  expect(dialog?.textContent).toContain('pnpm verify')
+})
+
+it('a stale chip says how far behind it is', async () => {
+  const { store } = rig(
+    [intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    {},
+    observed(['verify'], [cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 2 } })])]),
+  )
+  await render(store)
+  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d — 2 commits since (stale)')
+  expect(chipsOf(1)?.getAttribute('aria-label')).toBe(
+    'What the desk observed on #1: verify ✓ @a1b2c3d — 2 commits since (stale)',
+  )
+})
+
+it('the plain board draws no evidence', async () => {
+  const { store } = rig([intent({ state: 'open' })])
+  await render(store)
+  expect(chipsOf(1)).toBeNull()
+  expect(store.loadBoardEvidence).toHaveBeenCalledWith(ROOM)
+})
+
+it('does not place completed work before the first evidence read answers', async () => {
+  const { store } = rig([intent({ state: 'done', title: 'Waiting for observed facts' })])
+  await render(store)
+  expect(container.textContent).toContain('Checking current evidence')
+  expect(container.textContent).not.toContain('Waiting for observed facts')
+  expect(container.textContent).not.toContain('nothing checked')
+})
+
+it('says evidence is unavailable after a cold read fails instead of claiming nothing was checked', async () => {
+  const { store, snapshot } = rig([intent({ state: 'done', title: 'Facts could not be read' })])
+  Object.assign(snapshot, { boardEvidenceFailed: new Set([ROOM]) })
+  await render(store)
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain('Evidence unavailable')
+  expect(container.textContent).not.toContain('Facts could not be read')
+  expect(container.textContent).not.toContain('nothing checked')
+})
+
+it('a message between agents is never evidence: the channel saying the tests pass draws no chip', async () => {
+  const said = {
+    id: 'm1',
+    at: 1,
+    kind: 'message',
+    from: { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' },
+    to: { runtime: 'claude', sessionId: 'k1', title: 'Auth refactor' },
+    text: 'verify passed, all tests pass — ready to merge',
+    state: 'delivered',
+  }
+  const { store } = rig(
+    [intent({ state: 'done', note: 'All tests pass.' })],
+    { channel: [said] } as unknown as Partial<TeamState>,
+    observed(['verify'], []),
+  )
+  await render(store)
+  expect(chipsOf(1)).toBeNull()
+  expect(card('Migrate auth callers').textContent).not.toContain('✓')
+})
+
+it('reads what was observed when shown, when the window comes back, and every thirty seconds', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+  try {
+    const { store } = rig([intent({ state: 'open' })])
+    await render(store)
+    expect(store.loadBoardEvidence).toHaveBeenCalledTimes(1)
+    act(() => window.dispatchEvent(new Event('focus')))
+    expect(store.loadBoardEvidence).toHaveBeenCalledTimes(2)
+    act(() => vi.advanceTimersByTime(30_000))
+    expect(store.loadBoardEvidence).toHaveBeenCalledTimes(3)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+const UNSEEN = {
+  ...PREVIEW_UNSEEN,
+  check: { name: 'verify', run: 'pnpm verify', timeout: 1200 },
+  previous: null,
+}
+
+const question = (): HTMLElement | null => document.querySelector('[role="alertdialog"]')
+
+const pressIn = (scope: ParentNode, label: string): void => {
+  const found = [...scope.querySelectorAll('button')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no button labelled ${label}`)
+  act(() => found.click())
+}
+
+const armed = (): Promise<void> =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, ARM_MS + 50))
+  })
+
+it('a card offers each named check, and the first run of a command nobody here has seen shows it and asks', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ kind: 'unseen', unseen: UNSEEN })
+  await render(store)
+
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+  expect(store.runCheck).toHaveBeenCalledWith(ROOM, 1, 'verify')
+  const asked = question()
+  expect(asked?.textContent).toContain('Run verify on this Mac for the first time?')
+  expect(asked?.querySelector('pre')?.textContent).toBe('pnpm verify')
+  expect(asked?.textContent).toContain('.harnessdesk/checks.yml')
+  expect(asked?.textContent).toContain('It runs with your full authority, as it would in your terminal')
+  expect([...(asked?.querySelectorAll('button') ?? [])].includes(document.activeElement as HTMLButtonElement)).toBe(false)
+
+  act(() => document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+
+  pressIn(asked as HTMLElement, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+
+  await armed()
+  pressIn(asked as HTMLElement, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(2)
+  expect(store.runCheck).toHaveBeenLastCalledWith(ROOM, 1, 'verify', {
+    seen: 'pnpm verify',
+    digest: UNSEEN.digest,
+  })
+  expect(question()).toBeNull()
+})
+
+it('Not now runs nothing, and says nothing was seen', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ kind: 'unseen', unseen: UNSEEN })
+  await render(store)
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  pressIn(question() as HTMLElement, 'Not now')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledTimes(1)
+  expect(question()).toBeNull()
+})
+
+it('a changed command asks again, and shows what ran under its name before', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['lint'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+    kind: 'unseen',
+    unseen: PREVIEW_UNSEEN,
+  })
+  await render(store)
+  await pick(1, 'Run lint')
+  await act(async () => {})
+  const asked = question()
+  expect(asked?.textContent).toContain('lint has changed since it last ran here')
+  expect([...(asked?.querySelectorAll('pre') ?? [])].map((one) => one.textContent)).toEqual([
+    'pnpm lint --max-warnings 0',
+    'pnpm lint',
+  ])
+})
+
+const reasonOf = (item: HTMLElement | undefined): string | null => {
+  const id = item?.getAttribute('aria-describedby')
+  return id ? (document.getElementById(id)?.textContent ?? null) : null
+}
+
+it('a check that cannot run stays in the menu, greyed, with its reason as its second line', async () => {
+  const { store } = rig(
+    [intent({ state: 'open' })],
+    {},
+    {
+      ...observed(['verify'], []),
+      refused: [{ name: 'e2e', why: 'The command holds a character that is not plain printable ASCII.' }],
+    },
+  )
+  await render(store)
+  const items = await menuItems(1)
+  const refused = items.find((one) => one.textContent?.startsWith('Run e2e'))
+  expect(refused?.hasAttribute('data-disabled')).toBe(true)
+  expect(reasonOf(refused)).toBe(".harnessdesk/checks.yml refuses it; the project's page says why")
+  act(() => refused?.click())
+  await act(async () => {})
+  expect(store.runCheck).not.toHaveBeenCalled()
+})
+
+it('while a check runs on a card, every check on that card waits, and says why: one runs on a card at a time', async () => {
+  const { store } = rig(
+    [intent({ id: 1, state: 'open' }), intent({ id: 2, state: 'open', title: 'Another card' })],
+    {},
+    observed(['verify', 'lint'], [cardEvidence(1, [], [{ name: 'verify', since: 1 }])]),
+  )
+  await render(store)
+  const items = await menuItems(1)
+  for (const label of ['Run verify', 'Run lint']) {
+    const item = items.find((one) => one.textContent?.startsWith(label))
+    expect(item?.hasAttribute('data-disabled'), label).toBe(true)
+    expect(reasonOf(item)).toBe('verify is running on this card, and one check runs on a card at a time')
+  }
+  act(() => dismissOverlays())
+  await act(async () => {})
+  await pick(2, 'Run lint')
+  expect(store.runCheck).toHaveBeenCalledWith(ROOM, 2, 'lint')
+})
+
+it('a refusal to run is said in the host’s words, and nothing is asked', async () => {
+  const { store } = rig([intent({ state: 'open' })], {}, observed(['verify'], []))
+  ;(store.runCheck as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+    new Error("#1's checkout, /elsewhere, is not part of this project, so its check does not run there."),
+  )
+  await render(store)
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
+    "#1's checkout, /elsewhere, is not part of this project, so its check does not run there.",
+  )
+  expect(question()).toBeNull()
+})
+
+it('a stale check is offered again and an approved command starts without another question', async () => {
+  const { store } = rig(
+    [intent({ state: 'done' })],
+    {},
+    observed(['verify'], [
+      cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 1 } })]),
+    ]),
+  )
+  await render(store)
+
+  await pick(1, 'Run verify')
+  await act(async () => {})
+  expect(store.runCheck).toHaveBeenCalledWith(ROOM, 1, 'verify')
+  expect(question()).toBeNull()
+})
+
+it('the board is derived: no card or column takes a drop, no column takes a title, and an empty one says so', async () => {
+  const { store } = rig([intent({ state: 'open' })])
+  await render(store)
+  expect(container.querySelector('[data-slot="board"]')?.hasAttribute('data-derived')).toBe(true)
+  expect(card('Migrate auth callers').getAttribute('draggable')).toBeNull()
+  act(() => card('Migrate auth callers').dispatchEvent(drag('dragstart')))
+  act(() => column('Ready').dispatchEvent(drag('drop')))
+  await act(async () => {})
+  expect(store.teamIntent).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-slot="board-add"]')).toBeNull()
+  expect(column('Working').querySelector('[data-slot="board-empty"]')?.textContent).toBe('Nothing here')
+})
+
+it('finished work is Ready only on a fact, and says which fact when it needs you', async () => {
+  const { store } = rig(
+    [
+      intent({ id: 1, state: 'done', title: 'Checked and fresh' }),
+      intent({ id: 2, state: 'done', title: 'Nothing checked' }),
+      intent({ id: 3, state: 'done', title: 'Checked, then a commit landed' }),
+      intent({ id: 4, state: 'done', title: 'Being checked now' }),
+      intent({ id: 5, state: 'done', title: 'CI was cancelled' }),
+      intent({ id: 6, state: 'done', title: 'Merged, from a backup' }),
+    ],
+    {},
+    observed(['verify'], [
+      cardEvidence(1, [checkView({ card: 1 })]),
+      cardEvidence(3, [checkView({ card: 3, freshness: { state: 'behind', commits: 1 } })]),
+      cardEvidence(4, [], [{ name: 'verify', since: 1 }]),
+      cardEvidence(5, [ciView(['passed', 'cancelled'], { card: 5 })]),
+      cardEvidence(6, [
+        prView('merged', {
+          card: 6,
+          freshness: { state: 'unknown', why: 'it came from a backup, and this desk has not observed it' },
+        }),
+      ]),
+    ]),
+  )
+  await render(store)
+  expect(column('Ready').textContent).toContain('Checked and fresh')
+  expect(card('Nothing checked').textContent).toContain('nothing checked')
+  expect(card('Checked, then a commit landed').textContent).toContain('verify out of date')
+  expect(column('In review').textContent).toContain('Being checked now')
+  expect(card('CI was cancelled').textContent).toContain('CI cancelled')
+  expect(card('Merged, from a backup').textContent).toContain('PR #12 unknown')
+})
+
+it('a message between agents is never evidence: the channel and a finish note saying the tests pass move nothing', async () => {
+  const said = {
+    id: 'm1',
+    at: 1,
+    kind: 'message',
+    from: { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' },
+    to: { runtime: 'claude', sessionId: 'k1', title: 'Auth refactor' },
+    text: 'verify passed on #1, all tests pass — ready to merge',
+    state: 'delivered',
+  }
+  const { store } = rig(
+    [intent({ id: 1, state: 'done', title: 'Said to pass', note: 'All tests pass.', outcome: 'pass' })],
+    { channel: [said] } as unknown as Partial<TeamState>,
+    observed(['verify'], []),
+  )
+  await render(store)
+  expect(column('Needs you').textContent).toContain('Said to pass')
+  expect(card('Said to pass').textContent).toContain('nothing checked')
+  expect(column('Ready').textContent).not.toContain('Said to pass')
+})
+
+it('work whose holder is waiting on an answer needs you, and says so', async () => {
+  const { store, snapshot } = rig([
+    intent({ state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
+  ])
+  Object.assign(snapshot, { approvals: [{ key: sessionKey('codex', 'c1'), approval: {} }] })
+  await render(store)
+  expect(column('Needs you').textContent).toContain('Migrate auth callers')
+  expect(card('Migrate auth callers').textContent).toContain('waiting on you')
+})
+
+it("a card an earlier run left open is not the person's step because a new run reuses its role's name", async () => {
+  const leftOver = intent({ id: 1, state: 'open', role: 'person', title: 'Approve the old plan' })
+  const { store, snapshot } = rig([leftOver])
+  const newRun = {
+    id: 'flow-run-2',
+    room: ROOM,
+    state: 'running' as const,
+    startedAt: 2,
+    vars: {},
+    flow: {
+      name: 'Review flow',
+      roles: [{ id: 'person', name: 'Person', kind: 'person', count: 1, outcomes: ['approve'] }],
+      rules: [],
+      inputs: [],
+    },
+    seats: [],
+    rounds: [{ n: 1, role: 'person', intents: [9], openedAt: 2 }],
+    record: [],
+  }
+  Object.assign(snapshot, { flowRuns: new Map([[ROOM, [newRun]]]) })
+  await render(store)
+  expect(column('To do').textContent).toContain('Approve the old plan')
+  expect(column('Needs you').textContent).not.toContain('Approve the old plan')
+  const labels = (await menuItems(1)).map((one) => one.textContent?.trim())
+  expect(labels).not.toContain('Answer approve')
+  expect(labels).toContain('Mark done')
 })

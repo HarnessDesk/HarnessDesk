@@ -1,5 +1,6 @@
 /* The files card under an answer: one header line with the verdict and the
-   two actions, then the files. Quiet — a list, not a dashboard.
+   two actions, then the files when there are several. Quiet — a list, not a
+   dashboard.
 
    It is the conversation's one real card, so it joins the `--hd-card-*`
    family: under Studio it fills with the brand wash and drops its hairline,
@@ -11,9 +12,6 @@
   width: 100%;
   max-width: var(--hd-column);
   margin: 10px auto 4px;
-  border-radius: var(--hd-card-radius, var(--hd-radius-lg));
-  background: var(--hd-card-fill, var(--hd-card));
-  box-shadow: inset 0 0 0 1px var(--hd-card-border, var(--hd-border-strong));
   overflow: hidden;
 }
 
@@ -23,15 +21,13 @@
 
 /* Wraps rather than overlaps: in a squeezed column — a second pane open, or
    the window zoomed — the buttons drop to their own row instead of printing
-   themselves over "Edited 1 file". */
+   themselves over a long file name. */
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
   row-gap: 8px;
-  padding: 12px var(--hd-space-4) 12px 12px; /* desk: canonical One UI System scale */
-  border-bottom: 1px solid var(--hd-border);
 }
 
 .glyph {
@@ -39,10 +35,6 @@
   display: inline-grid;
   place-items: center;
   width: 36px;
-  height: 36px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-muted);
-  color: var(--hd-secondary-foreground);
 }
 
 .title {
@@ -57,34 +49,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium);
-  color: var(--hd-foreground);
 }
 
-.revertedTag {
-  padding: 0 6px;
-  border-radius: 8px;
-  background: var(--hd-muted);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
-  color: var(--hd-muted-foreground);
-}
+/* Appearance for .revertedTag is composed on the element via Tailwind. */
 
 .counts {
   flex: none;
-  font-size: var(--hd-text-sm);
-  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.added {
-  color: var(--hd-success); /* desk: a stale fallback that no longer matched the token */
-}
-
-.removed {
-  color: var(--hd-danger);
-}
+/* Appearance for .added and .removed is composed on the elements via Tailwind. */
 
 .actions {
   flex: none;
@@ -103,7 +77,6 @@
 .files {
   list-style: none;
   margin: 0;
-  padding: 4px 0;
 }
 
 .file {
@@ -116,22 +89,19 @@
 
 }
 
+.more {
+  width: 100%;
+}
+
 .path {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--hd-text);
-  color: var(--hd-foreground);
+  direction: rtl;
+  text-align: left;
 }
 
-.dir {
-  color: var(--hd-muted-foreground);
-}
-
-.kind {
-  margin-left: 8px;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
-}
+/* Appearance (font-family, font-size for .path; color for .dir and .kind;
+   font-size for .kind) is composed on the elements via Tailwind/Text. */

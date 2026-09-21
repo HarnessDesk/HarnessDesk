@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
@@ -11,6 +11,8 @@ import {
   approvalId as makeApprovalId,
   ceilingOfPermission,
   holderOf,
+  DEFAULT_LANE_PREFERENCES,
+  lanePreferences,
   itemId,
   isFolderGone,
   type CeilingLevel,
@@ -25,6 +27,7 @@ import {
   SessionBusyError,
   sessionId as makeSessionId,
   sessionKey,
+  splitSessionKey,
   type AgentEvent,
   type AgentRuntime,
   type ArchiveFilter,
@@ -51,6 +54,7 @@ import {
   type SessionId,
   type RepoInfo,
   type SessionSummary,
+  type TeamState,
   type Turn,
   type UserContent,
   type Unsubscribe,
@@ -59,7 +63,11 @@ import {
   type Approval,
   type ContributionId,
   type ScopeQuery,
+  type GoalSeatRequest,
+  type GoalReceipt,
   type SecretReload,
+  type SeatId,
+  type SeatRecord,
   type SeatArchived,
   type SeatLeft,
   type PublicationItem,
@@ -95,7 +103,8 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
-import { flowSeatInput } from './evidence/seats.js'
+import { revisionOf } from './evidence/revision.js'
+import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SessionArchive } from './archive.js'
@@ -105,10 +114,25 @@ import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
 import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
+import { dispatchAfter, Serial } from './goals/assignments.js'
+import { goalMembers } from './goals/members.js'
+import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
+import {
+  environmentForCheckout,
+  environmentForSession,
+  laneStandingOrder,
+  requireLaneSupport,
+} from './goals/lane-environment.js'
+import { importMigrationSeats, migrateDesk } from './goals/migration.js'
+import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
+import type { GoalOperation } from './goals/operations.js'
+import { acquireDeskWriter } from './goals/writer-lease.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
+import { seatAgent } from './methods/agents.js'
 
 /**
  * The host.
@@ -137,6 +161,7 @@ export interface ExtensionHost extends CapabilityRegistry {
   setWorkspace(state: { root: string | null; branch: string | null }): void
   /** Where an agent's `browser_open` puts the page. See `BrowserSettings`. */
   setBrowserSettings(settings: BrowserSettings): void
+  setBrowserResolver?(resolve: (scope: ScopeQuery) => string | undefined): void
   /** Reads a manifest for the consent dialog; imports nothing. */
   inspectPlugin(specifier: string): Promise<{
     id: string
@@ -409,6 +434,13 @@ export type Broadcast = (notification: WireNotification) => void
 const REOPEN_REFUSALS_TO_LET_GO = 2
 
 export class Host {
+  /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
+  browserProfileAllowed(profile: string): boolean {
+    return this.#lanes
+      .list()
+      .some((lane) => lane.browserProfile === profile && lane.state !== 'released')
+  }
+
   readonly registry = new SessionRegistry()
   readonly #runtimes = new Map<string, AgentRuntime>()
   readonly #subscriptions: Unsubscribe[] = []
@@ -422,6 +454,8 @@ export class Host {
 
   readonly #extensions: ExtensionHost | null
   readonly #worktrees: Worktrees
+  readonly #laneStore: LaneStore
+  readonly #lanes: LaneAllocator
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
@@ -471,6 +505,12 @@ export class Host {
    * append-only store per project under `evidence/` in the state directory.
    */
   readonly #evidence: EvidencePlane
+  readonly #goalStore: GoalStore
+  readonly #goalSerial = new Serial()
+  readonly #goals: GoalPlane
+  #goalWriter: Awaited<ReturnType<typeof acquireDeskWriter>> | null = null
+  #goalsReady = false
+  #publishingTeamProjection = false
   /**
    * The roster, watched (`AgentWatch`). Made at start rather than in the
    * constructor, so a host that is built and never started watches nothing.
@@ -570,7 +610,28 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#goalStore = new GoalStore(this.#state.directory)
     this.#worktrees = new Worktrees(this.#state.directory)
+    this.#laneStore = new LaneStore(this.#state.directory)
+    this.#lanes = new LaneAllocator({
+      list: () => this.#laneStore.list(),
+      save: (lane) => this.#laneStore.save(lane),
+      available: availablePorts,
+      create: async (id, goal) => {
+        const document = this.#goalStore.read(goal)
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}` })
+        if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
+        return { cwd: checkout.path, branch: checkout.branch }
+      },
+      locate: async (lane) => {
+        const document = this.#goalStore.read(lane.goal)
+        const matches = (await this.#worktrees.list(document.goal.cwd)).filter((checkout) => checkout.branch === `harnessdesk/lane-${lane.id}`)
+        if (matches.length !== 1 || !matches[0]?.branch) return null
+        return { cwd: matches[0].path, branch: matches[0].branch }
+      },
+      active: (lane) => this.#evidence.seats.all().some((seat) => !seat.closed && !seat.restored && (seat.id === lane.seat || seat.board === lane.goal && lane.cwd !== '' && seat.checkout.cwd === lane.cwd)),
+      busy: (lane) => this.registry.all().some((record) => record.session.cwd === lane.cwd && isBusy(record.session)),
+    })
     this.#credentials = new CredentialBroker(
       join(this.#state.directory, 'credentials.json'),
       options.credentialCipher ?? plainCipher,
@@ -611,11 +672,25 @@ export class Host {
         cipher: options.credentialCipher ?? plainCipher,
       },
       {
-        board: (room) => (this.#team.hasRoom(room) ? this.#team.stateFor(room) : null),
+        board: (room) => {
+          try {
+            return this.#goalState(room)
+          } catch {
+            return this.#team.hasRoom(room) ? this.#team.stateFor(room) : null
+          }
+        },
         cwdOf: (runtime, sessionId) =>
           this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.session.cwd ?? null,
         push: (notification) => this.#push(notification),
         log: (message, details) => this.#logger.warn(message, details ?? {}),
+        canMutateBoard: (goal) => {
+          try {
+            const document = this.#goalStore.read(goal)
+            return document.goal.state === 'open' && document.operation === null
+          } catch {
+            return false
+          }
+        },
       },
     )
     // A conversation seen for the first time wears the Agent its Seat record names.
@@ -650,24 +725,71 @@ export class Host {
       // the room's post is such a use. This used to throw "not attached" for
       // exactly the conversations the user's own composer reopens without a
       // word, which made a room's members vanish on every catalogue refresh.
-      send: async (runtime, id, text, from) => {
-        const live = await this.#teamLive(runtime, id)
-        await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
+      send: async (runtime, id, text, allowed, from) => {
+        await dispatchAfter(
+          allowed ?? (() => ({ ok: true })),
+          () => this.#teamLive(runtime, id),
+          async (live) => {
+            if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
+            else await live.send([{ type: 'text', text }])
+          },
+        )
       },
-      steer: async (runtime, id, text, from) => {
-        const live = await this.#teamLive(runtime, id)
-        await live.steer([{ type: 'text', text }])
-        if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
+      steer: async (runtime, id, text, allowed, from) => {
+        await dispatchAfter(
+          allowed ?? (() => ({ ok: true })),
+          () => this.#teamLive(runtime, id),
+          async (live) => {
+            await live.steer([{ type: 'text', text }])
+            if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
+          },
+        )
+      },
+      goalMembers: (goal) => {
+        const document = this.#goalStore.list().find((candidate) => candidate.goal.id === goal)
+        if (!document) return null
+        return {
+          seats: goalMembers(document, this.#evidence.seats.all()),
+          legacy: document.legacy?.nicknames,
+          sentence: document.goal.sentence,
+          runtimeNames: Object.fromEntries([...this.#runtimes.entries()].map(([id, runtime]) =>
+            [id, runtime.info.presentation.name])),
+        }
+      },
+      memberStatus: (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        if (!record) return { exists: true, turn: null, stopped: null }
+        const running = [...record.running]
+        if (running.length > 1) {
+          throw new Error('This member has more than one running turn; wait after one finishes.')
+        }
+        return {
+          exists: true,
+          turn: running[0] ? String(running[0]) : null,
+          stopped: record.detached ? 'the agent stopped' : null,
+        }
+      },
+      canDispatch: (goal) => this.#goals.canDispatch(goal),
+      canMutateBoard: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return !document.restored && document.goal.state === 'open' && document.operation === null
+            ? { ok: true as const }
+            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+        } catch {
+          // A legacy room has no Goal document and retains the Team engine's
+          // standalone behaviour until migration gives it one.
+          return { ok: true as const }
+        }
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
+      mutate: (state) => this.#goalSerial.run(() => this.#saveTeamProjection(state)),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
       /* Membership moved, so whatever this host was counting about reaching
          that conversation no longer applies. See `TeamPort.membershipChanged`
          and `#teamRefusals`. */
       membershipChanged: (runtime, sessionId) => {
-        this.#teamRefusals.delete(sessionKey(runtime, makeSessionId(sessionId)))
-        const record = this.registry.get(runtime, makeSessionId(sessionId))
-        if (record) record.reopenRefusals = 0
+        this.#membershipChanged(runtime, sessionId)
       },
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
@@ -679,12 +801,14 @@ export class Host {
          running at an effort it is not is a seat with an unchecked claim on
          it. Whatever it is really running is what the record and the room
          say it is — a flow says it in the label, and carries on. */
-      seat: async (seat, where) => {
-        const opened = await this.#openSeat(seat, where)
-        // A flow keeps every seat it opens, so the seating's hold ends here (`#seating`).
-        this.#seating.delete(sessionKey(opened.runtime, opened.sessionId))
-        return { runtime: opened.runtime, sessionId: opened.sessionId, label: opened.label }
+      openLegacySeat: async (input) => {
+        // A live Team room may have queued its initial projection just before
+        // a legacy Flow starts. Promote behind that same writer, otherwise
+        // both paths observe no Goal and race to create revision zero.
+        await this.#goalSerial.run(() => this.#ensureGoalFromTeam(input.goal))
+        return this.#goals.openLegacySeat(input)
       },
+      releaseGoalSeat: (goal, seat) => this.#goals.release(goal, seat),
       order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
       reseat: async (runtime, sessionId, seat) => {
         const live = await this.#teamLive(runtime as RuntimeId, sessionId)
@@ -697,43 +821,178 @@ export class Host {
         return last?.status === 'failed' ? (last.error?.message ?? 'the turn failed') : null
       },
       retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
-      /* Not awaited by the run, which already exists: a record that could not
-         be written is logged loudly with the seat it was for, and the run goes
-         on. An Agent's seat is stricter (`agent/seat`), because nothing has
-         started yet when its record is written. */
-      recorded: (room, seat) => {
-        void this.#evidence.seats.opened(flowSeatInput(room, seat)).catch((error: unknown) => {
-          this.#logger.error("a flow seat's record could not be written", {
-            room,
-            role: seat.role,
-            runtime: seat.runtime,
-            sessionId: seat.sessionId,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        })
-      },
-      join: async (room, runtime, sessionId) => {
-        const id = makeSessionId(sessionId)
-        const known = this.registry.get(runtime as RuntimeId, id)?.session
-        await this.#team.joinRoom(room, runtime as RuntimeId, sessionId, {
-          title: this.#names.nameOf(runtime as RuntimeId, id) ?? known?.title ?? null,
-          agent: this.#runtime({ runtime }).info.presentation.name,
-          cwd: known?.cwd ?? '',
-          model: known?.settings?.model ?? null,
-          at: Date.now(),
-        })
-      },
       confine: (folder) => this.#confineRoom(folder),
-      /* Straight to the service, not through `worktree/create`'s rule: the
-         room's folder was judged by `confine` before the first seat, on the
-         room's rule, and the folder rule alone would refuse a room made from
-         a linked worktree, which works in the main checkout. */
-      isolate: async (root, name) => (await this.#worktrees.create(root, { name })).path,
+      canMutateBoard: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return !document.restored && document.goal.state === 'open' && document.operation === null
+            ? { ok: true as const }
+            : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
+        } catch {
+          return { ok: true as const }
+        }
+      },
       run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
     this.#team.attachFlows(this.#flows)
+    const goalPort = {
+      seats: {
+        all: () => this.#evidence.seats.all(),
+        byId: (id: SeatId) => this.#evidence.seats.byId(id),
+      },
+      confine: async (input) => {
+        const cwd = input.cwd ?? input.root
+        await this.#confineRoom(cwd)
+        const root = await this.#boardRootOf(cwd)
+        if (!root) throw new Error(`${cwd} is outside every project opened here.`)
+        return { root, cwd }
+      },
+      known: async (runtime: string, session: string) => {
+        const agent = this.#runtimes.get(runtime)
+        if (!agent) return null
+        const id = makeSessionId(session)
+        const record = this.registry.get(runtime as RuntimeId, id)
+        const held = record?.live ? record.session : await agent.readSession(id).catch(() => null)
+        if (!held) return null
+        const project = await this.#boardRootOf(held.cwd)
+        return project ? { project, busy: isBusy(held) } : null
+      },
+      claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
+      opening: async (goal: string, session, id: SeatId): Promise<SeatOpening> => {
+        const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
+        const runtime = this.#runtimes.get(session.runtime)
+        const held = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
+        const known = held?.live ? held.session :
+          await runtime?.readSession(makeSessionId(session.sessionId)).catch(() => null)
+        if (!known) throw new Error('Choose a conversation its runtime can still open.')
+        const revision = await revisionOf(known.cwd)
+        const document = this.#goalStore.read(goal)
+        return {
+          id,
+          agent: previous?.agent ?? null,
+          briefDigest: previous?.briefDigest ?? null,
+          seat: previous?.seat ?? { runtime: session.runtime },
+          seatLabel: previous?.seatLabel ?? session.runtime,
+          passedOver: previous?.passedOver ?? [],
+          standing: previous?.standing ?? { kind: 'unknown' },
+          ceiling: previous?.ceiling ?? null,
+          checkout: {
+            cwd: known.cwd,
+            project: document.goal.root,
+            branch: revision?.branch ?? null,
+            head: revision?.head ?? null,
+          },
+          session,
+          board: goal,
+          role: null,
+          openedAt: Date.now(),
+        }
+      },
+      board: (goal: string) => this.#goalState(goal),
+      evidence: (goal: string) => this.#evidence.board(goal),
+      evidenceIds: (goal: string, project: string) => this.#evidence.factIdsOfGoal(goal, project),
+      flow: (goal: string) => this.#flows.runsFor(goal).find((run) => run.state === 'running' || run.state === 'stalled'),
+      busy: (session) => {
+        const record = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
+        return record ? isBusy(record.session) : false
+      },
+      waits: () => false,
+      stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
+      held: (goal: string) => this.#goalState(goal).channel.some((entry) => entry.kind === 'message' && entry.state === 'held'),
+      settledFor: (goal: string) => this.#evidence.settledFor(goal),
+      answer: (seat: SeatRecord) => this.#goalAnswer(seat),
+      revision: async (cwd: string) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
+      },
+      changed: (view) => {
+        if (!this.#publishingTeamProjection) {
+          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+        }
+        this.#push({ method: 'goal/changed', params: { view } })
+      },
+      activity: (goal, previous, activity, sentence) => this.#push({
+        method: 'goal/activity', params: { goal, previous, activity, sentence },
+      }),
+      ready: () => this.#goalsReady
+        ? { ok: true as const }
+        : { ok: false as const, reason: 'The Goal store is still starting. Wait for recovery to finish.' },
+      seatAgent: async (input: GoalSeatRequest, goal) => {
+        const asked = {
+          id: input.agent,
+          cwd: goal.cwd,
+          project: goal.root,
+          ...(input.seats === undefined ? {} : { seats: input.seats }),
+          ...(input.grant?.kind === 'permission' ? { permission: input.grant.permission } : {}),
+        }
+        return (await seatAgent(this.#context, asked, {
+          board: goal.id,
+          role: null,
+          ...(input.grant === undefined ? {} : { grant: input.grant }),
+        })).record
+      },
+      openLegacySeat: async (input, goal) => {
+        const cwd = goal.cwd
+        const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
+        try {
+          const record = await this.#evidence.seats.opened({
+            agent: null,
+            briefDigest: null,
+            seat: input.spec,
+            seatLabel: opened.label,
+            passedOver: [],
+            standing: { kind: 'permission', permission: input.permission },
+            ceiling: null,
+            cwd,
+            session: { runtime: opened.runtime, sessionId: opened.sessionId },
+            board: goal.id,
+            role: input.role,
+          })
+          this.#seating.delete(sessionKey(opened.runtime, opened.sessionId))
+          await this.#team.joinRoom(goal.id, opened.runtime as RuntimeId, opened.sessionId, {
+            title: input.title,
+            agent: this.#runtime({ runtime: opened.runtime }).info.presentation.name,
+            cwd,
+            model: null,
+            at: Date.now(),
+          })
+          this.#team.setRole(goal.id, opened.runtime, opened.sessionId, input.role)
+          return record
+        } catch (error) {
+          await this.#retireSeat(opened.runtime, opened.sessionId)
+          throw error
+        }
+      },
+      importOpening: async (project: string, opening: SeatOpening) => {
+        await this.#evidence.seats.importOpening(project, opening)
+        this.#membershipChanged(opening.session.runtime as RuntimeId, opening.session.sessionId)
+      },
+      closeId: async (id: SeatId, reason: string) => {
+        const record = await this.#evidence.seats.closeId(id, reason)
+        this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
+      },
+      claim: async (goal: string, card: number, opening: SeatOpening) => {
+        await this.#claimGoalCard(goal, card, opening)
+      },
+      releaseClaim: async (goal: string, seat: SeatId) => {
+        await this.#releaseGoalCard(goal, seat)
+      },
+      refuseMail: async (goal: string, seat: SeatId) => {
+        const record = this.#evidence.seats.byId(seat)
+        if (record) this.#team.refuseSeatMail(goal, record.session.runtime, record.session.sessionId, String(seat))
+      },
+      retainLane: async (seat: SeatId) => {
+        const lane = this.#lanes.forSeat(seat)
+        if (lane) await this.#lanes.retain(lane.id)
+      },
+      wake: (goal: string) => this.#team.nudgeRoom(goal),
+      finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
+      finishWrap: (operation) => this.#finishGoalWrap(operation),
+    } satisfies GoalPlanePort
+    this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
+    this.#goals.attachLanes(this.#lanes, () => this.#lanePreferences())
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
       log: (message, details) => this.#logger.warn(message, details),
@@ -746,6 +1005,20 @@ export class Host {
       },
     })
     this.#extensions = options.extensions ?? null
+    this.#extensions?.setBrowserResolver?.((scope) => {
+      if (!scope.runtime || !scope.sessionId) return undefined
+      const record = this.registry.get(scope.runtime, scope.sessionId)
+      if (!record) return undefined
+      const matches = this.#lanes
+        .list()
+        .filter((lane) => lane.cwd !== '' && lane.cwd === record.session.cwd)
+      if (matches.length > 1) throw new Error('This checkout has conflicting browser lanes.')
+      const lane = matches[0]
+      if (lane?.state === 'released') {
+        throw new Error('This lane was released. Open a new isolated Seat.')
+      }
+      return lane?.browserProfile ?? 'default'
+    })
     if (this.#extensions) {
       this.#subscriptions.push(
         this.#extensions.subscribe((event) => this.#onExtensionEvent(event)),
@@ -949,7 +1222,9 @@ export class Host {
   }
 
   async start(): Promise<void> {
+    this.#goalWriter = await acquireDeskWriter(this.#state.directory)
     await this.#state.load()
+    await this.#laneStore.load()
     // Everything that restores a stored setting runs here, after the file has
     // been read, and never in the constructor. Until it did, a board left
     // holding inbound messages came back accepting them, and every plugin's
@@ -957,6 +1232,24 @@ export class Host {
     this.#applyBrowserSettings()
     this.#applyTeamSettings()
     await this.#applyPluginSettings()
+    await this.#evidence.load().catch((error: unknown) => {
+      this.#logger.error('the Seat records this desk keeps could not be read', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
+    await migrateDesk(
+      this.#state.directory,
+      (seats) => importMigrationSeats(seats, this.#evidence.seats),
+    ).catch((error: unknown) => {
+      this.#logger.error('the rooms could not be loaded', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      throw error
+    })
+    await this.#goalStore.load()
+    await this.#recoverGoalMail()
+    this.#goalsReady = true
+    await this.#goals.recover()
     /* Let through, unlike the runs below: rooms that cannot be read refuse
        the launch. Degraded, this desk would come up with no rooms, and the
        rest of it would believe that — `Flows.load` stops every running run
@@ -971,6 +1264,9 @@ export class Host {
       })
       throw error
     })
+    for (const view of await this.#goals.list()) {
+      this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+    }
     /* After the rooms, because a run reconciles against the board it left
        behind: a quit between the last card of a round finishing and the next
        round opening is a run that has to be asked, on this launch, whether
@@ -987,6 +1283,10 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    // Both room and flow recovery can change a Goal's activity. Seed the
+    // in-memory comparison point only after they have settled, so the first
+    // later change can cross the notification boundary normally.
+    await this.#goals.hydrateActivity()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
@@ -994,11 +1294,6 @@ export class Host {
     /* Before any runtime starts, so the first conversation listed already
        wears the Agent its Seat record names. Caught like the flow runs above:
        records that cannot be read cost the restored names, not the desk. */
-    await this.#evidence.load().catch((error: unknown) => {
-      this.#logger.error('the Seat records this desk keeps could not be read', {
-        error: error instanceof Error ? error.message : String(error),
-      })
-    })
     /* From here on a file changed under any of the roster's roots is one
        notice to every window. Guarded on `#disposed`: everything above this
        point can yield, and a quit landing in one of those gaps must find no
@@ -1144,6 +1439,9 @@ export class Host {
     await this.#flows.flush()
     await this.#team.flush()
     await this.#evidence.close()
+    await this.#goalStore.flush()
+    await this.#goalWriter?.release()
+    this.#goalWriter = null
     /* Last, because everything above it can still record. `append` is called
        from the event fan-out and returns before its write lands, so a quit
        that did not wait here was only the *request* to stop writing: the last
@@ -1286,6 +1584,352 @@ export class Host {
 
   // ------------------------------------------------------------------ private
 
+  #lanePreferences() {
+    return lanePreferences(Object.hasOwn(this.#state.state.preferences, 'lanes')
+      ? this.#state.state.preferences['lanes']
+      : DEFAULT_LANE_PREFERENCES)
+  }
+
+  #goalState(id: string): TeamState {
+    const document = this.#goalStore.read(id)
+    return {
+      id,
+      name: document.goal.sentence,
+      updatedAt: document.goal.updatedAt,
+      root: document.goal.root,
+      ...(document.goal.cwd === document.goal.root ? {} : { cwd: document.goal.cwd }),
+      members: [],
+      intents: document.board.intents,
+      channel: document.board.channel,
+      messaging: document.board.messaging,
+      nicknames: document.legacy?.nicknames ?? {},
+      roles: {},
+      plans: document.legacy?.plans ?? [],
+      problem: this.#goalStore.problem,
+    }
+  }
+
+  /** A room created by an older live caller becomes a Goal before a legacy flow seats into it. */
+  async #ensureGoalFromTeam(id: string): Promise<void> {
+    try {
+      this.#goalStore.read(id)
+      return
+    } catch {
+      // Continue only when the compatibility Team really owns this id.
+    }
+    if (!this.#team.hasRoom(id)) throw new Error('That Goal is not on this desk.')
+    const state = this.#team.stateFor(id)
+    const at = state.updatedAt || Date.now()
+    await this.#goalStore.save({
+      version: 1,
+      goal: {
+        id,
+        root: state.root,
+        cwd: state.cwd ?? state.root,
+        sentence: state.name || 'Imported work',
+        state: 'open',
+        revision: 0,
+        checkout: 'shared',
+        dependsOn: [],
+        origin: { kind: 'legacy', source: 'live-room' },
+        createdAt: at,
+        updatedAt: at,
+        receipt: null,
+      },
+      board: {
+        nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+        messaging: state.messaging,
+        intents: state.intents,
+        channel: state.channel,
+      },
+      citations: [],
+      receipt: null,
+      operation: null,
+    }, null)
+  }
+
+  async #saveTeamProjection(state: TeamState): Promise<void> {
+    const legacy = this.#team.legacyFor(state.id)
+    let document: GoalDocument
+    try {
+      document = this.#goalStore.read(state.id)
+    } catch {
+      const at = state.updatedAt || Date.now()
+      await this.#goalStore.save({
+        version: 1,
+        goal: {
+          id: state.id,
+          root: state.root,
+          cwd: state.cwd ?? state.root,
+          sentence: state.name || 'Imported work',
+          state: 'open',
+          revision: 0,
+          checkout: 'shared',
+          dependsOn: [],
+          origin: { kind: 'legacy', source: 'live-room' },
+          createdAt: at,
+          updatedAt: at,
+          receipt: null,
+        },
+        board: {
+          nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+          messaging: state.messaging,
+          intents: state.intents,
+          channel: state.channel,
+        },
+        legacy: {
+          source: 'live-room',
+          plans: legacy.plans,
+          nicknames: legacy.nicknames,
+          roster: legacy.roster,
+          sourceSha256: createHash('sha256').update(state.id).digest('hex'),
+          seatLocations: {},
+        },
+        citations: [],
+        receipt: null,
+        operation: null,
+      }, null)
+      await this.#refreshTeamProjection(state.id)
+      return
+    }
+    if (document.restored || document.goal.state !== 'open' || document.operation) {
+      throw new Error('This Goal is read-only or is finishing an operation. Start another Goal for new work.')
+    }
+    const at = state.updatedAt || Date.now()
+    await this.#goalStore.save({
+      ...document,
+      goal: {
+        ...document.goal,
+        sentence: state.name || document.goal.sentence,
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+      board: {
+        nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+        messaging: state.messaging,
+        intents: state.intents,
+        channel: state.channel,
+      },
+      ...(document.legacy ? {
+        legacy: {
+          ...document.legacy,
+          plans: legacy.plans,
+          nicknames: legacy.nicknames,
+          roster: legacy.roster,
+        },
+      } : {}),
+    }, document.goal.revision)
+    await this.#refreshTeamProjection(state.id)
+  }
+
+  async #refreshTeamProjection(goal: string): Promise<void> {
+    this.#publishingTeamProjection = true
+    try {
+      await this.#goals.refresh(goal)
+    } finally {
+      this.#publishingTeamProjection = false
+    }
+  }
+
+  async #recoverGoalMail(): Promise<void> {
+    for (const document of this.#goalStore.list()) {
+      if (document.restored || document.goal.state === 'wrapped') continue
+      let changed = false
+      const channel = document.board.channel.map((entry) => {
+        if (entry.kind !== 'message' || entry.state !== 'queued') return entry
+        changed = true
+        return {
+          ...entry,
+          state: 'refused' as const,
+          reason: 'The desk restarted before the message was delivered.',
+        }
+      })
+      if (!changed) continue
+      await this.#goalStore.save({
+        ...document,
+        board: { ...document.board, channel },
+        goal: { ...document.goal, revision: document.goal.revision + 1 },
+      }, document.goal.revision)
+    }
+  }
+
+  #goalClaimable(goal: string, card: number, runtime: string, sessionId: string): boolean {
+    const board = this.#goalStore.read(goal).board
+    const intent = board.intents.find((one) => one.id === card)
+    if (!intent || intent.state === 'done' || intent.state === 'abandoned' ||
+      intent.state === 'claimed' && !(intent.claim?.runtime === runtime && intent.claim.sessionId === sessionId) ||
+      intent.state === 'blocked' && intent.blockedBy === 'hand') return false
+    const waits = intent.dependsOn.some((id) => {
+      const dependency = board.intents.find((one) => one.id === id)
+      return dependency !== undefined && dependency.state !== 'done'
+    })
+    if (waits) return false
+    return !board.intents.some((one) =>
+      one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
+    )
+  }
+
+  #goalStranded(goal: string, card: number): boolean {
+    const intent = this.#goalStore.read(goal).board.intents.find((one) => one.id === card)
+    if (intent?.state !== 'claimed' || !intent.claim?.leaseUntil || Date.now() < intent.claim.leaseUntil) return false
+    return this.registry.get(intent.claim.runtime, makeSessionId(intent.claim.sessionId)) === undefined
+  }
+
+  async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
+    const document = this.#goalStore.read(goal)
+    const current = document.board.intents.find((one) => one.id === card)
+    if (!current) throw new Error('Choose an existing card.')
+    if (current.state === 'claimed' && current.claim?.runtime === opening.session.runtime &&
+      current.claim.sessionId === opening.session.sessionId) return
+    if (!this.#goalClaimable(goal, card, opening.session.runtime, opening.session.sessionId)) {
+      throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+    }
+    const at = Date.now()
+    const intents = document.board.intents.map((intent) => intent.id === card ? {
+      ...intent,
+      state: 'claimed' as const,
+      claim: { runtime: opening.session.runtime as RuntimeId, sessionId: opening.session.sessionId, at },
+      updatedAt: at,
+      blockedBy: null,
+      blockedReason: null,
+    } : intent)
+    await this.#goalStore.save({
+      ...document,
+      board: { ...document.board, intents },
+      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
+    }, document.goal.revision)
+  }
+
+  async #releaseGoalCard(goal: string, seat: SeatId): Promise<void> {
+    const record = this.#evidence.seats.byId(seat)
+    if (!record) return
+    const document = this.#goalStore.read(goal)
+    const held = document.board.intents.find((intent) => intent.state === 'claimed' &&
+      intent.claim?.runtime === record.session.runtime && intent.claim.sessionId === record.session.sessionId)
+    if (!held) return
+    const blocked = held.dependsOn.some((id) => {
+      const dependency = document.board.intents.find((one) => one.id === id)
+      return dependency !== undefined && dependency.state !== 'done'
+    })
+    const at = Date.now()
+    const intents = document.board.intents.map((intent) => intent.id === held.id ? {
+      ...intent,
+      state: blocked ? 'blocked' as const : 'open' as const,
+      claim: null,
+      blockedBy: blocked ? 'graph' as const : null,
+      blockedReason: null,
+      updatedAt: at,
+    } : intent)
+    await this.#goalStore.save({
+      ...document,
+      board: { ...document.board, intents },
+      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
+    }, document.goal.revision)
+  }
+
+  async #finishGoalOperation(goal: string, operation: string): Promise<void> {
+    const document = this.#goalStore.read(goal)
+    if (document.operation === null) return
+    if (document.operation.id !== operation) throw new Error('Another Goal operation replaced this one. Finish recovery first.')
+    await this.#goalStore.save({
+      ...document,
+      operation: null,
+      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: Date.now() },
+    }, document.goal.revision)
+  }
+
+  async #goalAnswer(seat: SeatRecord): Promise<{
+    readonly answer: GoalReceipt['answers'][number] | null
+    readonly gaps: readonly string[]
+  }> {
+    const runtime = this.#runtimes.get(seat.session.runtime)
+    if (!runtime) return { answer: null, gaps: [`${seat.seatLabel}'s transcript is unavailable.`] }
+    let session: Session
+    try {
+      session = await this.#read(runtime, makeSessionId(seat.session.sessionId))
+    } catch {
+      return { answer: null, gaps: [`${seat.seatLabel}'s transcript is unavailable.`] }
+    }
+    const turn = session.turns.at(-1)
+    const raw = turn?.items.filter((item) => item.type === 'assistantMessage')
+      .map((item) => (item as { readonly text?: string }).text ?? '')
+      .filter((text) => text.trim() !== '').at(-1) ?? ''
+    const clipped = raw.length <= 16_000 ? raw : `${raw.slice(0, 7_990)}\n… answer truncated …\n${raw.slice(-7_989)}`
+    const partial = turn !== undefined && turn.status !== 'completed'
+    const gaps = [
+      ...(raw ? [] : [`${seat.seatLabel} has no recorded answer.`]),
+      ...(raw.length > 16_000 ? [`${seat.seatLabel}'s answer was truncated to 16000 characters.`] : []),
+      ...(partial ? [`${seat.seatLabel}'s last answer was partial (${turn.status}).`] : []),
+      ...(session.usage === null || session.usage === undefined
+        ? [`${seat.seatLabel}'s spend was not recorded.`]
+        : session.usage.total.outputExact === false
+          ? [`${seat.seatLabel}'s output spend is a lower bound.`]
+          : []),
+    ]
+    return {
+      answer: {
+        seat: seat.id,
+        session: seat.session,
+        turn: turn ? String(turn.id) : null,
+        text: clipped,
+        partial,
+        stopReason: !turn || turn.status === 'completed' ? null : (turn.error?.message ?? turn.status),
+      },
+      gaps,
+    }
+  }
+
+  async #finishGoalWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void> {
+    const document = this.#goalStore.read(operation.goal)
+    if (document.operation === null && document.receipt?.id === operation.receipt.id) return
+    if (document.operation?.kind !== 'wrap' || document.operation.id !== operation.id ||
+        document.operation.receipt.id !== operation.receipt.id) {
+      throw new Error('Another Goal operation replaced this wrap. Finish recovery first.')
+    }
+    const resolutions = new Map(operation.receipt.cards.map((card) => [card.id, card]))
+    const at = operation.receipt.wrappedAt
+    const board = {
+      ...document.board,
+      intents: document.board.intents.map((intent) => {
+        const resolution = resolutions.get(intent.id)
+        if (!resolution) throw new Error(`Receipt ${operation.receipt.id} has no disposition for card ${intent.id}.`)
+        return {
+          ...intent,
+          state: resolution.resolution === 'finished' ? 'done' as const : 'abandoned' as const,
+          claim: null,
+          blockedBy: null,
+          blockedReason: null,
+          ...(resolution.reason?.trim() ? { note: resolution.reason.trim() } : {}),
+          updatedAt: at,
+        }
+      }),
+    }
+    await this.#goalStore.save({
+      ...document,
+      board,
+      receipt: operation.receipt,
+      operation: null,
+      goal: {
+        ...document.goal,
+        state: 'wrapped',
+        receipt: operation.receipt.id,
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+    }, document.goal.revision)
+    this.#team.closeGoalWaits(operation.goal)
+    try {
+      const view = await this.#goals.view(operation.goal)
+      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster)
+      this.#push({ method: 'goal/changed', params: { view } })
+    } catch (error) {
+      this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
+        goal: operation.goal,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
   /**
    * The seam the wire methods are written against. Each member is a closure
    * over this host's own state, so a method module never sees the class —
@@ -1306,6 +1950,30 @@ export class Host {
       worktrees: this.#worktrees,
       team: this.#team,
       flows: this.#flows,
+      goals: this.#goals,
+      lanes: this.#lanes,
+      laneSettings: {
+        read: () => this.#lanePreferences(),
+        set: async (value) => {
+          const checked = lanePreferences(value)
+          await this.#state.setPreferences({ lanes: checked })
+          return checked
+        },
+      },
+      laneEnvironment: {
+        forCheckout: (cwd) => environmentForCheckout(cwd, this.#lanes.list()),
+        forSession: async (runtime, sessionId) => {
+          const owner = this.#runtime({ runtime })
+          const environment = environmentForSession(
+            String(owner.info.id),
+            sessionId,
+            this.#lanes.list(),
+            this.#evidence.seats.all(),
+          )
+          requireLaneSupport(owner.info, environment)
+          return environment
+        },
+      },
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
@@ -1606,6 +2274,7 @@ export class Host {
    * another machine, and a restore is followed by signing in again.
    */
   async #backupExport(): Promise<BackupFile> {
+    await this.#goalStore.flush()
     return {
       kind: 'harnessdesk-backup',
       version: 1,
@@ -1619,6 +2288,14 @@ export class Host {
       ),
       seating: await this.#machineSeating.raw(),
       evidence: await this.#evidence.backup(),
+      goals: {
+        version: 1,
+        documents: this.#goalStore.list(),
+        // Backup export has always been callable before Host.start() in the
+        // diagnostics and migration tests. An unopened desk owns no live lane
+        // authority yet, so its portable Goal history has no lanes to export.
+        lanes: this.#laneStore.loaded ? this.#lanes.list() : [],
+      },
     }
   }
 
@@ -1639,6 +2316,35 @@ export class Host {
       file.version !== 1
     ) {
       throw new Error('That file is not a HarnessDesk backup.')
+    }
+
+    /* Validate the whole Goal payload before restoring any other part of the
+       backup. A malformed document cannot arrive after preferences, Agents or
+       transcripts have already changed this desk. */
+    let goalDocuments: GoalDocument[] = []
+    let goalLanes: ReturnType<typeof laneOf>[] = []
+    if (file.goals !== undefined) {
+      const payload = file.goals as { version?: unknown; documents?: unknown; lanes?: unknown }
+      let bytes = 0
+      try { bytes = Buffer.byteLength(JSON.stringify(payload)) } catch { throw new Error('The Goal backup cannot be read.') }
+      if (payload.version !== 1 || !Array.isArray(payload.documents) || !Array.isArray(payload.lanes) ||
+        payload.documents.length > 10_000 || payload.lanes.length > 10_000 || bytes > 64 * 1024 * 1024) {
+        throw new Error('The Goal backup cannot be read.')
+      }
+      goalDocuments = payload.documents.map(documentOf)
+      goalLanes = payload.lanes.map(laneOf)
+      const ids = new Set<string>()
+      for (const document of goalDocuments) {
+        if (ids.has(document.goal.id)) throw new Error('The Goal backup names a Goal twice.')
+        ids.add(document.goal.id)
+      }
+      const laneIds = new Set<string>()
+      for (const lane of goalLanes) {
+        if (laneIds.has(lane.id) || (!ids.has(lane.goal) && !this.#goalStore.list().some((one) => one.goal.id === lane.goal))) {
+          throw new Error('The Goal backup contains an invalid lane reference.')
+        }
+        laneIds.add(lane.id)
+      }
     }
 
     const agents = { restored: 0, skipped: 0 }
@@ -1750,8 +2456,35 @@ export class Host {
     }
     // What the desk observed, and every Seat it kept: history, never over what this desk wrote.
     const evidence = await this.#evidence.restore(file.evidence)
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence })
-    return { agents, preferences, transcripts, agentFolders, seating, evidence }
+    const goals = file.goals === undefined ? undefined : {
+      restored: 0, duplicate: 0, conflict: 0,
+      lanesRestored: 0, lanesDuplicate: 0, lanesConflict: 0,
+    }
+    if (goals) {
+      const at = Date.now()
+      for (const document of goalDocuments) {
+        const outcome = await this.#goalStore.restore(document, at)
+        goals[outcome] += 1
+        if (outcome === 'restored') {
+          const view = await this.#goals.view(document.goal.id)
+          this.#team.installProjection(view.board)
+          this.#push({ method: 'goal/changed', params: { view } })
+        }
+      }
+      for (const lane of goalLanes) {
+        const imported = restoredLane(lane)
+        const current = this.#laneStore.list().find((one) => one.id === imported.id)
+        if (!current) {
+          await this.#laneStore.save(imported)
+          goals.lanesRestored += 1
+        } else if (current.state === 'released' && current.seat === null && current.browserProfile === null &&
+          JSON.stringify(current) === JSON.stringify(imported)) {
+          goals.lanesDuplicate += 1
+        } else goals.lanesConflict += 1
+      }
+    }
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, goals })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, ...(goals ? { goals } : {}) }
   }
 
   /**
@@ -2376,6 +3109,13 @@ export class Host {
    */
   readonly #teamRefusals = new Map<string, number>()
 
+  #membershipChanged(runtime: RuntimeId, sessionId: string): void {
+    const id = makeSessionId(sessionId)
+    this.#teamRefusals.delete(sessionKey(runtime, id))
+    const record = this.registry.get(runtime, id)
+    if (record) record.reopenRefusals = 0
+  }
+
   /** Why a conversation would not come back, in the agent's name and its own words. */
   #cannotReopen(runtime: AgentRuntime, error: unknown): string {
     /* A refusal that already names the agent and says what is wrong is not
@@ -2479,7 +3219,8 @@ export class Host {
     }
     let live: AgentSession
     try {
-      live = await runtime.resumeSession(id, {})
+      const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
+      live = await runtime.resumeSession(id, environment ? { environment } : {})
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // The sentence is the same either way; what differs is whether asking
@@ -2758,8 +3499,22 @@ export class Host {
    * runtime would hear it as theirs. The failure is noted `alreadyHeld`, so the
    * seating passes the candidate over as that; a flow's seat fails in its words.
    */
-  async #openSeat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<OpenedSeat> {
+  async #openSeat(
+    seat: FlowSeat,
+    where: {
+      readonly cwd: string
+      readonly title: string
+      readonly environment?: Readonly<Record<string, string>>
+    },
+  ): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
+    const environment = where.environment ?? environmentForCheckout(where.cwd, this.#lanes.list())
+    requireLaneSupport(runtime.info, environment)
+    if (environment && this.#extensions && !this.#extensions.setBrowserResolver) {
+      throw new Error(
+        'This extension host cannot isolate a lane browser. Choose a supported extension host or turn isolation off.',
+      )
+    }
     const held = new Set(
       this.registry
         .all()
@@ -2770,6 +3525,7 @@ export class Host {
     try {
       live = await runtime.createSession({
         cwd: where.cwd,
+        ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
         options: {
           ...(seat.effort ? { effort: seat.effort } : {}),
@@ -2825,6 +3581,15 @@ export class Host {
     }
   }
 
+  /**
+   * Hands a seated conversation its standing order: one message, and the
+   * whole job is inside its turn.
+   *
+   * `recordAs: 'notice'` — this is host-authored text no person typed, so it
+   * is not recorded as one. Without it, a fresh Agent seat's whole brief
+   * showed as the first message bubble, in the person's own voice, and
+   * `titleOf` read the conversation's title back off it.
+   */
   async #holdSeat(runtime: string, sessionId: string, level: CeilingLevel): Promise<SeatHold> {
     const found = this.#runtimes.get(runtime as RuntimeId)
     const control = found ? this.#infoOf(found).ceilings?.[level] : undefined
@@ -2833,10 +3598,13 @@ export class Host {
     return holdCeiling(live, level, control)
   }
 
-  /** Hands a seated conversation its standing order: one message, and the whole job is inside its turn. */
   async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
-    await live.send([{ type: 'text', text }])
+    const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
+    await live.send(
+      [{ type: 'text', text: laneStandingOrder(text, environment) }],
+      { recordAs: 'notice' },
+    )
   }
 
   /** Closes a conversation a seating opened and will not use, and lets it go — the seating's hold with it. */
@@ -3358,7 +4126,7 @@ export class Host {
         runtime,
         String(event.sessionId),
         event.type === 'turn/completed'
-          ? { ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
+          ? { turn: String(event.turn.id), ...(answer ? { answer } : {}), ...(failure ? { failure } : {}) }
           : undefined,
       )
       /* A seat of a running flow has exactly one turn, and it is meant to

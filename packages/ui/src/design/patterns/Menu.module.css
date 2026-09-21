@@ -75,12 +75,28 @@
   line-height: var(--hd-line-sm); /* desk: var(--hd-line) → var(--hd-line-sm), the line follows its type step */
 }
 
+/* An account menu has two rows whose content is taller than the ordinary
+   one-line action. Their padding is part of that anatomy, not the menu that
+   happens to contain them. */
+.row[data-layout='profile'] {
+  padding: var(--hd-space-2);
+}
+
+.row[data-layout='account'] {
+  padding: var(--hd-space-1-5) var(--hd-space-2);
+}
+
 .row:hover,
 .row:focus-visible,
 .row[data-open],
-.row[data-popup-open] {
+.row[data-popup-open],
+.row[aria-expanded='true'] {
   background: var(--hd-hover);
   outline: none;
+}
+
+.row[data-current] {
+  background: var(--hd-accent-dim);
 }
 
 .row:disabled {
@@ -194,6 +210,14 @@
   padding: 8px 10px var(--hd-space-1);
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
+}
+
+.label[data-size='compact'] {
+  padding: var(--hd-space-1) var(--hd-space-2);
+  color: var(--hd-muted-foreground);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  font-weight: var(--hd-weight-normal);
 }
 
 /* A note explains the rows; it never sets the menu's width. A menu sizes to

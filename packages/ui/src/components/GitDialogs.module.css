@@ -1,6 +1,6 @@
 /*
  * The history pane's dialogs. A few small rules mirror GitPane.module.css
- * (the stacked body, the inline refusal) rather than importing it — a
+ * (the stacked body) rather than importing it — a
  * screen's stylesheet is not a library, and the shared shapes that deserve
  * promotion live in design/ui or a named design/patterns contract.
  */
@@ -15,126 +15,30 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.error {
-  padding: 8px 10px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-danger-dim);
-  color: var(--hd-danger);
-  font-size: var(--hd-text-sm);
-  overflow-wrap: anywhere;
-}
-
-.note {
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-  line-height: var(--hd-line); /* desk: 1.5 → 21, its step’s own line */
-}
-
-.quiet {
-  padding: 16px;
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-sm);
 }
 
 /* --- commit -------------------------------------------------------------- */
 
 .files {
-  max-height: 220px;
   overflow-y: auto;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hd-border);
-  padding: 4px 0;
+  max-height: min(220px, 45vh);
 }
 
-.file {
+.fileMarks {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-
-  text-align: left;
-
 }
 
-.check {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--hd-radius-sm);
-  box-shadow: inset 0 0 0 1px var(--hd-border-strong);
-  color: var(--hd-accent-foreground); /* desk: the platform’s white → the ink named for a brand fill */
-}
-
-.check[data-on] {
-  background: var(--hd-accent);
-  box-shadow: none;
+.mootRow {
+  opacity: 0.7;
 }
 
 /* A path in a dialog reads whole, left to right — no rtl ellipsis trick. */
-.path {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.status {
-  flex: none;
-  width: 14px;
-  font-family: var(--hd-font-code);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-}
-
-.status[data-status='added'],
-.status[data-status='untracked'] {
-  color: var(--hd-success);
-}
-
-.status[data-status='deleted'],
-.status[data-status='conflicted'] {
-  color: var(--hd-danger);
-}
-
-.status[data-status='modified'] {
-  color: var(--hd-warning-ink);
-}
-
-.status[data-status='renamed'] {
-  color: var(--hd-tint-violet-ink);
-}
-
-.status[data-status='nothing'] {
-  color: var(--hd-muted-foreground);
-}
-
-/* A row whose commit records nothing: shown, so the path is accounted for,
-   but with no box to check and nothing that answers a click. */
-.fileStatic {
-  min-height: var(--hd-btn-h);
-  padding: var(--hd-space-1) var(--hd-space-2);
-  color: var(--hd-muted-foreground);
-  cursor: default;
-}
-
 /* The checkbox's slot, held open so the paths line up under those that have one. */
 .blank {
   flex: none;
   width: 14px;
-}
-
-.records {
-  flex: none;
-  font-size: var(--hd-text-xs);
-  color: var(--hd-muted-foreground);
 }
 
 /* --- reset --------------------------------------------------------------- */
@@ -155,25 +59,9 @@
 
 }
 
-.modeName {
-  font-size: var(--hd-text-sm);
-  font-weight: var(--hd-weight-semibold); /* desk: the rung’s token rather than the number */
-  color: var(--hd-foreground);
-}
-
-.mode[data-hard] .modeName {
-  color: var(--hd-danger);
-}
-
-.modeWhat {
-  font-size: var(--hd-text-xs);
-  color: var(--hd-secondary-foreground);
-}
-
 /* --- the range diff ------------------------------------------------------ */
 
 .rangeDiff {
-  padding: 10px 12px;
   overflow: auto;
   height: 100%;
 }

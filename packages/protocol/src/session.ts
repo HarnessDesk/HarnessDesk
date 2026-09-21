@@ -1,5 +1,6 @@
 import type { SeatCandidate } from './agent.js'
 import type { SeatCeiling } from './evidence.js'
+import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
 import type { AgentItem, UserContent } from './items.js'
 import type { ConfigOption, OptionValue } from './options.js'
@@ -50,6 +51,8 @@ export interface SessionSettings {
   readonly ceiling?: SeatCeiling
   /** How the runtime holds it, or why its declared control did not take. */
   readonly ceilingNote?: string
+  /** Legacy readback for permission-based Agent files; derived by the host from the authoritative ceiling. */
+  readonly permission?: FlowPermission
   /**
    * What the seat runs, as the desk said it when the seat was kept — read
    * back from the conversation, never the request: "Claude · Opus 5 · High".
@@ -86,6 +89,7 @@ export interface ResolvedModelRoute {
 
 export type SessionOptions = Partial<SessionSettings> & {
   readonly cwd: string
+  readonly environment?: Readonly<Record<string, string>>
   /**
    * Run this conversation against another model endpoint. Resolved by the
    * host from its route catalogue; adapters inject it per conversation and

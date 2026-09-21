@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 import tokenSheet from '../foundation/tokens.css?raw'
 import checkboxSource from './checkbox.tsx?raw'
 import radioSource from './radio-group.tsx?raw'
 import switchSource from './switch.tsx?raw'
 import buttonSource from './button.tsx?raw'
-import { buttonVariants } from './button'
+import { Button, buttonVariants } from './button'
 
 /**
  * One button implementation, with every visual decision sourced from the
@@ -13,6 +14,12 @@ import { buttonVariants } from './button'
  */
 
 describe('the canonical button', () => {
+  it('leaves the one focus ring to the platform rule', () => {
+    const base = buttonVariants({})
+    expect(base).not.toContain('outline-none')
+    expect(base).not.toMatch(/focus-visible:(?:border|shadow)-/)
+  })
+
   it('the shadcn Button draws every number from the component tokens', () => {
     const base = buttonVariants({})
     expect(base).toContain('h-(--hd-btn-h)')
@@ -37,7 +44,15 @@ describe('the canonical button', () => {
     expect(primary).toContain('text-(--hd-btn-primary-foreground)')
     expect(primary).toContain('hover:bg-(--hd-btn-primary-hover)')
 
-    expect(buttonVariants({ variant: 'outline' })).toContain('border-(--hd-btn-border)')
+    const outline = buttonVariants({ variant: 'outline' })
+    expect(outline).toContain('border-(--hd-btn-border)')
+    expect(outline.split(/\s+/)).toContain('text-(--hd-foreground)')
+
+    const floating = buttonVariants({ variant: 'floating' })
+    expect(floating).toContain('rounded-full')
+    expect(floating).toContain('bg-(--hd-card)')
+    expect(floating).toContain('var(--hd-shadow-raised)')
+    expect(floating).toContain('var(--hd-border-strong)')
 
     /* The destructive button is the one both spellings used to draw
        differently — solid red here, soft danger-ink in Kit. It is soft in
@@ -65,6 +80,12 @@ describe('the canonical button', () => {
     }
   })
 
+  it('keeps every row and a wrapped consequence left aligned', () => {
+    for (const variant of ['row', 'navigation', 'choice'] as const) {
+      expect(buttonVariants({ variant })).toContain('text-left')
+    }
+  })
+
   /* The weight left, so the fill is now the only mark a chosen row has. Each
      state a caller uses to choose one must carry a fill, or that choice is
      drawn by nothing — the browser contract measures the fills themselves. */
@@ -80,6 +101,25 @@ describe('the canonical button', () => {
         expect(classes, `${variant} ${state} has no fill`).toContain(`${state}:bg-`)
       }
     }
+  })
+
+  it('carries navigation ink into named text roles and owns arrange markers', () => {
+    const navigation = buttonVariants({ variant: 'navigation' })
+    expect(navigation).toContain('data-[active]:[&_[data-slot=text]]:text-')
+    expect(navigation).toContain('data-[active]:[&_[data-role=meta]]:text-')
+    expect(navigation).toContain('data-[insert=before]:shadow-')
+    expect(navigation).toContain('data-[insert=after]:shadow-')
+    expect(navigation).toContain('data-[dragging]:opacity-40')
+    expect(navigation).toContain('[&_[data-chevron][data-open]]:rotate-90')
+  })
+
+  it('owns borderless and default-cursor row postures without a feature override', () => {
+    const markup = renderToStaticMarkup(
+      <Button variant="row" bordered={false} cursor="default">History row</Button>,
+    )
+    expect(markup).toContain('border-0')
+    expect(markup).toContain('cursor-default')
+    expect(markup).toContain('select-none')
   })
 
 })

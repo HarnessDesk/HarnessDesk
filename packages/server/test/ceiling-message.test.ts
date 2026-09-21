@@ -112,8 +112,12 @@ const room = async (t: TestContext, options: Partial<HostOptions> = {}) => {
   await writeFile(join(stateDir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\nceiling: read\nprefer: [fake]\n---\nRead.\n', 'utf8')
   const sender = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
   const receiver = (await host.call('session/create', { runtime: FAKE_RUNTIME_ID, options: { cwd: work } })) as Session
-  const board = (await host.call('team/room/create', { root: work, name: 'Room' })) as TeamState
-  for (const one of [sender, receiver]) await host.call('team/room/join', { room: board.id, runtime: FAKE_RUNTIME_ID, sessionId: String(one.id) })
+  const board = await host.teamPlane.createRoom(work, 'Room')
+  for (const one of [sender, receiver]) {
+    await host.teamPlane.joinRoom(board.id, FAKE_RUNTIME_ID, String(one.id), {
+      title: one.id === sender.id ? 'Reviewer' : 'Receiver', agent: 'Fake Runtime', cwd: work, model: null, at: Date.now(),
+    })
+  }
   const peers = (await host.call('team/peers', { room: board.id })) as TeamPeerInfo[]
   const nameOf = (session: Session): string => { const found = peers.find((one) => one.sessionId === String(session.id))?.nickname; assert.ok(found); return found }
   const call = (name: string, session: Session): Promise<ToolResult> => { const tool = kernel.list('tool').find((one) => one.name === name); assert.ok(tool, name); return gated.invokeTool(tool.id, {}, { runtime: FAKE_RUNTIME_ID, sessionId: session.id }) }

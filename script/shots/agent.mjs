@@ -23,9 +23,10 @@
  * Two files beside the store, read on every listing rather than at start, so a
  * scene can bend the history while the app runs and put it back:
  *   <store>.list-fails   `session/list` fails as an agent whose index is locked does
+ *   <store>.prompt-fails `session/prompt` fails as an agent whose session another process holds does
  *   <store>.page         a number: `session/list` answers that many rows a page
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 
@@ -71,6 +72,19 @@ const newSession = (id, cwd) => {
   const state = { id, cwd, modelId: MODELS[0].modelId, modeId: 'default' }
   sessions.set(id, state)
   return state
+}
+
+const remember = (state) => {
+  if (!STORE) return
+  const store = readStore()
+  store[state.id] = {
+    sessionId: state.id,
+    cwd: state.cwd,
+    title: `${NAME} conversation`,
+    updatedAt: new Date().toISOString(),
+    turns: [],
+  }
+  writeFileSync(STORE, `${JSON.stringify(store, null, 2)}\n`)
 }
 
 /* ------------------------------------------------------------------ the turn */
@@ -225,6 +239,7 @@ const handlers = {
   'session/new': (id, params) => {
     seq += 1
     const state = newSession(`s-${seq}`, params?.cwd ?? process.cwd())
+    remember(state)
     reply(id, {
       sessionId: state.id,
       models: { currentModelId: state.modelId, availableModels: MODELS },
@@ -291,6 +306,10 @@ const handlers = {
   },
 
   'session/prompt': async (id, params) => {
+    const failing = beside('prompt-fails')
+    if (failing && existsSync(failing)) {
+      return send({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { details: 'the session is owned by another process' } } })
+    }
     const sessionId = params.sessionId
     cancelled.delete(sessionId)
     const stopReason = await playTurn(sessionId)

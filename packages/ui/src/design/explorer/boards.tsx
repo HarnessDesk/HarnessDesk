@@ -1,6 +1,13 @@
 import { useState, type JSX } from 'react'
 
-import { BranchIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import type { AgentItem } from '@harnessdesk/protocol'
+
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, GripIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { DiffView } from '../../components/Diff'
+import { ItemView } from '../../components/Items'
+import { Markdown } from '../../components/Markdown'
+import { StoreProvider } from '../../state/context'
+import { emptySnapshot, type AppStore } from '../../state/store'
 import {
   Alert,
   AlertContent,
@@ -8,30 +15,80 @@ import {
   AlertTitle,
   Banner,
   BannerAction,
+  ActionError,
+  AccessCode,
+  AccessDetail,
+  AccessFact,
+  AccessHeader,
+  AccessRail,
+  AccessRailFooter,
+  AccessRailHeader,
+  AccessRailList,
+  AppWindowPage,
+  AppWindowRail,
+  AppWindowRailScroll,
+  AppWindowRailTop,
   Button,
+  Card,
+  ChangeStats,
   AgentCard,
+  ApprovalCode,
   ApprovalDialog,
+  ApprovalMeta,
+  ApprovalReason,
   ChannelMessage,
   ChannelSignal,
   Chip,
+  ComposerChip,
+  ComposerDropHint,
+  ComposerShell,
+  CodeBlock,
+  CodeText,
+  CopyButton,
   ConfirmDialog,
   DetailHead,
   Face,
+  FileState,
   Input,
+  Keycap,
   Dialog,
   Dot,
   NativeSelect,
   PageHead,
+  PatchHeader,
+  PatchSection,
   Row,
   RowButton,
   RowChoice,
   Rows,
   Lightbox,
+  LibraryOperationList,
+  LibraryOperationMark,
+  LibraryReachFace,
+  LibraryReachMark,
+  MetaList,
+  Monogram,
+  MessageQueueActions,
+  MessageQueueFrame,
+  MessageQueueGrip,
+  MessageQueueHeader,
+  MessageQueueList,
+  MessageQueueRow,
+  MessageQueueTiming,
+  NavigationGroupHeader,
+  Note,
+  NoteList,
   PublicationCard,
+  PopoverSurface,
   RefusedAction,
   SectionHead,
+  SearchMatch,
   Segmented,
   StatePill,
+  Spinner,
+  StateStrip,
+  StatusSummary,
+  Text,
   Switch,
   SwitchShape,
   ToggleGroup,
@@ -70,7 +127,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
+const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
 const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'icon', 'icon-xs', 'icon-sm', 'content', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
@@ -146,6 +203,7 @@ const StateBoard = () => (
         <Dot state="signin" />
         <Dot state="limit" />
         <Dot state="broken" />
+        <Dot state="signin" pulse />
       </Case>
       <Case label="chip">
         <Chip state="ready" />
@@ -164,6 +222,23 @@ const StateBoard = () => (
         <Chip tone="danger">Danger</Chip>
         <Chip tone="info">Info</Chip>
       </Case>
+      <Case label="outline tag">
+        <Chip tone="neutral" size="sm" variant="outline" emphasis>Loaded first</Chip>
+      </Case>
+      <Case label="chip identity tints">
+        <Chip tint="blue">Branch</Chip>
+        <Chip tint="amber">Tag</Chip>
+        <Chip tint="violet">Session</Chip>
+      </Case>
+      <Case label="long identity chip">
+        <Chip tint="blue" title="feat/promo-stacking-for-the-seasonal-storefront">
+          <BranchIcon size={10} />
+          <span>feat/promo-stacking-for-the-seasonal-storefront</span>
+        </Chip>
+      </Case>
+      <Case label="emphatic current chip">
+        <Chip tone="brand" emphasis>HEAD</Chip>
+      </Case>
       <Case label="stale and unknown">
         <Chip tone="success" stale>Passed yesterday</Chip>
         <Chip tone="danger" unknown />
@@ -180,11 +255,63 @@ const StateBoard = () => (
           return <Chip key={state} tone={tone}>{label}</Chip>
         })}
       </Case>
+      <Case label="running operation">
+        <Spinner size="sm" tone="brand" aria-label="Loading" />
+      </Case>
+      <Case label="account-access status">
+        <div className="flex w-full flex-col gap-3">
+          <StateStrip states={['ready', 'signin', 'limit', 'broken']} />
+          <StatusSummary
+            tone="success"
+            icon={<CheckIcon size={16} />}
+            title="Account connected"
+            description="Ready to start a conversation."
+          />
+        </div>
+      </Case>
+      <Case label="account-access sheet anatomy">
+        <div className="grid w-full grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
+          <AccessRail aria-label="Agents">
+            <AccessRailHeader>Your agents</AccessRailHeader>
+            <AccessRailList>Agent rows</AccessRailList>
+            <AccessRailFooter>Credentials stay local.</AccessRailFooter>
+          </AccessRail>
+          <AccessDetail>
+            <AccessHeader>Sign in</AccessHeader>
+            <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
+            <AccessCode>ABCD-EFGH</AccessCode>
+          </AccessDetail>
+        </div>
+      </Case>
+      <Case label="library reach">
+        <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
+        <LibraryReachMark state="off" label="Switched off" />
+        <LibraryReachMark state="unscanned" label="Not scanned" />
+        <LibraryReachMark state="hollow" label="Empty on disk" />
+        <LibraryReachFace state="reaches" label="Agent A: reaches">A</LibraryReachFace>
+        <LibraryReachFace state="hollow" label="Agent B: empty on disk">B</LibraryReachFace>
+      </Case>
+      <Case label="library operations">
+        <LibraryOperationList>
+          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="planned" />Planned</div>
+          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="done" />Done</div>
+          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="failed" />Failed</div>
+        </LibraryOperationList>
+      </Case>
+      <Case label="library row facts">
+        <Monogram>CR</Monogram>
+        <MetaList><span>3 copies</span><span>Last Tuesday</span></MetaList>
+        <CodeText as="code" size="inherit">~/skills/code-review</CodeText>
+      </Case>
+      <Case label="supporting note with icon">
+        <Note ink="muted" icon={<FolderIcon size={13} />}>Manifest required</Note>
+      </Case>
     </div>
     <p className={styles.rule}>
-      Readiness keeps its five states and dot. A toned chip judges any other compact fact; stale
-      crosses out what is no longer current, while unknown says the fact cannot be determined.
-      Pull requests and checks take their label and tone from one <code>stateTone</code> map.
+      Readiness keeps its five states and dot. A toned chip judges any other compact fact; a tinted
+      chip identifies one. The emphatic brand form marks the current item. Stale crosses out what is
+      no longer current, while unknown says the fact cannot be determined. Pull requests and checks
+      take their label and tone from one <code>stateTone</code> map.
     </p>
   </>
 )
@@ -283,7 +410,18 @@ const RowBoard = () => {
   return (
     <>
       <div className={styles.stack}>
+        <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
+        <PageHead
+          title={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+          blurb="Settings for this desk."
+        />
         <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
+        <SectionHead
+          sticky
+          name="What is left"
+          description="Gemini is out of quota."
+          action={<Button variant="outline" size="sm">Range</Button>}
+        />
         <Rows>
           <Row
             mark={<PluginIcon size={15} />}
@@ -334,8 +472,9 @@ const RowBoard = () => {
 const HeadBoard = () => (
   <>
     <div className={styles.stack}>
+      <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
       <PageHead
-        title="Agents"
+        title={<span data-slot="page-title-case" data-catalog-size="page">Agents</span>}
         blurb="Which coding agents this app can start a session with."
         actions={<Button variant="default">Add an agent</Button>}
       />
@@ -348,9 +487,32 @@ const HeadBoard = () => (
       />
     </div>
     <p className={styles.rule}>
-      20px and 600 weight name the app and a sheet; a page title is 16px at 500. That is the whole
-      heading scale — a screen that wants a third size is asking for a size the system does not
-      have.
+      20px and 600 weight name the app and a page; subjects use the reading step at medium. That is
+      the whole heading scale — a screen that wants a third size is asking for a size the system
+      does not have.
+    </p>
+  </>
+)
+
+const AppWindowBoard = () => (
+  <>
+    <div className="grid h-72 w-full grid-cols-[15.25rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
+      <AppWindowRail className="flex min-h-0 flex-col">
+        <AppWindowRailTop>
+          <Button variant="navigation" size="navigation" className="w-full">Back to app</Button>
+        </AppWindowRailTop>
+        <AppWindowRailScroll className="flex min-h-0 flex-1 flex-col">
+          <NavigationGroupHeader label="You" />
+          <Button variant="navigation" size="navigation" data-selected className="w-full">Appearance</Button>
+          <Button variant="navigation" size="navigation" className="w-full">Permissions</Button>
+        </AppWindowRailScroll>
+      </AppWindowRail>
+      <AppWindowPage className="overflow-hidden">
+        <PageHead title="Appearance" blurb="The full-window page uses the same reading measure and rail in every destination." />
+      </AppWindowPage>
+    </div>
+    <p className={styles.rule}>
+      A destination window is one surface: a navigation plate and a centred page plate. Base UI owns modality and focus; this pattern owns the visible chrome.
     </p>
   </>
 )
@@ -392,6 +554,23 @@ const BannerBoard = () => (
           </AlertContent>
         </Alert>
       ))}
+      {ALERT_CATALOG_VARIANTS.map((variant) => (
+        <Alert key={variant} tone="neutral" variant={variant} data-catalog-variant={variant}>
+          <AlertContent>
+            <AlertTitle>{variant} neutral</AlertTitle>
+            <AlertDescription>An ambient hand-off that belongs with the page.</AlertDescription>
+          </AlertContent>
+        </Alert>
+      ))}
+      <ActionError>Could not switch branches. The working tree has uncommitted changes.</ActionError>
+      <Card variant="flush">
+        <PatchHeader>packages/ui/src/components/GitPane.tsx</PatchHeader>
+        <PatchSection className="flex items-center gap-2 px-3 py-2">
+          <FileState state="modified" />
+          <span>One implementation for repository presentation</span>
+          <ChangeStats added={12} removed={3} className="ml-auto" />
+        </PatchSection>
+      </Card>
       <Banner tone="neutral" title="A newer version of the agent is available." onDismiss={() => {}}>
         1.4.2 is installed; 1.5.0 adds the thing you asked about.
       </Banner>
@@ -441,6 +620,124 @@ const BannerBoard = () => (
       settling that in the banner&rsquo;s favour would look like.
     </p>
   </>
+)
+
+const QueueBoard = () => (
+  <>
+    <div className={styles.stack}>
+      <MessageQueueFrame paused>
+        <MessageQueueHeader>
+          <Text role="meta" tone="warning"><AlertIcon size={13} /></Text>
+          <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
+          <Button variant="quiet" size="sm">Send now</Button>
+        </MessageQueueHeader>
+        <MessageQueueList>
+          <MessageQueueRow>
+            <MessageQueueGrip><GripIcon size={12} /></MessageQueueGrip>
+            <Text role="meta">1</Text>
+            <Text role="navigation" className="min-w-0 flex-1 truncate">Run the focused tests again</Text>
+            <MessageQueueTiming tone="next">next</MessageQueueTiming>
+            <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
+          </MessageQueueRow>
+        </MessageQueueList>
+      </MessageQueueFrame>
+      <PopoverSurface limit="trigger">
+        <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
+        <Button variant="navigation" size="navigation" className="w-full">/review</Button>
+      </PopoverSurface>
+      <Text role="muted" as="div">
+        Press <Keycap>esc</Keycap> to close; “Set<SearchMatch>tings</SearchMatch>” shows the matched text.
+      </Text>
+      <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
+      <ComposerShell className="relative min-h-20">
+        <ComposerChip tone="brand" removeLabel="Remove report.pdf" onRemove={() => {}}>report.pdf</ComposerChip>
+        <ComposerDropHint>Drop images to attach</ComposerDropHint>
+      </ComposerShell>
+    </div>
+    <p className={styles.rule}>
+      The queue is one held-work surface: warning belongs to the paused header, order stays quiet in
+      its rows, and the controls arrive only at the row being handled. Trigger pickers use the same
+      floating plate as anchored menus.
+    </p>
+  </>
+)
+
+/* The prose renderer reads the app's theme through the store, and this page
+   has none; it gets the empty desk's snapshot, kept in one place so the store
+   hands back the same object each time it is asked. */
+const catalogueSnapshot = emptySnapshot()
+const catalogueStore = { subscribe: () => () => {}, getSnapshot: () => catalogueSnapshot } as unknown as AppStore
+const CATALOGUE_DIFF = [
+  'diff --git a/src/new.ts b/src/new.ts',
+  'new file mode 100644',
+  'index 0000000..734dfc9',
+  '--- /dev/null',
+  '+++ b/src/new.ts',
+  '@@ -0,0 +1,2 @@',
+  '+export const opened = true',
+  '+export const count = 2',
+  'diff --git a/src/existing.ts b/src/existing.ts',
+  'index 1111111..2222222 100644',
+  '--- a/src/existing.ts',
+  '+++ b/src/existing.ts',
+  '@@ -8,2 +8,2 @@',
+  '-const label = "Before"',
+  '+const label = "After"',
+  ' render(label)',
+].join('\n')
+
+const CATALOGUE_INLINE_EDIT = {
+  id: 'catalogue-inline-edit',
+  type: 'toolCall',
+  tool: 'Edit src/existing.ts',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: {
+    file_path: '/workspace/src/existing.ts',
+    old_string: 'const label = "Before"',
+    new_string: 'const label = "After"',
+  },
+} as AgentItem
+
+const CodeBoard = () => (
+  <div className={styles.stack}>
+    <Case label="command, output, and failure">
+      <div className="w-full" data-testid="code-block-sample">
+        <CodeBlock
+          command="pnpm --filter @harnessdesk/ui exec vitest run src/components/Items"
+          output={'Tests 1 failed\nDuration 1.8s'}
+          exitCode={1}
+        />
+      </div>
+    </Case>
+    <Case label="the copy control">
+      <CopyButton text="pnpm verify" label="Copy this command" />
+    </Case>
+    <Case label="the same plate in prose">
+      <div className="w-full" data-testid="markdown-code-sample">
+        <StoreProvider store={catalogueStore}>
+          <Markdown text={'```ts\nconst opened = true\n```'} />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="two hunks, including a new file">
+      <div className="w-full" data-testid="diff-sample">
+        <DiffView diff={CATALOGUE_DIFF} />
+      </div>
+    </Case>
+    <Case label="the same plate in an opened step">
+      <div className="w-full" data-testid="inline-diff-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_INLINE_EDIT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <p className={styles.rule}>
+      A command and what it printed are one exact record, so they share one
+      plate and one code register. Prose keeps its horizontal scroll because a
+      source line is not a shell command and should not be reflowed.
+    </p>
+  </div>
 )
 
 const DialogBoard = () => {
@@ -497,7 +794,9 @@ const DialogBoard = () => {
             { id: 'run', label: 'Run once', shortcut: 2, placement: 'proceed', onSelect: () => setOpen(null) },
           ]}
         >
-          <code>pnpm verify</code> runs in the current workspace.
+          <ApprovalReason>Runs the repository's complete verification gate.</ApprovalReason>
+          <ApprovalCode>pnpm verify</ApprovalCode>
+          <ApprovalMeta label="in">/workspace</ApprovalMeta>
         </ApprovalDialog>
       )}
       {open === 'lightbox' && (
@@ -706,6 +1005,12 @@ One-line fix, right target, no regressions. Ship it.`
 
 export const BOARDS: Board[] = [
   {
+    id: 'queue',
+    title: 'MessageQueue · Trigger picker',
+    about: 'Work waiting beside the composer, and the list that inserts into it.',
+    render: QueueBoard,
+  },
+  {
     id: 'button',
     title: 'Button · icon size',
     about: 'One button; the variant says what pressing it costs.',
@@ -736,6 +1041,12 @@ export const BOARDS: Board[] = [
     render: HeadBoard,
   },
   {
+    id: 'app-window',
+    title: 'AppWindow',
+    about: 'Full-window navigation and page chrome for places a person goes to read.',
+    render: AppWindowBoard,
+  },
+  {
     id: 'face',
     title: 'Face',
     about: 'A person, drawn: the face they chose, or the house mark.',
@@ -746,6 +1057,12 @@ export const BOARDS: Board[] = [
     title: 'Banner',
     about: 'Something the app needs to say that nobody asked for.',
     render: BannerBoard,
+  },
+  {
+    id: 'code',
+    title: 'CodeBlock',
+    about: 'A command and its output, kept together as one exact record.',
+    render: CodeBoard,
   },
   {
     id: 'channel',

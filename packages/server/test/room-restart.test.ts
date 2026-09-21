@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { SessionGoneError, type Session, type TeamMessage, type TeamPeerInfo, type TeamState } from '@harnessdesk/protocol'
+import { SessionGoneError, runtimeId, type GoalView, type SeatRecord, type Session, type TeamMessage, type TeamPeerInfo, type TeamState } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore, serve } from '../src/index.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -67,11 +67,35 @@ const boot = async (
   const existing = (await client.call('team/rooms', { root: work })) as readonly TeamState[]
   const room =
     existing[0] ??
-    ((await client.call('team/room/create', { root: work, name: 'Checkout rewrite' })) as TeamState)
+    ((await client.call('goal/create', { root: work, sentence: 'Checkout rewrite' })) as GoalView).board
+  const assign = async (id: string): Promise<void> => {
+    const before = await client.call('goal/read', { goal: room.id }) as GoalView
+    const card = await client.call('team/add', { room: room.id, title: 'Continue the Goal' }) as { id: number }
+    const afterCard = await client.call('goal/read', { goal: room.id }) as GoalView
+    assert.deepEqual(afterCard.members.map((one) => one.id), before.members.map((one) => one.id),
+      'adding a card does not create or restore membership')
+    await client.call('goal/assign', {
+      goal: room.id,
+      card: card.id,
+      session: { runtime: runtimeId('fake'), sessionId: id },
+    })
+  }
   const member = async (): Promise<string> => {
     const session = (await client.call('session/create', { runtime: 'fake', options: { cwd: work } })) as Session
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: session.id })
+    await assign(String(session.id))
     return String(session.id)
+  }
+  const leave = async (id: string): Promise<void> => {
+    const view = await client.call('goal/read', { goal: room.id }) as GoalView
+    const seat = view.members.find((one) => String(one.session.sessionId) === id) as SeatRecord | undefined
+    if (!seat) throw new Error(`No Goal Seat for ${id}`)
+    await client.call('goal/release', { goal: room.id, seat: seat.id })
+    const after = await client.call('goal/read', { goal: room.id }) as GoalView
+    assert.equal(after.members.some((one) => String(one.session.sessionId) === id), false,
+      'the released Seat leaves Goal membership before the call returns')
+    const latest = await client.call('evidence/seat', { runtime: 'fake', sessionId: id }) as SeatRecord
+    assert.equal(latest.id, seat.id, 'release does not leave a newer Seat for the same conversation')
+    assert.equal(latest.closed?.why, 'released', 'the release closing is durable before the call returns')
   }
   const peers = async (): Promise<readonly TeamPeerInfo[]> =>
     (await client.call('team/peers', { room: room.id })) as readonly TeamPeerInfo[]
@@ -90,7 +114,7 @@ const boot = async (
     await rm(stateDir, { recursive: true, force: true })
     await rm(work, { recursive: true, force: true })
   }
-  return { client, runtime, host, room, member, peers, restart, close, stateDir, work }
+  return { client, runtime, host, room, member, assign, leave, peers, restart, close, stateDir, work }
 }
 
 test('a room keeps its members across an agent restart, and a post still reaches them', async () => {
@@ -246,7 +270,7 @@ test('a member whose agent is merely down is kept, and answers when it is back',
  *
  * So a closed conversation is a member that is not open: drawn, marked away,
  * and reopened by the next thing addressed to it. Taking somebody out of a
- * room is its own gesture — `team/room/leave`, and the roster's own Remove.
+ * Goal is its own gesture — releasing the durable Seat from the roster.
  */
 test('closing a conversation leaves it in the room, marked as not open', async () => {
   const { client, room, member, peers, restart, close } = await boot()
@@ -336,14 +360,14 @@ test('a relaunched desk finds its rooms staffed, and the first post reaches them
  * every conversation in the project and the room refused each one with "There
  * is no fake conversation …", about a conversation plainly on screen.
  */
-test('a stored conversation can be added to a room without opening it first', async () => {
+test('a stored conversation can be assigned to a Goal without opening it first', async () => {
   const first = await boot()
   let id: string
   let stateDir: string
   let work: string
   try {
     id = await first.member()
-    await first.client.call('team/room/leave', { room: first.room.id, runtime: 'fake', sessionId: id })
+    await first.leave(id)
     stateDir = first.stateDir
     work = first.work
   } finally {
@@ -353,7 +377,7 @@ test('a stored conversation can be added to a room without opening it first', as
   const second = await boot({ stateDir, work, history: [id] })
   try {
     assert.deepEqual(await second.peers(), [], 'it starts outside the room')
-    await second.client.call('team/room/join', { room: second.room.id, runtime: 'fake', sessionId: id })
+    await second.assign(id)
     const back = await second.peers()
     assert.deepEqual(back.map((peer) => peer.sessionId), [id])
     assert.equal(back[0]?.here, false, 'a member, and not open — which is what it is')
@@ -374,7 +398,7 @@ test('a stored conversation can be added to a room without opening it first', as
  * the count's meaning, so the engine says when it moves.
  */
 test('a refusal from a previous stay does not count towards the next one', async () => {
-  const { client, runtime, room, member, peers, restart, close } = await boot()
+  const { client, runtime, room, member, assign, leave, peers, restart, close } = await boot()
   try {
     const back = await member()
     restart()
@@ -385,8 +409,8 @@ test('a refusal from a previous stay does not count towards the next one', async
     assert.deepEqual((await peers()).map((peer) => peer.sessionId), [back], 'one refusal: still listed')
 
     // It leaves the room and is put back — a new stay.
-    await client.call('team/room/leave', { room: room.id, runtime: 'fake', sessionId: back })
-    await client.call('team/room/join', { room: room.id, runtime: 'fake', sessionId: back })
+    await leave(back)
+    await assign(back)
 
     // And fails once more. Under the old rule this was the second in a row.
     await client.call('team/post', { room: room.id, text: 'Second try.' })
@@ -421,7 +445,8 @@ test('a conversation only the host remembers cannot be added to a room', async (
     id = await first.member()
     // A turn, so the host has a transcript of its own to recover from.
     await first.client.call('team/post', { room: first.room.id, text: 'Say something.' })
-    await first.client.call('team/room/leave', { room: first.room.id, runtime: 'fake', sessionId: id })
+    await first.client.call('turn/interrupt', { runtime: 'fake', sessionId: id })
+    await first.leave(id)
     stateDir = first.stateDir
     work = first.work
   } finally {
@@ -432,9 +457,11 @@ test('a conversation only the host remembers cannot be added to a room', async (
   // read reaches the host's recovery path rather than the runtime's answer.
   const second = await boot({ stateDir, work })
   try {
+    const before = await second.client.call('evidence/seat', { runtime: 'fake', sessionId: id }) as SeatRecord
+    assert.equal(before.closed?.why, 'released', 'the released Seat remains closed after restart')
     await assert.rejects(
-      () => second.client.call('team/room/join', { room: second.room.id, runtime: 'fake', sessionId: id }),
-      /There is no fake conversation/,
+      () => second.assign(id),
+      /Choose a conversation from this project that its runtime can still open/,
     )
     assert.deepEqual(await second.peers(), [], 'and nothing was written down')
   } finally {
@@ -527,7 +554,7 @@ test('a relaunched desk keeps a member whose reopen merely failed once', async (
  * recovers, the resume fails, the pane shows what the host kept), then try to
  * add it to a room. The room must still refuse.
  */
-test('a conversation the host recovered, and the agent has lost, is still refused by a join', async () => {
+test('a conversation the host recovered, and the agent has lost, is still refused by Goal assignment', async () => {
   const first = await boot()
   let id: string
   let stateDir: string
@@ -536,7 +563,8 @@ test('a conversation the host recovered, and the agent has lost, is still refuse
     id = await first.member()
     // A turn, so the host has a transcript of its own to recover from later.
     await first.client.call('team/post', { room: first.room.id, text: 'Say something.' })
-    await first.client.call('team/room/leave', { room: first.room.id, runtime: 'fake', sessionId: id })
+    await first.client.call('turn/interrupt', { runtime: 'fake', sessionId: id })
+    await first.leave(id)
     stateDir = first.stateDir
     work = first.work
   } finally {
@@ -554,8 +582,8 @@ test('a conversation the host recovered, and the agent has lost, is still refuse
     )
 
     await assert.rejects(
-      () => second.client.call('team/room/join', { room: second.room.id, runtime: 'fake', sessionId: id }),
-      /There is no fake conversation/,
+      () => second.assign(id),
+      /Choose a conversation from this project that its runtime can still open/,
       'and the room still refuses it',
     )
     assert.deepEqual(await second.peers(), [])

@@ -103,18 +103,11 @@ export class SeatBook {
     return record
   }
 
-  /** Closes every Seat this desk kept for a conversation that is still open, and answers what it closed. */
+  /** Closes this desk's open records for a deleted conversation, once each. */
   async closed(runtime: string, sessionId: string, why: string): Promise<SeatRecord[]> {
     const open = this.of(runtime, sessionId).filter((seat) => seat.closed === null && !seat.restored)
-    const at = this.#now()
     const out: SeatRecord[] = []
-    for (const seat of open) {
-      const project = this.#projects.get(seat.id) ?? seat.checkout.project
-      await this.#store.append(project, 'seats', [{ type: 'seat-closed', closing: { seat: seat.id, at, why } }])
-      const closed: SeatRecord = { ...seat, closed: { at, why } }
-      this.#byId.set(seat.id, closed)
-      out.push(closed)
-    }
+    for (const seat of open) out.push(await this.closeId(seat.id, why))
     return out
   }
 
@@ -145,6 +138,55 @@ export class SeatBook {
 
   byId(id: SeatId): SeatRecord | null {
     return this.#byId.get(id) ?? null
+  }
+
+  all(): readonly SeatRecord[] {
+    return [...this.#byId.values()]
+  }
+
+  async importOpening(project: string, opening: SeatOpening): Promise<SeatRecord> {
+    const canonical = (value: unknown): string => {
+      if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+      if (value !== null && typeof value === 'object') {
+        return `{${Object.entries(value).filter(([, field]) => field !== undefined)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([key, field]) => `${JSON.stringify(key)}:${canonical(field)}`).join(',')}}`
+      }
+      return JSON.stringify(value) ?? 'null'
+    }
+    await this.#store.merge(project, 'seats', [{ type: 'seat', record: opening }], (line, here, added) => {
+      const previous = [...here, ...added].find((one) => one.type === 'seat' && one.record.id === opening.id)
+      if (!previous) return 'add'
+      if (previous.type !== 'seat' || line.type !== 'seat' || canonical(previous.record) !== canonical(line.record)) {
+        throw new Error('A different Seat already has this id. The existing evidence was kept.')
+      }
+      return 'duplicate'
+    })
+    const { lines } = await this.#store.read(project, 'seats')
+    const record = foldSeats(lines).find((one) => one.id === opening.id)
+    if (!record) throw new Error('The imported Seat could not be read back. Repair the evidence store and retry.')
+    this.#index(record, project)
+    this.#byId.set(record.id, record)
+    return record
+  }
+
+  async closeId(id: SeatId, why: string): Promise<SeatRecord> {
+    const seat = this.#byId.get(id)
+    if (!seat) throw new Error('That Seat is not recorded on this desk.')
+    if (seat.restored) throw new Error('A restored Seat is history and cannot be closed here.')
+    const project = this.#projects.get(id) ?? seat.checkout.project
+    await this.#store.merge(project, 'seats', [
+      { type: 'seat-closed', closing: { seat: id, at: this.#now(), why } },
+    ], (_line, here, added) =>
+      [...here, ...added].some((line) => line.type === 'seat-closed' && line.closing.seat === id)
+        ? 'duplicate'
+        : 'add',
+    )
+    const { lines } = await this.#store.read(project, 'seats')
+    const closed = foldSeats(lines).find((record) => record.id === id)
+    if (!closed) throw new Error('The Seat closing could not be read back. Retry after fixing the evidence store.')
+    this.#byId.set(id, closed)
+    return closed
   }
 
   #index(seat: SeatRecord, project: string): void {
