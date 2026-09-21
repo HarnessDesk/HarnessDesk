@@ -25,7 +25,7 @@ repository pane — is in [`images/app/`](images/app), in both themes.
 Cost beside a wrapped receipt and project usage are accounting views, not a
 verdict on an Agent. They name source, age and qualification beside each
 number. Unknown is visible; it is not styled as free. Historical partitions
-(Goal, Agent, Seat, message and delegation) are alternate views of one total,
+(Goal, Agent and Seat) are alternate views of one total,
 never contributions to add together.
 
 Four areas — the **sidebar**, the **main content area**, the **right panel**

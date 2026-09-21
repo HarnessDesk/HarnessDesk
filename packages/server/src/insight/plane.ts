@@ -163,9 +163,9 @@ export class InsightPlane implements InsightReadApi {
     const document = this.port.goals.store.read(id)
     const to = this.#now(); const from = Math.max(0, to - 90 * DAY)
     const receipt = document.receipt
-    const seatIds = new Set(receipt?.seats ?? [])
-    const report = await this.#usage({ root: document.goal.root, from, to }, receipt ? seatIds : undefined)
-    return { ...report, goal: id, receipt: receipt?.id ?? null, goals: [document.goal], seats: this.port.seats().filter((seat) => seatIds.has(seat.id)),
+    const seatIds = new Set(receipt?.seats ?? this.port.seats().filter((seat) => seat.checkout.project === document.goal.root && seat.board === id).map((seat) => seat.id))
+    const report = await this.#usage({ root: document.goal.root, from, to }, seatIds)
+    return { ...report, goal: id, receipt: receipt?.id ?? null, goals: [document.goal], seats: report.seats,
       gaps: receipt ? report.gaps : [...report.gaps, 'This Goal is not wrapped; its history is so far, not a receipt.'] }
   }
 

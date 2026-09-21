@@ -14,6 +14,7 @@ export interface InsightUsageProps {
 export const InsightUsage = ({ root, view, onGoal }: InsightUsageProps) => {
   const store = useStore(); const [report, setReport] = useState<InsightReport | null>(null); const [problem, setProblem] = useState<string | null>(null)
   useEffect(() => {
+    setReport(null); setProblem(null)
     if (!root) return
     let current = true; const to = Date.now(); const from = to - 30 * 86_400_000
     void store.readUsageInsight({ root, from, to }).then((next) => { if (current) setReport(next) }).catch((error: unknown) => { if (current) setProblem(error instanceof Error ? error.message : 'Recorded usage could not be read.') })

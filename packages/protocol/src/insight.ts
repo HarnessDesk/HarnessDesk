@@ -78,7 +78,10 @@ export interface TurnInsightContext {
   readonly observedAt: number
 }
 
-export type InsightDimension = 'goal' | 'agent' | 'seat' | 'message' | 'delegation' | 'loaded'
+/** The historical partitions currently derived from the recorded usage corpus. */
+export const INSIGHT_DIMENSIONS = ['seat', 'goal', 'agent'] as const
+
+export type InsightDimension = (typeof INSIGHT_DIMENSIONS)[number]
 
 export interface InsightRow {
   readonly key: string
