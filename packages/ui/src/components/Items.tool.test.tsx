@@ -7,6 +7,7 @@ import type { AgentItem, ToolCallItem, ToolResultContent } from '@harnessdesk/pr
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { ItemView } from './Items'
+import itemsCss from './Items.module.css?raw'
 
 /**
  * An opened tool step.
@@ -100,6 +101,22 @@ describe('an opened tool step', () => {
     expect(body?.className).not.toContain('rounded-(--hd-radius)')
     expect(body?.className).not.toContain('bg-(--hd-card)')
     expect(body?.className).not.toContain('shadow-(--hd-hairline)')
+  })
+
+  it('keeps a normal bare command body aligned under its disclosure title', () => {
+    open({
+      id: 'command-1',
+      type: 'command',
+      command: 'pnpm test',
+      cwd: '/w',
+      origin: 'agent',
+      actions: [{ type: 'unknown', command: 'pnpm test' }],
+      status: 'completed',
+      output: 'all clear',
+    } as unknown as AgentItem)
+
+    expect(byClass('rowBodyBare')[0]).toBeTruthy()
+    expect(itemsCss).toMatch(/(?:^|\n)\.rowBodyBare\s*\{[^}]*margin:\s*var\(--hd-space-0-5\)\s+0\s+var\(--hd-space-1-5\)\s+var\(--hd-space-6\)/s)
   })
 
   it('draws a two-line Write with one marker, not a second + in the file text', () => {

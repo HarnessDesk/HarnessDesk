@@ -352,7 +352,7 @@
 }
 
 /* The child draws its own plate, so the body supplies alignment only. */
-[data-register='light'] .rowBodyBare {
+.rowBodyBare {
   margin: var(--hd-space-0-5) 0 var(--hd-space-1-5) var(--hd-space-6);
 }
 

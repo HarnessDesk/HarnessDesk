@@ -147,6 +147,7 @@ const filePathOf = (item: AgentItem): string | null => {
 }
 
 const StepPathLabels = createContext<ReadonlyMap<string, string> | null>(null)
+const ItemRegister = createContext<'light' | undefined>(undefined)
 
 /** File labels shared by every step in one turn, including folded groups. */
 export const StepNameScope = ({
@@ -224,10 +225,11 @@ const Row = ({
   children?: ReactNode
 }) => {
   const [open, setOpen] = useState(defaultOpen)
+  const register = useContext(ItemRegister)
   const collapsible = Boolean(children)
 
   return (
-    <div className={`${styles.row} rounded-(--hd-radius) bg-(--hd-card) shadow-(--hd-hairline)`}>
+    <div className={`${styles.row}${register === 'light' ? '' : ' rounded-(--hd-radius) bg-(--hd-card) shadow-(--hd-hairline)'}`}>
       <Button
         type="button" variant="quiet" size="row" className={styles.rowHeader}
         onClick={() => collapsible && setOpen((value) => !value)}
@@ -1238,5 +1240,9 @@ export const ItemView = ({
   })()
 
   if (body === null) return null
-  return <div className={`${styles.item} ${register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'}`}>{body}</div>
+  return (
+    <ItemRegister.Provider value={register}>
+      <div className={`${styles.item} ${register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'}`}>{body}</div>
+    </ItemRegister.Provider>
+  )
 }
