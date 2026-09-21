@@ -215,6 +215,7 @@ const emit = (
   insight: InsightScanOptions | undefined, target: ScanTarget, identity: string, at: number | null, model: string | null,
   project: string | null, tokens: { input: unknown; output: unknown; cacheRead: unknown; cacheWrite: unknown }, scope: 'call' | 'session',
   vendorCost: number | null = null,
+  sessionId: string | null = null,
 ): void => {
   if (!insight) return
   if (insight.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
@@ -222,7 +223,7 @@ const emit = (
   const sourceKey = `${source.id}:${identity}`
   insight.emit({
     key: createHash('sha256').update(sourceKey).digest('hex'), source, runtime: target.runtime,
-    sessionId: null, turnId: null, requestId: identity || null, project, model, from: at, to: at,
+    sessionId, turnId: null, requestId: identity || null, project, model, from: at, to: at,
     scope, includesChildren: null, input: measure(tokens.input), output: measure(tokens.output),
     cacheRead: measure(tokens.cacheRead), cacheWrite: measure(tokens.cacheWrite),
     usd: vendorCost === null ? { value: null, quality: 'unknown' } : { value: vendorCost, quality: 'exact' },
@@ -333,6 +334,7 @@ interface CodexRecord {
     readonly type?: string
     readonly cwd?: string
     readonly model?: string
+    readonly id?: string
     readonly info?: {
       readonly last_token_usage?: {
         readonly input_tokens?: number
@@ -384,7 +386,7 @@ export const scanCodexRollout = async (
     emit(insight, target, JSON.stringify(raw), at, context.model, context.project || null, {
       input: typeof last.input_tokens === 'number' && typeof last.cached_input_tokens === 'number' ? Math.max(0, last.input_tokens - last.cached_input_tokens) : last.input_tokens,
       output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
-    }, 'call')
+    }, 'call', null, context.sessionId)
   })
   return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)] }
 }
@@ -392,9 +394,10 @@ export const scanCodexRollout = async (
 interface CodexContext {
   model: string
   project: string
+  sessionId: string | null
 }
 
-const unknownContext = (): CodexContext => ({ model: 'unknown', project: '' })
+const unknownContext = (): CodexContext => ({ model: 'unknown', project: '', sessionId: null })
 
 /** Notes what a `session_meta` or `turn_context` record says of the model and project; false for any other record. */
 const noteContext = (record: CodexRecord, context: CodexContext): boolean => {
@@ -402,6 +405,7 @@ const noteContext = (record: CodexRecord, context: CodexContext): boolean => {
   const payload = record.payload
   if (typeof payload?.cwd === 'string' && payload.cwd !== '') context.project = projectRootOf(payload.cwd)
   if (typeof payload?.model === 'string' && payload.model !== '') context.model = payload.model
+  if (record.type === 'session_meta' && typeof payload?.id === 'string' && payload.id !== '') context.sessionId = payload.id
   return true
 }
 
@@ -410,10 +414,11 @@ const contextFrom = (tail: readonly string[]): CodexContext | null => {
   try {
     const parsed: unknown = JSON.parse(tail[0] ?? '')
     if (parsed !== null && typeof parsed === 'object') {
-      const { model, project } = parsed as Record<string, unknown>
+      const { model, project, sessionId } = parsed as Record<string, unknown>
       return {
         model: typeof model === 'string' && model !== '' ? model : 'unknown',
         project: typeof project === 'string' ? project : '',
+        sessionId: typeof sessionId === 'string' && sessionId !== '' ? sessionId : null,
       }
     }
   } catch {
