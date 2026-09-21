@@ -119,7 +119,7 @@ export const TurnTail = ({
         </ActionError>
       )}
       {(actions || when !== null) && (
-        <div className={styles.turnTail}>
+        <div className={`${styles.turnTail} text-xs text-(--hd-muted-foreground) tabular-nums`}>
           {actions && <MessageActions text={answer} />}
           <span className={styles.turnTailSpacer} />
           {when !== null && figures.length > 0 ? (

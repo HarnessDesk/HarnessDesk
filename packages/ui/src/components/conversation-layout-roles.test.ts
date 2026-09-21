@@ -3,6 +3,9 @@ import { expect, it } from 'vitest'
 import mapCss from './ConversationMap.module.css?raw'
 import filesCss from './TurnFiles.module.css?raw'
 import workCss from './TurnWork.module.css?raw'
+import conversationCss from './Conversation.module.css?raw'
+import itemsCss from './Items.module.css?raw'
+import trajectoryCss from './Trajectory.module.css?raw'
 
 /**
  * These three transcript pieces keep their geometry in their own sheets, but
@@ -19,6 +22,17 @@ it('keeps conversation-map, file-card, and turn-work appearance in design roles'
 
   expect(workCss).not.toMatch(/\.live\s*\{[^}]*\b(min-height|padding|font-size|color)\s*:/s)
   expect(workCss).not.toMatch(/\.shimmer\s*\{/s)
+})
+
+it('keeps the conversation shell, transcript items, and trajectory appearance in design roles', () => {
+  expect(conversationCss).not.toMatch(/\.status\s*\{[^}]*\b(background|color|font-size|height|padding)\s*:/s)
+  expect(conversationCss).not.toMatch(/\.empty\s*\{[^}]*\b(color|padding|height)\s*:/s)
+
+  expect(itemsCss).not.toMatch(/\.bubble\s*\{[^}]*\b(background|border-radius|font-size|line-height|padding)\s*:/s)
+  expect(itemsCss).not.toMatch(/\.row\s*\{[^}]*\b(background|border-radius|box-shadow)\s*:/s)
+
+  expect(trajectoryCss).not.toMatch(/\.overview\s*\{[^}]*\b(border-bottom|padding)\s*:/s)
+  expect(trajectoryCss).not.toMatch(/\.row\s*\{[^}]*\b(border-radius|font-size|padding)\s*:/s)
 })
 
 it('does not let a work-header hover erase trouble ink', () => {

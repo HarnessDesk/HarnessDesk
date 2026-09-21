@@ -124,13 +124,14 @@ export const TurnWork = ({
           <StepNameScope items={shown} root={root}>
             {groupItems(shown).map((node) =>
               node.kind === 'group' ? (
-                <StepGroup key={node.id} items={node.items} running={node.running} root={root} />
+                <StepGroup key={node.id} items={node.items} running={node.running} root={root} register="light" />
               ) : (
                 <ItemView
                   key={node.item.id}
                   item={node.item}
                   root={root}
                   streaming={streamingItemId === node.item.id}
+                  register="light"
                 />
               ),
             )}
