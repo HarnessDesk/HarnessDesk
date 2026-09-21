@@ -42,3 +42,17 @@ test('scanner detail preserves source identity and unknown numeric fields withou
   await scanClaudeTranscript(target('claude', claude), 0, [], { emit: (sample) => claudeSamples.push(sample), byteLimit: 1024 })
   assert.equal(claudeSamples[0]?.output.value, null)
 })
+
+test('a scanner read gap remains visible when no usage samples were recovered', async () => {
+  const source = { id: 'unreadable', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Permission denied' }
+  const report = await new InsightPlane({
+    ledger: () => ({ readInsight: async () => ({ samples: [], sources: [source], gaps: ['Recorded usage could not be read: Permission denied.'], complete: false }) }) as never,
+    goals: { store: { list: () => [] } } as never,
+    seats: () => [],
+    seating: {} as never,
+    now: () => 20,
+  }).usage({ root: '/work/project', from: 0, to: 10 })
+  assert.deepEqual(report.gaps, ['Recorded usage could not be read: Permission denied.'])
+  assert.deepEqual(report.sources, [source])
+  assert.equal(report.totals.usd.coverage, 'none')
+})

@@ -61,3 +61,10 @@ it('leaves receipt rows inert when no navigation handler exists', () => {
   expect(seat).toBeTruthy()
   expect(() => act(() => seat?.dispatchEvent(new MouseEvent('click', { bubbles: true })))).not.toThrow()
 })
+
+it('labels vendor-metered costs distinctly from list-price estimates', () => {
+  const base = report()
+  const vendor = { ...base, totals: { ...base.totals, usd: { ...base.totals.usd, basis: 'vendorMetered' as const, quality: 'exact' as const } } }
+  act(() => root.render(<InsightCost report={vendor} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.textContent).toContain('Vendor-metered cost')
+})

@@ -607,7 +607,7 @@ export class TranscriptStore {
     const waiting = [...this.#pending.values()]
     for (const entry of waiting) clearTimeout(entry.timer)
     this.#pending.clear()
-    await Promise.all(waiting.map((entry) => this.#write(entry.session)))
+    await Promise.all(waiting.map((entry) => this.#write(entry.session, entry.insight)))
     await Promise.all([...this.#writes.values()])
   }
 }

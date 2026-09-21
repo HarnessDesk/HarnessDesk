@@ -109,4 +109,8 @@ test('one Goal receipt and comparison include every one of its Seats, never anot
   const compared = await plane.compare({ root: '/repo', from: 0, to: 20, goals: ['goal-a'], left: { agent: 'reviewer', origin: 'project', briefDigest: 'same', seat: choices.left }, right: { agent: 'reviewer', origin: 'project', briefDigest: 'same', seat: choices.right } })
   assert.equal(compared.left.usd.value, 20)
   assert.equal(compared.right.usd.value, 25)
+  assert.equal(compared.left.tokens.value, 4, 'left totals include only its selected historical Seats')
+  assert.equal(compared.right.tokens.value, 4, 'right totals include only its selected historical Seats')
+  assert.equal(compared.left.turns.value, 2, 'left turn count does not copy the whole-project total')
+  assert.equal(compared.right.turns.value, 2, 'right turn count does not copy the whole-project total')
 })

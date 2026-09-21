@@ -116,7 +116,7 @@ export class InsightPlane implements InsightReadApi {
     this.#range(query)
     const generatedAt = this.#now()
     const detail = await this.port.ledger().readInsight(query, { refresh: true })
-    if (detail.samples.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
+    if (detail.samples.length === 0 && detail.gaps.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
     const allGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
     const projectSeats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
     const seats = selectedSeatIds ? projectSeats.filter((seat) => selectedSeatIds.has(seat.id)) : projectSeats
@@ -184,13 +184,15 @@ export class InsightPlane implements InsightReadApi {
     const report = await this.usage(query)
     const selected = report.breakdowns.find((breakdown) => breakdown.dimension === 'seat')?.rows ?? []
     const historical = new Map(report.seats.map((seat) => [seat.id, seat]))
-    const metricFor = (goal: string, selector: InsightSelector): InsightMetric | null => {
-      const found = selected.filter((entry) => {
+    const rowsFor = (goal: string, selector: InsightSelector) =>
+      selected.filter((entry) => {
         if (entry.goal !== goal || entry.seat === null) return false
         const seat = historical.get(entry.seat)
         return seat?.agent?.id === selector.agent && seat.agent.origin === selector.origin
           && seat.briefDigest === selector.briefDigest && selector.seat !== null && seatKey(seat.seat) === seatKey(selector.seat)
       })
+    const metricFor = (goal: string, selector: InsightSelector): InsightMetric | null => {
+      const found = rowsFor(goal, selector)
       if (found.length === 0) return null
       const metrics = found.map((entry) => entry.amounts.usd)
       const first = metrics[0]!
@@ -204,12 +206,37 @@ export class InsightPlane implements InsightReadApi {
     }))
     const paired = pairedCosts(rows)
     const included = paired.goals
+    const combinedMetric = (metrics: readonly InsightMetric[], unit: InsightMetric['unit']): InsightMetric => {
+      if (metrics.length === 0) return unknown(unit)
+      const total = sumMeasures(metrics)
+      const bases = new Set(metrics.map((metric) => metric.basis))
+      const coverage = total.value === null ? 'none' : metrics.some((metric) => metric.coverage !== 'complete') ? 'partial' : 'complete'
+      return {
+        ...total,
+        unit,
+        basis: bases.size === 1 ? metrics[0]!.basis : 'mixed',
+        sourceIds: [...new Set(metrics.flatMap((metric) => metric.sourceIds))],
+        coverage,
+        missing: [...new Set(metrics.flatMap((metric) => metric.missing))],
+      }
+    }
+    const amountsFor = (selector: InsightSelector): InsightAmounts => {
+      const matching = included.flatMap((goal) => rowsFor(goal, selector).map((row) => row.amounts))
+      return {
+        usd: combinedMetric(matching.map((amounts) => amounts.usd), 'usd'),
+        tokens: combinedMetric(matching.map((amounts) => amounts.tokens), 'tokens'),
+        activeMs: combinedMetric(matching.map((amounts) => amounts.activeMs), 'milliseconds'),
+        turns: combinedMetric(matching.map((amounts) => amounts.turns), 'count'),
+      }
+    }
+    const leftAmounts = amountsFor(query.left)
+    const rightAmounts = amountsFor(query.right)
     const sourceMetric = metricFor(included[0] ?? '', query.left) ?? report.totals.usd
     const copied = (value: number | null, unit: InsightMetric['unit']): InsightMetric => ({ ...sourceMetric, value, unit, quality: value === null ? 'unknown' : sourceMetric.quality, coverage: value === null ? 'none' : sourceMetric.coverage })
     const left = copied(paired.left, 'usd'); const right = copied(paired.right, 'usd')
     return {
       query, included, excluded: query.goals.filter((goal) => !included.includes(goal)).map((goal) => ({ goal, reason: 'This Goal did not have a compatible complete measurement on both selected sides.' })),
-      left: { ...report.totals, usd: left }, right: { ...report.totals, usd: right },
+      left: { ...leftAmounts, usd: left }, right: { ...rightAmounts, usd: right },
       leftPerGoalUsd: copied(left.value === null || included.length === 0 ? null : left.value / included.length, 'usd'),
       rightPerGoalUsd: copied(right.value === null || included.length === 0 ? null : right.value / included.length, 'usd'),
       differenceUsd: copied(left.value === null || right.value === null ? null : right.value - left.value, 'usd'),

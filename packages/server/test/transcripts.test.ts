@@ -76,6 +76,23 @@ test('a thinner read is filled in from the turns the host recorded', async () =>
   })
 })
 
+test('flush keeps pending Insight context during shutdown', async () => {
+  await withStore(async (store, dir) => {
+    store.record(session([turn('t1', [item('u', 'userMessage')])]), {
+      insight: [{
+        turn: 't1', startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
+        before: null, after: null, generation: '', observedAt: 1, loaded: null,
+      }],
+    })
+    await store.flush()
+    const stored = JSON.parse(await readFile(join(dir, 'codex', 's1.json'), 'utf8')) as { insight?: readonly { readonly turn: string }[] }
+    assert.deepEqual(stored.insight, [{
+      turn: 't1', startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
+      before: null, after: null, generation: '', observedAt: 1, loaded: null,
+    }])
+  })
+})
+
 test('a turn the backend no longer lists is not brought back', async () => {
   await withStore(async (store) => {
     store.record(session([turn('t1', [item('u', 'userMessage'), item('c', 'command')]), turn('t2', [item('u2', 'userMessage')])]), {
