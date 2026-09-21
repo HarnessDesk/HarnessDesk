@@ -27,9 +27,9 @@ const DRY: FlowDryRun = {
   flow: { inputs: [] } as unknown as FlowDryRun['flow'],
   problems: [],
   seats: [
-    { role: 'fixer', index: 0, seat: 'Codex', runtime: 'codex', permission: 'read', seatingTurns: 1 },
-    { role: 'lander', index: 0, seat: 'Codex', runtime: 'codex', permission: 'merge', seatingTurns: 1 },
-  ] as unknown as FlowDryRun['seats'],
+    { role: 'fixer', index: 0, seat: 'Codex', runtime: 'codex', permission: 'read', turns: 1 },
+    { role: 'lander', index: 0, seat: 'Codex', runtime: 'codex', permission: 'merge', turns: 1 },
+  ],
   seatingTurns: 2,
   commands: [],
   trace: [],

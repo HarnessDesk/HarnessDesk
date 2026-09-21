@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { CeilingLevel, SeatRecord } from '@harnessdesk/protocol'
 
 import { KeyValue, KeyValueRow } from '../design'
-import { ceilingWords, originWords, passedWords } from '../lib/agents'
+import { ceilingWords, originWords, passedWords, seatCeilingWords } from '../lib/agents'
 import { shortSha } from '../lib/evidence'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
@@ -80,6 +80,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
           <KeyValueRow label="Passed over">{seat.passedOver.map(passedWords).join('; ')}</KeyValueRow>
         )}
         <KeyValueRow label="Told it may">{orderWords(seat.standing)}</KeyValueRow>
+        {seat.ceiling && <KeyValueRow label="Ceiling">{seatCeilingWords(seat.ceiling)}</KeyValueRow>}
         <KeyValueRow label="Checkout">
           {seat.checkout.head
             ? `${seat.checkout.branch ?? 'a detached HEAD'} at ${shortSha(seat.checkout.head)}`

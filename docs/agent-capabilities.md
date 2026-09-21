@@ -87,6 +87,8 @@ runtime-native shell actions are explicit limits: the desk does not claim a
 global shell interceptor.
 
 These declarations and tests establish the mapping and host contract; they are
-not evidence that a live runtime rejected an action or that the UI was visually
-inspected. The separate phase-3 walkthrough records those observations once it
-has been run; until then, no live ceiling result is claimed here.
+not evidence that a live runtime rejected an action. The
+[phase-3 ceiling walkthrough](verification/2026-09-18-agents-ceilings.md)
+records the inspected synthetic UI paths separately from the real-runtime cases
+that are complete and the native-runtime case that remains blocked; no native
+sandbox-enforcement result is claimed here.
