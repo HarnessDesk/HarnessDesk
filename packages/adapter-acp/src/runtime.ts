@@ -3,7 +3,6 @@ import { readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { extname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
 import {
   approvalId,
   itemId,
@@ -61,6 +60,7 @@ import {
   SessionFolderGoneError,
   SessionGoneError,
   openingOf,
+  laneEnvironmentOf,
 } from '@harnessdesk/protocol'
 import {
   AcpConnection,
@@ -101,6 +101,7 @@ import {
 import { CliAccount, type AcpAccountCommands } from './account.js'
 import { AcpExtensions } from './extensions.js'
 import { resolveExecutable, type AcpExecutableSpec, type ResolvedExecutable } from './executable.js'
+import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
 import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { AcpTasks } from './tasks.js'
 
@@ -605,6 +606,7 @@ export class AcpRuntime implements AgentRuntime {
 
   readonly #connection: AcpConnection
   readonly #sessions = new Map<SessionId, AcpSession>()
+  readonly #environments = new Map<SessionId, Readonly<Record<string, string>>>()
   readonly #resuming = new Map<SessionId, Promise<AgentSession>>()
   /**
    * The folder each conversation opened here was opened in, as the agent
@@ -757,6 +759,7 @@ export class AcpRuntime implements AgentRuntime {
     const shaken = this.#initialized !== null
     return {
       ...NO_CAPABILITIES,
+      sessionEnvironment: environmentSupported(this.#initialized?._meta),
       // ACP declares how to authenticate but never whether you already are
       // — so claiming an account from authMethods alone painted "not signed
       // in" over agents that were. The surface exists when the registry
@@ -2015,7 +2018,17 @@ export class AcpRuntime implements AgentRuntime {
       // that can only apply a control when it spawns the agent (Claude
       // Code's `--effort`) reads them here; every other agent ignores the
       // key, and the `setOption` calls below apply the values the usual way.
-      ...(Object.keys(initial).length > 0 ? { _meta: { harnessdesk: { options: initial } } } : {}),
+      ...(options.environment
+        ? {
+            _meta: environmentMeta(
+              { harnessdesk: { options: initial } },
+              options.environment,
+              this.info.capabilities.sessionEnvironment,
+            ),
+          }
+        : Object.keys(initial).length > 0
+          ? { _meta: { harnessdesk: { options: initial } } }
+          : {}),
     })
     const session = new AcpSession(this, result, options.cwd)
     this.#sessions.set(session.id, session)
@@ -2024,6 +2037,10 @@ export class AcpRuntime implements AgentRuntime {
     // and model first, because they decide which other options exist.
     const ordered = Object.entries(initial).sort(([a], [b]) => rankOptionId(a) - rankOptionId(b))
     try {
+      if (options.environment) {
+        acknowledgeEnvironment(result._meta, options.environment)
+        this.#environments.set(session.id, laneEnvironmentOf(options.environment))
+      }
       for (const [id, value] of ordered) {
         /*
          * Inapplicable is not the same as wrong, and only one of them should
@@ -2065,6 +2082,7 @@ export class AcpRuntime implements AgentRuntime {
       // "Untitled session" with no turns, for the life of the process — the
       // Codex adapter has always closed it; this one kept it.
       this.#sessions.delete(session.id)
+      this.#environments.delete(session.id)
       await session.close()
       throw error
     }
@@ -2073,15 +2091,27 @@ export class AcpRuntime implements AgentRuntime {
     return session
   }
 
-  async resumeSession(id: SessionId): Promise<AgentSession> {
+  async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    const saved = this.#environments.get(id)
+    const environment = options.environment ? laneEnvironmentOf(options.environment) : saved
+    if (saved && environment && JSON.stringify(saved) !== JSON.stringify(environment)) {
+      throw new Error('A live session cannot change its lane environment.')
+    }
+    if (environment) environmentMeta({}, environment, this.info.capabilities.sessionEnvironment)
     // The draft probe is a session the agent counts, and no conversation.
     // Handed out by its id it was held as one, and its folder opened with it;
     // a turn sent to it would vanish into a session that never speaks.
     if (id === this.#probeId) throw new SessionGoneError(`${this.#config.name} has no conversation ${id}.`)
-    const live = this.#sessions.get(id)
-    if (live) return live
     const inFlight = this.#resuming.get(id)
-    if (inFlight) return inFlight
+    if (inFlight) {
+      await inFlight
+      return this.resumeSession(id, options)
+    }
+    const live = this.#sessions.get(id)
+    if (live) {
+      if (environment && !saved) throw new Error('An already-open session cannot acquire a lane environment.')
+      return live
+    }
 
     const run = (async () => {
       const capabilities = this.#initialized?.agentCapabilities
@@ -2111,11 +2141,23 @@ export class AcpRuntime implements AgentRuntime {
       const session = AcpSession.forReplay(this, id, cwd)
       this.#sessions.set(id, session)
       try {
-        const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', { sessionId: id, cwd })
+        const loaded = await this.#openWithTools<AcpNewSessionResult>('session/load', {
+          sessionId: id,
+          cwd,
+          ...(environment
+            ? { _meta: environmentMeta({}, environment, this.info.capabilities.sessionEnvironment) }
+            : {}),
+        })
+        if (environment) {
+          acknowledgeEnvironment(loaded._meta, environment)
+          this.#environments.set(id, environment)
+        }
         session.finishReplay(loaded)
         return session
       } catch (error) {
         this.#sessions.delete(id)
+        this.#environments.delete(id)
+        await session.close().catch(() => {})
         throw error
       }
     })()

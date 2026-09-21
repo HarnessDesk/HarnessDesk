@@ -8,8 +8,10 @@ import { credentialMethods } from './credentials.js'
 import { evidenceMethods } from './evidence.js'
 import { provenanceMethods } from './provenance.js'
 import { flowMethods } from './flows.js'
+import { goalMethods } from './goals.js'
 import { gitMethods } from './git.js'
 import { libraryMethods } from './library.js'
+import { laneMethods } from './lanes.js'
 import { pluginMethods } from './plugins.js'
 import { runtimeExtensionMethods } from './runtime-extensions.js'
 import { runtimeMethods } from './runtimes.js'
@@ -52,6 +54,7 @@ export const hostMethods: HostMethodTable = {
   ...credentialMethods,
   ...usageMethods,
   ...libraryMethods,
+  ...laneMethods,
   ...sessionMethods,
   ...turnMethods,
   ...workspaceMethods,
@@ -59,6 +62,7 @@ export const hostMethods: HostMethodTable = {
   ...worktreeMethods,
   ...teamMethods,
   ...flowMethods,
+  ...goalMethods,
   ...agentMethods,
   ...evidenceMethods,
   ...provenanceMethods,
@@ -79,6 +83,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   credentialMethods,
   usageMethods,
   libraryMethods,
+  laneMethods,
   sessionMethods,
   turnMethods,
   workspaceMethods,
@@ -86,6 +91,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   worktreeMethods,
   teamMethods,
   flowMethods,
+  goalMethods,
   agentMethods,
   evidenceMethods,
   provenanceMethods,

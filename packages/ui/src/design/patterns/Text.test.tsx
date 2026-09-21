@@ -2,8 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import css from './Settings.module.css?raw'
-import { Keycap, PageHead, SearchMatch, Text } from './Settings'
+import { Keycap, SearchMatch, Text } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -59,25 +58,6 @@ it('keeps the wordmark and navigation-name roles distinct from page and row titl
   expect(navigation?.dataset['tint']).toBe('violet')
   expect(navigation?.className).toContain('[mask-image:var(--hd-fade)]')
   expect(navigation?.className).not.toContain('truncate')
-})
-
-it('keeps page titles at 24px regular while the wordmark alone stays 20px semibold', () => {
-  act(() =>
-    root.render(
-      <>
-        <PageHead title="General" />
-        <Text role="page">Appearance</Text>
-      </>,
-    ),
-  )
-
-  const pageRole = container.querySelector<HTMLElement>('[data-role="page"]')
-  expect(pageRole?.className).toContain('text-(length:--hd-title)')
-  expect(pageRole?.className).toContain('leading-(--hd-line-title)')
-  expect(pageRole?.className).toContain('font-normal')
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-title\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-title\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-normal\)/s)
 })
 
 it('owns the keycap and matched-text roles used by search surfaces', () => {

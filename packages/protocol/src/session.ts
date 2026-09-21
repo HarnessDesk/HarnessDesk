@@ -95,6 +95,7 @@ export interface ResolvedModelRoute {
 
 export type SessionOptions = Partial<SessionSettings> & {
   readonly cwd: string
+  readonly environment?: Readonly<Record<string, string>>
   /**
    * Run this conversation against another model endpoint. Resolved by the
    * host from its route catalogue; adapters inject it per conversation and

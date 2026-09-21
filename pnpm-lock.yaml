@@ -82,6 +82,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.272
         version: 0.3.272(@anthropic-ai/sdk@0.125.0(zod@4.6.5))(@modelcontextprotocol/sdk@1.30.0(zod@4.6.5))(zod@4.6.5)
+      '@harnessdesk/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.6.5)
@@ -95,9 +98,6 @@ importers:
       '@harnessdesk/adapter-testkit':
         specifier: workspace:*
         version: link:../adapter-testkit
-      '@harnessdesk/protocol':
-        specifier: workspace:*
-        version: link:../protocol
 
   packages/codex: {}
 

@@ -30,6 +30,9 @@ import type {
   SessionSummary,
   TeamState,
   FlowRun,
+  GoalView,
+  Lane,
+  LanePreferences,
   Worktree,
   WorkspaceEntry,
 } from '@harnessdesk/protocol'
@@ -387,6 +390,13 @@ export interface AppSnapshot {
    * this map is only ever assigned, never merged.
    */
   readonly teams: ReadonlyMap<string, TeamState>
+  /** Durable Goals, keyed by Goal id; their embedded board is mirrored into `teams`. */
+  readonly goals: ReadonlyMap<string, GoalView>
+  readonly goalProblem: string | null
+  readonly goalMigrationPending: boolean
+  /** Machine-wide defaults for new isolated lanes, plus every durable descriptor. */
+  readonly lanePreferences: LanePreferences | null
+  readonly lanes: readonly Lane[]
   /**
    * The flow runs each room has had, keyed by room.
    *
@@ -647,7 +657,7 @@ export interface AppSnapshot {
    * answer, so it lives here beside the theme.
    */
   readonly browserPrefs: {
-    /** Guests use a persistent partition, so logins survive a restart. */
+    /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
     /** A page's `target=_blank` opens a tab here rather than leaving for the OS browser. */
     readonly linksInPane: boolean
@@ -724,6 +734,11 @@ const EMPTY: AppSnapshot = {
   foldersGone: new Map(),
   worktrees: [],
   teams: new Map(),
+  goals: new Map(),
+  goalProblem: null,
+  goalMigrationPending: false,
+  lanePreferences: null,
+  lanes: [],
   flowRuns: new Map(),
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),
@@ -791,4 +806,5 @@ export const emptySnapshot = (): AppSnapshot => ({
   agentPlansFailed: false,
   seating: null,
   seatAgents: new Map(),
+  goals: new Map(),
 })

@@ -13,7 +13,7 @@ import { burnWord } from '../lib/burn'
 import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import { formatTokens } from '../lib/context-usage'
 import { dayLabel, dayLabelLong, periodTotals, shareOf, stackDaily } from '../lib/ledger'
-import { paletteTone, type Tone } from '../lib/limits'
+import { paletteTone, usageReadingTone, type Tone } from '../lib/limits'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import {
   byUrgency,
@@ -698,7 +698,7 @@ const Card = ({
       <CardContent className={styles.cardBody}>
         <div className={styles.hero}>
           <div className={styles.heroFigure}>
-            <Text role="figure" tone={hero ? paletteTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
+            <Text role="figure" tone={hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
             <span className={styles.fill} />
           {/* The pace sits beside the figure it qualifies, not in the header.

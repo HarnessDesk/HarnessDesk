@@ -58,9 +58,9 @@ body {
   --hdp-font-family: var(--hd-font-family);
   --hdp-font-family-code: var(--hd-font-code);
   /* Display face for the few surfaces that greet rather than inform — the
-     conversation's empty-state title and settings page titles. The default
-     foundation keeps them in the interface sans; a foundation may answer
-     differently (Editorial reaches for macOS's own serif). */
+     conversation's empty-state title. The default foundation keeps it in the
+     interface sans; a foundation may answer differently (Editorial reaches
+     for macOS's own serif). */
   --hd-font-display: var(--hd-font-family);
 
   /* HarnessDesk brand. The platform's accent is DeepSeek blue; this replaces

@@ -8,7 +8,7 @@
  */
 
 import readline from 'node:readline'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -1090,6 +1090,31 @@ rl.on('line', (line) => {
   }
 
   const { id, method, params } = message
+  const laneEnvironment = params?.config?.['shell_environment_policy.set']
+  if (
+    process.env.FAKE_CODEX_LANE_ENV_LOG &&
+    ['thread/start', 'thread/resume', 'thread/fork'].includes(method) &&
+    laneEnvironment
+  ) {
+    const keys = [
+      'HARNESSDESK_GOAL_ID',
+      'HARNESSDESK_LANE_ID',
+      'HARNESSDESK_PORT_START',
+      'HARNESSDESK_PORT_END',
+      'HARNESSDESK_PORT_COUNT',
+      'PORT',
+    ]
+    const source = `process.stdout.write(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key]]))))`
+    const child = spawnSync(process.execPath, ['-e', source], {
+      env: { ...process.env, ...laneEnvironment },
+      encoding: 'utf8',
+    })
+    if (child.status !== 0) throw new Error('The lane fixture child failed.')
+    appendFileSync(
+      process.env.FAKE_CODEX_LANE_ENV_LOG,
+      `${JSON.stringify({ method, environment: laneEnvironment, child: JSON.parse(child.stdout) })}\n`,
+    )
+  }
 
   // FAKE_CODEX_FOLDERS=<file> records which folder each configuration read was
   // asked about, one JSON line each — null for one asked about none.

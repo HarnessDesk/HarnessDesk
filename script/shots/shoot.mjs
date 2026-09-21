@@ -394,16 +394,17 @@ try {
         const all = [...scope.querySelectorAll('button, a, [role="button"], [role="tab"], [role="menuitem"], li, summary')]
         const hits = all.filter((e) => {
           if (!((e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)) return false
+          if (e.matches(':disabled, [aria-disabled="true"]')) return false
           if (e.closest('[aria-hidden="true"], [inert]')) return false
           const rect = e.getBoundingClientRect()
-          return rect.width > 0 && rect.height > 0 && e.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2))
+          return rect.width > 0 && rect.height > 0
         })
         /* The smallest match: once a word is on screen twice the outer one is
            usually a container that happens to contain the row you wanted. */
         const el = hits.sort((a, b) => (a.textContent ?? '').length - (b.textContent ?? '').length)[0]
         if (!el) return false
-        el.click()
-        return true
+        const rect = el.getBoundingClientRect()
+        return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
       })()`,
     )
     let hit = await find()
@@ -411,8 +412,13 @@ try {
       await sleep(200)
       hit = await find()
     }
+    if (hit) {
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...hit })
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...hit, button: 'left', clickCount: 1 })
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...hit, button: 'left', clickCount: 1 })
+    }
     await sleep(1400)
-    return hit
+    return Boolean(hit)
   }
 
   /**
@@ -496,8 +502,8 @@ rules:
     // agents for room scenes while the native run reserves Codex for the
     // conversation and integrated-terminal checks.
     const roomRuntimes = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
-      ? ['claude-code', 'cursor', 'gemini-cli', 'copilot']
-      : ['codex', 'claude-code', 'cursor', 'gemini-cli']
+      ? ['claude-code', 'gemini-cli', 'copilot', 'antigravity']
+      : ['codex', 'claude-code', 'gemini-cli', 'copilot']
     for (const runtime of roomRuntimes) {
       keys.push(await seat(cdp, { work: REPO, runtime: rigRuntimeId(runtime), picks: {} }))
     }
@@ -766,62 +772,19 @@ rules:
     } },
 
     /**
-     * Choosing a flow when a room is started, and what the dry run says it
-     * would do before anything is opened.
-     *
-     * The report is the point of the picture: a flow opens several agents on
-     * somebody's repository and keeps them working, and this is the moment —
-     * before the button — when that is still a decision. So the frame wants
-     * the seats, the permissions and the trace on screen together.
+     * Creating a Goal through the visible New dialog controls.
      */
-    flow: { expect: 'Run a flow in it', run: async () => {
-      stageFlow()
+    flow: { expect: 'Checkout hardening', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
       if (!(await click('New'))) throw new Error('no New button in the title bar')
       await sleep(700)
-      if (!(await click('A room'))) throw new Error('no "A room" door in the dialog')
-      await sleep(700)
-      await cdp.eval(`(() => {
-        const input = document.querySelector('input[aria-label="Room name"]')
-        if (!input) return false
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-        setter.call(input, 'Checkout hardening')
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-        const select = document.querySelector('select[aria-label="Flow"]')
-        if (!select) return false
-        const option = [...select.options].find((one) => one.value.endsWith('fix-and-review.yml'))
-        if (!option) return false
-        const pick = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set
-        pick.call(select, option.value)
-        select.dispatchEvent(new Event('change', { bubbles: true }))
-        return true
-      })()`)
-      // The dry run is a round trip to the host, and it draws when it answers.
+      await pressKey('Tab')
+      await pressKey('Enter')
+      await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
+      if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
+      if (!(await click('Create Goal'))) throw new Error('no Create Goal button')
       await sleep(2500)
-      /* The flow's own input, filled — an empty field photographs as a form
-         nobody has used, and the whole point is what the run is *for*. */
-      await cdp.eval(`(() => {
-        const labels = [...document.querySelectorAll('label')]
-        const label = labels.find((one) => one.textContent.trim() === 'What to fix')
-        const input = label && document.getElementById(label.getAttribute('for'))
-        if (!input) return false
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
-        setter.call(input, 'Retry the checkout call on a 502')
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-        return true
-      })()`)
-      await sleep(900)
-      /* And the report ends on a whole sentence. The dialog scrolls, so the
-         default view clips the cost note mid-word — which reads as a bug in
-         the layout rather than as a scroll position. */
-      await cdp.eval(`(() => {
-        const seats = [...document.querySelectorAll('h4')].find((one) => /It opens \\d+ agent/.test(one.textContent ?? ''))
-        const box = seats?.closest('[class*="naming"]')?.parentElement
-        const scroller = box && [...document.querySelectorAll('*')].find((one) => one.scrollHeight > one.clientHeight + 20 && one.contains(seats))
-        if (scroller) scroller.scrollTop = scroller.scrollHeight
-        return Boolean(scroller)
-      })()`)
       await sleep(700)
     } },
 
@@ -836,7 +799,7 @@ rules:
       stageFlow()
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      const room = await cdp.eval(`${STORE}.createRoom(${q(REPO)}, 'Checkout hardening')`, 60_000)
+      const room = await cdp.eval(`${STORE}.createGoal({ root: ${q(REPO)}, sentence: 'Checkout hardening' }).then((view) => view.goal.id)`, 60_000)
       const source = await cdp.eval(`${STORE}.readFlow(${q(REPO)}, '.harnessdesk/flows/fix-and-review.yml')`, 60_000)
       await cdp.eval(
         `${STORE}.startFlow(${q(room)}, ${q(source)}, { path: '.harnessdesk/flows/fix-and-review.yml', vars: { work: 'Retry the checkout call on a 502' } })`,
@@ -1692,7 +1655,7 @@ rules:
   /** Types into an input found by its label, the way the flow scene fills its dialog. */
   const fill = (label, value) => cdp.eval(`(() => {
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
-    const input = tag && document.getElementById(tag.getAttribute('for'))
+    const input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
     if (!input) return false
     Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${q(value)})
     input.dispatchEvent(new Event('input', { bubbles: true }))

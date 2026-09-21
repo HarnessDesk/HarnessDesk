@@ -75,6 +75,7 @@ import {
   SectionHead,
   Segmented,
   Switch,
+  Text,
 } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Dialog, ConfirmDialog } from '../design'
@@ -213,9 +214,9 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
     <>
       <SectionHead name="Usage" />
       {view?.blocked && (
-        <p className={styles.note} data-tone="bad">
+        <Text role="muted" as="p" tone="danger" className="mb-2">
           {view.blocked.title} — {view.blocked.detail}
-        </p>
+        </Text>
       )}
       {/* One card: the windows and the balance are one section's rows. Two
           cards under one heading read as a second section that forgot its
@@ -223,7 +224,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
       {view && (view.windows.length > 0 || view.credits) ? (
         <Rows>
           {view.windows.length > 0 && (
-            <div className={styles.meters}>
+            <div className={`flex flex-col gap-4 p-4${view.credits ? ' border-b border-[var(--hd-card-divider,var(--hd-border))]' : ''}`}>
               {view.windows.map((window) => (
                 <UsageMeter key={window.label} window={window} />
               ))}
@@ -237,9 +238,9 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
                 /* In the tone describeLimits grades it, as the meters are. A
                    zero is the reading #85 was about, and the row vocabulary's
                    dimmest ink drew it fainter than a window's name. */
-                <span className={styles.credits} data-tone={view.credits.tone}>
+                <Text role="muted" numeric tone={view.credits.tone === 'bad' ? 'danger' : undefined}>
                   {view.credits.label}
-                </span>
+                </Text>
               }
             />
           )}
@@ -258,27 +259,29 @@ export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
   const tone = remaining <= 0 ? 'bad' : remaining < 20 ? 'warn' : 'good'
   const reset = formatReset(window.resetsAt)
+  const fillClass =
+    tone === 'bad' ? 'bg-(--hd-danger)' : tone === 'warn' ? 'bg-(--hd-warning)' : 'bg-(--hd-success)'
   return (
-    <div className={styles.meter} data-tone={tone}>
-      <div className={styles.meterHead}>
-        <span className={styles.meterLabel}>{window.label}</span>
-        <span className={styles.meterValue}>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-baseline gap-2.5">
+        <span className="flex-1 text-base">{window.label}</span>
+        <Text role="muted" numeric>
           {remaining}% left
-          {reset && <span className={styles.meterReset}> · resets {reset}</span>}
-        </span>
+          {reset && <Text ink="muted"> · resets {reset}</Text>}
+        </Text>
       </div>
       {/* Filled with what is LEFT, like every other meter in the app. It used
           to fill with what had been spent under a figure reading "48% left",
           so the bar and its own number moved in opposite directions. */}
       <div
-        className={styles.meterTrack}
+        className="h-1 rounded-(--hd-radius-2xs) bg-(--hd-muted) overflow-hidden"
         role="progressbar"
         aria-valuenow={remaining}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-label={`${window.label} remaining`}
       >
-        <div className={styles.meterFill} style={{ width: `${remaining}%` }} />
+        <div className={`h-full rounded-(--hd-radius-2xs) ${fillClass}`} style={{ width: `${remaining}%` }} />
       </div>
     </div>
   )
@@ -302,7 +305,7 @@ const RingPicker = ({
         role="radio"
         aria-checked={tint === value}
         aria-label={tint}
-        className={styles.ring}
+        className={`${styles.ring} h-[26px] border-0`}
         data-tint={tint}
         {...(tint === value ? { 'data-on': '' } : {})}
         onClick={() => onChange(tint)}
@@ -343,15 +346,19 @@ const Prose = ({ text }: { text: string }) => (
 const HealthBlock = ({ health }: { health: Unavailable }) => {
   const { lead, detail, remediation } = splitHealth(health)
   return (
-    <div className={styles.problem}>
-      <p className={styles.problemLead}>
+    <div className="flex flex-col gap-2 py-4 px-(--hd-card-padding)">
+      <Text as="p" role="muted" ink="primary" className="m-0">
         <Prose text={lead} />
-      </p>
-      {detail && <pre className={styles.problemDetail}>{detail}</pre>}
+      </Text>
+      {detail && (
+        <pre className="m-0 max-h-[170px] overflow-auto p-2 px-2.5 rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-secondary-foreground) font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre">
+          {detail}
+        </pre>
+      )}
       {remediation && (
-        <p className={styles.problemFix}>
+        <Text role="muted" as="p" className="m-0">
           <Prose text={remediation} />
-        </p>
+        </Text>
       )}
     </div>
   )
@@ -458,7 +465,7 @@ const AgentBlock = ({
           runtime — health, version, behaviour — and the caret only decides
           whether its accounts are on screen. Nesting them would make one of
           the two unreachable. */}
-      <div className={styles.head}>
+      <div className={`${styles.head} pr-2`}>
         {/* The tagline rides on hover here. This card is about an agent you
             already chose and installed; a definition of it cannot change what
             you do on a page for managing its accounts, and the one line it had
@@ -472,9 +479,9 @@ const AgentBlock = ({
           mark={<RuntimeMark runtime={info} size={17} />}
           title={
             <span className={styles.headName} title={info.presentation.tagline}>
-              {info.presentation.name}
-              {build && <span className={styles.headBuild}>{build}</span>}
-              {connection && <span className={styles.tag}>{connection}</span>}
+              <Text role="subject" className="text-lg">{info.presentation.name}</Text>
+              {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
+              {connection && <Chip tone="neutral" size="sm">{connection}</Chip>}
             </span>
           }
           control={<span className={styles.headMeta}>
@@ -486,7 +493,7 @@ const AgentBlock = ({
                 accounts, which is what `defaultChipState` returns for the two
                 detail pages, so all three say the same thing (#131). */}
             {snapshot.activeRuntime === info.id && <Chip state={state} label="Default" />}
-            {count !== null && <span className={styles.headCount}>{count}</span>}
+            {count !== null && <Text role="muted" ink="muted" className="whitespace-nowrap">{count}</Text>}
             {state !== 'ready' && <Chip state={state} />}
           </span>}
         />
@@ -502,7 +509,7 @@ const AgentBlock = ({
       </div>
 
       {open && (
-      <div className={styles.body}>
+      <div className="border-t border-(--hd-border)">
       <div className={styles.list}>
         {rows.map(({ entry, account }) => {
           const key = accountKey(entry.id, account)
@@ -530,7 +537,7 @@ const AgentBlock = ({
               onClick={() => onOpenAccount(entry.id, key)}
               mark={
                 <AccountMark
-                  className={styles.rowAvatar}
+                  className="size-[30px]"
                   data-tint={tintOf(key, snapshot.accountPrefs)}
                 >
                   <RuntimeMark runtime={info} size={14} />
@@ -540,7 +547,7 @@ const AgentBlock = ({
                 <span className={styles.rowName}>
                   {name}
                   {entry.id === info.id && rows.length > 1 && (
-                    <span className={styles.badge}>Default</span>
+                    <Chip tone="neutral" size="sm">Default</Chip>
                   )}
                 </span>
               }
@@ -553,17 +560,14 @@ const AgentBlock = ({
               control={
                 <>
                   {account.planType && (
-                    <span
-                      className={styles.plan}
-                      data-tint={tintOf(key, snapshot.accountPrefs)}
-                    >
+                    <Chip tint={tintOf(key, snapshot.accountPrefs)}>
                       {account.planType}
-                    </span>
+                    </Chip>
                   )}
                   {/* Said, not implied: a bare "48%" reads as spent to half the
                       people who see it, and the meters this comes from fill
                       with what is left. */}
-                  {left !== null && <span className={styles.figure}>{left}% left</span>}
+                  {left !== null && <Text role="muted" numeric className="whitespace-nowrap">{left}% left</Text>}
                   <Dot state={accountState} />
                 </>
               }
@@ -578,14 +582,14 @@ const AgentBlock = ({
           <Row
             key={entry.id}
             mark={
-              <AccountMark className={styles.rowAvatar}>
+              <AccountMark className="size-[30px]">
                 <RuntimeMark runtime={info} size={14} />
               </AccountMark>
             }
             title={
               <span className={styles.rowName}>
                 {entry.slot?.gateway?.name}
-                <span className={styles.badge}>Gateway</span>
+                <Chip tone="neutral" size="sm">Gateway</Chip>
               </span>
             }
             desc={entry.slot?.gateway?.endpoint}
@@ -678,7 +682,7 @@ const AgentBlock = ({
       {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
 
       {(info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn)) && (
-        <div className={styles.foot}>
+        <div className="flex items-center gap-2.5 py-2 px-3 border-t border-(--hd-border)">
           {info.capabilities.account && canSignIn && (
             <Button
               size="sm"
@@ -1072,7 +1076,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
             return (
               <div
                 key={agent.id}
-                className={styles.registryCell}
+                className={`${styles.registryCell} min-h-[calc(var(--hd-line-sm)+var(--registry-line-h,16px)*var(--registry-lines,2)+var(--hd-space-2)*2)] py-2 px-2.5 rounded-(--hd-radius) bg-(--hd-card) shadow-[inset_0_0_0_1px_var(--hd-border-strong)]`}
                 {...(agent.available ? {} : { 'data-blocked': '' })}
               >
                 <RowMark>
@@ -1082,18 +1086,17 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                   />
                 </RowMark>
                 <span className={styles.registryCellText}>
-                  <span className={styles.registryCellName}>
+                  <Text role={agent.available ? 'row' : 'muted'} ink={agent.available ? undefined : 'muted'} className={styles.registryCellName}>
                     {agent.name}
                     {agent.run === 'binary' && agent.integrity === 'none' && !agent.installed && (
-                      <span
-                        className={`${styles.badge} ${styles.unverifiedBadge}`}
+                      <Chip tone="neutral" size="sm" className={styles.unverifiedBadge}
                         title="The registry publishes no checksum for this build, so the download cannot be verified."
                       >
                         Unverified
-                      </span>
+                      </Chip>
                     )}
-                  </span>
-                  {line && <span className={styles.registryCellLine}>{line}</span>}
+                  </Text>
+                  {line && <Text role="meta" className={`${styles.registryCellLine} leading-[var(--registry-line-h,16px)]`}>{line}</Text>}
                 </span>
                 {agent.registered ? (
                   <Chip state="ready" label="Added" />

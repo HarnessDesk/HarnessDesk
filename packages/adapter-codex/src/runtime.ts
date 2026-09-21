@@ -13,6 +13,7 @@ import {
   type ServerRequestResponder,
 } from '@harnessdesk/codex'
 import {
+  laneEnvironmentOf,
   sessionId as makeSessionId,
   type AccountStatus,
   findOption,
@@ -86,6 +87,7 @@ import { salvageSession } from './salvage.js'
 import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
+import { codexEnvironmentConfig } from './lane-environment.js'
 
 /**
  * `AgentRuntime` over `codex app-server`.
@@ -157,6 +159,7 @@ const OPT_OUT_NOTIFICATIONS = [
 ]
 
 const CAPABILITIES = {
+  sessionEnvironment: true,
   resume: true,
   fork: true,
   steer: true,
@@ -242,6 +245,7 @@ export class CodexRuntime implements AgentRuntime {
   /** The shell sessions a thread has left running; see `RuntimeTasks`. */
   readonly tasks: CodexTasks
   readonly #sessions = new Map<string, CodexSession>()
+  readonly #environments = new Map<string, Readonly<Record<string, string>>>()
   /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
   readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
@@ -876,6 +880,7 @@ export class CodexRuntime implements AgentRuntime {
     const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
       created: true,
       route: options.route ?? null,
+      environment: options.environment,
     })
     return this.#applyAfterStart(session, after)
   }
@@ -897,20 +902,27 @@ export class CodexRuntime implements AgentRuntime {
    * conversation's would.
    */
   async #startBeside(like: CodexSession): Promise<CodexSession> {
-    const { start, route, sandbox, after } = like.startLike()
+    const { start, route, sandbox, after, environment } = like.startLike()
     const projection = new ToolProjection()
     const dynamicTools = this.#projectTools(projection, { workspaceRoot: start.cwd })
     const routed = route ? routeParams(route) : null
     const response = await this.#server.request('thread/start', {
       ...start,
       ...(routed ? { modelProvider: routed.modelProvider } : {}),
-      ...(start.config || routed ? { config: { ...start.config, ...routed?.config } } : {}),
+      ...(start.config || routed || environment
+        ? {
+            config: environment
+              ? codexEnvironmentConfig({ ...start.config, ...routed?.config }, environment)
+              : { ...start.config, ...routed?.config },
+          }
+        : {}),
       ...(dynamicTools.length > 0 ? { dynamicTools } : {}),
       ...this.#developerInstructions(),
     })
     const session = await this.#register(response.thread, stateFromStartResponse(response), projection, {
       created: true,
       route,
+      environment,
     })
     try {
       if (sandbox) await session.setSandbox(sandbox)
@@ -926,6 +938,18 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async resumeSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    const held = this.#environments.get(id)
+    if (
+      held &&
+      options.environment &&
+      JSON.stringify(held) !== JSON.stringify(laneEnvironmentOf(options.environment))
+    ) {
+      throw new Error('A live session cannot change its lane environment.')
+    }
+    if (options.environment && this.#sessions.has(id) && !held) {
+      throw new Error('An already-open session cannot acquire a lane environment.')
+    }
+    if (held && !options.environment) options = { ...options, environment: held }
     const existing = this.#sessions.get(id)
     if (existing) return existing
     const { start, after } = await this.#startParamsFor(options)
@@ -948,6 +972,7 @@ export class CodexRuntime implements AgentRuntime {
     // rather than pretending newly loaded plugins are available.
     const session = await this.#register(response.thread, stateFromStartResponse(response), new ToolProjection(), {
       route: options.route ?? null,
+      environment: options.environment,
     })
     return this.#applyAfterStart(session, after)
   }
@@ -989,6 +1014,8 @@ export class CodexRuntime implements AgentRuntime {
    * are answered with a deprecationNotice.
    */
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    const environment = options.environment ?? this.#environments.get(id)
+    if (environment) options = { ...options, environment }
     const { start, after } = await this.#startParamsFor(options)
     const response = await this.#server.request('thread/fork', {
       threadId: id,
@@ -1001,7 +1028,7 @@ export class CodexRuntime implements AgentRuntime {
       { ...response.thread, turns: await this.#forkedHistory(response.thread) },
       stateFromStartResponse(response),
       new ToolProjection(),
-      { route: options.route ?? null },
+      { route: options.route ?? null, environment: options.environment },
     )
     return this.#applyAfterStart(session, after)
   }
@@ -1085,6 +1112,7 @@ export class CodexRuntime implements AgentRuntime {
       readonly created?: boolean
       /** The model route it was opened on, which a thread set up like it needs again. */
       readonly route?: ResolvedModelRoute | null
+      readonly environment?: Readonly<Record<string, string>> | undefined
     } = {},
   ): Promise<CodexSession> {
     const created = opened.created ?? false
@@ -1101,6 +1129,7 @@ export class CodexRuntime implements AgentRuntime {
       projection,
       created,
       route: opened.route ?? null,
+      environment: opened.environment,
       startBeside: (like) => this.#startBeside(like),
       interruptible: (threadId, turnId) => this.#reviewTurns.interruptible(threadId, turnId),
       ...(this.#settleMs !== undefined ? { settleMs: this.#settleMs } : {}),
@@ -1112,6 +1141,7 @@ export class CodexRuntime implements AgentRuntime {
       },
       emit: (event) => this.#emit(event),
     })
+    if (opened.environment) this.#environments.set(thread.id, laneEnvironmentOf(opened.environment))
     this.#sessions.set(thread.id, session)
     this.#emit({
       type: 'session/started',
@@ -1472,7 +1502,7 @@ const startParamsFor = (
 ): {
   start: StartOptionParams & {
     modelProvider?: string
-    config?: Record<string, string | number>
+    config?: NonNullable<CodexProtocol.v2.ThreadStartParams['config']>
   }
   after: readonly (readonly [string, OptionValue])[]
 } => {
@@ -1486,7 +1516,11 @@ const startParamsFor = (
       ...(options.model ? { model: options.model } : {}),
       ...start,
       ...(routed ? { modelProvider: routed.modelProvider, ...(route?.model ? { model: route.model } : {}) } : {}),
-      ...(Object.keys(config).length > 0 ? { config } : {}),
+      ...(options.environment
+        ? { config: codexEnvironmentConfig(config, options.environment) }
+        : Object.keys(config).length > 0
+          ? { config }
+          : {}),
     },
     after,
   }

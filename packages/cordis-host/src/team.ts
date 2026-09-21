@@ -3,6 +3,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import type { ScopeQuery } from '@harnessdesk/protocol'
 
 import type { HostRuntime } from './runtime.js'
+import { currentBrowserIdentity, currentInvocationSignal } from './browser-scopes.js'
 
 /**
  * `ctx.team` — the shared board and inter-agent messages, driven as data.
@@ -43,6 +44,10 @@ export interface TeamEngine {
     scope: TeamScope,
     options: { readonly blockMs?: number; readonly cycle?: number },
   ): Promise<string>
+  awaitMember(
+    scope: TeamScope,
+    options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+  ): Promise<string>
   conflicts(paths: readonly string[], scope: TeamScope): Promise<string>
   complete(
     intent: number,
@@ -76,6 +81,10 @@ export interface TeamScope {
    * plugin somewhere in the process happens to be running.
    */
   readonly plugin?: string
+  /** Parent-issued identity for this live tool invocation; never accepted from tool arguments. */
+  readonly invocation?: string
+  /** Local-only host lifetime. It is deliberately non-enumerable across child IPC. */
+  readonly signal?: AbortSignal
 }
 
 /**
@@ -98,11 +107,18 @@ const engine = (): TeamEngine => {
 }
 
 /** Only what the host can verify travels; a turn id would be decoration here. */
-const asTeamScope = (scope: ScopeQuery | undefined, plugin?: string): TeamScope => ({
-  ...(scope?.runtime !== undefined ? { runtime: String(scope.runtime) } : {}),
-  ...(scope?.sessionId !== undefined ? { sessionId: String(scope.sessionId) } : {}),
-  ...(plugin !== undefined ? { plugin } : {}),
-})
+const asTeamScope = (scope: ScopeQuery | undefined, plugin?: string): TeamScope => {
+  const identity = currentBrowserIdentity()
+  const answer: TeamScope = {
+    ...(scope?.runtime !== undefined ? { runtime: String(scope.runtime) } : {}),
+    ...(scope?.sessionId !== undefined ? { sessionId: String(scope.sessionId) } : {}),
+    ...(plugin !== undefined ? { plugin } : {}),
+    ...(identity ? { invocation: identity.invocation } : {}),
+  }
+  const signal = currentInvocationSignal()
+  if (signal) Object.defineProperty(answer, 'signal', { value: signal, enumerable: false })
+  return answer
+}
 
 export class TeamService extends Service {
   static [Service.tracker] = { associate: 'team', property: 'ctx' }
@@ -159,6 +175,14 @@ export class TeamService extends Service {
   ): Promise<string> {
     const plugin = this.gate()
     return engine().awaitWork(asTeamScope(scope, plugin), options)
+  }
+
+  async awaitMember(
+    options: { readonly member: string; readonly cycle?: number; readonly blockMs?: number },
+    scope?: ScopeQuery,
+  ): Promise<string> {
+    const plugin = this.gate()
+    return engine().awaitMember(asTeamScope(scope, plugin), options)
   }
 
   async conflicts(paths: readonly string[], scope?: ScopeQuery): Promise<string> {

@@ -111,6 +111,7 @@ import { profileName } from '../lib/profile'
 import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
+import { LaneSettings } from './LaneSettings'
 import styles from './Settings.module.css'
 
 /**
@@ -1514,6 +1515,8 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
         ))}
       </Rows>
       <WorktreeRows />
+      <SectionHead name="Lanes" />
+      <LaneSettings root={snapshot.workspace?.path} />
     </>
   )
 }

@@ -86,6 +86,7 @@ const mount = (node: React.ReactNode) => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadWorktrees: vi.fn(async () => {}),
+    loadLanePreferences: vi.fn(async () => {}),
     agentsIn: vi.fn(async (path: string) => AGENTS[path] ?? []),
     projectChecks: vi.fn(async (path: string) => CHECKS(path)),
     loadCaptureHealth: vi.fn(async () => {}),

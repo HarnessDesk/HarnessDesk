@@ -62,6 +62,7 @@ export interface CheckRunsPort {
   /** The room's evidence moved: a run started, or one ended and left a fact. */
   changed(room: string): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
+  canMutateBoard(board: string): boolean
 }
 
 export interface CheckRunsParts {
@@ -81,6 +82,7 @@ export interface CheckAnswer {
 
 /** One call, from its first line until it has refused or the run it started has ended. */
 interface Active {
+  readonly room: string
   readonly stop: AbortController
   readonly settled: Promise<void>
 }
@@ -105,6 +107,7 @@ export class CheckRuns {
       running = run
     })
     const active: Active = {
+      room,
       stop,
       settled: admitting.then(
         () => running,
@@ -114,6 +117,11 @@ export class CheckRuns {
     this.#active.add(active)
     void active.settled.finally(() => this.#active.delete(active))
     return admitting.then(() => ({ started: true }) as const)
+  }
+
+  /** Waits only for admissions/runs already attached to this board. */
+  async settledFor(room: string): Promise<void> {
+    await Promise.all([...this.#active].filter((active) => active.room === room).map((active) => active.settled))
   }
 
   /**
@@ -138,7 +146,9 @@ export class CheckRuns {
     const { port, seen } = this.#parts
     const still = (): void => {
       if (signal.aborted) throw new Error(CLOSING)
+      if (!port.canMutateBoard(room)) throw new Error('This Goal is closing or wrapped. No check starts.')
     }
+    still()
     const board = port.board(room)
     if (!board) throw new Error(`There is no room ${room} on this desk.`)
     const intent = board.intents.find((one) => one.id === card)

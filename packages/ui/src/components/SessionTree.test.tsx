@@ -7,6 +7,7 @@ import {
   sessionId,
   sessionKey,
   type RuntimeInfo,
+  type GoalView,
   type Session,
   type SessionSummary,
   type TeamState,
@@ -208,6 +209,7 @@ const treeWith = (
     lastOpenedAt: 1,
   },
   activeSessionKey: AppSnapshot['activeSessionKey'] = null,
+  goals: ReadonlyMap<string, GoalView> = new Map(),
 ): { container: HTMLElement; store: AppStore } => {
   const snapshot = {
     ...emptySnapshot(),
@@ -219,6 +221,7 @@ const treeWith = (
     sessions: new Map(live.map((one) => [sessionKey(one.runtime, one.id), one])),
     listPrefs: { ...emptySnapshot().listPrefs, ...prefs },
     teams: new Map(rooms.map((one) => [one.id, one])),
+    goals,
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -350,6 +353,31 @@ it('a room is a row under its project, and its members hang off it', () => {
   expect(nested?.textContent).not.toContain('session-2')
 })
 
+it('shows Goal activity and keeps wrapped Goals in a collapsed history group', () => {
+  const openBoard = room({ id: 'g1', name: 'Ship release', updatedAt: 4 })
+  const wrappedBoard = room({ id: 'g2', name: 'Prepare release', updatedAt: 3 })
+  const view = (board: TeamState, state: 'open' | 'wrapped', activity: GoalView['activity']): GoalView => ({
+    goal: { id: board.id, root: '/repo', cwd: '/repo', sentence: board.name, state, revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: board.updatedAt, receipt: state === 'wrapped' ? 'r1' : null },
+    activity,
+    waitingOn: [],
+    members: [],
+    board,
+    receipt: null,
+    problem: null,
+  })
+  const goals = new Map([
+    ['g1', view(openBoard, 'open', 'needs-you')],
+    ['g2', view(wrappedBoard, 'wrapped', null)],
+  ])
+  const { container: tree } = treeWith([openBoard, wrappedBoard], [], [], {}, undefined, null, goals)
+
+  expect(roomRow(tree, 'Ship release').textContent).toContain('Needs you')
+  expect(tree.textContent).toContain('Wrapped · 1')
+  expect(tree.querySelector('[aria-label="Room Prepare release"]')).toBeNull()
+  act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Wrapped · 1'))!.click())
+  expect(roomRow(tree, 'Prepare release').textContent).toContain('Wrapped')
+})
+
 it('a conversation in a room is listed once, under the room', () => {
   // Two rows for one session — the room's copy and a loose copy — would make
   // the tree disagree with itself about how many conversations there are, and
@@ -379,7 +407,7 @@ it('the twisty hides the members without opening the room', () => {
 /* The room row is a `div` wearing the navigation button, not a native button,
    so the keys a button answers for free are its own code, and its nested
    twisty's keys bubble through it. Each is pinned here. */
-it('the room row answers its own keys, and leaves the twisty and the menu theirs', () => {
+it('the room row answers its own keys and leaves the twisty theirs', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.tabIndex).toBe(0)
@@ -403,11 +431,7 @@ it('the room row answers its own keys, and leaves the twisty and the menu theirs
   }
   expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
 
-  // The context menu — a right click, or the menu key's contextmenu event —
-  // opens on the row and does not open the room.
-  act(() => { row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })) })
-  expect(row.hasAttribute('data-menu-open')).toBe(true)
-  expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
+  expect(row.querySelector('[aria-label^="Actions for"]')).toBeNull()
 })
 
 it('the twisty answers the keyboard too, and the row does not answer for it', () => {
@@ -657,81 +681,6 @@ it('a filtered list does not smuggle a member back in through the live map', () 
   const block = roomRow(tree, 'Checkout rewrite').parentElement
   expect(block?.textContent).toContain('No agents in here yet')
   expect(block?.textContent).not.toContain('Filtered away')
-})
-
-it('a room row offers rename and delete, and the row itself still opens', () => {
-  /* Both were wire verbs with no door: a name typed in a hurry was permanent
-     and an abandoned room stayed in the tree for good. The ⋯ is the same one a
-     conversation row has, in the same place, so the two rows do not teach
-     different habits — and pressing it must not also open the room. */
-  const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
-  const more = tree.querySelector<HTMLButtonElement>('[aria-label="Actions for Checkout rewrite"]')
-  if (!more) throw new Error('the room row has no menu')
-  act(() => more.click())
-  expect(store.openTeamRoom).not.toHaveBeenCalled()
-
-  const items = [...document.querySelectorAll('[role="menuitem"]')].map((one) => one.textContent)
-  expect(items.some((text) => text?.startsWith('Rename'))).toBe(true)
-  expect(items.some((text) => text?.startsWith('Delete room'))).toBe(true)
-})
-
-it('the delete dialog keeps reading the live room, not a photograph of it', () => {
-  /* The dialog was handed a captured `TeamState`. Later pushes replaced the
-     room in the snapshot and never touched what it was reading, so a Delete
-     opened on an empty room went on saying "there is nothing on its board"
-     while a job was added — and pressing it would have taken that job with no
-     warning. */
-  const empty = room({ id: 'r1', name: 'Checkout rewrite' })
-  const { container: tree, store } = treeWith([empty])
-  const snapshot = store.getSnapshot()
-
-  const more = tree.querySelector<HTMLButtonElement>('[aria-label="Actions for Checkout rewrite"]')!
-  act(() => more.click())
-  const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((one) =>
-    one.textContent?.startsWith('Delete room'),
-  )!
-  act(() => remove.click())
-  expect(document.body.textContent).toContain('nothing on its board')
-
-  // The host says a job was added while the dialog is open.
-  ;(snapshot as { teams: unknown }).teams = new Map([
-    ['r1', { ...empty, intents: [{ id: 1, title: 'Round the refund' }] }],
-  ])
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <SessionTree now={3} />
-      </StoreProvider>,
-    )
-  })
-
-  expect(document.body.textContent).not.toContain('nothing on its board')
-  expect(document.body.textContent).toContain('1 job')
-})
-
-it('the delete dialog closes itself if the room goes', () => {
-  // Deleted from another window: a dialog about a room that no longer exists
-  // has nothing true left to say, and its button would act on nothing.
-  const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
-  const snapshot = store.getSnapshot()
-  const more = tree.querySelector<HTMLButtonElement>('[aria-label="Actions for Checkout rewrite"]')!
-  act(() => more.click())
-  act(() =>
-    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-      .find((one) => one.textContent?.startsWith('Delete room'))!
-      .click(),
-  )
-  expect(document.body.textContent).toContain('Delete “Checkout rewrite”?')
-
-  ;(snapshot as { teams: unknown }).teams = new Map()
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <SessionTree now={3} />
-      </StoreProvider>,
-    )
-  })
-  expect(document.body.textContent).not.toContain('Delete “Checkout rewrite”?')
 })
 
 it('a room says what each of its numbers counts', () => {

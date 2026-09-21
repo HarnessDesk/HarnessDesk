@@ -205,6 +205,27 @@ export const teamPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'await_member',
+        description:
+          'Wait for one member’s current turn to finish without messaging, waking or polling it. Pass the returned cycle on the next call.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            member: { type: 'string', description: 'The member name shown on this Goal.' },
+            cycle: { type: 'number', description: 'The cycle returned by the previous wait. Start at 0.' },
+            block_ms: { type: 'number', description: 'How long to wait, from 1000 to 50000 milliseconds.' },
+          },
+          required: ['member'],
+        },
+        execute: (args: { member: string; cycle?: number; block_ms?: number }, scope) =>
+          ctx.team.awaitMember({
+            member: String(args.member ?? ''),
+            ...(args.cycle !== undefined ? { cycle: Number(args.cycle) } : {}),
+            ...(args.block_ms !== undefined ? { blockMs: Number(args.block_ms) } : {}),
+          }, scope),
+      })
+
+      ctx.tools.register({
         name: 'check_conflicts',
         description:
           'Ask whether paths you are about to touch are owned by another conversation’s live claim — before editing them, especially before changing something another agent’s work calls. A conflict is answered with a message to the holder, never by editing a file you do not hold.',

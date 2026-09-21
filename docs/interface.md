@@ -673,3 +673,24 @@ it exactly where it was.
 History shows an associated Agent's recorded name beside its runtime's mark. A compact count indicates additional Seats; selecting the commit lists every contributor. The selected detail distinguishes complete, partial, pending and unattributed changes and keeps the explanation visible. Its Seat record opens the exact historical record, with the original conversation available only while the desk can still open it. Matching observations keep their original revisions. A missing card or conversation says why it is unavailable.
 
 Workspaces › a project › Provenance controls capture on this machine. It starts on and shows healthy, degraded or stopped capture with the host's reason and next step. The setting changes on screen after it is saved; Retry does not turn capture on. Only stopped capture appears on the existing project row, even while that row is folded. A plain conversation and its header are unchanged.
+
+## Goals and retained lanes
+
+Projects list open Goals above loose conversations and keep completed work in
+one collapsed **Wrapped** group. A Goal row states Working, Needs you, Ready to
+wrap, Wrapping or Wrapped; those words describe activity, not an evidence
+verdict. Opening a Goal keeps the existing Board, Chat and Members destinations.
+Membership comes from its open Seats. Releasing a Seat closes that membership
+record without deleting the conversation or checkout.
+
+**New session → A Goal** asks what finishes the work, then optionally seats
+Agents. The ordinary conversation path is unchanged: Enter and Command-N still
+start a plain conversation immediately. “Give this to…” assigns a loose
+same-project conversation through a durable Seat; stale or busy choices are
+refused without moving it.
+
+Workspaces › Lanes controls the machine-wide defaults for new isolated Seats:
+port start, block width and browser-profile isolation. Retained descriptors show
+their Goal, Seat and checkout. Releasing ports never claims to remove files.
+Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
+partial answers, gaps, unknown spend and dirty retained lanes remain visible.

@@ -116,6 +116,7 @@ const FALLBACK_RUNTIME: RuntimeInfo = {
   id: '' as RuntimeInfo['id'],
   name: 'No runtime',
   capabilities: {
+    sessionEnvironment: false,
     resume: false,
     fork: false,
     steer: false,
