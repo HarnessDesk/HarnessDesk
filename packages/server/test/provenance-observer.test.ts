@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { watch } from 'node:fs'
-import { readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -14,6 +14,7 @@ import { ProvenanceJournal, readCheckpoint } from '../src/provenance/journal.js'
 import { Coalesced, RefObserver, type WorkerCheckpoint } from '../src/provenance/observer.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
 import { makeRepo } from './fixtures/provenance-repo.js'
+import type { Repo } from './fixtures/provenance-repo.js'
 
 const waitUntil = async (condition: () => boolean | Promise<boolean>, name: string): Promise<void> => {
   const deadline = Date.now() + 10000
@@ -376,6 +377,59 @@ test('restart rebuilds a local fact from durable fingerprints after its original
   } finally {
     await next.close()
   }
+})
+
+const assertNestedCheckoutAttribution = async (
+  t: TestContext,
+  repo: Repo,
+  checkout: string,
+  roots: readonly string[],
+): Promise<void> => {
+  const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
+  const first = await repo.commitTree(base, { one: 'nested Seat work\n' }, 'nested Seat work')
+  await repo.git('update-ref', 'refs/heads/main', first)
+  const nested = join(checkout, 'nested')
+  await mkdir(nested)
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const seat: SeatRecord = {
+    id: 'nested-seat', agent: null, briefDigest: null, seat: { runtime: 'fixture' }, seatLabel: 'Nested Seat',
+    passedOver: [], standing: { kind: 'permission', permission: 'read' }, ceiling: null,
+    checkout: { cwd: nested, project: repo.dir, branch: 'main', head: base },
+    session: { runtime: 'fixture', sessionId: 'nested-session' }, board: null, role: null,
+    openedAt: 1, closed: null,
+  }
+  const { closed, ...opening } = seat
+  void closed
+  await store.append(repo.dir, 'seats', [{ type: 'seat', record: opening }])
+  await store.append(repo.dir, 'evidence', [{ type: 'evidence', record: {
+    id: 'nested-fact', seat: seat.id, checkout: { cwd: nested, branch: 'main' }, observedAt: 10,
+    fact: { kind: 'diff', from: base, to: first, files: 1, added: 1, removed: 1 },
+  } }])
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => seat } } as unknown as EvidencePlane,
+    stateDir: repo.stateDir, projects: () => roots, push: () => {}, log: () => {},
+  })
+  t.after(() => plane.close())
+  await plane.start()
+  await waitUntil(async () => (await plane.status(repo.dir).catch(() => []))[0]?.project === repo.dir, 'canonical project registration')
+  await waitUntil(async () => (await plane.read(repo.dir, [first])).commits[0]?.state === 'attributed', 'nested checkout attribution')
+  const result = (await plane.read(repo.dir, [first])).commits[0]!
+  assert.deepEqual(result.seats.map((item) => item.id), [seat.id])
+  assert.deepEqual(result.evidenceIds, ['nested-fact'])
+}
+
+test('a nested ordinary checkout CWD is admitted through its canonical checkout root for attribution', async (t) => {
+  const repo = await makeRepo()
+  await assertNestedCheckoutAttribution(t, repo, repo.dir, [repo.dir])
+})
+
+test('a nested linked-worktree CWD is admitted through its canonical checkout root for attribution', async (t) => {
+  const repo = await makeRepo()
+  const base = await repo.commitTree(null, { one: 'base\n' }, 'base')
+  await repo.git('update-ref', 'refs/heads/main', base)
+  const linked = join(repo.stateDir, 'linked-checkout')
+  await repo.git('worktree', 'add', '--detach', linked, base)
+  await assertNestedCheckoutAttribution(t, repo, linked, [repo.dir, linked])
 })
 
 

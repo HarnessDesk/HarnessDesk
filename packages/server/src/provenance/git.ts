@@ -83,6 +83,18 @@ export const oid = (value: string): string => {
   return value
 }
 
+/** Resolve a recorded working directory to its admitted checkout root, if any. */
+export const checkoutRoot = async (handle: RepoHandle, cwd: string): Promise<string | null> => {
+  const resolved = await realpath(cwd).catch((error: unknown) => {
+    if (missing(error)) return null
+    throw error
+  })
+  if (resolved === null || !(await lstat(resolved)).isDirectory()) return null
+  return [...handle.checkouts.keys()]
+    .sort((left, right) => right.length - left.length)
+    .find((root) => inside(root, resolved)) ?? null
+}
+
 /** A name is a map key. No name read here is passed to join or to a shell. */
 const refName = (value: string): boolean =>
   value.startsWith('refs/') && !/[\x00-\x20\x7f~^:?*\[\\]/.test(value) &&

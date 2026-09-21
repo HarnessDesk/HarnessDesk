@@ -9,7 +9,7 @@ import type {
 import type { EvidencePlane } from '../evidence/plane.js'
 import { foldSeats } from '../evidence/records.js'
 import { exportProvenance, importProvenance } from './backup.js'
-import { admitProject, gitReader, oid, type GitReader, type RepoHandle } from './git.js'
+import { admitProject, checkoutRoot, gitReader, oid, type GitReader, type RepoHandle } from './git.js'
 import { captureHealth } from './health.js'
 import { digest, object, ProvenanceJournal, readCheckpoint, type JournalEntry } from './journal.js'
 import { localValues, RefObserver, type WorkerCheckpoint } from './observer.js'
@@ -269,8 +269,8 @@ export class ProvenancePlane {
     const sources: ProvenanceSource[] = []
     for (const record of state.facts) {
       signal.throwIfAborted()
-      if (record.restored || record.fact.kind !== 'diff' || !record.checkout ||
-        !state.handle?.checkouts.has(record.checkout.cwd)) continue
+      if (record.restored || record.fact.kind !== 'diff' || !record.checkout || !state.handle ||
+        !await checkoutRoot(state.handle, record.checkout.cwd)) continue
       const fact = record.fact
       try {
         let source = state.factSources.get(record.id)
