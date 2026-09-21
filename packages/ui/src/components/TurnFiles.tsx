@@ -80,18 +80,18 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   }
 
   return (
-    <div className={styles.card} {...(reverted ? { 'data-reverted': '' } : {})}>
-      <div className={styles.head}>
-        <span className={styles.glyph}>
+    <div className={`${styles.card} rounded-(--hd-card-radius,var(--hd-radius-lg)) bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]`} {...(reverted ? { 'data-reverted': '' } : {})}>
+      <div className={`${styles.head} py-3 px-(--hd-space-4) ps-3 border-b border-(--hd-border)`}>
+        <span className={`${styles.glyph} h-9 rounded-(--hd-radius) bg-(--hd-muted) text-(--hd-secondary-foreground)`}>
           <DiffIcon size={16} />
         </span>
         <span className={styles.title}>
-          <span className={styles.titleLine}>
+          <span className={`${styles.titleLine} text-base font-medium text-(--hd-foreground)`}>
             {verb} {one ? basename(one.path) : `${files.length} files`}{' '}
-            <span className={styles.counts}>
-              <span className={styles.added}>+{added}</span> <span className={styles.removed}>−{removed}</span>
+            <span className={`${styles.counts} text-sm tabular-nums`}>
+              <span className="text-(--hd-success)">+{added}</span> <span className="text-(--hd-danger)">−{removed}</span>
             </span>
-            {reverted && <span className={styles.revertedTag}>put back</span>}
+            {reverted && <span className="px-1.5 rounded-lg bg-(--hd-muted) text-xs font-medium text-(--hd-muted-foreground)">put back</span>}
           </span>
         </span>
         <span className={styles.actions}>
@@ -140,7 +140,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
         </span>
       </div>
       {!one && (
-        <ul className={styles.files}>
+        <ul className={`${styles.files} py-1`}>
           {shown.map((file) => {
             const relative = relativeTo(file.path, root)
             const name = basename(relative)
@@ -153,15 +153,15 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                   onClick={() => store.openFile(file.path)}
                   title={`Open ${relative}`}
                 >
-                  <span className={styles.path}>
-                    {dir && <span className={styles.dir}>{dir}</span>}
+                  <span className={`${styles.path} font-(family-name:--hd-font-code) text-sm`}>
+                    {dir && <span className="text-(--hd-muted-foreground)">{dir}</span>}
                     {name}
-                    {file.kind === 'delete' && <span className={styles.kind}>deleted</span>}
-                    {file.kind === 'add' && <span className={styles.kind}>new</span>}
+                    {file.kind === 'delete' && <span className="ms-2 text-xs text-(--hd-muted-foreground)">deleted</span>}
+                    {file.kind === 'add' && <span className="ms-2 text-xs text-(--hd-muted-foreground)">new</span>}
                   </span>
-                  <span className={styles.counts}>
-                    <span className={styles.added}>+{file.added}</span>{' '}
-                    <span className={styles.removed}>−{file.removed}</span>
+                  <span className={`${styles.counts} text-sm tabular-nums`}>
+                    <span className="text-(--hd-success)">+{file.added}</span>{' '}
+                    <span className="text-(--hd-danger)">−{file.removed}</span>
                   </span>
                 </Button>
               </li>

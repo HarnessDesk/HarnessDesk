@@ -15,23 +15,18 @@
 .head {
   display: flex;
   align-items: center;
-  gap: 6px;
   width: 100%;
-
-  /* The head paints nothing of its own — hovering moves colour, not fill —
-     so the radius is here for the focus ring to follow. */
 
   text-align: left;
 
 }
 
-.head:hover .headLabel {
+.work:not([data-trouble]) .head:hover .headLabel {
   color: var(--hd-secondary-foreground);
 }
 
 .headLabel {
   flex: none;
-  font-variant-numeric: tabular-nums;
 }
 
 /* What the turn amounted to, on the same line as how long it took. It is the
@@ -42,19 +37,6 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-  color: var(--hd-muted-foreground);
-}
-
-.work[data-running] .headLabel {
-  color: var(--hd-secondary-foreground);
-}
-
-/* Trouble tints the whole line — a declined command must not read like a
-   clean turn that happened to take four seconds. */
-.work[data-trouble] .headLabel,
-.work[data-trouble] .chevron,
-.work[data-trouble] .head:hover .headLabel {
-  color: var(--hd-warning-ink); /* desk: the platform ramp → the app’s own semantic ink */
 }
 
 .declinedReceipt,
@@ -63,17 +45,10 @@
   white-space: nowrap;
 }
 
-.declinedReceipt {
-  color: var(--hd-warning-ink);
-}
-
-.failedReceipt {
-  color: var(--hd-danger-ink);
-}
+/* Receipt ink is composed at the element. */
 
 .chevron {
   flex: none;
-  color: var(--hd-muted-foreground);
   transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
@@ -84,9 +59,7 @@
 /* The hairline that runs from the label to the column's edge. */
 .rule {
   flex: 1;
-  height: 1px;
   margin-left: 6px;
-  background: var(--hd-border);
 }
 
 .body {
@@ -100,43 +73,4 @@
 .live {
   display: flex;
   align-items: center;
-  min-height: 26px;
-  padding: 2px 0 4px 2px;
-  font-size: var(--hd-text);
-  color: var(--hd-muted-foreground);
-}
-
-/* Text that moves: a light band sweeps across the words, the way Codex shows
-   the step it is on. Reduced-motion users get the faint colour and no sweep. */
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--hd-muted-foreground) 0%,
-    var(--hd-muted-foreground) 35%,
-    var(--hd-foreground) 50%,
-    var(--hd-muted-foreground) 65%,
-    var(--hd-muted-foreground) 100%
-  );
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 1.8s linear infinite;
-}
-
-@keyframes shimmer {
-  from {
-    background-position: 120% 0;
-  }
-  to {
-    background-position: -120% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .shimmer {
-    animation: none;
-    background: none;
-    color: var(--hd-muted-foreground);
-  }
 }

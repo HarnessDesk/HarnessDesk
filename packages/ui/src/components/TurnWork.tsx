@@ -10,6 +10,19 @@ import { ItemView, StepNameScope } from './Items'
 import { StepGroup } from './StepGroup'
 import styles from './TurnWork.module.css'
 
+/* The shimmer sweep is composed here so TurnWork.module.css stays layout-only. */
+const SHIMMER_CLASSES = [
+  'bg-[linear-gradient(90deg,var(--hd-muted-foreground)_0%,var(--hd-muted-foreground)_35%,var(--hd-foreground)_50%,var(--hd-muted-foreground)_65%,var(--hd-muted-foreground)_100%)]',
+  '[background-size:220%_100%]',
+  'bg-clip-text',
+  'text-transparent',
+  'animate-[shimmer_1.8s_linear_infinite]',
+  '[--tw-enter-translate-x:0]',
+  'motion-reduce:animate-none',
+  'motion-reduce:bg-none',
+  'motion-reduce:text-(--hd-muted-foreground)',
+].join(' ')
+
 /**
  * The work a turn did, under one line that says how long it took.
  *
@@ -87,24 +100,24 @@ export const TurnWork = ({
     >
       <Button
         type="button"
-        variant="row" size="row" className={styles.head}
+        variant="row" size="row" className={`${styles.head} gap-1.5`}
         aria-expanded={open}
         onClick={() => setChoice(!open)}
         title={open ? 'Fold the work away' : 'Show what the agent did'}
       >
-        <span className={styles.headLabel}>{line.head}</span>
+        <span className={`${styles.headLabel} tabular-nums ${line.trouble ? 'text-(--hd-warning-ink)' : running ? 'text-(--hd-secondary-foreground)' : ''}`}>{line.head}</span>
         {/* The receipt stands in for the rows, so it shows when they do not:
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}
-        {!open && line.receipt.length > 0 && <span className={styles.headReceipt}>· {line.receipt}</span>}
+        {!open && line.receipt.length > 0 && <span className={`${styles.headReceipt} text-(--hd-muted-foreground)`}>· {line.receipt}</span>}
         {!open && line.declined > 0 && (
-          <span className={styles.declinedReceipt}>· {line.declined} declined</span>
+          <span className={`${styles.declinedReceipt} text-(--hd-warning-ink)`}>· {line.declined} declined</span>
         )}
         {!open && line.failed > 0 && (
-          <span className={styles.failedReceipt}>· {line.failed} failed</span>
+          <span className={`${styles.failedReceipt} text-(--hd-danger-ink)`}>· {line.failed} failed</span>
         )}
-        <ChevronIcon className={styles.chevron} size={13} {...(open ? { 'data-open': '' } : {})} />
-        <span className={styles.rule} />
+        <ChevronIcon className={`${styles.chevron} ${line.trouble ? 'text-(--hd-warning-ink)' : 'text-(--hd-muted-foreground)'}`} size={13} {...(open ? { 'data-open': '' } : {})} />
+        <span className={`${styles.rule} h-px bg-(--hd-border)`} />
       </Button>
       {open && (
         <div className={styles.body} data-register="light">
@@ -124,16 +137,16 @@ export const TurnWork = ({
             {/* The live line: what is happening this second, in the register of
                 a status rather than a record — faint, and moving. */}
             {running && activity && (
-              <div className={styles.live} role="status" aria-live="polite">
-                <span className={styles.shimmer}>{activity}</span>
+              <div className={`${styles.live} min-h-[26px] py-0.5 pb-1 pl-0.5 text-base text-(--hd-muted-foreground)`} role="status" aria-live="polite">
+                <span className={SHIMMER_CLASSES}>{activity}</span>
               </div>
             )}
           </StepNameScope>
         </div>
       )}
       {!open && running && activity && (
-        <div className={styles.live} role="status" aria-live="polite">
-          <span className={styles.shimmer}>{activity}</span>
+        <div className={`${styles.live} min-h-[26px] py-0.5 pb-1 pl-0.5 text-base text-(--hd-muted-foreground)`} role="status" aria-live="polite">
+          <span className={SHIMMER_CLASSES}>{activity}</span>
         </div>
       )}
     </section>

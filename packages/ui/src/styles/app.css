@@ -189,6 +189,18 @@ a:hover {
   }
 }
 
+/* The transcript work line retains its sweep while the component sheet owns
+   geometry only. */
+@keyframes shimmer {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
 .hd-no-drag {
   -webkit-app-region: no-drag;
 }
