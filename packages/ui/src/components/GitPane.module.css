@@ -17,15 +17,6 @@
    what makes and joins branches. Counts ride the buttons the way they ride
    that toolbar — work waiting to commit, commits waiting to push or pull. */
 
-.actionBar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 34px;
-  padding: 0 var(--hd-space-2);
-}
-
 .actionLayout {
   position: relative;
 }
@@ -39,15 +30,12 @@
 /* --- the tool row -------------------------------------------------------- */
 
 .tools {
-  flex: none;
   display: flex;
   flex-wrap: wrap; /* desk: nowrap → wrap, a pane narrower than the controls stacks them rather than cutting the last */
   align-content: center; /* desk: normal → center, one line of controls sits centred in the row as it did */
   align-items: center;
   gap: 4px 8px; /* desk: 8px → 4px 8px, the same 8px across, and 4px between wrapped lines */
   container: hd-git-tools / inline-size; /* desk: none → hd-git-tools / inline-size, the count asks how wide the bar is */
-  min-height: 36px;
-  padding: var(--hd-space-0-5) var(--hd-space-2-5);
 }
 
 /* The search keeps room for its own words; in a narrow pane the count gives
@@ -131,15 +119,6 @@
 
 /* The table's head. It sits above the list rather than inside it, so it does
    not scroll away — the columns line up because both read the same widths. */
-.head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: var(--hd-control-h-sm);
-  padding-right: var(--hd-space-3);
-}
-
 /* No `overflow: hidden` here: the handle straddles the column's right edge,
    and a clipped cell swallows the half that hangs over — the grip then looks
    grabbable and is not. The label does its own ellipsis instead. */
@@ -321,7 +300,6 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  min-height: 160px;
 }
 
 .detailHandle {
@@ -331,14 +309,6 @@
   right: 0;
   cursor: row-resize;
   z-index: 1;
-}
-
-.detailHead {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: var(--hd-space-1) var(--hd-space-2-5);
 }
 
 .detailTitle {
@@ -429,10 +399,6 @@
 
 }
 
-.fileListBody {
-  padding-bottom: var(--hd-space-2);
-}
-
 .filePath {
   min-width: 0;
   flex: 1;
@@ -453,17 +419,6 @@
 .fileAction {
 
   white-space: nowrap;
-}
-
-.diffScroll {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-}
-
-.inlinePatch {
-  padding: var(--hd-space-1) var(--hd-space-3) var(--hd-space-3);
 }
 
 /* --- create branch ------------------------------------------------------- */

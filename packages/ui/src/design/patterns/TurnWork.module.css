@@ -1,0 +1,10 @@
+/* The turn-work header is a transcript role: trouble ink remains the warning
+   while an ordinary receipt gets the quiet hover reading. */
+
+.head:not([data-trouble]):hover .headLabel {
+  color: var(--hd-secondary-foreground);
+}
+
+.headLabel {
+  flex: none;
+}
