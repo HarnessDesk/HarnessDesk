@@ -76,10 +76,10 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
       >
         <RetryIcon size={13} />
       </Button>
-      {copied && <span className={styles.actionLabel}>Copied</span>}
-      {vote === 'down' && <span className={styles.actionLabel}>Marked for review</span>}
+      {copied && <span className="ms-(--hd-space-1) text-sm whitespace-nowrap text-(--hd-muted-foreground)">Copied</span>}
+      {vote === 'down' && <span className="ms-(--hd-space-1) text-sm whitespace-nowrap text-(--hd-muted-foreground)">Marked for review</span>}
       {!copied && vote !== 'down' && when !== null && (
-        <span className={styles.actionLabel}>
+        <span className="ms-(--hd-space-1) text-sm whitespace-nowrap text-(--hd-muted-foreground)">
           {new Date(when).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
         </span>
       )}

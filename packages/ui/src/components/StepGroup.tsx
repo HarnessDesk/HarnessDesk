@@ -57,7 +57,7 @@ export const StepGroup = ({
           />
           <ToolIcon size={13} />
           <span className={styles.groupSummary}>{describeGroup(items)}</span>
-          {running && <span className={styles.spinner} />}
+          {running && <span className="flex-none size-3 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[spin_0.7s_linear_infinite]" />}
         </Button>
         {expanded && (
           <div className={styles.groupBody}>

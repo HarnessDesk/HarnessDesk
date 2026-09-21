@@ -80,11 +80,11 @@ const byClass = (name: string): Element[] => [
 ]
 
 const title = (): string => container.querySelector('button')?.textContent ?? ''
-const wire = (): string | null => byClass('wireName')[0]?.textContent ?? null
+const wire = (): string | null => container.querySelector('[data-role="wire-name"]')?.textContent ?? null
 const outputs = (): string[] => [
   ...container.querySelectorAll('[data-slot="code-block-body"]'),
 ].map((el) => el.textContent ?? '')
-const json = (): string[] => byClass('json').map((el) => el.textContent ?? '')
+const json = (): string[] => [...container.querySelectorAll('[data-role="json"]')].map((el) => el.textContent ?? '')
 const diffText = (): string[] =>
   [...container.querySelectorAll('td[class*="_code_"]')].map((cell) => cell.childNodes[1]?.textContent ?? '')
 
