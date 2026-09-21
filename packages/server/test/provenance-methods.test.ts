@@ -24,7 +24,7 @@ const health: CaptureHealth = {
 test('every named-root handler confines before reaching its narrow provenance port', async () => {
   const calls: unknown[] = []
   const ctx = {
-    workspaces: { confineGitRoot: async (root: string) => { calls.push(['confine', root]); return '/work/project' } },
+    workspaces: { confineProvenanceRoot: async (root: string) => { calls.push(['confine', root]); return '/work/project' } },
     provenance: {
       read: async (root: string, shas: readonly string[]) => {
         calls.push(['read', root, shas])
@@ -58,7 +58,7 @@ test('every named-root handler confines before reaching its narrow provenance po
 test('a confinement refusal never reaches the provenance service', async () => {
   let reads = 0
   const ctx = {
-    workspaces: { confineGitRoot: async () => { throw new Error('outside workspace') } },
+    workspaces: { confineProvenanceRoot: async () => { throw new Error('outside workspace') } },
     provenance: { read: async () => { reads += 1 } },
   } as unknown as HostContext
   await assert.rejects(provenanceMethods['provenance/commits'](ctx, { root: '/outside', shas: [] }), /outside workspace/)
@@ -124,6 +124,36 @@ test('Host.call reaches the real built provenance context without starting a run
   try {
     assert.deepEqual(await host.call('provenance/status', {}), [])
     await assert.rejects(host.call('provenance/seat', { root: '/outside', seat: 'seat-1' }))
+  } finally {
+    await host.dispose()
+  }
+})
+
+test('a linked-only workspace captures through its canonical project controls', async () => {
+  const repo = await makeRepo()
+  const head = await repo.commitTree(null, { 'work.ts': 'export const work = true\n' }, 'head')
+  await repo.git('update-ref', 'refs/heads/main', head)
+  const linked = join(repo.stateDir, 'linked-checkout')
+  await repo.git('worktree', 'add', '--detach', linked, head)
+  const host = new Host({
+    state: new StateStore(join(repo.stateDir, 'state.json')),
+    logger: new Logger('test', { level: 'error', console: false }),
+    catalogRefreshMs: 0,
+  })
+  try {
+    await host.start()
+    await host.call('workspace/open', { path: linked })
+    const deadline = Date.now() + 10_000
+    let status: readonly CaptureHealth[] | null = null
+    while (Date.now() < deadline) {
+      status = await host.call('provenance/status', { root: repo.dir }).catch(() => null)
+      if (status?.[0]?.project === repo.dir) break
+      await delay(20)
+    }
+    assert.equal(status?.[0]?.project, repo.dir, 'the linked workspace registers its canonical project')
+    const capture = await host.call('provenance/capture', { root: repo.dir, enabled: false })
+    assert.equal(capture.project, repo.dir)
+    assert.equal((await host.call('provenance/status', { root: linked }))[0]?.enabled, false)
   } finally {
     await host.dispose()
   }

@@ -2069,6 +2069,7 @@ export class Host {
         openRoots: () => this.#openRoots(),
         fileRoots: (mode) => this.#fileRoots(mode),
         confineGitRoot: (root) => this.#confineGitRoot(root),
+        confineProvenanceRoot: (root) => this.#confineProvenanceRoot(root),
         topLevel: (path) => gitOps.topLevel(path),
         confineRoom: (folder) => this.#confineRoom(folder),
         open: (path) => this.#openWorkspace(path),
@@ -2213,6 +2214,25 @@ export class Host {
       for (const open of roots) {
         const top = await gitOps.topLevel(open)
         if (top !== null && (await this.#realPath(top)) === real) return real
+      }
+      throw refusal
+    }
+  }
+
+  /**
+   * Provenance is keyed by Git's canonical project rather than a particular
+   * checkout. A linked checkout is an open root, but its main checkout is not;
+   * admit precisely that canonical project for provenance controls without
+   * broadening ordinary Git RPC confinement.
+   */
+  async #confineProvenanceRoot(root: string): Promise<string> {
+    try {
+      return await this.#confineGitRoot(root)
+    } catch (refusal) {
+      const real = await this.#realPath(root)
+      for (const open of this.#openRoots()) {
+        const repository = await this.#repoOf(open)
+        if (repository !== null && (await this.#realPath(repository.root)) === real) return real
       }
       throw refusal
     }
@@ -4446,10 +4466,13 @@ export class Host {
     if (this.#disposed) return
     const generation = ++this.#provenanceGeneration
     const roots = this.#openRoots()
-    void Promise.all(roots.map(async (root) => (await this.#topLevelOf(root)) ?? root))
+    void Promise.all(roots.map(async (root) => {
+      const [checkout, repository] = await Promise.all([this.#topLevelOf(root), this.#repoOf(root)])
+      return [checkout ?? root, ...(repository === null ? [] : [repository.root])]
+    }))
       .then((projects) => {
         if (this.#disposed || generation !== this.#provenanceGeneration) return
-        this.#provenance.setProjects(projects)
+        this.#provenance.setProjects(projects.flat())
       })
       .catch(() => this.#logger.warn('provenance projects could not be registered'))
   }
