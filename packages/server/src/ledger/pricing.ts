@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
+import { safeLedgerDiagnostic } from './diagnostics.js'
+
 /**
  * What a model costs, per token.
  *
@@ -154,6 +156,10 @@ export class Pricing {
     return this.#options.now?.() ?? Date.now()
   }
 
+  #log(message: string, details?: Record<string, unknown>): void {
+    this.#options.log?.(message, safeLedgerDiagnostic(message, details))
+  }
+
   /** Loads the overlay and the cached catalogue; refreshes the catalogue if it is stale. */
   async warm(): Promise<void> {
     await this.#loadOverlay()
@@ -182,7 +188,7 @@ export class Pricing {
       await writeFile(this.#options.cachePath, JSON.stringify(payload), 'utf8')
     } catch (error) {
       // The last good copy stays usable; prices are advisory, not load-bearing.
-      this.#options.log?.('the model price catalogue could not be refreshed', {
+      this.#log('the model price catalogue could not be refreshed', {
         error: error instanceof Error ? error.message : String(error),
       })
     }
@@ -268,7 +274,7 @@ export class Pricing {
         if (rates) this.#overlay.set(key.trim().toLowerCase(), rates)
       }
     } catch (error) {
-      this.#options.log?.('the price overlay could not be read', {
+      this.#log('the price overlay could not be read', {
         path: this.#options.overlayPath,
         error: error instanceof Error ? error.message : String(error),
       })

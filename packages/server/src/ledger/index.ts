@@ -14,6 +14,7 @@ import { runtimeId, type LedgerDay,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
+import { safeLedgerDiagnostic } from './diagnostics.js'
 import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
 import { type UsageDetail, type UsageSample } from './insight.js'
@@ -111,7 +112,7 @@ export class Ledger {
       options.pricing ??
       new Pricing({
         ...paths,
-        ...(options.log ? { log: options.log } : {}),
+        ...(options.log ? { log: (message, details) => this.#log(message, details) } : {}),
         ...(options.now ? { now: options.now } : {}),
       })
     // Buckets move if the zone changes, so the zone the history was built in is
@@ -121,7 +122,7 @@ export class Ledger {
     const pinned = this.#store.meta('timezone')
     if (pinned === null) this.#store.setMeta('timezone', zone)
     else if (pinned !== zone) {
-      options.log?.('usage history was bucketed in another timezone; days may straddle', {
+      this.#log('usage history was bucketed in another timezone; days may straddle', {
         pinned,
         current: zone,
       })
@@ -134,6 +135,10 @@ export class Ledger {
 
   #now(): number {
     return this.#options.now?.() ?? Date.now()
+  }
+
+  #log(message: string, details?: Record<string, unknown>): void {
+    this.#options.log?.(message, safeLedgerDiagnostic(message, details))
   }
 
   get progress(): ScanProgress {
@@ -301,20 +306,26 @@ export class Ledger {
   async #doScan(full: boolean): Promise<void> {
     const startedAt = this.#now()
     let targets: ScanTarget[] = []
+    let discoveryFailures = 0
     try {
-      targets = await listTargets(this.#options.corpora, {
-        unreadable: (folder, error) =>
-          this.#options.log?.('a folder of transcripts could not be read, so the usage in it was not counted', {
-            folder,
-            error: error instanceof Error ? error.message : String(error),
-          }),
-      })
+      for (const corpus of this.#options.corpora) {
+        targets.push(...await listTargets([corpus], {
+          unreadable: (_folder, error) => {
+            discoveryFailures += 1
+            this.#log('a folder of transcripts could not be read, so the usage in it was not counted', {
+              kind: corpus.kind,
+              failures: discoveryFailures,
+              error,
+            })
+          },
+        }))
+      }
     } catch (error) {
       this.#report({
         ...IDLE,
         startedAt,
         finishedAt: this.#now(),
-        error: error instanceof Error ? error.message : String(error),
+        error: 'Recorded usage source discovery failed.',
       })
       return
     }
@@ -339,6 +350,7 @@ export class Ledger {
 
     let filesDone = 0
     let bytesDone = 0
+    let readFailures = 0
     for (const target of pending) {
       const cursor = full ? null : this.#store.cursor(target.path)
       // A file that shrank was rewritten, not appended to: its rows go and it
@@ -356,9 +368,11 @@ export class Ledger {
           full || rewritten,
         )
       } catch (error) {
-        this.#options.log?.('a transcript could not be read', {
-          path: target.path,
-          error: error instanceof Error ? error.message : String(error),
+        readFailures += 1
+        this.#log('a transcript could not be read', {
+          kind: target.kind,
+          failures: readFailures,
+          error,
         })
       }
       filesDone += 1
