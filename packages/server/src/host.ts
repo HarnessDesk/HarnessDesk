@@ -508,6 +508,8 @@ export class Host {
    */
   readonly #evidence: EvidencePlane
   readonly #provenance: ProvenancePlane
+  /** Startup stays off the interactive launch path, but quit still owns it. */
+  #provenanceStart: Promise<void> = Promise.resolve()
   #provenanceGeneration = 0
   readonly #goalStore: GoalStore
   readonly #goalSerial = new Serial()
@@ -1305,7 +1307,7 @@ export class Host {
     await this.#names.load()
     // Start capture after the stored names and rooms have recovered, so its
     // first project snapshot cannot describe a partially restored desk.
-    void this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
+    this.#provenanceStart = this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
       this.#logger.warn('provenance could not start')
     })
     /* From here on a file changed under any of the roster's roots is one
@@ -1452,6 +1454,7 @@ export class Host {
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#provenanceStart
     await this.#provenance.close().catch(() => {
       this.#logger.warn('provenance observations could not be saved')
     })
