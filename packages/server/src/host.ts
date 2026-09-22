@@ -52,6 +52,7 @@ import {
   type RuntimeId,
   type Session,
   type SessionId,
+  type SessionKey,
   type RepoInfo,
   type SessionSummary,
   type TeamState,
@@ -2855,7 +2856,7 @@ export class Host {
   })
 
   /** A reported child conversation to the conversation that delegated it. */
-  readonly #delegatedBy = new Map<string, { readonly runtime: string; readonly sessionId: string }>()
+  readonly #delegatedBy = new Map<SessionKey, { readonly runtime: string; readonly sessionId: string }>()
   /** A bounded association was lost, so an otherwise unknown caller is unsafe. */
   readonly #delegationUncertainRuntimes = new Set<string>()
 
@@ -2981,12 +2982,12 @@ export class Host {
     if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
-      if (root !== null) this.#delegatedBy.set(String(sessionKey(runtime, makeSessionId(member.sessionId))), root)
+      if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
       if (this.#delegatedBy.size > 2000) {
         const oldest = this.#delegatedBy.keys().next().value
         if (oldest !== undefined) {
           this.#delegatedBy.delete(oldest)
-          this.#delegationUncertainRuntimes.add(String(runtime))
+          this.#delegationUncertainRuntimes.add(String(splitSessionKey(oldest).runtime))
         }
       }
     }
@@ -2997,7 +2998,7 @@ export class Host {
     const seen = new Set<string>()
     for (let depth = 0; depth < 8; depth += 1) {
       if (this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId))) return at
-      const key = String(sessionKey(runtimeId(at.runtime), makeSessionId(at.sessionId)))
+      const key = sessionKey(runtimeId(at.runtime), makeSessionId(at.sessionId))
       if (seen.has(key)) return null
       seen.add(key)
       const parent = this.#delegatedBy.get(key)

@@ -268,3 +268,29 @@ test('through the host: an evicted delegated association cannot publish', async 
   assert.equal(escaped.ok, false)
   assert.deepEqual(ran, [], 'an evicted delegated association must not become unscoped')
 })
+
+test('through the host: cross-runtime eviction keeps the evicted root unresolved for publish and merge', async (t) => {
+  const { host, runtime, ran, call, agent, work } = await desk(t)
+  const otherRuntimeId = runtimeId('other-fake')
+  const other = new FakeRuntime({ id: otherRuntimeId })
+  host.register(other)
+  await agent('reviewer', 'ceiling: read')
+  const seat = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const turn = host.registry.get(FAKE_RUNTIME_ID, seat.id)?.session.turns.at(-1)
+  assert.ok(turn, 'the standing order started a turn')
+  runtime.emit({
+    type: 'item/completed', sessionId: seat.id, turnId: turnId(String(turn.id)),
+    item: { id: itemId('spawn-cross-runtime-evicted'), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: 'cross-runtime-evicted-child' }] },
+  })
+  for (let index = 0; index < 2000; index += 1) {
+    other.emit({
+      type: 'item/completed', sessionId: sessionId('other-root'), turnId: turnId('other-turn'),
+      item: { id: itemId(`spawn-other-${index}`), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: `other-child-${index}` }] },
+    })
+  }
+  const scope = { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('cross-runtime-evicted-child') }
+  for (const tool of ['pr_create', 'pr_merge']) {
+    assert.equal((await call(tool, scope)).ok, false, `${tool} cannot become unscoped after another runtime evicts its root`)
+  }
+  assert.deepEqual(ran, [], 'the lost root cannot reach either protected tool')
+})
