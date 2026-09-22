@@ -165,11 +165,11 @@ export class Ledger {
     const gaps: string[] = []
     let bytes = 0
     let targets: ScanTarget[] = []
-    try {
-      const corpora = query.runtime === undefined
-        ? this.#options.corpora
-        : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime)
-      for (const corpus of corpora) {
+    const corpora = query.runtime === undefined
+      ? this.#options.corpora
+      : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime)
+    for (const corpus of corpora) {
+      try {
         targets.push(...await listTargets([corpus], {
           unreadable: () => {
             // The source itself must say which runtime was unavailable, but
@@ -179,8 +179,14 @@ export class Ledger {
           },
         }))
       }
+      catch {
+        // Discovery implementations can still fail outside their per-folder
+        // callback. Preserve only the corpus identity and fixed public text;
+        // their errors can include agent-owned paths or database details.
+        detailSources.push(failedCorpusSource(corpus, this.#now(), 'Recorded usage source could not be discovered.'))
+        gaps.push('Recorded usage source could not be discovered.')
+      }
     }
-    catch (error) { return { samples: [], sources: [], gaps: [error instanceof Error ? error.message : String(error)], complete: false } }
     if (targets.length > 10_000) {
       gaps.push('Insight stopped before more than 10,000 source files. Choose a narrower range.')
       targets = targets.slice(0, 10_000)

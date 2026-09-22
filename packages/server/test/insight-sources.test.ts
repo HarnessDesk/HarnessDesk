@@ -122,6 +122,42 @@ test('an unreadable corpus root is a source-read gap, not an empty project', asy
   } finally { ledger.close() }
 })
 
+test('a discovery exception becomes a fixed report gap and opaque failed source', async () => {
+  const dir = tempDir('hd-insight-discovery-exception-')
+  const marker = '/agent-owned/private/corpus-path-that-must-not-escape'
+  let rootReads = 0
+  const corpus = {
+    runtime: 'throwing',
+    kind: 'codex' as const,
+    get root(): string {
+      if (rootReads++ === 0) throw new Error(marker)
+      return dir
+    },
+  }
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [corpus],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'rates.local.json'), fetchCatalogue: async () => ({}) }),
+    now: () => 10,
+  })
+  const plane = new InsightPlane({
+    ledger: () => ledger,
+    goals: { store: { list: () => [] } } as never,
+    seats: () => [],
+    seating: {} as never,
+    now: () => 10,
+  })
+  try {
+    const report = await plane.usage({ root: '/work/project', from: 0, to: 10 })
+    assert.deepEqual(report.gaps, ['Recorded usage source could not be discovered.'])
+    assert.deepEqual(report.sources.map((source) => ({ runtime: source.runtime, problem: source.problem })), [
+      { runtime: 'throwing', problem: 'Recorded usage source could not be discovered.' },
+    ])
+    assert.ok(!JSON.stringify(report).includes(marker), 'the public report never serializes the discovery error')
+  } finally { ledger.close() }
+})
+
 test('Ledger carries an opaque runtime-qualified unreadable corpus source into unscoped and selected Insight reads', async () => {
   const dir = tempDir('hd-insight-plane-unreadable-')
   const alpha = join(dir, 'alpha')

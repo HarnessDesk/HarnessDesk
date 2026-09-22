@@ -189,7 +189,7 @@ export class Pricing {
     } catch (error) {
       // The last good copy stays usable; prices are advisory, not load-bearing.
       this.#log('the model price catalogue could not be refreshed', {
-        error: error instanceof Error ? error.message : String(error),
+        error,
       })
     }
   }
@@ -276,7 +276,7 @@ export class Pricing {
     } catch (error) {
       this.#log('the price overlay could not be read', {
         path: this.#options.overlayPath,
-        error: error instanceof Error ? error.message : String(error),
+        error,
       })
     }
   }

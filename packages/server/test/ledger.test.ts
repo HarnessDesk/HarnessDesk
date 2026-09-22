@@ -791,6 +791,40 @@ test('pricing diagnostics share the ledger privacy boundary', async () => {
   ])
 })
 
+test('pricing diagnostics retain errno categories without raw error text', async () => {
+  const dir = scratch()
+  const marker = 'agent-owned-pricing-errno-must-not-log'
+  const overlay = join(dir, 'overlay.json')
+  writeFileSync(overlay, '{ intentionally malformed')
+  const logged: { message: string; details: Record<string, unknown> | undefined }[] = []
+  const parse = JSON.parse
+  const denied = Object.assign(new Error(marker), { code: 'EACCES' })
+  Object.defineProperty(JSON, 'parse', {
+    configurable: true,
+    value: ((raw: string) => {
+      if (raw === '{ intentionally malformed') throw denied
+      return parse(raw)
+    }) as typeof JSON.parse,
+  })
+  try {
+    const pricing = new Pricing({
+      cachePath: join(dir, 'cache.json'),
+      overlayPath: overlay,
+      fetchCatalogue: async () => { throw Object.assign(new Error(marker), { code: 'EPERM' }) },
+      log: (message, details) => logged.push({ message, details }),
+    })
+    await pricing.warm()
+  } finally {
+    Object.defineProperty(JSON, 'parse', { configurable: true, value: parse })
+  }
+
+  assert.ok(!JSON.stringify(logged).includes(marker), 'pricing diagnostics never retain the raw error')
+  assert.deepEqual(logged, [
+    { message: 'the price overlay could not be read', details: { operation: 'price-overlay-read', failure: 'access-denied' } },
+    { message: 'the model price catalogue could not be refreshed', details: { operation: 'price-catalogue-refresh', failure: 'access-denied' } },
+  ])
+})
+
 test('an agent’s folder that cannot be opened is said, and the other agents are still counted', async () => {
   const dir = scratch()
   const claude = join(dir, 'claude-projects')
