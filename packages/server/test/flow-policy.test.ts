@@ -138,3 +138,133 @@ rules:
   assert.deepEqual(reread.document!.flow.inputs, parsed.document!.flow.inputs)
   assert.deepEqual(reread.document!.flow.rules, parsed.document!.flow.rules)
 })
+
+test('v2 checks keep the ordinary pass-at-zero default and reject mixed forms', () => {
+  const parsed = parseFlowPolicy(`
+version: 2
+name: Check
+roles:
+  verify:
+    kind: check
+    run: pnpm test
+  person:
+    kind: person
+    outcomes: [done]
+seed: { role: verify, title: Verify }
+`)
+  assert.equal(parsed.document?.format, 'agents')
+  const check = parsed.document!.flow.roles.find((role) => role.kind === 'check')
+  assert.deepEqual(check?.kind === 'check' ? check.check : null, {
+    run: 'pnpm test', timeout: 900, exits: { 0: 'pass' }, otherwise: 'fail',
+  })
+  const mixed = parseFlowPolicy(`
+version: 2
+name: Check
+roles:
+  verify:
+    kind: check
+    check: { run: pnpm test }
+    run: pnpm lint
+seed: { role: verify, title: Verify }
+`)
+  assert.ok(mixed.problems.some((one) => /nested check or flat check/.test(one.text)))
+  const unknown = parseFlowPolicy(`
+version: 2
+name: Check
+roles:
+  verify:
+    kind: check
+    check: { run: pnpm test, messages: leaked }
+seed: { role: verify, title: Verify }
+`)
+  assert.ok(unknown.problems.some((one) => /messages.*not read here/.test(one.text)))
+})
+
+test('independence names a preceding Agent path and rules use every possible Agent answer', () => {
+  const parsed = parseFlowPolicy(`
+version: 2
+name: Independent
+roles:
+  writer:
+    kind: agent
+    uses: writer
+  judge:
+    kind: agent
+    uses: [judge, alternate]
+    independentOf: [writer]
+  person:
+    kind: person
+seed: { role: judge, title: Judge }
+rules:
+  - { on: judge, when: { every: approve }, then: { role: person, title: Decide } }
+`)
+  assert.ok(parsed.problems.some((one) => /no predecessor path/.test(one.text)))
+
+  const connected = parseFlowPolicy(`
+version: 2
+name: Independent
+roles:
+  writer:
+    kind: agent
+    uses: writer
+  judge:
+    kind: agent
+    uses: [judge, alternate]
+    independentOf: [writer]
+  person:
+    kind: person
+seed: { role: writer, title: Write }
+rules:
+  - { on: writer, then: { role: judge, title: Judge } }
+  - { on: judge, when: { every: approve }, then: { role: person, title: Decide } }
+`)
+  const compiled = compileFlowPolicy(connected.document!, [
+    agent('writer'), { ...agent('judge'), definition: { ...agent('judge').definition!, answers: ['approve'] } },
+    { ...agent('alternate'), definition: { ...agent('alternate').definition!, answers: ['request-changes'] } },
+  ])
+  assert.ok(compiled.problems.some((one) => /alternate never answers "approve"/.test(one.text)))
+})
+
+test('hostile v2 source is refused before a policy can compile', () => {
+  const manyRules = Array.from({ length: 257 }, (_value, index) =>
+    `  - { id: r${index}, on: worker, then: { role: person, title: Next } }`,
+  ).join('\n')
+  const base = `
+version: 2
+name: Boundaries
+roles:
+  worker:
+    kind: agent
+    uses: writer
+  person:
+    kind: person
+seed: { role: worker, title: Work }
+rules:
+${manyRules}
+`
+  assert.ok(parseFlowPolicy(base).problems.some((one) => /at most 256 rules/.test(one.text)))
+  assert.ok(parseFlowPolicy(base.replace('rules:', 'messages: nope\nrules:')).problems.some((one) => /not read here/.test(one.text)))
+  assert.ok(parseFlowPolicy(base.replace('    uses: writer', '    uses: writer\n    count: 33')).problems.some((one) => /whole number from 1 to 32/.test(one.text)))
+  assert.ok(parseFlowPolicy('version: 2\nname: Broken\nroles: &roles {}').problems.some((one) => one.at === 'line 3'))
+  assert.ok(parseFlowPolicy(`version: 2\nname: ${'x'.repeat(256 * 1024)}\nroles: {}`).problems.some((one) => /256 KiB/.test(one.text)))
+})
+
+test('legacy parsing preserves old meanings and names the compatibility exception', () => {
+  const legacy = parseFlowPolicy(`
+name: Old
+roles:
+  writer:
+    kind: agent
+    seat: fixture=writer
+    permission: read
+    outcomes: [published]
+  verify:
+    kind: check
+    check: { run: pnpm test, exits: { 0: pass }, otherwise: fail }
+seed: { role: writer, title: Write }
+`)
+  assert.equal(legacy.document?.format, 'legacy')
+  assert.equal(legacy.document?.flow.roles.find((role) => role.id === 'writer')?.permission, 'read')
+  assert.ok(legacy.problems.some((one) => one.text === 'This flow uses the old format'))
+  assert.ok(legacy.problems.some((one) => one.text === 'Old read permission allows editing and committing.'))
+})

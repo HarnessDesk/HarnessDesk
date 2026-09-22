@@ -31,6 +31,7 @@ const REARM_LIMIT = 120
 const ROOT_FIELDS = new Set(['version', 'name', 'description', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'layout'])
 const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf'])
 const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd'])
+const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd'])
 const PERSON_FIELDS = new Set(['kind', 'outcomes'])
 const RULE_FIELDS = new Set(['id', 'on', 'when', 'then'])
 const THEN_FIELDS = new Set(['role', 'title', 'detail', 'files'])
@@ -117,12 +118,13 @@ const readCheck = (record: Record<string, unknown>, at: string, problems: FlowPr
     problems.push(problem('error', `${at}.check`, 'a check is a command: { run: "pnpm test", exits: { 0: pass } }'))
     return null
   }
+  if (nested !== undefined) unknownKeys(source, CHECK_VALUE_FIELDS, `${at}.check`, problems)
   const run = asText(source['run'])?.trim()
   if (!run) {
     problems.push(problem('error', `${at}.run`, 'a check needs a command to run'))
     return null
   }
-  const exits: Record<string, string> = {}
+  const exits: Record<string, string> = { 0: 'pass' }
   const rawExits = asRecord(source['exits'])
   for (const [status, outcome] of Object.entries(rawExits ?? {})) {
     if (!/^\d+$/.test(status) || !asText(outcome)?.trim()) {
@@ -254,12 +256,29 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
 
 const validatePolicy = (policy: FlowPolicy, problems: FlowProblem[]): void => {
   const byId = new Map(policy.roles.map((role) => [role.id, role]))
+  const edges = new Map<string, Set<string>>()
+  for (const rule of policy.rules) {
+    const targets = edges.get(rule.on) ?? new Set<string>()
+    targets.add(rule.then.role)
+    edges.set(rule.on, targets)
+  }
+  const reaches = (from: string, target: string): boolean => {
+    const seen = new Set<string>()
+    const walk = (role: string): boolean => {
+      if (role === target) return true
+      if (seen.has(role)) return false
+      seen.add(role)
+      return [...(edges.get(role) ?? [])].some(walk)
+    }
+    return walk(from)
+  }
   if (!byId.has(policy.seed.role)) problems.push(problem('error', 'seed.role', `there is no role called "${policy.seed.role}"`))
   for (const role of policy.roles) {
     if (role.kind !== 'agent') continue
     for (const parent of role.independentOf) {
       if (parent === role.id) problems.push(problem('error', `roles.${role.id}.independentOf`, 'a role cannot be independent of itself'))
       else if (byId.get(parent)?.kind !== 'agent') problems.push(problem('error', `roles.${role.id}.independentOf`, `"${parent}" is not an Agent role`))
+      else if (!reaches(parent, role.id)) problems.push(problem('error', `roles.${role.id}.independentOf`, `"${parent}" has no predecessor path to ${role.id}`))
     }
   }
   for (const [index, rule] of policy.rules.entries()) {
@@ -290,7 +309,15 @@ export const parseFlowPolicy = (source: string): { document: FlowDocument | null
   const agents = root['version'] === 2 || agentFields
   if (!agents) {
     const legacy = parseFlow(source)
-    return { document: legacy.flow ? { format: 'legacy', flow: legacy.flow } : null, problems: legacy.problems }
+    const compatibility = legacy.flow
+      ? [
+          problem('warning', 'format', 'This flow uses the old format'),
+          ...(legacy.flow.roles.some((role) => role.kind === 'agent' && role.permission === 'read')
+            ? [problem('warning', 'roles', 'Old read permission allows editing and committing.')]
+            : []),
+        ]
+      : []
+    return { document: legacy.flow ? { format: 'legacy', flow: legacy.flow } : null, problems: [...legacy.problems, ...compatibility] }
   }
   const problems: FlowProblem[] = []
   const policy = parseAgents(root, problems)
@@ -319,6 +346,24 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
         continue
       }
       bindings.push({ role: role.id, index: slot.index, agent: entry.definition, origin: entry.origin, digest: entry.digest, seats: slot.seat === null ? [] : [role.seats[slot.index] ?? role.seats[0]!], grant: role.grant })
+    }
+  }
+  const roleById = new Map(document.flow.roles.map((role) => [role.id, role]))
+  for (const [index, rule] of document.flow.rules.entries()) {
+    const role = roleById.get(rule.on)
+    if (!role || role.kind !== 'agent' || !rule.when) continue
+    const candidates = bindings.filter((binding) => binding.role === role.id).map((binding) => binding.agent)
+    for (const answer of rule.when.every ?? []) {
+      for (const candidate of candidates) {
+        if (!candidate.answers.includes(answer)) {
+          problems.push(problem('error', `rules[${index}].when.every`, `${candidate.id} never answers "${answer}"`))
+        }
+      }
+    }
+    for (const answer of rule.when.any ?? []) {
+      if (candidates.length > 0 && !candidates.some((candidate) => candidate.answers.includes(answer))) {
+        problems.push(problem('error', `rules[${index}].when.any`, `${role.id} has no Agent that answers "${answer}"`))
+      }
     }
   }
   if (bindings.length > COMPILED_SLOT_LIMIT) problems.push(problem('error', 'roles', 'A flow may compile at most 1,024 slots.'))
