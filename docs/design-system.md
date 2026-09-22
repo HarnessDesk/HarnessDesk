@@ -176,6 +176,9 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
+| `--hd-history-action-h` | `34px` |
+| `--hd-history-filter-min-h` | `36px` |
+| `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |

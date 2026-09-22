@@ -3,15 +3,10 @@
 
 .actionBar {
   flex: none;
-  gap: var(--hd-space-0-5);
-  height: 34px;
-  padding: 0 var(--hd-space-2);
 }
 
 .filters {
   flex: none;
-  min-height: 36px;
-  padding: var(--hd-space-0-5) var(--hd-space-2-5);
 }
 
 .tableHeader {
@@ -19,33 +14,15 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2-5);
-  height: var(--hd-control-h-sm);
-  padding-right: var(--hd-space-3);
-}
-
-.commitDetail {
-  min-height: 160px;
 }
 
 .commitDetailHeader {
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--hd-space-2);
-  padding: var(--hd-space-1) var(--hd-space-2-5);
-}
-
-.fileList {
-  padding-bottom: var(--hd-space-2);
 }
 
 .diffViewport {
   flex: 1;
-  min-height: 0;
   overflow: auto;
-  padding: var(--hd-space-2-5) var(--hd-space-3);
-}
-
-.inlinePatch {
-  padding: var(--hd-space-1) var(--hd-space-3) var(--hd-space-3);
 }
