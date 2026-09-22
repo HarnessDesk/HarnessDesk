@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -39,7 +39,7 @@ const setup = async () => {
   const path = join(project, '.harnessdesk', 'flows', 'review.yml')
   await writeFile(path, legacy, 'utf8')
   const catalogue = new FlowCatalog({ userRoot: user, builtinRoot: builtin, confine: async () => {} })
-  return { project, path, catalogue, updates: new FlowUpdates({ stateDir: state, catalogue }) }
+  return { project, path, state, catalogue, updates: new FlowUpdates({ stateDir: state, catalogue }) }
 }
 
 test('read permission converts to edit in both places', async () => {
@@ -126,4 +126,72 @@ test('unapproved or expired update token writes nothing', async () => {
   const refused = await updates.apply(project, 'not-a-token')
   assert.equal(refused.state, 'refused')
   await assert.rejects(readFile(join(project, '.harnessdesk', 'agents'), 'utf8'))
+})
+
+test('an interrupted yaml conversion resumes the journaled source path', async () => {
+  const { project, path, state, catalogue, updates } = await setup()
+  const yaml = path.replace(/\.yml$/, '.yaml')
+  await rename(path, yaml)
+  const preview = await updates.preview(project, 'review')
+  assert.equal(preview.problems.filter((problem) => problem.level === 'error').length, 0)
+
+  const resumed = await new FlowUpdates({ stateDir: state, catalogue }).preview(project, 'review')
+  assert.equal(resumed.resuming, true)
+  assert.equal(resumed.edits.at(-1)?.path, '.harnessdesk/flows/review.yaml')
+})
+
+test('an invalid conversion preview is not persisted or resumed', async () => {
+  const { project, state, catalogue, updates } = await setup()
+  await writeFile(join(project, '.harnessdesk', 'flows', 'Review!.yml'), legacy, 'utf8')
+  const invalid = await updates.preview(project, 'Review!')
+  assert.ok(invalid.problems.some((problem) => problem.level === 'error'))
+  await assert.rejects(readdir(join(state, 'flow-updates')), { code: 'ENOENT' })
+
+  const retried = await new FlowUpdates({ stateDir: state, catalogue }).preview(project, 'Review!')
+  assert.equal(retried.resuming, false)
+  assert.ok(retried.problems.some((problem) => problem.level === 'error'))
+})
+
+test('a corrupt conversion journal refuses instead of starting a new update', async () => {
+  const { project, state, updates } = await setup()
+  const canonical = await realpath(project)
+  const journal = join(state, 'flow-updates', `${Buffer.from(`${canonical}\0review`).toString('base64url')}.json`)
+  await mkdir(join(state, 'flow-updates'), { recursive: true })
+  await writeFile(journal, '{not json', 'utf8')
+
+  await assert.rejects(updates.preview(project, 'review'), /saved flow update.*unreadable|invalid/i)
+})
+
+test('an unreadable conversion journal refuses instead of starting a new update', async () => {
+  const { project, state, updates } = await setup()
+  const canonical = await realpath(project)
+  const journal = join(state, 'flow-updates', `${Buffer.from(`${canonical}\0review`).toString('base64url')}.json`)
+  await mkdir(journal, { recursive: true })
+
+  await assert.rejects(updates.preview(project, 'review'), /saved flow update.*unreadable/i)
+})
+
+test('a valid preview replaces its confined source only after Agent files exist', async () => {
+  const { project, path, updates } = await setup()
+  const preview = await updates.preview(project, 'review')
+
+  const applied = await updates.apply(project, preview.token)
+  assert.equal(applied.state, 'applied')
+  assert.deepEqual(applied.written, ['.harnessdesk/agents/review-writer/AGENT.md'])
+  assert.match(await readFile(path, 'utf8'), /version: 2/)
+})
+
+test('an ancestor link swapped in after preview is refused before the update rereads its flow', async () => {
+  const { project, path, updates } = await setup()
+  const preview = await updates.preview(project, 'review')
+  const outside = join(project, '..', 'outside')
+  await mkdir(join(outside, 'flows'), { recursive: true })
+  await writeFile(join(outside, 'flows', 'review.yml'), await readFile(path, 'utf8'), 'utf8')
+  await rm(join(project, '.harnessdesk'), { recursive: true, force: true })
+  await symlink(outside, join(project, '.harnessdesk'))
+
+  const result = await updates.apply(project, preview.token)
+  assert.equal(result.state, 'refused')
+  assert.match(result.message, /flow folder.*link|real directory/i)
+  assert.equal(await readFile(join(outside, 'flows', 'review.yml'), 'utf8'), legacy)
 })

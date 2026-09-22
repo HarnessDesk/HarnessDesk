@@ -249,6 +249,30 @@ ${manyRules}
   assert.ok(parseFlowPolicy(`version: 2\nname: ${'x'.repeat(256 * 1024)}\nroles: {}`).problems.some((one) => /256 KiB/.test(one.text)))
 })
 
+test('policy collections reject non-text members instead of dropping them', () => {
+  const collections: readonly (readonly [string, string])[] = [
+    ['uses: [writer, 3]', 'roles.person.uses[1]'],
+    ['independentOf: [writer, false]', 'roles.person.independentOf[1]'],
+    ['outcomes: [done, 3]', 'roles.person.outcomes[1]'],
+  ]
+  for (const [field, at] of collections) {
+    const body = field.startsWith('outcomes')
+      ? `    kind: person\n    ${field}`
+      : `    kind: agent\n    ${field}`
+    const text = source(`    kind: agent\n    uses: writer`).replace('  person:\n    kind: person\n    outcomes: [done]', `  person:\n${body}`)
+    const parsed = parseFlowPolicy(text)
+    assert.equal(parsed.document, null, field)
+    assert.ok(parsed.problems.some((problem) => problem.at === at), field)
+  }
+  const rule = parseFlowPolicy(source('    kind: agent\n    uses: writer').replace('when: { every: done }', 'when: { every: [done, 3], any: [done, false] }'))
+  assert.equal(rule.document, null)
+  assert.ok(rule.problems.some((problem) => problem.at === 'rules[0].when.every[1]'))
+  assert.ok(rule.problems.some((problem) => problem.at === 'rules[0].when.any[1]'))
+  const files = parseFlowPolicy(source('    kind: agent\n    uses: writer').replace('then: { role: person, title: Review }', 'then: { role: person, title: Review, files: [safe, 3] }'))
+  assert.equal(files.document, null)
+  assert.ok(files.problems.some((problem) => problem.at === 'rules[0].then.files[1]'))
+})
+
 test('legacy parsing preserves old meanings and names the compatibility exception', () => {
   const legacy = parseFlowPolicy(`
 name: Old

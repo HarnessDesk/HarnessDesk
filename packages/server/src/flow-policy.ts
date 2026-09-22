@@ -71,9 +71,18 @@ export const expandSlots = (input: SlotInput): Slot[] => {
   }))
 }
 
-const words = (value: unknown): string[] => (asList(value) ?? (value === undefined || value === null ? [] : [value]))
-  .map((one) => asText(one)?.trim() ?? '')
-  .filter(Boolean)
+const words = (value: unknown, at: string, problems: FlowProblem[]): string[] => {
+  const out: string[] = []
+  for (const [index, one] of (asList(value) ?? (value === undefined || value === null ? [] : [value])).entries()) {
+    if (typeof one !== 'string') {
+      problems.push(problem('error', `${at}[${index}]`, 'a collection contains text entries only'))
+      continue
+    }
+    const text = one.trim()
+    if (text) out.push(text)
+  }
+  return out
+}
 
 const integer = (value: unknown, at: string, problems: FlowProblem[], fallback: number, min: number, max: number): number => {
   if (value === undefined || value === null) return fallback
@@ -102,7 +111,7 @@ const readThen = (value: unknown, at: string, problems: FlowProblem[]): FlowThen
   if (!role) problems.push(problem('error', `${at}.role`, 'which role takes this round?'))
   if (!title) problems.push(problem('error', `${at}.title`, 'a card needs a title'))
   if (!role || !title) return null
-  const files = words(record['files'])
+  const files = words(record['files'], `${at}.files`, problems)
   return { role, title, ...(asText(record['detail']) ? { detail: asText(record['detail'])! } : {}), ...(files.length > 0 ? { files } : {}) }
 }
 
@@ -201,7 +210,7 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
     }
     if (kind === 'agent') {
       unknownKeys(record, AGENT_FIELDS, at, problems)
-      const uses = words(record['uses'])
+      const uses = words(record['uses'], `${at}.uses`, problems)
       const rawSeats = asList(record['seats']) ?? (record['seats'] === undefined || record['seats'] === null ? [] : [record['seats']])
       const parsed = parseSeatList(rawSeats)
       for (const bad of parsed.broken) problems.push(problem('error', `${at}.seats[${bad.index}]`, bad.text))
@@ -212,7 +221,7 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
       }
       const grant = asText(record['grant'])?.trim() || 'read'
       if (!isCeilingLevel(grant)) problems.push(problem('error', `${at}.grant`, 'grant is read, edit, publish or merge'))
-      const independentOf = words(record['independentOf'])
+      const independentOf = words(record['independentOf'], `${at}.independentOf`, problems)
       roles.push({ id, kind: 'agent', uses, seats: parsed.seats, ...(count === undefined ? {} : { count }), isolate: record['isolate'] === true, grant: isCeilingLevel(grant) ? grant : 'read', independentOf })
     } else if (kind === 'check') {
       unknownKeys(record, CHECK_FIELDS, at, problems)
@@ -220,7 +229,7 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
       if (check) roles.push({ id, kind: 'check', check })
     } else if (kind === 'person') {
       unknownKeys(record, PERSON_FIELDS, at, problems)
-      roles.push({ id, kind: 'person', outcomes: words(record['outcomes']) })
+      roles.push({ id, kind: 'person', outcomes: words(record['outcomes'], `${at}.outcomes`, problems) })
     } else problems.push(problem('error', `${at}.kind`, `"${kind}" is not a kind — it is agent, person or check`))
   }
   const rawRules = asList(root['rules']) ?? []
@@ -237,8 +246,8 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
     const when = asRecord(record['when'])
     if (record['when'] !== undefined && !when) problems.push(problem('error', `${at}.when`, 'a condition is a map'))
     if (when) unknownKeys(when, WHEN_FIELDS, `${at}.when`, problems)
-    const every = words(when?.['every'])
-    const any = words(when?.['any'])
+    const every = words(when?.['every'], `${at}.when.every`, problems)
+    const any = words(when?.['any'], `${at}.when.any`, problems)
     const evidence = when?.['evidence'] === undefined ? [] : readEvidence(when['evidence'], `${at}.when.evidence`, problems)
     rules.push({ id: asText(record['id'])?.trim() || `${on}-${index + 1}`, on, ...(every.length ? { when: { every, ...(any.length ? { any } : {}), ...(evidence.length ? { evidence } : {}) } } : any.length || evidence.length ? { when: { ...(any.length ? { any } : {}), ...(evidence.length ? { evidence } : {}) } } : {}), then })
   })

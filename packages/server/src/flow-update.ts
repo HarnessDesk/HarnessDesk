@@ -1,12 +1,11 @@
-import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { mkdir, open, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, realpath } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import { ceilingOfPermission, type Flow, type FlowProblem, type FlowPolicy, type FlowPolicyRole, type FlowSeat } from '@harnessdesk/protocol'
 
 import { agentIdOf, createAgentFolder, projectAgentDir } from './agent-files.js'
-import { FlowCatalog } from './flow-catalog.js'
+import { FlowCatalog, readProjectFlow, replaceProjectFlow } from './flow-catalog.js'
 import { parseFlowPolicy, serializeFlowPolicy } from './flow-policy.js'
 
 export interface FlowFileEdit {
@@ -66,8 +65,27 @@ interface Journal {
   readonly written: readonly string[]
   readonly done: boolean
 }
-interface Token { readonly expires: number; readonly root: string; readonly journal: Journal }
+interface Token { readonly expires: number; readonly root: string; readonly journal: Journal | null }
 export interface FlowUpdatesOptions { readonly stateDir: string; readonly catalogue: FlowCatalog; readonly now?: () => number }
+
+const JOURNAL_AGENT = /^\.harnessdesk\/agents\/([a-z0-9][a-z0-9-]{0,47})\/AGENT\.md$/
+const JOURNAL_FLOW = /^\.harnessdesk\/flows\/([^/\\\0]+\.ya?ml)$/i
+const journalIsSafe = (value: unknown, root: string, id: string): value is Journal => {
+  if (!value || typeof value !== 'object') return false
+  const journal = value as Partial<Journal>
+  if (journal.version !== 1 || journal.root !== root || journal.id !== id || typeof journal.source !== 'string'
+    || !Number.isSafeInteger(journal.created) || typeof journal.done !== 'boolean' || !Array.isArray(journal.edits)
+    || journal.edits.length === 0 || !Array.isArray(journal.intended) || !Array.isArray(journal.written)) return false
+  const edits = journal.edits as readonly Partial<FlowFileEdit>[]
+  const flow = edits.at(-1)
+  const flowName = typeof flow?.path === 'string' ? JOURNAL_FLOW.exec(flow.path)?.[1] : null
+  if (!flow || !flowName || flowName.replace(/\.ya?ml$/i, '') !== id || typeof flow.before !== 'string' || flow.before !== journal.source || typeof flow.after !== 'string') return false
+  const creates = edits.slice(0, -1)
+  if (creates.some((edit) => typeof edit.path !== 'string' || !JOURNAL_AGENT.test(edit.path) || edit.before !== null || typeof edit.after !== 'string')) return false
+  const permitted = new Set(creates.map((edit) => edit.path!))
+  return journal.intended.every((path) => typeof path === 'string' && permitted.has(path))
+    && journal.written.every((path) => typeof path === 'string' && permitted.has(path))
+}
 
 const q = (text: string): string => JSON.stringify(text)
 const safeId = (flow: string, role: string): string => {
@@ -123,15 +141,25 @@ export class FlowUpdates {
     try { await handle.writeFile(JSON.stringify(journal)); await handle.sync() } finally { await handle.close() }
   }
   async #load(root: string, id: string): Promise<Journal | null> {
-    try { return JSON.parse(await readFile(this.#journalPath(root, id), 'utf8')) as Journal } catch { return null }
+    let source: string
+    try { source = await readFile(this.#journalPath(root, id), 'utf8') } catch (error) {
+      if ((error as { code?: string }).code === 'ENOENT') return null
+      throw new Error('The saved flow update is unreadable. Remove it only after reviewing any partially created Agents.')
+    }
+    let journal: unknown
+    try { journal = JSON.parse(source) } catch {
+      throw new Error('The saved flow update is invalid. Remove it only after reviewing any partially created Agents.')
+    }
+    if (!journalIsSafe(journal, root, id)) throw new Error('The saved flow update is invalid. Remove it only after reviewing any partially created Agents.')
+    return journal
   }
-  #mint(root: string, journal: Journal): string { const token = randomUUID(); this.#tokens.set(token, { expires: this.#now() + 10 * 60_000, root, journal }); return token }
+  #mint(root: string, journal: Journal | null): string { const token = crypto.randomUUID(); this.#tokens.set(token, { expires: this.#now() + 10 * 60_000, root, journal }); return token }
 
   async preview(root: string, id: string): Promise<FlowUpdatePreview> {
     const canonical = await realpath(root)
     const previous = await this.#load(canonical, id)
     if (previous && !previous.done) {
-      const source = await this.#catalogue.read(canonical, `${id}.yml`, 'project')
+      const source = await this.#catalogue.read(canonical, previous.edits.at(-1)!.path, 'project')
       const flow = previous.edits.at(-1)!
       if (source !== flow.before && source !== flow.after) throw new Error('This flow changed after the preview. Preview the update again.')
       return { token: this.#mint(canonical, previous), resuming: true, edits: previous.edits, problems: [] }
@@ -139,7 +167,7 @@ export class FlowUpdates {
     const found = await this.#catalogue.locate(canonical, id)
     if (found.entry.origin !== 'project') throw new Error('Customize this flow into the project before updating it.')
     const parsed = updateProblems(found.source)
-    if (!parsed.flow) return { token: this.#mint(canonical, { version: 1, root: canonical, id, source: found.source, created: this.#now(), edits: [], intended: [], written: [], done: false }), resuming: false, edits: [], problems: parsed.problems }
+    if (!parsed.flow) return { token: this.#mint(canonical, null), resuming: false, edits: [], problems: parsed.problems }
     let edits: readonly FlowFileEdit[] = []
     let problems = parsed.problems
     try {
@@ -150,6 +178,7 @@ export class FlowUpdates {
     } catch (error) {
       problems = [...problems, { level: 'error', at: 'update', text: error instanceof Error ? error.message : String(error) }]
     }
+    if (problems.some((problem) => problem.level === 'error')) return { token: this.#mint(canonical, null), resuming: false, edits, problems }
     const journal: Journal = { version: 1, root: canonical, id, source: found.source, created: this.#now(), edits, intended: [], written: [], done: false }
     await this.#save(journal)
     return { token: this.#mint(canonical, journal), resuming: false, edits, problems }
@@ -159,15 +188,20 @@ export class FlowUpdates {
     const canonical = await realpath(root)
     const held = this.#tokens.get(token)
     this.#tokens.delete(token)
-    if (!held || held.root !== canonical || held.expires < this.#now()) return { state: 'refused', written: [], message: 'This update preview expired. Preview the update again.' }
-    const errors = held.journal.edits.length === 0 ? ['There is no valid update to apply.'] : parseFlowPolicy(held.journal.edits.at(-1)!.after).problems.filter((one) => one.level === 'error').map((one) => one.text)
+    if (!held || held.root !== canonical || held.expires < this.#now() || !held.journal) return { state: 'refused', written: [], message: 'This update preview expired. Preview the update again.' }
+    const heldJournal = held.journal
+    const errors = heldJournal.edits.length === 0 ? ['There is no valid update to apply.'] : parseFlowPolicy(heldJournal.edits.at(-1)!.after).problems.filter((one) => one.level === 'error').map((one) => one.text)
     if (errors.length) return { state: 'refused', written: [], message: errors[0]! }
-    const intended = new Set(held.journal.intended ?? [])
-    const written = new Set(held.journal.written)
-    const journal = (): Journal => ({ ...held.journal, intended: [...intended], written: [...written] })
+    const intended = new Set(heldJournal.intended ?? [])
+    const written = new Set(heldJournal.written)
+    const journal = (): Journal => ({ ...heldJournal, intended: [...intended], written: [...written] })
     const port: MigrationPort = {
       read: async (path) => {
-        try { return await readFile(join(canonical, path), 'utf8') } catch (error) { if ((error as { code?: string }).code === 'ENOENT') return null; throw error }
+        try {
+          return path.startsWith('.harnessdesk/flows/')
+            ? await readProjectFlow(canonical, path)
+            : await readFile(join(canonical, path), 'utf8')
+        } catch (error) { if ((error as { code?: string }).code === 'ENOENT') return null; throw error }
       },
       recorded: async (path) => intended.has(path),
       record: async (path) => { intended.add(path); await this.#save(journal()) },
@@ -179,18 +213,11 @@ export class FlowUpdates {
         await this.#save(journal())
       },
       replace: async (path, before, after) => {
-        const current = await readFile(join(canonical, path), 'utf8')
-        if (current !== before) throw new Error('This flow changed after the preview. Preview the update again.')
-        const target = join(canonical, path)
-        const temporary = join(dirname(target), `.harnessdesk-flow-update-${randomUUID()}`)
-        await writeFile(temporary, after, { encoding: 'utf8', flag: 'wx' })
-        const reread = await readFile(target, 'utf8')
-        if (reread !== before) { await unlink(temporary); throw new Error('This flow changed after the preview. Preview the update again.') }
-        await rename(temporary, target)
+        await replaceProjectFlow(canonical, path, before, after)
       },
     }
     try {
-      await applyMigration(held.journal.edits, port)
+      await applyMigration(heldJournal.edits, port)
       const done = { ...journal(), done: true }
       await this.#save(done)
       return { state: 'applied', written: [...written], message: 'The flow update was applied.' }
