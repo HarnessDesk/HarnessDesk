@@ -77,6 +77,24 @@ const provenanceOf = (priced: number, vendor: number): SpendSummary['provenance'
   return vendor === priced ? 'vendorMetered' : 'mixed'
 }
 
+const failedCorpusSource = (
+  corpus: CorpusSpec | ScanTarget,
+  checkedAt: number,
+  problem: string,
+): InsightSource => {
+  const path = 'path' in corpus ? corpus.path : corpus.root
+  return {
+    id: `corpus:${corpus.kind}:${corpus.runtime}:${createHash('sha256').update(path).digest('hex').slice(0, 16)}`,
+    runtime: corpus.runtime,
+    kind: 'corpus',
+    label: 'Recorded usage',
+    observedAt: null,
+    checkedAt,
+    stale: false,
+    problem,
+  }
+}
+
 export class Ledger {
   readonly #options: LedgerOptions
   readonly #store: LedgerStore
@@ -151,12 +169,7 @@ export class Ledger {
           unreadable: () => {
             // The source itself must say which runtime was unavailable, but
             // never expose the agent-owned corpus path or account details.
-            const id = `corpus:${corpus.runtime}:${createHash('sha256').update(corpus.root).digest('hex').slice(0, 16)}`
-            detailSources.push({
-              id, runtime: corpus.runtime, kind: 'corpus', label: 'Recorded usage',
-              observedAt: null, checkedAt: this.#now(), stale: false,
-              problem: 'Recorded usage source could not be discovered.',
-            })
+            detailSources.push(failedCorpusSource(corpus, this.#now(), 'Recorded usage source could not be discovered.'))
             gaps.push('A recorded usage source could not be discovered.')
           },
         }))
@@ -175,7 +188,11 @@ export class Ledger {
         await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: 64 * 1024 * 1024 - bytes })
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') throw error
-        gaps.push(`A recorded usage source could not be read: ${error instanceof Error ? error.message : String(error)}`)
+        detailSources.push(failedCorpusSource(target, this.#now(), 'Recorded usage source could not be read.'))
+        // Database and filesystem errors often echo agent-owned paths. The
+        // source carries the opaque identity; the rendered gap says only what
+        // Insight can safely promise.
+        gaps.push('A recorded usage source could not be read.')
       }
     }
     const selected = detailSamples.filter((sample) => sample.project === query.root && sample.from !== null && sample.from >= query.from && sample.from < query.to)

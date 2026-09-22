@@ -993,14 +993,21 @@ const inChats = (path: string): boolean => basename(dirname(path)) === 'chats'
  * write-ahead log too: a WAL database takes its writes there, and the main
  * file can sit unchanged for as long as its owner runs.
  */
-const databaseTarget = async (path: string): Promise<{ path: string; size: number; mtime: number } | null> => {
+const databaseTarget = async (
+  path: string,
+  unreadable: (path: string, error: unknown) => void,
+): Promise<{ path: string; size: number; mtime: number } | null> => {
   let main
   try {
     main = await stat(path)
-  } catch {
+  } catch (error) {
+    unreadable(path, error)
     return null
   }
-  if (!main.isFile()) return null
+  if (!main.isFile()) {
+    unreadable(path, new Error('The database source is not a file.'))
+    return null
+  }
   let size = main.size
   let mtime = main.mtimeMs
   try {
@@ -1026,7 +1033,7 @@ export const listTargets = async (
   const targets: ScanTarget[] = []
   for (const corpus of corpora) {
     if (corpus.kind === 'opencode' || corpus.kind === 'cline') {
-      const database = await databaseTarget(corpus.root)
+      const database = await databaseTarget(corpus.root, unreadable)
       if (database) targets.push({ runtime: corpus.runtime, kind: corpus.kind, ...database })
       continue
     }

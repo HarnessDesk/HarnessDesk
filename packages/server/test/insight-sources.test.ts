@@ -182,3 +182,71 @@ test('a selected runtime does not inherit scanner gaps from another runtime corp
     assert.ok(betaDetail.gaps.some((gap) => gap.includes('could not be discovered')), 'the selected runtime retains its own scanner gap')
   } finally { ledger.close() }
 })
+
+test('database corpus discovery and malformed reads retain opaque runtime-qualified source gaps', async () => {
+  const dir = tempDir('hd-insight-database-source-gap-')
+  const missing = join(dir, 'missing-opencode.db')
+  const nonFile = join(dir, 'cline-directory')
+  await mkdir(nonFile)
+  const malformed = join(dir, 'malformed-opencode.db')
+  await writeFile(malformed, 'this is not a sqlite database')
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [
+      { runtime: 'missing', kind: 'opencode', root: missing },
+      { runtime: 'non-file', kind: 'cline', root: nonFile },
+      { runtime: 'malformed', kind: 'opencode', root: malformed },
+    ],
+    now: () => 10,
+  })
+  const plane = new InsightPlane({
+    ledger: () => ledger,
+    goals: { store: { list: () => [] } } as never,
+    seats: () => [],
+    seating: {} as never,
+    now: () => 10,
+  })
+  try {
+    const all = await plane.usage({ root: '/work/project', from: 0, to: 10 })
+    assert.deepEqual(all.sources.map((source) => ({ runtime: source.runtime, problem: source.problem })).sort((left, right) => left.runtime!.localeCompare(right.runtime!)), [
+      { runtime: 'malformed', problem: 'Recorded usage source could not be read.' },
+      { runtime: 'missing', problem: 'Recorded usage source could not be discovered.' },
+      { runtime: 'non-file', problem: 'Recorded usage source could not be discovered.' },
+    ])
+    assert.equal(all.totals.usd.value, null, 'failed database sources do not become zero spend')
+    for (const source of all.sources) assert.ok(!source.id.includes(dir), 'failed source identity never discloses its corpus path')
+
+    const malformedOnly = await plane.usage({ root: '/work/project', from: 0, to: 10, runtime: 'malformed' })
+    assert.deepEqual(malformedOnly.sources.map((source) => source.runtime), ['malformed'], 'a selected runtime retains only its own failed source')
+    assert.ok(malformedOnly.gaps.length > 0)
+    const missingOnly = await plane.usage({ root: '/work/project', from: 0, to: 10, runtime: 'missing' })
+    assert.deepEqual(missingOnly.sources.map((source) => source.runtime), ['missing'], 'a selected runtime never receives another failed source')
+  } finally { ledger.close() }
+})
+
+test('target corpus-read errors redact paths while retaining an opaque failed source', async () => {
+  const dir = tempDir('hd-insight-target-read-error-')
+  const database = join(dir, 'opencode.db')
+  const header = Buffer.alloc(20)
+  header.write('SQLite format 3\0', 0, 'latin1')
+  header[18] = 2
+  header[19] = 2
+  await writeFile(database, header)
+  await mkdir(`${database}-wal`)
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'target-error', kind: 'opencode', root: database }],
+    now: () => 10,
+  })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: 0, to: 10 })
+    assert.deepEqual(detail.sources.map((source) => ({ runtime: source.runtime, problem: source.problem })), [
+      { runtime: 'target-error', problem: 'Recorded usage source could not be read.' },
+    ])
+    assert.ok(detail.gaps.length > 0, 'the source-read gap remains visible')
+    for (const gap of detail.gaps) assert.ok(!gap.includes(dir), 'a target read error never exposes its corpus path')
+    assert.ok(!detail.sources[0]?.id.includes(dir), 'the failed source identity remains opaque')
+  } finally { ledger.close() }
+})
