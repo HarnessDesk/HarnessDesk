@@ -2856,12 +2856,16 @@ export class Host {
 
   /** A reported child conversation to the conversation that delegated it. */
   readonly #delegatedBy = new Map<string, { readonly runtime: string; readonly sessionId: string }>()
+  /** A bounded association was lost, so an otherwise unknown caller is unsafe. */
+  readonly #delegationUncertainRuntimes = new Set<string>()
 
   readonly #messageTurns = new Map<string, TurnCause>()
   readonly #pendingCauses = new Map<string, TurnCause>()
 
   #messageCause(from: TeamSender): TurnCause {
-    const sender = this.#rootOf(String(from.runtime), from.sessionId)
+    const sender = this.#rootOf(String(from.runtime), from.sessionId) ?? {
+      runtime: String(from.runtime), sessionId: from.sessionId,
+    }
     return { kind: 'message', from, ceiling: this.#ceilingOf(sender.runtime, sender.sessionId) }
   }
 
@@ -2973,28 +2977,34 @@ export class Host {
   #noteDelegation(runtime: RuntimeId, event: AgentEvent): void {
     if (event.type !== 'item/started' && event.type !== 'item/completed') return
     if (event.item.type !== 'subagent') return
+    const root = this.#rootOf(String(runtime), String(event.sessionId))
+    if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
     for (const member of event.item.members) {
       if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
-      this.#delegatedBy.set(String(sessionKey(runtime, makeSessionId(member.sessionId))), {
-        runtime: String(runtime),
-        sessionId: String(event.sessionId),
-      })
+      if (root !== null) this.#delegatedBy.set(String(sessionKey(runtime, makeSessionId(member.sessionId))), root)
       if (this.#delegatedBy.size > 2000) {
         const oldest = this.#delegatedBy.keys().next().value
-        if (oldest !== undefined) this.#delegatedBy.delete(oldest)
+        if (oldest !== undefined) {
+          this.#delegatedBy.delete(oldest)
+          this.#delegationUncertainRuntimes.add(String(runtime))
+        }
       }
     }
   }
 
-  #rootOf(runtime: string, sessionId: string): Conversation {
+  #rootOf(runtime: string, sessionId: string): Conversation | null {
     let at: Conversation = { runtime, sessionId }
+    const seen = new Set<string>()
     for (let depth = 0; depth < 8; depth += 1) {
       if (this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId))) return at
-      const parent = this.#delegatedBy.get(String(sessionKey(runtimeId(at.runtime), makeSessionId(at.sessionId))))
-      if (!parent) return at
+      const key = String(sessionKey(runtimeId(at.runtime), makeSessionId(at.sessionId)))
+      if (seen.has(key)) return null
+      seen.add(key)
+      const parent = this.#delegatedBy.get(key)
+      if (!parent) return this.#delegationUncertainRuntimes.has(runtime) ? null : at
       at = parent
     }
-    return at
+    return this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId)) ? at : null
   }
 
   /** The Agent or live-flow ceiling governing this conversation. */

@@ -249,6 +249,8 @@ export class CodexRuntime implements AgentRuntime {
   readonly #environments = new Map<string, Readonly<Record<string, string>>>()
   /** Child thread id to the thread that spawned it. */
   readonly #parents = new Map<string, string>()
+  /** A bounded thread association was lost, so an otherwise unknown child is unsafe. */
+  #delegationUncertain = false
   /** Codex's inline reviews, made to open and close their turns; see `ReviewTurns`. */
   readonly #reviewTurns = new ReviewTurns()
   readonly #eventListeners = new Set<(event: AgentEvent) => void>()
@@ -1253,10 +1255,15 @@ export class CodexRuntime implements AgentRuntime {
       case 'thread/started': {
         const { id, parentThreadId } = notification.params.thread
         if (parentThreadId && parentThreadId !== id) {
-          this.#parents.set(id, parentThreadId)
+          const root = this.#rootOf(parentThreadId)
+          if (root === null) this.#delegationUncertain = true
+          else this.#parents.set(id, root)
           if (this.#parents.size > 2000) {
             const oldest = this.#parents.keys().next().value
-            if (oldest !== undefined) this.#parents.delete(oldest)
+            if (oldest !== undefined) {
+              this.#parents.delete(oldest)
+              this.#delegationUncertain = true
+            }
           }
         }
         return
@@ -1338,14 +1345,18 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   /** Walk an announced child thread to the conversation the desk opened. */
-  #rootOf(threadId: string): string {
+  #rootOf(threadId: string): string | null {
     let at = threadId
+    const seen = new Set<string>()
     for (let depth = 0; depth < 8; depth += 1) {
+      if (this.#sessions.has(at)) return at
+      if (seen.has(at)) return null
+      seen.add(at)
       const parent = this.#parents.get(at)
-      if (parent === undefined) return at
+      if (parent === undefined) return this.#delegationUncertain ? null : at
       at = parent
     }
-    return at
+    return this.#sessions.has(at) ? at : null
   }
 
   #onServerRequest(
@@ -1383,8 +1394,13 @@ export class CodexRuntime implements AgentRuntime {
   ): Promise<void> {
     const registry = this.#capabilities
     const root = this.#rootOf(params.threadId)
-    const session = this.#sessions.get(root)
     const label = `${params.namespace ?? ''}/${params.tool}`
+
+    if (root === null) {
+      responder.respond(toCodexToolResponse({ ok: false, error: 'Delegated tool call refused: its root conversation could not be confirmed.' }))
+      return
+    }
+    const session = this.#sessions.get(root)
 
     if (!registry) {
       responder.respond(

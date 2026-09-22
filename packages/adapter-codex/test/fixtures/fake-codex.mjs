@@ -976,6 +976,36 @@ const callDeclaredToolAsChild = () => {
   })
 }
 
+/** A deeply delegated child calls a declared tool after every parent is announced. */
+const callDeclaredToolAsDeepChild = (count) => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  let parent = THREAD
+  let child = THREAD
+  for (let index = 0; index < count; index += 1) {
+    child = `${THREAD}-child-${index}`
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: parent, preview: 'A sub-agent.' }) })
+    parent = child
+  }
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      // Once the bounded map has evicted its first association, exercise that
+      // original child rather than a still-retained descendant.
+      threadId: count > 2000 ? `${THREAD}-child-0` : child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
+    },
+  })
+}
+
 /**
  * A small filesystem for the `fs/*` and `fuzzyFileSearch` methods. The real
  * app-server serves the host filesystem unsandboxed; the fake serves this
@@ -2010,6 +2040,8 @@ rl.on('line', (line) => {
       if (mode === 'turn') setImmediate(playTurn)
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
       if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
+      if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))
+      if (mode === 'delegated-tools-evicted') setImmediate(() => callDeclaredToolAsDeepChild(2001))
       return
     }
 

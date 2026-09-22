@@ -19,7 +19,8 @@ import { TOOL_WORDS, toolCeiling } from './tools.js'
 
 /** What the tool gate needs from the host. */
 export interface CeilingGatePort {
-  rootOf(runtime: string, sessionId: string): Conversation
+  /** `null` means a reported delegated caller lost its authoritative root. */
+  rootOf(runtime: string, sessionId: string): Conversation | null
   ceilingOf(runtime: string, sessionId: string): SeatCeiling | null
   causeOf(runtime: string, sessionId: string, turnId?: string): TurnCause
   nameOf(runtime: string, sessionId: string): string
@@ -44,6 +45,8 @@ export interface GatedCall {
 }
 
 export type Admission = { readonly admitted: true } | { readonly admitted: false; readonly refusal: string }
+
+export const unresolvedDelegationRefusal = 'Delegated tool call refused: its root conversation could not be confirmed.'
 
 const WORD: Readonly<Record<CeilingLevel, string>> = { read: 'Read', edit: 'Edit', publish: 'Publish', merge: 'Merge' }
 
@@ -76,6 +79,7 @@ export class CeilingGate {
     const { runtime, sessionId } = call.scope
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
     const root = this.port.rootOf(String(runtime), String(sessionId))
+    if (root === null) return { admitted: false, refusal: unresolvedDelegationRefusal }
     const ceiling = this.port.ceilingOf(root.runtime, root.sessionId)
     if (ceiling && !reaches(ceiling.level, call.needs)) {
       const refusal = refusalOf(call.tool, call.needs, ceiling.level)

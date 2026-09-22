@@ -230,3 +230,41 @@ test('through the host: a sub-agent the runtime reports with a conversation of i
   assert.equal(said(seat).at(-1), 'Publish refused: this seat may read, not publish — opening a pull request needs a seat that may publish.', 'said where the ceiling is held')
   assert.equal((await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('stranger') })).ok, true)
 })
+
+test('through the host: a delegated chain beyond the correlation bound cannot publish', async (t) => {
+  const { host, runtime, ran, call, agent, work } = await desk(t)
+  await agent('reviewer', 'ceiling: read')
+  const seat = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const turn = host.registry.get(FAKE_RUNTIME_ID, seat.id)?.session.turns.at(-1)
+  assert.ok(turn, 'the standing order started a turn')
+  let parent = String(seat.id)
+  for (let depth = 0; depth < 9; depth += 1) {
+    const child = `deep-child-${depth}`
+    runtime.emit({
+      type: 'item/completed', sessionId: sessionId(parent), turnId: turnId(String(turn.id)),
+      item: { id: itemId(`spawn-deep-${depth}`), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: child }] },
+    })
+    parent = child
+  }
+  const escaped = await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId(parent) })
+  assert.equal(escaped.ok, false)
+  assert.equal((await call('git_status', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId(parent) })).ok, true)
+  assert.deepEqual(ran, ['git_status'], 'a deeply delegated child keeps its root scope')
+})
+
+test('through the host: an evicted delegated association cannot publish', async (t) => {
+  const { host, runtime, ran, call, agent, work } = await desk(t)
+  await agent('reviewer', 'ceiling: read')
+  const seat = (await host.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const turn = host.registry.get(FAKE_RUNTIME_ID, seat.id)?.session.turns.at(-1)
+  assert.ok(turn, 'the standing order started a turn')
+  for (let index = 0; index <= 2000; index += 1) {
+    runtime.emit({
+      type: 'item/completed', sessionId: seat.id, turnId: turnId(String(turn.id)),
+      item: { id: itemId(`spawn-evicted-${index}`), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: `evicted-child-${index}` }] },
+    })
+  }
+  const escaped = await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: sessionId('evicted-child-0') })
+  assert.equal(escaped.ok, false)
+  assert.deepEqual(ran, [], 'an evicted delegated association must not become unscoped')
+})

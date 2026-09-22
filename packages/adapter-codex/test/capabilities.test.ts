@@ -263,3 +263,32 @@ test("a sub-agent's call to a plugin tool is its parent thread's: the scope name
     [String(session.id)],
   )
 })
+
+for (const [mode, expected] of [
+  ['delegated-tools-deep', 'scoped'],
+  ['delegated-tools-evicted', 'refused'],
+] as const) {
+  test(`a ${mode} child is ${expected}`, async (t) => {
+    const kernel = new ExtensionKernel()
+    let executed = false
+    await loadPlugin(kernel, 'demo', (ctx) => {
+      ctx.tools.register({
+        name: 'shout', description: 'Uppercases its input.', inputSchema: { type: 'object' },
+        execute: () => { executed = true; return 'ran' },
+      })
+    })
+    const { runtime, events } = await start(kernel, mode)
+    t.after(async () => { await runtime.dispose(); await kernel.dispose() })
+    const session = await runtime.createSession({ cwd: '/w' })
+    await session.send([{ type: 'text', text: 'delegate it' }])
+    await waitFor(() => notices(events).some((message) => message.startsWith('TOOL_ANSWER')), 'the tool answer')
+    const answer = notices(events).find((message) => message.startsWith('TOOL_ANSWER')) ?? ''
+    if (expected === 'scoped') {
+      assert.match(answer, /success=true/)
+      assert.equal(executed, true)
+      return
+    }
+    assert.match(answer, /success=false/)
+    assert.equal(executed, false, 'a child without a confirmed root must not run a tool')
+  })
+}
