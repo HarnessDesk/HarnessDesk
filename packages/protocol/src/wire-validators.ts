@@ -323,7 +323,7 @@ const insightMillis: Validator<number> = (value, path = '') => {
   return number
 }
 const insightQuery = (value: unknown, path = '') => {
-  const query = goalShape({ root: atMost(4096, isFilled), from: insightMillis, to: insightMillis })(value, path)
+  const query = goalShape({ root: atMost(4096, isFilled), from: insightMillis, to: insightMillis, runtime: optional(isString) })(value, path)
   if (query.from >= query.to) throw new ValidationError(path, 'expected from before to')
   if (query.to - query.from > 90 * 86_400_000) throw new ValidationError(path, 'expected a range of at most 90 days')
   return query
@@ -344,7 +344,7 @@ const insightGoals: Validator<string[]> = (value, path = '') => {
 const insightCompare = (value: unknown, path = '') => {
   const object = isObject(value, path)
   const query = insightQuery({ root: object.root, from: object.from, to: object.to }, path)
-  const read = goalShape({ root: atMost(4096, isFilled), from: insightMillis, to: insightMillis, goals: insightGoals, left: insightSelector, right: insightSelector })(value, path)
+  const read = goalShape({ root: atMost(4096, isFilled), from: insightMillis, to: insightMillis, runtime: optional(isString), goals: insightGoals, left: insightSelector, right: insightSelector })(value, path)
   if (query.from !== read.from || query.to !== read.to) throw new ValidationError(path, 'invalid Insight range')
   return read
 }

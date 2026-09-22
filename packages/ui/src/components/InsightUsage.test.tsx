@@ -36,6 +36,17 @@ it('loads By Goal on the Usage window’s initial view', async () => {
   expect(openGoal).toHaveBeenCalledWith('goal-1')
 })
 
+it('sends the Dashboard runtime scope with its project usage read', async () => {
+  const readUsageInsight = vi.fn(async () => report())
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={'alpha' as never} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+  expect(readUsageInsight).toHaveBeenCalledWith(expect.objectContaining({ root: '/repo', runtime: 'alpha' }))
+})
+
 it('clears the previous project attribution while the next project loads', async () => {
   let resolveNext: ((value: InsightReport) => void) | null = null
   const readUsageInsight = vi.fn()
@@ -43,9 +54,9 @@ it('clears the previous project attribution while the next project loads', async
     .mockImplementationOnce(() => new Promise<InsightReport>((resolve) => { resolveNext = resolve }))
   const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
-  await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(container.textContent).toContain('One Goal')
-  await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/other" view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><InsightUsage root="/other" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>); await Promise.resolve() })
   expect(container.textContent).toContain('Reading recorded usage…')
   expect(container.textContent).not.toContain('One Goal')
   await act(async () => { resolveNext?.(report()) })

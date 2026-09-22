@@ -458,7 +458,7 @@ export const Usage = ({
           </section>
           <section className={styles.band} aria-label="Project usage">
             <BandHead name="Project usage" action={<Segmented label="Project usage view" options={[{ value: 'goal', label: 'By Goal' }, { value: 'agent', label: 'By Agent' }]} value={insightView} onChange={(next) => setInsightView(next as 'goal' | 'agent')} />} />
-            <InsightUsage root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null} view={insightView} onGoal={(goal) => store.openGoal(goal)} />
+            <InsightUsage root={snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null} runtime={scope} view={insightView} onGoal={(goal) => store.openGoal(goal)} />
           </section>
         </div>
       </WindowPage>

@@ -5,6 +5,7 @@ import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
 import { Ledger } from '../src/ledger/index.js'
+import { Pricing } from '../src/ledger/pricing.js'
 import { scanClaudeTranscript, scanClineDatabase, scanCodexRollout, scanGeminiChat, scanOpencodeDatabase, scanQwenTranscript } from '../src/ledger/scan.js'
 import { seatFor } from '../src/insight/attribution.js'
 import { InsightPlane } from '../src/insight/plane.js'
@@ -61,21 +62,22 @@ test('a scanner read gap remains visible when no usage samples were recovered', 
 
 test('scanner omissions remain unknown detail fields instead of zero across every scanner shape', async () => {
   const dir = tempDir('hd-insight-unknown-')
-  const emitted = async (scan: (emit: (sample: import('../src/ledger/insight.js').UsageSample) => void) => Promise<unknown>) => {
+  const emitted = async (scan: (emit: (sample: import('../src/ledger/insight.js').UsageSample) => void) => Promise<unknown>, absentCacheWrite = false) => {
     const samples: import('../src/ledger/insight.js').UsageSample[] = []
     await scan((sample) => samples.push(sample))
     assert.equal(samples.length, 1)
     assert.equal(samples[0]?.output.value, null, 'missing output is unavailable, not a known zero')
     assert.equal(samples[0]?.cacheRead.value, null, 'missing cache read is unavailable, not a known zero')
+    if (absentCacheWrite) assert.equal(samples[0]?.cacheWrite.value, null, 'missing cache writes stay a source gap, never a priced zero')
   }
   const qwen = join(dir, 'qwen.jsonl')
   await writeFile(qwen, `${JSON.stringify({ uuid: 'q', type: 'assistant', timestamp: '2026-09-20T00:00:00.000Z', cwd: '/work/project', model: 'qwen', usageMetadata: { promptTokenCount: 10 } })}\n`)
-  await emitted((emit) => scanQwenTranscript({ runtime: 'qwen', kind: 'qwen', path: qwen, size: 0, mtime: 0 }, 0, [], { emit, byteLimit: 1024 }))
+  await emitted((emit) => scanQwenTranscript({ runtime: 'qwen', kind: 'qwen', path: qwen, size: 0, mtime: 0 }, 0, [], { emit, byteLimit: 1024 }), true)
 
   const geminiDir = join(dir, 'gemini', 'project', 'chats'); await mkdir(geminiDir, { recursive: true })
   const gemini = join(geminiDir, 'chat.jsonl')
   await writeFile(gemini, `${JSON.stringify({ type: 'gemini', id: 'g', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10 } })}\n`)
-  await emitted((emit) => scanGeminiChat({ runtime: 'gemini', kind: 'gemini', path: gemini, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+  await emitted((emit) => scanGeminiChat({ runtime: 'gemini', kind: 'gemini', path: gemini, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }), true)
 
   const opencode = join(dir, 'opencode.db'); const openDb = new DatabaseSync(opencode)
   openDb.exec('CREATE TABLE session (directory TEXT, model TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER, time_updated INTEGER)')
@@ -86,6 +88,26 @@ test('scanner omissions remain unknown detail fields instead of zero across ever
   clineDb.exec('CREATE TABLE sessions (model TEXT, cwd TEXT, workspace_root TEXT, started_at TEXT, updated_at TEXT, metadata_json TEXT)')
   clineDb.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run('cline', '/work/project', '/work/project', '2026-09-20T00:00:00.000Z', '2026-09-20T00:00:00.000Z', JSON.stringify({ usage: { inputTokens: 10, totalCost: 1 } })); clineDb.close()
   await emitted((emit) => scanClineDatabase({ runtime: 'cline', kind: 'cline', path: cline, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+})
+
+test('a missing Gemini-format cache write cannot become a complete list-price cost', async () => {
+  const dir = tempDir('hd-insight-unpriced-cache-write-')
+  const root = join(dir, 'qwen')
+  const chats = join(root, 'project', 'chats')
+  await mkdir(chats, { recursive: true })
+  await writeFile(join(chats, 'call.jsonl'), `${JSON.stringify({ uuid: 'q', type: 'assistant', timestamp: '2026-09-20T00:00:00.000Z', cwd: '/work/project', model: 'qwen', usageMetadata: { promptTokenCount: 10, cachedContentTokenCount: 0, candidatesTokenCount: 1, thoughtsTokenCount: 0, toolUsePromptTokenCount: 0 } })}\n`)
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'qwen', kind: 'qwen', root }],
+    pricing: new Pricing({ cachePath: join(dir, 'rates.json'), overlayPath: join(dir, 'rates.local.json'), fetchCatalogue: async () => ({ alibaba: { models: { qwen: { id: 'qwen', cost: { input: 1, output: 1, cache_read: 1, cache_write: 1 } } } } }) }),
+  })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: Date.parse('2026-09-19T00:00:00.000Z'), to: Date.parse('2026-09-21T00:00:00.000Z') })
+    assert.equal(detail.samples[0]?.cacheWrite.value, null)
+    assert.equal(detail.samples[0]?.usd.value, null, 'the list price remains unknown while a required source field is absent')
+    assert.equal(detail.complete, false)
+  } finally { ledger.close() }
 })
 
 test('an unreadable corpus root is a source-read gap, not an empty project', async () => {

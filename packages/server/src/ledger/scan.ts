@@ -551,7 +551,10 @@ const fromGeminiCounts = (counts: {
 }): { input: number | null; output: number | null; cacheRead: number | null; cacheWrite: number | null; reasoning: number | null } => ({
   input: counts.prompt === null || counts.cached === null || counts.tool === null ? null : Math.max(0, counts.prompt - counts.cached) + counts.tool,
   cacheRead: counts.cached === null || counts.prompt === null ? null : Math.min(counts.cached, counts.prompt),
-  cacheWrite: 0,
+  // Gemini and Qwen do not record cache creation.  Aggregate ledger rows
+  // retain their legacy zero-normalisation below, but source-qualified reads
+  // must leave this unavailable so list pricing cannot complete it by guess.
+  cacheWrite: null,
   output: observedSum(counts.answer, counts.thoughts),
   reasoning: counts.thoughts,
 })

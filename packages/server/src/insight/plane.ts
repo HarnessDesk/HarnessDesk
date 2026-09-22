@@ -117,13 +117,26 @@ export class InsightPlane implements InsightReadApi {
     const generatedAt = this.#now()
     const detail = await this.port.ledger().readInsight(query, { refresh: true })
     if (detail.samples.length === 0 && detail.gaps.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
-    const allGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
+    const projectGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => goal.root === query.root)
     const projectSeats = this.port.seats().filter((seat) => seat.checkout.project === query.root)
-    const seats = selectedSeatIds ? projectSeats.filter((seat) => selectedSeatIds.has(seat.id)) : projectSeats
-    const selectedSamples = selectedSeatIds ? detail.samples.filter((sample) => {
+    const runtimeSeats = query.runtime === undefined ? projectSeats : projectSeats.filter((seat) => seat.session.runtime === query.runtime)
+    const seats = selectedSeatIds ? runtimeSeats.filter((seat) => selectedSeatIds.has(seat.id)) : runtimeSeats
+    const runtimeSamples = query.runtime === undefined ? detail.samples : detail.samples.filter((sample) => sample.runtime === query.runtime)
+    const selectedSamples = selectedSeatIds ? runtimeSamples.filter((sample) => {
       const id = seatFor(sample, projectSeats.map(seatWindowOf)); return id !== null && selectedSeatIds.has(id)
-    }) : detail.samples
-    const total = amounts(selectedSamples, detail.sources, detail.gaps)
+    }) : runtimeSamples
+    const sourceFor = (samples: readonly import('../ledger/insight.js').UsageSample[]) =>
+      [...new Map(samples.map((sample) => [sample.source.id, sample.source])).values()]
+    const sources = [...new Map([
+      ...sourceFor(selectedSamples),
+      // A failed source has no sample to carry it, but must remain inspectable
+      // rather than becoming an apparently empty scoped report.
+      ...detail.sources.filter((source) => source.problem !== null),
+    ].map((source) => [source.id, source])).values()]
+    const allGoals = selectedSeatIds || query.runtime !== undefined
+      ? projectGoals.filter((goal) => seats.some((seat) => seat.board === goal.id))
+      : projectGoals
+    const total = amounts(selectedSamples, sources, detail.gaps)
     const bySeat = new Map<string, import('../ledger/insight.js').UsageSample[]>()
     const unattributed: import('../ledger/insight.js').UsageSample[] = []
     for (const sample of selectedSamples) {
@@ -131,8 +144,6 @@ export class InsightPlane implements InsightReadApi {
       if (!id) { unattributed.push(sample); continue }
       bySeat.set(id, [...(bySeat.get(id) ?? []), sample])
     }
-    const sourceFor = (samples: readonly import('../ledger/insight.js').UsageSample[]) =>
-      [...new Map(samples.map((sample) => [sample.source.id, sample.source])).values()]
     const seatRows = seats.map((seat) => row(
       `seat:${seat.id}`, seat.seatLabel, bySeat.get(seat.id) ?? [], sourceFor(bySeat.get(seat.id) ?? []), detail.gaps,
       { seat: seat.id, goal: seat.board, session: seat.session, message: null, note: seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable' },
@@ -149,13 +160,13 @@ export class InsightPlane implements InsightReadApi {
     })
     const unallocated = amounts(unattributed, sourceFor(unattributed), detail.gaps)
     return {
-      id: randomUUID(), generatedAt, query, goals: selectedSeatIds ? allGoals.filter((goal) => seats.some((seat) => seat.board === goal.id)) : allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
+      id: randomUUID(), generatedAt, query, goals: allGoals, seats, goal: null, receipt: null, totals: total, elapsedMs: total.activeMs,
       breakdowns: [
         { dimension: 'seat', rows: seatRows, unattributed: unallocated, reason: 'Recorded corpus rows without a unique historical Seat remain unattributed.' },
         { dimension: 'goal', rows: goalRows, unattributed: unallocated, reason: 'Not attributed to a Goal.' },
         { dimension: 'agent', rows: agentRows, unattributed: unallocated, reason: 'Recorded usage without a historical Agent Seat remains unassigned.' },
       ],
-      sources: detail.sources, recordedSpend: [], provenance: { state: 'unavailable', note: 'Commit associations are unavailable; recorded usage is still shown.' }, gaps: detail.gaps,
+      sources, recordedSpend: [], provenance: { state: 'unavailable', note: 'Commit associations are unavailable; recorded usage is still shown.' }, gaps: detail.gaps,
     }
   }
 

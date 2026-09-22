@@ -68,3 +68,14 @@ it('labels vendor-metered costs distinctly from list-price estimates', () => {
   act(() => root.render(<InsightCost report={vendor} loading={false} problem={null} onRefresh={() => {}} />))
   expect(container.textContent).toContain('Vendor-metered cost')
 })
+
+it('does not call a mixed subtotal vendor-and-list-priced when another portion is unknown', () => {
+  const base = report()
+  const mixedPartial = {
+    ...base,
+    totals: { ...base.totals, usd: { ...base.totals.usd, basis: 'mixed' as const, quality: 'floor' as const, coverage: 'partial' as const } },
+  }
+  act(() => root.render(<InsightCost report={mixedPartial} loading={false} problem={null} onRefresh={() => {}} />))
+  expect(container.textContent).toContain('Vendor- or list-price cost; another portion is unknown')
+  expect(container.textContent).not.toContain('Vendor-metered and list-price cost')
+})

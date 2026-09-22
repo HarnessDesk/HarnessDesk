@@ -36,6 +36,8 @@ export interface InsightQuery {
   readonly root: string
   readonly from: number
   readonly to: number
+  /** Optional Dashboard account scope; omitted means all recorded runtimes. */
+  readonly runtime?: string
 }
 
 import type { AgentOrigin } from './agent.js'

@@ -118,6 +118,24 @@ test('an Agent report contains only that Agent’s historical Seats and measurem
   assert.ok(report.breakdowns.every((breakdown) => breakdown.unattributed.usd.value === null), 'unattributed amounts do not retain another Agent’s usage')
 })
 
+test('a runtime-scoped project report excludes other runtimes from totals and every breakdown', async () => {
+  const source = { id: 'source', kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null }
+  const sample = (runtime: string, sessionId: string, usd: number) => ({ key: sessionId, source, runtime, sessionId, turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const })
+  const seat = (id: string, runtime: string, board: string) => ({ id, agent: { id: runtime, name: runtime, origin: 'project' as const }, briefDigest: 'same', seat: { runtime }, seatLabel: runtime, checkout: { project: '/repo' }, board, session: { runtime, sessionId: id }, openedAt: 0, closed: null, restored: null })
+  const alpha = seat('alpha-seat', 'alpha', 'alpha-goal')
+  const beta = seat('beta-seat', 'beta', 'beta-goal')
+  const plane = new InsightPlane({
+    ledger: () => ({ readInsight: async () => ({ samples: [sample('alpha', 'alpha-seat', 7), sample('beta', 'beta-seat', 11)], sources: [source], gaps: [], complete: true }) }) as never,
+    goals: { store: { list: () => [{ goal: { id: 'alpha-goal', root: '/repo', sentence: 'Alpha Goal', state: 'wrapped' } }, { goal: { id: 'beta-goal', root: '/repo', sentence: 'Beta Goal', state: 'wrapped' } }] } } as never,
+    seats: () => [alpha, beta] as never, seating: {} as never, now: () => 20,
+  })
+  const report = await plane.usage({ root: '/repo', from: 0, to: 20, runtime: 'alpha' } as never)
+  assert.equal(report.totals.usd.value, 7)
+  assert.deepEqual(report.seats.map((entry) => entry.id), ['alpha-seat'])
+  assert.deepEqual(report.breakdowns.flatMap((breakdown) => breakdown.rows.map((row) => row.label)), ['alpha', 'Alpha Goal', 'alpha'])
+  assert.ok(report.breakdowns.every((breakdown) => breakdown.unattributed.usd.value === null))
+})
+
 test('an unwrapped Goal contains only its own historical Seats and measurements', async () => {
   const source = { id: 'source', kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null }
   const sample = (sessionId: string, usd: number) => ({ key: sessionId, source, runtime: 'runtime', sessionId, turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const })

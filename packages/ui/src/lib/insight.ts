@@ -24,7 +24,13 @@ export function metricWords(metric: InsightMetric, sources: readonly InsightSour
     ? 'Observation time unavailable'
     : `${Math.max(0, Math.round((now - oldest) / 60_000))} minutes since observation`
   if (metric.value === null) return { value: 'Unknown', qualifier: null, coverage: metric.missing[0] ?? 'No complete measurement', source, freshness }
-  const basis = metric.basis === 'vendorMetered' ? 'Vendor-metered cost' : metric.basis === 'mixed' ? 'Vendor-metered and list-price cost' : null
+  const basis = metric.basis === 'vendorMetered'
+    ? 'Vendor-metered cost'
+    : metric.basis === 'mixed'
+      ? metric.coverage === 'partial'
+        ? 'Vendor- or list-price cost; another portion is unknown'
+        : 'Vendor-metered and list-price cost'
+      : null
   const quality = metric.quality === 'floor' ? 'At least' : metric.quality === 'estimate' ? 'Estimate' : null
   const qualifier = [basis, quality].filter((word): word is string => word !== null).join(' · ') || null
   const coverage = metric.coverage === 'partial' ? 'Estimated known subtotal' : metric.coverage === 'none' ? 'No coverage' : null
