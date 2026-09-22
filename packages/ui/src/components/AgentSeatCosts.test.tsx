@@ -70,3 +70,31 @@ it('shows the actual current order beside a reviewed swap', async () => {
   expect(document.body.textContent).toContain('Current orderExpensive, Cheap')
   expect(document.body.textContent).toContain('Proposed ordercheap, expensive')
 })
+
+it('keeps an unavailable historical source visible when the Agent has no Seats', async () => {
+  const unavailable = {
+    ...report(),
+    seats: [],
+    sources: [{ id: 'unavailable-source', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Recorded usage is unavailable.' }],
+  }
+  const readAgentInsight = vi.fn(async () => unavailable)
+  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight, previewInsightOrder: vi.fn(), applyInsightOrder: vi.fn() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+  await act(async () => {})
+  expect(container.textContent).toContain('No historical Seats were recorded')
+  expect(container.textContent).toContain('Recorded usage')
+  expect(container.textContent).toContain('Unavailable')
+  expect(container.textContent).toContain('Recorded usage is unavailable.')
+})
+
+it('keeps generic historical gaps visible beside partial Agent Seats', async () => {
+  const partial = { ...report(), gaps: ['Some historical usage is unavailable.'] }
+  const readAgentInsight = vi.fn(async () => partial)
+  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight, previewInsightOrder: vi.fn(), applyInsightOrder: vi.fn() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+  await act(async () => {})
+  expect(container.textContent).toContain('Expensive')
+  expect(container.textContent).toContain('Some historical usage is unavailable.')
+})

@@ -3,7 +3,7 @@ import type { AgentEntry, FlowSeat, InsightOrderPreview, InsightReport } from '@
 
 import { metricWords } from '../lib/insight'
 import { useSnapshot, useStore } from '../state/context'
-import { Button, Dialog, Note, Row, RowValue, Rows, SectionHead } from '../design'
+import { Button, Chip, Dialog, Note, Row, RowValue, Rows, SectionHead } from '../design'
 
 const sameSeat = (left: FlowSeat, right: FlowSeat): boolean =>
   left.runtime === right.runtime && left.model === right.model && left.effort === right.effort && left.thinking === right.thinking
@@ -63,10 +63,11 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
   }
   const historical = report?.seats.filter((seat) => seat.agent?.id === entry.id && seat.agent.origin === entry.origin) ?? []
   const seatAmounts = new Map((report?.breakdowns.find((breakdown) => breakdown.dimension === 'seat')?.rows ?? []).map((row) => [row.seat, row.amounts.usd]))
+  const failedSources = report?.sources.filter((source) => source.problem !== null) ?? []
   return (
     <section aria-label="Historical seat costs">
       <SectionHead name="Historical seat costs" />
-      {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <Rows>{historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}</Rows>}
+      {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <Rows>{historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}{failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}{report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}</Rows>}
       <Note>This history is read-only. Ordering seats remains an explicit local action.</Note>
       <Button size="sm" variant="outline" disabled={!comparable || ordering} title={comparable ? 'Review a local order from comparable historical seats.' : 'Two current candidates need a shared recorded brief and completed Goal.'} onClick={() => void review()}>Order by cost</Button>
       {orderProblem && !preview ? <Note tone="warn">{orderProblem}</Note> : null}
