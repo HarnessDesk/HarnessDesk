@@ -21,6 +21,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
+import { FlowCatalog } from './flow-catalog.js'
 import {
   cardVars,
   orderVars,
@@ -227,6 +228,7 @@ export class Flows implements TeamFlows {
   readonly #dir: string
   readonly #port: FlowPort
   readonly #team: Team
+  readonly #catalogue: FlowCatalog
   #runs = new Map<string, StoredRun>()
   /**
    * One advance at a time per run.
@@ -258,10 +260,11 @@ export class Flows implements TeamFlows {
    */
   #unreadable: Error | null = null
 
-  constructor(dir: string, team: Team, port: FlowPort) {
+  constructor(dir: string, team: Team, port: FlowPort, catalogue?: FlowCatalog) {
     this.#dir = dir
     this.#team = team
     this.#port = port
+    this.#catalogue = catalogue ?? new FlowCatalog({ confine: async () => {}, legacyStrict: true })
   }
 
   /** Waits out the write chain — a disposer's courtesy, and the tests'. */
@@ -299,44 +302,17 @@ export class Flows implements TeamFlows {
    * `.harnessdesk` somebody made a file, has none.
    */
   async list(root: string): Promise<FlowFile[]> {
-    let names: string[]
-    try {
-      names = await readdir(join(root, FLOW_DIR))
-    } catch (error) {
-      if (NOTHING_HERE.has(errnoOf(error))) return []
-      throw error
-    }
-    const files: FlowFile[] = []
-    for (const name of names.sort()) {
-      if (!name.endsWith('.yml') && !name.endsWith('.yaml')) continue
-      const path = `${FLOW_DIR}/${name}`
-      try {
-        const source = await readFile(join(root, path), 'utf8')
-        const { flow, problems } = parseFlow(source, name.replace(/\.ya?ml$/, ''))
-        const failed = problems.find((one) => one.level === 'error')
-        files.push({
-          path,
-          name: flow?.name ?? name.replace(/\.ya?ml$/, ''),
-          ...(flow?.description ? { description: flow.description } : {}),
-          ...(failed ? { problem: `${failed.at}: ${failed.text}` } : {}),
-        })
-      } catch (error) {
-        files.push({
-          path,
-          name: name.replace(/\.ya?ml$/, ''),
-          problem: error instanceof Error ? error.message : String(error),
-        })
-      }
-    }
-    return files
+    return (await this.#catalogue.list(root)).map((entry) => ({
+      path: entry.path,
+      name: entry.name,
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(entry.problem ? { problem: entry.problem } : {}),
+    }))
   }
 
   /** One flow's text, as it is on disk. */
   async source(root: string, path: string): Promise<string> {
-    if (!path.startsWith(`${FLOW_DIR}/`) || path.includes('..')) {
-      throw new Error(`A flow is read from ${FLOW_DIR}; "${path}" is somewhere else.`)
-    }
-    return readFile(join(root, path), 'utf8')
+    return this.#catalogue.read(root, path)
   }
 
   // ------------------------------------------------------------------ the runs

@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import { sessionKey, type FlowPermission, type FlowSeat, type RuntimeId, type SeatId, type SeatRecord, type TeamState } from '@harnessdesk/protocol'
 
 import { FLOW_DIR, Flows as DurableFlows, runCheck, type FlowPort as DurableFlowPort } from '../src/flows.js'
+import { FlowCatalog } from '../src/flow-catalog.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 
 /**
@@ -2036,6 +2037,20 @@ test('a project with no flows folder, or with a .harnessdesk that is a file, off
   await mkdir(marked, { recursive: true })
   await writeFile(join(marked, '.harnessdesk'), 'somebody touched this instead of making it\n', 'utf8')
   assert.deepEqual(await one.flows.list(marked), [])
+})
+
+test('legacy list and read delegate to the layered catalogue without changing project paths', async (t) => {
+  const one = await rig(t)
+  const root = join(one.dir, 'catalogue-project')
+  const user = join(one.dir, 'catalogue-user')
+  await mkdir(join(root, FLOW_DIR), { recursive: true })
+  await mkdir(user)
+  await writeFile(join(root, FLOW_DIR, 'review.yml'), REVIEW, 'utf8')
+  await writeFile(join(user, 'starter.yml'), REVIEW.replace('Fix and review', 'Personal starter'), 'utf8')
+  const flows = new DurableFlows(join(one.dir, 'catalogue-runs'), one.team, durablePort(one.team, asking([])), new FlowCatalog({ userRoot: user, confine: async () => {} }))
+  const listed = await flows.list(root)
+  assert.deepEqual(listed.map((flow) => flow.path), ['.harnessdesk/flows/review.yml', 'starter.yml'])
+  assert.equal(await flows.source(root, '.harnessdesk/flows/review.yml'), REVIEW)
 })
 
 test('stored runs that cannot be read are raised, and no flow starts on top of them', async (t) => {

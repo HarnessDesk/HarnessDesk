@@ -82,6 +82,7 @@ import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
+import { FlowCatalog } from './flow-catalog.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
@@ -291,6 +292,10 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
 export const builtinAgentRoot = (): string =>
   packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
 
+/** Editable starter flows ship beside Agent starters and are never renderer-selected paths. */
+export const builtinFlowRoot = (): string =>
+  packagedPath(fileURLToPath(new URL('../../flows', import.meta.url)))
+
 /**
  * The "Last terminal output" composer chip. Terminals are the host's own
  * workbench tool — they never became a plugin — so this contribution lives
@@ -330,6 +335,8 @@ export interface HostOptions {
    * is a notice to every window.
    */
   readonly builtinAgents?: string
+  /** Test-only override for the flows which ship with the host. */
+  readonly builtinFlows?: string
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -841,7 +848,11 @@ export class Host {
       run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
-    })
+    }, new FlowCatalog({
+      userRoot: join(this.#state.directory, 'flows'),
+      builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+    }))
     this.#team.attachFlows(this.#flows)
     const goalPort = {
       seats: {
