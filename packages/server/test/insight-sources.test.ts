@@ -121,3 +121,24 @@ test('an unreadable corpus root is a source-read gap, not an empty project', asy
     assert.ok(detail.gaps.some((gap) => gap.includes('could not be discovered')), 'the failed root walk remains visible')
   } finally { ledger.close() }
 })
+
+test('a selected runtime does not inherit scanner gaps from another runtime corpus', async () => {
+  const dir = tempDir('hd-insight-runtime-gap-')
+  const alpha = join(dir, 'alpha')
+  await mkdir(alpha)
+  await writeFile(join(alpha, 'rollout.jsonl'), `${JSON.stringify({ type: 'session_meta', payload: { id: 'alpha-session', cwd: '/work/project' } })}\n${JSON.stringify({ timestamp: '1970-01-01T00:00:00.001Z', type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } } } })}\n`)
+  const beta = join(dir, 'not-a-directory')
+  await writeFile(beta, 'not a corpus directory')
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'alpha', kind: 'codex', root: alpha }, { runtime: 'beta', kind: 'codex', root: beta }],
+  })
+  try {
+    const alphaDetail = await ledger.readInsight({ root: '/work/project', from: 0, to: 10, runtime: 'alpha' })
+    assert.ok(!alphaDetail.gaps.some((gap) => gap.includes('could not be discovered')), 'another runtime’s scan failure is not a selected-runtime gap')
+    assert.equal(alphaDetail.samples.length, 1)
+    const betaDetail = await ledger.readInsight({ root: '/work/project', from: 0, to: 10, runtime: 'beta' })
+    assert.ok(betaDetail.gaps.some((gap) => gap.includes('could not be discovered')), 'the selected runtime retains its own scanner gap')
+  } finally { ledger.close() }
+})

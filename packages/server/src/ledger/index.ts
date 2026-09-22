@@ -141,7 +141,10 @@ export class Ledger {
     let bytes = 0
     let targets: ScanTarget[] = []
     try {
-      targets = await listTargets(this.#options.corpora, {
+      const corpora = query.runtime === undefined
+        ? this.#options.corpora
+        : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime)
+      targets = await listTargets(corpora, {
         unreadable: (folder, error) => gaps.push(`A recorded usage source could not be discovered: ${folder}: ${error instanceof Error ? error.message : String(error)}`),
       })
     }
@@ -186,6 +189,7 @@ export class Ledger {
       const sourceId = `ledger:${index}:${row.runtime}:${row.day}`
       const source: InsightSource = {
         id: sourceId,
+        runtime: row.runtime,
         kind: 'corpus',
         label: 'Recorded agent usage',
         observedAt: row.day,

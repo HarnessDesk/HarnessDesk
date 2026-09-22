@@ -209,6 +209,7 @@ const sourceFor = (target: ScanTarget, at: number | null) => {
   const digest = createHash('sha256').update(target.path).digest('hex').slice(0, 16)
   return {
     id: `corpus:${target.kind}:${target.runtime}:${digest}`,
+    runtime: target.runtime,
     kind: 'corpus' as const,
     label: 'Recorded usage',
     observedAt: at,

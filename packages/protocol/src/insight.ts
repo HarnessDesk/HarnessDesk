@@ -9,6 +9,8 @@ export interface Measure {
 
 export interface InsightSource {
   readonly id: string
+  /** Runtime that owns this source when it is known; absent records stay unscoped for compatibility. */
+  readonly runtime?: string
   readonly kind: 'corpus' | 'transcript' | 'evidence' | 'receipt' | 'library' | 'provenance'
   readonly label: string
   readonly observedAt: number | null

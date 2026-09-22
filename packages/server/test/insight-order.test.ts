@@ -136,6 +136,22 @@ test('a runtime-scoped project report excludes other runtimes from totals and ev
   assert.ok(report.breakdowns.every((breakdown) => breakdown.unattributed.usd.value === null))
 })
 
+test('a runtime-scoped project report excludes another runtime’s failed source', async () => {
+  const alphaSource = { id: 'alpha-source', runtime: 'alpha', kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null }
+  const betaProblem = { id: 'beta-problem', runtime: 'beta', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Permission denied' }
+  const sample = { key: 'alpha-seat', source: alphaSource, runtime: 'alpha', sessionId: 'alpha-seat', turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: 7, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const }
+  const seat = { id: 'alpha-seat', agent: { id: 'alpha', name: 'alpha', origin: 'project' as const }, briefDigest: 'same', seat: { runtime: 'alpha' }, seatLabel: 'alpha', checkout: { project: '/repo' }, board: 'alpha-goal', session: { runtime: 'alpha', sessionId: 'alpha-seat' }, openedAt: 0, closed: null, restored: null }
+  const plane = new InsightPlane({
+    ledger: () => ({ readInsight: async () => ({ samples: [sample], sources: [alphaSource, betaProblem], gaps: [], complete: true }) }) as never,
+    goals: { store: { list: () => [{ goal: { id: 'alpha-goal', root: '/repo', sentence: 'Alpha Goal', state: 'wrapped' } }] } } as never,
+    seats: () => [seat] as never, seating: {} as never, now: () => 20,
+  })
+
+  const report = await plane.usage({ root: '/repo', from: 0, to: 20, runtime: 'alpha' } as never)
+  assert.equal(report.totals.usd.coverage, 'complete')
+  assert.deepEqual(report.sources.map((source) => source.id), ['alpha-source'])
+})
+
 test('an unwrapped Goal contains only its own historical Seats and measurements', async () => {
   const source = { id: 'source', kind: 'corpus' as const, label: 'Recorded usage', observedAt: 10, checkedAt: 10, stale: false, problem: null }
   const sample = (sessionId: string, usd: number) => ({ key: sessionId, source, runtime: 'runtime', sessionId, turnId: null, requestId: null, project: '/repo', model: null, from: 10, to: 11, scope: 'call' as const, includesChildren: false, input: { value: 1, quality: 'exact' as const }, output: { value: 1, quality: 'exact' as const }, cacheRead: { value: 0, quality: 'exact' as const }, cacheWrite: { value: 0, quality: 'exact' as const }, usd: { value: usd, quality: 'exact' as const }, moneyBasis: 'vendorMetered' as const })

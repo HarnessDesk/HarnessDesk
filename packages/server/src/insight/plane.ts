@@ -130,8 +130,10 @@ export class InsightPlane implements InsightReadApi {
     const sources = [...new Map([
       ...sourceFor(selectedSamples),
       // A failed source has no sample to carry it, but must remain inspectable
-      // rather than becoming an apparently empty scoped report.
-      ...detail.sources.filter((source) => source.problem !== null),
+      // rather than becoming an apparently empty scoped report. A runtime
+      // report may only inherit a failed source whose owner is that runtime;
+      // older unscoped source records are deliberately not guessed into it.
+      ...detail.sources.filter((source) => source.problem !== null && (query.runtime === undefined || source.runtime === query.runtime)),
     ].map((source) => [source.id, source])).values()]
     const allGoals = selectedSeatIds || query.runtime !== undefined
       ? projectGoals.filter((goal) => seats.some((seat) => seat.board === goal.id))
