@@ -122,6 +122,46 @@ test('an unreadable corpus root is a source-read gap, not an empty project', asy
   } finally { ledger.close() }
 })
 
+test('Ledger carries an opaque runtime-qualified unreadable corpus source into unscoped and selected Insight reads', async () => {
+  const dir = tempDir('hd-insight-plane-unreadable-')
+  const alpha = join(dir, 'alpha')
+  await mkdir(alpha)
+  await writeFile(join(alpha, 'rollout.jsonl'), `${JSON.stringify({ type: 'session_meta', payload: { id: 'alpha-session', cwd: '/work/project' } })}\n${JSON.stringify({ timestamp: '1970-01-01T00:00:00.001Z', type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } } } })}\n`)
+  const beta = join(dir, 'not-a-directory')
+  await writeFile(beta, 'not a corpus directory')
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'alpha', kind: 'codex', root: alpha }, { runtime: 'beta', kind: 'codex', root: beta }],
+    now: () => 10,
+  })
+  const plane = new InsightPlane({
+    ledger: () => ledger,
+    goals: { store: { list: () => [] } } as never,
+    seats: () => [],
+    seating: {} as never,
+    now: () => 10,
+  })
+  try {
+    const all = await plane.usage({ root: '/work/project', from: 0, to: 10 })
+    const failed = all.sources.find((source) => source.runtime === 'beta')
+    assert.deepEqual(failed && {
+      runtime: failed.runtime, kind: failed.kind, label: failed.label, observedAt: failed.observedAt,
+      checkedAt: failed.checkedAt, stale: failed.stale, problem: failed.problem,
+    }, {
+      runtime: 'beta', kind: 'corpus', label: 'Recorded usage', observedAt: null,
+      checkedAt: 10, stale: false, problem: 'Recorded usage source could not be discovered.',
+    })
+    assert.ok(failed && !failed.id.includes(beta), 'the failed source identifier does not disclose its corpus path')
+    assert.equal(all.totals.usd.value, null, 'the failed source does not invent a known zero')
+
+    const alphaOnly = await plane.usage({ root: '/work/project', from: 0, to: 10, runtime: 'alpha' })
+    assert.ok(alphaOnly.sources.every((source) => source.runtime !== 'beta'), 'a selected runtime excludes another runtime’s failed corpus')
+    const betaOnly = await plane.usage({ root: '/work/project', from: 0, to: 10, runtime: 'beta' })
+    assert.deepEqual(betaOnly.sources.map((source) => source.id), [failed?.id], 'the selected failed runtime retains its opaque source record')
+  } finally { ledger.close() }
+})
+
 test('a selected runtime does not inherit scanner gaps from another runtime corpus', async () => {
   const dir = tempDir('hd-insight-runtime-gap-')
   const alpha = join(dir, 'alpha')

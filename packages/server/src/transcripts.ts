@@ -564,6 +564,7 @@ export class TranscriptStore {
       clearTimeout(pending.timer)
       this.#pending.delete(key)
     }
+    this.#insight.delete(key)
     // Wait out a write already in flight, or the unlink races it.
     await this.#writes.get(key)?.catch(() => {})
     this.#writes.delete(key)
@@ -592,14 +593,23 @@ export class TranscriptStore {
     if (pending) {
       clearTimeout(pending.timer)
       this.#pending.delete(key)
-      await this.#write(pending.session)
+      await this.#write(pending.session, pending.insight)
     }
     await this.#writes.get(key)?.catch(() => {})
-    const stored = await this.recover(runtime, id)
+    const stored = await this.#read(runtime, id)
     if (!stored) return
     const kept = Math.max(0, stored.turns.length - count)
     if (kept === 0) await this.forget(runtime, id)
-    else await this.#write({ ...stored, turns: stored.turns.slice(0, kept) })
+    else {
+      const turns = stored.turns.slice(0, kept)
+      const retainedSession = await this.recover(runtime, id)
+      if (!retainedSession) return
+      const retained = new Set(turns.map((turn) => String(turn.id)))
+      const insight = (stored.insight ?? []).filter((context) => retained.has(context.turn))
+      if (insight.length) this.#insight.set(key, insight)
+      else this.#insight.delete(key)
+      await this.#write({ ...retainedSession, turns }, insight)
+    }
   }
 
   /** Writes whatever is still waiting. Call on shutdown. */

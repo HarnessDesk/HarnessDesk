@@ -11,6 +11,7 @@ import {
   type AgentItem,
   type Session,
   type SessionUsage,
+  type TurnInsightContext,
   type Turn,
   wrapContext,
 } from '@harnessdesk/protocol'
@@ -47,6 +48,10 @@ const session = (turns: Turn[], itemsLoaded = true): Session => ({
 
 const tokens = { totalTokens: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 }
 const usage: SessionUsage = { total: tokens, last: tokens, contextUsed: 55_200, contextWindow: 272_000 }
+const insight = (turn: string): TurnInsightContext => ({
+  turn, startedAt: 1, endedAt: null, seat: 'seat-1', cause: { kind: 'person' }, parent: null,
+  before: null, after: null, generation: '', observedAt: 1, loaded: null,
+})
 
 const withStore = async (fn: (store: TranscriptStore, dir: string) => Promise<void>): Promise<void> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-transcripts-'))
@@ -465,6 +470,20 @@ test('forgetting a session cancels the write still queued for it', async () => {
   })
 })
 
+test('forgetting a session clears its retained Insight context before its key is reused', async () => {
+  await withStore(async (store) => {
+    const original = session([turn('t1', [item('first', 'assistantMessage')])])
+    store.record(original, { now: true, insight: [insight('t1')] })
+    await store.flush()
+    await store.forget(original.runtime, original.id)
+
+    store.record(session([turn('t2', [item('second', 'assistantMessage')])]), { now: true })
+    await store.flush()
+
+    assert.equal(await store.readInsight(original.runtime, original.id), null, 'a reused runtime/session key starts without deleted context')
+  })
+})
+
 test('dropping turns trims what the store kept from the end, after a write still waiting, and forgets one with none left (review of #236, round 1)', async () => {
   await withStore(async (store) => {
     const three = session([turn('t1', [item('a', 'assistantMessage')]), turn('t2', [item('b', 'assistantMessage')]), turn('t3', [item('c', 'assistantMessage')])])
@@ -477,6 +496,22 @@ test('dropping turns trims what the store kept from the end, after a write still
     assert.equal((await store.recover(three.runtime, three.id))?.turns.length, 2)
     await store.dropTurns(three.runtime, three.id, 2)
     assert.equal(await store.recover(three.runtime, three.id), null)
+  })
+})
+
+test('dropping queued turns keeps only Insight context for the retained transcript', async () => {
+  await withStore(async (store) => {
+    const three = session([
+      turn('t1', [item('a', 'assistantMessage')]),
+      turn('t2', [item('b', 'assistantMessage')]),
+      turn('t3', [item('c', 'assistantMessage')]),
+    ])
+    // The context and transcript are both still in the settle window.
+    store.record(three, { insight: [insight('t1'), insight('t2'), insight('t3')] })
+    await store.dropTurns(three.runtime, three.id, 1)
+
+    assert.deepEqual((await store.recover(three.runtime, three.id))?.turns.map((entry) => String(entry.id)), ['t1', 't2'])
+    assert.deepEqual((await store.readInsight(three.runtime, three.id))?.map((context) => context.turn), ['t1', 't2'])
   })
 })
 

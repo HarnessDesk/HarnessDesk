@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 
 import { runtimeId, type LedgerDay,
@@ -137,6 +138,7 @@ export class Ledger {
        discarded the call identity needed for conservative historical joins. */
     await this.warm()
     const detailSamples: UsageSample[] = []
+    const detailSources: InsightSource[] = []
     const gaps: string[] = []
     let bytes = 0
     let targets: ScanTarget[] = []
@@ -144,9 +146,21 @@ export class Ledger {
       const corpora = query.runtime === undefined
         ? this.#options.corpora
         : this.#options.corpora.filter((corpus) => corpus.runtime === query.runtime)
-      targets = await listTargets(corpora, {
-        unreadable: (folder, error) => gaps.push(`A recorded usage source could not be discovered: ${folder}: ${error instanceof Error ? error.message : String(error)}`),
-      })
+      for (const corpus of corpora) {
+        targets.push(...await listTargets([corpus], {
+          unreadable: () => {
+            // The source itself must say which runtime was unavailable, but
+            // never expose the agent-owned corpus path or account details.
+            const id = `corpus:${corpus.runtime}:${createHash('sha256').update(corpus.root).digest('hex').slice(0, 16)}`
+            detailSources.push({
+              id, runtime: corpus.runtime, kind: 'corpus', label: 'Recorded usage',
+              observedAt: null, checkedAt: this.#now(), stale: false,
+              problem: 'Recorded usage source could not be discovered.',
+            })
+            gaps.push('A recorded usage source could not be discovered.')
+          },
+        }))
+      }
     }
     catch (error) { return { samples: [], sources: [], gaps: [error instanceof Error ? error.message : String(error)], complete: false } }
     if (targets.length > 10_000) {
@@ -174,9 +188,12 @@ export class Ledger {
       const value = sample.input.value! * rates.input + sample.output.value! * rates.output + sample.cacheRead.value! * rates.cacheRead + sample.cacheWrite.value! * rates.cacheWrite
       return { ...sample, usd: { value, quality: 'estimate' as const }, moneyBasis: 'listPrice' as const }
     })
-    const detailSources = [...new Map(priced.map((sample) => [sample.source.id, sample.source])).values()]
+    const readSources = [...new Map([
+      ...detailSources,
+      ...priced.map((sample) => sample.source),
+    ].map((source) => [source.id, source])).values()]
     return {
-      samples: priced, sources: detailSources, gaps: [...gaps, ...(priced.some((sample) => sample.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [])],
+      samples: priced, sources: readSources, gaps: [...gaps, ...(priced.some((sample) => sample.usd.value === null) ? ['Some recorded usage has no known USD rate.'] : [])],
       complete: priced.length > 0 && gaps.length === 0 && priced.every((sample) => sample.usd.value !== null),
     }
     /* c8 ignore next -- retained below as the aggregate implementation's
