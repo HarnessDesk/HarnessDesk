@@ -174,6 +174,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   bordered?: boolean
   /** Selection rows may keep the platform cursor while retaining button semantics. */
   cursor?: 'default' | 'pointer'
+  /** A quiet row may brighten its inherited label on hover without changing warning ink. */
+  quietHover?: boolean
 }
 
 const Button = ({
@@ -182,6 +184,7 @@ const Button = ({
   size = 'default',
   bordered = true,
   cursor = 'pointer',
+  quietHover = false,
   type,
   render,
   ...props
@@ -193,6 +196,7 @@ const Button = ({
       buttonVariants({ variant, size, className }),
       !bordered && 'border-0',
       cursor === 'default' && 'cursor-default',
+      quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
     )}
     /* A bare <button> submits the form around it; nothing in this app means
        that, so the default is the safe one — the same rule Kit's Btn holds.
