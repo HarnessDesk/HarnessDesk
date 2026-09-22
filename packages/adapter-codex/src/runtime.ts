@@ -1465,13 +1465,17 @@ export class CodexRuntime implements AgentRuntime {
 
   #onStateChange(state: ConnectionState): void {
     if (state.type === 'ready') this.#version = state.installation.version
-    if (state.type === 'restarting' || state.type === 'failed') {
+    if (state.type !== 'ready') {
       // A restarted app-server has no memory of live threads or watches. Drop
       // the handles so the host resumes rather than sending turns into a dead
       // session, and so a watcher is not left waiting for changes that will
       // never arrive. The catalogue goes too: the new process asks its vendor
       // afresh, and may be answered differently — or be a different binary.
       this.#sessions.clear()
+      // A child id can be reused by the next app-server. Its parent came from
+      // the old process, so it is not evidence that this epoch delegated it.
+      this.#parents.clear()
+      this.#delegationUncertain = true
       this.#reviewTurns.clear()
       this.tasks.dispose()
       this.#catalog.invalidate()

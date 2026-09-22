@@ -1121,6 +1121,7 @@ export class Host {
       this.#logger.warn('a runtime with this id was already registered; replacing it', {
         runtime: id,
       })
+      this.#invalidateDelegations(id)
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
@@ -2862,6 +2863,15 @@ export class Host {
   readonly #delegatedBy = new Map<SessionKey, { readonly runtime: string; readonly sessionId: string }>()
   /** A bounded association was lost, so an otherwise unknown caller is unsafe. */
   readonly #delegationUncertainRuntimes = new Set<string>()
+
+  /** A runtime epoch cannot vouch for the children its predecessor reported. */
+  #invalidateDelegations(runtime: RuntimeId): void {
+    const id = String(runtime)
+    for (const key of this.#delegatedBy.keys()) {
+      if (String(splitSessionKey(key).runtime) === id) this.#delegatedBy.delete(key)
+    }
+    this.#delegationUncertainRuntimes.add(id)
+  }
 
   readonly #messageTurns = new Map<string, TurnCause>()
   readonly #pendingCauses = new Map<string, TurnCause>()
@@ -4966,6 +4976,7 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     if (health.state !== 'ready') {
+      this.#invalidateDelegations(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a

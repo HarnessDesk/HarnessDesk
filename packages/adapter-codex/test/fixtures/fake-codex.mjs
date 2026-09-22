@@ -976,6 +976,47 @@ const callDeclaredToolAsChild = () => {
   })
 }
 
+/** Calls every declared tool as one child, optionally withholding its fresh registration. */
+const callDeclaredToolsAsChild = (announceChild) => {
+  if (declaredTools.length === 0) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  if (announceChild) {
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  }
+  for (const tool of declaredTools) {
+    send({
+      id: ++approvalRequestId,
+      method: 'item/tool/call',
+      params: {
+        threadId: child,
+        turnId: 'turn-child',
+        callId: `call-dyn-child-${tool.name}`,
+        namespace: tool.namespace ?? null,
+        tool: tool.name,
+        arguments: { text: 'from a sub-agent' },
+      },
+    })
+  }
+}
+
+/**
+ * Before the simulated upgrade this establishes C -> R. The replacement
+ * process first calls C without naming it, then repeats with a fresh child
+ * registration, which exercises the adapter's epoch boundary.
+ */
+let restartEpochCalls = 0
+const callRestartEpochTools = () => {
+  if (!since(200)) {
+    callDeclaredToolAsChild()
+    return
+  }
+  restartEpochCalls += 1
+  callDeclaredToolsAsChild(restartEpochCalls > 1)
+}
+
 /** A deeply delegated child calls a declared tool after every parent is announced. */
 const callDeclaredToolAsDeepChild = (count) => {
   const tool = declaredTools[0]
@@ -2042,6 +2083,7 @@ rl.on('line', (line) => {
       if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
       if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))
       if (mode === 'delegated-tools-evicted') setImmediate(() => callDeclaredToolAsDeepChild(2001))
+      if (mode === 'delegated-tools-restart-epoch') setImmediate(callRestartEpochTools)
       return
     }
 

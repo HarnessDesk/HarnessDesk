@@ -292,3 +292,51 @@ for (const [mode, expected] of [
     assert.equal(executed, false, 'a child without a confirmed root must not run a tool')
   })
 }
+
+test('a restarted Codex runtime requires a fresh child registration before protected calls can run', async (t) => {
+  const kernel = new ExtensionKernel()
+  const executed: string[] = []
+  await loadPlugin(kernel, 'desk', (ctx) => {
+    for (const name of ['publish', 'merge']) {
+      ctx.tools.register({
+        name, description: name, inputSchema: { type: 'object' },
+        execute: () => { executed.push(name); return `${name} ran` },
+      })
+    }
+  })
+  const { runtime, events } = await start(kernel, 'delegated-tools-restart-epoch')
+  t.after(async () => { await runtime.dispose(); await kernel.dispose() })
+  const root = await runtime.createSession({ cwd: '/w' })
+  await root.send([{ type: 'text', text: 'register the child' }])
+  await waitFor(() => notices(events).some((message) => message.startsWith('TOOL_ANSWER')), 'the initial rooted call')
+  assert.deepEqual(executed, ['publish'], 'the pre-restart child was registered under its root')
+  await root.interrupt()
+
+  const saved = process.env['FAKE_CODEX_VERSION']
+  process.env['FAKE_CODEX_VERSION'] = '0.200.0'
+  try {
+    const moved = await runtime.checkInstallation()
+    assert.equal(moved.changed, true, 'the test finds the upgraded runtime')
+    assert.equal(moved.restarted, true, 'the test crosses a real runtime restart')
+    const freshRoot = await runtime.createSession({ cwd: '/w' })
+    const before = notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length
+    await freshRoot.send([{ type: 'text', text: 'call the stale child' }])
+    await waitFor(
+      () => notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length >= before + 2,
+      'the stale child calls',
+    )
+    const stale = notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).slice(before)
+    assert.ok(stale.every((message) => /success=false/.test(message)), 'both protected calls refuse before a fresh child registration')
+    assert.deepEqual(executed, ['publish'], 'the stale child executes neither protected call')
+
+    await freshRoot.send([{ type: 'text', text: 'register and call the child again' }])
+    await waitFor(
+      () => notices(events).filter((message) => message.startsWith('TOOL_ANSWER')).length >= before + 4,
+      'the freshly registered child calls',
+    )
+    assert.deepEqual(executed, ['publish', 'publish', 'merge'], 'fresh registration restores the root-scoped calls')
+  } finally {
+    if (saved === undefined) delete process.env['FAKE_CODEX_VERSION']
+    else process.env['FAKE_CODEX_VERSION'] = saved
+  }
+})

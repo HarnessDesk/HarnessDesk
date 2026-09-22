@@ -294,3 +294,42 @@ test('through the host: cross-runtime eviction keeps the evicted root unresolved
   }
   assert.deepEqual(ran, [], 'the lost root cannot reach either protected tool')
 })
+
+test('through the host: a restarted runtime must freshly report a delegated child before it can publish or merge', async (t) => {
+  const { host, runtime, ran, call, agent, work } = await desk(t)
+  await agent('releaser', 'ceiling: merge')
+  const root = (await host.call('agent/seat', { id: 'releaser', cwd: work, permission: 'merge' })) as Session
+  const turn = host.registry.get(FAKE_RUNTIME_ID, root.id)?.session.turns.at(-1)
+  assert.ok(turn, 'the merge-capable root started its standing order')
+  const child = sessionId('restart-child')
+  runtime.emit({
+    type: 'item/completed', sessionId: root.id, turnId: turnId(String(turn.id)),
+    item: { id: itemId('spawn-before-restart'), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child) }] },
+  })
+  assert.equal((await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok, true)
+  assert.equal((await call('pr_merge', { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok, true)
+  ran.length = 0
+
+  runtime.setHealth({ state: 'starting' })
+  runtime.setHealth({ state: 'ready' })
+
+  for (const tool of ['pr_create', 'pr_merge']) {
+    assert.equal(
+      (await call(tool, { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok,
+      false,
+      `${tool} cannot reuse a child-to-root correlation from before the restart`,
+    )
+  }
+  assert.deepEqual(ran, [], 'stale correlations refuse before either protected tool runs')
+
+  const freshRoot = (await host.call('agent/seat', { id: 'releaser', cwd: work, permission: 'merge' })) as Session
+  const freshTurn = host.registry.get(FAKE_RUNTIME_ID, freshRoot.id)?.session.turns.at(-1)
+  assert.ok(freshTurn, 'the runtime reopened a merge-capable root')
+  runtime.emit({
+    type: 'item/completed', sessionId: freshRoot.id, turnId: turnId(String(freshTurn.id)),
+    item: { id: itemId('spawn-after-restart'), type: 'subagent', action: 'spawn', status: 'completed', members: [{ sessionId: String(child) }] },
+  })
+  assert.equal((await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok, true)
+  assert.equal((await call('pr_merge', { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok, true)
+  assert.deepEqual(ran, ['pr_create', 'pr_merge'], 'a freshly reported child regains its rooted authority')
+})
