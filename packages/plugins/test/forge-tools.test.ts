@@ -34,8 +34,9 @@ const home = process.env.GH_FAKE_HOME
 fs.appendFileSync(path.join(home, 'calls.ndjson'), JSON.stringify(args) + '\n')
 const after = (flag) => { const at = args.indexOf(flag); return at === -1 ? null : args[at + 1] }
 const bodyFile = path.join(home, 'body.md')
+const mergedFile = path.join(home, 'merged')
 const pr = () => ({
-  number: 7, title: 'Add widgets', state: 'OPEN', isDraft: false,
+  number: 7, title: 'Add widgets', state: fs.existsSync(mergedFile) ? 'MERGED' : 'OPEN', isDraft: false,
   url: 'https://github.com/acme/widgets/pull/7', author: { login: 'octocat' },
   additions: 12, deletions: 3, changedFiles: 2,
   body: fs.existsSync(bodyFile) ? fs.readFileSync(bodyFile, 'utf8') : '',
@@ -45,6 +46,7 @@ const verb = args.slice(0, 2).join(' ')
 if (verb === 'pr list') { process.stdout.write(fs.existsSync(bodyFile) ? JSON.stringify([{ number: 7, url: pr().url }]) : '[]'); process.exit(0) }
 if (verb === 'pr create') { fs.writeFileSync(bodyFile, after('--body') ?? ''); process.stdout.write('https://github.com/acme/widgets/pull/7\n'); process.exit(0) }
 if (verb === 'pr edit') { const body = after('--body'); if (body !== null) fs.writeFileSync(bodyFile, body); process.exit(0) }
+if (verb === 'pr merge') { fs.writeFileSync(mergedFile, 'yes'); process.exit(0) }
 if (verb === 'pr review') { fs.writeFileSync(path.join(home, 'review.md'), after('--body') ?? ''); process.exit(0) }
 if (verb === 'pr comment') { process.stdout.write('https://github.com/acme/widgets/pull/7#issuecomment-1\n'); process.exit(0) }
 if (verb === 'pr view' || verb === 'pr checks') {
@@ -230,6 +232,22 @@ test('pr_update re-signs a new description, replacing the earlier line, and reco
   const titleOnly = forge.calls().filter((args) => args[1] === 'edit').at(-1)!
   assert.ok(!titleOnly.includes('--body'))
   assert.equal(forge.published.at(-1)?.signature, null)
+})
+
+test('pr_merge merges only at the commit that was reviewed, squashes unless told otherwise, and records the pull request merged', async (t) => {
+  const forge = await rig(t)
+  const head = '0123456789abcdef0123456789abcdef01234567'
+  const said = await forge.run('pr_merge', { number: 7, head })
+  assert.match(said, /Merged pull request #7: Add widgets/)
+  assert.deepEqual(forge.calls().find((args) => args[0] === 'pr' && args[1] === 'merge'), [
+    'pr', 'merge', '7', '--squash', '--match-head-commit', head,
+  ])
+  assert.equal(forge.published.at(-1)?.kind, 'pullRequest')
+  assert.equal(forge.published.at(-1)?.state, 'merged')
+
+  const invalid = await forge.run('pr_merge', { number: 7, head: 'short' })
+  assert.match(invalid, /whole commit/)
+  assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 1)
 })
 
 test('pr_review opens with the review line; pr_comment is unsigned', async (t) => {

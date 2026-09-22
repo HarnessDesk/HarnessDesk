@@ -132,7 +132,7 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
                   ? { desc: `${broken.at} — ${broken.text}` }
                   : {}),
               control: entry.definition ? (
-                <RowValue>{ceilingWords(entry.definition.permission)}</RowValue>
+                <RowValue>{ceilingWords(entry.definition.ceiling)}</RowValue>
               ) : (
                 <Chip state="broken" label="Will not parse" />
               ),

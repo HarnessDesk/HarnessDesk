@@ -10,7 +10,8 @@ import { runtimeId, sessionId, type RuntimeInfo } from '@harnessdesk/protocol'
 import { CodexRuntime, CODEX_RUNTIME_ID } from '@harnessdesk/adapter-codex'
 import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessdesk/cordis-host'
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
-import { ToolGateway } from './tool-gateway.js'
+import { invokeForBridge, ToolGateway } from './tool-gateway.js'
+import { GatedRegistry } from './ceilings/gate.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -160,6 +161,9 @@ export const createDefaultHost = (
       ...(options.browserEngine ? { browserEngine: options.browserEngine } : {}),
     },
   )
+  // Every runtime sees the same capability surface; the gate consults the
+  // host only when a tool is invoked, after the host below exists.
+  const gated = new GatedRegistry(extensions, () => host.ceilingGate)
 
   // Whether a newer build of an agent is published: one registry read a day
   // per package, cached here, and off entirely with HARNESSDESK_NO_UPDATE_CHECK.
@@ -199,7 +203,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: home,
       logger: logger.child(id),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     })
 
@@ -293,30 +297,10 @@ export const createDefaultHost = (
       if (runtime !== undefined && host.runtimeInfo(runtime)?.capabilities.instructions) return ''
       return host.forgePlane.instructions()
     },
-    invokeByName: async (namespace, name, args, caller) => {
-      const tools = extensions.list('tool', {})
-      const tool =
-        tools.find((entry) => entry.namespace === namespace && entry.name === name) ??
-        tools.find((entry) => entry.name === name)
-      if (!tool) return { ok: false, error: `No tool named ${namespace}/${name} is registered.` }
-      const scope = caller !== undefined ? callers.get(caller) : undefined
-      // The scope in the log is the audit trail 25.3 was missing: which
-      // conversation ran which tool, from the host's own record.
-      if (scope) {
-        logger.debug('tool call scoped to its session', {
-          tool: `${namespace}/${name}`,
-          runtime: scope.runtime,
-          session: scope.sessionId,
-        })
-      }
-      return extensions.invokeTool(
-        tool.id,
-        args,
-        scope
-          ? { runtime: runtimeId(scope.runtime), sessionId: sessionId(scope.sessionId) }
-          : {},
-      )
-    },
+    invokeByName: (namespace, name, args, caller) =>
+      invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
+        logger.debug(message, details),
+      ),
   })
   gateway.start()
   const bridgeEntry = toolBridgeEntry()
@@ -452,7 +436,7 @@ export const createDefaultHost = (
       binaryPath: options.codexBinaryPath ?? process.env['HARNESSDESK_CODEX_BINARY'] ?? null,
       codexHome: options.codexHome ?? null,
       logger: logger.child('codex'),
-      capabilities: extensions,
+      capabilities: gated,
       instructions: () => host.forgePlane.instructions(),
     }),
   )

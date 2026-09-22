@@ -1,4 +1,5 @@
-import type { FlowPermission, FlowSeat } from './flow.js'
+import type { CeilingLevel, SeatCeiling } from './evidence.js'
+import type { FlowSeat } from './flow.js'
 
 /**
  * An Agent: **who** does the work, as opposed to which runtime runs it.
@@ -16,11 +17,12 @@ export interface AgentDefinition {
   readonly name: string
   readonly description?: string | null
   /**
-   * A **ceiling**, never a grant. A Seat gets the narrower of this and the
-   * step's grant, and a step grants `read` unless it says otherwise — so
-   * writing needs the Agent and the step to agree.
+   * A **ceiling**, never a grant, on `read < edit < publish < merge`. A Seat
+   * gets the narrower of this and what its seating grants.
    */
-  readonly permission: FlowPermission
+  readonly ceiling: CeilingLevel
+  /** The key that supplied the ceiling, so legacy and missing definitions can be flagged. */
+  readonly ceilingFrom: 'ceiling' | 'permission' | 'none'
   /** The only words this Agent may report. Empty means the step decides. */
   readonly answers: readonly string[]
   /** Evidence kinds it must leave behind. */
@@ -99,10 +101,20 @@ export interface AgentEntry {
  */
 export const SEAT_PREFERENCE_LIMIT = 8
 
+/** The one-line `ceiling:` update shown before an Agent file is changed. */
+export interface CeilingUpdate {
+  readonly path: string
+  readonly digest: string
+  readonly line: number
+  readonly before: string | null
+  readonly after: string
+  readonly diff: string
+}
+
 /** One thing wrong with a definition, and where. */
 export interface AgentProblem {
   readonly level: 'error' | 'warning'
-  /** `permission`, `prefer[1]`, `brief` — where to look. */
+  /** `ceiling`, `prefer[1]`, `brief` — where to look. */
   readonly at: string
   readonly text: string
 }
@@ -176,6 +188,7 @@ export type SeatReason =
   | { readonly kind: 'couldNotOpen'; readonly detail: string }
   /** It opened, and runs something other than the seat asked for: each field that differs, named in `differences`. */
   | { readonly kind: 'openedOtherwise'; readonly differences: readonly SeatDifference[] }
+  | { readonly kind: 'unheld'; readonly level: CeilingLevel; readonly detail: string | null }
 
 /**
  * What removes a reason, as a thing a surface can offer. Never a sentence:
@@ -197,6 +210,7 @@ export type SeatFix =
    * added to it (`unknownRuntime`): this Mac's seats for the Agent.
    */
   | { readonly kind: 'seats' }
+  | { readonly kind: 'ceilings' }
 
 /**
  * What a seat passed over after it opened was left as, wherever that is
@@ -295,6 +309,8 @@ export interface SeatPlan {
    * `candidates` is empty and `winner` null.
    */
   readonly blocked: string | null
+  /** Effective would-be ceiling and whether the chosen runtime declares it held. */
+  readonly ceiling: SeatCeiling | null
   /**
    * The Agent's own `prefer`, weighed against the same readings, when this
    * machine's seats replace it here (`from: 'machine'`) — what its page lists

@@ -46,7 +46,8 @@ const agent = (
     id,
     name,
     description: `${name} does the work.`,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: [],
     produces: [],
     skills: [],
@@ -74,6 +75,7 @@ const taken = (id: string, label: string): SeatPlan => ({
   from: 'prefer',
   winner: 0,
   blocked: null,
+  ceiling: { level: 'edit', hold: 'asked' },
   candidates: [{ seat: { runtime: 'claude-code' }, label, runtimeName: 'Claude', state: 'taken', reason: null, fix: null }],
 })
 
@@ -88,6 +90,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: null,
       blocked: null,
+      ceiling: null,
       candidates: [
         {
           seat: { runtime: 'cursor' },
@@ -149,7 +152,7 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   const project = sectionText('In storefront')
   expect(project).toContain('Storefront reviewer')
   expect(project).toContain('Storefront reviewer does the work.')
-  expect(project).toContain('Read · asked')
+  expect(project).toContain('Edit')
   expect(project).toContain('Claude · Opus 5 · High')
   // No wire: never the spec, never the digest.
   expect(container.textContent).not.toContain('claude-code')
@@ -183,4 +186,38 @@ it('says a row could not be checked, rather than "Checking seats…" forever, on
 it('says "Checking seats…" only while a plan is still pending, not after a failure', () => {
   mount({ agentPlans: new Map(), agentPlansFailed: false })
   expect(sectionText('In storefront')).toContain('Checking seats…')
+})
+
+it('flags an Agent still on permission: or on no ceiling, and draws the seat’s ceiling as the chip', () => {
+  const said = (id: string, name: string, origin: AgentEntry['origin'], ceilingFrom: 'ceiling' | 'permission' | 'none') =>
+    agent(id, name, origin, {
+      definition: {
+        id,
+        name,
+        description: `${name} does the work.`,
+        ceiling: ceilingFrom === 'none' ? 'read' : 'edit',
+        ceilingFrom,
+        answers: [],
+        produces: [],
+        skills: [],
+        prefer: [{ runtime: 'claude-code' }],
+        brief: 'Work.',
+      },
+    })
+  mount({
+    agents: [
+      said('code-reviewer', 'Storefront reviewer', 'project', 'permission'),
+      said('scout', 'Scout', 'user', 'none'),
+      said('tidy', 'Tidy', 'user', 'ceiling'),
+    ],
+  })
+  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission:, so it reads as edit.')
+  expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
+  expect(sectionText('Yours')).toContain('Tidy does the work.')
+  expect(sectionText('Yours')).not.toContain('Tidy does the work. Written')
+  expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
+  const chip = container.querySelector('section[aria-label="In storefront"] [data-ceiling]')
+  expect(chip?.getAttribute('data-hold')).toBe('asked')
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
+  expect(sectionText('Yours')).toContain('Edit')
 })

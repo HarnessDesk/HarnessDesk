@@ -269,6 +269,6 @@ test('gh’s refusals are states with a reason, never errors', async () => {
 test('the sentence is told only while the tools it names are offered', () => {
   assert.equal(new ForgePlane(port(true)).instructions(), FORGE_INSTRUCTION)
   assert.equal(new ForgePlane(port(false)).instructions(), '')
-  assert.match(FORGE_INSTRUCTION, /pr_create, pr_update and pr_review/)
+  assert.match(FORGE_INSTRUCTION, /pr_create, pr_update, pr_review and pr_merge/)
   assert.ok(!FORGE_INSTRUCTION.includes('\n'), 'one sentence, not a briefing')
 })

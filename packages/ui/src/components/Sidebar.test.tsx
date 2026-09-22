@@ -162,7 +162,7 @@ describe('the Agents row', () => {
   it('counts the roster once something has read it, in force only', () => {
     mount({
       agents: [
-        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
+        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
         { id: 'b', origin: 'builtin', path: '/b/AGENT.md', digest: 'd', shadows: [], problems: [{ level: 'error', at: 'x', text: 'bad' }], definition: null },
       ],
     } as unknown as Partial<AppSnapshot>)
@@ -175,7 +175,7 @@ describe('the Agents row', () => {
   it('wears no warn tone when nothing is broken', () => {
     mount({
       agents: [
-        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
+        { id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } },
       ],
     } as unknown as Partial<AppSnapshot>)
     const row = agentsRow()

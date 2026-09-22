@@ -6,17 +6,20 @@ import { test } from 'node:test'
 import { digestOf } from '@harnessdesk/agent-inventory'
 import {
   parseClientMessage,
+  sessionKey,
   runtimeId,
   sessionId,
   ValidationError,
   type FlowRun,
+  type FlowPermission,
+  type FlowSeatRecord,
   type SeatRecord,
   type Session,
   type GoalView,
 } from '@harnessdesk/protocol'
 
 import { canonical } from '../src/evidence/revision.js'
-import { SeatBook } from '../src/evidence/seats.js'
+import { flowSeatInput, SeatBook } from '../src/evidence/seats.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { evidenceDesk, makeRepo, until, writeAgent } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
@@ -135,7 +138,7 @@ test('through the host: an Agent seated leaves its Seat record before the call a
   assert.deepEqual(record.seat, { runtime: 'fake' })
   assert.equal(record.seatLabel, session.settings?.seatLabel)
   assert.deepEqual(record.standing, { kind: 'permission', permission: 'read' })
-  assert.equal(record.ceiling, null, 'null until phase 3 fills it')
+  assert.deepEqual(record.ceiling, { level: 'edit', hold: 'asked' })
   assert.deepEqual(record.session, { runtime: 'fake', sessionId: String(session.id) })
   assert.equal(record.checkout.branch, 'main')
   assert.equal(record.board, null)
@@ -202,8 +205,33 @@ test("through the host: a flow's seat leaves a Seat record on its board and in i
   assert.equal(record.seatLabel, seat.seat)
   assert.deepEqual(record.seat, seat.spec)
   assert.deepEqual(record.standing, { kind: 'permission', permission: 'read' })
-  assert.equal(record.ceiling, null)
+  assert.deepEqual(record.ceiling, { level: 'edit', hold: 'asked' })
   assert.equal(record.checkout.cwd, seat.cwd)
+})
+
+test('each flow permission records its ladder level, always asked', () => {
+  const levels: readonly [FlowPermission, 'edit' | 'publish' | 'merge'][] = [
+    ['read', 'edit'],
+    ['publish', 'publish'],
+    ['merge', 'merge'],
+  ]
+  for (const [permission, level] of levels) {
+    const seat: FlowSeatRecord = {
+      key: String(sessionKey('fake', `s-${permission}`)),
+      role: 'worker',
+      runtime: 'fake',
+      sessionId: `s-${permission}`,
+      seat: 'Fake Runtime',
+      spec: { runtime: 'fake' },
+      permission,
+      cwd: '/work/repo',
+    }
+    const opening = flowSeatInput('room-1', seat)
+    assert.deepEqual(opening.standing, { kind: 'permission', permission })
+    assert.deepEqual(opening.ceiling, { level, hold: 'asked' })
+    assert.equal(opening.agent, null)
+    assert.equal(opening.role, 'worker')
+  }
 })
 
 test('through the host: deleting a conversation closes its Seat, and the record stays', async (t) => {

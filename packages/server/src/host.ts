@@ -8,10 +8,17 @@ import type { BrowserSettings } from '@harnessdesk/cordis-host'
 import { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 
 import {
+  approvalId as makeApprovalId,
+  ceilingOfPermission,
   holderOf,
   DEFAULT_LANE_PREFERENCES,
   lanePreferences,
+  itemId,
   isFolderGone,
+  type CeilingLevel,
+  type ApprovalDecision,
+  type NoticeItem,
+  type SeatCeiling,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -45,6 +52,7 @@ import {
   type RuntimeId,
   type Session,
   type SessionId,
+  type SessionKey,
   type RepoInfo,
   type SessionSummary,
   type TeamState,
@@ -74,6 +82,9 @@ import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
+import { PERSON, type TurnCause } from './ceilings/cause.js'
+import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
+import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
@@ -103,6 +114,7 @@ import { ForgePlane, type ForgePlaneOptions } from './forge.js'
 import { publicationsIn, withPublications } from './publications.js'
 import { SessionNames } from './names.js'
 import { redactorFor, redactLog } from './diagnostics.js'
+import { waitFor } from './flow.js'
 import { Flows, runCheck } from './flows.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
@@ -118,7 +130,7 @@ import { importMigrationSeats, migrateDesk } from './goals/migration.js'
 import { documentOf, GoalStore, restoredLane, type GoalDocument } from './goals/store.js'
 import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
-import { Team, type TeamPeer, type TeamTurnFailure } from './team.js'
+import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
@@ -249,6 +261,9 @@ export interface ModelRouteRecord {
  * cost the whole app — no window, no error, nothing to read.
  */
 const START_TIMEOUT_MS = 15_000
+const HELD_ALLOW = 'allow'
+const HELD_REFUSE = 'refuse'
+const HELD_WAIT_SEC = 45
 /**
  * How long a send may count as busy without the agent having accepted it.
  * The mark exists to keep two messages typed in the same breath from both
@@ -341,6 +356,8 @@ export interface HostOptions {
    * account, a model list, the usage. See `SEAT_READ_DEADLINE_MS`.
    */
   readonly seatReadDeadlineMs?: number
+  /** How long a desk-tool action held for the person waits for an answer. */
+  readonly heldWaitMs?: number
   /**
    * How to give an agent one more account. Supplied by the wiring, because
    * only the wiring knows that a second Codex means a second process over a
@@ -491,6 +508,8 @@ export class Host {
    */
   readonly #evidence: EvidencePlane
   readonly #provenance: ProvenancePlane
+  /** Startup stays off the interactive launch path, but quit still owns it. */
+  #provenanceStart: Promise<void> = Promise.resolve()
   #provenanceGeneration = 0
   readonly #goalStore: GoalStore
   readonly #goalSerial = new Serial()
@@ -712,22 +731,29 @@ export class Host {
       // the room's post is such a use. This used to throw "not attached" for
       // exactly the conversations the user's own composer reopens without a
       // word, which made a room's members vanish on every catalogue refresh.
-      send: async (runtime, id, text, allowed) => {
+      send: async (runtime, id, text, allowed, from) => {
         await dispatchAfter(
           allowed ?? (() => ({ ok: true })),
           () => this.#teamLive(runtime, id),
-          async (live) => { await live.send([{ type: 'text', text }]) },
+          async (live) => {
+            if (from) await this.#startTurn(runtime, id, from, () => live.send([{ type: 'text', text }]))
+            else await live.send([{ type: 'text', text }])
+          },
         )
       },
-      steer: async (runtime, id, text, allowed) => {
+      steer: async (runtime, id, text, allowed, from) => {
         await dispatchAfter(
           allowed ?? (() => ({ ok: true })),
           () => this.#teamLive(runtime, id),
-          (live) => live.steer([{ type: 'text', text }]),
+          async (live) => {
+            await live.steer([{ type: 'text', text }])
+            if (from) this.#markRunningTurn(runtime, id, this.#messageCause(from))
+          },
         )
       },
       goalMembers: (goal) => {
-        const document = this.#goalStore.read(goal)
+        const document = this.#goalStore.list().find((candidate) => candidate.goal.id === goal)
+        if (!document) return null
         return {
           seats: goalMembers(document, this.#evidence.seats.all()),
           legacy: document.legacy?.nicknames,
@@ -782,7 +808,10 @@ export class Host {
          it. Whatever it is really running is what the record and the room
          say it is — a flow says it in the label, and carries on. */
       openLegacySeat: async (input) => {
-        await this.#ensureGoalFromTeam(input.goal)
+        // A live Team room may have queued its initial projection just before
+        // a legacy Flow starts. Promote behind that same writer, otherwise
+        // both paths observe no Goal and race to create revision zero.
+        await this.#goalSerial.run(() => this.#ensureGoalFromTeam(input.goal))
         return this.#goals.openLegacySeat(input)
       },
       releaseGoalSeat: (goal, seat) => this.#goals.release(goal, seat),
@@ -914,6 +943,7 @@ export class Host {
         const cwd = goal.cwd
         const opened = await this.#openSeat(input.spec, { cwd, title: input.title })
         try {
+          const held = await this.#holdSeat(opened.runtime, opened.sessionId, ceilingOfPermission(input.permission))
           const record = await this.#evidence.seats.opened({
             agent: null,
             briefDigest: null,
@@ -921,7 +951,7 @@ export class Host {
             seatLabel: opened.label,
             passedOver: [],
             standing: { kind: 'permission', permission: input.permission },
-            ceiling: null,
+            ceiling: held.ceiling,
             cwd,
             session: { runtime: opened.runtime, sessionId: opened.sessionId },
             board: goal.id,
@@ -1091,6 +1121,7 @@ export class Host {
       this.#logger.warn('a runtime with this id was already registered; replacing it', {
         runtime: id,
       })
+      this.#invalidateDelegations(id)
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
       this.#catalogs.forget(id)
@@ -1277,7 +1308,7 @@ export class Host {
     await this.#names.load()
     // Start capture after the stored names and rooms have recovered, so its
     // first project snapshot cannot describe a partially restored desk.
-    void this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
+    this.#provenanceStart = this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
       this.#logger.warn('provenance could not start')
     })
     /* From here on a file changed under any of the roster's roots is one
@@ -1421,8 +1452,10 @@ export class Host {
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
+    for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
     await this.#flows.flush()
     await this.#team.flush()
+    await this.#provenanceStart
     await this.#provenance.close().catch(() => {
       this.#logger.warn('provenance observations could not be saved')
     })
@@ -2019,6 +2052,7 @@ export class Host {
       seats: {
         open: (seat, where) => this.#openSeat(seat, where),
         order: (runtime, sessionId, text) => this.#orderSeat(runtime, sessionId, text),
+        hold: (runtime, sessionId, level) => this.#holdSeat(runtime, sessionId, level),
         retire: (runtime, sessionId) => this.#retireSeat(runtime, sessionId),
         discard: (runtime, sessionId) => this.#discardSeat(runtime as RuntimeId, makeSessionId(sessionId)),
         recordAgent: (runtime, sessionId, seated) => {
@@ -2037,6 +2071,9 @@ export class Host {
           }
           return record.session
         },
+      },
+      ceilings: {
+        answerHeld: (approvalId, decision) => this.#answerHeld(approvalId, decision),
       },
       queue: {
         push: (record) => this.#pushQueue(record),
@@ -2808,6 +2845,201 @@ export class Host {
     return this.#forge
   }
 
+  /** The gate every desk-tool call passes before it reaches its plugin. */
+  get ceilingGate(): CeilingGate {
+    return this.#ceilingGate
+  }
+
+  readonly #ceilingGate = new CeilingGate({
+    rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
+    ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
+    causeOf: (runtime, sessionId, turnId) => this.#causeOf(runtime, sessionId, turnId),
+    nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
+    say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
+    askPerson: (runtime, sessionId, question) => this.#askPerson(runtime, sessionId, question),
+  })
+
+  /** A reported child conversation to the conversation that delegated it. */
+  readonly #delegatedBy = new Map<SessionKey, { readonly runtime: string; readonly sessionId: string }>()
+  /** A bounded association was lost, so an otherwise unknown caller is unsafe. */
+  readonly #delegationUncertainRuntimes = new Set<string>()
+
+  /** A runtime epoch cannot vouch for the children its predecessor reported. */
+  #invalidateDelegations(runtime: RuntimeId): void {
+    const id = String(runtime)
+    for (const key of this.#delegatedBy.keys()) {
+      if (String(splitSessionKey(key).runtime) === id) this.#delegatedBy.delete(key)
+    }
+    this.#delegationUncertainRuntimes.add(id)
+  }
+
+  readonly #messageTurns = new Map<string, TurnCause>()
+  readonly #pendingCauses = new Map<string, TurnCause>()
+
+  #messageCause(from: TeamSender): TurnCause {
+    const sender = this.#rootOf(String(from.runtime), from.sessionId) ?? {
+      runtime: String(from.runtime), sessionId: from.sessionId,
+    }
+    return { kind: 'message', from, ceiling: this.#ceilingOf(sender.runtime, sender.sessionId) }
+  }
+
+  #turnKey(runtime: string, sessionId: string, turnId: string): string {
+    return JSON.stringify([runtime, sessionId, turnId])
+  }
+
+  #noteTurnCause(key: string, cause: TurnCause): void {
+    this.#messageTurns.set(key, cause)
+    if (this.#messageTurns.size > 2000) {
+      const oldest = this.#messageTurns.keys().next().value
+      if (oldest !== undefined) this.#messageTurns.delete(oldest)
+    }
+  }
+
+  async #startTurn(runtime: RuntimeId, sessionId: string, from: TeamSender | null, send: () => Promise<TurnId>): Promise<void> {
+    const key = String(sessionKey(runtime, makeSessionId(sessionId)))
+    if (!from) {
+      await send()
+      return
+    }
+    const cause = this.#messageCause(from)
+    this.#pendingCauses.set(key, cause)
+    try {
+      const turn = await send()
+      this.#noteTurnCause(this.#turnKey(String(runtime), sessionId, String(turn)), cause)
+    } finally {
+      if (this.#pendingCauses.get(key) === cause) this.#pendingCauses.delete(key)
+    }
+  }
+
+  #markRunningTurn(runtime: RuntimeId, sessionId: string, cause: TurnCause): void {
+    const turn = [...(this.registry.get(runtime, makeSessionId(sessionId))?.running ?? [])].at(-1)
+    if (turn !== undefined) this.#noteTurnCause(this.#turnKey(String(runtime), sessionId, String(turn)), cause)
+  }
+
+  #causeOf(runtime: string, sessionId: string, turnId?: string): TurnCause {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return PERSON
+    const running = [...record.running].map(String)
+    const turn = turnId !== undefined && running.includes(turnId) ? turnId : running.at(-1)
+    if (turn === undefined) return PERSON
+    return this.#messageTurns.get(this.#turnKey(runtime, sessionId, turn)) ?? PERSON
+  }
+
+  readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+
+  #conversationName(runtime: string, sessionId: string): string {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    return (
+      this.#team.nameOf(runtime, sessionId) ??
+      record?.seatedAs?.name ??
+      this.#names.nameOf(runtimeId(runtime), makeSessionId(sessionId)) ??
+      record?.session.title ??
+      this.#runtimes.get(runtimeId(runtime))?.info.presentation.name ??
+      runtime
+    )
+  }
+
+  async #askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'> {
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record || this.#disposed) return 'unanswered'
+    const id = makeApprovalId(`held-${randomBytes(6).toString('hex')}`)
+    const turnId = [...record.running].at(-1)
+    const approval: Approval = {
+      id,
+      sessionId: record.session.id,
+      ...(turnId !== undefined ? { turnId } : {}),
+      requestedAt: Date.now(),
+      type: 'permission',
+      summary: question.summary,
+      reason: question.reason,
+      options: [
+        { id: HELD_ALLOW, label: 'Allow it once', intent: 'approve' },
+        { id: HELD_REFUSE, label: 'Refuse', intent: 'deny' },
+      ],
+    }
+    const requested: AgentEvent = { type: 'approval/requested', approval }
+    this.#audit.record(record.runtime, requested, () => record.session.cwd)
+    this.registry.apply(record.runtime, requested)
+    this.#push({ method: 'event', params: { runtime: record.runtime, event: requested } })
+    const waitMs = this.options.heldWaitMs ?? waitFor(String(record.runtime), HELD_WAIT_SEC) * 1000
+    const answer = await new Promise<'allowed' | 'refused' | 'unanswered'>((resolve) => {
+      const timer = setTimeout(() => resolve('unanswered'), waitMs)
+      this.#heldAnswers.set(String(id), (said) => {
+        clearTimeout(timer)
+        resolve(said)
+      })
+    })
+    this.#heldAnswers.delete(String(id))
+    this.#onEvent(record.runtime, {
+      type: 'approval/resolved',
+      sessionId: record.session.id,
+      approvalId: id,
+      resolution: answer === 'unanswered'
+        ? { outcome: 'timedOut' }
+        : { outcome: 'decided', decision: { type: 'option', optionId: answer === 'allowed' ? HELD_ALLOW : HELD_REFUSE } },
+    })
+    return answer
+  }
+
+  #answerHeld(approvalId: string, decision: ApprovalDecision): boolean {
+    const answer = this.#heldAnswers.get(approvalId)
+    if (!answer) return false
+    answer(decision.type === 'option' && decision.optionId === HELD_ALLOW ? 'allowed' : 'refused')
+    return true
+  }
+
+  #noteDelegation(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type !== 'item/started' && event.type !== 'item/completed') return
+    if (event.item.type !== 'subagent') return
+    const root = this.#rootOf(String(runtime), String(event.sessionId))
+    if (root === null) this.#delegationUncertainRuntimes.add(String(runtime))
+    for (const member of event.item.members) {
+      if (!member.sessionId || member.sessionId === String(event.sessionId)) continue
+      if (root !== null) this.#delegatedBy.set(sessionKey(runtime, makeSessionId(member.sessionId)), root)
+      if (this.#delegatedBy.size > 2000) {
+        const oldest = this.#delegatedBy.keys().next().value
+        if (oldest !== undefined) {
+          this.#delegatedBy.delete(oldest)
+          this.#delegationUncertainRuntimes.add(String(splitSessionKey(oldest).runtime))
+        }
+      }
+    }
+  }
+
+  #rootOf(runtime: string, sessionId: string): Conversation | null {
+    let at: Conversation = { runtime, sessionId }
+    const seen = new Set<string>()
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId))) return at
+      const key = sessionKey(runtimeId(at.runtime), makeSessionId(at.sessionId))
+      if (seen.has(key)) return null
+      seen.add(key)
+      const parent = this.#delegatedBy.get(key)
+      if (!parent) return this.#delegationUncertainRuntimes.has(runtime) ? null : at
+      at = parent
+    }
+    return this.registry.get(runtimeId(at.runtime), makeSessionId(at.sessionId)) ? at : null
+  }
+
+  /** The Agent or live-flow ceiling governing this conversation. */
+  #ceilingOf(runtime: string, sessionId: string): SeatCeiling | null {
+    const seated = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.seatedAs?.ceiling
+    if (seated) return seated
+    const flowSeat = this.#flows.seatOf(runtime, sessionId)
+    return flowSeat ? { level: ceilingOfPermission(flowSeat.permission), hold: 'asked' } : null
+  }
+
+  /** Put a desk decision in the conversation's running or latest turn. */
+  #say(runtime: string, sessionId: string, text: string): boolean {
+    const item: NoticeItem = { id: itemId(`desk-${randomBytes(6).toString('hex')}`), type: 'notice', text }
+    const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
+    if (!record) return false
+    const turnId = [...record.running].at(-1) ?? record.session.turns.at(-1)?.id
+    if (turnId === undefined) return false
+    this.#onEvent(record.runtime, { type: 'item/completed', sessionId: record.session.id, turnId, item })
+    return true
+  }
+
   /**
    * A publication, into the turn that is running — or, when the tool call
    * outlived its turn by a beat, the last one. The event goes through the
@@ -3430,6 +3662,14 @@ export class Host {
    * showed as the first message bubble, in the person's own voice, and
    * `titleOf` read the conversation's title back off it.
    */
+  async #holdSeat(runtime: string, sessionId: string, level: CeilingLevel): Promise<SeatHold> {
+    const found = this.#runtimes.get(runtime as RuntimeId)
+    const control = found ? this.#infoOf(found).ceilings?.[level] : undefined
+    if (!control) return holdCeiling({ options: () => [], setOption: async () => undefined }, level, undefined)
+    const live = await this.#teamLive(runtime as RuntimeId, sessionId)
+    return holdCeiling(live, level, control)
+  }
+
   async #orderSeat(runtime: string, sessionId: string, text: string): Promise<void> {
     const live = await this.#teamLive(runtime as RuntimeId, sessionId)
     const environment = environmentForCheckout(live.settings().cwd, this.#lanes.list())
@@ -3813,6 +4053,15 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    this.#noteDelegation(runtime, event)
+    if (event.type === 'turn/started') {
+      const key = String(sessionKey(runtime, event.sessionId))
+      const pending = this.#pendingCauses.get(key)
+      if (pending) {
+        this.#noteTurnCause(this.#turnKey(String(runtime), String(event.sessionId), String(event.turn.id)), pending)
+        this.#pendingCauses.delete(key)
+      }
+    }
     // The host's permission policy runs before the backend's own
     // question reaches a human. A matched approval never renders: it is
     // answered here, audited here, and reported as a notice.
@@ -3999,6 +4248,7 @@ export class Host {
         model: sessionModel(record.session),
         /* A conversation seated as an Agent is called that in a room. */
         ...(record.seatedAs ? { seatedAs: record.seatedAs.name } : {}),
+        ceiling: this.#ceilingOf(String(record.runtime), String(record.session.id)),
         /* Everything the host holds a record for is open, by construction —
            that is what having a record means. The rooms mint the other kind
            themselves, for their members that nobody has opened this run. */
@@ -4726,6 +4976,7 @@ export class Host {
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
     if (health.state !== 'ready') {
+      this.#invalidateDelegations(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
       this.#terminals.detachAll(runtime)
       // Same reason as `unregister`: these sessions went down without a

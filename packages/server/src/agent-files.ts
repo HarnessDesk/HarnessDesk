@@ -1,10 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { constants, type Stats } from 'node:fs'
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 
-import { isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
-import type { FlowPermission, FlowSeat } from '@harnessdesk/protocol'
+import { digestOf, isSafePathSegment, MAX_BUNDLE_FILES } from '@harnessdesk/agent-inventory'
+import type { CeilingLevel, FlowSeat } from '@harnessdesk/protocol'
 
 import {
   AGENT_FILE_LIMIT,
@@ -72,14 +73,14 @@ const seatLines = (seat: FlowSeat): string[] =>
 export const agentSource = (agent: {
   readonly name: string
   readonly description: string | null
-  readonly permission: FlowPermission
+  readonly ceiling: CeilingLevel
   readonly prefer: readonly FlowSeat[]
 }): string =>
   [
     '---',
     `name: ${quoted(agent.name)}`,
     ...(agent.description ? [`description: ${quoted(agent.description)}`] : []),
-    `permission: ${agent.permission}`,
+    `ceiling: ${agent.ceiling}`,
     'prefer:',
     ...agent.prefer.flatMap(seatLines),
     '---',
@@ -167,7 +168,8 @@ const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
  * different moment — one while a link was still there to refuse, the other
  * once it was gone again.
  */
-const openNoFollow = (path: string, flags: number) => open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+const openNoFollow = (path: string, flags: number, mode?: number) =>
+  open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW), mode)
 
 /**
  * Creates text under `writeAgentFolder`'s canonical temporary path, with
@@ -917,5 +919,85 @@ export const rollbackCreatedAgent = async (created: CreatedAgentFolder, project:
     if (code === 'ENOTEMPTY' || code === 'EEXIST') return 'the Agent folder changed after it was written'
     if (code === 'ENOTDIR') return 'the Agent folder was replaced before cleanup'
     return `the Agent folder could not be removed: ${messageOf(error)}`
+  }
+}
+
+/** Reach an existing Agent folder one real directory at a time, never through a link. */
+const agentFolderAt = async (within: string, steps: readonly string[]): Promise<string> => {
+  let at = within
+  for (const step of steps) {
+    at = join(at, step)
+    const info = await lstat(at).catch(() => null)
+    if (!info) throw new Error(`${at} is not there, so nothing was written.`)
+    if (info.isSymbolicLink()) {
+      throw new Error(`${at} is a link, so nothing was written through it: an Agent is only ever written inside its own folder.`)
+    }
+    if (!info.isDirectory()) throw new Error(`${at} is not a folder, so nothing was written there.`)
+  }
+  return at
+}
+
+export const projectAgentFolder = async (project: string, id: string): Promise<string> =>
+  agentFolderAt(await realpath(project), [...PROJECT_AGENT_DIR.split('/'), id])
+
+export const userAgentFolder = async (root: string, id: string): Promise<string> =>
+  agentFolderAt(await realpath(root), [id])
+
+/** Read an update target directly, with no top-level link following. */
+const rewriteSource = async (path: string): Promise<string> => {
+  let handle
+  try {
+    handle = await openNoFollow(path, constants.O_RDONLY | constants.O_NONBLOCK)
+  } catch (error) {
+    if (errnoOf(error) === 'ELOOP') throw new Error(`${path} was replaced before it could be read, so nothing was written.`)
+    throw error
+  }
+  try {
+    const info = await handle.stat()
+    if (!info.isFile()) throw new Error(`${path} is not a regular Agent file.`)
+    const bytes = await readAtMost(handle, AGENT_FILE_LIMIT)
+    if (bytes === null) throw new Error(`${path} is too large to update: an Agent file is read whole or not at all.`)
+    return bytes.toString('utf8')
+  } finally {
+    await handle.close()
+  }
+}
+
+/** Atomically rewrite one digest-bound Agent file without following a link. */
+export const rewriteAgentFile = async (
+  folder: string,
+  digest: string,
+  change: (source: string) => string,
+): Promise<void> => {
+  const path = join(folder, 'AGENT.md')
+  const folderBefore = await lstat(folder)
+  const source = await rewriteSource(path)
+  if (digestOf(source) !== digest) {
+    throw new Error(`${path} has changed since the update was shown to you. Open Update… again to see what it would change now.`)
+  }
+  const next = change(source)
+  const fileBefore = await lstat(path)
+  const temporary = join(folder, `.AGENT.md.${randomUUID().slice(0, 8)}.tmp`)
+  let temporaryHandle
+  try {
+    temporaryHandle = await openNoFollow(
+      temporary,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+      fileBefore.mode & 0o777,
+    )
+    await temporaryHandle.writeFile(next, 'utf8')
+  } finally {
+    await temporaryHandle?.close()
+  }
+  try {
+    const folderNow = await lstat(folder)
+    const fileNow = await lstat(path)
+    if (!sameIdentity(identityOf(folderBefore), folderNow) || !sameIdentity(identityOf(fileBefore), fileNow)) {
+      throw new Error(`${path} was replaced while it was being updated, so nothing was written.`)
+    }
+    await rename(temporary, path)
+  } catch (error) {
+    await unlink(temporary).catch(() => undefined)
+    throw error
   }
 }

@@ -1,7 +1,7 @@
 ---
 name: Test reviewer
 description: Reads a change it did not write and judges whether its tests would catch it being wrong.
-permission: read
+ceiling: edit
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]

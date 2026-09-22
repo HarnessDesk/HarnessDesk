@@ -58,7 +58,7 @@ import {
   type TeamState,
   type FlowDryRun,
   type FlowFile,
-  type FlowPermission,
+  type CeilingLevel,
   type FlowRun,
   type FlowSeat,
   type GoalCreateInput,
@@ -238,6 +238,8 @@ export type {
   StoredCredential,
 } from './snapshot'
 export { emptySnapshot } from './snapshot'
+
+export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
   #captureEpoch = 0
@@ -3936,6 +3938,44 @@ export class AppStore {
   }
 
   // ------------------------------------------------------------------ agents
+  /** The exact host target for an editable Agent ceiling. */
+  #ceilingTarget(entry: AgentEntry, level: CeilingLevel): {
+    readonly id: string
+    readonly origin: 'user' | 'project'
+    readonly project?: string
+    readonly level: CeilingLevel
+  } {
+    if (entry.origin === 'builtin') {
+      throw new Error('An Agent that ships with the app is updated by the app. Customize it first.')
+    }
+    if (entry.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before updating it.')
+      return { id: entry.id, origin: entry.origin, project, level }
+    }
+    return { id: entry.id, origin: entry.origin, level }
+  }
+
+  /** Shows the one line the host would replace, without writing it. */
+  async previewCeiling(entry: AgentEntry, level: CeilingLevel): Promise<import('@harnessdesk/protocol').CeilingUpdate> {
+    return this.transport.request('agent/ceiling/preview', this.#ceilingTarget(entry, level))
+  }
+
+  /** Writes the exact previewed line, bound to that preview's digest. */
+  async writeCeiling(entry: AgentEntry, level: CeilingLevel, digest: string): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const written = await this.transport.request('agent/ceiling/write', { ...this.#ceilingTarget(entry, level), digest })
+    const agents = this.#snapshot.agents
+    if (agents && project === this.#snapshot.agentsProject) {
+      this.#patch({
+        agents: agents.map((one) => (
+          one.id === written.id && one.origin === written.origin && one.path === written.path ? written : one
+        )),
+      })
+    }
+    return written
+  }
+
 
   /**
    * Numbered against overlapping reads: a workspace switch, an `agent/changed`
@@ -4153,7 +4193,7 @@ export class AppStore {
   async saveAsAgent(agent: {
     readonly name: string
     readonly description: string
-    readonly permission: FlowPermission
+    readonly ceiling: CeilingLevel
     readonly seat: FlowSeat
     readonly to: 'user' | 'project'
   }): Promise<AgentEntry> {
@@ -4161,7 +4201,7 @@ export class AppStore {
     const entry = await this.transport.request('agent/create', {
       name: agent.name,
       ...(agent.description ? { description: agent.description } : {}),
-      permission: agent.permission,
+      ceiling: agent.ceiling,
       seat: agent.seat,
       to: agent.to,
       ...(project ? { project } : {}),
@@ -5230,6 +5270,28 @@ export class AppStore {
       this.notice('error', `${what} could not be saved, so the next launch will not have it. ${describe(error)}`)
       return false
     }
+  }
+
+  /** What a watched conversation does when its runtime cannot hold the requested ceiling. */
+  async loadUnheldCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const watched = typeof stored === 'object' && stored !== null
+        ? (stored as { watched?: unknown }).watched
+        : undefined
+      return watched === 'refuse' ? 'refuse' : 'seat'
+    } catch {
+      return 'seat'
+    }
+  }
+
+  /** Writes only the watched unheld-ceiling preference; the host merges the patch. */
+  async saveUnheldCeilings(watched: UnheldCeilings): Promise<void> {
+    await this.#writePreference(
+      { unheldCeilings: { watched } },
+      'What happens when a ceiling cannot be held',
+    )
   }
 
   setTheme(theme: AppSnapshot['theme']): void {

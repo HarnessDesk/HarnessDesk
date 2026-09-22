@@ -11,6 +11,9 @@ import { routeFor } from './seat-fixes'
  * Nothing about a runtime opens the roster.
  */
 describe('where a fix goes', () => {
+  it('sends a ceiling this Mac refused to hold to Settings › Permissions at Ceilings', () => {
+    expect(routeFor({ kind: 'ceilings' }, 'code-reviewer')).toEqual({ kind: 'settings', section: 'permissions', focus: 'ceilings' })
+  })
   it('sends every runtime’s trouble to the runtime, never to the roster', () => {
     const fixes: SeatFix[] = [
       { kind: 'signIn', runtime: 'cursor' },

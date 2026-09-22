@@ -1,7 +1,7 @@
 ---
 name: API reviewer
 description: Reads a change it did not write for what it does to the interfaces other code and other people rely on.
-permission: read
+ceiling: read
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]

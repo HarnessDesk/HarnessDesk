@@ -163,18 +163,25 @@ run prints every one of them verbatim and nothing runs until you press start.
 
 ### Permissions
 
-The standing order handed to a seat is **generated** from its role's
-permission, and re-rendered from the role every time, so a seat cannot hold a
-permission its order does not describe.
+The standing order handed to a seat is **generated** from its role's legacy
+`permission`, and re-rendered from the role every time. Flow syntax is unchanged
+in this phase: it still accepts `read`, `publish` and `merge` and does not have a
+`grant` key.
 
-- **`read`** — forbids pushing, merging, resetting and forcing. What every
-  worker gets, and the default.
+- **`read`** — keeps its established meaning: it maps to `edit` on the four-level
+  ceiling ladder, so the seat may edit and commit in its checkout but may not
+  push, merge, reset or force. It remains the default.
 - **`publish`** — may branch, commit, push **its own branch**, and open a pull
   request. Still refuses merge, the default branch, reset, rebase, amending
   published history, force, and deleting anything it did not make. A card that
   appears to ask for one of those must be released as blocked rather than
   interpreted generously.
 - **`merge`** — everything above plus merging what a card names.
+
+Flow seats are *asked*, not claimed as runtime-held. Their level and hold are
+shown as explicit chips in the dry run and on the running seat. While the flow
+runs, the desk's own tools enforce the translated ceiling even though the
+runtime itself may only have been asked to respect it.
 
 An `agent` role with `merge` is flagged by the dry run, because **autonomy is
 opt-in per step, never per room**. A flow whose every step is an agent is a
@@ -221,7 +228,8 @@ reaches a board, and a check's command is printed rather than run — and it
 prints:
 
 - every seat the flow would open, and what **opening** it costs — one turn
-  each, since a seat is opened and handed its order in a single turn;
+  each, since a seat is opened and handed its order in a single turn — together
+  with its translated ceiling and whether that limit is held or asked;
 - every check command, verbatim;
 - a trace of the loop against outcomes you supply, so both the approve path
   and the request-changes path are visible from one file;

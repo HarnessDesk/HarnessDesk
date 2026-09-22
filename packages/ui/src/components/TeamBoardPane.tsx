@@ -694,6 +694,9 @@ const StopWork = ({
  * the column *cannot* say: who holds it, why it stopped, how long it has been
  * sitting there, and what it is waiting on.
  */
+import { seatCeilingOf } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
+
 const IntentCard = ({
   intent,
   room,
@@ -764,6 +767,9 @@ const IntentCard = ({
   const holderTint = intent.claim
     ? runtimeTint(intent.claim.runtime, snapshot.accountsByRuntime, snapshot.accountPrefs)
     : 'blue'
+  const holderCeiling = intent.claim
+    ? seatCeilingOf(session?.settings, snapshot.flowRuns.get(room) ?? [], intent.claim.runtime, intent.claim.sessionId)
+    : null
 
   /**
    * The one line under the title, and the order is the order a reader needs it.
@@ -944,6 +950,7 @@ const IntentCard = ({
                   {session.title}
                 </span>
               )}
+              {holderCeiling && <CeilingChip ceiling={holderCeiling.ceiling} note={holderCeiling.note} />}
             </SessionHoverCard>
           </Button>
         ) : undefined

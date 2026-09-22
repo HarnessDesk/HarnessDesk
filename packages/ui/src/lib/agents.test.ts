@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { AgentEntry, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason, Session } from '@harnessdesk/protocol'
+import type { AgentEntry, CeilingLevel, RuntimeInfo, SeatCandidate, SeatLeft, SeatPlan, SeatReason, Session } from '@harnessdesk/protocol'
 
 import {
   anyBroken,
@@ -8,6 +8,7 @@ import {
   blockedWords,
   bySection,
   ceilingWords,
+  ceilingMeaning,
   copyTargets,
   fileWords,
   firstParagraph,
@@ -26,6 +27,7 @@ import {
   seatOf,
   seatWordsOf,
   seatCautions,
+  seatCeilingWords,
   seatTaken,
   shadowWords,
   stateWords,
@@ -77,7 +79,8 @@ const entry = (id: string, over: Partial<AgentEntry> = {}): AgentEntry => ({
     id,
     name: id,
     description: null,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: [],
     produces: [],
     skills: [],
@@ -92,6 +95,7 @@ const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
   from: 'prefer',
   winner: 1,
   blocked: null,
+  ceiling: { level: 'edit', hold: 'asked' },
   candidates: [
     {
       seat: { runtime: 'cursor' },
@@ -107,10 +111,27 @@ const plan = (over: Partial<SeatPlan> = {}): SeatPlan => ({
 })
 
 describe('agents in words', () => {
-  it('says every ceiling is asked, because nothing holds one yet', () => {
-    expect(ceilingWords('read')).toBe('Read · asked')
-    expect(ceilingWords('publish')).toBe('Publish · asked')
-    expect(ceilingWords('merge')).toBe('Merge · asked')
+  it("says an Agent's ceiling as its word on the ladder, and a seat's with whether its runtime holds it", () => {
+    expect(['read', 'edit', 'publish', 'merge'].map((level) => ceilingWords(level as CeilingLevel))).toEqual([
+      'Read',
+      'Edit',
+      'Publish',
+      'Merge',
+    ])
+    expect(seatCeilingWords({ level: 'read', hold: 'held' })).toBe('Read · held')
+    expect(seatCeilingWords({ level: 'edit', hold: 'asked' })).toBe('Edit · asked')
+    expect(ceilingMeaning('read')).toBe('Changes nothing: it reads, searches and reports.')
+    expect(ceilingMeaning('edit')).toBe('May change files and commit in its own checkout, and never push.')
+  })
+
+  it('says a runtime that cannot hold a ceiling, and where that is decided', () => {
+    expect(reasonWords({ kind: 'unheld', level: 'read', detail: null }, 'Claude')).toBe(
+      'Claude cannot hold read, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(reasonWords({ kind: 'unheld', level: 'edit', detail: 'Sandbox reads back as Full access' }, 'Codex')).toBe(
+      'Codex cannot hold edit: Sandbox reads back as Full access, and this Mac refuses a seat whose ceiling is only asked',
+    )
+    expect(fixWords({ kind: 'ceilings' }, 'Claude')).toBe('Change what happens when a ceiling cannot be held')
   })
 
   it('heads each section by where it was found, the project by its name', () => {

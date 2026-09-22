@@ -2,8 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { FlowDryRun, FlowFile } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Card, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Text } from '../design'
+import { ActionError, Banner, Card, CodeText, Field, Input, NativeSelect, Note, NoteList, Text } from '../design'
+import { flowSeatCeiling } from '../lib/ceilings'
 import { useStore } from '../state/context'
+import { CeilingChip } from './CeilingChip'
 import styles from './FlowStart.module.css'
 
 /**
@@ -219,13 +221,9 @@ export const FlowStart = ({
                   <div key={`${seat.role}-${seat.index}`} role="listitem">
                     <Text role="row" className={styles.role}>{seat.role}</Text>
                     <span className={styles.seat}>{seat.seat}</span>
-                    <Chip
-                      size="sm"
-                      tone={seat.permission === 'publish' ? 'warning' : seat.permission === 'merge' ? 'danger' : 'neutral'}
-                      className={styles.tag}
-                    >
-                      {seat.permission}
-                    </Chip>
+                    <span className={styles.ceiling}>
+                      <CeilingChip ceiling={flowSeatCeiling(seat.permission)} />
+                    </span>
                   </div>
                 ))}
               </div>
@@ -277,6 +275,13 @@ export const FlowStart = ({
                 That is what opening them costs. Each seat then keeps working inside its one turn —
                 one round trip per step, for as long as the flow runs — so on usage-based pricing the
                 run costs more than the seating.
+              </Note>
+            )}
+            {report.seats.length > 0 && (
+              <Note tone="warn" className={styles.note}>
+                A role's permission: keeps the meaning it had — its read lets a seat edit and commit,
+                so it reads as Edit — and a flow's seats are asked their ceilings, not held to them:
+                each agent is told, and the desk's own tools refuse anything above it.
               </Note>
             )}
             {!report.settled && report.trace.length > 0 && (

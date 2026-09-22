@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { rm } from 'node:fs/promises'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { test } from 'node:test'
 
 import type { GoalReceipt, GoalView, Session, TeamState, WrapPreview } from '@harnessdesk/protocol'
@@ -7,6 +7,34 @@ import type { GoalReceipt, GoalView, Session, TeamState, WrapPreview } from '@ha
 import { EvidenceStore } from '../src/evidence/store.js'
 import { Client, halt, start } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
+
+test('Goal Agent seating preserves the held ceiling through the host adapter', async (t) => {
+  const work = tempDir('hd-goal-held-seat-work-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+    await rm(work, { recursive: true, force: true })
+  })
+  await mkdir(`${harness.stateDir}/agents/reviewer`, { recursive: true })
+  await writeFile(`${harness.stateDir}/agents/reviewer/AGENT.md`, [
+    '---', 'name: Reviewer', 'ceiling: read', 'prefer: [fake]', '---', 'Read the diff.', '',
+  ].join('\n'), 'utf8')
+  await client.call('workspace/open', { path: work })
+  const goal = await client.call('goal/create', { root: work, sentence: 'Review the compatibility seam' }) as GoalView
+
+  const seat = await client.call('goal/seat', {
+    goal: goal.goal.id, agent: 'reviewer', grant: { kind: 'ceiling', level: 'merge' },
+  }) as { id: string; session: { runtime: string; sessionId: string }; standing: { kind: string; level?: string }; ceiling: { level: string; hold: string } | null }
+
+  assert.deepEqual(seat.standing, { kind: 'ceiling', level: 'read' })
+  assert.deepEqual(seat.ceiling, { level: 'read', hold: 'asked' })
+  const held = harness.host.registry.get(seat.session.runtime as never, seat.session.sessionId as never)
+  assert.deepEqual(held?.seatedAs?.ceiling, seat.ceiling)
+})
 
 test('live Goal assignments write durable Seats before restart', async () => {
   const work = tempDir('hd-goal-host-work-')

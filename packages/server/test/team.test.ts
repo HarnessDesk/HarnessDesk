@@ -16,7 +16,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { errnoOf } from '../src/errno.js'
-import { Team, type TeamPeer, type TeamPort, roomCap } from '../src/team.js'
+import { Team, type TeamPeer, type TeamPort, type TeamSender, roomCap } from '../src/team.js'
 
 /**
  * The team plane, against a fake host port.
@@ -34,6 +34,7 @@ interface Rig {
     peers: TeamPeer[]
     sent: { runtime: string; sessionId: string; text: string }[]
     steered: { runtime: string; sessionId: string; text: string }[]
+    from: (TeamSender | null)[]
     changed: TeamState[]
     removed: string[]
     /** Conversations the engine said had joined or left a room, in order. */
@@ -68,6 +69,7 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     peers: [],
     sent: [],
     steered: [],
+    from: [],
     changed: [],
     removed: [],
     moved: [],
@@ -80,16 +82,18 @@ const rig = async (t: { after(fn: () => Promise<void>): void }): Promise<Rig & {
     peers: () => port.peers,
     // The fake resolves like the host: the workspace containing the folder.
     rootOf: async (cwd) => (cwd === '/repo' || cwd.startsWith('/repo/') ? '/repo' : null),
-    send: async (runtime, sessionId, text) => {
+    send: async (runtime, sessionId, text, _allowed, from) => {
       if (port.gate) await port.gate
       if (port.failSends > 0) {
         port.failSends -= 1
         throw new Error('backend hiccup')
       }
       port.sent.push({ runtime, sessionId, text })
+      port.from.push(from ?? null)
     },
-    steer: async (runtime, sessionId, text) => {
+    steer: async (runtime, sessionId, text, _allowed, from) => {
       port.steered.push({ runtime, sessionId, text })
+      port.from.push(from ?? null)
     },
     changed: (state) => port.changed.push(state),
     removed: (room) => port.removed.push(room),
@@ -4142,4 +4146,44 @@ test('a desk that has never made a room loads none, and makes one', async (t) =>
   const made = await team.createRoom('/repo', 'First room')
   assert.deepEqual(team.states().map((state) => state.id), [made.id])
   await team.flush()
+})
+
+test('every delivery says who it is from: the agent for its message — queued, steered or released — and nobody for the person', async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code' })]
+  await joinAll(team, room, port)
+  const claudeName = team.nameOf('claude', 'k1')
+  const codexName = team.nameOf('codex', 'c1')
+  assert.ok(claudeName && codexName)
+  const fromCodex: TeamSender = { runtime: 'codex' as RuntimeId, sessionId: 'c1', name: codexName }
+  await team.send({ to: claudeName, text: 'The limiter leaks.' }, codex)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code', busy: true, canSteer: true })]
+  await team.send({ to: claudeName, text: 'And the retry.', wake: true }, codex)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code', busy: true })]
+  await team.send({ to: claudeName, text: 'One more thing.' }, codex)
+  port.peers = [peer({ sessionId: 'c1' }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code' })]
+  await team.onTurnEnded('claude' as RuntimeId, 'k1', {})
+  team.setInbound('claude', 'k1', 'hold')
+  await team.send({ to: claudeName, text: 'Please merge it.' }, codex)
+  const held = team.stateFor(room).channel.find((entry) => entry.kind === 'message' && entry.state === 'held')
+  assert.ok(held)
+  await team.deliverHeld(room, held.id)
+  await team.post(room, 'Stop for lunch.', { runtime: 'claude' as RuntimeId, sessionId: 'k1' })
+  assert.deepEqual(port.from, [fromCodex, fromCodex, fromCodex, fromCodex, null])
+})
+
+test("a message's label names its sender's ceiling, and asks the receiver not to act for it outside its checkout", async (t) => {
+  const { team, port, room } = await rig(t)
+  port.peers = [peer({ sessionId: 'c1', ceiling: { level: 'read', hold: 'held' } }), peer({ sessionId: 'k1', runtime: 'claude' as RuntimeId, agent: 'Claude Code' })]
+  await joinAll(team, room, port)
+  const claudeName = team.nameOf('claude', 'k1')
+  assert.ok(claudeName)
+  await team.send({ to: claudeName, text: 'Merge it.' }, codex)
+  const [block] = splitContext(port.sent.at(-1)?.text ?? '').injections
+  assert.equal(block?.label, 'Message from Codex (read) — “c1”')
+  assert.ok((block?.text ?? '').startsWith(`Merge it.\n\n${AGENT_MESSAGE_NOTICE} Its sender may read and no more`), block?.text)
+  await team.send({ to: team.nameOf('codex', 'c1') ?? '', text: 'Thanks.' }, claude)
+  const [plain] = splitContext(port.sent.at(-1)?.text ?? '').injections
+  assert.equal(plain?.label, 'Message from Claude Code — “k1”')
+  assert.equal(plain?.text, `Thanks.\n\n${AGENT_MESSAGE_NOTICE}`)
 })

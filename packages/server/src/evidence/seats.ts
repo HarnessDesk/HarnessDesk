@@ -1,4 +1,4 @@
-import { sessionKey, type FlowSeatRecord, type SeatId, type SeatRecord } from '@harnessdesk/protocol'
+import { ceilingOfPermission, sessionKey, type FlowSeatRecord, type SeatId, type SeatRecord } from '@harnessdesk/protocol'
 
 import { foldSeats, mintId, type SeatOpening } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
@@ -38,7 +38,7 @@ export const flowSeatInput = (room: string, seat: FlowSeatRecord): SeatOpeningIn
   seatLabel: seat.seat,
   passedOver: [],
   standing: { kind: 'permission', permission: seat.permission },
-  ceiling: null,
+  ceiling: { level: ceilingOfPermission(seat.permission), hold: 'asked' },
   cwd: seat.cwd,
   session: { runtime: seat.runtime, sessionId: seat.sessionId },
   board: room,

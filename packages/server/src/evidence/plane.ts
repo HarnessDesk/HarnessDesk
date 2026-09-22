@@ -153,15 +153,16 @@ export class EvidencePlane {
    */
   seatedAs(runtime: string, sessionId: string): SeatedAs | null {
     const seat = this.seats.latestKeptOf(runtime, sessionId)
-    if (!seat?.agent || seat.briefDigest === null || seat.standing.kind !== 'permission') return null
+    if (!seat?.agent || seat.briefDigest === null) return null
     return {
       agent: seat.agent.id,
       name: seat.agent.name,
       briefDigest: seat.briefDigest,
-      permission: seat.standing.permission,
+      standing: seat.standing,
       seatLabel: seat.seatLabel,
       passedOver: seat.passedOver,
       ceiling: seat.ceiling,
+      ceilingNote: null,
     }
   }
 
