@@ -20,10 +20,11 @@ const labelFor = (dimension: InsightDimension): string => ({
 })[dimension]
 
 const sourceWords = (source: InsightReport['sources'][number]): string => {
-  if (source.observedAt === null) return `${source.label} · Observation time unknown`
-  const observed = new Date(source.observedAt).toLocaleString()
   const checked = new Date(source.checkedAt).toLocaleString()
-  return `${source.label} · Observed ${observed} · Read ${checked}${source.stale ? ' · Stale' : ''}${source.problem ? ` · ${source.problem}` : ''}`
+  const status = `${source.stale ? ' · Stale' : ''}${source.problem ? ` · ${source.problem}` : ''}`
+  if (source.observedAt === null) return `${source.label} · Observation time unknown · Read ${checked}${status}`
+  const observed = new Date(source.observedAt).toLocaleString()
+  return `${source.label} · Observed ${observed} · Read ${checked}${status}`
 }
 
 /** Shared, deliberately textual accounting presentation: unknown is never formatted as free. */

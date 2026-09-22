@@ -825,6 +825,29 @@ test('pricing diagnostics retain errno categories without raw error text', async
   ])
 })
 
+test('an unreadable price overlay is diagnosed without retaining its path or error text', async () => {
+  const dir = scratch()
+  const marker = 'agent-owned-pricing-overlay-must-not-log'
+  const overlay = join(dir, `${marker}-overlay.json`)
+  const logged: { message: string; details: Record<string, unknown> | undefined }[] = []
+  const pricing = new Pricing({
+    cachePath: join(dir, `${marker}-cache.json`),
+    overlayPath: overlay,
+    readText: async (path) => {
+      if (path === overlay) throw Object.assign(new Error(marker), { code: 'EACCES' })
+      throw Object.assign(new Error(marker), { code: 'ENOENT' })
+    },
+    fetchCatalogue: async () => ({}),
+    log: (message, details) => logged.push({ message, details }),
+  })
+  await pricing.warm()
+
+  assert.ok(!JSON.stringify(logged).includes(marker), 'the inaccessible overlay path never reaches diagnostics')
+  assert.deepEqual(logged, [
+    { message: 'the price overlay could not be read', details: { operation: 'price-overlay-read', failure: 'access-denied' } },
+  ])
+})
+
 test('an agent’s folder that cannot be opened is said, and the other agents are still counted', async () => {
   const dir = scratch()
   const claude = join(dir, 'claude-projects')

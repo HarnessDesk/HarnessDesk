@@ -27,6 +27,8 @@ export interface ModelRates {
 export interface PricingOptions {
   readonly cachePath: string
   readonly overlayPath: string
+  /** Injectable text reader for deterministic filesystem-failure tests. */
+  readonly readText?: (path: string) => Promise<string>
   /** Injectable for tests, and the seam where a user could turn the fetch off. */
   readonly fetchCatalogue?: () => Promise<unknown>
   readonly ttlMs?: number
@@ -160,6 +162,10 @@ export class Pricing {
     this.#options.log?.(message, safeLedgerDiagnostic(message, details))
   }
 
+  #readText(path: string): Promise<string> {
+    return this.#options.readText?.(path) ?? readFile(path, 'utf8')
+  }
+
   /** Loads the overlay and the cached catalogue; refreshes the catalogue if it is stale. */
   async warm(): Promise<void> {
     await this.#loadOverlay()
@@ -262,8 +268,13 @@ export class Pricing {
     this.#overlay.clear()
     let raw: string
     try {
-      raw = await readFile(this.#options.overlayPath, 'utf8')
-    } catch {
+      raw = await this.#readText(this.#options.overlayPath)
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT') return
+      this.#log('the price overlay could not be read', {
+        path: this.#options.overlayPath,
+        error,
+      })
       return
     }
     try {
@@ -283,7 +294,7 @@ export class Pricing {
 
   async #loadCache(): Promise<void> {
     try {
-      const raw = await readFile(this.#options.cachePath, 'utf8')
+      const raw = await this.#readText(this.#options.cachePath)
       const parsed = JSON.parse(raw) as CachedCatalogue
       if (typeof parsed.fetchedAt === 'number' && typeof parsed.catalogue === 'object') {
         this.#catalogue = parsed.catalogue

@@ -61,3 +61,24 @@ it('clears the previous project attribution while the next project loads', async
   expect(container.textContent).not.toContain('One Goal')
   await act(async () => { resolveNext?.(report()) })
 })
+
+it('keeps safe unreadable-source warnings visible when the Dashboard has no attribution rows', async () => {
+  const unreadable = {
+    ...report(),
+    breakdowns: [],
+    sources: [{ id: 'unreadable', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Recorded usage source could not be discovered.' }],
+    gaps: ['Recorded usage may be incomplete.'],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => unreadable), openGoal: vi.fn() } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+
+  expect(container.textContent).toContain('Recorded usage has no goal attribution.')
+  expect(container.textContent).toContain('Recorded usage source could not be discovered.')
+  expect(container.textContent).toContain('Recorded usage may be incomplete.')
+  expect(container.textContent).toContain('Recorded usage')
+  expect(container.textContent).toContain('Unavailable')
+})

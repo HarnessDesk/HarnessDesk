@@ -3,7 +3,7 @@ import type { InsightDimension, InsightReport, RuntimeId } from '@harnessdesk/pr
 
 import { metricWords } from '../lib/insight'
 import { useStore } from '../state/context'
-import { Note, Row, RowButton, RowValue, Rows } from '../design'
+import { Chip, Note, Row, RowButton, RowValue, Rows } from '../design'
 
 export interface InsightUsageProps {
   readonly root: string | null
@@ -26,14 +26,16 @@ export const InsightUsage = ({ root, runtime, view, onGoal }: InsightUsageProps)
   if (!report) return <Note>Reading recorded usage…</Note>
   const dimension: InsightDimension = view
   const breakdown = report.breakdowns.find((entry) => entry.dimension === dimension)
-  if (!breakdown) return <Note>Recorded usage has no {view} attribution.</Note>
+  const failedSources = report.sources.filter((source) => source.problem !== null)
   return <Rows>
-    {breakdown.rows.length === 0 ? <Row title={view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} desc={breakdown.reason ?? 'Unknown historical usage remains unassigned.'} /> : breakdown.rows.map((row) => {
+    {!breakdown ? <Row title={`Recorded usage has no ${view} attribution.`} /> : breakdown.rows.length === 0 ? <Row title={view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} desc={breakdown.reason ?? 'Unknown historical usage remains unassigned.'} /> : breakdown.rows.map((row) => {
       const click = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
       const words = metricWords(row.amounts.usd, report.sources, Date.now())
       const props = { title: row.label, desc: [row.note, words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ') || undefined, control: <RowValue>{words.value}</RowValue> }
       return click ? <RowButton key={row.key} {...props} onClick={click} /> : <Row key={row.key} {...props} />
     })}
-    <Row title={view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'} desc={breakdown.reason ?? `No unique historical ${view === 'goal' ? 'Seat' : 'Agent Seat'} could be established.`} control={<RowValue>{metricWords(breakdown.unattributed.usd, report.sources, Date.now()).value}</RowValue>} />
+    {breakdown ? <Row title={view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'} desc={breakdown.reason ?? `No unique historical ${view === 'goal' ? 'Seat' : 'Agent Seat'} could be established.`} control={<RowValue>{metricWords(breakdown.unattributed.usd, report.sources, Date.now()).value}</RowValue>} /> : null}
+    {failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}
+    {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
   </Rows>
 }

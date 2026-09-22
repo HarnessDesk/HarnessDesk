@@ -79,3 +79,18 @@ it('does not call a mixed subtotal vendor-and-list-priced when another portion i
   expect(container.textContent).toContain('Vendor- or list-price cost; another portion is unknown')
   expect(container.textContent).not.toContain('Vendor-metered and list-price cost')
 })
+
+it('keeps safe source read status when its observation time is unknown', () => {
+  const unreadable = {
+    ...report(),
+    sources: [{ ...source, observedAt: null, stale: true, problem: 'Recorded usage source could not be discovered.' }],
+  }
+  act(() => root.render(<InsightCost report={unreadable} loading={false} problem={null} onRefresh={() => {}} />))
+  const sources = [...container.querySelectorAll('button')].find((button) => button.textContent === 'Sources')
+  act(() => sources?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+
+  expect(document.body.textContent).toContain('Observation time unknown')
+  expect(document.body.textContent).toContain(`Read ${new Date(source.checkedAt).toLocaleString()}`)
+  expect(document.body.textContent).toContain('Stale')
+  expect(document.body.textContent).toContain('Recorded usage source could not be discovered.')
+})
