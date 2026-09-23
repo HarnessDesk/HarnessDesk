@@ -206,6 +206,9 @@ it('an Agent that cannot be seated here stays, greyed with its reason — and pr
   render(store)
   const judge = choice('Judge')
   expect(judge.hasAttribute('data-refused')).toBe(true)
+  // Greyed, not merely annotated: the same fade a refused control wears
+  // everywhere else in the app (#871), on the exact variant this row draws.
+  expect(judge.className).toContain('data-[refused]:opacity-45')
   expect(judge.textContent).toContain('Cursor is signed out')
   expect(judge.disabled).toBe(false)
   act(() => judge.click())
@@ -216,6 +219,27 @@ it('the plain choice is what opens focused, Agents above it or not', () => {
   const { store } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
   render(store)
   expect(document.activeElement).toBe(choice('A session'))
+})
+
+/*
+ * #870: focusing the plain choice must never scroll the dialog. It sits
+ * under every Agent row, so the browser's default scroll-into-view on that
+ * focus slides the whole "As an Agent" list up toward the dialog's header —
+ * on a roster long enough that the plain choice starts below the fold, that
+ * scroll lands the top rows close enough to the header's own bottom edge
+ * that a click meant for the row's centre can land on the header instead,
+ * silently. `elementFromPoint` cannot run under jsdom, so this pins the
+ * mechanism directly: the plain choice takes focus without ever asking the
+ * browser to scroll it into view.
+ */
+it('focuses the plain choice without scrolling the roster out from under a person', () => {
+  const spy = vi.spyOn(HTMLElement.prototype, 'focus')
+  const { store } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  expect(document.activeElement).toBe(choice('A session'))
+  const call = spy.mock.calls.find(([options]) => (options as FocusOptions | undefined)?.preventScroll === true)
+  expect(call, `focus() was called as: ${JSON.stringify(spy.mock.calls)}`).toBeDefined()
+  spy.mockRestore()
 })
 
 it('Enter still starts a plain conversation on the default runtime — agent/seat is never asked for it', () => {

@@ -26,6 +26,24 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
 
   useEffect(() => { void store.loadAgents() }, [store])
   const agents = inForce(snapshot.agents ?? [])
+  /*
+   * The plain choice sits under every Agent row, so a plain `autoFocus`
+   * scrolls the whole "As an Agent" roster up to bring it into view the
+   * moment this dialog mounts — on a roster long enough that the plain
+   * choice starts below the fold, that slides the top rows up toward the
+   * header until a click meant for a row's centre can land on the header
+   * instead, silently (#870). Keeping this choice focused is still right —
+   * Enter still starts a plain session, whatever else is listed above it —
+   * it just must never move the roster to do it. A callback ref rather than
+   * an effect: the dialog's content mounts into a portal a render after this
+   * component's own effects already ran once with static dependencies, so an
+   * effect keyed to "run on mount" can fire before the button exists. A
+   * callback ref runs exactly when React attaches the node, on whichever
+   * render that turns out to be.
+   */
+  const focusWithoutScrolling = (node: HTMLButtonElement | null): void => {
+    node?.focus({ preventScroll: true })
+  }
 
   if (creatingGoal && root) return <GoalCreate root={root} onClose={onClose} />
   if (startingFlow && root) return <FlowGoalCreate root={root} onClose={onClose} />
@@ -46,8 +64,8 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
         )}
         <Button
           type="button"
+          ref={focusWithoutScrolling}
           variant="choice" size="row" className={styles.choice}
-          autoFocus
           onClick={startPlain}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
