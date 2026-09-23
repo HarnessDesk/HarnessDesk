@@ -300,14 +300,24 @@ export interface TeamPort {
   } | null
   /** The live turn state for one of those Seats. */
   memberStatus?(seat: SeatRecord): MemberStatus
+  /**
+   * The commit a checkout is at now, for a claim to remember where its card's
+   * work began; null outside a repository. Absent, claims record none.
+   */
+  headOf?(cwd: string): Promise<string | null>
   /** Rechecked after a live handle is prepared and immediately before delivery. */
   canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
   /** Refuses every board mutation once a durable Goal starts wrapping. */
   canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
-  /** Goal-backed desks persist the board payload before announcing it. */
-  mutate?(state: TeamState, changed?: ReadonlySet<number>): Promise<void>
+  /**
+   * Goal-backed desks persist the board payload before announcing it. The
+   * payload is `snapshot()`, called once the save actually runs — inside
+   * whatever queue the host keeps for the Goal — so it is the board as it is
+   * then, never as it was when the save was asked for.
+   */
+  mutate?(snapshot: () => TeamState): Promise<void>
   /** A room that no longer exists, so a window can stop drawing it. */
   removed(room: string): void
   /**
@@ -413,6 +423,15 @@ export interface TeamCallScope {
  * restarts has no tool call to answer. The seat's order tells it to call
  * again, which is what a restart leaves it doing.
  */
+/** One Goal board save not yet settled, and what rides in it. */
+interface QueuedSave {
+  /** What to put back, newest last, should the save fail. */
+  readonly undo: (() => void)[]
+  settled: boolean
+  readonly outcome: Promise<Error | null>
+  readonly resolve: (error: Error | null) => void
+}
+
 interface Waiter {
   readonly key: string
   readonly board: string
@@ -733,20 +752,12 @@ export class Team {
   readonly #waitingInvocations = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
   /*
-   * A Goal board's cards this engine changed and has not yet seen saved, by
-   * board, each with the write that will save it. The Goal plane writes some
-   * cards straight to the Goal's document (a claim, a release) and installs
-   * the document back; while one of this engine's writes is still queued, the
-   * document it installs is behind this memory. These are the cards that keep
-   * this engine's copy through such an install, and the only cards a snapshot
-   * speaks for when it is saved (`mergeProjectedIntents`).
+   * A Goal board's save that has not begun yet, by board. A Goal board has one
+   * writer — this engine's copy — and its save is built when it runs, from
+   * the board as it is then, so every change made before it begins joins it:
+   * a burst is one write, and nothing is ever saved older than it is shown.
    */
-  readonly #unsaved = new Map<string, Map<number, number>>()
-  /** Cards changed since the board's last commit, not yet given a write. */
-  readonly #touched = new Map<string, Set<number>>()
-  /** Writes of a Goal board's snapshot queued and not yet settled, by board. */
-  readonly #inflight = new Map<string, number>()
-  #writeSeq = 0
+  readonly #queuedSave = new Map<string, QueuedSave>()
   /** Latest content per file; a burst of mutations becomes one write. */
   readonly #queuedContent = new Map<string, string | null>()
   readonly #queuedFiles = new Set<string>()
@@ -1085,30 +1096,27 @@ export class Team {
     }
   }
 
-  /** Install the host's durable Goal projection without writing a second membership source. */
-  installProjection(state: TeamState, remembered?: Readonly<Record<string, RememberedMember>>): void {
+  /**
+   * Install the host's durable Goal projection without writing a second
+   * membership source.
+   *
+   * A Goal board this engine already holds is this engine's to write: its
+   * cards and its channel stay this engine's copy, which is never behind the
+   * document — the document is only ever written from it, and a save still on
+   * its way is newer than what the document says. Everything else about the
+   * Goal is the document's. Once the Goal is `final` — wrapped, or brought by
+   * a backup — nothing will write the board again, and the document's cards
+   * are the last word.
+   */
+  installProjection(
+    state: TeamState,
+    remembered?: Readonly<Record<string, RememberedMember>>,
+    options: { readonly final?: boolean } = {},
+  ): void {
     const previous = this.#boards.get(state.id)
-    /*
-     * The document can be behind this engine by the length of one queued
-     * write: a card completed here and not yet saved would read back as still
-     * claimed, and the next snapshot would save that. So every card this
-     * engine changed and has not seen saved keeps this engine's copy, and so
-     * does the channel while any write of this board is still on its way —
-     * only this engine writes the channel. Everything else is the document's.
-     */
-    const kept = new Set([...(this.#unsaved.get(state.id)?.keys() ?? []), ...(this.#touched.get(state.id) ?? [])])
-    const pending = previous !== undefined && (kept.size > 0 || (this.#inflight.get(state.id) ?? 0) > 0)
-    if (previous && kept.size > 0) {
-      const mine = new Map(previous.intents.map((intent) => [intent.id, intent]))
-      const merged = new Map<number, Intent>()
-      for (const intent of state.intents) {
-        if (!kept.has(intent.id)) merged.set(intent.id, intent)
-        else if (mine.has(intent.id)) merged.set(intent.id, mine.get(intent.id)!)
-      }
-      for (const id of kept) if (!merged.has(id) && mine.has(id)) merged.set(id, mine.get(id)!)
-      state = { ...state, intents: [...merged.values()].sort((a, b) => a.id - b.id) }
+    if (previous && this.#port.mutate && !options.final) {
+      state = { ...state, intents: previous.intents, channel: previous.channel }
     }
-    if (pending) state = { ...state, channel: previous!.channel }
     this.#boards.set(state.id, {
       id: state.id,
       name: state.name,
@@ -1298,21 +1306,26 @@ export class Team {
          and the board draws `blockedReason` ahead of the card's own note, so
          the Done column showed why the work had once been stopped instead of
          how it finished. */
+      const undo = this.#undoFor(board, [id])
       this.#patchIntent(board, id, { state: 'abandoned', claim: null, blockedReason: null, blockedBy: null })
       this.#signal(board, by, 'abandoned', intent, null)
-      this.#commit(board)
-      this.#flows?.completed(board.id, {
-        ...intent,
-        state: 'abandoned',
-        claim: null,
-        blockedReason: null,
-        blockedBy: null,
+      undo.mark()
+      // Its flow hears of it once it is saved, and not at all when it is not.
+      this.#afterSaved(this.#commit(board, true, undo), () => {
+        this.#flows?.completed(board.id, {
+          ...intent,
+          state: 'abandoned',
+          claim: null,
+          blockedReason: null,
+          blockedBy: null,
+        })
       })
       return
     } else if (action === 'done') {
       const said = outcome?.trim() || null
       const refusal = this.#flows?.refuseOutcome(board.id, intent, said) ?? null
       if (refusal) throw new Error(refusal)
+      const undo = this.#undoFor(board, board.intents.filter((one) => one.id === id || one.state === 'blocked').map((one) => one.id))
       this.#patchIntent(board, id, {
         state: 'done',
         claim: null,
@@ -1325,14 +1338,17 @@ export class Team {
       })
       this.#signal(board, by, 'completed', intent, said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
-      this.#commit(board)
-      this.#flows?.completed(board.id, {
-        ...intent,
-        state: 'done',
-        outcome: said,
-        ...(context?.trim() ? { handoff: context.trim() } : {}),
+      undo.mark()
+      // Its flow hears of it once it is saved, and not at all when it is not.
+      this.#afterSaved(this.#commit(board, true, undo), () => {
+        this.#flows?.completed(board.id, {
+          ...intent,
+          state: 'done',
+          outcome: said,
+          ...(context?.trim() ? { handoff: context.trim() } : {}),
+        })
+        this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
       })
-      this.#port.settled?.(board.id, { ...intent, state: 'done', outcome: said })
       return
     } else {
       this.#patchIntent(board, id, { state: 'open', claim: null, blockedReason: null, blockedBy: null })
@@ -2122,6 +2138,8 @@ export class Team {
 
   async claim(intentId: number, scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
+    // Where the caller's checkout stands as it takes the card: read before the board, so nothing moves under the check.
+    const head = (await this.#port.headOf?.(caller.cwd).catch(() => null)) ?? null
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
@@ -2233,6 +2251,7 @@ export class Team {
         sessionId: caller.sessionId,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
+        head,
       },
       blockedReason: null,
       blockedBy: null,
@@ -2336,7 +2355,12 @@ export class Team {
        judgment a merge step's evidence guard actually reads. */
     const missingReview = (await this.#flows?.refuseCompletion?.(board.id, intent, caller)) ?? null
     if (missingReview) return missingReview
-    const before = board.intents
+    /* A Goal board's completion is reported once it is saved, never before:
+       an agent told "Completed" on a write that never landed would stop,
+       and the card would sit claimed with nobody on it. A save that fails
+       puts the card, and whatever it unblocked, back as they were before any
+       later save is built, and says so — the agent can finish it again. */
+    const undo = this.#undoFor(board, board.intents.filter((one) => one.id === intentId || one.state === 'blocked').map((one) => one.id))
     this.#patchIntent(board, intentId, {
       state: 'done',
       claim: null,
@@ -2346,17 +2370,9 @@ export class Team {
     })
     this.#signal(board, this.#actorOf(board, caller), 'completed', intent, args.note?.trim() || null)
     const opened = this.#unblock(board, this.#actorOf(board, caller))
-    /* A Goal board's completion is reported once it is saved, never before:
-       an agent told "Completed" on a write that never landed would stop,
-       and the card would sit claimed with nobody on it. A write that fails
-       puts the card, and whatever it unblocked, back as they were, and says
-       so — the agent can finish it again. */
-    const unsaved = await this.#commit(board)
+    undo.mark()
+    const unsaved = await this.#commit(board, true, undo)
     if (unsaved) {
-      const now = this.#boards.get(board.id) ?? board
-      const restore = new Map(before.filter((one) => one.id === intentId || opened.includes(one.id)).map((one) => [one.id, one]))
-      now.intents = now.intents.map((one) => restore.get(one.id) ?? one)
-      this.#port.changed(this.#stateOf(now))
       return `Refused: #${intentId} could not be saved, so it is not finished — ${unsaved.message}. Call complete_claim again once the board can be saved.`
     }
     this.#port.audit({
@@ -3882,7 +3898,6 @@ export class Team {
     }
     board.nextIntent += 1
     board.intents.push(intent)
-    this.#touch(board, intent.id)
     this.#trimIntents(board)
     this.#signal(board, by, 'added', intent, intent.files.join(', ') || null)
     this.#commit(board)
@@ -3894,16 +3909,25 @@ export class Team {
     board.intents = board.intents.map((intent) =>
       intent.id === id ? { ...intent, ...patch, updatedAt: Date.now() } : intent,
     )
-    this.#touch(board, id)
   }
 
-  /** A card this engine changed: its copy is the one a Goal board's next write saves. */
-  #touch(board: Board, id: number): void {
-    // Only a board saved through the Goal's document has a second writer to keep up with.
-    if (!this.#port.mutate) return
-    const touched = this.#touched.get(board.id) ?? new Set<number>()
-    touched.add(id)
-    this.#touched.set(board.id, touched)
+  /**
+   * How to put these cards back as they are now, should the change about to
+   * be made to them not be saved: each only while it is still the copy that
+   * change made — a card anything else has written since is left as it is.
+   */
+  #undoFor(board: Board, ids: readonly number[]): (() => void) & { mark(): void } {
+    const before = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one]))
+    let after: Map<number, Intent> | null = null
+    const undo = (): void => {
+      const now = this.#boards.get(board.id)
+      if (!now || !after) return
+      now.intents = now.intents.map((one) => (after!.get(one.id) === one ? before.get(one.id) ?? one : one))
+    }
+    // Called once the change is made: what it made is what undo recognises.
+    return Object.assign(undo, {
+      mark: () => { after = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one])) },
+    })
   }
 
   /**
@@ -4029,8 +4053,6 @@ export class Team {
       if (over <= 0) return true
       if (intent.state !== 'done' && intent.state !== 'abandoned') return true
       over -= 1
-      // Trimmed is changed too: the next write takes it off the Goal's document as well.
-      this.#touch(board, intent.id)
       return false
     })
   }
@@ -4300,45 +4322,56 @@ export class Team {
   }
 
   /**
-   * Saves a board and tells every window. On a Goal board the answer is this
-   * write's own outcome — null once it is saved, or why it was not — for a
-   * verb that must not report success on a write that never landed.
+   * Saves a board and tells every window. On a Goal board the answer is the
+   * outcome of the save this change rides in — null once it is durable, or
+   * why it is not — for a verb that must not report success on a write that
+   * never landed. `undo` puts the change back should that save fail, before
+   * any later save is built, so nothing refused is ever written afterwards.
    */
-  #commit(board: Board, touchActivity = true): Promise<Error | null> | undefined {
+  #commit(board: Board, touchActivity = true, undo?: () => void): Promise<Error | null> | undefined {
     if (touchActivity) board.updatedAt = Date.now()
     const state = this.#stateOf(board)
     if (this.#port.mutate) {
-      // Every card this engine changed and has not seen saved rides this write, and stays its own until it lands.
-      const seq = ++this.#writeSeq
-      const unsaved = this.#unsaved.get(board.id) ?? new Map<number, number>()
-      for (const id of this.#touched.get(board.id) ?? []) unsaved.set(id, seq)
-      this.#touched.delete(board.id)
-      if (unsaved.size > 0) this.#unsaved.set(board.id, unsaved)
-      const changed = new Set(unsaved.keys())
-      this.#inflight.set(board.id, (this.#inflight.get(board.id) ?? 0) + 1)
-      const written = this.#writes.then(() => this.#port.mutate!(state, changed))
-      const settled = (): void => {
-        const left = (this.#inflight.get(board.id) ?? 1) - 1
-        if (left > 0) this.#inflight.set(board.id, left)
-        else this.#inflight.delete(board.id)
+      const queued = this.#queuedSave.get(board.id)
+      if (queued) {
+        if (undo) queued.undo.push(undo)
+        return queued.outcome
       }
-      this.#writes = written
-        .then(() => {
-          settled()
-          const still = this.#unsaved.get(board.id)
-          if (still) {
-            for (const [id, at] of still) if (at <= seq) still.delete(id)
-            if (still.size === 0) this.#unsaved.delete(board.id)
-          }
-          this.#port.changed(state)
-          this.#wake(board)
-        })
-        .catch((error: unknown) => {
-          settled()
-          this.#problem = error instanceof Error ? error.message : String(error)
-          this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
-        })
-      return written.then(() => null, (error: unknown) => (error instanceof Error ? error : new Error(String(error))))
+      let resolve!: (error: Error | null) => void
+      const entry: QueuedSave = {
+        undo: undo ? [undo] : [],
+        settled: false,
+        outcome: new Promise<Error | null>((done) => { resolve = done }),
+        resolve: (error) => resolve(error),
+      }
+      this.#queuedSave.set(board.id, entry)
+      let saved: TeamState | null = null
+      const begin = (): TeamState => {
+        // From here on a change joins the next save, not this one.
+        if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+        saved = this.#stateOf(this.#boards.get(board.id) ?? board)
+        return saved
+      }
+      this.#writes = this.#writes
+        .then(() => this.#port.mutate!(begin))
+        .then(
+          () => {
+            if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+            this.#settleSave(entry, null)
+            this.#problem = null
+            const now = this.#boards.get(board.id) ?? board
+            this.#port.changed(saved ?? this.#stateOf(now))
+            this.#wake(now)
+          },
+          (error: unknown) => {
+            if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+            const refused = error instanceof Error ? error : new Error(String(error))
+            if (!this.#settleSave(entry, refused)) return
+            this.#problem = refused.message
+            this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
+          },
+        )
+      return entry.outcome
     }
     this.#port.changed(state)
     /* Every card that becomes claimable becomes claimable here. Waking from
@@ -4369,6 +4402,75 @@ export class Team {
        `load` takes it as the room's id. */
     const file = join(this.#dir, `${encodeURIComponent(board.id)}.json`)
     this.#write(board.id, file, JSON.stringify(stored))
+  }
+
+  /** Runs `then` once a save is durable — at once on a board with no Goal behind it — and never after one that failed. */
+  #afterSaved(saved: Promise<Error | null> | undefined, then: () => void): void {
+    if (!saved) {
+      then()
+      return
+    }
+    void saved.then((error) => { if (!error) then() })
+  }
+
+  /**
+   * Settles one Goal board save, once: a failure puts back what rode in it,
+   * newest first, before anything is built from the board again. False when
+   * it was already settled — carried by a save the Goal plane made.
+   */
+  #settleSave(entry: QueuedSave, error: Error | null): boolean {
+    if (entry.settled) return false
+    entry.settled = true
+    if (error) for (const undo of [...entry.undo].reverse()) undo()
+    entry.resolve(error)
+    return true
+  }
+
+  /**
+   * The Goal plane's own claim or release of a Goal's cards, made to this
+   * engine's one copy of the board and saved by `save`, which the caller
+   * makes inside the Goal's queue it already holds. The board as it stands —
+   * this engine's own changes not yet saved included — is what is saved, so
+   * a change of the Goal plane's and one of this engine's to the same card
+   * are one sequence, never two copies. Should the save fail, the Goal
+   * plane's change is put back and the refusal thrown. A board this engine
+   * does not hold yet (recovery, before the rooms are read) is answered
+   * false, and the caller writes the document itself: there is no second
+   * copy to keep up with.
+   */
+  async goalPlaneWrite(
+    goal: string,
+    patch: (intents: readonly Intent[]) => readonly Intent[],
+    save: (state: TeamState) => Promise<void>,
+  ): Promise<boolean> {
+    const board = this.#boards.get(goal)
+    if (!board || !this.#port.mutate) return false
+    const before = new Map(board.intents.map((one) => [one.id, one]))
+    const next = [...patch(board.intents)]
+    const ids = next.filter((one) => before.get(one.id) !== one).map((one) => one.id)
+    const undo = this.#undoFor(board, ids)
+    board.intents = next
+    board.nextIntent = Math.max(board.nextIntent, ...next.map((one) => one.id + 1))
+    board.updatedAt = Date.now()
+    undo.mark()
+    // A save of this engine's not yet begun is carried by this one: what rides in it is in this snapshot.
+    const carried = this.#queuedSave.get(goal)
+    if (carried) this.#queuedSave.delete(goal)
+    const state = this.#stateOf(board)
+    try {
+      await save(state)
+    } catch (error) {
+      undo()
+      if (carried && !carried.settled && !this.#queuedSave.has(goal)) this.#queuedSave.set(goal, carried)
+      this.#port.changed(this.#stateOf(this.#boards.get(goal) ?? board))
+      throw error
+    }
+    if (carried) this.#settleSave(carried, null)
+    this.#problem = null
+    const now = this.#boards.get(goal) ?? board
+    this.#port.changed(this.#stateOf(now))
+    this.#wake(now)
+    return true
   }
 
   /**

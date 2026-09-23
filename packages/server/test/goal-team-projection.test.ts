@@ -7,16 +7,14 @@ import { test } from 'node:test'
 import type { Intent, RuntimeId, TeamState } from '@harnessdesk/protocol'
 
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
-import { mergeProjectedIntents } from '../src/team-projection.js'
 
 /*
- * A Goal's board has two writers: the Team engine, which keeps the board in
- * memory and persists it whole, and the Goal plane, which writes a claim or a
- * release straight to the Goal's document and then installs that document
- * back into the Team. Each can be behind the other for the length of one
- * write. Neither may lose what the other wrote: a completion the Team has not
- * saved yet survives an install of an older document, and a snapshot the Team
- * saves never carries an older copy of a card over what the Goal plane wrote.
+ * A Goal's board has one writer: the Team engine's copy. Its own verbs change
+ * that copy and save it; the Goal plane's claims and releases change the same
+ * copy (`goalPlaneWrite`) and save it inside the Goal's queue, which they
+ * already hold. A save is built when it runs, from the copy as it is then, so
+ * what is written is never older than what is shown — and a Goal read back
+ * from its document only replaces that copy once the document is final.
  */
 
 const peer = (sessionId: string): TeamPeer => ({
@@ -31,6 +29,16 @@ const peer = (sessionId: string): TeamPeer => ({
   here: true,
 })
 
+/** One queue, as the host's Goal queue: a Team save waits behind whatever holds it. */
+class Queue {
+  #tail: Promise<unknown> = Promise.resolve()
+  run<T>(work: () => Promise<T>): Promise<T> {
+    const next = this.#tail.then(work)
+    this.#tail = next.catch(() => undefined)
+    return next
+  }
+}
+
 const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-goal-projection-'))
   const peers: TeamPeer[] = [peer('worker'), peer('other')]
@@ -39,7 +47,16 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   let gate: Promise<void> | null = null
   let opener: (() => void) | null = null
   let failNext: Error | null = null
-  const writes: string[] = []
+  let failAlways: Error | null = null
+  let saves = 0
+  const queue = new Queue()
+  const save = async (state: TeamState): Promise<void> => {
+    if (gate) await gate
+    if (failAlways) throw failAlways
+    if (failNext) { const error = failNext; failNext = null; throw error }
+    stored = structuredClone(state.intents)
+    saves += 1
+  }
   const port: TeamPort = {
     peers: () => peers,
     rootOf: async () => '/repo',
@@ -50,32 +67,29 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
     membershipChanged: () => {},
     audit: () => {},
     canMutateBoard: () => ({ ok: true }),
-    // The host's own write, as `#saveTeamProjection` makes it: after whatever holds the Goal's queue.
-    mutate: async (state, changed) => {
-      if (gate) await gate
-      if (failNext) { const error = failNext; failNext = null; throw error }
-      stored = mergeProjectedIntents(stored, state.intents, changed)
-      writes.push(state.intents.map((one) => `${one.id}:${one.state}`).join(','))
-    },
+    // The host's own write: behind whatever holds the Goal's queue, of the board as it is when it runs.
+    mutate: (snapshot) => queue.run(async () => save(snapshot())),
   }
   const team = new Team(dir, port)
   t.after(async () => {
     opener?.()
+    failAlways = null
     team.stopWaiting('test finished')
     await team.flush()
     await rm(dir, { recursive: true, force: true })
   })
   return {
     team,
-    writes,
     stored: () => stored,
+    saves: () => saves,
     failNextWrite: (error: Error) => { failNext = error },
-    /** The Goal plane's own write to the document, then its install back into the Team. */
-    goalPlaneWrites: (room: string, patch: (intents: readonly Intent[]) => readonly Intent[]) => {
-      stored = patch(stored)
-      const state: TeamState = { ...team.stateFor(room), intents: [...stored] }
-      team.installProjection(state)
-    },
+    failEveryWrite: (error: Error) => { failAlways = error },
+    /** The Goal plane's claim or release: inside the Goal's queue, through the Team's one copy. */
+    goalPlane: (room: string, patch: (intents: readonly Intent[]) => readonly Intent[]) =>
+      queue.run(() => team.goalPlaneWrite(room, patch, save)),
+    /** A Goal read back from its document, as the host installs one; `final` once it can no longer change. */
+    install: (room: string, intents: readonly Intent[], final: boolean) =>
+      team.installProjection({ ...team.stateFor(room), intents: [...intents] }, undefined, { final }),
     hold: () => {
       let open!: () => void
       gate = new Promise<void>((resolve) => { open = resolve })
@@ -86,97 +100,145 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
 }
 
 const scope = (sessionId: string) => ({ runtime: 'codex', sessionId })
+const card = (intents: readonly Intent[], id: number) => intents.find((one) => one.id === id)
+const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
 
-const until = async (check: () => boolean, what: string): Promise<void> => {
-  const deadline = Date.now() + 5_000
-  while (!check()) {
-    if (Date.now() > deadline) throw new Error(`waited for ${what}`)
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
+const setup = async (r: Awaited<ReturnType<typeof rig>>) => {
+  const room = (await r.team.createRoom('/repo', 'Goal')).id
+  await r.team.joinRoom(room, 'codex' as RuntimeId, 'worker')
+  await r.team.joinRoom(room, 'codex' as RuntimeId, 'other')
+  r.team.addIntentForFlow(room, { title: 'X', role: 'build', dispatch: 'run:1:0' })
+  r.team.setRole(room, 'codex', 'worker', 'build')
+  r.team.setRole(room, 'codex', 'other', 'build')
+  await r.team.flush()
+  return room
 }
 
-test('a completion not yet saved survives the Goal plane installing an older document, and is what gets saved', async (t) => {
-  const { team, stored, goalPlaneWrites, hold } = await rig(t)
-  const room = (await team.createRoom('/repo', 'Goal')).id
-  await team.joinRoom(room, 'codex' as RuntimeId, 'worker')
-  await team.joinRoom(room, 'codex' as RuntimeId, 'other')
-  team.addIntentForFlow(room, { title: 'Do the work', role: 'build', dispatch: 'run:1:0' })
-  team.setRole(room, 'codex', 'worker', 'build')
-  assert.match(await team.claim(1, scope('worker')), /#1/)
-  await team.flush()
-  assert.equal(stored().find((one) => one.id === 1)?.state, 'claimed')
+const assignTo = (sessionId: string) => (intents: readonly Intent[]): readonly Intent[] => intents.map((one) =>
+  one.id === 1 && one.state === 'open'
+    ? { ...one, state: 'claimed' as const, claim: { runtime: 'codex' as RuntimeId, sessionId, at: 1, leaseUntil: Date.now() + 1e6 } }
+    : one)
 
-  // The Goal's queue is busy: the completion is made in memory, and its write waits.
-  const release = hold()
-  const said = team.complete(1, { note: 'done' }, scope('worker'))
-  await until(() => team.stateFor(room).intents.find((one) => one.id === 1)?.state === 'done', 'the completion in memory')
+test('R1: the same card claimed on both sides ends with exactly one holder, in memory and on disk', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const release = r.hold()
+  const said = r.team.claim(1, scope('worker'))
+  await tick()
+  // The Goal plane assigns the same card while the Team's write waits: it sees the Team's claim, and takes nothing.
+  const assigned = r.goalPlane(room, assignTo('other'))
+  release()
+  assert.match(await said, /^Claimed #1/)
+  await assigned
+  await r.team.flush()
+  assert.equal(card(r.stored(), 1)?.claim?.sessionId, 'worker')
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.claim?.sessionId, 'worker')
+})
 
-  // Meanwhile the Goal plane releases that Seat's claim from what the document still says, and installs it back.
-  goalPlaneWrites(room, (intents) => intents.map((one) => one.id === 1 && one.state === 'claimed'
-    ? { ...one, state: 'open' as const, claim: null } : one))
-  assert.equal(team.stateFor(room).intents.find((one) => one.id === 1)?.state, 'done', 'the unsaved completion is still what the board shows')
+test('R1: a card the Goal plane claimed is the Team’s too: a Team claim of it is refused, and nothing overwrites it', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.goalPlane(room, assignTo('other'))
+  assert.match(await r.team.claim(1, scope('worker')), /^Refused/)
+  await r.team.flush()
+  assert.equal(card(r.stored(), 1)?.claim?.sessionId, 'other')
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.claim?.sessionId, 'other')
+})
 
-  // And something else on the board moves before the completion's write lands.
-  team.setRole(room, 'codex', 'other', 'review')
+test('R2: after a failed write, a later write never reverts what the Goal plane wrote in between', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  r.failNextWrite(new Error('EIO'))
+  await r.team.release(1, {}, scope('worker'))
+  await r.team.flush()
+  await r.goalPlane(room, assignTo('other'))
+  r.team.addIntentForFlow(room, { title: 'Y', role: 'build', dispatch: 'run:1:1' })
+  await r.team.flush()
+  assert.equal(card(r.stored(), 1)?.claim?.sessionId, 'other')
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.claim?.sessionId, 'other')
+})
+
+test('R3: a board its Goal refuses for good takes the document’s final dispositions', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  r.failEveryWrite(new Error('This Goal is read-only'))
+  await r.team.release(1, {}, scope('worker'))
+  await r.team.flush()
+  const wrapped = r.stored().map((one) => ({ ...one, state: 'abandoned' as const, claim: null }))
+  r.install(room, wrapped, true)
+  await r.team.flush()
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.state, 'abandoned')
+})
+
+test('an older document read back while a Team write is queued never replaces the Team’s copy of an open Goal', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const release = r.hold()
+  const said = r.team.complete(1, {}, scope('worker'))
+  await tick()
+  r.install(room, r.stored(), false)
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.state, 'done')
   release()
   assert.match(await said, /^Completed #1/)
-  await team.flush()
-
-  const card = stored().find((one) => one.id === 1)
-  assert.equal(card?.state, 'done', 'the completion is what the Goal document keeps')
-  assert.equal(card?.claim, null)
-  assert.equal(team.stateFor(room).intents.find((one) => one.id === 1)?.state, 'done')
+  await r.team.flush()
+  assert.equal(card(r.stored(), 1)?.state, 'done')
 })
 
-test('a snapshot never writes an older copy of a card the Team did not change over what the Goal plane wrote', async (t) => {
-  const { team, stored, goalPlaneWrites, hold } = await rig(t)
-  const room = (await team.createRoom('/repo', 'Goal')).id
-  await team.joinRoom(room, 'codex' as RuntimeId, 'worker')
-  team.addIntentForFlow(room, { title: 'First', role: 'build', dispatch: 'run:1:0' })
-  team.addIntentForFlow(room, { title: 'Second', role: 'build', dispatch: 'run:1:1' })
-  await team.flush()
-
-  // A write of the Team's is waiting on the Goal's queue while the Goal plane claims card #2 directly.
-  const release = hold()
-  team.setRole(room, 'codex', 'worker', 'build')
-  goalPlaneWrites(room, (intents) => intents.map((one) => one.id === 2
-    ? { ...one, state: 'claimed' as const, claim: { runtime: 'codex' as RuntimeId, sessionId: 'worker', at: 1 } } : one))
+test('R4: a completion refused because its write failed is never saved by a later write', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const release = r.hold()
+  r.failNextWrite(new Error('EIO'))
+  const said = r.team.complete(1, {}, scope('worker'))
+  await tick()
+  r.team.addIntentForFlow(room, { title: 'Y', role: 'build', dispatch: 'run:1:1' })
   release()
-  await team.flush()
-  assert.equal(stored().find((one) => one.id === 2)?.state, 'claimed', 'the claim the Goal plane wrote is kept')
+  assert.match(await said, /^Refused: #1 could not be saved/)
+  await r.team.flush()
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.state, 'claimed')
+  assert.equal(card(r.stored(), 1)?.state, 'claimed', 'what is durable is what the agent was told')
+  assert.ok(card(r.stored(), 2), 'the later change is saved')
 })
 
-test('merging a snapshot keeps the document’s copy of every card the Team did not change', () => {
-  const card = (id: number, state: Intent['state']): Intent => ({
-    id, title: `#${id}`, detail: null, state, files: [], dependsOn: [], plan: null, role: null, outcome: null,
-    claim: null, blockedReason: null, blockedBy: null, handoff: null, note: null, createdAt: 0, updatedAt: 0,
-  })
-  const stored = [card(1, 'claimed'), card(2, 'open'), card(3, 'done')]
-  const snapshot = [card(1, 'done'), card(2, 'blocked'), card(4, 'open')]
-  const merged = mergeProjectedIntents(stored, snapshot, new Set([1, 3, 4]))
-  // #1 the Team changed; #2 it did not, so the document's copy stands; #3 the Team trimmed; #4 is new.
-  assert.deepEqual(merged.map((one) => [one.id, one.state]), [[1, 'done'], [2, 'open'], [4, 'open']])
-  // Without a list of changes, the snapshot is the whole board, as before.
-  assert.deepEqual(mergeProjectedIntents(stored, snapshot, undefined).map((one) => one.id), [1, 2, 4])
+test('a burst of changes is saved in one write, of the board as it is when the write runs', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const before = r.saves()
+  const release = r.hold()
+  r.team.setRole(room, 'codex', 'worker', 'review')
+  await tick()
+  for (let n = 0; n < 5; n += 1) r.team.addIntentForFlow(room, { title: `Y${n}`, role: 'build', dispatch: `run:2:${n}` })
+  release()
+  await r.team.flush()
+  assert.equal(r.stored().length, 6)
+  assert.equal(r.saves() - before, 2, 'the one already running, and one for everything asked for while it ran')
 })
 
-test('a completion whose write fails is refused, and the card is left claimed for its holder', async (t) => {
-  const { team, stored, failNextWrite } = await rig(t)
-  const room = (await team.createRoom('/repo', 'Goal')).id
-  await team.joinRoom(room, 'codex' as RuntimeId, 'worker')
-  team.addIntentForFlow(room, { title: 'Do the work', role: 'build', dispatch: 'run:1:0' })
-  team.setRole(room, 'codex', 'worker', 'build')
-  await team.claim(1, scope('worker'))
-  await team.flush()
-  failNextWrite(new Error('the disk is full'))
-  const said = await team.complete(1, {}, scope('worker'))
-  assert.match(said, /^Refused: #1 could not be saved, so it is not finished — the disk is full\./)
-  const card = team.stateFor(room).intents.find((one) => one.id === 1)
-  assert.equal(card?.state, 'claimed')
-  assert.equal(card?.claim?.sessionId, 'worker')
-  assert.equal(stored().find((one) => one.id === 1)?.state, 'claimed')
-  // Finished again once the board can be saved.
-  assert.match(await team.complete(1, {}, scope('worker')), /^Completed #1/)
-  await team.flush()
-  assert.equal(stored().find((one) => one.id === 1)?.state, 'done')
+test('a person’s done is signalled to its flow only once it is saved, and not at all when it is not', async (t) => {
+  const r = await rig(t)
+  const signalled: number[] = []
+  r.team.attachFlows({ completed: (_room: string, intent: Intent) => { signalled.push(intent.id) }, refuseOutcome: () => null } as never)
+  const room = await setup(r)
+  const release = r.hold()
+  r.team.intentAction(room, 1, 'done')
+  await tick()
+  assert.deepEqual(signalled, [], 'nothing is signalled before the write lands')
+  release()
+  await r.team.flush()
+  assert.deepEqual(signalled, [1])
+  r.team.addIntentForFlow(room, { title: 'Y', role: 'build', dispatch: 'run:1:1' })
+  await r.team.flush()
+  r.failNextWrite(new Error('EIO'))
+  r.team.intentAction(room, 2, 'abandon')
+  await r.team.flush()
+  assert.deepEqual(signalled, [1], 'a write that failed signals nothing')
+  assert.equal(card(r.team.stateFor(room).intents, 2)?.state, 'open', 'and leaves the card as it was')
 })

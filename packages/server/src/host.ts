@@ -55,6 +55,7 @@ import {
   type SessionKey,
   type RepoInfo,
   type SessionSummary,
+  type Intent,
   type TeamState,
   type Turn,
   type UserContent,
@@ -143,7 +144,6 @@ import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
 import { seatAgent } from './methods/agents.js'
-import { mergeProjectedIntents } from './team-projection.js'
 
 /**
  * The host.
@@ -829,7 +829,9 @@ export class Host {
         }
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
-      mutate: (state, changed) => this.#goalSerial.run(() => this.#saveTeamProjection(state, changed)),
+      // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
+      headOf: async (cwd) => (await revisionOf(cwd))?.head ?? null,
+      mutate: (snapshot) => this.#goalSerial.run(() => this.#saveTeamProjection(snapshot())),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
       /* Membership moved, so whatever this host was counting about reaching
          that conversation no longer applies. See `TeamPort.membershipChanged`
@@ -1062,7 +1064,7 @@ export class Host {
       },
       changed: (view, options) => {
         if (options?.install !== false && !this.#publishingTeamProjection) {
-          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
         }
         this.#push({ method: 'goal/changed', params: { view } })
       },
@@ -1144,6 +1146,7 @@ export class Host {
       wake: (goal: string) => this.#team.nudgeRoom(goal),
       stopFlows: (goal: string) => this.#flows.stopGoal(goal),
       flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),
+      executions: (goal: string) => this.#flows.executionsFor(goal),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
     } satisfies GoalPlanePort
@@ -1435,7 +1438,7 @@ export class Host {
       throw error
     })
     for (const view of await this.#goals.list()) {
-      this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+      this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
     }
     /* After the rooms, because a run reconciles against the board it left
        behind: a quit between the last card of a round finishing and the next
@@ -1837,14 +1840,8 @@ export class Host {
     }, null)
   }
 
-  /**
-   * The Team engine's snapshot, saved into its Goal's document. Only the cards
-   * the engine changed and has not seen saved (`changed`) are written as the
-   * snapshot has them; every other card stays as the document has it, since
-   * the Goal plane may have written it since the snapshot was taken — see
-   * `mergeProjectedIntents`.
-   */
-  async #saveTeamProjection(state: TeamState, changed?: ReadonlySet<number>): Promise<void> {
+  /** The Team engine's copy of a board, saved into its Goal's document: the one writer of a Goal's cards and channel. */
+  async #saveTeamProjection(state: TeamState): Promise<void> {
     const legacy = this.#team.legacyFor(state.id)
     let document: GoalDocument
     try {
@@ -1892,7 +1889,7 @@ export class Host {
       throw new Error('This Goal is read-only or is finishing an operation. Start another Goal for new work.')
     }
     const at = state.updatedAt || Date.now()
-    const intents = mergeProjectedIntents(document.board.intents, state.intents, changed)
+    const intents = state.intents
     await this.#goalStore.save({
       ...document,
       goal: {
@@ -1950,83 +1947,135 @@ export class Host {
     }
   }
 
+  /** Whether a Goal's board can no longer change — wrapped, or brought by a backup — so its document is the last word. */
+  #goalFinal(goal: string): boolean {
+    try {
+      const document = this.#goalStore.read(goal)
+      return Boolean(document.restored) || document.goal.state !== 'open'
+    } catch {
+      return false
+    }
+  }
+
+  /** A Goal's cards as they stand: the Team's copy, the one writer, once it holds the board; the document until then. */
+  #goalIntents(goal: string): readonly Intent[] {
+    return this.#team.hasRoom(goal) ? this.#team.stateFor(goal).intents : this.#goalStore.read(goal).board.intents
+  }
+
   #goalClaimable(goal: string, card: number, runtime: string, sessionId: string): boolean {
+    return this.#claimableIn(this.#goalIntents(goal), goal, card, runtime, sessionId)
+  }
+
+  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string): boolean {
     /* A card a flow bound to one Seat is that Seat's alone; while the Seat is
        still opening, only that opening's own claim — the one GoalPlane.seat
        makes inside the same transaction — may take it. */
     const bound = this.#flows.bindingFor(goal, card)
     if (bound && !(bound.session ? bound.session.runtime === runtime && bound.session.sessionId === sessionId : bound.opening)) return false
-    const board = this.#goalStore.read(goal).board
-    const intent = board.intents.find((one) => one.id === card)
+    const intent = intents.find((one) => one.id === card)
     if (!intent || intent.state === 'done' || intent.state === 'abandoned' ||
       intent.state === 'claimed' && !(intent.claim?.runtime === runtime && intent.claim.sessionId === sessionId) ||
       intent.state === 'blocked' && intent.blockedBy === 'hand') return false
     const waits = intent.dependsOn.some((id) => {
-      const dependency = board.intents.find((one) => one.id === id)
+      const dependency = intents.find((one) => one.id === id)
       return dependency !== undefined && dependency.state !== 'done'
     })
     if (waits) return false
-    return !board.intents.some((one) =>
+    return !intents.some((one) =>
       one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
     )
   }
 
   #goalStranded(goal: string, card: number): boolean {
-    const intent = this.#goalStore.read(goal).board.intents.find((one) => one.id === card)
+    const intent = this.#goalIntents(goal).find((one) => one.id === card)
     if (intent?.state !== 'claimed' || !intent.claim?.leaseUntil || Date.now() < intent.claim.leaseUntil) return false
     return this.registry.get(intent.claim.runtime, makeSessionId(intent.claim.sessionId)) === undefined
   }
 
-  async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
+  /**
+   * A change the Goal plane makes to a Goal's cards — a claim, a release —
+   * inside the Goal's queue it already holds. Made to the Team's copy, the one
+   * writer of a Goal's board, and saved from it; only before the Team holds
+   * the board (recovery at launch) is the document written directly, when
+   * there is no second copy to keep up with. `patch` is checked against the
+   * cards as they stand and may refuse by throwing, before anything moves.
+   */
+  async #goalPlaneWrite(goal: string, patch: (intents: readonly Intent[]) => readonly Intent[]): Promise<void> {
+    if (await this.#team.goalPlaneWrite(goal, patch, (state) => this.#writeGoalBoard(goal, state))) return
     const document = this.#goalStore.read(goal)
-    const current = document.board.intents.find((one) => one.id === card)
-    if (!current) throw new Error('Choose an existing card.')
-    if (current.state === 'claimed' && current.claim?.runtime === opening.session.runtime &&
-      current.claim.sessionId === opening.session.sessionId) return
-    if (!this.#goalClaimable(goal, card, opening.session.runtime, opening.session.sessionId)) {
-      throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+    const intents = patch(document.board.intents)
+    if (intents === document.board.intents) return
+    await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+  }
+
+  /**
+   * A Goal's cards and channel, written into its document from one copy of
+   * the board. Refused once the Goal is wrapped or was brought by a backup;
+   * allowed while one of the Goal plane's own operations — a release, the
+   * wrap's own releases — is in progress, since that operation is what is
+   * writing.
+   */
+  async #writeGoalBoard(goal: string, state: TeamState): Promise<void> {
+    const document = this.#goalStore.read(goal)
+    if (document.restored || document.goal.state === 'wrapped') {
+      throw new Error('This Goal is read-only. Start another Goal for new work.')
     }
     const at = Date.now()
-    const intents = document.board.intents.map((intent) => intent.id === card ? {
-      ...intent,
-      state: 'claimed' as const,
-      claim: { runtime: opening.session.runtime as RuntimeId, sessionId: opening.session.sessionId, at },
-      updatedAt: at,
-      blockedBy: null,
-      blockedReason: null,
-    } : intent)
     await this.#goalStore.save({
       ...document,
-      board: { ...document.board, intents },
+      board: {
+        ...document.board,
+        nextIntent: Math.max(1, document.board.nextIntent, ...state.intents.map((intent) => intent.id + 1)),
+        intents: state.intents,
+        channel: state.channel,
+      },
       goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
     }, document.goal.revision)
+  }
+
+  async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
+    const { runtime, sessionId } = opening.session
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const current = intents.find((one) => one.id === card)
+      if (!current) throw new Error('Choose an existing card.')
+      if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
+      if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+        throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+      }
+      const at = Date.now()
+      return intents.map((intent) => intent.id === card ? {
+        ...intent,
+        state: 'claimed' as const,
+        // Where the Seat's checkout stood as it took the card: the start of this card's work.
+        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head },
+        updatedAt: at,
+        blockedBy: null,
+        blockedReason: null,
+      } : intent)
+    })
   }
 
   async #releaseGoalCard(goal: string, seat: SeatId): Promise<void> {
     const record = this.#evidence.seats.byId(seat)
     if (!record) return
-    const document = this.#goalStore.read(goal)
-    const held = document.board.intents.find((intent) => intent.state === 'claimed' &&
-      intent.claim?.runtime === record.session.runtime && intent.claim.sessionId === record.session.sessionId)
-    if (!held) return
-    const blocked = held.dependsOn.some((id) => {
-      const dependency = document.board.intents.find((one) => one.id === id)
-      return dependency !== undefined && dependency.state !== 'done'
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const held = intents.find((intent) => intent.state === 'claimed' &&
+        intent.claim?.runtime === record.session.runtime && intent.claim.sessionId === record.session.sessionId)
+      if (!held) return intents
+      const blocked = held.dependsOn.some((id) => {
+        const dependency = intents.find((one) => one.id === id)
+        return dependency !== undefined && dependency.state !== 'done'
+      })
+      const at = Date.now()
+      return intents.map((intent) => intent.id === held.id ? {
+        ...intent,
+        state: blocked ? 'blocked' as const : 'open' as const,
+        claim: null,
+        blockedBy: blocked ? 'graph' as const : null,
+        blockedReason: null,
+        updatedAt: at,
+      } : intent)
     })
-    const at = Date.now()
-    const intents = document.board.intents.map((intent) => intent.id === held.id ? {
-      ...intent,
-      state: blocked ? 'blocked' as const : 'open' as const,
-      claim: null,
-      blockedBy: blocked ? 'graph' as const : null,
-      blockedReason: null,
-      updatedAt: at,
-    } : intent)
-    await this.#goalStore.save({
-      ...document,
-      board: { ...document.board, intents },
-      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
-    }, document.goal.revision)
   }
 
   async #finishGoalOperation(goal: string, operation: string): Promise<void> {
@@ -2122,7 +2171,7 @@ export class Host {
     this.#team.closeGoalWaits(operation.goal)
     try {
       const view = await this.#goals.view(operation.goal)
-      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster)
+      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster, { final: true })
       this.#push({ method: 'goal/changed', params: { view } })
     } catch (error) {
       this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
@@ -2703,7 +2752,7 @@ export class Host {
         goals[outcome] += 1
         if (outcome === 'restored') {
           const view = await this.#goals.view(document.goal.id)
-          this.#team.installProjection(view.board)
+          this.#team.installProjection(view.board, undefined, { final: true })
           this.#push({ method: 'goal/changed', params: { view } })
         }
       }
