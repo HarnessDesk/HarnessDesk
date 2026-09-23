@@ -1552,11 +1552,19 @@ export class Team {
    * the same envelope twice; and the entry is patched on *every* board that
    * holds a copy, so nothing is left `held` somewhere it can be released
    * again.
+   *
+   * Board-only locks this too, not only the switch that turns messaging back
+   * on: a flow that runs board-only is information isolation between its
+   * cards, and a person releasing what an earlier hold caught — an inbound
+   * hold, an approval denial, whatever the reason — would otherwise be the
+   * one manual door still open while every other agent delivery is closed.
    */
   async deliverHeld(id: string, entryId: string): Promise<void> {
     if (this.#releasing.has(entryId)) {
       throw new Error('That message is already being released.')
     }
+    const locked = this.#flows?.messagingLocked?.(id)
+    if (locked) throw new Error(locked)
     const board = this.#mutableBoardById(id)
     const entry = board.channel.find(
       (candidate): candidate is TeamMessage =>
