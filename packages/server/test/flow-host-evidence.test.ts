@@ -11,7 +11,7 @@ import type { GhInCheckout } from '../src/evidence/forge.js'
 import { INDEPENDENT } from '../src/flow-execution.js'
 import { builtinFlowRoot } from '../src/host.js'
 import { Host, StateStore } from '../src/index.js'
-import { makeRepo, until } from './fixtures/evidence-desk.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { silent } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -78,6 +78,8 @@ interface Desk {
   readonly runs: string[]
   readonly runtimes: readonly FakeRuntime[]
   readonly stateDir: string
+  /** Resolves on the host's next notification to its windows: something on the desk moved. */
+  readonly moved: () => Promise<void>
 }
 
 /** The second runtime: another vendor's by default, so a step independent of the first has somewhere to sit. */
@@ -129,8 +131,15 @@ const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: '
   }
   await host.start()
   t.after(() => host.dispose())
+  let wake: (() => void) | null = null
+  let next = new Promise<void>((resolve) => { wake = resolve })
+  host.addBroadcaster(() => {
+    const woken = wake
+    next = new Promise<void>((resolve) => { wake = resolve })
+    woken?.()
+  })
   await host.call('workspace/open', { path: repo.dir })
-  return { host, root: repo.dir, forge: gh, runs: [], runtimes, stateDir }
+  return { host, root: repo.dir, forge: gh, runs: [], runtimes, stateDir, moved: () => next }
 }
 
 /** A shipped flow's own text, read through the catalogue as a person's window reads it. */
@@ -151,6 +160,25 @@ const board = async (d: Desk, goal: string): Promise<readonly Intent[]> =>
 const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
   await d.host.call('flow/execution', { run }) as FlowExecution
 
+/*
+ * Waits for a state of the desk, read again each time the host tells its
+ * windows something moved — never on a clock. A slow machine only makes the
+ * wait longer; what it waits for either arrives or the run is stuck, which
+ * the safety deadline (far past any step's own time) and the dump say.
+ */
+const SAFETY_MS = 180_000
+const whenChanged = async <T>(d: Desk, read: () => Promise<T | null> | T | null, what: string): Promise<T> => {
+  const deadline = Date.now() + SAFETY_MS
+  for (;;) {
+    const moved = d.moved()
+    const value = await read()
+    if (value !== null) return value
+    if (Date.now() > deadline) throw new Error(`nothing on the desk moved to ${what} in ${SAFETY_MS} ms`)
+    // Re-read when the desk moves, and at the latest every second: nothing is read fifty times a second.
+    await Promise.race([moved, new Promise((resolve) => setTimeout(resolve, 1_000))])
+  }
+}
+
 /**
  * The open cards of one role once every one of them is claimed by its Seat
  * and that Seat has been handed its order — the moment an agent starts on
@@ -158,14 +186,14 @@ const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
  * journaled, and an agent is never told about it until that is done.
  */
 const claimed = async (d: Desk, goal: string, role: string, count: number): Promise<readonly Intent[]> =>
-  explained(d, goal, until(async () => {
+  explained(d, goal, whenChanged(d, async () => {
     const cards = (await board(d, goal)).filter((one) => one.role === role && one.state !== 'done')
     if (cards.length !== count || !cards.every((one) => one.state === 'claimed' && one.claim)) return null
     // Handed: sent, or left for the end of the turn its Seat is already in (its brief's), where it asks for work.
     const ordered = (await Promise.all(d.runs.map((run) => execution(d, run)))).flatMap((run) => run.operations)
       .filter((one) => one.kind === 'turn' && (one.state === 'finished' || one.state === 'prepared'))
     return cards.every((card) => ordered.some((one) => one.card === card.id)) ? cards : null
-  }, `${count} claimed ${role} card(s), each handed to its Seat`, 20_000))
+  }, `${count} claimed ${role} card(s), each handed to its Seat`))
 
 /** A wait that timed out says where the run and its board stood, rather than only that it waited. */
 const explained = async <T>(d: Desk, goal: string, waiting: Promise<T>): Promise<T> => {
@@ -219,18 +247,18 @@ const answer = async (d: Desk, card: Intent, outcome: string): Promise<void> => 
 
 /** A person's card, answered from the board the way a window answers it. */
 const person = async (d: Desk, goal: string, role: string, outcome: string): Promise<Intent> => {
-  const card = await explained(d, goal, until(async () => (await board(d, goal)).find((one) => one.role === role && one.state !== 'done') ?? null,
-    `the ${role} card`, 20_000))
+  const card = await explained(d, goal, whenChanged(d, async () => (await board(d, goal)).find((one) => one.role === role && one.state !== 'done') ?? null,
+    `the ${role} card`))
   await d.host.call('team/intent', { room: goal, id: card.id, action: 'done', outcome })
   return card
 }
 
 const settled = async (d: Desk, run: string): Promise<FlowExecution> =>
-  until(async () => {
+  whenChanged(d, async () => {
     const now = await execution(d, run)
     assert.notEqual(now.state, 'stalled', `the run stalled: ${now.reason}`)
     return now.state === 'settled' ? now : null
-  }, 'the run to reach its end', 20_000)
+  }, 'the run to reach its end')
 
 const TASK = { task: 'Make the attempt file say something useful' }
 
@@ -298,7 +326,7 @@ test('investigation: an observed diff of the committed answer opens the close-ou
   await write(d, research!, 'the answer', 'gathered')
   await person(d, run.goal, 'close', 'closed')
   const done = await settled(d, run.id)
-  await until(() => (told.findLast((one) => one.id === run.id)?.state === 'settled' ? true : null), 'the settled run pushed to windows')
+  await whenChanged(d, () => (told.findLast((one) => one.id === run.id)?.state === 'settled' ? true : null), 'the settled run pushed to windows')
   assert.ok(told.some((one) => one.id === run.id && one.state === 'running' && one.rounds.length === 1), 'its first round was pushed too')
   const close = done.rounds.find((one) => one.role === 'close')!
   assert.equal(close.evidence.length, 1, 'the close-out round names the diff fact that opened it')
@@ -366,14 +394,14 @@ const workInsideTheBrief = (d: Desk, behaviours: Readonly<Record<string, Behavio
     runtime.onSend = (session, text, opts) => {
       if (opts?.recordAs !== 'notice' || !text.startsWith('Do the ')) return
       void (async () => {
-        const mine = await until(async () => {
+        const mine = await whenChanged(d, async () => {
           for (const goal of new Set((await Promise.all(d.runs.map((run) => execution(d, run)))).map((run) => run.goal))) {
             const card = (await board(d, goal)).find((one) => one.state === 'claimed' &&
               one.claim?.runtime === runtime.info.id && one.claim.sessionId === String(session.id))
             if (card) return card
           }
           return null
-        }, 'the card claimed for this Seat', 20_000)
+        }, 'the card claimed for this Seat')
         await behaviours[mine.role ?? '']!(d, mine)
         session.finish()
       })().catch((error: unknown) => { console.error('a working agent failed', error) })
@@ -400,7 +428,7 @@ test('independent review with every Seat working inside its brief: each completi
   const d = await desk(t, undefined, { refusesWhileBusy: true })
   // A reviewer asks for what it may judge until it is offered something, as an agent working its card does.
   const reviewInside: Behaviour = async (desk, card) => {
-    await until(async () => ((await desk.host.teamPlane.reviewCandidates(card.id, scopeOf(card))).length > 0 ? true : null), 'something to review', 20_000)
+    await whenChanged(desk, async () => ((await desk.host.teamPlane.reviewCandidates(card.id, scopeOf(card))).length > 0 ? true : null), 'something to review')
     await review(desk, card, 'approve')
   }
   workInsideTheBrief(d, {
@@ -433,11 +461,11 @@ for (const ending of ['completes', 'fails'] as const) {
         if (opts?.recordAs !== 'notice') return
         if (text.startsWith('Do the ')) {
           // Reads its brief, and ends its turn without asking for work — once the run has left its order for that.
-          void until(async () => {
+          void whenChanged(d, async () => {
             const id = d.runs[0]
             const prepared = id ? (await execution(d, id)).operations.some((one) => one.key === 'turn:1:0' && one.state === 'prepared') : false
             return prepared ? true : null
-          }, 'the order left for the end of the brief turn', 20_000)
+          }, 'the order left for the end of the brief turn')
             .then(() => (ending === 'completes' ? session.finish() : session.fail('the model is overloaded')))
             .catch((error: unknown) => { console.error('a reading agent failed', error) })
           return
@@ -446,7 +474,7 @@ for (const ending of ['completes', 'fails'] as const) {
         if (!card) return
         orders.push(card[1]!)
         void (async () => {
-          const id = await until(() => d.runs[0] ?? null, 'the run to be started')
+          const id = await whenChanged(d, () => d.runs[0] ?? null, 'the run to be started')
           const goal = (await execution(d, id)).goal
           const held = (await board(d, goal)).find((one) => one.id === Number(card[1]))!
           await write(d, held, 'the answer', 'gathered')
@@ -557,10 +585,10 @@ for (const second of UNKNOWN) {
     const run = await start(d, await comparison(d, 1), TASK)
     const [competitor] = await claimed(d, run.goal, 'competitor', 1)
     await write(d, competitor!, 'attempt 1')
-    const stalled = await until(async () => {
+    const stalled = await whenChanged(d, async () => {
       const now = await execution(d, run.id)
       return now.state === 'stalled' ? now : null
-    }, 'the run to stall at the judge', 20_000)
+    }, 'the run to stall at the judge')
     assert.equal(stalled.reason, INDEPENDENT)
     assert.equal((await board(d, run.goal)).find((one) => one.role === 'judge')?.state, 'open', 'no Seat took the judge’s card')
   })
