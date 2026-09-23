@@ -277,9 +277,23 @@ export class GoalPlane {
   }
 
   async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
-    // The flow barrier first: no round opens and no Seat is sent work once wrapping has begun.
-    await this.port.stopFlows?.(goal)
     await this.port.settledFor(goal)
+    /*
+     * Validate before touching anything a refusal must leave alone. A stamp
+     * from `preview` can only ever have been taken while flow dispatch read
+     * as not live — `previewWrap` itself refuses otherwise — so checking as
+     * if it were already stopped is exactly what redoing the same preview
+     * would show once it is: every other input still has to match untouched.
+     * A wrap stale for any other reason — the sentence changed, a card
+     * moved — is refused right here, and this run was never stopped for it.
+     */
+    const approved = structuredClone(choices)
+    const input = await this.#wrapInput(goal)
+    const ready = previewWrap({ ...input, flow: false }, approved)
+    if (ready.stamp !== stamp) throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    // Only now, with the wrap otherwise certain to proceed: the barrier — no
+    // round opens and no Seat is sent work once wrapping has begun.
+    await this.port.stopFlows?.(goal)
     return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
   }
 

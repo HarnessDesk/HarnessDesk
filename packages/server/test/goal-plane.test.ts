@@ -226,3 +226,38 @@ test('citation and dependency commit atomically, deduplicate, and reject cycles 
   assert.equal(racedWrites, 1)
   assert.deepEqual(raced.store.read('raced-target').citations, [])
 })
+
+test('a wrap refused for a stale stamp never stops a flow run first', async () => {
+  const proof = await rig()
+  let stopFlowsCalls = 0
+  proof.port.stopFlows = async () => { stopFlowsCalls += 1 }
+  proof.port.flowLive = () => false
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  // The Goal changed after the preview was taken (its sentence, say) — the
+  // stamp taken above no longer matches, so the wrap must be refused. It must
+  // be refused *before* anything stops the run this test's flag would catch.
+  await proof.plane.update('g1', 0, { sentence: 'Finish something else' })
+  await assert.rejects(
+    proof.plane.wrap('g1', preview.stamp, choices),
+    /changed while you reviewed/,
+  )
+  assert.equal(stopFlowsCalls, 0, 'a refused wrap must not have stopped the run first')
+})
+
+test('a wrap that will proceed does stop flow dispatch, exactly once, before it commits', async () => {
+  const proof = await rig()
+  let stopFlowsCalls = 0
+  proof.port.stopFlows = async () => { stopFlowsCalls += 1 }
+  proof.port.flowLive = () => false
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  proof.port.closeId = async () => {}
+  proof.port.releaseClaim = async () => {}
+  proof.port.refuseMail = async () => {}
+  proof.port.retainLane = async () => {}
+  proof.port.finishWrap = async () => {}
+  const receipt = await proof.plane.wrap('g1', preview.stamp, choices)
+  assert.equal(receipt.summary, 'Done')
+  assert.equal(stopFlowsCalls, 1, 'a wrap that goes on to commit still stops dispatch, once, as its barrier')
+})

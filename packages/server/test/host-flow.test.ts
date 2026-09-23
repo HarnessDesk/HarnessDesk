@@ -186,9 +186,14 @@ test('wrapped or restored Goal cannot dispatch', async (t) => {
   assert.ok(harness.runtime.sessions.has(seated.sessionId))
   await client.until(() => client.events.some((event) => event.type === 'turn/started'))
 
-  // The wrap stops the run's dispatch first; its stale stamp is then refused, and nothing was wrapped.
+  // The wrap validates its stale stamp before it would stop anything, so the refusal leaves the run running.
   await assert.rejects(client.call('goal/wrap', { goal, stamp: early.stamp, choices: nothing }))
-  const runs = await client.call('flow/runs', { room: goal }) as readonly FlowRun[]
+  let runs = await client.call('flow/runs', { room: goal }) as readonly FlowRun[]
+  assert.equal(runs.at(-1)?.state, 'running', 'a refused wrap never reached the barrier that stops runs')
+
+  // Stopping it directly is the real barrier the rest of this test is about.
+  await client.call('flow/stop', { run: run.id })
+  runs = await client.call('flow/runs', { room: goal }) as readonly FlowRun[]
   assert.equal(runs.at(-1)?.state, 'stopped')
   assert.equal((await client.call('goal/read', { goal }) as GoalView).goal.state, 'open')
   // Stopping kept the conversation and what it had said so far.
