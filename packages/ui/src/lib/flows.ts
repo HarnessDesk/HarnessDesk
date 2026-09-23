@@ -15,7 +15,7 @@ export const evidenceGuardWords = (guard: FlowEvidenceGuard): string => {
   if ('ci' in guard) return 'CI green at the selected revision'
   if ('review' in guard) return `A recorded review of “${guard.review}” at the selected revision`
   if ('pr' in guard) return guard.pr === 'open' ? 'The pull request open' : 'The pull request merged'
-  return 'A committed change in the step’s checkout'
+  return 'A committed change in the checkout since this step began'
 }
 
 /** Every guard a rule names, joined the way a sentence lists requirements. */

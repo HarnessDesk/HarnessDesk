@@ -179,17 +179,33 @@ export const baseOf = async (cwd: string): Promise<string | null> => {
 }
 
 /**
+ * The remote's copy of the base branch, when there is one: what a pull from
+ * upstream brings. A local base branch is never it — a step working on the
+ * default branch commits to that one itself.
+ */
+const upstreamOf = async (cwd: string): Promise<string | null> => {
+  const remote = (await gitOr(cwd, ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']))?.trim()
+  if (remote && isRevisionName(remote)) return remote
+  const branch = (await gitOr(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']))?.trim()
+  if (branch !== 'main' && branch !== 'master') return null
+  const tracked = (await gitOr(cwd, ['rev-parse', '--symbolic-full-name', '--verify', '--quiet', '@{upstream}']))?.trim()
+  return tracked && tracked.startsWith('refs/remotes/') && isRevisionName(tracked) ? tracked : null
+}
+
+/**
  * What a checkout's work changes, committed work only: the `diff` fact.
  *
- * Measured against the base branch it came from — the merge base of the two.
- * When there is no work beyond that base, because the checkout is *on* its
- * base branch (a step neither isolated nor told to branch commits straight onto
- * the project's default branch) or because there is no base branch at all,
- * the work is measured from `since` instead: the commit the step began at,
- * which a Seat records when it opens. So what was committed since the step
- * began is its diff, wherever it was committed. A `since` that the checkout's
- * history does not lead from is never trusted: then the diff is empty, not a
- * guess.
+ * Measured from `since` when it is given and the checkout's history leads
+ * from it — the commit the card's holder was at when it took the card — as
+ * the card's own work: the commits on the checkout's first-parent line since
+ * then that are not merges and are not on the remote's copy of the base
+ * branch. So a pull from upstream is not the step's work, a merge brings
+ * nothing of its own, and a Seat's second card is measured from where that
+ * card began, not from where its first did. What this cannot tell apart is
+ * whose commit it is: on a checkout several Seats share, every commit made
+ * in it while the card was held counts. With no usable `since`, what the
+ * branch changes against the base branch it came from — nothing, on the
+ * base branch itself.
  */
 export const diffOf = async (
   cwd: string,
@@ -197,12 +213,30 @@ export const diffOf = async (
 ): Promise<{ readonly files: number; readonly added: number; readonly removed: number; readonly from: Sha; readonly to: Sha } | null> => {
   const revision = await revisionOf(cwd)
   if (!revision) return null
-  const base = await baseOf(cwd)
-  const merged = base ? (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? '' : ''
   const began = since !== null && isSha(since) && (since === revision.head || (await gitOr(cwd, ['merge-base', '--is-ancestor', since, revision.head])) !== null)
     ? since : null
-  // Work beyond the base is measured from the base; none beyond it, from where the step began.
-  const from = isSha(merged) && merged !== revision.head ? merged : began ?? (isSha(merged) ? merged : '')
+  if (began !== null) {
+    const upstream = await upstreamOf(cwd)
+    const log = await gitOr(cwd, [
+      'log', '--first-parent', '--no-merges', '--numstat', '--format=', `${began}..${revision.head}`,
+      ...(upstream ? ['--not', upstream] : []),
+    ])
+    if (log === null) return null
+    const files = new Set<string>()
+    let added = 0
+    let removed = 0
+    for (const line of log.split('\n')) {
+      const found = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line)
+      if (!found) continue
+      files.add(found[3]!)
+      added += found[1] === '-' ? 0 : Number(found[1])
+      removed += found[2] === '-' ? 0 : Number(found[2])
+    }
+    return { files: files.size, added, removed, from: began, to: revision.head }
+  }
+  const base = await baseOf(cwd)
+  if (!base) return null
+  const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''
   if (!isSha(from)) return null
   const shortstat = (await gitOr(cwd, ['diff', '--shortstat', from, revision.head])) ?? ''
   const number = (pattern: RegExp): number => Number(pattern.exec(shortstat)?.[1] ?? 0)

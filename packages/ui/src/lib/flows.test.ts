@@ -11,7 +11,7 @@ describe('evidenceGuardWords', () => {
     expect(evidenceGuardWords({ review: 'picked' })).toBe('A recorded review of “picked” at the selected revision')
     expect(evidenceGuardWords({ pr: 'open' })).toBe('The pull request open')
     expect(evidenceGuardWords({ pr: 'merged' })).toBe('The pull request merged')
-    expect(evidenceGuardWords({ diff: true })).toBe('A committed change in the step’s checkout')
+    expect(evidenceGuardWords({ diff: true })).toBe('A committed change in the checkout since this step began')
   })
 
   test('joins several guards into one sentence', () => {

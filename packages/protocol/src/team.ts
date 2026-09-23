@@ -74,6 +74,12 @@ export interface IntentClaim {
    * claim on it the moment this ships.
    */
   readonly leaseUntil?: number
+  /**
+   * The commit its holder's checkout was at when it took the card: where the
+   * card's own work began, which a diff on a shared branch is measured from.
+   * Null when there was no commit; absent on a claim written before this was.
+   */
+  readonly head?: string | null
 }
 
 /**

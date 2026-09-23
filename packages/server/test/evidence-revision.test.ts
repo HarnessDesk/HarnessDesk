@@ -139,13 +139,14 @@ test('work committed on the default branch is measured from the commit its step 
   await git('checkout', '-q', 'main')
   const stray = await git('rev-parse', 'elsewhere')
   assert.equal((await diffOf(dir, stray))?.files, 0)
-  // A branch that left its base is measured against its base, as before, whatever it began at.
+  // A branch that left its base is measured the same way: from where the card began, its own commits.
   await git('checkout', '-q', '-b', 'feature')
   await writeFile(join(dir, 'MORE.md'), 'more\n')
   await git('add', '.')
   await git('commit', '-q', '-m', 'more')
-  const base = await git('merge-base', 'main', 'HEAD')
-  assert.equal((await diffOf(dir, began))?.from, base)
+  assert.deepEqual({ from: (await diffOf(dir, began))?.from, files: (await diffOf(dir, began))?.files }, { from: began, files: 2 })
+  // With no starting point, against the base it came from, as before.
+  assert.equal((await diffOf(dir))?.from, await git('merge-base', 'main', 'HEAD'))
 })
 
 test('with no base branch at all, a diff is measured from the commit its step began at', async () => {
@@ -157,4 +158,52 @@ test('with no base branch at all, a diff is measured from the commit its step be
   await git('add', '.')
   await git('commit', '-q', '-m', 'answer')
   assert.equal((await diffOf(dir, began))?.files, 1)
+})
+
+/*
+ * What a step's diff counts, from the commit its card began at: the step's
+ * own commits on the checkout's first-parent line. Work pulled from the
+ * remote's default branch is not the step's, and a merge brings nothing of
+ * its own; a Seat that took a second card is measured from that card's start.
+ */
+test('a diff from where a card began counts only the step’s own commits, never a pull from upstream', async () => {
+  const upstream = await makeRepo('hd-evidence-up-')
+  const dir = tempDir('hd-evidence-clone-')
+  await run('git', ['clone', '-q', upstream.dir, dir])
+  const git = async (...args: string[]): Promise<string> =>
+    (await run('git', ['-C', dir, '-c', 'user.email=dev@example.com', '-c', 'user.name=Jane Doe', ...args])).stdout.trim()
+  const began = await git('rev-parse', 'HEAD')
+  // Someone else's work lands upstream and is pulled: nothing of the step's own.
+  await writeFile(join(upstream.dir, 'THEIRS.md'), 'theirs\n')
+  await upstream.git('add', '.')
+  await upstream.git('commit', '-q', '-m', 'theirs')
+  await git('pull', '-q', '--ff-only')
+  assert.equal((await diffOf(dir, began))?.files, 0, 'a pull is not the step’s work')
+  // The step's own commit counts, and only it.
+  await writeFile(join(dir, 'MINE.md'), 'one\ntwo\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'mine')
+  const mine = await git('rev-parse', 'HEAD')
+  assert.deepEqual(await diffOf(dir, began), { files: 1, added: 2, removed: 0, from: began, to: mine })
+  // A pull that merges brings nothing of its own either.
+  await writeFile(join(upstream.dir, 'MORE.md'), 'more\n')
+  await upstream.git('add', '.')
+  await upstream.git('commit', '-q', '-m', 'more of theirs')
+  await git('pull', '-q', '--no-rebase', '--no-edit')
+  assert.equal((await diffOf(dir, began))?.files, 1)
+  // Another line of work merged in is not the step's own either: only its first-parent line is.
+  await git('checkout', '-q', '-b', 'elsewhere', began)
+  await writeFile(join(dir, 'ELSEWHERE.md'), 'elsewhere\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'elsewhere')
+  await git('checkout', '-q', 'main')
+  await git('merge', '-q', '--no-ff', '--no-edit', 'elsewhere')
+  assert.equal((await diffOf(dir, began))?.files, 1)
+  // A second card, begun where the first ended, is measured from its own start.
+  const second = await git('rev-parse', 'HEAD')
+  assert.equal((await diffOf(dir, second))?.files, 0, 'the first card’s work is not the second’s')
+  await writeFile(join(dir, 'NEXT.md'), 'next\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'next')
+  assert.equal((await diffOf(dir, second))?.files, 1)
 })

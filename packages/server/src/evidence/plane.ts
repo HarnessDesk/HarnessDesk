@@ -311,8 +311,10 @@ export class EvidencePlane {
     if (!cwd || !board) return
     const kept = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)
     const seat = kept?.id ?? null
+    // Where this card's work began: its claim's own start, or — a claim older than that — its Seat's.
+    const since = intent.claim.head !== undefined ? intent.claim.head : (kept?.checkout.head ?? null)
     const work = (async () => {
-      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since: kept?.checkout.head ?? null }
+      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since }
       if (await this.observer.observe(look)) this.announce(room)
     })()
     let pending = this.#settling.get(room)
@@ -360,9 +362,15 @@ export class EvidencePlane {
       const cwd = holder ?? last?.checkout?.cwd ?? null
       if (!cwd || !this.observer.take(room, intent.id)) continue
       const seat = holder && intent.claim ? (this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null) : null
-      // Where the card's work began: its holder's Seat, or the Seat this desk last saw on it.
+      /* Where the card's work began: its claim's own start while it is held;
+         once it is not, the start its last diff was measured from — else the
+         Seat this desk last saw on it. */
+      const lastDiff = [...records].reverse()
+        .find((one) => !one.restored && one.card?.board === room && one.card.id === intent.id && one.fact.kind === 'diff')
       const began = seat ?? (last?.seat ?? null)
-      const since = began ? (this.seats.byId(began)?.checkout.head ?? null) : null
+      const since = holder && intent.claim && intent.claim.head !== undefined ? intent.claim.head
+        : lastDiff?.fact.kind === 'diff' ? lastDiff.fact.from
+          : began ? (this.seats.byId(began)?.checkout.head ?? null) : null
       looks.push({ room, card: intent.id, project, cwd, seat, since })
     }
     if (looks.length === 0) return
