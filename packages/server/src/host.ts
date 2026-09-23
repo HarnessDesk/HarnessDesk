@@ -941,7 +941,9 @@ export class Host {
       },
       // Tells windows only: a run's own journal moved, not the Goal's board,
       // and a view read here could predate the board's own pending write.
-      changed: (goal) => {
+      // Each run goes out whole, so a run status on screen never waits to be asked.
+      changed: (goal, runs) => {
+        for (const execution of runs) this.#push({ method: 'flow/execution-changed', params: { execution } })
         void this.#goals.refresh(goal, { install: false }).catch(() => {})
       },
       log: (message, details) => this.#logger.warn(message, details ?? {}),

@@ -271,11 +271,18 @@ test('a judge granted edit is judged on the competitor it picked, never on its o
 
 test('investigation: an observed diff of the committed answer opens the close-out, woken by the evidence plane', async (t) => {
   const d = await desk(t)
+  // What a window is told: every change to the run's state, pushed whole, not only when it asks.
+  const told: FlowExecution[] = []
+  d.host.addBroadcaster((notification) => {
+    if (notification.method === 'flow/execution-changed') told.push(notification.params.execution)
+  })
   const run = await start(d, await shipped(d, 'investigation'), { question: 'Where does the time go?' })
   const [research] = await claimed(d, run.goal, 'research', 1)
   await write(d, research!, 'the answer', 'gathered')
   await person(d, run.goal, 'close', 'closed')
   const done = await settled(d, run.id)
+  await until(() => (told.findLast((one) => one.id === run.id)?.state === 'settled' ? true : null), 'the settled run pushed to windows')
+  assert.ok(told.some((one) => one.id === run.id && one.state === 'running' && one.rounds.length === 1), 'its first round was pushed too')
   const close = done.rounds.find((one) => one.role === 'close')!
   assert.equal(close.evidence.length, 1, 'the close-out round names the diff fact that opened it')
 })
