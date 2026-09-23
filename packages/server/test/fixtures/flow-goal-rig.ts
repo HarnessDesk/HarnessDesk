@@ -76,6 +76,8 @@ export interface GoalRig {
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
+  /** Checkouts whose check evidence append fails, one check at a time: how one card of a fan-out is left uncertain. */
+  readonly failEvidenceIn: Set<string>
   /** Every check's own `cwd`, in call order — how a fan-out's distinct checkouts are told apart. */
   readonly checkCwds: string[]
   /** Every check's own `flowContext`, in call order, undefined where none was sent. */
@@ -135,6 +137,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     heads: new Map<string, { at: string | null; dirty: boolean }>(),
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
+    failEvidenceIn: new Set<string>(),
     checkCwds: [] as string[],
     checkContexts: [] as (string | undefined)[],
     facts: new Map<string, EvidenceRecord[]>(),
@@ -230,7 +233,8 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       rig.checkCwds.push(where.cwd)
       rig.checkContexts.push(where.flowContext)
       const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
-      if (!rig.checkEvidenceFails) {
+      const fails = rig.checkEvidenceFails || rig.failEvidenceIn.delete(where.cwd)
+      if (!fails) {
         const head = rig.heads.get(where.cwd) ?? { at: null, dirty: false }
         if (head.at) {
           pushFact(
@@ -240,7 +244,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
           )
         }
       }
-      return { result: outcome, evidence: rig.checkEvidenceFails ? null : 'fact-check', problem: rig.checkEvidenceFails ? 'evidence could not be saved' : null }
+      return { result: outcome, evidence: fails ? null : 'fact-check', problem: fails ? 'evidence could not be saved' : null }
     },
   }
   const goalOfIntent = (intent: number): string | null => {

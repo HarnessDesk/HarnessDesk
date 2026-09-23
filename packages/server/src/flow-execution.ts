@@ -53,6 +53,24 @@ export type StoredFlowExecution = FlowExecution & {
   updatedAt: number
   authorization: { sourceDigest: string; commandDigest: string; approvedAt: number }
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
+  /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
+  checkPlans?: Readonly<Record<string, CheckPlan>>
+}
+
+/**
+ * Where and at which revision each card of a check round runs, decided once
+ * when the round opens and journaled beside its cards. A first run and every
+ * retry read this and nothing else: a card never re-derives its checkout
+ * from whichever writers happen to be clean later, and a checkout whose head
+ * has moved since is refused rather than checked in its new state.
+ */
+export interface CheckPlan {
+  /** `HARNESSDESK_FLOW_CONTEXT`, as every card of the round receives it. */
+  readonly context: string
+  /** One per card, in the round's card order. `at` is null only for a checkout with no commit. */
+  readonly targets: readonly { readonly cwd: string; readonly at: string | null }[]
+  /** Why no card of this round may run at all (its `cwd` is outside the project), or null. */
+  readonly refused: string | null
 }
 
 /** What `startGoal` is handed: a compiled, authorized policy. Preview and its token are a later step's. */
@@ -234,6 +252,7 @@ export interface FlowClosure {
 export const INDEPENDENT = 'This step needs an independent provider. Choose a seat from another provider.'
 export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it.'
 export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose a folder inside the project and review it again.'
+export const CHECK_UNPLANNED = 'This check’s checkouts were not recorded when its round opened, so it was not run. Start a new run.'
 const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
 
 /** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */
@@ -667,8 +686,16 @@ export class FlowExecutions {
      * width; so does a check with no predecessor subject at all (a seed
      * check, or one whose predecessor left no clean checkout).
      */
-    const checkSubjects = role.kind === 'check' && !role.check.cwd ? (await this.#closure(run, dependsOn)).subjects : []
-    const width = role.kind === 'agent' ? bindings.length : role.kind === 'check' && checkSubjects.length > 0 ? checkSubjects.length : 1
+    let plan: CheckPlan | null = null
+    if (role.kind === 'check') {
+      const planned = run.checkPlans?.[String(round.n)] ?? await this.#planCheck(run, round.n, role.check, dependsOn)
+      if (typeof planned === 'string') {
+        await this.#stall(id, planned)
+        return this.#get(id).rounds.find((one) => one.n === round.n)!
+      }
+      plan = planned
+    }
+    const width = role.kind === 'agent' ? bindings.length : plan ? plan.targets.length : 1
     /*
      * The facts this round was opened on, as values its card may name —
      * `{{evidence.review.at}}` on a merge card, say. Read from the exact fact
@@ -719,9 +746,10 @@ export class FlowExecutions {
       })
       cards.push(card.id)
     }
-    if (JSON.stringify(cards) !== JSON.stringify(round.cards)) {
+    if (JSON.stringify(cards) !== JSON.stringify(round.cards) || (plan && !run.checkPlans?.[String(round.n)])) {
       round = { ...round, cards }
-      run = await this.#put(this.#round(run, round))
+      const plans = plan ? { checkPlans: { ...run.checkPlans, [String(round.n)]: plan } } : {}
+      run = await this.#put({ ...this.#round(run, round), ...plans })
     }
     // The board's own write of these cards lands before any Seat is asked to
     // claim one: the Goal a Seat claims through reads that write, not the
@@ -872,64 +900,78 @@ export class FlowExecutions {
    * over them: a fanned-out card's own subject is not the only one a script
    * might reasonably want to compare itself against.
    */
-  async #checkContext(goal: string, round: number, subjects: readonly FlowSubjectLike[]): Promise<string> {
-    const run = subjects[0] ? this.#runOfCard(goal, subjects[0].card) : null
+  #checkContext(run: StoredFlowExecution, round: number, subjects: readonly FlowSubject[]): string {
     const withPorts: FlowCheckContext['subjects'][number][] = []
     for (const subject of subjects) {
-      const lane = run ? this.#port.laneOf(this.#seatForCard(run, subject.card).seat!) : null
+      const seat = this.#seatForCard(run, subject.card).seat
+      const lane = seat ? this.#port.laneOf(seat) : null
       withPorts.push({
         card: subject.card, at: subject.at, cwd: subject.checkout.cwd, branch: subject.checkout.branch,
         portStart: lane?.ports.start ?? null, portEnd: lane?.ports.end ?? null,
       })
     }
-    const context: FlowCheckContext = { version: 1, goal, round, subjects: withPorts }
+    const context: FlowCheckContext = { version: 1, goal: run.goal, round, subjects: withPorts }
     return JSON.stringify(context)
   }
 
   /**
-   * Runs a check round's cards — one aggregate card in the Goal's own
-   * checkout when the role names `cwd` or has no predecessor subject to fan
-   * out over, otherwise one card per predecessor subject, each in that
-   * subject's own checkout. Journaled before it spawns, so a crash mid-run
-   * leaves it `uncertain` for a person rather than run a second time, and its
-   * evidence append is awaited before the card is marked done — a storage
-   * failure stalls the run instead.
+   * A check round's plan, read once as the round opens: the writers it
+   * depends on, each at its head right now. With no explicit `cwd` it fans
+   * out, one card per writer in that writer's own checkout; a writer with no
+   * clean head stops the round (a string, the reason) rather than being
+   * checked in something else's place or quietly left out. An explicit `cwd`
+   * is one aggregate card, resolved inside the Goal's checkout; one outside
+   * it is recorded as refused, so its card exists and says why. With no
+   * writer at all it is one aggregate card in the Goal's checkout.
+   */
+  async #planCheck(run: StoredFlowExecution, round: number, check: FlowCheck, dependsOn: readonly number[]): Promise<CheckPlan | string> {
+    const closure = await this.#closure(run, dependsOn)
+    const context = this.#checkContext(run, round, closure.subjects)
+    const board = this.#team.stateFor(run.goal)
+    const base = board.cwd ?? board.root
+    const at = async (cwd: string): Promise<string | null> => (await this.#port.headOf(cwd, null)).at
+    if (check.cwd) {
+      if (isAbsolute(check.cwd)) return { context, targets: [{ cwd: base, at: null }], refused: CHECK_CWD_OUTSIDE }
+      let cwd: string
+      try {
+        cwd = await (await ConfinedTree.open(base)).resolveDir(insideRelative(check.cwd))
+      } catch {
+        return { context, targets: [{ cwd: base, at: null }], refused: CHECK_CWD_OUTSIDE }
+      }
+      return { context, targets: [{ cwd, at: await at(cwd) }], refused: null }
+    }
+    const [unsettled] = closure.unsettled
+    if (unsettled) {
+      return `Card #${unsettled.card}: ${unsettled.why}, so there is no revision of it to check. Start a new run once it has one.`
+    }
+    if (closure.subjects.length > 0) {
+      return { context, targets: closure.subjects.map((one) => ({ cwd: one.checkout.cwd, at: one.at })), refused: null }
+    }
+    return { context, targets: [{ cwd: base, at: await at(base) }], refused: null }
+  }
+
+  /**
+   * Runs a check round's cards exactly where its journaled plan put them.
+   * Each is journaled before it spawns, so a crash mid-run leaves it
+   * `uncertain` for a person rather than run a second time, and its evidence
+   * append is awaited before the card is marked done — a storage failure
+   * stalls the run instead.
    */
   async #runCheckRound(id: string, round: FlowRoundState, check: FlowCheck): Promise<boolean> {
     if (round.cards.length === 0) return true
-    const run = this.#get(id)
-    // Discovered the same way whether or not `cwd` is explicit: an aggregate
-    // card still wants every subject in its context (illustrative
-    // `$A_BRANCH`/`$B_BRANCH` aliases read this), only its own card and
-    // checkout stay singular.
-    const subjects = await this.subjectsOf(run.goal, round)
-    const flowContext = await this.#checkContext(run.goal, round.n, subjects)
-    if (check.cwd || subjects.length === 0) {
-      const board = this.#team.stateFor(run.goal)
-      const base = board.cwd ?? board.root
-      let cwd = base
-      if (check.cwd) {
-        if (isAbsolute(check.cwd)) return this.#failCheck(id, CHECK_CWD_OUTSIDE)
-        try {
-          cwd = await (await ConfinedTree.open(base)).resolveDir(insideRelative(check.cwd))
-        } catch {
-          return this.#failCheck(id, CHECK_CWD_OUTSIDE)
-        }
-      }
-      return this.#runOneCheck(id, round, check, round.cards[0]!, 0, cwd, flowContext)
-    }
-    // Fan-out: each card is its subject's own checkout, in the same order subjectsOf returned them.
+    const plan = this.#get(id).checkPlans?.[String(round.n)]
+    if (!plan || plan.targets.length !== round.cards.length) return this.#failCheck(id, CHECK_UNPLANNED)
+    if (plan.refused) return this.#failCheck(id, plan.refused)
     for (const [index, card] of round.cards.entries()) {
-      const subject = subjects[index]
-      if (!subject) continue
-      const ok = await this.#runOneCheck(id, round, check, card, index, subject.checkout.cwd, flowContext)
+      const ok = await this.#runOneCheck(id, round, check, card, index, plan.targets[index]!, plan.context)
       if (!ok) return false
     }
     return true
   }
 
   async #runOneCheck(
-    id: string, round: FlowRoundState, check: FlowCheck, card: number, index: number, cwd: string, flowContext: string,
+    id: string, round: FlowRoundState, check: FlowCheck, card: number, index: number,
+    target: CheckPlan['targets'][number], flowContext: string,
   ): Promise<boolean> {
     const key = `check:${round.n}:${index}`
     let run = this.#get(id)
@@ -939,8 +981,15 @@ export class FlowExecutions {
       await this.#stall(id, `This check was interrupted. Inspect its effects, then choose Run again.`)
       return false
     }
+    if (target.at !== null) {
+      const head = await this.#port.headOf(target.cwd, null)
+      if (head.at !== target.at) {
+        await this.#stall(id, `Card #${card}'s checkout has moved since this check was planned at ${target.at.slice(0, 12)}, so it was not run. Start a new run to check what is there now.`)
+        return false
+      }
+    }
     run = await this.#put(this.#operation(run, key, { kind: 'check', state: 'started', card, seat: null }))
-    const outcome = await this.#port.runCheck(check.run, { cwd, timeoutSec: check.timeout, flowContext }, { goal: run.goal, card, name: round.role, round: round.n })
+    const outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext }, { goal: run.goal, card, name: round.role, round: round.n })
     if (outcome.problem) {
       await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
       await this.#stall(id, outcome.problem)

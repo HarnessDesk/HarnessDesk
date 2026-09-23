@@ -131,6 +131,14 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       !(operation['seat'] === null || text(operation['seat']))) bad('has an operation it cannot describe')
     keys.add((operation as { key: string }).key)
   }
+  if (raw['checkPlans'] !== undefined) {
+    if (!object(raw['checkPlans'])) bad('has unreadable check plans')
+    for (const [round, plan] of Object.entries(raw['checkPlans'] as Record<string, unknown>)) {
+      if (!/^[1-9][0-9]*$/.test(round) || !object(plan) || !text(plan['context']) || !(plan['refused'] === null || text(plan['refused'])) ||
+        !Array.isArray(plan['targets']) || !(plan['targets'] as unknown[]).every((target) =>
+          object(target) && text(target['cwd']) && (target['at'] === null || text(target['at'])))) bad('has a check plan it cannot describe')
+    }
+  }
   const compiled = raw['compiled']
   if (!object(compiled) || !Array.isArray(compiled['bindings']) || !Array.isArray(compiled['problems'])) bad('has no compiled policy')
   for (const binding of (compiled as { bindings: unknown[] }).bindings) {

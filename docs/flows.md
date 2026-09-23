@@ -475,7 +475,10 @@ checkout — rather than picking one of them for an aggregate command. Naming
 `cwd:` explicitly keeps the old one-aggregate-card behaviour, resolved
 relative to the Goal's own checkout, with every subject still visible to the
 command through the bounded `HARNESSDESK_FLOW_CONTEXT` JSON (never an
-arbitrary environment map).
+arbitrary environment map). Each card's checkout and revision are journaled
+when its round opens; a retry runs there or, if that checkout's head has
+moved since, stalls and says so. A writer whose checkout has uncommitted
+changes stops the round before any command runs.
 
 **Evidence guards** read what the desk already observed, never a message or
 an agent's own claim. A guard judges *subjects*: the revisions of the

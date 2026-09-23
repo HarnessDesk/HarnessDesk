@@ -213,3 +213,71 @@ test('a check that names an explicit cwd keeps its one aggregate card, whatever 
   const execution = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(execution.reason, CHECK_CWD_OUTSIDE)
 })
+
+/*
+ * Each check card's checkout and revision are written down when its round
+ * opens, and nothing re-derives them later: a retry runs exactly there, at
+ * exactly that revision, or stalls and says why. Re-reading the writers at
+ * retry time paired cards with whatever checkouts happened to be clean then.
+ */
+test('a retry runs the checkout its card was planned for, even after another writer’s checkout changed', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
+  rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: false })
+  rig.failEvidenceIn.add('/repo/.lanes/2')
+  const run = await rig.start(FAN_OUT_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stalled', 'the second check could not save its evidence')
+  const second = rig.board(run.goal).intents.filter((one) => one.role === 'gate')[1]!
+
+  // The first writer's checkout picks up uncommitted changes; the second is untouched. A restart reads the plan back.
+  rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: true })
+  const restarted = await rig.restart()
+  await restarted.flows.flush()
+  await restarted.flows.retryCheck(run.id, second.id)
+  await restarted.flows.flush()
+
+  assert.deepEqual(rig.checkCwds, ['/repo/.lanes/1', '/repo/.lanes/2', '/repo/.lanes/2'], 'the retry ran in its own card’s checkout, never the other writer’s')
+  assert.equal(rig.board(run.goal).intents.find((one) => one.id === second.id)?.state, 'done')
+})
+
+test('a retry whose planned revision has moved stalls with the reason instead of checking something else', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
+  rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: false })
+  rig.failEvidenceIn.add('/repo/.lanes/2')
+  const run = await rig.start(FAN_OUT_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  const second = rig.board(run.goal).intents.filter((one) => one.role === 'gate')[1]!
+
+  rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2-amended', dirty: false })
+  await rig.flows.retryCheck(run.id, second.id)
+  await rig.flows.flush()
+
+  assert.deepEqual(rig.checkCwds, ['/repo/.lanes/1', '/repo/.lanes/2'], 'nothing ran a second time')
+  const execution = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(execution.state, 'stalled')
+  assert.match(execution.reason ?? '', new RegExp(`#${second.id}.*moved`))
+})
+
+test('a writer with uncommitted changes stops the check round before any command runs', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
+  rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: true })
+  const run = await rig.start(FAN_OUT_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+
+  assert.deepEqual(checks(rig.events), [], 'neither writer was checked alone in the other’s place')
+  const execution = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(execution.state, 'stalled')
+  assert.match(execution.reason ?? '', /#2.*not committed/)
+})
