@@ -32,10 +32,12 @@ import type { TeamCallScope } from './team.js'
  * guard kind below obeys, and the one `FlowExecutions` builds its context to:
  *
  * 1. A guard judges subjects, never Seats. A subject is a revision: the head
- *    of a card that could change files (its binding's grant is above read),
- *    found by walking back from the finished round's own cards along
- *    `dependsOn` to the nearest such round — the finished round itself when
- *    it is one. A judge's or a reviewer's own checkout is never a subject. A
+ *    of a card that could change files (its binding's grant is above read)
+ *    and does not judge (its Agent does not produce reviews), found by
+ *    walking back from the finished round's own cards along `dependsOn` to
+ *    the nearest such round — the finished round itself when it is one. A
+ *    judge's or a reviewer's own checkout is never a subject, whatever its
+ *    grant: a review is always of what the reviewer depends on. A
  *    writer whose checkout has no clean head right now is `unsettled`: it
  *    waits, and is never quietly left out.
  * 2. The facts that may speak for a subject are those filed on a card of that

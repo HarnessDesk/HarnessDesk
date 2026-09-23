@@ -493,7 +493,8 @@ changes stops the round before any command runs.
 **Evidence guards** read what the desk already observed, never a message or
 an agent's own claim. A guard judges *subjects*: the revisions of the
 nearest cards back along the finished round's dependencies whose grant lets
-them change files — never a judge's or reviewer's own checkout. A fact
+them change files and whose Agent does not produce reviews — never a judge's
+or reviewer's own checkout, even one granted edit. A fact
 speaks for a subject when it is filed on a card of that walk (the finished
 round's own, the rounds between, or the subject's own), names the subject's
 current revision, is fresh, and was observed on this desk. So

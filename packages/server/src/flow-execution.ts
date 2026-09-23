@@ -409,14 +409,17 @@ export class FlowExecutions {
     return null
   }
 
-  /** The Seat bound to a card, and whether its binding may change files — a writer, whose head is a subject. */
+  /** Whether a card is a writer, whose head is a subject: its binding may change files, and its Agent does not judge. */
   #writer(run: StoredFlowExecution, card: number): boolean {
     const round = run.rounds.find((one) => one.cards.includes(card))
     if (!round || run.document.format !== 'agents') return false
     const role = run.document.flow.roles.find((one) => one.id === round.role)
     if (role?.kind !== 'agent') return false
-    const grant = bindingsFor(run, role.id)[round.cards.indexOf(card)]?.grant
-    return grant !== undefined && grant !== 'read'
+    const binding = bindingsFor(run, role.id)[round.cards.indexOf(card)]
+    // A card that judges is never judged: a reviewer's own checkout is not a
+    // subject whatever its grant, exactly as `reviewBinding` offers it only
+    // what it depends on.
+    return binding !== undefined && binding.grant !== 'read' && !binding.agent.produces.includes('review')
   }
 
   /**

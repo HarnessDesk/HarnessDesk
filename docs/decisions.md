@@ -425,7 +425,8 @@ being judged.
 
 So a guard judges *subjects*, and a subject is a revision: the head, read
 now, of the nearest cards back along `dependsOn` whose grant lets them change
-files. A judge or reviewer (grant `read`) is never a subject; a check or a
+files and whose Agent does not produce reviews. A judge or reviewer is never
+a subject, whatever its grant; a check or a
 person round is walked through. The facts that may speak for a subject are
 those filed on any card that walk crossed — which is what scopes a fact to
 this run — at the subject's own revision, fresh, and observed here. The last
