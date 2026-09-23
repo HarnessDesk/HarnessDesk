@@ -100,7 +100,11 @@ export const AddMember = ({
                       </>
                     )}
                     title={<Text role="value" truncate>{name}</Text>}
-                    trail={<Text role="meta" className={reason ? 'text-(--hd-warning-ink)' : undefined}>{taken ? taken.label : reason ? `Can't seat here · ${reason}` : 'Checking…'}</Text>}
+                    {...(reason ? {
+                      subtitle: <Text role="meta" tone="warning">{`Can't seat here · ${reason}`}</Text>,
+                      wrapSubtitle: true,
+                    } : {})}
+                    trail={taken ? <Text role="meta">{taken.label}</Text> : reason ? undefined : <Text role="meta">Checking…</Text>}
                   />
                 )
               })}

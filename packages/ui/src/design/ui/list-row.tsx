@@ -117,6 +117,11 @@ const ListRow = ({
       interactive && 'cursor-pointer hover:bg-(--hd-hover)',
       interactive && nav && 'hover:bg-(--hd-sidebar-hover)',
       selected && 'bg-(--hd-selected)',
+      /* The same fade a refused control wears everywhere else in the app —
+         `buttonVariants`'s `ghost`/`floating`/`choice` — so a row a caller
+         marks `data-refused` reads as refused at a glance instead of only
+         differing by the reason printed under it. */
+      'data-[refused]:opacity-45',
       /*
        * A selected destination takes the app's one navigation mark, and
        * everything inside it comes off the row's own ink — a subtitle or a

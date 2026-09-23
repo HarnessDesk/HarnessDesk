@@ -103,6 +103,18 @@ describe('the canonical button', () => {
     }
   })
 
+  /* A refused row's own dimming is a canonical Button concern (see
+     NewSessionChoice.tsx's comment on its `.group` rule): `ghost` and
+     `floating` already fade on `data-refused` for a runtime an attachment
+     can't reach, so `choice` — the picker variant a refused Agent row also
+     uses — must fade the same way rather than reading identically to a
+     seatable row (#871). */
+  it('fades a refused choice the same way a refused ghost or floating control already does', () => {
+    for (const variant of ['ghost', 'floating', 'choice'] as const) {
+      expect(buttonVariants({ variant }), `${variant} does not fade data-refused`).toContain('data-[refused]:opacity-45')
+    }
+  })
+
   it('carries navigation ink into named text roles and owns arrange markers', () => {
     const navigation = buttonVariants({ variant: 'navigation' })
     expect(navigation).toContain('data-[active]:[&_[data-slot=text]]:text-')

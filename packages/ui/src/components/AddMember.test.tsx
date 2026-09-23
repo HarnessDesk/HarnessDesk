@@ -123,6 +123,22 @@ it('lists project Agents with their seat result and seats the selected Agent dur
   expect(onClose).toHaveBeenCalled()
 })
 
+it('marks a refused row so it reads as refused, not just annotated (#871)', async () => {
+  const store = rig()
+  await render(store)
+  const row = document.querySelector<HTMLElement>('[data-refused]')
+  expect(row).not.toBeNull()
+  // Greyed like a refused control everywhere else, and the reason is a
+  // wrapped description (a subtitle), not squeezed into the trailing figure.
+  expect(row?.className).toContain('data-[refused]:opacity-45')
+  expect(row?.querySelector('[data-wrap-subtitle]')?.textContent).toContain("Can't seat here")
+  expect(row?.querySelector('[data-wrap-subtitle]')?.textContent).toContain('signed out')
+  // A seatable row carries the attribute the fade reacts to; a refused one does.
+  const seatable = [...document.querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find((one) => !one.hasAttribute('data-refused'))
+  expect(seatable).not.toBeUndefined()
+  expect(seatable?.hasAttribute('data-refused')).toBe(false)
+})
+
 it('keeps the dialog open and shows the host refusal', async () => {
   const store = rig()
   ;(store.seatGoal as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('That Agent became unavailable.'))
