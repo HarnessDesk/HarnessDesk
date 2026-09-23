@@ -26,11 +26,15 @@ import {
   type SeatId,
   type SeatRecord,
   type SessionAttachmentReceipt,
+  type SessionAttachments,
   type UsageReport,
+  runtimeId,
+  sessionId as makeSessionId,
 } from '@harnessdesk/protocol'
 import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
 
 import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
+import { incarnationOf } from '../evidence/seen.js'
 import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
@@ -439,25 +443,53 @@ export interface AgentSeatContext {
 }
 
 /**
- * Prepares this Seat's attachments and durably freezes what was loaded — or
- * writes nothing at all. An Agent with no `skills:`/`mcp:` declared resolves
- * to zero declarations, and `record` is never called for it: the plain path
- * stays plain, with no sidecar file and no input ever computed for it.
+ * Resolves, checks trust and ceiling, and builds the isolated input a
+ * candidate's runtime session is created with — called before that session
+ * exists, so `SessionOptions.attachments` can actually carry what this
+ * function decides rather than describe a session already running unscoped.
  *
- * No adapter yet answers what it actually loaded natively — that readback is
- * a later phase's own wiring — so this reports nothing loaded rather than
- * assume success. Every declared attachment on a seated build shows
- * "not-loaded" honestly until that wiring lands; nothing here ever claims a
- * capability nobody confirmed.
+ * A refusal here (an unsuppressed unapproved default, most notably) is never
+ * caught and retried against the next candidate: decision "refuse, never
+ * substitute" means a runtime that cannot honor this Seat's declarations
+ * fails the whole seating, in this candidate's own words, rather than
+ * silently seating on a different runtime nobody announced.
  */
-async function prepareAndRecordAttachments(
+async function prepareAttachments(
   attachments: NonNullable<HostContext['attachments']>,
   subject: AttachmentSubject,
+): Promise<PreparedAttachments> {
+  return attachments.prepare(subject)
+}
+
+/**
+ * Reads back what the runtime actually loaded and durably freezes it — or
+ * writes nothing at all. An Agent with no `skills:`/`mcp:` declared resolves
+ * to zero declarations, and this is never called for it: the plain path
+ * stays plain, with no sidecar file and no input ever computed for it.
+ *
+ * The receipt comes from the runtime's own `attachmentReceipt`, read back
+ * after the session exists — never assumed from what was requested. A
+ * runtime with no such method, one that throws, or one that answers a key
+ * that does not match what this Seat was actually prepared with, is treated
+ * exactly like a runtime that loaded nothing: honest, never optimistic.
+ */
+async function finishAttachments(
+  attachments: NonNullable<HostContext['attachments']>,
+  runtime: AgentRuntime | undefined,
+  sessionId: string,
+  prepared: PreparedAttachments,
   record: SeatRecord,
 ): Promise<void> {
-  const prepared: PreparedAttachments = await attachments.prepare(subject)
   if (prepared.declarations.length === 0) return
-  const receipt: SessionAttachmentReceipt = { key: prepared.input.key, loaded: [], refused: [] }
+  let receipt: SessionAttachmentReceipt = { key: prepared.input.key, loaded: [], refused: [] }
+  if (runtime?.attachmentReceipt) {
+    try {
+      const observed = await runtime.attachmentReceipt(makeSessionId(sessionId))
+      if (observed.key === prepared.input.key) receipt = observed
+    } catch {
+      // Left as the empty receipt above: a readback that failed is "not loaded", never "loaded".
+    }
+  }
   await attachments.record(record, prepared, receipt)
 }
 
@@ -480,6 +512,12 @@ export async function seatAgent(
     context.grant?.kind === 'ceiling' ? context.grant.level : grantOf(requested),
   )
   const need: CeilingNeed = { level, unheld: unheldPolicy(ctx.state.state.preferences) }
+  // Its repository's identity on disk, not its path: computed once, the same
+  // way `evidence/seen.ts` binds a command approval, so a repository deleted
+  // and cloned again at the same path is a new incarnation and inherits
+  // nothing. Only when this build is wired for attachments at all — an
+  // unwired host has no trust store for the identity to matter to.
+  const incarnation = ctx.attachments ? await incarnationOf(project ?? params.cwd) : ''
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
@@ -494,8 +532,31 @@ export async function seatAgent(
     if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
     const selected = chosen.seat
     rest = rest.slice(chosen.passed.length + 1)
+    // Prepared before this candidate's session exists — never after — so a
+    // capable runtime is actually handed the isolated filter at
+    // `createSession`, instead of a native, unscoped session being asked
+    // after the fact to account for attachments it was never given. A thrown
+    // refusal here (an unsuppressed unapproved default) is deliberately not
+    // caught: it fails the whole seating on this candidate's own runtime,
+    // never falling through to try another one it never announced.
+    const prepared: PreparedAttachments | undefined = ctx.attachments
+      ? await prepareAttachments(ctx.attachments, {
+          project: project ?? params.cwd,
+          incarnation,
+          agent: definition.id,
+          origin: entry.origin,
+          agentDigest: digest,
+          runtime: selected.runtime,
+          build: ctx.runtimes.get(selected.runtime)?.info.version ?? '',
+          ceiling: level,
+        })
+      : undefined
+    const attachmentsInput: SessionAttachments | undefined =
+      prepared && prepared.declarations.length > 0 ? prepared.input : undefined
     const opened = await openAsAsked(ctx, selected, {
-      cwd: params.cwd, title: definition.name, ...(context.environment ? { environment: context.environment } : {}),
+      cwd: params.cwd, title: definition.name,
+      ...(context.environment ? { environment: context.environment } : {}),
+      ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
     })
     if ('reason' in opened) {
       passed.push(opened)
@@ -542,18 +603,13 @@ export async function seatAgent(
         `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
       )
     }
-    if (ctx.attachments) {
+    if (ctx.attachments && prepared) {
       try {
-        await prepareAndRecordAttachments(ctx.attachments, {
-          project: project ?? params.cwd,
-          incarnation: project ?? params.cwd,
-          agent: definition.id,
-          origin: entry.origin,
-          agentDigest: digest,
-          runtime: opened.runtime,
-          build: '',
-          ceiling: held.ceiling.level,
-        }, record)
+        await finishAttachments(ctx.attachments, ctx.runtimes.get(opened.runtime), opened.sessionId, prepared, record)
+        // Beside the session, the same way `seatedAs` is: the tool gateway
+        // resolves a live caller token to this Seat through the registry,
+        // never by re-deriving it, so a re-announced session cannot forget it.
+        ctx.registry.recordAttachmentSeat(runtimeId(opened.runtime), makeSessionId(opened.sessionId), record.id)
       } catch (error) {
         await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
         await ctx.seats.retire(opened.runtime, opened.sessionId)
@@ -836,7 +892,12 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const openAsAsked = async (
   ctx: HostContext,
   seat: FlowSeat,
-  where: { readonly cwd: string; readonly title: string; readonly environment?: Readonly<Record<string, string>> },
+  where: {
+    readonly cwd: string
+    readonly title: string
+    readonly environment?: Readonly<Record<string, string>>
+    readonly attachments?: SessionAttachments
+  },
 ): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {

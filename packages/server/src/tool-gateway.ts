@@ -21,7 +21,13 @@ import {
  */
 
 export interface ToolGatewayBackend {
-  listTools(): readonly (CapabilityContribution & { kind: 'tool' })[]
+  /**
+   * `caller` is the same correlation token `tools/invoke` and `server/info`
+   * already carry — absent for an old bridge shape. Phase 12's own use: a
+   * Seat with approved external MCP servers is listed only for its own
+   * caller, never for every bridge this socket ever answers.
+   */
+  listTools(caller?: string): readonly (CapabilityContribution & { kind: 'tool' })[]
   /**
    * `caller` is the correlation token from the invoking bridge's
    * environment, when it has one — the backend resolves it to the session
@@ -37,7 +43,23 @@ export interface ToolGatewayBackend {
    * whose own bridge already carries the sentence, so nobody hears it twice.
    */
   instructions?(caller?: string): string
+  /**
+   * Phase 12's own two verbs — a Seat's approved external MCP servers, never
+   * the desk's own plugin tools `tools/list`/`tools/invoke` answer for.
+   * Optional: a desk not wired for phase 12 (or a test of the plugin-tools
+   * path alone) simply has none, and `mcp/list`/`mcp/call` answer as much
+   * without the backend having to say so itself.
+   */
+  mcpList?(caller?: string): readonly { readonly name: string; readonly server: string }[]
+  mcpCall?(
+    caller: string | undefined,
+    server: string,
+    tool: string,
+    args: unknown,
+  ): Promise<{ readonly ok: true; readonly result: unknown } | { readonly ok: false; readonly reason: string }>
 }
+
+const MCP_UNAVAILABLE = 'This desk does not offer external MCP servers over this socket.'
 
 /** The conversation a bridge correlation token names. */
 export interface BridgeCaller {
@@ -137,7 +159,9 @@ export class ToolGateway {
     try {
       switch (request.method) {
         case 'tools/list': {
-          const tools = this.backend.listTools().map((tool) => ({
+          const listParams = request.params ?? {}
+          const listCaller = typeof listParams['caller'] === 'string' ? listParams['caller'] : undefined
+          const tools = this.backend.listTools(listCaller).map((tool) => ({
             namespace: tool.namespace,
             name: tool.name,
             description: tool.description,
@@ -159,6 +183,28 @@ export class ToolGateway {
             String(params['name'] ?? ''),
             params['args'],
             typeof params['caller'] === 'string' ? params['caller'] : undefined,
+          )
+          reply({ result })
+          return
+        }
+        case 'mcp/list': {
+          const params = request.params ?? {}
+          const caller = typeof params['caller'] === 'string' ? params['caller'] : undefined
+          reply({ result: { tools: this.backend.mcpList ? this.backend.mcpList(caller) : [] } })
+          return
+        }
+        case 'mcp/call': {
+          if (!this.backend.mcpCall) {
+            reply({ result: { ok: false, reason: MCP_UNAVAILABLE } })
+            return
+          }
+          const params = request.params ?? {}
+          const caller = typeof params['caller'] === 'string' ? params['caller'] : undefined
+          const result = await this.backend.mcpCall(
+            caller,
+            String(params['server'] ?? ''),
+            String(params['tool'] ?? ''),
+            params['args'],
           )
           reply({ result })
           return

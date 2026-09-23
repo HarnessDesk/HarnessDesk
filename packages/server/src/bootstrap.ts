@@ -12,6 +12,8 @@ import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessd
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import { invokeForBridge, ToolGateway } from './tool-gateway.js'
 import { GatedRegistry } from './ceilings/gate.js'
+import { McpToolGateway } from './attachments/gate.js'
+import { callStdioMcpServer } from './attachments/transport.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -284,6 +286,31 @@ export const createDefaultHost = (
     callerRuntimes.set(token, runtime)
     bounded(callerRuntimes)
   }
+  // Phase 12's own gateway: a Seat's approved external MCP servers, reached
+  // through the very same socket and the very same correlation token as the
+  // desk's own plugin tools — but gated by `host.ceilingGate`, the identical
+  // gate every other tool call answers to, and resolved to a Seat through
+  // the registry alone, never inferred from anything a call itself says.
+  const mcpGateway = new McpToolGateway({
+    serversFor: (seat) =>
+      host.attachmentsPlane.liveServersFor(seat)?.map((one) => ({
+        seat,
+        identity: one.identity,
+        endpoint: one.endpoint,
+        // Conservative by decision 13: every external server is `merge`
+        // until a trusted desk-owned manifest narrows it, which this phase
+        // does not yet have.
+        ceiling: 'merge' as const,
+      })) ?? null,
+    callerOf: (token) => {
+      const known = callers.get(token)
+      if (!known) return null
+      const seat = host.registry.attachmentSeatOf(runtimeId(known.runtime), sessionId(known.sessionId))
+      if (!seat) return null
+      return { seat, runtime: known.runtime, sessionId: known.sessionId }
+    },
+    admit: (call) => host.ceilingGate.admit(call),
+  })
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
     listTools: () => extensions.list('tool', {}),
@@ -301,6 +328,13 @@ export const createDefaultHost = (
       invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
         logger.debug(message, details),
       ),
+    mcpList: (caller) => mcpGateway.list(caller ?? ''),
+    mcpCall: (caller, serverName, toolName, args) =>
+      mcpGateway.call(caller ?? '', serverName, toolName, async (gatewayServer) => {
+        const spec = host.mcpSpecFor(gatewayServer.endpoint)
+        if (!spec) throw new Error('This server is no longer reachable from this Seat; start a new one to apply its attachments.')
+        return callStdioMcpServer(spec, toolName, args)
+      }),
   })
   gateway.start()
   const bridgeEntry = toolBridgeEntry()

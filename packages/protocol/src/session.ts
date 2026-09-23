@@ -1,4 +1,5 @@
 import type { SeatCandidate } from './agent.js'
+import type { SessionAttachments } from './attachments.js'
 import type { SeatCeiling } from './evidence.js'
 import type { FlowPermission } from './flow.js'
 import type { RuntimeId, SessionId, TurnId } from './ids.js'
@@ -104,6 +105,16 @@ export type SessionOptions = Partial<SessionSettings> & {
    * half-applies is worse than one that fails.
    */
   readonly options?: Readonly<Record<string, OptionValue>>
+  /**
+   * Phase 12's frozen, isolated skill/server filter for this Seat — host-only,
+   * exactly like `route` above: the host computes it from trust and ceiling
+   * before a session exists, and it is never accepted from a public
+   * session-creation payload. `null` (the default, via `undefined`) is a
+   * plain conversation with no Agent attachments; do not set it to `null`
+   * explicitly to mean "native defaults" — omit the field instead, the same
+   * way a plain seat omits `route`.
+   */
+  readonly attachments?: SessionAttachments
 }
 
 /**

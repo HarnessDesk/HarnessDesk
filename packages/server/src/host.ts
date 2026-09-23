@@ -72,6 +72,10 @@ import {
   type SeatArchived,
   type SeatLeft,
   type PublicationItem,
+  type SessionAttachments,
+  type SessionAttachmentReceipt,
+  type SeatAttachmentsRecord,
+  type AttachmentSupport,
   runtimeId,
   sessionModel,
 } from '@harnessdesk/protocol'
@@ -96,7 +100,7 @@ import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
 import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
-import type { InventoryAgent } from '@harnessdesk/agent-inventory'
+import type { InventoryAgent, McpServerSpec } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
@@ -104,6 +108,9 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { ProvenancePlane } from './provenance/plane.js'
+import { AttachmentsPlane, type AttachmentSubject as PlaneAttachmentSubject, type AttachmentsPlanePort, type ResolvedForPlane } from './attachments/plane.js'
+import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
+import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { revisionOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
@@ -509,6 +516,24 @@ export class Host {
    * append-only store per project under `evidence/` in the state directory.
    */
   readonly #evidence: EvidencePlane
+  /**
+   * Phase 12's local approval store: a person's own answer to "may this be
+   * loaded", sealed with an HMAC key that lives beside it in the state
+   * directory — host-owned, never a project tree or a transcript, and never
+   * carried by a backup (see `AttachmentTrust`'s own doc comment).
+   */
+  readonly #attachmentTrust: AttachmentTrust
+  /** Phase 12's frozen Seat attachments: prepare/open/read, and the live gateway server list each open Seat may reach. */
+  readonly #attachments: AttachmentsPlane
+  /**
+   * The real MCP server spec an approved attachment's opaque `endpoint`
+   * names, so the gateway can actually dial out for it later — never handed
+   * to an adapter, which only ever sees the opaque string itself. Bounded the
+   * same way the tool gateway's own correlation maps are: an entry that ages
+   * out is simply a server the gateway can no longer reach, the same as one
+   * whose Seat already closed.
+   */
+  readonly #mcpSpecs = new Map<string, McpServerSpec>()
   readonly #provenance: ProvenancePlane
   /** Startup stays off the interactive launch path, but quit still owns it. */
   #provenanceStart: Promise<void> = Promise.resolve()
@@ -706,6 +731,31 @@ export class Host {
     )
     // A conversation seen for the first time wears the Agent its Seat record names.
     this.registry.restoreSeatedAs((runtime, id) => this.#evidence.seatedAs(runtime, id))
+    // Phase 12's local approval store — beside `state.json` and sealed with
+    // its own HMAC key, exactly the way `evidence/seen.ts`'s `commands-seen.key`
+    // is: host-owned, owner-only permissions, never a project tree, and never
+    // carried by a backup. A missing or corrupt key fails closed on its own
+    // (`AttachmentTrust#permits`); this wiring adds nothing that could widen that.
+    this.#attachmentTrust = new AttachmentTrust(join(this.#state.directory, ATTACHMENT_TRUST_FILE), {
+      cipher: options.credentialCipher ?? plainCipher,
+    })
+    this.#attachments = new AttachmentsPlane(join(this.#state.directory, 'attachments', 'seats'), {
+      resolve: async (subject) => {
+        const entry = await this.#agents.read(subject.agent, subject.project)
+        if (!entry) return { declarations: [], resolved: [] }
+        const { declarations, resolved } = await resolveAttachmentDeclarations(entry, subject.project, this.#inventoryAgents())
+        return {
+          declarations,
+          resolved: resolved.map((one) => ({
+            identity: one.identity,
+            endpoint: one.server ? this.#mcpEndpointFor(one.identity.name, one.identity.digest, one.server) : null,
+          })),
+        }
+      },
+      permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
+      support: (subject) => this.#attachmentSupport(subject),
+      suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
+    })
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -983,6 +1033,7 @@ export class Host {
       },
       closeId: async (id: SeatId, reason: string) => {
         const record = await this.#evidence.seats.closeId(id, reason)
+        await this.#attachments.revokeLive(id)
         this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
       },
       claim: async (goal: string, card: number, opening: SeatOpening) => {
@@ -2009,6 +2060,10 @@ export class Host {
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
+      attachments: {
+        prepare: (subject) => this.#attachments.prepare(subject),
+        record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
+      },
       provenance: {
         read: (root, shas) => this.#provenance.read(root, shas),
         status: (root) => this.#provenance.status(root),
@@ -2862,6 +2917,53 @@ export class Host {
     return this.#ceilingGate
   }
 
+  /**
+   * Phase 12's local approval store. Exposed the same way `ceilingGate` is —
+   * a real, host-owned service a caller outside `HostContext` (the tool
+   * gateway's own wiring, a future approval wire method) reaches directly,
+   * rather than a second copy of its logic.
+   */
+  get attachmentTrust(): AttachmentTrust {
+    return this.#attachmentTrust
+  }
+
+  /** Phase 12's frozen Seat attachments, for the same reason `attachmentTrust` is exposed. */
+  get attachmentsPlane(): AttachmentsPlane {
+    return this.#attachments
+  }
+
+  /** What this runtime build can do with a Seat's attachments — unsupported until it is actually measured. */
+  #attachmentSupport(subject: PlaneAttachmentSubject): AttachmentSupport {
+    const runtime = this.#runtimes.get(subject.runtime as RuntimeId)
+    return (
+      runtime?.info.attachments ?? {
+        runtime: subject.runtime,
+        build: subject.build,
+        skills: 'unsupported',
+        mcp: 'unsupported',
+        suppressUnapproved: false,
+        reason: `${subject.runtime} has not been measured against phase 12’s attachment contract.`,
+      }
+    )
+  }
+
+  /**
+   * A stable, opaque reference to a resolved MCP server spec — never the spec
+   * itself, which carries a real command and never reaches an adapter or a
+   * wire reply. The real spec is kept in `#mcpSpecs` for the gateway alone to
+   * dial out with, once a call is actually admitted.
+   */
+  #mcpEndpointFor(name: string, digest: string, spec: McpServerSpec): string {
+    const endpoint = `mcp:${name}:${digest}`
+    this.#mcpSpecs.set(endpoint, spec)
+    return endpoint
+  }
+
+  /** The real spec an approved attachment's opaque endpoint names — for the gateway's own dial-out alone. */
+  mcpSpecFor(endpoint: string): McpServerSpec | undefined {
+    return this.#mcpSpecs.get(endpoint)
+  }
+
   readonly #ceilingGate = new CeilingGate({
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
@@ -3589,6 +3691,7 @@ export class Host {
       readonly cwd: string
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
+      readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
@@ -3611,6 +3714,7 @@ export class Host {
         cwd: where.cwd,
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
+        ...(where.attachments ? { attachments: where.attachments } : {}),
         options: {
           ...(seat.effort ? { effort: seat.effort } : {}),
           ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),

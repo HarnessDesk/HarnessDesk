@@ -23,6 +23,7 @@ import type {
   SecretReload,
   Session,
   SessionAttachmentReceipt,
+  SessionAttachments,
   SessionBusyError,
   SessionId,
   SessionSummary,
@@ -217,6 +218,8 @@ export interface HostContext {
         readonly cwd: string
         readonly title: string
         readonly environment?: Readonly<Record<string, string>>
+        /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
+        readonly attachments?: SessionAttachments
       },
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */

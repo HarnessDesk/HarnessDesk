@@ -1151,7 +1151,12 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
     },
   }
   await assert.rejects(
-    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    // A real directory, unlike every other test's `/tmp/x`: phase 12's Seat
+    // transaction now binds trust to the project's actual repository
+    // incarnation (`evidence/seen.ts`'s `incarnationOf`, the same call a
+    // command approval makes), which realpaths its `cwd` — a fictitious path
+    // would refuse before ever reaching the injected `record` failure below.
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: seen.root }),
     /Reviewer was seated on claude · opus-5 · High, and its attachment record could not be written, so the conversation was closed: injected sidecar write failure$/,
   )
   assert.equal(recordCalls, 1, 'record was attempted exactly once')

@@ -10,7 +10,7 @@ import type { AttachmentIdentity } from '@harnessdesk/protocol'
 import { resolveAttachments, type AttachmentSubject } from '../src/attachments/catalog.js'
 import { AttachmentTrust } from '../src/attachments/trust.js'
 import { tempDir } from './scratch.js'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 
 /**
  * The person's own local approval: preview, approve, and the one question
@@ -185,6 +185,47 @@ test('preview cannot launch', async (t) => {
 
   assert.equal(spawned, false, 'discovery and preview must never start a process')
   assert.equal(connected, false, 'discovery and preview must never open a socket')
+})
+
+test('the sealing key is private to the user, host-owned, never beside the grants it seals', async () => {
+  const dir = tempDir('hd-attach-trust-keyperm-')
+  const trust = new AttachmentTrust(join(dir, 'attachment-trust.json'))
+  const id = identity()
+  const review = await trust.preview(subject(), [resolvedOf(id)])
+  await trust.approve(review.token)
+
+  const mode = (await stat(join(dir, 'attachment-trust.key'))).mode & 0o777
+  assert.equal(mode, 0o600, 'the key is readable by its owner alone, the same as commands-seen.key')
+  // Its own file, never folded into the grants JSON a backup or a second
+  // checkout could otherwise carry whole.
+  const grantsText = await readFile(join(dir, 'attachment-trust.json'), 'utf8')
+  assert.ok(!grantsText.includes(await readFile(join(dir, 'attachment-trust.key'), 'utf8')), 'the key never appears inside the grants file')
+})
+
+test('a corrupted or missing key fails closed: it never revives what it can no longer verify', async () => {
+  const dir = tempDir('hd-attach-trust-keycorrupt-')
+  const trust = new AttachmentTrust(join(dir, 'attachment-trust.json'))
+  const id = identity()
+  const review = await trust.preview(subject(), [resolvedOf(id)])
+  await trust.approve(review.token)
+  assert.equal(await trust.permits(subject(), id), true, 'sanity: the grant just approved verifies against its own key')
+
+  // Corrupt the key in place — not delete it, so this is "unreadable", not
+  // merely "absent" — and read it with a *fresh* store (a live one may cache
+  // nothing, but a fresh instance is the honest test of what disk alone says).
+  await writeFile(join(dir, 'attachment-trust.key'), Buffer.from('not the cipher output at all'))
+  const afterCorruption = new AttachmentTrust(join(dir, 'attachment-trust.json'))
+  assert.equal(
+    await afterCorruption.permits(subject(), id),
+    false,
+    'a key that no longer decrypts to a valid 32-byte hex key must approve nothing already on disk',
+  )
+
+  // Missing entirely reads the same way: fails closed, not "nothing to check".
+  const { rm } = await import('node:fs/promises')
+  await rm(join(dir, 'attachment-trust.key'))
+  const afterMissing = new AttachmentTrust(join(dir, 'attachment-trust.json'))
+  assert.equal(await afterMissing.permits(subject(), id), false, 'a missing key must also approve nothing already on disk')
 })
 
 test('plain path reads no attachment roots', async (t) => {

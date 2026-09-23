@@ -12,6 +12,7 @@ import {
   type Approval,
   type ApprovalDecision,
   type ApprovalId,
+  type AttachmentSupport,
   type BackgroundTask,
   type ConfigOption,
   type FileEntry,
@@ -33,6 +34,8 @@ import {
   type RuntimeCapabilities,
   type RuntimeInfo,
   type Session,
+  type SessionAttachmentReceipt,
+  type SessionAttachments,
   type SessionDeletion,
   type SessionId,
   type SessionOptions,
@@ -263,6 +266,13 @@ export class FakeRuntime implements AgentRuntime {
       sessionStore?: string
       /** What `getAccount` calls this identity, so two accounts can be told apart. */
       accountLabel?: string
+      /**
+       * Phase 12's stronger session contract. Absent by default — exactly
+       * like a runtime never measured against it — so a test that wants a
+       * capable fake opts in explicitly rather than every existing test of
+       * this fixture suddenly gaining a capability nobody asked it for.
+       */
+      attachments?: AttachmentSupport
     } = {},
   ) {
     this.info = {
@@ -274,6 +284,7 @@ export class FakeRuntime implements AgentRuntime {
       ...(identity.capabilities
         ? { capabilities: { ...this.info.capabilities, ...identity.capabilities } }
         : {}),
+      ...(identity.attachments ? { attachments: identity.attachments } : {}),
     }
     this.sessionStore = identity.sessionStore ?? null
     this.accountLabel = identity.accountLabel ?? 'API key'
@@ -611,6 +622,20 @@ export class FakeRuntime implements AgentRuntime {
   lastResumeOptions: Partial<SessionOptions> | null = null
 
   /**
+   * What each session was actually given to load, by session id — the fake's
+   * own honest memory, read back by `attachmentReceipt` exactly the way a
+   * real capable runtime would answer for what it was actually handed,
+   * never for what a caller merely asked for afterwards.
+   */
+  readonly attachmentsGiven = new Map<string, SessionAttachments | undefined>()
+  /**
+   * Overrides what a session's next `attachmentReceipt` answers, for a test
+   * that needs a dishonest or unsupported-shaped answer (a stale key, an
+   * extra loaded item, a thrown refusal) rather than the honest default.
+   */
+  readonly attachmentReceiptOverrides = new Map<string, SessionAttachmentReceipt | Error>()
+
+  /**
    * Opens a conversation on every setting it is handed, not only its folder
    * and model — the host's own `agent`, `briefDigest`, `permission`,
    * `seatLabel` and `passedOver` among them — the way a runtime that copies
@@ -639,8 +664,33 @@ export class FakeRuntime implements AgentRuntime {
     const session = new FakeSession(this, id, settings, values)
     this.sessions.set(id, session)
     this.minted.set(String(id), options.cwd)
+    this.attachmentsGiven.set(String(id), options.attachments)
     this.emit({ type: 'session/started', session: session.snapshot() })
     return session
+  }
+
+  /**
+   * The honest readback `AgentRuntime.attachmentReceipt` promises: exactly
+   * what this session was actually given at `createSession`, echoed back as
+   * loaded — never invented, and never answered for a session this fake was
+   * not asked to scope in the first place. A test that wants a dishonest
+   * runtime (a stale key, an extra item, a thrown failure) sets
+   * `attachmentReceiptOverrides` for that session id first.
+   */
+  async attachmentReceipt(session: SessionId): Promise<SessionAttachmentReceipt> {
+    const override = this.attachmentReceiptOverrides.get(String(session))
+    if (override instanceof Error) throw override
+    if (override) return override
+    const given = this.attachmentsGiven.get(String(session))
+    if (!given) throw new Error(`fake runtime: session ${session} was never given attachments to load`)
+    return {
+      key: given.key,
+      loaded: [
+        ...(given.skills ?? []).map((one) => ({ kind: 'skill' as const, name: one.name, digest: one.digest })),
+        ...(given.mcp ?? []).map((one) => ({ kind: 'mcp' as const, name: one.name, digest: one.digest })),
+      ],
+      refused: [],
+    }
   }
 
   /** What `resumeSession` throws instead of answering, for failure plumbing. */
