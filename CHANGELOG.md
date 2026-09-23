@@ -7,6 +7,9 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- Fix the whole app quitting on the first refused action — a refused Wrap,
+  Seat or check run — after the terminal or script that started it had gone
+  away. The refusal is now shown, and the host log says its console went away.
 - Add source-qualified, read-only Insight transport for historical usage,
   receipt cost summaries, project usage, and local Agent-seat ordering review.
 
