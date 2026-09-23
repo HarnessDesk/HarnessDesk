@@ -41,7 +41,7 @@ const rig = async (root = '/work/repo', citationCheck?: (root: string, path: str
         updatedAt: document.goal.updatedAt, members: [] }
     },
     evidence: async () => { if (readError) throw new Error('evidence unavailable'); return facts },
-    evidenceIds: async () => facts.cards.flatMap((card) => card.facts.map((fact) => fact.record.id)),
+    evidenceIds: async () => facts.cards.flatMap((card) => card.facts.map((fact) => ({ id: fact.record.id, seat: fact.record.seat ?? null }))),
     flow: () => undefined,
     busy: () => false,
     waits: () => false,

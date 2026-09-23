@@ -12,6 +12,19 @@ export type GoalOrigin =
   | { kind: 'flow'; run: string }
   | { kind: 'trigger'; trigger: string; event: string }
 
+/** A Seat's name, captured once into a receipt rather than looked up later. */
+export interface GoalReceiptMember {
+  readonly seat: SeatId
+  readonly agent: string | null
+  readonly seatLabel: string
+}
+
+/** One `GoalReceipt['evidence']` id, and the Seat (if any) that produced it. */
+export interface GoalReceiptEvidenceSeat {
+  readonly id: string
+  readonly seat: SeatId | null
+}
+
 /** A finishable effort. Its Seats, rather than this document, say who belongs. */
 export interface Goal {
   readonly id: GoalId
@@ -49,7 +62,22 @@ export interface GoalReceipt {
     reason: string | null
   }[]
   readonly seats: readonly SeatId[]
+  /**
+   * Who held each Seat named in `seats` and `answers`, in the receipt's own
+   * words — an Agent's name where it had one, and always what it ran. A live
+   * lookup cannot stand in for this: `GoalView.members` answers `[]` the
+   * moment a Goal wraps, and a receipt is read later, by someone who was
+   * never there to look anything up elsewhere. Optional because a receipt
+   * wrapped before this field existed has none; a reader falls back to the
+   * bare Seat id it always showed.
+   */
+  readonly members?: readonly GoalReceiptMember[]
   readonly evidence: readonly string[]
+  /**
+   * Which Seat produced each entry of `evidence`, by id — null when the desk
+   * observed it unattended. Optional for the same reason `members` is.
+   */
+  readonly evidenceSeats?: readonly GoalReceiptEvidenceSeat[]
   readonly answers: readonly {
     seat: SeatId
     session: SeatRecord['session']

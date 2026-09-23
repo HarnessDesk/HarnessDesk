@@ -10,6 +10,18 @@ export interface GoalReceiptProps {
   readonly insight?: Omit<import('./InsightCost').InsightCostProps, 'onSeat' | 'onSession' | 'onMessage'>
 }
 
+/**
+ * A Seat's name, in the receipt's own words — `agent.name · seatLabel` when
+ * an Agent held it, its bare `seatLabel` when a flow seated a runtime with
+ * none. Falls back to the raw id `receipt.members` was written to replace:
+ * an older receipt, wrapped before this field existed, has none to look up.
+ */
+const nameOf = (members: GoalReceiptRecord['members'], seat: string): string => {
+  const member = members?.find((one) => one.seat === seat)
+  if (!member) return seat
+  return member.agent ? `${member.agent} · ${member.seatLabel}` : member.seatLabel
+}
+
 export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
   return (
   <div>
@@ -35,7 +47,7 @@ export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
               key={`${answer.seat}:${index}`}
               title={<CodeText>{answer.text || 'No answer was recorded.'}</CodeText>}
               desc={answer.partial ? `Partial${answer.stopReason ? ` · ${answer.stopReason}` : ''}` : answer.stopReason ?? undefined}
-              control={<Chip tone={answer.partial ? 'warning' : 'neutral'}>{answer.seat}</Chip>}
+              control={<Chip tone={answer.partial ? 'warning' : 'neutral'}>{nameOf(receipt.members, answer.seat)}</Chip>}
             />
           ))}
         </Rows>
@@ -44,7 +56,11 @@ export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
     {receipt.evidence.length > 0 ? (
       <>
         <SectionHead name="Evidence" />
-        <Rows>{receipt.evidence.map((id) => <Row key={id} title={id} desc="Recorded evidence ID" />)}</Rows>
+        <Rows>{receipt.evidence.map((id) => {
+          const ref = receipt.evidenceSeats?.find((one) => one.id === id)
+          const name = ref === undefined ? null : ref.seat === null ? 'Observed by the desk' : nameOf(receipt.members, ref.seat)
+          return <Row key={id} title={name ?? id} desc={name ? id : 'Recorded evidence ID'} />
+        })}</Rows>
       </>
     ) : null}
     {receipt.revisions.length > 0 ? (
