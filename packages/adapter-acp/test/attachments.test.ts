@@ -48,11 +48,11 @@ test('negotiates before injecting: absent, wrong version, and malformed capabili
   t.after(() => capable.dispose())
   await capable.start()
   assert.equal(capable.info.attachments?.skills, 'scoped')
-  // MCP stays unsupported through this adapter regardless of what the peer
-  // claims: HarnessDesk does not yet connect a live `mcpServers` entry to a
-  // Seat's approved gateway servers, and claiming otherwise would be exactly
-  // the "capability nobody confirmed" this phase refuses to report.
-  assert.equal(capable.info.attachments?.mcp, 'unsupported')
+  // Now trusted exactly like `skills`: the host side's own gateway route
+  // (bootstrap.ts's McpToolGateway, reached over every ACP peer's existing
+  // `harnessdesk` server) is real, so a peer's own claim is admitted the
+  // same way skills already are — never by which runtime this happens to be.
+  assert.equal(capable.info.attachments?.mcp, 'scoped-gated')
   assert.equal(capable.info.attachments?.suppressUnapproved, true)
 })
 

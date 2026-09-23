@@ -46,12 +46,19 @@ export function decodeAttachmentCapability(initialized: AcpInitializeResult | nu
  * The protocol-facing `AttachmentSupport` a decoded capability (or its
  * absence) produces for one runtime build.
  *
- * MCP is reported unsupported regardless of what a peer claims, until the
- * host side actually connects a live `mcpServers` entry to the desk's own
- * gateway for a Seat's approved servers — a named remaining gap, not a
- * guess about the peer. Claiming `scoped-gated` here before that exists
- * would be exactly the "capability nobody confirmed" this phase refuses to
- * report.
+ * `mcp` now trusts a peer's own claim exactly the way `skills` already does
+ * (decision: gate on capability, never on which backend is running). That
+ * used to be an unconditional `'unsupported'` here, because the host side had
+ * nothing real behind it — an approved external server had no route to the
+ * agent at all. It does now: `bootstrap.ts` wires every ACP peer's existing
+ * `harnessdesk` gateway server (the same one plugin tools already use) to
+ * `McpToolGateway`'s `mcp/list`/`mcp/call`, gated exactly like every other
+ * tool call. A peer that claims `mcp: true` is claiming it can suppress its
+ * *own* other MCP auto-discovery (`strictMcpConfig`-equivalent) so that
+ * gateway is the only server a scoped Seat's session can reach — which is
+ * the one thing this decoder cannot verify from `initialize` alone, so it is
+ * still exactly a claim, admitted no more optimistically than skills already
+ * are.
  */
 export function toAttachmentSupport(
   capability: AcpAttachmentCapability | null,
@@ -72,11 +79,9 @@ export function toAttachmentSupport(
     runtime,
     build,
     skills: capability.skills ? 'scoped' : 'unsupported',
-    mcp: 'unsupported',
+    mcp: capability.mcp ? 'scoped-gated' : 'unsupported',
     suppressUnapproved: capability.suppressUnapproved,
-    reason: capability.mcp
-      ? 'This runtime claims scoped MCP loading, but HarnessDesk does not yet connect an ACP peer to a Seat’s approved servers.'
-      : null,
+    reason: null,
   }
 }
 
