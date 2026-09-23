@@ -8,6 +8,7 @@ import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
 import { FolderIcon } from './Icons'
 import { ProjectChecks } from './ProjectChecks'
+import { ProjectFlows } from './ProjectFlows'
 import { ProjectProvenance } from './ProjectProvenance'
 import {
   BackLink,
@@ -148,6 +149,7 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
           <Note>Open this project to start its Agents, or to see each one’s page.</Note>
         )}
       </section>
+      <ProjectFlows root={root} current={current} />
       <ProjectChecks root={root} />
       <ProjectProvenance root={root} />
     </>

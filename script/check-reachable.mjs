@@ -59,20 +59,13 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
-  // Phase 6 (agents-flows) Tasks 4-5 build the v2 flow wire surface end to
+  // Phase 6 (agents-flows) Tasks 4-5 built the v2 flow wire surface end to
   // end — preview, start, execution reads, checks and the catalogue/update
-  // routes — before the screen that calls it. Phase 6 Tasks 6-7 build the
-  // project flows UI, dry run and Update screens against these; remove each
-  // line as its caller lands, not all at once.
-  'flow/catalog': 'read by the project flows screen (Task 6), not yet built',
-  'flow/source': 'read by the project flows screen (Task 6), not yet built',
-  'flow/preview': 'read by the dry-run screen (Task 6), not yet built',
+  // routes — before the screen that calls it. Task 6 built the project
+  // flows UI, dry run and Update screens against these six; Task 7 still
+  // owns the run-status screen's reads below.
   'flow/execution': 'read by the run-status screen (Task 7), not yet built',
   'flow/check/retry': 'called by the run-status screen’s Run-again action (Task 7), not yet built',
-  'flow/update/preview': 'read by the Update screen (Task 6), not yet built',
-  'flow/update/apply': 'called by the Update screen (Task 6), not yet built',
-  'flow/customize/preview': 'read by the Customize screen (Task 6), not yet built',
-  'flow/customize/apply': 'called by the Customize screen (Task 6), not yet built',
 }
 
 /**

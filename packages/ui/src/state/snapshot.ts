@@ -29,6 +29,7 @@ import type {
   SessionKey,
   SessionSummary,
   TeamState,
+  FlowExecution,
   FlowRun,
   GoalView,
   Lane,
@@ -405,6 +406,12 @@ export interface AppSnapshot {
    * which is every room that exists today — simply has no entry here.
    */
   readonly flowRuns: ReadonlyMap<string, readonly FlowRun[]>
+  /**
+   * Every v2 flow run this window has read or been pushed, keyed by its run
+   * id — `flow/execution`'s answer and `flow/execution-changed`'s push kept
+   * in the one place, so a run status surface reads whichever arrived last.
+   */
+  readonly flowExecutions: ReadonlyMap<string, FlowExecution>
   /** What the desk observed on each room's cards, newest host read by stamp. */
   readonly boardEvidence: ReadonlyMap<string, BoardEvidence>
   /** Rooms whose first evidence read failed before any facts could be established. */
@@ -740,6 +747,7 @@ const EMPTY: AppSnapshot = {
   lanePreferences: null,
   lanes: [],
   flowRuns: new Map(),
+  flowExecutions: new Map(),
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),
   agents: null,

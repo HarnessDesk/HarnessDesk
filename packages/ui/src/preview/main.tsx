@@ -11,6 +11,8 @@ import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
+import { ProjectFlows } from '../components/ProjectFlows'
+import { FlowUpdate } from '../components/FlowUpdate'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -208,6 +210,8 @@ const Preview = () => {
     | 'save as agent'
     | 'what was observed'
     | 'run a check'
+    | 'flow update'
+    | 'flow customize'
   >('off')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
@@ -252,7 +256,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize'] as const}
           onChange={setDialog}
         />
       </div>
@@ -279,6 +283,12 @@ const Preview = () => {
         />
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'flow update' && (
+        <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
+      )}
+      {dialog === 'flow customize' && (
+        <FlowUpdate root={PREVIEW_ROOT} id="comparison" mode="customize" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
+      )}
       {dialog === 'seat sheet' && (
         <SeatSheet
           refusal={{
@@ -466,6 +476,11 @@ const Preview = () => {
             >
               <AgentsView />
             </PaneProvider>
+          </div>
+        </Frame>
+        <Frame title="Project — its flows">
+          <div className="p-4">
+            <ProjectFlows root={PREVIEW_ROOT} current />
           </div>
         </Frame>
         <Frame title="Project — its checks">

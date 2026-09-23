@@ -112,6 +112,7 @@ import {
   ScanSearch,
   ScrollText,
   Search,
+  Workflow,
   Server,
   Settings,
   ShieldAlert,
@@ -365,6 +366,8 @@ export const ResourceIcon = icon(Database, 'ResourceIcon')
 export const LibraryIcon = icon(LibraryBig, 'LibraryIcon')
 /** A model route. */
 export const RouteIcon = icon(Route, 'RouteIcon')
+/** An editable flow: a policy that routes cards between Agent, check and person steps. */
+export const FlowIcon = icon(Workflow, 'FlowIcon')
 export const PresetIcon = icon(Bookmark, 'PresetIcon')
 export const ShieldIcon = icon(ShieldCheck, 'ShieldIcon')
 

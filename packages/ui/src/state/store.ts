@@ -57,7 +57,14 @@ import {
   type TeamPeerInfo,
   type TeamState,
   type FlowDryRun,
+  type FlowEntry,
+  type FlowExecution,
   type FlowFile,
+  type FlowOrigin,
+  type FlowPreview,
+  type FlowStartRequest,
+  type FlowUpdatePreview,
+  type FlowUpdateResult,
   type CeilingLevel,
   type FlowRun,
   type FlowSeat,
@@ -250,6 +257,15 @@ export type UnheldCeilings = 'seat' | 'refuse'
 export class AppStore {
   #captureEpoch = 0
   #captureList = 0
+  /**
+   * Bumped on a workspace switch or a lost connection: a flow surface binds
+   * an in-flight catalogue read, preview or update preview to the value it
+   * held when the request began, and discards the reply once this has moved
+   * on — the same shape as `#agentsGeneration`, for the same reason a stale
+   * preview must read as though it never arrived rather than replace what a
+   * newer root or a fresh connection already answered.
+   */
+  #flowGeneration = 0
 
   #keepCaptureHealth(health: import('@harnessdesk/protocol').CaptureHealth): void {
     if (health.revision < (this.#snapshot.provenanceRevision.get(health.project) ?? -1)) return
@@ -505,6 +521,14 @@ export class AppStore {
           flowRuns.set(room, runs)
           this.#patch({ flowRuns })
         }
+        if (notification.method === 'flow/execution-changed') {
+          // Whole, for the same reason: a round or an evidence write changes
+          // what a run status surface should be showing right now.
+          const { execution } = notification.params
+          const flowExecutions = new Map(this.#snapshot.flowExecutions)
+          flowExecutions.set(execution.id, execution)
+          this.#patch({ flowExecutions })
+        }
         if (notification.method === 'evidence/changed') {
           const { room, evidence } = notification.params
           this.#keepBoardEvidence(room, evidence)
@@ -544,6 +568,7 @@ export class AppStore {
         const previous = this.#snapshot.status
         if (status !== 'open') {
           this.#captureEpoch += 1
+          this.#flowGeneration += 1
           this.#patch({ status, captureHealth: new Map(), provenanceRevision: new Map() })
         } else {
           this.#patch({ status })
@@ -3873,6 +3898,62 @@ export class AppStore {
     }
   }
 
+  // ---------------------------------------------------------------- flows v2
+
+  /**
+   * Changes on a workspace switch or a lost connection. A flow surface reads
+   * this when it starts a request and compares it again when the answer
+   * lands: unequal means a newer root or a fresh connection has already
+   * moved past what the answer describes, and it is discarded rather than
+   * shown. Every method below is otherwise a pure passthrough — it caches
+   * nothing in the snapshot itself, the same as `agentsIn`/`plansIn` — so
+   * the binding is the caller's, not this store's.
+   */
+  flowGeneration(): number {
+    return this.#flowGeneration
+  }
+
+  /** The flows one project's catalogue offers: its own, then this Mac's, then the ones that ship. Throws. */
+  async flowCatalog(root: string): Promise<readonly FlowEntry[]> {
+    return this.transport.request('flow/catalog', { root })
+  }
+
+  /** One catalogue entry's exact source, as `flowCatalog` names it. Throws. */
+  async flowSource(root: string, id: string, origin?: FlowOrigin): Promise<string> {
+    return this.transport.request('flow/source', { root, id, ...(origin ? { origin } : {}) })
+  }
+
+  /**
+   * What this flow would do, spending nothing: every seat it would open, its
+   * guards and its commands verbatim. `flow/start-goal` redeems the token
+   * this mints, for exactly the `(root, source, vars)` it was taken of.
+   */
+  async previewFlow(root: string, source: string, vars: Readonly<Record<string, string>> = {}): Promise<FlowPreview> {
+    return this.transport.request('flow/preview', { root, source, vars })
+  }
+
+  /** Starts a new Goal running this flow. The only v2 call that spends anything. */
+  async startFlowGoal(input: FlowStartRequest): Promise<FlowExecution> {
+    return this.transport.request('flow/start-goal', input)
+  }
+
+  /** The whole-file diff an old flow's Update or a shipped/user flow's Customize would write. Throws. */
+  async previewFlowUpdate(root: string, id: string, mode: 'update' | 'customize'): Promise<FlowUpdatePreview> {
+    return mode === 'update'
+      ? this.transport.request('flow/update/preview', { root, id })
+      : this.transport.request('flow/customize/preview', { root, id })
+  }
+
+  /** Writes the files a previewed Update or Customize named, once. */
+  async applyFlowUpdate(root: string, id: string, token: string, mode: 'update' | 'customize'): Promise<FlowUpdateResult> {
+    // The two wire routes disagree on their own shape: an update's token
+    // already names its journal, so `id` there would be an unexpected field;
+    // a customize is stateless per call and needs it to say what to copy.
+    return mode === 'update'
+      ? this.transport.request('flow/update/apply', { root, token })
+      : this.transport.request('flow/customize/apply', { root, id, token })
+  }
+
   // ------------------------------------------------------------------ evidence
 
   async loadBoardEvidence(room: string): Promise<void> {
@@ -5110,6 +5191,7 @@ export class AppStore {
   async openWorkspace(path: string): Promise<void> {
     try {
       const workspace = await this.transport.request('workspace/open', { path })
+      this.#flowGeneration += 1
       this.#patch({ workspace })
       if (this.#layouts) this.#restoreLayout(workspace.path)
       await this.loadWorkspaces()

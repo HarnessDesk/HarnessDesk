@@ -4,69 +4,6 @@
   gap: var(--hd-space-3);
 }
 
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--hd-space-2);
-  margin: 0;
-}
-
-.head + .head {
-  margin-top: var(--hd-space-2);
-}
-
-.seats,
-.commands,
-.trace {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-1);
-}
-
-.seats > div,
-.commands > div,
-.trace > div {
-  display: flex;
-  align-items: baseline;
-  gap: var(--hd-space-2);
-  min-width: 0;
-}
-
-/* The role is the thing being talked about on every one of these lines, so it
-   reads as the same word in all three lists. */
-.role {
-  flex: none;
-  min-width: 5.5rem;
-}
-
-.seat,
-.answers {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.count,
-.next {
-  flex: none;
-}
-
-.next {
-  margin-left: auto;
-}
-
-.ceiling {
-  flex: none;
-  margin-left: auto;
-}
-
-.commands [data-slot='code-text'] {
-  min-width: 0;
-  overflow-x: auto;
-}
-
 .note {
   margin: 0;
 }
