@@ -228,3 +228,95 @@ test('the real Host previews, durably wraps, recovers the receipt, and refuses l
     await rm(work, { recursive: true, force: true })
   }
 })
+
+/*
+ * A card added while a wrap is in progress either lands before the wrap reads
+ * the board — and the wrap is refused as stale — or is refused itself. Never
+ * both accepted and left out of the receipt, so a Goal can never be left
+ * "wrapping" with a card its receipt has no disposition for.
+ */
+test('a card added while a Goal wraps never leaves the Goal wrapping', async (t) => {
+  for (const delay of [0, 5, 10, 15, 20, 30, 40]) {
+    const work = tempDir('hd-goal-wrap-race-')
+    const harness = await start()
+    const client = await Client.connect(harness.server)
+    t.after(async () => {
+      client.close()
+      await halt(harness).catch(() => {})
+      await rm(work, { recursive: true, force: true })
+    })
+    await client.call('workspace/open', { path: work })
+    const goal = (await client.call('goal/create', { root: work, sentence: 'Wrap race' }) as GoalView).goal.id
+    const session = await client.call('session/create', { runtime: 'fake', options: { cwd: work } }) as Session
+    const card = await client.call('team/add', { room: goal, title: 'Only card' }) as { id: number }
+    await client.call('goal/assign', { goal, card: card.id, session: { runtime: 'fake', sessionId: session.id } })
+    await client.call('team/intent', { room: goal, id: card.id, action: 'done' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const choices = { summary: 'Done.', cards: [{ id: card.id, resolution: 'finished' as const, reason: 'ok' }] }
+    const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
+    const wrap = client.call('goal/wrap', { goal, stamp: preview.stamp, choices }).then(() => 'wrapped', (error: Error) => `refused: ${error.message}`)
+    await new Promise((resolve) => setTimeout(resolve, delay))
+    const add = client.call('team/add', { room: goal, title: 'Added during the wrap' }).then(() => 'added', (error: Error) => `refused: ${error.message}`)
+    const [wrapped, added] = await Promise.all([wrap, add])
+    await harness.host.teamPlane.flush()
+    const view = await client.call('goal/read', { goal }) as GoalView
+    assert.notEqual(view.goal.state, 'wrapping', `after ${delay} ms: ${added} | ${wrapped}`)
+    // Exactly one of them won, and the board says so.
+    if (wrapped === 'wrapped') {
+      assert.match(added, /^refused: .*wrap/i, `after ${delay} ms the add is refused while the Goal wraps`)
+      assert.deepEqual(view.board.intents.map((one) => one.id), [card.id])
+    } else {
+      assert.equal(added, 'added')
+      assert.match(wrapped, /changed while you reviewed|Review every card once/)
+      assert.equal(view.goal.state, 'open')
+    }
+  }
+})
+
+/*
+ * A Goal an earlier build left wrapping — its receipt missing a card added
+ * mid-wrap — finishes wrapping on the next launch: the card it never
+ * reviewed is set aside, and says why.
+ */
+test('a Goal left wrapping with a card its receipt lacks finishes on the next launch', async () => {
+  const work = tempDir('hd-goal-wedged-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  let again: Awaited<ReturnType<typeof start>> | null = null
+  let second: Client | null = null
+  try {
+    await client.call('workspace/open', { path: work })
+    const goal = (await client.call('goal/create', { root: work, sentence: 'Wedged' }) as GoalView).goal.id
+    const card = await client.call('team/add', { room: goal, title: 'Reviewed' }) as { id: number }
+    await client.call('team/intent', { room: goal, id: card.id, action: 'done' })
+    await harness.host.teamPlane.flush()
+    const choices = { summary: 'Done.', cards: [{ id: card.id, resolution: 'finished' as const, reason: null }] }
+    const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
+    client.close()
+    await halt(harness)
+    // Staged as a wrap whose receipt covers card #1 alone, with a card #2 on the board.
+    const { readFile: read, readdir: list, writeFile: write } = await import('node:fs/promises')
+    const dir = `${harness.stateDir}/goals`
+    const file = (await list(dir)).find((name) => name !== 'index.json')!
+    const document = JSON.parse(await read(`${dir}/${file}`, 'utf8'))
+    const extra = { ...document.board.intents[0], id: 2, title: 'Added during the wrap', state: 'open', outcome: null, note: null }
+    const receipt: GoalReceipt = { ...preview.receipt, id: 'receipt-1', wrappedAt: 1 }
+    await write(`${dir}/${file}`, JSON.stringify({
+      ...document,
+      board: { ...document.board, nextIntent: 3, intents: [...document.board.intents, extra] },
+      operation: { kind: 'wrap', id: 'op-1', goal, stamp: preview.stamp, receipt },
+      goal: { ...document.goal, state: 'wrapping', revision: document.goal.revision + 1 },
+    }))
+    again = await start({}, harness.stateDir)
+    second = await Client.connect(again.server)
+    await second.call('workspace/open', { path: work })
+    const view = await second.call('goal/read', { goal }) as GoalView
+    assert.equal(view.goal.state, 'wrapped')
+    const set = view.board.intents.find((one) => one.id === 2)
+    assert.equal(set?.state, 'abandoned')
+    assert.match(set?.note ?? '', /added while the Goal was wrapping/i)
+  } finally {
+    second?.close()
+    if (again) await halt(again).catch(() => {})
+  }
+})

@@ -49,11 +49,13 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   let failNext: Error | null = null
   let failAlways: Error | null = null
   let saves = 0
+  let failIn: { n: number; error: Error } | null = null
   const queue = new Queue()
   const save = async (state: TeamState): Promise<void> => {
     if (gate) await gate
     if (failAlways) throw failAlways
     if (failNext) { const error = failNext; failNext = null; throw error }
+    if (failIn && --failIn.n === 0) { const error = failIn.error; failIn = null; throw error }
     stored = structuredClone(state.intents)
     saves += 1
   }
@@ -68,7 +70,15 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
     audit: () => {},
     canMutateBoard: () => ({ ok: true }),
     // The host's own write: behind whatever holds the Goal's queue, of the board as it is when it runs.
-    mutate: (snapshot) => queue.run(async () => save(snapshot())),
+    // A refusal is settled inside the queued task, as the host's is, before any later task of the Goal's queue runs.
+    mutate: (snapshot, refused) => queue.run(async () => {
+      try {
+        await save(snapshot())
+      } catch (error) {
+        refused?.(error instanceof Error ? error : new Error(String(error)))
+        throw error
+      }
+    }),
   }
   const team = new Team(dir, port)
   t.after(async () => {
@@ -81,8 +91,12 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   return {
     team,
     stored: () => stored,
+    /** A task of the Goal's queue, as the Goal plane runs one. */
+    inQueue: <T>(work: () => Promise<T>) => queue.run(work),
     saves: () => saves,
     failNextWrite: (error: Error) => { failNext = error },
+    /** Fails the `n`th save to run from now. */
+    failWrite: (n: number, error: Error) => { failIn = { n, error } },
     failEveryWrite: (error: Error) => { failAlways = error },
     /** The Goal plane's claim or release: inside the Goal's queue, through the Team's one copy. */
     goalPlane: (room: string, patch: (intents: readonly Intent[]) => readonly Intent[]) =>
@@ -241,4 +255,66 @@ test('a person’s done is signalled to its flow only once it is saved, and not 
   await r.team.flush()
   assert.deepEqual(signalled, [1], 'a write that failed signals nothing')
   assert.equal(card(r.team.stateFor(room).intents, 2)?.state, 'open', 'and leaves the card as it was')
+})
+
+test('a held board refuses every change with its reason, until it is let go', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const release = r.team.holdBoard(room, 'This Goal is wrapping.')
+  assert.throws(() => r.team.addIntentForFlow(room, { title: 'Late', role: 'build', dispatch: 'run:9:0' }), /This Goal is wrapping/)
+  await assert.rejects(r.team.claim(1, scope('worker')), /This Goal is wrapping/)
+  release()
+  r.team.addIntentForFlow(room, { title: 'Late', role: 'build', dispatch: 'run:9:0' })
+  await r.team.flush()
+  assert.equal(r.stored().length, 2)
+})
+
+test('a Goal-plane write that changes nothing saves nothing, and carries nothing of the Team’s', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const before = r.saves()
+  const release = r.hold()
+  r.team.setRole(room, 'codex', 'worker', 'review')
+  await tick()
+  r.team.addIntentForFlow(room, { title: 'Y', role: 'build', dispatch: 'run:1:1' })
+  let saved = 0
+  assert.equal(await r.team.goalPlaneWrite(room, (intents) => intents, async () => { saved += 1 }), true)
+  assert.equal(saved, 0, 'nothing moved, so nothing is saved')
+  release()
+  await r.team.flush()
+  assert.equal(r.saves() - before, 2, 'the Team’s own saves still ran')
+})
+
+test('a Goal-plane write made during an operation saves its change alone, and answers for nothing of the Team’s', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const release = r.hold()
+  r.team.setRole(room, 'codex', 'other', 'review')
+  await tick()
+  // A completion waits for its turn, and its own save — the second from now — will fail.
+  r.failWrite(2, new Error('EIO'))
+  const said = r.team.complete(1, {}, scope('worker'))
+  await tick()
+  // The operation's own write lands first, alone: it must not answer for the completion.
+  await r.team.goalPlaneWrite(room, (intents) => intents.map((one) => (one.id === 1 ? { ...one, note: 'released by the wrap' } : one)), async () => {}, { carry: false })
+  release()
+  assert.match(await said, /^Refused: #1 could not be saved/)
+})
+
+test('a failed save is put back before the next task of the Goal’s queue can read the board', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const release = r.hold()
+  r.failNextWrite(new Error('EIO'))
+  const said = r.team.complete(1, {}, scope('worker'))
+  await tick()
+  // Queued behind the failing save: what it reads is what is durable.
+  const seen = r.inQueue(async () => card(r.team.stateFor(room).intents, 1)?.state)
+  release()
+  assert.equal(await seen, 'claimed')
+  assert.match(await said, /^Refused/)
 })

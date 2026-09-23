@@ -112,7 +112,7 @@ import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
-import { projectOf, revisionOf } from './evidence/revision.js'
+import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
@@ -830,8 +830,19 @@ export class Host {
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
       // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
-      headOf: async (cwd) => (await revisionOf(cwd))?.head ?? null,
-      mutate: (snapshot) => this.#goalSerial.run(() => this.#saveTeamProjection(snapshot())),
+      startOf: async (cwd) => {
+        const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
+        return revision ? { head: revision.head, upstream } : null
+      },
+      // A refused save is put back before the Goal's queue runs anything else.
+      mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
+        try {
+          await this.#saveTeamProjection(snapshot())
+        } catch (error) {
+          refused?.(error instanceof Error ? error : new Error(String(error)))
+          throw error
+        }
+      }),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
       /* Membership moved, so whatever this host was counting about reaching
          that conversation no longer applies. See `TeamPort.membershipChanged`
@@ -1147,6 +1158,8 @@ export class Host {
       stopFlows: (goal: string) => this.#flows.stopGoal(goal),
       flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),
       executions: (goal: string) => this.#flows.executionsFor(goal),
+      cards: (goal: string) => this.#goalIntents(goal),
+      holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
     } satisfies GoalPlanePort
@@ -2001,7 +2014,19 @@ export class Host {
    * cards as they stand and may refuse by throwing, before anything moves.
    */
   async #goalPlaneWrite(goal: string, patch: (intents: readonly Intent[]) => readonly Intent[]): Promise<void> {
-    if (await this.#team.goalPlaneWrite(goal, patch, (state) => this.#writeGoalBoard(goal, state))) return
+    /* While one of the Goal plane's own operations is staged — a wrap's
+       releases, say — its change is written alone, onto the document as that
+       operation read it: nothing the Team changed since rides along into a
+       document whose receipt never saw it. */
+    const staged = this.#goalStore.read(goal).operation !== null
+    const save = staged
+      ? async () => {
+        const now = this.#goalStore.read(goal)
+        const intents = patch(now.board.intents)
+        if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+      }
+      : (state: TeamState) => this.#writeGoalBoard(goal, state)
+    if (await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged })) return
     const document = this.#goalStore.read(goal)
     const intents = patch(document.board.intents)
     if (intents === document.board.intents) return
@@ -2035,6 +2060,7 @@ export class Host {
 
   async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
     const { runtime, sessionId } = opening.session
+    const upstream = await upstreamTipOf(opening.checkout.cwd).catch(() => null)
     await this.#goalPlaneWrite(goal, (intents) => {
       const current = intents.find((one) => one.id === card)
       if (!current) throw new Error('Choose an existing card.')
@@ -2047,7 +2073,7 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
         updatedAt: at,
         blockedBy: null,
         blockedReason: null,
@@ -2139,11 +2165,16 @@ export class Host {
     }
     const resolutions = new Map(operation.receipt.cards.map((card) => [card.id, card]))
     const at = operation.receipt.wrappedAt
+    /* A card the receipt has no disposition for was added after the wrap read
+       the board — which the board's wrap barrier now refuses, but an earlier
+       build let through and left the Goal wrapping on every launch. It was
+       never reviewed, so it is set aside, saying why, and the receipt is
+       left as the person approved it. */
+    const unreviewed = { resolution: 'dropped' as const, reason: 'Added while the Goal was wrapping, so it was never reviewed.' }
     const board = {
       ...document.board,
       intents: document.board.intents.map((intent) => {
-        const resolution = resolutions.get(intent.id)
-        if (!resolution) throw new Error(`Receipt ${operation.receipt.id} has no disposition for card ${intent.id}.`)
+        const resolution = resolutions.get(intent.id) ?? unreviewed
         return {
           ...intent,
           state: resolution.resolution === 'finished' ? 'done' as const : 'abandoned' as const,

@@ -291,3 +291,32 @@ test('a person step of a run on the Goal makes the Goal need its person', async 
   proof.port.executions = () => [execution]
   assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
 })
+
+test('a wrap holds the board before it reads it, and lets it go once it is done', async () => {
+  const proof = await rig()
+  const events: string[] = []
+  proof.port.holdBoard = (goal, reason) => { events.push(`hold ${goal}: ${reason}`); return () => { events.push('release') } }
+  const read = proof.port.evidence
+  proof.port.evidence = async (goal) => { events.push('read'); return read(goal) }
+  proof.port.flowLive = () => false
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  events.length = 0
+  proof.port.closeId = async () => {}
+  proof.port.releaseClaim = async () => {}
+  proof.port.refuseMail = async () => {}
+  proof.port.retainLane = async () => {}
+  proof.port.finishWrap = async () => { events.push('finish') }
+  await proof.plane.wrap('g1', preview.stamp, choices)
+  const held = events.findIndex((one) => one.startsWith('hold g1: This Goal is wrapping'))
+  assert.ok(held >= 0, JSON.stringify(events))
+  assert.ok(held < events.lastIndexOf('read'), 'held before the read the receipt is built from')
+  assert.deepEqual(events.slice(-2), ['finish', 'release'])
+})
+
+test('a wrap reviews the cards as the board’s one writer has them, not an older document', async () => {
+  const proof = await rig()
+  proof.port.cards = () => [intent(1, { state: 'done' }), intent(2, { state: 'open' })]
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  await assert.rejects(proof.plane.preview('g1', choices), /Review every card once/)
+})

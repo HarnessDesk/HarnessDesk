@@ -4,7 +4,7 @@ import {
   activityOf, checkedDependencies, flowStepOf, placeCard,
   type BoardEvidence, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
   type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
-  type SeatId, type SeatRecord, type SessionPointer, type TeamState,
+  type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
@@ -54,6 +54,10 @@ export interface GoalPlanePort extends GoalOperationPort {
   flowLive?(goal: string): boolean
   /** The runs on this Goal, as the flow engine keeps them: which of its cards are a person's steps. */
   executions?(goal: string): readonly FlowExecution[]
+  /** The Goal's cards as they stand — the board's one writer's copy — which a wrap reviews. Absent, the document's. */
+  cards?(goal: string): readonly Intent[]
+  /** Refuses every change to the Goal's board, with `reason`, until the answer is called. */
+  holdBoard?(goal: string, reason: string): () => void
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -65,6 +69,9 @@ export interface GoalPlanePort extends GoalOperationPort {
     lane?: string
   }, goal: Goal): Promise<SeatRecord>
 }
+
+/** Why a Goal's board takes no change while it wraps. */
+export const WRAPPING = 'This Goal is wrapping, so its board takes no new work. Start another Goal for it.'
 
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
@@ -90,6 +97,7 @@ export class GoalPlane {
       commit: (goal, card, session) => this.#assign(goal, card, session),
     }, serial)
     this.#wraps = new Wraps({
+      hold: (goal) => this.port.holdBoard?.(goal, WRAPPING) ?? (() => {}),
       read: (goal) => this.#wrapInput(goal),
       stage: (goal, receipt, stamp) => this.#stageWrap(goal, receipt, stamp),
       closeSeats: (goal, ids) => this.#closeWrapSeats(goal, ids),
@@ -406,7 +414,7 @@ export class GoalPlane {
     ]
     return structuredClone({
       goal: document.goal,
-      cards: document.board.intents.map((card) => ({ id: card.id, state: card.state })),
+      cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => ({ id: card.id, state: card.state })),
       dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
       busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
         evidence.cards.some((card) => card.running.length > 0),

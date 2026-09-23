@@ -301,10 +301,11 @@ export interface TeamPort {
   /** The live turn state for one of those Seats. */
   memberStatus?(seat: SeatRecord): MemberStatus
   /**
-   * The commit a checkout is at now, for a claim to remember where its card's
-   * work began; null outside a repository. Absent, claims record none.
+   * Where a checkout stands now, for a claim to remember where its card's
+   * work began: its commit, and the remote's copy of its branch; null
+   * outside a repository. Absent, claims record neither.
    */
-  headOf?(cwd: string): Promise<string | null>
+  startOf?(cwd: string): Promise<{ readonly head: string | null; readonly upstream: string | null } | null>
   /** Rechecked after a live handle is prepared and immediately before delivery. */
   canDispatch?(goal: string): { ok: true } | { ok: false; reason: string }
   /** Refuses every board mutation once a durable Goal starts wrapping. */
@@ -317,7 +318,7 @@ export interface TeamPort {
    * whatever queue the host keeps for the Goal — so it is the board as it is
    * then, never as it was when the save was asked for.
    */
-  mutate?(snapshot: () => TeamState): Promise<void>
+  mutate?(snapshot: () => TeamState, refused?: (error: Error) => void): Promise<void>
   /** A room that no longer exists, so a window can stop drawing it. */
   removed(room: string): void
   /**
@@ -758,6 +759,8 @@ export class Team {
    * a burst is one write, and nothing is ever saved older than it is shown.
    */
   readonly #queuedSave = new Map<string, QueuedSave>()
+  /** Boards held against every change, by board, with why: see `holdBoard`. */
+  readonly #holds = new Map<string, string>()
   /** Latest content per file; a burst of mutations becomes one write. */
   readonly #queuedContent = new Map<string, string | null>()
   readonly #queuedFiles = new Set<string>()
@@ -2139,7 +2142,7 @@ export class Team {
   async claim(intentId: number, scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     // Where the caller's checkout stands as it takes the card: read before the board, so nothing moves under the check.
-    const head = (await this.#port.headOf?.(caller.cwd).catch(() => null)) ?? null
+    const start = (await this.#port.startOf?.(caller.cwd).catch(() => null)) ?? null
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
@@ -2251,7 +2254,7 @@ export class Team {
         sessionId: caller.sessionId,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
-        head,
+        ...(start ? { head: start.head, upstream: start.upstream } : {}),
       },
       blockedReason: null,
       blockedBy: null,
@@ -3093,8 +3096,27 @@ export class Team {
    * boards have no Goal guard and keep their original behaviour.
    */
   #assertMutable(board: Board): void {
+    const held = this.#holds.get(board.id)
+    if (held) throw new Error(held)
     const allowed = this.#port.canMutateBoard?.(board.id)
     if (allowed && !allowed.ok) throw new Error(allowed.reason)
+  }
+
+  /**
+   * Refuses every change to a Goal's board, with `reason`, until the answer
+   * is called: the barrier a wrap puts up before it reads the board, so that
+   * nothing is added to it between that read and the receipt it writes. In
+   * memory only — a wrap interrupted by a restart is finished from its staged
+   * receipt, which settles any card it never saw.
+   */
+  holdBoard(goal: string, reason: string): () => void {
+    this.#holds.set(goal, reason)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (this.#holds.get(goal) === reason) this.#holds.delete(goal)
+    }
   }
 
   #mutableBoardById(id: string): Board {
@@ -4352,8 +4374,15 @@ export class Team {
         saved = this.#stateOf(this.#boards.get(board.id) ?? board)
         return saved
       }
+      // A refusal is put back inside the Goal's queue, before its next task can read the board.
+      const refused = (error: Error): void => {
+        if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+        if (!this.#settleSave(entry, error)) return
+        this.#problem = error.message
+        this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
+      }
       this.#writes = this.#writes
-        .then(() => this.#port.mutate!(begin))
+        .then(() => this.#port.mutate!(begin, refused))
         .then(
           () => {
             if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
@@ -4363,13 +4392,7 @@ export class Team {
             this.#port.changed(saved ?? this.#stateOf(now))
             this.#wake(now)
           },
-          (error: unknown) => {
-            if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
-            const refused = error instanceof Error ? error : new Error(String(error))
-            if (!this.#settleSave(entry, refused)) return
-            this.#problem = refused.message
-            this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
-          },
+          (error: unknown) => refused(error instanceof Error ? error : new Error(String(error))),
         )
       return entry.outcome
     }
@@ -4442,19 +4465,26 @@ export class Team {
     goal: string,
     patch: (intents: readonly Intent[]) => readonly Intent[],
     save: (state: TeamState) => Promise<void>,
+    options: { readonly carry?: boolean } = {},
   ): Promise<boolean> {
     const board = this.#boards.get(goal)
     if (!board || !this.#port.mutate) return false
     const before = new Map(board.intents.map((one) => [one.id, one]))
     const next = [...patch(board.intents)]
     const ids = next.filter((one) => before.get(one.id) !== one).map((one) => one.id)
+    // Nothing moved: nothing to save, and nothing of this engine's rides along.
+    if (ids.length === 0 && next.length === board.intents.length) return true
     const undo = this.#undoFor(board, ids)
     board.intents = next
     board.nextIntent = Math.max(board.nextIntent, ...next.map((one) => one.id + 1))
     board.updatedAt = Date.now()
     undo.mark()
-    // A save of this engine's not yet begun is carried by this one: what rides in it is in this snapshot.
-    const carried = this.#queuedSave.get(goal)
+    /* A save of this engine's not yet begun is carried by this one: what rides
+       in it is in this snapshot. Not while the Goal plane is in the middle of
+       an operation of its own (`carry: false`) — a wrap, say, whose receipt
+       was read from the board before those changes — when the caller saves
+       its own change alone and this engine's wait their turn. */
+    const carried = options.carry === false ? undefined : this.#queuedSave.get(goal)
     if (carried) this.#queuedSave.delete(goal)
     const state = this.#stateOf(board)
     try {

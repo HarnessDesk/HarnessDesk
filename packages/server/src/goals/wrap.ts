@@ -25,6 +25,8 @@ export interface WrapInput {
 export type { WrapChoices } from '@harnessdesk/protocol'
 
 export interface WrapPort {
+  /** Refuses every change to the Goal's board until the answer is called: set before the board is read. */
+  hold?(goal: string): () => void
   read(goal: string): Promise<WrapInput>
   stage(goal: string, receipt: GoalReceipt, stamp: string): Promise<void>
   closeSeats(goal: string, ids: readonly string[]): Promise<void>
@@ -80,20 +82,30 @@ export class Wraps {
   commit(goal: string, stamp: string, choices: WrapChoices, id: string, at: number): Promise<GoalReceipt> {
     const approved = structuredClone(choices)
     return this.serial.run(async () => {
-      const input = await this.port.read(goal)
-      if (wrapStamp(input, approved) !== stamp) {
-        throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+      // Nothing joins the board from here: what the receipt reviews is all there is to wrap.
+      const release = this.port.hold?.(goal) ?? (() => {})
+      try {
+        return await this.#commit(goal, stamp, approved, id, at)
+      } finally {
+        release()
       }
-      const ready = previewWrap(input, approved)
-      const receipt: GoalReceipt = { ...ready.receipt, id, wrappedAt: at }
-      if (Buffer.byteLength(JSON.stringify(receipt), 'utf8') > 8 * 1024 * 1024) {
-        throw new Error('This receipt is too large to store. Shorten the summary or card reasons and review it again.')
-      }
-      await this.port.stage(goal, receipt, stamp)
-      await this.port.closeSeats(goal, receipt.seats)
-      await this.port.finish(goal, receipt)
-      return receipt
     })
+  }
+
+  async #commit(goal: string, stamp: string, approved: WrapChoices, id: string, at: number): Promise<GoalReceipt> {
+    const input = await this.port.read(goal)
+    if (wrapStamp(input, approved) !== stamp) {
+      throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    }
+    const ready = previewWrap(input, approved)
+    const receipt: GoalReceipt = { ...ready.receipt, id, wrappedAt: at }
+    if (Buffer.byteLength(JSON.stringify(receipt), 'utf8') > 8 * 1024 * 1024) {
+      throw new Error('This receipt is too large to store. Shorten the summary or card reasons and review it again.')
+    }
+    await this.port.stage(goal, receipt, stamp)
+    await this.port.closeSeats(goal, receipt.seats)
+    await this.port.finish(goal, receipt)
+    return receipt
   }
 }
 
