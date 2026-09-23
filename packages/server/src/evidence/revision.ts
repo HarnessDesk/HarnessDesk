@@ -201,8 +201,15 @@ export const upstreamTipOf = async (cwd: string): Promise<Sha | null> => {
   return isSha(tip) ? tip : null
 }
 
-/** How a reflog entry says a commit was made in this checkout, rather than brought into it. */
-const MADE_HERE = /^(commit( \((amend|initial|merge)\))?|cherry-pick|revert|[a-z -]*\((pick|reword|edit|squash|fixup)\)):/
+/**
+ * How a reflog entry says a commit was made in this checkout, rather than
+ * brought into it: committed (a cherry-pick or revert finished by hand after
+ * a conflict reads `commit (cherry-pick)`), picked, reverted, rebased, or a
+ * patch applied with `git am`. A commit written by `commit-tree` and moved in
+ * by `update-ref` leaves no such line, or only the one its caller wrote, so
+ * it is not counted: the `diff` fact then reads short, never long.
+ */
+const MADE_HERE = /^(commit( \((amend|initial|merge|cherry-pick)\))?|cherry-pick|revert|am|[a-z -]*\((pick|reword|edit|squash|fixup)\)):/
 
 /**
  * The commits this checkout's HEAD record says were made here — committed,

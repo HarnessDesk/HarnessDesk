@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
@@ -205,6 +205,49 @@ test('a diff from where a card began counts only the step’s own commits, never
   await writeFile(join(dir, 'NEXT.md'), 'next\n')
   await git('add', '.')
   await git('commit', '-q', '-m', 'next')
+  assert.equal((await diffOf(dir, second))?.files, 1)
+})
+
+/*
+ * A commit made here by a front end other than `git commit` is still made
+ * here: a patch applied with `git am`, and a cherry-pick finished by hand
+ * after a conflict, whose reflog lines read `am:` and `commit (cherry-pick):`.
+ */
+test('a patch applied with git am and a cherry-pick committed after a conflict are the step’s own work', async () => {
+  const { dir, git } = await makeRepo()
+  const began = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', '-b', 'side')
+  await writeFile(join(dir, 'PATCHED.md'), 'one\ntwo\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'patched')
+  const patches = tempDir('hd-evidence-patches-')
+  await git('format-patch', '-q', '-1', '-o', patches)
+  await git('checkout', '-q', 'main')
+  await git('branch', '-q', '-D', 'side')
+  // On a base of its own, so the applied commit is a new one and not the one committed on the side branch.
+  await writeFile(join(dir, 'BASE.md'), 'base\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'base')
+  const applied = await git('rev-parse', 'HEAD')
+  await git('am', '-q', join(patches, (await readdir(patches))[0]!))
+  assert.match(await git('log', '-g', '-1', '--format=%gs', 'HEAD'), /^am: /)
+  assert.deepEqual({ files: (await diffOf(dir, applied))?.files, added: (await diffOf(dir, applied))?.added }, { files: 1, added: 2 },
+    'an applied patch is the step’s own commit')
+  // A cherry-pick that stops on a conflict, then is committed by hand.
+  const second = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', '-b', 'other', began)
+  await writeFile(join(dir, 'README.md'), 'theirs\n')
+  await git('commit', '-q', '-am', 'theirs')
+  await git('checkout', '-q', 'main')
+  await writeFile(join(dir, 'README.md'), 'ours\n')
+  await git('commit', '-q', '-am', 'ours')
+  const third = await git('rev-parse', 'HEAD')
+  await git('cherry-pick', 'other').catch(() => {})
+  await writeFile(join(dir, 'README.md'), 'both\n')
+  await git('add', 'README.md')
+  await git('commit', '-q', '--no-edit')
+  assert.match(await git('log', '-g', '-1', '--format=%gs', 'HEAD'), /^commit \(cherry-pick\): /)
+  assert.equal((await diffOf(dir, third))?.files, 1, 'a cherry-pick finished by hand is the step’s own commit')
   assert.equal((await diffOf(dir, second))?.files, 1)
 })
 

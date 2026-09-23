@@ -3940,15 +3940,22 @@ export class Team {
    */
   #undoFor(board: Board, ids: readonly number[]): (() => void) & { mark(): void } {
     const before = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one]))
+    const earlier = new Set(board.channel.map((entry) => entry.id))
     let after: Map<number, Intent> | null = null
+    // The channel lines the change wrote — its "completed", the "unblocked" it caused — go with it.
+    let said: ReadonlySet<string> = new Set()
     const undo = (): void => {
       const now = this.#boards.get(board.id)
       if (!now || !after) return
       now.intents = now.intents.map((one) => (after!.get(one.id) === one ? before.get(one.id) ?? one : one))
+      if (said.size > 0) now.channel = now.channel.filter((entry) => !said.has(entry.id))
     }
     // Called once the change is made: what it made is what undo recognises.
     return Object.assign(undo, {
-      mark: () => { after = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one])) },
+      mark: () => {
+        after = new Map(board.intents.filter((one) => ids.includes(one.id)).map((one) => [one.id, one]))
+        said = new Set(board.channel.filter((entry) => !earlier.has(entry.id)).map((entry) => entry.id))
+      },
     })
   }
 

@@ -2014,11 +2014,15 @@ export class Host {
    * cards as they stand and may refuse by throwing, before anything moves.
    */
   async #goalPlaneWrite(goal: string, patch: (intents: readonly Intent[]) => readonly Intent[]): Promise<void> {
-    /* While one of the Goal plane's own operations is staged — a wrap's
-       releases, say — its change is written alone, onto the document as that
-       operation read it: nothing the Team changed since rides along into a
-       document whose receipt never saw it. */
-    const staged = this.#goalStore.read(goal).operation !== null
+    /* While a wrap is staged, its releases are written alone, onto the
+       document as the wrap read it: nothing the Team changed since rides along
+       into a document whose receipt never saw it. A wrap only — an
+       assignment or a release has no receipt, and its claim has to find the
+       cards as the one writer holds them, including a card whose own save is
+       still queued behind another. Patched onto the document instead, that
+       card was missing, the claim was refused, and the assignment stayed
+       staged, refusing every later save of the Goal. */
+    const staged = this.#goalStore.read(goal).operation?.kind === 'wrap'
     const save = staged
       ? async () => {
         const now = this.#goalStore.read(goal)
@@ -2168,9 +2172,13 @@ export class Host {
     /* A card the receipt has no disposition for was added after the wrap read
        the board — which the board's wrap barrier now refuses, but an earlier
        build let through and left the Goal wrapping on every launch. It was
-       never reviewed, so it is set aside, saying why, and the receipt is
-       left as the person approved it. */
+       never reviewed, so it is set aside, saying why, on the card and on the
+       receipt; the person's own dispositions are left as they approved them. */
     const unreviewed = { resolution: 'dropped' as const, reason: 'Added while the Goal was wrapping, so it was never reviewed.' }
+    const setAside = document.board.intents.filter((intent) => !resolutions.has(intent.id))
+      .map((intent) => ({ id: intent.id, ...unreviewed }))
+    const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
+      : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
     const board = {
       ...document.board,
       intents: document.board.intents.map((intent) => {
@@ -2189,7 +2197,7 @@ export class Host {
     await this.#goalStore.save({
       ...document,
       board,
-      receipt: operation.receipt,
+      receipt,
       operation: null,
       goal: {
         ...document.goal,
