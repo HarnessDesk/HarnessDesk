@@ -236,12 +236,22 @@ export class EvidencePlane {
    * Every fact attributable to a Goal, including Seat-scoped facts without a
    * card — each with the Seat (if any) that produced it, so a wrap can name
    * it in the receipt rather than only carrying its bare id.
+   *
+   * `seatLabel` is read from the Seat's own record here, by `byId`, which
+   * resolves a restored Seat exactly as it does a live one — unlike a wrap's
+   * `members`, built only from Seats it still holds. Evidence a restored
+   * Seat produced is real and stays attributed; a receipt built from `seat`
+   * alone would have nowhere else to learn that Seat's name from.
    */
   async factIdsOfGoal(goal: string, project: string): Promise<GoalReceiptEvidenceSeat[]> {
     const { lines } = await this.store.read(project, 'evidence')
     const records = lines.flatMap((line) => line.type === 'evidence' ? [line.record] : [])
     return factsOfGoal(goal, this.seats.all(), records)
-      .map((record) => ({ id: record.id, seat: record.seat ?? null }))
+      .map((record) => ({
+        id: record.id,
+        seat: record.seat ?? null,
+        seatLabel: record.seat ? this.seats.byId(record.seat)?.seatLabel ?? null : null,
+      }))
       .sort((left, right) => left.id.localeCompare(right.id))
   }
 

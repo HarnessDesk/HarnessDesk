@@ -113,7 +113,8 @@ const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalRece
     object(member) && typeof member.seat === 'string' &&
     (member.agent === null || typeof member.agent === 'string') && typeof member.seatLabel === 'string'))) return false
   if (value.evidenceSeats !== undefined && (!Array.isArray(value.evidenceSeats) || !value.evidenceSeats.every((ref) =>
-    object(ref) && typeof ref.id === 'string' && (ref.seat === null || typeof ref.seat === 'string')))) return false
+    object(ref) && typeof ref.id === 'string' && (ref.seat === null || typeof ref.seat === 'string') &&
+    (ref.seatLabel === undefined || ref.seatLabel === null || typeof ref.seatLabel === 'string')))) return false
   if (!value.lanes.every((lane) => object(lane) && typeof lane.lane === 'string' && typeof lane.cwd === 'string' &&
     (lane.dirty === null || typeof lane.dirty === 'boolean') && lane.retained === true)) return false
   if (!value.revisions.every((revision) => object(revision) && typeof revision.cwd === 'string' &&

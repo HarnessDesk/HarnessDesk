@@ -65,6 +65,27 @@ it('labels a Seat answer and its evidence by name, from the receipt’s own memb
   expect(text).toContain('Observed by the desk')
 })
 
+/*
+ * A restored Seat — history a backup brought, never one this wrap held —
+ * produces real evidence but has no entry in `members`, which excludes it
+ * the same way `seats` does. `evidenceSeats` carries that Seat's own
+ * `seatLabel` directly for exactly this case, so the row still reads as a
+ * name rather than falling all the way to the bare evidence id.
+ */
+it('names evidence from a restored Seat by its own recorded seatLabel, absent from members', () => {
+  const receipt = {
+    version: 1, id: 'r1', goal: 'g1', sentence: 'Ship', wrappedAt: 4, summary: 'Done.',
+    cards: [], seats: [], members: [], evidence: ['fact-restored'],
+    evidenceSeats: [{ id: 'fact-restored', seat: 'restored-seat', seatLabel: 'Claude · Opus' }],
+    answers: [], lanes: [], revisions: [], citations: [], gaps: [],
+  } as unknown as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  const text = container.textContent ?? ''
+  expect(text).toContain('Claude · Opus')
+  expect(text).not.toContain('restored-seat')
+  expect(text).toContain('fact-restored')
+})
+
 it('falls back to the raw id when a receipt predates the members it would need to name a Seat', () => {
   const receipt = {
     version: 1, id: 'r1', goal: 'g1', sentence: 'Ship', wrappedAt: 4, summary: 'Done.',

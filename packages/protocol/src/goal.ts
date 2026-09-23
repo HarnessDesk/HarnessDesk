@@ -19,10 +19,21 @@ export interface GoalReceiptMember {
   readonly seatLabel: string
 }
 
-/** One `GoalReceipt['evidence']` id, and the Seat (if any) that produced it. */
+/**
+ * One `GoalReceipt['evidence']` id, and the Seat (if any) that produced it.
+ *
+ * `seatLabel` is captured directly from that Seat's own record, rather than
+ * left to a `members` lookup by `seat`: a restored Seat — history a backup
+ * brought, never one this Goal held — can still produce evidence for it, and
+ * `GoalReceipt['members']` excludes a restored Seat the same way `seats`
+ * does. Without its own copy here, that evidence would have nowhere left to
+ * learn a name from once the receipt is read back. Null when the Seat could
+ * not be resolved, or the entry predates this field.
+ */
 export interface GoalReceiptEvidenceSeat {
   readonly id: string
   readonly seat: SeatId | null
+  readonly seatLabel?: string | null
 }
 
 /** A finishable effort. Its Seats, rather than this document, say who belongs. */
