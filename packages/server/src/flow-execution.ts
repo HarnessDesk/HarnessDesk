@@ -106,6 +106,12 @@ export interface FlowExecutionPort {
   digestOf(goal: string, agent: string): Promise<string | null>
   /** Sends one turn to a Seat's conversation. */
   order(seat: SeatRecord, text: string): Promise<void>
+  /**
+   * Whether a Seat's conversation is inside a turn now — its brief's own turn,
+   * say — and so would refuse another message until that turn ends. Absent,
+   * never.
+   */
+  busy?(seat: SeatRecord): boolean
   /** The lane a Seat was given, or null when it has none. */
   laneOf(seat: SeatRecord): Lane | null
   /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
@@ -258,11 +264,14 @@ const LANE_REFUSED = 'This step needs its own checkout, ports and browser profil
 /** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */
 export type RuleDecision =
   | { readonly kind: 'fire'; readonly rule: FlowPolicyRule; readonly evidence: readonly string[] }
-  | { readonly kind: 'wait'; readonly rule: FlowPolicyRule }
-  | { readonly kind: 'none' }
+  | { readonly kind: 'wait'; readonly rule: FlowPolicyRule; readonly reason?: string }
+  /** `passed`: each guarded rule whose answers matched but whose evidence contradicted it, and why. */
+  | { readonly kind: 'none'; readonly passed?: readonly { readonly rule: string; readonly reason: string }[] }
 
-/** What one rule's evidence guard decided, however it was computed. */
-export type RuleEvidence = { readonly state: 'matched'; readonly evidence: readonly string[] } | { readonly state: 'no-match' | 'waiting' }
+/** What one rule's evidence guard decided, however it was computed. `reason` says what it waits for, or what contradicted it. */
+export type RuleEvidence =
+  | { readonly state: 'matched'; readonly evidence: readonly string[] }
+  | { readonly state: 'no-match' | 'waiting'; readonly reason?: string }
 
 /**
  * Rules are three-valued and read in file order. A rule whose answers match
@@ -277,6 +286,7 @@ export const decide = async (
   outcomes: readonly (string | null)[],
   evidence: (rule: FlowPolicyRule) => Promise<RuleEvidence>,
 ): Promise<RuleDecision> => {
+  const passed: { rule: string; reason: string }[] = []
   for (const rule of policy.rules) {
     if (rule.on !== role) continue
     const answers = rule.when && (rule.when.every?.length || rule.when.any?.length)
@@ -286,9 +296,10 @@ export const decide = async (
     if (!rule.when?.evidence?.length) return { kind: 'fire', rule, evidence: [] }
     const found = await evidence(rule)
     if (found.state === 'matched') return { kind: 'fire', rule, evidence: found.evidence }
-    if (found.state === 'waiting') return { kind: 'wait', rule }
+    if (found.state === 'waiting') return { kind: 'wait', rule, ...(found.reason ? { reason: found.reason } : {}) }
+    if (found.reason) passed.push({ rule: rule.id, reason: found.reason })
   }
-  return { kind: 'none' }
+  return passed.length > 0 ? { kind: 'none', passed } : { kind: 'none' }
 }
 
 /** A check's `cwd` as the confined tree reads it: `.` and `./sub/` name the Goal checkout and `sub` inside it. */
@@ -492,7 +503,8 @@ export class FlowExecutions {
   async #guard(run: StoredFlowExecution, round: FlowRoundState, rule: FlowPolicyRule): Promise<RuleEvidence> {
     if (!this.#facts) return { state: 'waiting' }
     const result = evidenceGuard(rule.when?.evidence ?? [], await this.#evidenceContext(run, round, await this.#facts(run.goal)))
-    return result.state === 'matched' ? { state: 'matched', evidence: result.evidence } : { state: result.state }
+    if (result.state === 'matched') return { state: 'matched', evidence: result.evidence }
+    return result.reason ? { state: result.state, reason: result.reason } : { state: result.state }
   }
 
   /** Whether this card's Agent binding declares `produces: review` — `complete_claim` alone cannot finish it then. */
@@ -906,17 +918,50 @@ export class FlowExecutions {
       if (prior?.state === 'started' || prior?.state === 'uncertain') {
         return fail(`The order for card #${round.cards[index]} may not have reached its Seat while the desk was stopped. Check that conversation, then start a new run.`)
       }
-      const card = this.#team.stateFor(this.#get(id).goal).intents.find((one) => one.id === round.cards[index])
-      await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'started', card: round.cards[index] ?? null, seat: String(seat.id) }))
-      try {
-        await this.#port.order(seat, this.#cardOrder(this.#get(id), card, bindings[index]!))
-      } catch (error) {
-        await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'finished', card: round.cards[index] ?? null, seat: String(seat.id) }))
-        return fail(`Card #${round.cards[index]} could not be handed to its Seat: ${error instanceof Error ? error.message : String(error)}`)
-      }
-      await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'finished', card: round.cards[index] ?? null, seat: String(seat.id) }))
+      const cardId = round.cards[index] ?? null
+      const handed = await this.#handOver(id, key, seat, cardId, bindings[index]!)
+      if (handed !== null) return fail(`Card #${cardId} could not be handed to its Seat: ${handed}`)
     }
     return true
+  }
+
+  /**
+   * Hands one Seat its card, journaled under `key`; null once that is settled.
+   *
+   * A Seat is handed its brief in a turn of its own, and a busy agent refuses
+   * a second message until that turn ends. A Seat still inside a turn is not
+   * refused work: its card is already claimed for it, and `await_work` hands
+   * it over the moment it asks. So the order is left `prepared` — decided,
+   * not sent — and the end of that turn sends it (`reArm`) if the card is
+   * still open then. A card already finished, as a Seat that got on with it
+   * inside its brief's turn finishes it, needs no order at all. Only a send
+   * refused for any other reason is a refusal (the answer, its words).
+   */
+  async #handOver(id: string, key: string, seat: SeatRecord, cardId: number | null, binding: FlowBinding): Promise<string | null> {
+    const cardNow = (): Intent | undefined => this.#team.stateFor(this.#get(id).goal).intents.find((one) => one.id === cardId)
+    const turn = (state: FlowOperation['state']) => this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state, card: cardId, seat: String(seat.id) }))
+    if (done(cardNow())) {
+      await turn('finished')
+      return null
+    }
+    if (this.#port.busy?.(seat)) {
+      await turn('prepared')
+      return null
+    }
+    await turn('started')
+    try {
+      await this.#port.order(seat, this.#cardOrder(this.#get(id), cardNow(), binding))
+    } catch (error) {
+      // A turn that began between the look and the send is the same Seat at work, not a refusal.
+      if (this.#port.busy?.(seat) || done(cardNow())) {
+        await turn(done(cardNow()) ? 'finished' : 'prepared')
+        return null
+      }
+      await turn('finished')
+      return error instanceof Error ? error.message : String(error)
+    }
+    await turn('finished')
+    return null
   }
 
   #cardOrder(run: StoredFlowExecution, card: Intent | undefined, binding: FlowBinding): string {
@@ -1135,12 +1180,18 @@ export class FlowExecutions {
     const found = await this.#decision(run, last)
     if (!found) return
     if (found.decision.kind === 'wait') {
-      if (last.state !== 'waiting-evidence') await this.#put(this.#round(run, { ...last, state: 'waiting-evidence' }))
+      // Waiting is said, never silent: the run's status names what its rule waits for.
+      const reason = `Rule ${found.decision.rule.id}: ${found.decision.reason ?? 'Waiting for its evidence.'}`
+      if (last.state !== 'waiting-evidence' || run.reason !== reason) {
+        await this.#put({ ...this.#round(run, { ...last, state: 'waiting-evidence' }), reason })
+      }
       return
     }
-    if (last.state !== 'closed') run = await this.#put(this.#round(run, { ...last, state: 'closed' }))
+    if (last.state !== 'closed') run = await this.#put({ ...this.#round(run, { ...last, state: 'closed' }), reason: null })
     if (found.decision.kind === 'none') {
-      await this.#finish(id, 'settled', `${last.role} answered ${this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')}, and no rule takes it further`)
+      const answered = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')
+      const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
+      await this.#finish(id, 'settled', `${last.role} answered ${answered}, and no rule takes it further${why ? ` — ${why}` : ''}`)
       return
     }
     await this.#open(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)
@@ -1198,10 +1249,21 @@ export class FlowExecutions {
     if (!seat || seat.closed) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
+    // Inside a turn is where a working Seat lives: there is nothing to hand it until that turn ends.
+    if (this.#port.busy?.(seat)) return
     const round = run.rounds.find((one) => one.cards.includes(card.id))!
     const index = round.cards.indexOf(card.id)
     const binding = bindingsFor(run, round.role)[index]
     if (!binding) return
+    /* The order its round decided on and left for the end of the Seat's
+       brief turn: delivered now, as the round's own first order, not
+       counted against the budget for a Seat whose turn ended early. */
+    const firstKey = `turn:${round.n}:${index}`
+    if (run.operations.find((one) => one.key === firstKey)?.state === 'prepared') {
+      const refused = await this.#handOver(id, firstKey, seat, card.id, binding)
+      if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed to its Seat: ${refused}`)
+      return
+    }
     const budget = policyOf(run).rearm ?? 3
     const spent = (this.#rearms.get(String(seat.id)) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
     if (spent.length >= budget) {
@@ -1224,12 +1286,8 @@ export class FlowExecutions {
     }
     this.#rearms.set(String(seat.id), [...spent, this.#now()])
     const key = `turn:${round.n}:${index}:${spent.length + 1}`
-    await this.#put(this.#operation(run, key, { kind: 'turn', state: 'started', card: card.id, seat: String(seat.id) }))
-    try {
-      await this.#port.order(seat, this.#cardOrder(this.#get(id), card, binding))
-    } finally {
-      await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'finished', card: card.id, seat: String(seat.id) }))
-    }
+    const refused = await this.#handOver(id, key, seat, card.id, binding)
+    if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed to its Seat again: ${refused}`)
   }
 
   // --------------------------------------------------------------- restart

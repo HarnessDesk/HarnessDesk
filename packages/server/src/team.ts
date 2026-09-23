@@ -307,7 +307,7 @@ export interface TeamPort {
   /** One workspace's whole surface, to every window. */
   changed(state: TeamState): void
   /** Goal-backed desks persist the board payload before announcing it. */
-  mutate?(state: TeamState): Promise<void>
+  mutate?(state: TeamState, changed?: ReadonlySet<number>): Promise<void>
   /** A room that no longer exists, so a window can stop drawing it. */
   removed(room: string): void
   /**
@@ -732,6 +732,21 @@ export class Team {
   readonly #memberWaits = new Map<string, MemberWaits>()
   readonly #waitingInvocations = new Set<string>()
   #writes: Promise<void> = Promise.resolve()
+  /*
+   * A Goal board's cards this engine changed and has not yet seen saved, by
+   * board, each with the write that will save it. The Goal plane writes some
+   * cards straight to the Goal's document (a claim, a release) and installs
+   * the document back; while one of this engine's writes is still queued, the
+   * document it installs is behind this memory. These are the cards that keep
+   * this engine's copy through such an install, and the only cards a snapshot
+   * speaks for when it is saved (`mergeProjectedIntents`).
+   */
+  readonly #unsaved = new Map<string, Map<number, number>>()
+  /** Cards changed since the board's last commit, not yet given a write. */
+  readonly #touched = new Map<string, Set<number>>()
+  /** Writes of a Goal board's snapshot queued and not yet settled, by board. */
+  readonly #inflight = new Map<string, number>()
+  #writeSeq = 0
   /** Latest content per file; a burst of mutations becomes one write. */
   readonly #queuedContent = new Map<string, string | null>()
   readonly #queuedFiles = new Set<string>()
@@ -1073,6 +1088,27 @@ export class Team {
   /** Install the host's durable Goal projection without writing a second membership source. */
   installProjection(state: TeamState, remembered?: Readonly<Record<string, RememberedMember>>): void {
     const previous = this.#boards.get(state.id)
+    /*
+     * The document can be behind this engine by the length of one queued
+     * write: a card completed here and not yet saved would read back as still
+     * claimed, and the next snapshot would save that. So every card this
+     * engine changed and has not seen saved keeps this engine's copy, and so
+     * does the channel while any write of this board is still on its way —
+     * only this engine writes the channel. Everything else is the document's.
+     */
+    const kept = new Set([...(this.#unsaved.get(state.id)?.keys() ?? []), ...(this.#touched.get(state.id) ?? [])])
+    const pending = previous !== undefined && (kept.size > 0 || (this.#inflight.get(state.id) ?? 0) > 0)
+    if (previous && kept.size > 0) {
+      const mine = new Map(previous.intents.map((intent) => [intent.id, intent]))
+      const merged = new Map<number, Intent>()
+      for (const intent of state.intents) {
+        if (!kept.has(intent.id)) merged.set(intent.id, intent)
+        else if (mine.has(intent.id)) merged.set(intent.id, mine.get(intent.id)!)
+      }
+      for (const id of kept) if (!merged.has(id) && mine.has(id)) merged.set(id, mine.get(id)!)
+      state = { ...state, intents: [...merged.values()].sort((a, b) => a.id - b.id) }
+    }
+    if (pending) state = { ...state, channel: previous!.channel }
     this.#boards.set(state.id, {
       id: state.id,
       name: state.name,
@@ -2300,6 +2336,7 @@ export class Team {
        judgment a merge step's evidence guard actually reads. */
     const missingReview = (await this.#flows?.refuseCompletion?.(board.id, intent, caller)) ?? null
     if (missingReview) return missingReview
+    const before = board.intents
     this.#patchIntent(board, intentId, {
       state: 'done',
       claim: null,
@@ -2309,7 +2346,19 @@ export class Team {
     })
     this.#signal(board, this.#actorOf(board, caller), 'completed', intent, args.note?.trim() || null)
     const opened = this.#unblock(board, this.#actorOf(board, caller))
-    this.#commit(board)
+    /* A Goal board's completion is reported once it is saved, never before:
+       an agent told "Completed" on a write that never landed would stop,
+       and the card would sit claimed with nobody on it. A write that fails
+       puts the card, and whatever it unblocked, back as they were, and says
+       so — the agent can finish it again. */
+    const unsaved = await this.#commit(board)
+    if (unsaved) {
+      const now = this.#boards.get(board.id) ?? board
+      const restore = new Map(before.filter((one) => one.id === intentId || opened.includes(one.id)).map((one) => [one.id, one]))
+      now.intents = now.intents.map((one) => restore.get(one.id) ?? one)
+      this.#port.changed(this.#stateOf(now))
+      return `Refused: #${intentId} could not be saved, so it is not finished — ${unsaved.message}. Call complete_claim again once the board can be saved.`
+    }
     this.#port.audit({
       runtime: caller.runtime,
       sessionId: caller.sessionId,
@@ -3833,6 +3882,7 @@ export class Team {
     }
     board.nextIntent += 1
     board.intents.push(intent)
+    this.#touch(board, intent.id)
     this.#trimIntents(board)
     this.#signal(board, by, 'added', intent, intent.files.join(', ') || null)
     this.#commit(board)
@@ -3844,6 +3894,16 @@ export class Team {
     board.intents = board.intents.map((intent) =>
       intent.id === id ? { ...intent, ...patch, updatedAt: Date.now() } : intent,
     )
+    this.#touch(board, id)
+  }
+
+  /** A card this engine changed: its copy is the one a Goal board's next write saves. */
+  #touch(board: Board, id: number): void {
+    // Only a board saved through the Goal's document has a second writer to keep up with.
+    if (!this.#port.mutate) return
+    const touched = this.#touched.get(board.id) ?? new Set<number>()
+    touched.add(id)
+    this.#touched.set(board.id, touched)
   }
 
   /**
@@ -3969,6 +4029,8 @@ export class Team {
       if (over <= 0) return true
       if (intent.state !== 'done' && intent.state !== 'abandoned') return true
       over -= 1
+      // Trimmed is changed too: the next write takes it off the Goal's document as well.
+      this.#touch(board, intent.id)
       return false
     })
   }
@@ -4237,21 +4299,46 @@ export class Team {
     return `${this.#counts(board)}.\n\n${lines.join('\n')}`
   }
 
-  #commit(board: Board, touchActivity = true): void {
+  /**
+   * Saves a board and tells every window. On a Goal board the answer is this
+   * write's own outcome — null once it is saved, or why it was not — for a
+   * verb that must not report success on a write that never landed.
+   */
+  #commit(board: Board, touchActivity = true): Promise<Error | null> | undefined {
     if (touchActivity) board.updatedAt = Date.now()
     const state = this.#stateOf(board)
     if (this.#port.mutate) {
-      this.#writes = this.#writes
-        .then(() => this.#port.mutate!(state))
+      // Every card this engine changed and has not seen saved rides this write, and stays its own until it lands.
+      const seq = ++this.#writeSeq
+      const unsaved = this.#unsaved.get(board.id) ?? new Map<number, number>()
+      for (const id of this.#touched.get(board.id) ?? []) unsaved.set(id, seq)
+      this.#touched.delete(board.id)
+      if (unsaved.size > 0) this.#unsaved.set(board.id, unsaved)
+      const changed = new Set(unsaved.keys())
+      this.#inflight.set(board.id, (this.#inflight.get(board.id) ?? 0) + 1)
+      const written = this.#writes.then(() => this.#port.mutate!(state, changed))
+      const settled = (): void => {
+        const left = (this.#inflight.get(board.id) ?? 1) - 1
+        if (left > 0) this.#inflight.set(board.id, left)
+        else this.#inflight.delete(board.id)
+      }
+      this.#writes = written
         .then(() => {
+          settled()
+          const still = this.#unsaved.get(board.id)
+          if (still) {
+            for (const [id, at] of still) if (at <= seq) still.delete(id)
+            if (still.size === 0) this.#unsaved.delete(board.id)
+          }
           this.#port.changed(state)
           this.#wake(board)
         })
         .catch((error: unknown) => {
+          settled()
           this.#problem = error instanceof Error ? error.message : String(error)
-          this.#port.changed(this.#stateOf(board))
+          this.#port.changed(this.#stateOf(this.#boards.get(board.id) ?? board))
         })
-      return
+      return written.then(() => null, (error: unknown) => (error instanceof Error ? error : new Error(String(error))))
     }
     this.#port.changed(state)
     /* Every card that becomes claimable becomes claimable here. Waking from

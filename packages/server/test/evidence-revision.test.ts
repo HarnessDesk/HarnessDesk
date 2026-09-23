@@ -115,3 +115,46 @@ test("a branch's diff is its committed work against the base it came from", asyn
   await writeFile(join(dir, 'README.md'), 'changed\n')
   assert.deepEqual(await diffOf(dir), { files: 2, added: 3, removed: 0, from, to })
 })
+
+/*
+ * Work committed straight onto the default branch has no merge base behind
+ * it — the branch *is* its base — so the diff is measured from where the work
+ * began: the commit its Seat opened on. Without that, `{ diff: true }` could
+ * never be satisfied for a step that stays on the default branch.
+ */
+test('work committed on the default branch is measured from the commit its step began at', async () => {
+  const { dir, git } = await makeRepo()
+  const began = await git('rev-parse', 'HEAD')
+  // Nothing measured from nowhere: on the base branch with no starting point, there is no work to show.
+  assert.equal((await diffOf(dir))?.files, 0)
+  assert.equal((await diffOf(dir, began))?.files, 0, 'nothing committed since it began is no diff')
+  await writeFile(join(dir, 'ANSWER.md'), 'the answer\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'answer')
+  const to = await git('rev-parse', 'HEAD')
+  assert.deepEqual(await diffOf(dir, began), { files: 1, added: 1, removed: 0, from: began, to })
+  // A starting point history does not lead from is never trusted: it measures nothing.
+  await git('checkout', '-q', '--orphan', 'elsewhere')
+  await git('commit', '-q', '-m', 'unrelated')
+  await git('checkout', '-q', 'main')
+  const stray = await git('rev-parse', 'elsewhere')
+  assert.equal((await diffOf(dir, stray))?.files, 0)
+  // A branch that left its base is measured against its base, as before, whatever it began at.
+  await git('checkout', '-q', '-b', 'feature')
+  await writeFile(join(dir, 'MORE.md'), 'more\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'more')
+  const base = await git('merge-base', 'main', 'HEAD')
+  assert.equal((await diffOf(dir, began))?.from, base)
+})
+
+test('with no base branch at all, a diff is measured from the commit its step began at', async () => {
+  const { dir, git } = await makeRepo()
+  await git('branch', '-m', 'main', 'trunk')
+  const began = await git('rev-parse', 'HEAD')
+  assert.equal(await diffOf(dir), null, 'nothing to measure from')
+  await writeFile(join(dir, 'ANSWER.md'), 'the answer\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'answer')
+  assert.equal((await diffOf(dir, began))?.files, 1)
+})

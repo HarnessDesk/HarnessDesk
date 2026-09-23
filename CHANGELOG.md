@@ -25,8 +25,10 @@ move is real work and is not news to a person weighing an upgrade.
   a structured review, an observed diff, CI or pull request now speaks for
   the revision it names wherever in the run's dependency chain it was filed,
   and every new fact re-reads a waiting rule, so a guarded step no longer
-  waits forever. The comparison flow's merge card names the exact revision
-  the judge picked.
+  waits forever. A diff counts what a step committed since it began, straight
+  onto the default branch included, and a run waiting on evidence says what
+  for. The comparison flow's merge card names the exact revision the judge
+  picked.
 - **An independent step is judged on the vendor an agent really calls** —
   each runtime now reports which vendor's models it reaches, read from the
   agent's own configuration, and says it cannot tell whenever a provider or

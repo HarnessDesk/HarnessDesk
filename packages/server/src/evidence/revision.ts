@@ -178,14 +178,31 @@ export const baseOf = async (cwd: string): Promise<string | null> => {
   return null
 }
 
-/** What a checkout's branch changes against its base, committed work only: the `diff` fact. */
+/**
+ * What a checkout's work changes, committed work only: the `diff` fact.
+ *
+ * Measured against the base branch it came from — the merge base of the two.
+ * When there is no work beyond that base, because the checkout is *on* its
+ * base branch (a step neither isolated nor told to branch commits straight onto
+ * the project's default branch) or because there is no base branch at all,
+ * the work is measured from `since` instead: the commit the step began at,
+ * which a Seat records when it opens. So what was committed since the step
+ * began is its diff, wherever it was committed. A `since` that the checkout's
+ * history does not lead from is never trusted: then the diff is empty, not a
+ * guess.
+ */
 export const diffOf = async (
   cwd: string,
+  since: Sha | null = null,
 ): Promise<{ readonly files: number; readonly added: number; readonly removed: number; readonly from: Sha; readonly to: Sha } | null> => {
   const revision = await revisionOf(cwd)
+  if (!revision) return null
   const base = await baseOf(cwd)
-  if (!revision || !base) return null
-  const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''
+  const merged = base ? (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? '' : ''
+  const began = since !== null && isSha(since) && (since === revision.head || (await gitOr(cwd, ['merge-base', '--is-ancestor', since, revision.head])) !== null)
+    ? since : null
+  // Work beyond the base is measured from the base; none beyond it, from where the step began.
+  const from = isSha(merged) && merged !== revision.head ? merged : began ?? (isSha(merged) ? merged : '')
   if (!isSha(from)) return null
   const shortstat = (await gitOr(cwd, ['diff', '--shortstat', from, revision.head])) ?? ''
   const number = (pattern: RegExp): number => Number(pattern.exec(shortstat)?.[1] ?? 0)

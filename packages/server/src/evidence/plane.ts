@@ -309,9 +309,10 @@ export class EvidencePlane {
     const cwd = this.#port.cwdOf(intent.claim.runtime, intent.claim.sessionId)
     const board = this.#port.board(room)
     if (!cwd || !board) return
-    const seat = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null
+    const kept = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)
+    const seat = kept?.id ?? null
     const work = (async () => {
-      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat }
+      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since: kept?.checkout.head ?? null }
       if (await this.observer.observe(look)) this.announce(room)
     })()
     let pending = this.#settling.get(room)
@@ -359,7 +360,10 @@ export class EvidencePlane {
       const cwd = holder ?? last?.checkout?.cwd ?? null
       if (!cwd || !this.observer.take(room, intent.id)) continue
       const seat = holder && intent.claim ? (this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)?.id ?? null) : null
-      looks.push({ room, card: intent.id, project, cwd, seat })
+      // Where the card's work began: its holder's Seat, or the Seat this desk last saw on it.
+      const began = seat ?? (last?.seat ?? null)
+      const since = began ? (this.seats.byId(began)?.checkout.head ?? null) : null
+      looks.push({ room, card: intent.id, project, cwd, seat, since })
     }
     if (looks.length === 0) return
     void (async () => {

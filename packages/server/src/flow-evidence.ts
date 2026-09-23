@@ -86,7 +86,8 @@ export interface FlowEvidenceContext {
 
 export type FlowGuardResult =
   | { readonly state: 'matched'; readonly evidence: readonly string[]; readonly subjects: readonly FlowSubject[] }
-  | { readonly state: 'no-match' }
+  /** `reason`, when there is one, says which fact contradicted the guard — for a run that ends on it. */
+  | { readonly state: 'no-match'; readonly reason?: string }
   | { readonly state: 'waiting'; readonly reason: string }
 
 export const MISSING_EVIDENCE = 'The evidence this card needs is missing or ambiguous. Observe it again.'
@@ -197,6 +198,13 @@ export function evidenceValues(records: readonly EvidenceRecord[]): Readonly<Rec
 const waitingFor = (guard: FlowEvidenceGuard): string =>
   'check' in guard ? WAITING_CHECK : 'ci' in guard ? WAITING_CI : 'review' in guard ? WAITING_REVIEW : 'pr' in guard ? WAITING_PR : WAITING_DIFF
 
+/** What a fresh, explicit contradiction of one guard at one subject was, in words. */
+const failedFor = (guard: FlowEvidenceGuard, subject: FlowSubject): string =>
+  'check' in guard ? `the check "${guard.check}" did not pass at card #${subject.card}'s revision`
+    : 'ci' in guard ? `CI did not go green at card #${subject.card}'s revision`
+      : 'pr' in guard ? `the pull request at card #${subject.card}'s revision is not ${guard.pr}`
+          : `card #${subject.card}'s checkout has no committed change since its step began, so there is no diff`
+
 /**
  * The facts this context lets speak (rule 2 and 3's scope: a card of the
  * walk, observed here), reduced to the questions this guard kind asks, in
@@ -247,15 +255,15 @@ const judgeAt = (choices: readonly FactChoice[], subject: FlowSubject): { readon
 const everySubject = (guard: FlowEvidenceGuard, context: FlowEvidenceContext, subjects: readonly FlowSubject[]): FlowGuardResult => {
   const choices = choicesFor(guard, context)
   const evidence: string[] = []
-  let failed = false
+  let failed: FlowSubject | null = null
   let missing = false
   for (const subject of subjects) {
     const verdict = judgeAt(choices, subject)
     if (verdict.state === 'pass') evidence.push(verdict.id!)
-    else if (verdict.state === 'fail') failed = true
+    else if (verdict.state === 'fail') failed ??= subject
     else missing = true
   }
-  if (failed) return { state: 'no-match' }
+  if (failed) return { state: 'no-match', reason: failedFor(guard, failed) }
   if (missing) return { state: 'waiting', reason: waitingFor(guard) }
   return { state: 'matched', evidence, subjects }
 }
@@ -278,11 +286,11 @@ const reviewChoice = (answer: string, context: FlowEvidenceContext, subjects: re
   if (chosen.length > 1) return { state: 'waiting', reason: AMBIGUOUS_REVIEWS }
   if (chosen.length === 0) {
     const refused = subjects.some((subject) => verdictsAt(subject).some((one) => one.state === 'fail'))
-    return refused ? { state: 'no-match' } : { state: 'waiting', reason: WAITING_REVIEW }
+    return refused ? { state: 'no-match', reason: `no required reviewer answered ${answer}` } : { state: 'waiting', reason: WAITING_REVIEW }
   }
   const [subject] = chosen as [FlowSubject]
   const verdicts = verdictsAt(subject)
-  if (verdicts.some((one) => one.state === 'fail')) return { state: 'no-match' }
+  if (verdicts.some((one) => one.state === 'fail')) return { state: 'no-match', reason: `not every required reviewer answered ${answer} at card #${subject.card}'s revision` }
   if (verdicts.some((one) => one.state === 'missing')) return { state: 'waiting', reason: WAITING_REVIEW }
   return { state: 'matched', evidence: verdicts.map((one) => (one.state === 'pass' ? one.fact.id : '')).filter(Boolean), subjects: [subject] }
 }

@@ -482,6 +482,14 @@ so they are read bounded and without blocking, a regular file only, through
 a link at no point below the project; anything that cannot be read that way
 is unknown.
 
+**A Seat's card** is claimed for it as the Seat opens, and the Seat reads its
+Agent's brief in a turn of its own. A Seat that asks for work inside that turn
+is handed its card there and may finish it there; the card's own order is sent
+only when that turn ends with the card still open, never into a turn that is
+running — an agent refuses a second message while it works, and a run does not
+stall on that refusal. The run's rounds follow the board: a card finished
+inside the brief's turn closes its round like any other.
+
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated
 checkout — rather than picking one of them for an aggregate command. Naming
@@ -505,11 +513,20 @@ current revision, is fresh, and was observed on this desk. So
 fact at the writer's head, `{ review: "picked" }` by the judge's structured
 review naming one candidate revision (and it narrows several candidates to
 that one), and `{ diff: true }`, `{ ci: green }` and `{ pr: open }` by what
-the desk observed on the writer's branch. The last observation of each
+the desk observed on the writer's branch. A diff is committed work only: what
+the writer's branch changes against the base branch it came from, or — when
+there is no work beyond that base, because the step commits straight onto the
+project's default branch as a role that is neither isolated nor told to branch
+does, or because there is no base branch — what was committed since the step
+began, measured from the commit its Seat opened on. A diff that turns out
+empty is an explicit failure, not a wait. The last observation of each
 question decides; a guard whose fact has not landed yet *waits*, and every
 durable append of a new fact wakes it; one contradicted by a fresh, explicit
-failure is a *no-match* a later fallback rule may still take. A writer whose
-checkout has uncommitted changes waits rather than being left out. A card
+failure is a *no-match* a later fallback rule may still take. Neither is
+silent: a run waiting on evidence says in its status which rule waits and for
+what, and a run that ends because no rule applied says which guarded rule did
+not and why. A writer whose checkout has uncommitted changes waits rather than
+being left out. A card
 may name what authorized it — `{{evidence.review.at}}`, say — and a field
 the facts do not settle to one value stops the run before any card is
 added.
@@ -521,7 +538,10 @@ listed rather than hidden. *Update…* converts an old project file in place:
 every Agent it names becomes a real file, then the flow file itself is
 replaced, previewed as one whole diff before either write, journaled so a
 partial result (Agent files written, flow file not yet) can be continued
-rather than repeated. *Customize…* copies a shipped or your-Mac file into
+rather than repeated. A role that had no `order:` becomes an Agent whose
+brief is the sentence the old engine gave it — "You are the *role*. The cards
+say the rest." — so a flow that ran before *Update…* still seats every role
+after it. *Customize…* copies a shipped or your-Mac file into
 the project verbatim, no conversion — a project flow is then edited in
 place, through the normal editor, not through this dialog again.
 

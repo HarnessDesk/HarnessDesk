@@ -143,6 +143,7 @@ import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
 import { seatAgent } from './methods/agents.js'
+import { mergeProjectedIntents } from './team-projection.js'
 
 /**
  * The host.
@@ -828,7 +829,7 @@ export class Host {
         }
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
-      mutate: (state) => this.#goalSerial.run(() => this.#saveTeamProjection(state)),
+      mutate: (state, changed) => this.#goalSerial.run(() => this.#saveTeamProjection(state, changed)),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
       /* Membership moved, so whatever this host was counting about reaching
          that conversation no longer applies. See `TeamPort.membershipChanged`
@@ -933,6 +934,10 @@ export class Host {
       seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
       digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
       order: (seat, text) => this.#orderSeat(seat.session.runtime, seat.session.sessionId, text),
+      busy: (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        return record ? this.#queueBusy(record) : false
+      },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
       reseat: async (seat) => {
         const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
@@ -1832,7 +1837,14 @@ export class Host {
     }, null)
   }
 
-  async #saveTeamProjection(state: TeamState): Promise<void> {
+  /**
+   * The Team engine's snapshot, saved into its Goal's document. Only the cards
+   * the engine changed and has not seen saved (`changed`) are written as the
+   * snapshot has them; every other card stays as the document has it, since
+   * the Goal plane may have written it since the snapshot was taken — see
+   * `mergeProjectedIntents`.
+   */
+  async #saveTeamProjection(state: TeamState, changed?: ReadonlySet<number>): Promise<void> {
     const legacy = this.#team.legacyFor(state.id)
     let document: GoalDocument
     try {
@@ -1880,6 +1892,7 @@ export class Host {
       throw new Error('This Goal is read-only or is finishing an operation. Start another Goal for new work.')
     }
     const at = state.updatedAt || Date.now()
+    const intents = mergeProjectedIntents(document.board.intents, state.intents, changed)
     await this.#goalStore.save({
       ...document,
       goal: {
@@ -1889,9 +1902,9 @@ export class Host {
         updatedAt: at,
       },
       board: {
-        nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+        nextIntent: Math.max(1, document.board.nextIntent, ...intents.map((intent) => intent.id + 1)),
         messaging: state.messaging,
-        intents: state.intents,
+        intents,
         channel: state.channel,
       },
       ...(document.legacy ? {

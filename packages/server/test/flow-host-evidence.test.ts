@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { promisify } from 'node:util'
 
-import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
+import type { BoardEvidence, FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import type { GhInCheckout } from '../src/evidence/forge.js'
 import { INDEPENDENT } from '../src/flow-execution.js'
@@ -76,12 +76,22 @@ interface Desk {
   readonly forge: Forge
   /** Every run this desk started, so a wait that times out can say where each stood. */
   readonly runs: string[]
+  readonly runtimes: readonly FakeRuntime[]
+  readonly stateDir: string
 }
 
 /** The second runtime: another vendor's by default, so a step independent of the first has somewhere to sit. */
 interface Second { readonly id: string; readonly provider?: string | null }
 
-const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }): Promise<Desk> => {
+/** How the desk is set up beyond its runtimes: where work happens, and how its agents take a second message. */
+interface DeskOptions {
+  /** Work stays on the project's default branch, as a step that is neither isolated nor told to branch does. */
+  readonly onMain?: boolean
+  /** Each runtime refuses a message while a turn is running, as a real agent's adapter does. */
+  readonly refusesWhileBusy?: boolean
+}
+
+const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-host-')
   // A committed contest script, so the mechanical contest's own command runs as shipped.
   await mkdir(join(repo.dir, 'script'), { recursive: true })
@@ -89,8 +99,8 @@ const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: '
   await chmod(join(repo.dir, 'script', 'flow-contest.sh'), 0o755)
   await repo.git('add', '.')
   await repo.git('commit', '-q', '-m', 'contest script')
-  // Work happens on a branch, so what an Agent commits is a real diff against `main`.
-  await repo.git('checkout', '-q', '-b', 'work')
+  // Work happens on a branch, so what an Agent commits is a real diff against `main` — unless the test says it stays there.
+  if (!options.onMain) await repo.git('checkout', '-q', '-b', 'work')
   const gh = forge()
   const stateDir = tempDir('hd-flow-host-state-')
   for (const [id, agent] of Object.entries(AGENTS)) {
@@ -109,12 +119,18 @@ const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: '
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
   })
-  host.register(new FakeRuntime({ provider: 'vendor-a' }))
-  host.register(new FakeRuntime({ id: second.id as never, name: 'Second Fake', ...(second.provider !== undefined ? { provider: second.provider } : {}) }))
+  const runtimes = [
+    new FakeRuntime({ provider: 'vendor-a' }),
+    new FakeRuntime({ id: second.id as never, name: 'Second Fake', ...(second.provider !== undefined ? { provider: second.provider } : {}) }),
+  ]
+  for (const runtime of runtimes) {
+    runtime.refusesWhileBusy = options.refusesWhileBusy ?? false
+    host.register(runtime)
+  }
   await host.start()
   t.after(() => host.dispose())
   await host.call('workspace/open', { path: repo.dir })
-  return { host, root: repo.dir, forge: gh, runs: [] }
+  return { host, root: repo.dir, forge: gh, runs: [], runtimes, stateDir }
 }
 
 /** A shipped flow's own text, read through the catalogue as a person's window reads it. */
@@ -145,8 +161,9 @@ const claimed = async (d: Desk, goal: string, role: string, count: number): Prom
   explained(d, goal, until(async () => {
     const cards = (await board(d, goal)).filter((one) => one.role === role && one.state !== 'done')
     if (cards.length !== count || !cards.every((one) => one.state === 'claimed' && one.claim)) return null
+    // Handed: sent, or left for the end of the turn its Seat is already in (its brief's), where it asks for work.
     const ordered = (await Promise.all(d.runs.map((run) => execution(d, run)))).flatMap((run) => run.operations)
-      .filter((one) => one.kind === 'turn' && one.state === 'finished')
+      .filter((one) => one.kind === 'turn' && (one.state === 'finished' || one.state === 'prepared'))
     return cards.every((card) => ordered.some((one) => one.card === card.id)) ? cards : null
   }, `${count} claimed ${role} card(s), each handed to its Seat`, 20_000))
 
@@ -285,6 +302,120 @@ test('investigation: an observed diff of the committed answer opens the close-ou
   assert.ok(told.some((one) => one.id === run.id && one.state === 'running' && one.rounds.length === 1), 'its first round was pushed too')
   const close = done.rounds.find((one) => one.role === 'close')!
   assert.equal(close.evidence.length, 1, 'the close-out round names the diff fact that opened it')
+})
+
+/*
+ * The shipped Investigation as it runs by default: its researcher is not
+ * isolated and is not told to branch, so it commits on the project's own
+ * default branch. The diff that guard reads is what was committed since the
+ * step began, so the close-out still opens.
+ */
+test('investigation on the default branch: the answer committed since the step began opens the close-out', async (t) => {
+  const d = await desk(t, undefined, { onMain: true })
+  const run = await start(d, await shipped(d, 'investigation'), { question: 'Where does the time go?' })
+  const [research] = await claimed(d, run.goal, 'research', 1)
+  assert.equal(await git(cwdOf(d, research!), 'symbolic-ref', '--short', 'HEAD'), 'main', 'the researcher works on the default branch')
+  const before = await git(cwdOf(d, research!), 'rev-parse', 'HEAD')
+  const head = await write(d, research!, 'the answer', 'gathered')
+  await person(d, run.goal, 'close', 'closed')
+  const done = await settled(d, run.id)
+  const close = done.rounds.find((one) => one.role === 'close')!
+  assert.equal(close.evidence.length, 1, 'the close-out round names the diff fact that opened it')
+  const facts = await d.host.call('evidence/board', { room: run.goal }) as BoardEvidence
+  const diff = facts.cards.flatMap((card) => card.facts).map((one) => one.record.fact).find((fact) => fact.kind === 'diff')
+  assert.ok(diff?.kind === 'diff', 'the desk observed a diff')
+  assert.deepEqual({ from: diff.from, to: diff.to, files: diff.files }, { from: before, to: head, files: 1 })
+})
+
+/*
+ * A step that commits nothing has no diff to read. The run neither sits on
+ * "running" in silence nor ends without a word: while the desk has not looked
+ * yet it says what it waits for, and once it has, it ends saying which rule
+ * did not apply and why.
+ */
+test('investigation with nothing committed ends saying there was no committed change to read', async (t) => {
+  const d = await desk(t, undefined, { onMain: true })
+  const told: FlowExecution[] = []
+  d.host.addBroadcaster((notification) => {
+    if (notification.method === 'flow/execution-changed') told.push(notification.params.execution)
+  })
+  const run = await start(d, await shipped(d, 'investigation'), { question: 'Where does the time go?' })
+  const [research] = await claimed(d, run.goal, 'research', 1)
+  await answer(d, research!, 'gathered')
+  const done = await settled(d, run.id)
+  assert.match(done.reason!, /to-close did not apply/)
+  assert.match(done.reason!, new RegExp(`card #${research!.id}'s checkout has no committed change since its step began`))
+  for (const one of told.filter((each) => each.id === run.id && each.rounds.at(-1)?.state === 'waiting-evidence')) {
+    assert.match(one.reason ?? '', /^Rule to-close: /, 'a run waiting on evidence says what for')
+  }
+})
+
+/*
+ * A real agent reads its brief in a turn of its own, and a busy agent refuses
+ * a second message until that turn ends. An agent that simply gets on with
+ * its card inside that first turn — waits for work, finds its card already
+ * claimed for it, does it, completes it — is the ordinary case, not a race:
+ * the run follows the board, never stalls on "still working", and the
+ * completion is on disk.
+ */
+type Behaviour = (d: Desk, card: Intent) => Promise<void>
+
+/** Every Seat, handed its brief, works its own card inside that same turn, then ends the turn. */
+const workInsideTheBrief = (d: Desk, behaviours: Readonly<Record<string, Behaviour>>): void => {
+  for (const runtime of d.runtimes) {
+    runtime.onSend = (session, text, opts) => {
+      if (opts?.recordAs !== 'notice' || !text.startsWith('Do the ')) return
+      void (async () => {
+        const mine = await until(async () => {
+          for (const goal of new Set((await Promise.all(d.runs.map((run) => execution(d, run)))).map((run) => run.goal))) {
+            const card = (await board(d, goal)).find((one) => one.state === 'claimed' &&
+              one.claim?.runtime === runtime.info.id && one.claim.sessionId === String(session.id))
+            if (card) return card
+          }
+          return null
+        }, 'the card claimed for this Seat', 20_000)
+        await behaviours[mine.role ?? '']!(d, mine)
+        session.finish()
+      })().catch((error: unknown) => { console.error('a working agent failed', error) })
+    }
+  }
+}
+
+test('a Seat that works its card inside its brief turn: the run follows the board and never stalls on "still working"', async (t) => {
+  const d = await desk(t, undefined, { refusesWhileBusy: true, onMain: true })
+  workInsideTheBrief(d, {
+    research: async (desk, card) => { await write(desk, card, 'the answer', 'gathered') },
+  })
+  const run = await start(d, await shipped(d, 'investigation'), { question: 'Where does the time go?' })
+  const close = await person(d, run.goal, 'close', 'closed')
+  const done = await settled(d, run.id)
+  assert.deepEqual(done.rounds.map((one) => [one.role, one.state]), [['research', 'closed'], ['close', 'closed']])
+  const research = (await board(d, run.goal)).find((one) => one.role === 'research')!
+  assert.equal(research.state, 'done')
+  assert.equal(research.outcome, 'gathered')
+  assert.ok(close)
+})
+
+test('independent review with every Seat working inside its brief: each completion persists and the specialists open', async (t) => {
+  const d = await desk(t, undefined, { refusesWhileBusy: true })
+  // A reviewer asks for what it may judge until it is offered something, as an agent working its card does.
+  const reviewInside: Behaviour = async (desk, card) => {
+    await until(async () => ((await desk.host.teamPlane.reviewCandidates(card.id, scopeOf(card))).length > 0 ? true : null), 'something to review', 20_000)
+    await review(desk, card, 'approve')
+  }
+  workInsideTheBrief(d, {
+    build: async (desk, card) => { await write(desk, card, 'built') },
+    specialists: reviewInside,
+  })
+  const run = await start(d, await shipped(d, 'independent-review'), TASK)
+  await person(d, run.goal, 'ship', 'shipped')
+  const done = await settled(d, run.id)
+  assert.deepEqual(done.rounds.map((one) => one.role), ['build', 'specialists', 'ship'])
+  const cards = await board(d, run.goal)
+  assert.deepEqual(cards.map((one) => [one.role, one.state]), [['build', 'done'], ['specialists', 'done'], ['specialists', 'done'], ['ship', 'done']])
+  // Nothing re-opened a finished card: no card was handed a second order after it was done.
+  const reordered = done.operations.filter((one) => one.kind === 'turn' && one.state !== 'finished' && one.state !== 'prepared')
+  assert.deepEqual(reordered, [])
 })
 
 test('a check, green CI and an open pull request, each observed at the build revision, open the ship card together', async (t) => {
