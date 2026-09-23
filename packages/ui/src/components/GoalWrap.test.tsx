@@ -68,3 +68,23 @@ it('sends one final commit and preserves the draft on a stale stamp refusal', as
   expect(document.body.textContent).toContain('changed while you reviewed')
   expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')?.value).toBe('Finished')
 })
+
+/*
+ * A card added to the Goal while its wrap dialog is open — the wrap is then
+ * refused as unreviewed — joins the dialog as one more card to choose for,
+ * rather than breaking it, and no receipt can be reviewed until it is chosen.
+ */
+it('a card added while the dialog is open is one more to choose for, never a crash', async () => {
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), previewGoalWrap: vi.fn(), wrapGoal: vi.fn() } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
+  act(() => type(document.querySelector<HTMLTextAreaElement>('[aria-label="What finished"]')!, 'Finished'))
+  const pickFinished = (select: HTMLSelectElement) => act(() => { select.value = 'finished'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  pickFinished([...document.querySelectorAll<HTMLSelectElement>('select')][1]!)
+  const grown = { ...view, board: { ...view.board, intents: [...view.board.intents, { id: 3, title: 'Added later', state: 'open', files: [], dependsOn: [], updatedAt: 3 }] } } as unknown as GoalView
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={grown} onClose={vi.fn()} /></StoreProvider>))
+  expect(document.querySelector('[aria-label="Disposition for Added later"]')).not.toBeNull()
+  const review = () => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt') as HTMLButtonElement
+  expect(review().disabled).toBe(true)
+  pickFinished(document.querySelector<HTMLSelectElement>('[aria-label="Disposition for Added later"]')!)
+  expect(review().disabled).toBe(false)
+})
