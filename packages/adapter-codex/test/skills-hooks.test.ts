@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+
+import type { SessionAttachments } from '@harnessdesk/protocol'
 
 import { CodexRuntime } from '../src/index.js'
 
@@ -69,4 +74,32 @@ test('hooks come back with trust and managed state, managed ones flagged', async
       ['managed-1', 'postToolUse', 'managed', true],
     ],
   )
+})
+
+test('seating an Agent — create and resume, with attachments asked for — never calls the global skills/config/write', async (t) => {
+  // Codex reports `attachments.skills: 'unsupported'` (attachments.test.ts),
+  // so a real Seat's `prepare()` would never hand it a filter in the first
+  // place — but this proves the stronger, adapter-level fact directly: even
+  // handed one anyway, Codex's session lifecycle touches no *global* skill
+  // toggle, which would leak a filter meant for one Seat into every other
+  // session on the same account.
+  const dir = await mkdtemp(join(tmpdir(), 'hd-codex-attach-calls-'))
+  const callLog = join(dir, 'calls.log')
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test', env: { FAKE_CODEX_CALLS: callLog } })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+
+  const attachments: SessionAttachments = {
+    key: 'k-1',
+    skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/demo' }],
+    mcp: null,
+    notes: null,
+  }
+  const session = await runtime.createSession({ cwd: '/w', attachments })
+  await runtime.resumeSession(session.id, { attachments })
+
+  const calls = (await readFile(callLog, 'utf8')).split('\n').filter(Boolean)
+  assert.ok(calls.length > 0, 'sanity: the call log actually captured something')
+  assert.ok(!calls.includes('skills/config/write'), `seating must never write the global skill config; saw: ${calls.join(', ')}`)
 })

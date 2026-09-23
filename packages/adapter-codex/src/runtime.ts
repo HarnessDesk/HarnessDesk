@@ -49,6 +49,7 @@ import {
   type UserMessageItem,
 } from '@harnessdesk/protocol'
 
+import { codexAttachmentSupport } from './attachments.js'
 import { automaticContext, contextPreamble, ToolProjection, toCodexToolResponse } from './capabilities.js'
 import { CodexCatalog, catalogWarningIn } from './catalog.js'
 import { CodexFiles } from './files.js'
@@ -344,6 +345,9 @@ export class CodexRuntime implements AgentRuntime {
           ? { ...CAPABILITIES, listHistory: false, searchHistory: false }
           : CAPABILITIES,
       ...(this.#everStarted ? { ceilings: CODEX_CEILINGS } : {}),
+      // Observations, not defaults, the same rule `capabilities` above
+      // follows: nothing is claimed before the app-server has answered.
+      ...(this.#everStarted ? { attachments: codexAttachmentSupport(this.#version ?? '') } : {}),
       presentation: {
         ...PRESENTATION,
         install: {
