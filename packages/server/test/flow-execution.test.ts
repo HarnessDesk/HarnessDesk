@@ -242,3 +242,31 @@ test('a board-only run keeps its board board-only until it is stopped', async (t
   rig.team.setMessaging(run.goal, true)
   assert.equal(rig.board(run.goal).messaging, true)
 })
+
+/*
+ * A round that cannot open never leaves a run reading "running" with nothing
+ * happening: the run stalls, and its reason is the refusal that stopped it —
+ * whether the first round (right after start) or a later one (after a card
+ * finished) was the one that could not open.
+ */
+test('a round that cannot open stalls the run with the reason, never a silent "running"', async (t) => {
+  const REFUSED = 'This Goal came from a backup. Start a new Goal to continue its work.'
+
+  const first = await goalRig(t)
+  first.dispatch = { ok: false, reason: REFUSED }
+  const started = await first.start(THREE_STAGES, AGENTS)
+  await first.flows.flush()
+  assert.deepEqual(opens(first.events), [])
+  assert.deepEqual([started.state, started.reason], ['stalled', REFUSED], 'the start answers with the stall, not a running run')
+
+  const later = await goalRig(t)
+  const run = await later.start(THREE_STAGES, AGENTS)
+  await later.flows.flush()
+  later.dispatch = { ok: false, reason: REFUSED }
+  for (const [card, seat] of [[1, 'seat-1'], [2, 'seat-2']] as const) {
+    await later.team.complete(card, { outcome: 'done' }, later.sessionOf(seat))
+  }
+  await later.flows.flush()
+  const execution = later.flows.executionsFor(run.goal)[0]!
+  assert.deepEqual([execution.state, execution.reason], ['stalled', REFUSED])
+})

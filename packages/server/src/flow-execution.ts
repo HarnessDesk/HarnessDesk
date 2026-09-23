@@ -297,6 +297,14 @@ const insideRelative = (cwd: string): string => {
   return trimmed === '.' ? '' : trimmed
 }
 
+/** The run's own journal refused a write — a storage failure, not a refusal of the step. */
+class JournalWriteError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+    this.name = 'JournalWriteError'
+  }
+}
+
 const done = (card: Intent | undefined): boolean => card?.state === 'done' || card?.state === 'abandoned'
 
 const now = (): number => Date.now()
@@ -556,7 +564,11 @@ export class FlowExecutions {
   /** Persist first, then hold it in memory, then say so: a failed write changes nothing the desk believes. */
   async #put(run: StoredFlowExecution): Promise<StoredFlowExecution> {
     const next = { ...run, updatedAt: this.#now() }
-    await this.#files.save(next)
+    try {
+      await this.#files.save(next)
+    } catch (error) {
+      throw new JournalWriteError(error)
+    }
     this.#runs.set(next.id, next)
     this.#port.changed(next.goal, this.runs(next.goal))
     return next
@@ -643,10 +655,30 @@ export class FlowExecutions {
     const policy = policyOf(run)
     // Visible and fixed for the life of the run: board-only unless the policy said members.
     this.#team.setMessaging(run.goal, policy.messaging === 'members')
+    await this.#open(id, policy.seed, { key: 'seed', evidence: [] }, [])
+  }
+
+  /**
+   * Opens a round the run itself decided on — its seed, or what a finished
+   * round's rule named — and when that cannot happen, stalls the run with
+   * the refusal as its reason. Never a run that reads "running" while
+   * nothing is: the person sees why it stopped and what to do.
+   */
+  async #open(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }, dependsOn: readonly number[]): Promise<void> {
     try {
-      await this.#openRound(id, policy.seed, { key: 'seed', evidence: [] }, [])
+      await this.#openRound(id, then, cause, dependsOn)
     } catch (error) {
-      this.#port.log('a flow run could not open its first round', { run: id, error: error instanceof Error ? error.message : String(error) })
+      const reason = error instanceof Error ? error.message : String(error)
+      this.#port.log('a flow run could not open a round', { run: id, round: then.role, error: reason })
+      // The run's own journal would not take a write: nothing outside the
+      // desk happened for this step, so the next notice retries it — a stall
+      // would be one more write to the same journal.
+      if (error instanceof JournalWriteError) return
+      try {
+        await this.#stall(id, reason)
+      } catch (stalling) {
+        this.#port.log('a flow run could not record why it stopped', { run: id, error: stalling instanceof Error ? stalling.message : String(stalling) })
+      }
     }
   }
 
@@ -1082,12 +1114,12 @@ export class FlowExecutions {
       // Half opened before a crash or a failed write: the same cause opens it the same way.
       const previous = run.rounds.find((one) => one.n === last.n - 1)
       if (last.cause === 'seed' || !previous) {
-        await this.#openRound(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
+        await this.#open(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
         return
       }
       const earlier = await this.#decision(run, previous)
       if (earlier?.decision.kind === 'fire') {
-        await this.#openRound(id, earlier.decision.rule.then, { key: last.cause, evidence: last.evidence }, earlier.completed)
+        await this.#open(id, earlier.decision.rule.then, { key: last.cause, evidence: last.evidence }, earlier.completed)
       }
       return
     }
@@ -1102,7 +1134,7 @@ export class FlowExecutions {
       await this.#finish(id, 'settled', `${last.role} answered ${this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')}, and no rule takes it further`)
       return
     }
-    await this.#openRound(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)
+    await this.#open(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)
   }
 
   async #finish(id: string, state: 'settled' | 'stopped', reason: string): Promise<void> {
