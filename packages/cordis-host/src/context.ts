@@ -5,7 +5,7 @@ import type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-import type { EditorEdit, EditorEvent, EvidenceRecord, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
+import type { DecideFindingInput, EditorEdit, EditorEvent, EvidenceRecord, FindingReadInput, FindingView, RaiseFindingInput, RepairFindingInput, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
   ForgeReference,
 } from '@harnessdesk/protocol'
 
@@ -229,6 +229,14 @@ export interface HarnessContext {
      * the refusal rather than returning a sentence; the caller words it.
      */
     recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord>
+    /** Raises a finding against a candidate this card was offered. Throws the refusal. */
+    raiseFinding(input: RaiseFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** Claims a finding repaired at this Seat's committed head. Throws the refusal. */
+    repairFinding(input: RepairFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** The raising Agent's verdict on its own finding, from a later review. Throws the refusal. */
+    decideFinding(input: DecideFindingInput, scope?: ScopeQuery): Promise<FindingView>
+    /** This Goal's findings, bounded, for the card this Seat holds. */
+    listFindings(input: FindingReadInput, scope?: ScopeQuery): Promise<readonly FindingView[]>
   }
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
   readonly ios: {

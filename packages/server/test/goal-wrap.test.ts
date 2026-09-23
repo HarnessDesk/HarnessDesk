@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
-import type { WrapChoices } from '@harnessdesk/protocol'
+import type { EvidenceRecord, WrapChoices } from '@harnessdesk/protocol'
 
+import { EvidenceStore } from '../src/evidence/store.js'
+import { FindingsPlane } from '../src/findings/plane.js'
+import { migrateDesk } from '../src/goals/migration.js'
+import { GoalPlane } from '../src/goals/plane.js'
+import { GoalStore } from '../src/goals/store.js'
 import { previewWrap, wrapStamp, Wraps, type WrapInput, type WrapPort } from '../src/goals/wrap.js'
-import { goal } from './fixtures/goals.js'
+import { goal, intent } from './fixtures/goals.js'
+import { tempDir } from './scratch.js'
 
 const choices = (over: Partial<WrapChoices> = {}): WrapChoices => ({
   summary: 'The requested change is complete.',
@@ -131,4 +138,67 @@ test('a failed stage closes no Seat and a failed close never writes finished sta
     finish: async () => { closeEffects.push('finish') },
   }).commit('g1', stamp, choices(), 'receipt-1', 10), /close failed/)
   assert.deepEqual(closeEffects, ['stage', 'close'])
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named addition for the findings ledger: a wrap freezes the findings the
+ * Goal owns — their event ids and views — as part of its stamp, so an event
+ * that lands after the preview makes that preview stale.
+ */
+
+const findingRaise = (id: string, sequence: number, event: NonNullable<EvidenceRecord['finding']>['event'], at = 'a'.repeat(40), state: 'open' | 'repaired' = 'open'): EvidenceRecord => ({
+  id, fact: { kind: 'finding', id: 'finding-00000000-0000-4000-8000-000000000001', state, at },
+  card: { board: 'g1', id: 1 }, checkout: { cwd: '/work/repo', branch: 'fix' }, seat: event.kind === 'raise' ? 'seat-r' : 'seat-w', round: 1, observedAt: sequence, posted: null,
+  finding: { version: 1, sequence, operation: `op-${id}`, origin: { goal: 'g1', run: 'run-1', round: 1, card: 1, seat: 'seat-r', at: 'a'.repeat(40) }, event },
+})
+
+test('new finding invalidates wrap preview', async () => {
+  const home = tempDir('hd-goal-wrap-findings-')
+  await migrateDesk(home, async () => {})
+  const store = new GoalStore(home)
+  await store.load()
+  await store.save({
+    version: 1, goal: goal('g1'), board: { nextIntent: 2, messaging: true, intents: [intent(1, { state: 'done' })], channel: [] },
+    citations: [], receipt: null, operation: null,
+  }, null)
+  const evidence = new EvidenceStore(join(home, 'evidence'))
+  await evidence.append('/work/repo', 'evidence', [{ type: 'evidence', record: findingRaise('raise-1', 1, { kind: 'raise', title: 'Unbounded', body: '', category: 'ordinary', blocking: true, related: null, anchor: null }) }])
+  const findings = new FindingsPlane({
+    store: evidence, seats: { byId: () => null, latestKeptOf: () => null },
+    flows: { binding: () => null, candidate: async () => null, journal: async () => { throw new Error('no runs') }, pending: () => [] },
+    projectOf: async () => '/work/repo', headOf: async () => ({ at: null, dirty: false }), now: () => 1, log: () => {},
+  })
+  const forbidden = async (): Promise<never> => { throw new Error('not in this test') }
+  const plane = new GoalPlane(store, {
+    seats: { all: () => [], byId: () => null }, confine: forbidden, known: async () => null, claimable: () => false, opening: forbidden,
+    board: (id) => { const document = store.read(id); return { ...document.board, id, name: document.goal.sentence, root: document.goal.root, updatedAt: 1, members: [] } },
+    evidence: async (id) => ({ room: id, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] }),
+    evidenceIds: async () => ['fact-1'], flow: () => undefined, busy: () => false, waits: () => false, stranded: () => false, held: () => false,
+    settledFor: async () => {}, answer: async () => ({ answer: null, gaps: [] }), revision: async () => ({ head: null, dirty: null }),
+    changed: () => {}, activity: () => {}, ready: () => ({ ok: true }), seatAgent: forbidden, openLegacySeat: forbidden,
+    importOpening: forbidden, closeId: forbidden, claim: forbidden, releaseClaim: forbidden, refuseMail: forbidden, retainLane: forbidden,
+    finish: forbidden, wake: () => {},
+    finishWrap: async (operation) => {
+      const document = store.read(operation.goal)
+      await store.save({
+        ...document, receipt: operation.receipt, operation: null,
+        goal: { ...document.goal, state: 'wrapped', receipt: operation.receipt.id, revision: document.goal.revision + 1 },
+      }, document.goal.revision)
+    },
+    findings: (id) => findings.receiptWithGaps(id),
+  })
+  const approved = choices()
+  const first = await plane.preview('g1', approved)
+  assert.deepEqual(first.receipt.findings?.evidence, ['raise-1'])
+  // A repair claim lands after the person reviewed the receipt.
+  await evidence.append('/work/repo', 'evidence', [{ type: 'evidence', record: findingRaise('repair-1', 2, { kind: 'repair', note: 'Bounded.' }, 'b'.repeat(40), 'repaired') }])
+  await assert.rejects(plane.wrap('g1', first.stamp, approved), /changed while you reviewed/)
+  assert.equal(store.read('g1').goal.state, 'open', 'nothing was staged')
+  const second = await plane.preview('g1', approved)
+  assert.deepEqual(second.receipt.findings?.evidence, ['raise-1', 'repair-1'])
+  assert.equal(second.receipt.findings?.findings[0]?.lifecycle.state, 'repaired')
+  const wrapped = await plane.wrap('g1', second.stamp, approved)
+  assert.deepEqual(wrapped.findings, second.receipt.findings)
+  assert.deepEqual(store.read('g1').receipt?.findings, second.receipt.findings)
 })

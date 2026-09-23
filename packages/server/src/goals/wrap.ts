@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
+import type { FindingReceipt, Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
 
 import { Serial } from './assignments.js'
 
@@ -20,6 +20,13 @@ export interface WrapInput {
   citations: GoalReceipt['citations']
   gaps: GoalReceipt['gaps']
   revisions: GoalReceipt['revisions']
+  /**
+   * The findings the Goal owns, frozen: their event ids and the views they
+   * fold to. Part of the stamp, so a finding raised, carried, posted or
+   * overridden after a preview makes the wrap stale. Absent on a desk that
+   * records none.
+   */
+  findings?: FindingReceipt
 }
 
 export type { WrapChoices } from '@harnessdesk/protocol'
@@ -72,6 +79,7 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       citations: input.citations,
       revisions: input.revisions,
       gaps: input.gaps,
+      ...(input.findings ? { findings: input.findings } : {}),
     }),
   }
 }

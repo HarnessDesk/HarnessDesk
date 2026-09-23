@@ -10,9 +10,14 @@ import {
   splitSessionKey,
   TEAM_MESSAGE_CHARS,
   wrapContext,
+  type DecideFindingInput,
   type EvidenceRecord,
+  type FindingReadInput,
+  type FindingView,
   type Intent,
   type Plan,
+  type RaiseFindingInput,
+  type RepairFindingInput,
   type IntentState,
   type ReviewCandidate,
   type ReviewInput,
@@ -399,6 +404,20 @@ export interface TeamFlows {
 }
 
 /**
+ * The findings ledger, as the board's verbs reach it: the host's
+ * `FindingsPlane`. Absent on a desk with no ledger, where every finding verb
+ * refuses. The plane resolves the caller's Seat, card and candidate itself;
+ * the board only checks that the caller is a live conversation first, as it
+ * does for every verb.
+ */
+export interface TeamFindings {
+  raise(input: unknown, scope: TeamCallScope): Promise<FindingView>
+  repair(input: unknown, scope: TeamCallScope): Promise<FindingView>
+  decide(input: unknown, scope: TeamCallScope): Promise<FindingView>
+  readForSeat(input: unknown, scope: TeamCallScope): Promise<readonly FindingView[]>
+}
+
+/**
  * How a member's turn ended, when it ended without answering.
  *
  * The host classifies — it owns the turn vocabulary and the adapters' error
@@ -722,6 +741,7 @@ export class Team {
   #settings: TeamSettings = DEFAULT_TEAM_SETTINGS
   /** The flow engine, when the host has one. Null on every desk running no flows. */
   #flows: TeamFlows | null = null
+  #findings: TeamFindings | null = null
   /**
    * Who is owed an answer: a receiver whose current turn was started by a
    * delivery, and the conversation that asked. Cleared when the turn ends,
@@ -797,6 +817,11 @@ export class Team {
    * the engine opens cards through this board — and the cycle is easier to
    * read broken here than threaded through both constructors.
    */
+  /** The findings ledger's writer. Replaced, never doubled: a restart attaches the new one. */
+  attachFindings(findings: TeamFindings | null): void {
+    this.#findings = findings
+  }
+
   attachFlows(flows: TeamFlows): void {
     this.#flows = flows
   }
@@ -2326,6 +2351,37 @@ export class Team {
   async recordReview(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
     if (!this.#flows?.recordReview) throw new Error('This board has no flow to record a review against.')
     return this.#flows.recordReview(input, scope)
+  }
+
+  /**
+   * A finding raised, a repair claimed, a verdict given, or the Goal's
+   * findings read — structured, never prose, each refused with its reason by
+   * the findings plane. The caller must be a live conversation; which Seat,
+   * card and revision it speaks for is the plane's to resolve.
+   */
+  async raiseFinding(input: RaiseFindingInput, scope: TeamCallScope): Promise<FindingView> {
+    this.#caller(scope)
+    return this.#findingsPlane().raise(input, scope)
+  }
+
+  async repairFinding(input: RepairFindingInput, scope: TeamCallScope): Promise<FindingView> {
+    this.#caller(scope)
+    return this.#findingsPlane().repair(input, scope)
+  }
+
+  async decideFinding(input: DecideFindingInput, scope: TeamCallScope): Promise<FindingView> {
+    this.#caller(scope)
+    return this.#findingsPlane().decide(input, scope)
+  }
+
+  async listFindings(input: FindingReadInput, scope: TeamCallScope): Promise<readonly FindingView[]> {
+    this.#caller(scope)
+    return this.#findingsPlane().readForSeat(input, scope)
+  }
+
+  #findingsPlane(): TeamFindings {
+    if (!this.#findings) throw new Error('This desk keeps no findings ledger.')
+    return this.#findings
   }
 
   async complete(

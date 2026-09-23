@@ -146,3 +146,66 @@ export interface FindingReceipt {
   readonly findings: readonly FindingView[]
   readonly overrides: readonly FindingOverride[]
 }
+
+// ----------------------------------------------------------------- commands
+
+/*
+ * What a Seat's finding tools take. None of them names a Seat, an Agent, an
+ * origin, a revision, a checkout, a posting or a permission: the host resolves
+ * every one of those from the calling conversation, the card it holds and the
+ * candidate it was offered. `request` is the caller's own idempotency token —
+ * the same request retried is the same event, never a second one.
+ */
+
+/** Raise a finding against a candidate `review_candidates` offered this card. */
+export interface RaiseFindingInput {
+  readonly intent: number
+  readonly candidate: string
+  readonly request: string
+  readonly title: string
+  readonly body: string
+  readonly category: FindingCategory
+  readonly blocking: boolean
+  readonly related?: FindingId
+  readonly anchor?: FindingAnchor
+}
+
+/** Claim a finding repaired at the caller's committed head. `expected` is the sequence the caller last read. */
+export interface RepairFindingInput {
+  readonly intent: number
+  readonly finding: FindingId
+  readonly request: string
+  readonly expected: number
+  readonly note: string
+}
+
+/** The raising Agent's verdict on its own finding, from a later review card. */
+export interface DecideFindingInput {
+  readonly intent: number
+  readonly candidate: string
+  readonly finding: FindingId
+  readonly request: string
+  readonly expected: number
+  readonly state: 'open' | 'repaired' | 'withdrawn'
+  readonly note: string
+}
+
+/** A person carrying unresolved findings from a wrapped receipt into an open Goal of the same project. */
+export interface CarryFindingsInput {
+  /** The Goal the findings are carried into. */
+  readonly goal: string
+  /** That Goal's revision as the person saw it. */
+  readonly revision: number
+  /** The wrapped Goal they come from. */
+  readonly source: string
+  /** Its receipt. */
+  readonly receipt: string
+  readonly findings: readonly FindingId[]
+  readonly request: string
+}
+
+/** What a Seat may read of its own Goal's findings. */
+export interface FindingReadInput {
+  readonly intent: number
+  readonly filter?: 'all' | 'open' | 'blocking'
+}

@@ -392,9 +392,10 @@ export interface FlowReviewPort {
  * bound to the frozen subject snapshot they were read from — never an
  * arbitrary Git revision a caller could name directly.
  *
- * Findings, publishing and forge posting are absent by design: these records
- * stay local, judged by a claim and a candidate this process itself minted,
- * never by parsing what an agent said.
+ * Publishing and forge posting are absent by design: these records stay
+ * local, judged by a claim and a candidate this process itself minted, never
+ * by parsing what an agent said. The findings ledger (`findings/plane.ts`)
+ * raises and decides against the same held candidates (`held`).
  */
 export class FlowReview implements FlowReviewPort {
   readonly #port: ReviewSubjectPort
@@ -464,6 +465,29 @@ export class FlowReview implements FlowReviewPort {
       out.push(candidate)
     }
     return out
+  }
+
+  /**
+   * A candidate this process minted for this caller's own card, still
+   * offered, and still one of the card's current subjects — read again now,
+   * so a head that moved since it was offered is no longer this candidate.
+   * Null otherwise. The findings ledger raises and decides against exactly
+   * what `record` would: never a revision a caller names.
+   */
+  async held(candidate: string, intent: number, scope: TeamCallScope): Promise<{
+    readonly candidate: ReviewCandidate
+    readonly checkout: FlowSubject['checkout']
+    readonly goal: string
+    readonly round: number
+    readonly seat: SeatId
+  } | null> {
+    this.#sweep()
+    const bound = await this.#port.bindingFor(intent, scope)
+    if (!bound) return null
+    const held = this.#candidates.get(candidate)
+    if (!held || held.goal !== bound.goal || held.card !== intent || held.seat !== bound.seat) return null
+    if (!bound.subjects.some((one) => one.card === held.candidate.card && one.at === held.candidate.at)) return null
+    return { candidate: held.candidate, checkout: held.checkout, goal: held.goal, round: held.round, seat: held.seat }
   }
 
   /**

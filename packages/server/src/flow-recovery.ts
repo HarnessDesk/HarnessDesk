@@ -2,6 +2,7 @@ import { isCeilingLevel, type FlowRun, type FlowSeatRecord, type Intent, type Se
 
 import { parseFlowPolicy } from './flow-policy.js'
 import { sourceDigest, type StoredFlowExecution } from './flow-execution.js'
+import { findingJournalOf } from './findings/journal.js'
 
 /**
  * What a run read back at launch may do next, and why not when it may not.
@@ -137,6 +138,13 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       if (!/^[1-9][0-9]*$/.test(round) || !object(plan) || !text(plan['context']) || !(plan['refused'] === null || text(plan['refused'])) ||
         !Array.isArray(plan['targets']) || !(plan['targets'] as unknown[]).every((target) =>
           object(target) && text(target['cwd']) && (target['at'] === null || text(target['at'])))) bad('has a check plan it cannot describe')
+    }
+  }
+  if (raw['findingOps'] !== undefined) {
+    try {
+      findingJournalOf(raw['findingOps'])
+    } catch (error) {
+      bad(error instanceof Error ? error.message : String(error))
     }
   }
   const compiled = raw['compiled']

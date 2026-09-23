@@ -27,6 +27,7 @@ import { cardVars, guardHolds } from './flow.js'
 import {
   evidenceGuard, evidenceValues, namesEvidence, renderCardTemplate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
+import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { Team } from './team.js'
 
 /**
@@ -55,6 +56,8 @@ export type StoredFlowExecution = FlowExecution & {
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
   /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
   checkPlans?: Readonly<Record<string, CheckPlan>>
+  /** Each finding command a Seat of this run made, by operation key, journaled before its record is appended. */
+  findingOps?: Readonly<Record<string, FindingJournalEntry>>
 }
 
 /**
@@ -549,6 +552,67 @@ export class FlowExecutions {
     // a review judges its predecessors' revisions, never its own checkout.
     const closure = await this.#closure(run, deps)
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled }
+  }
+
+  /**
+   * The card a finding command is bound to: the caller's own Seat, the one
+   * the run opened for this card, open, and whether the caller holds the card
+   * now, judges (its Agent produces reviews) or writes (it may change files
+   * and does not judge). Null for a card no run bound to this caller. Read
+   * from the run's journal and the board, never from anything the caller said.
+   */
+  findingBinding(goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string }): {
+    readonly run: string
+    readonly round: number
+    readonly role: string
+    readonly seat: string
+    readonly reviews: boolean
+    readonly writer: boolean
+    readonly held: boolean
+  } | null {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    if (!round) return null
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
+    if (role?.kind !== 'agent') return null
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat || seat.closed || seat.restored || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
+    const binding = bindingsFor(run, role.id)[round.cards.indexOf(card)]
+    const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
+    return {
+      run: run.id,
+      round: round.n,
+      role: round.role,
+      seat: String(seat.id),
+      reviews: binding?.agent.produces.includes('review') ?? false,
+      writer: this.#writer(run, card),
+      held: intent?.state === 'claimed' && intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId,
+    }
+  }
+
+  /**
+   * Runs one finding command inside its run's own queue, with the run's
+   * finding journal: every entry it writes is persisted to the run's file
+   * before `put` answers, by this class and nobody else, and read back from
+   * the run as it is when the step runs — never a copy taken when it queued.
+   */
+  withFindingJournal<T>(id: string, step: (journal: FindingJournal) => Promise<T>): Promise<T> {
+    return this.#queue.within(id, () => step({
+      entry: (operation) => this.#get(id).findingOps?.[operation] ?? null,
+      put: async (entry) => {
+        const run = this.#get(id)
+        await this.#put({ ...run, findingOps: { ...run.findingOps, [entry.operation]: entry } })
+      },
+    }))
+  }
+
+  /** Every run with finding commands journaled but not settled — what a restart has to finish or give up with a reason. */
+  pendingFindings(): readonly { readonly run: string; readonly entries: readonly FindingJournalEntry[] }[] {
+    return [...this.#runs.values()].flatMap((run) => {
+      const entries = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared')
+      return entries.length > 0 ? [{ run: run.id, entries }] : []
+    })
   }
 
   standDown(goal: string, runtime: string, sessionId: string): string | null {

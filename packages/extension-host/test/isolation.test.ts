@@ -348,6 +348,8 @@ test('a team call rides its own invocation or is refused: the child cannot imper
     send: async () => 'x',
     reviewCandidates: async () => [],
     recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -388,6 +390,8 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
     awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', release: async () => 'x',
     handoff: async () => 'x', status: async () => 'x', send: async () => 'x',
     reviewCandidates: async () => [], recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
     awaitMember: async (scope) => {
       pending++
       seenInvocation = scope.invocation ?? ''
@@ -457,6 +461,8 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
     send: async () => 'x',
     reviewCandidates: async () => [],
     recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -584,6 +590,8 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     send: async () => 'x',
     reviewCandidates: async () => [],
     recordReview: async () => ({}) as never,
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
   const forge: ForgeEngine = {
     seat: async (callScope) => {

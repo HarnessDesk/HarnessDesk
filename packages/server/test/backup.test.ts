@@ -6,12 +6,14 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { SEAT_PREFERENCE_LIMIT, type BackupReport, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
+import { SEAT_PREFERENCE_LIMIT, type BackupReport, type EvidenceRecord, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
 
 import { exportAgentFolders } from '../src/agent-files.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX } from '../src/agents.js'
+import { EvidencePlane } from '../src/evidence/plane.js'
+import { foldFindings, isResolved } from '../src/findings/model.js'
 import { Host, Logger, StateStore } from '../src/index.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalStore, restoredLane, type GoalDocument } from '../src/goals/store.js'
@@ -1614,4 +1616,61 @@ test('the host carries provenance as historical observations and deduplicates a 
   const exported = await second.host.call('backup/export', {})
   const entry = exported.provenance?.projects[0]?.entries[0] as { value: { restoredAt: number } }
   assert.equal(typeof entry.value.restoredAt, 'number')
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named addition for the findings ledger: a backup carries finding events
+ * with their details, a restore marks each one history, and nothing about it
+ * resumes — a staged carry is dropped with the rest of a restored Goal's
+ * journal, a restored confirmation clears nothing, and a restored receipt
+ * cannot be carried from.
+ */
+test('restored findings retain details without live operations', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'hd-backup-findings-source-'))
+  const target = await mkdtemp(join(tmpdir(), 'hd-backup-findings-target-'))
+  try {
+    const A = 'a'.repeat(40)
+    const id = 'finding-00000000-0000-4000-8000-000000000001'
+    const origin = { goal: 'portable-goal', run: 'run-1', round: 1, card: 1, seat: 'seat-r', at: A }
+    const records: EvidenceRecord[] = [
+      { id: 'raise-1', fact: { kind: 'finding', id, state: 'open', at: A }, card: { board: 'portable-goal', id: 1 }, checkout: null, seat: 'seat-r', round: 1, observedAt: 1, posted: null,
+        finding: { version: 1, sequence: 1, operation: 'op-1', origin, event: { kind: 'raise', title: 'Unbounded retry', body: 'It never stops.', category: 'security', blocking: true, related: null, anchor: { path: 'src/a.ts', line: 3, side: 'RIGHT' } } } },
+      { id: 'withdraw-1', fact: { kind: 'finding', id, state: 'withdrawn', at: A }, card: { board: 'portable-goal', id: 1 }, checkout: null, seat: null, round: 1, observedAt: 2, posted: null,
+        finding: { version: 1, sequence: 2, operation: 'op-2', origin, event: { kind: 'verdict', state: 'withdrawn', note: 'Not a bug.', by: 'person' } } },
+    ]
+    const port = { board: () => null, cwdOf: () => null, push: () => {}, log: () => {} }
+    const from = new EvidencePlane({ dir: join(source, 'evidence'), seenFile: join(source, 'seen.json') }, port)
+    await from.store.append('/work/repo', 'evidence', records.map((record) => ({ type: 'evidence', record }) as const))
+    const into = new EvidencePlane({ dir: join(target, 'evidence'), seenFile: join(target, 'seen.json') }, port)
+    const count = await into.restore(await from.backup())
+    assert.equal(count.restored, 2)
+    const back = (await into.store.read('/work/repo', 'evidence')).lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+    assert.deepEqual(back.map((record) => record.finding), records.map((record) => record.finding), 'every detail travelled')
+    assert.ok(back.every((record) => record.restored), 'and every event is marked history')
+    const [view] = foldFindings(back)
+    assert.equal(view!.title, 'Unbounded retry')
+    assert.equal(view!.restored, true)
+    assert.equal(isResolved(view!), false, 'a restored withdrawal clears nothing here')
+
+    // A Goal wrapped while a carry was staged in another Goal: restored, its journal is gone and nothing replays.
+    await migrateDesk(source, async () => {})
+    await migrateDesk(target, async () => {})
+    const goals = new GoalStore(source)
+    await goals.load()
+    const carrying: GoalDocument = {
+      version: 1, goal: goal('carrying-goal', { revision: 0 }), board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+      citations: [], receipt: null,
+      operation: { kind: 'carry', id: 'carry-1', goal: 'carrying-goal', source: 'portable-goal', receipt: 'receipt-1', dependsOn: ['portable-goal'], records: [] },
+    }
+    await goals.save(carrying, null)
+    const restoredGoals = new GoalStore(target)
+    await restoredGoals.load()
+    assert.equal(await restoredGoals.restore(goals.read('carrying-goal'), 50), 'restored')
+    assert.equal(restoredGoals.read('carrying-goal').operation, null, 'a restored carry is not resumed')
+    assert.deepEqual(restoredGoals.read('carrying-goal').goal.dependsOn, [], 'and its dependency was never applied')
+  } finally {
+    await rm(source, { recursive: true, force: true })
+    await rm(target, { recursive: true, force: true })
+  }
 })

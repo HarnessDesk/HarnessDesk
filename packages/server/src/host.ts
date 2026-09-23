@@ -110,6 +110,7 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import { FindingsPlane } from './findings/plane.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
@@ -540,6 +541,8 @@ export class Host {
   readonly #goalStore: GoalStore
   readonly #goalSerial = new Serial()
   readonly #goals: GoalPlane
+  /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
+  readonly #findings: FindingsPlane
   /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
   readonly #insight: InsightPlane
   readonly #turnInsight = new InsightContexts()
@@ -982,6 +985,32 @@ export class Host {
       },
     }), review)
     this.#team.attachFlows(this.#flows)
+    /* Read lazily, like the review wiring above: nothing here runs until a
+       Seat calls a finding tool or a person carries findings, well after the
+       constructor has made every plane it names. */
+    this.#findings = new FindingsPlane({
+      store: this.#evidence.store,
+      seats: this.#evidence.seats,
+      flows: {
+        binding: (goal, card, caller) => this.#flows.findingBinding(goal, card, caller),
+        candidate: (id, card, scope) => this.#flows.heldCandidate(id, card, scope),
+        journal: (run, step) => this.#flows.withFindingJournal(run, step),
+        pending: () => this.#flows.pendingFindings(),
+      },
+      goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
+      projectOf: async (goal) => {
+        const state = this.#goalState(goal)
+        return projectOf(state.cwd ?? state.root)
+      },
+      headOf: async (cwd) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+      },
+      now: () => Date.now(),
+      changed: (goal) => this.#evidence.announce(goal),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#team.attachFindings(this.#findings)
     this.#flowPreviews = new FlowPreviews({
       confine: (root) => this.#confineRoom(root),
       // `root` here is already a confined, real project path — the same one
@@ -1162,8 +1191,10 @@ export class Host {
       holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
+      findings: (goal: string) => this.#findings.receiptWithGaps(goal),
     } satisfies GoalPlanePort
     this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
+    this.#goals.attachFindings((records) => this.#findings.appendCarry(records))
     this.#goals.attachLanes(this.#lanes, () => this.#lanePreferences())
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
@@ -1469,6 +1500,9 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    // After the runs: a finding command a stop left part-way is settled from
+    // its run's own journal, before any Seat can ask for another.
+    await this.#findings.recover()
     // Both room and flow recovery can change a Goal's activity. Seed the
     // in-memory comparison point only after they have settled, so the first
     // later change can cross the notification boundary normally.
@@ -1625,6 +1659,7 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
     await this.#flows.flush()
+    await this.#findings.close()
     await this.#team.flush()
     await this.#provenanceStart
     await this.#provenance.close().catch(() => {

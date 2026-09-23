@@ -624,6 +624,28 @@ export class PluginHostProcess {
             })
             return
           }
+          /*
+           * The findings ledger: the input is handed on exactly as the child
+           * sent it, never spread into the scope, so a key it may not carry —
+           * a Seat, a revision, an authority — reaches the host's validator
+           * and is refused there, whole, before anything is written.
+           */
+          case 'team/raiseFinding': {
+            reply({ response: request.request, result: await plane.raiseFinding(params['input'] as never, scope) })
+            return
+          }
+          case 'team/repairFinding': {
+            reply({ response: request.request, result: await plane.repairFinding(params['input'] as never, scope) })
+            return
+          }
+          case 'team/decideFinding': {
+            reply({ response: request.request, result: await plane.decideFinding(params['input'] as never, scope) })
+            return
+          }
+          case 'team/listFindings': {
+            reply({ response: request.request, result: await plane.listFindings(params['input'] as never, scope) })
+            return
+          }
           default:
             refuse(`Unknown request ${String(request.method)}.`)
             return

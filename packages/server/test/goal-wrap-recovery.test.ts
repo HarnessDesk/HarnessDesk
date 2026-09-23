@@ -6,6 +6,7 @@ import type { GoalReceipt } from '@harnessdesk/protocol'
 import type { SeatOpening } from '../src/evidence/records.js'
 import { SeatBook } from '../src/evidence/seats.js'
 import { EvidenceStore } from '../src/evidence/store.js'
+import { FindingsPlane } from '../src/findings/plane.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { recoverOperation, type GoalOperation, type GoalOperationPort } from '../src/goals/operations.js'
 import { GoalStore } from '../src/goals/store.js'
@@ -114,4 +115,52 @@ test('a staged receipt closes each real Seat once and replays the same bytes aft
   await recoverOperation(operation, port(reopenedStore, reopenedSeats))
   assert.deepEqual(reopenedStore.read('g1').receipt, receipt())
   assert.equal((await evidence.read('/work/repo', 'seats')).lines.filter((line) => line.type === 'seat-closed').length, 2)
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named addition for the findings ledger: a staged receipt's findings are the
+ * ones the person reviewed. Finishing it after a restart writes those bytes,
+ * never the ledger as it has moved on since.
+ */
+test('receipt never absorbs later events', async () => {
+  const home = tempDir('hd-goal-wrap-recovery-findings-')
+  await migrateDesk(home, async () => {})
+  const store = new GoalStore(home)
+  await store.load()
+  const evidence = new EvidenceStore(`${home}/evidence`)
+  const origin = { goal: 'g1', run: 'run-1', round: 1, card: 1, seat: 'seat-r', at: 'a'.repeat(40) }
+  await evidence.append('/work/repo', 'evidence', [{ type: 'evidence', record: {
+    id: 'raise-1', fact: { kind: 'finding', id: 'finding-00000000-0000-4000-8000-000000000001', state: 'open', at: 'a'.repeat(40) },
+    card: { board: 'g1', id: 1 }, checkout: null, seat: 'seat-r', round: 1, observedAt: 1, posted: null,
+    finding: { version: 1, sequence: 1, operation: 'op-raise', origin, event: { kind: 'raise', title: 'Unbounded', body: '', category: 'ordinary', blocking: true, related: null, anchor: null } },
+  } }])
+  const findings = new FindingsPlane({
+    store: evidence, seats: { byId: () => null, latestKeptOf: () => null },
+    flows: { binding: () => null, candidate: async () => null, journal: async () => { throw new Error('no runs') }, pending: () => [] },
+    projectOf: async () => '/work/repo', headOf: async () => ({ at: null, dirty: false }), now: () => 1, log: () => {},
+  })
+  const staged: GoalReceipt = { ...receipt(), seats: [], findings: await findings.receipt('g1') }
+  const operation: Extract<GoalOperation, { kind: 'wrap' }> = { kind: 'wrap', id: 'wrap-fixed', goal: 'g1', stamp: 'b'.repeat(64), receipt: staged }
+  await store.save({ version: 1, goal: goal('g1'), board: { nextIntent: 2, messaging: true, intents: [intent(1)], channel: [] }, citations: [], receipt: null, operation: null }, null)
+  await store.save({ version: 1, goal: goal('g1', { state: 'wrapping', revision: 1 }), board: { nextIntent: 2, messaging: true, intents: [intent(1)], channel: [] }, citations: [], receipt: null, operation }, 0)
+  // After the stage, and before the desk comes back, the ledger moves on.
+  await evidence.append('/work/repo', 'evidence', [{ type: 'evidence', record: {
+    id: 'repair-1', fact: { kind: 'finding', id: 'finding-00000000-0000-4000-8000-000000000001', state: 'repaired', at: 'b'.repeat(40) },
+    card: { board: 'g1', id: 2 }, checkout: null, seat: 'seat-w', round: 2, observedAt: 2, posted: null,
+    finding: { version: 1, sequence: 2, operation: 'op-repair', origin, event: { kind: 'repair', note: 'Bounded.' } },
+  } }])
+  const reopened = new GoalStore(home)
+  await reopened.load()
+  const seats = new SeatBook(new EvidenceStore(`${home}/evidence`), () => 40)
+  await seats.load()
+  await recoverOperation(reopened.read('g1').operation!, {
+    importOpening: async () => {}, closeId: async () => {}, claim: async () => {}, releaseClaim: async () => {}, refuseMail: async () => {},
+    retainLane: async () => {}, wake: () => {}, finish: async () => {}, finishWrap: (one) => finalise(reopened, one),
+  })
+  const wrapped = reopened.read('g1')
+  assert.equal(wrapped.goal.state, 'wrapped')
+  assert.equal(JSON.stringify(wrapped.receipt?.findings), JSON.stringify(staged.findings), 'byte-equal to what was staged')
+  assert.deepEqual(wrapped.receipt?.findings?.evidence, ['raise-1'])
+  assert.deepEqual((await findings.receipt('g1')).evidence, ['raise-1', 'repair-1'], 'while the ledger itself moved on')
 })

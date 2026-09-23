@@ -30,6 +30,7 @@ import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type StoredFlowExecution } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
+import type { FindingJournal } from './findings/journal.js'
 import { executionOf, legacyCheckUncertain, legacyRunOf, legacySeatsMapped, recoveryOf } from './flow-recovery.js'
 import {
   cardVars,
@@ -396,6 +397,27 @@ export class Flows implements TeamFlows {
     goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string },
   ): ReturnType<FlowExecutions['reviewBinding']> {
     return this.#executions?.reviewBinding(goal, card, caller) ?? Promise.resolve(null)
+  }
+
+  /** The card a finding command is bound to, forwarded so the findings plane never reaches `FlowExecutions` around this. */
+  findingBinding(goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string }): ReturnType<FlowExecutions['findingBinding']> {
+    return this.#executions?.findingBinding(goal, card, caller) ?? null
+  }
+
+  /** One finding command inside its run's queue, with the run's own journal. */
+  withFindingJournal<T>(run: string, step: (journal: FindingJournal) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
+    return this.#executions.withFindingJournal(run, step)
+  }
+
+  /** Runs whose finding commands a restart has to settle. */
+  pendingFindings(): ReturnType<FlowExecutions['pendingFindings']> {
+    return this.#executions?.pendingFindings() ?? []
+  }
+
+  /** A candidate this process minted for this caller's card, still current. */
+  heldCandidate(candidate: string, intent: number, scope: TeamCallScope): ReturnType<FlowReview['held']> {
+    return this.#review?.held(candidate, intent, scope) ?? Promise.resolve(null)
   }
 
   /** Observed predecessor subjects this caller's own claimed card may judge. */
