@@ -94,7 +94,12 @@ test('legacy and restored are not live', async () => {
     admit: async () => ({ admitted: true }),
   }
   const gateway = new McpToolGateway(port)
-  assert.deepEqual(gateway.list('token-for-restored-seat'), [])
+  assert.deepEqual(
+    await gateway.list('token-for-restored-seat', async () => {
+      throw new Error('a Seat with no live server list must never be queried for one')
+    }),
+    [],
+  )
   const called = await gateway.call('token-for-restored-seat', 'anything', 'anything', async () => 'should not run')
   assert.equal(called.ok, false, 'a restored sidecar can mint no live token and reach no server')
 })

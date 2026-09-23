@@ -145,7 +145,10 @@ test('mcp/list and mcp/call reach a backend that implements them, scoped by the 
   const gateway = new ToolGateway(socketPath, {
     listTools: () => [],
     invokeByName: async (): Promise<ToolResult> => ({ ok: true, content: [] }),
-    mcpList: (caller) => (caller === 'seat-token' ? [{ name: 'reviewer-tools', server: 'reviewer-tools' }] : []),
+    mcpList: async (caller) =>
+      caller === 'seat-token'
+        ? [{ name: 'flag_issue', server: 'reviewer-tools', description: 'Flag a line for review.', inputSchema: { type: 'object' } }]
+        : [],
     mcpCall: async (caller, server, tool, args) => {
       calls.push({ caller, server, tool, args })
       return caller === 'seat-token' && server === 'reviewer-tools'
@@ -170,7 +173,10 @@ test('mcp/list and mcp/call reach a backend that implements them, scoped by the 
     })
   try {
     const listing = await send({ id: 1, method: 'mcp/list', params: { caller: 'seat-token' } })
-    assert.deepEqual(listing, { id: 1, result: { tools: [{ name: 'reviewer-tools', server: 'reviewer-tools' }] } })
+    assert.deepEqual(listing, {
+      id: 1,
+      result: { tools: [{ name: 'flag_issue', server: 'reviewer-tools', description: 'Flag a line for review.', inputSchema: { type: 'object' } }] },
+    })
 
     const ok = await send({
       id: 2,

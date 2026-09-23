@@ -10,7 +10,7 @@ import type { McpServerSpec } from '@harnessdesk/agent-inventory'
 
 import { CeilingGate, type CeilingGatePort, type Conversation } from '../src/ceilings/gate.js'
 import { McpToolGateway, type GatewayCaller, type GatewayServer } from '../src/attachments/gate.js'
-import { callStdioMcpServer, McpTransportError } from '../src/attachments/transport.js'
+import { callStdioMcpServer, listStdioMcpServerTools, McpTransportError } from '../src/attachments/transport.js'
 
 /**
  * The real transport road, not the in-process fakes Task 3's own gate tests
@@ -125,6 +125,31 @@ test('an unknown tool name is refused by the real process itself, not silently a
   const spec = specFor(marker)
   try {
     await assert.rejects(callStdioMcpServer(spec, 'not_a_real_tool', {}), McpTransportError)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a real tools/list reaches the process and comes back bounded, not invented', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-mcp-real-'))
+  const marker = join(dir, 'marker.ndjson')
+  const spec = specFor(marker)
+  try {
+    const tools = await listStdioMcpServerTools(spec)
+    assert.deepEqual(tools, [
+      { name: 'flag_issue', description: 'Flag a line for review.', inputSchema: { type: 'object', properties: { line: { type: 'number' } }, required: ['line'] } },
+    ])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('a server offering more tools than the bound is refused outright, not truncated', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-mcp-real-'))
+  const marker = join(dir, 'marker.ndjson')
+  const spec: McpServerSpec = { name: 'reviewer-tools', transport: 'stdio', command: process.execPath, args: [FIXTURE], env: { FAKE_MCP_MARKER: marker, FAKE_MCP_TOOL_COUNT: '257' } }
+  try {
+    await assert.rejects(listStdioMcpServerTools(spec), /more than 256 tools/)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

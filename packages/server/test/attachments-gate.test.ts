@@ -102,7 +102,13 @@ test('hidden tool cannot be called by name', async () => {
     callerOf: () => ({ seat: 'seat-1', runtime: 'claude', sessionId: 'one' }),
     admit: async () => { admitCalls += 1; return { admitted: true } },
   })
-  assert.deepEqual(gateway.list('token').map((one) => one.name), ['approved-server'])
+  const listed = await gateway.list('token', async (queried) => {
+    assert.equal(queried.identity.name, 'approved-server', 'only the caller’s own approved server is ever queried')
+    return [{ name: 'do_the_real_thing', description: 'A real tool this server actually offers.', inputSchema: { type: 'object' } }]
+  })
+  assert.deepEqual(listed, [
+    { name: 'do_the_real_thing', server: 'approved-server', description: 'A real tool this server actually offers.', inputSchema: { type: 'object' } },
+  ])
 
   let invoked = false
   const result = await gateway.call('token', 'hidden-server', 'do_something', async () => {
@@ -113,6 +119,21 @@ test('hidden tool cannot be called by name', async () => {
   if (!result.ok) assert.equal(result.reason, HIDDEN_TOOL_REFUSAL)
   assert.equal(invoked, false, 'a name outside the approved set is never invoked')
   assert.equal(admitCalls, 0, 'refused before the ceiling gate is even asked — discovery is not authorization, and neither is a bare name')
+})
+
+test('one server’s failed listing does not hide another’s real tools', async () => {
+  const down = server({ identity: { kind: 'mcp', name: 'down-server', digest: 'd1', source: 'library', pathLabel: 'x' } })
+  const up = server({ identity: { kind: 'mcp', name: 'up-server', digest: 'd2', source: 'library', pathLabel: 'y' } })
+  const gateway = new McpToolGateway({
+    serversFor: () => [down, up],
+    callerOf: () => ({ seat: 'seat-1', runtime: 'claude', sessionId: 'one' }),
+    admit: async () => ({ admitted: true }),
+  })
+  const listed = await gateway.list('token', async (queried) => {
+    if (queried.identity.name === 'down-server') throw new Error('connection refused')
+    return [{ name: 'real_tool', description: '', inputSchema: {} }]
+  })
+  assert.deepEqual(listed, [{ name: 'real_tool', server: 'up-server', description: '', inputSchema: {} }])
 })
 
 test("child and message retain root limits", async () => {
@@ -169,7 +190,11 @@ test('expired token is not plain authority', async () => {
       return { admitted: true }
     },
   })
-  assert.deepEqual(gateway.list('gone'), [])
+  const listed = await gateway.list('gone', async () => {
+    calls.push('list')
+    return [{ name: 'flag_issue', description: '', inputSchema: {} }]
+  })
+  assert.deepEqual(listed, [])
   const result = await gateway.call('gone', 'reviewer-tools', 'flag_issue', async () => {
     calls.push('invoke')
     return 'ok'

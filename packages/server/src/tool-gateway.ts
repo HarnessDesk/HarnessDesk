@@ -50,7 +50,7 @@ export interface ToolGatewayBackend {
    * path alone) simply has none, and `mcp/list`/`mcp/call` answer as much
    * without the backend having to say so itself.
    */
-  mcpList?(caller?: string): readonly { readonly name: string; readonly server: string }[]
+  mcpList?(caller?: string): Promise<readonly { readonly name: string; readonly server: string; readonly description: string; readonly inputSchema: unknown }[]>
   mcpCall?(
     caller: string | undefined,
     server: string,
@@ -190,7 +190,7 @@ export class ToolGateway {
         case 'mcp/list': {
           const params = request.params ?? {}
           const caller = typeof params['caller'] === 'string' ? params['caller'] : undefined
-          reply({ result: { tools: this.backend.mcpList ? this.backend.mcpList(caller) : [] } })
+          reply({ result: { tools: this.backend.mcpList ? await this.backend.mcpList(caller) : [] } })
           return
         }
         case 'mcp/call': {

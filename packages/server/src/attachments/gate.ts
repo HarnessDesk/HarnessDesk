@@ -94,6 +94,14 @@ export interface McpGatewayPort {
 export const EXPIRED_CALLER_REFUSAL = 'This connection is no longer live. Start a new Seat to reach this server.'
 export const HIDDEN_TOOL_REFUSAL = 'This tool is not part of what this Seat approved. Discovery does not authorize a call.'
 
+/** One real tool a live listing described, already attributed to the server that answered for it. */
+export interface GatewayTool {
+  readonly name: string
+  readonly server: string
+  readonly description: string
+  readonly inputSchema: unknown
+}
+
 /**
  * The gateway a bridge process reaches instead of the upstream server
  * directly: it authenticates the caller before anything else, filters
@@ -106,11 +114,33 @@ export const HIDDEN_TOOL_REFUSAL = 'This tool is not part of what this Seat appr
 export class McpToolGateway {
   constructor(private readonly port: McpGatewayPort) {}
 
-  list(token: string): readonly { readonly name: string; readonly server: string }[] {
+  /**
+   * The caller's approved servers' real tools — never invented from the
+   * server identity alone. `listTools` is asked once per approved server, in
+   * parallel; a server that cannot answer right now (down, slow, refused)
+   * simply contributes nothing to this listing rather than failing the whole
+   * call, since discovery unavailability is not the security question this
+   * gateway exists to answer — `call` below still gates every actual
+   * invocation regardless of what a listing did or did not show.
+   */
+  async list(
+    token: string,
+    listTools: (server: GatewayServer) => Promise<readonly { readonly name: string; readonly description: string; readonly inputSchema: unknown }[]>,
+  ): Promise<readonly GatewayTool[]> {
     const caller = this.port.callerOf(token)
     if (!caller) return []
     const servers = this.port.serversFor(caller.seat) ?? []
-    return servers.map((one) => ({ name: one.identity.name, server: one.identity.name }))
+    const lists = await Promise.all(
+      servers.map(async (one): Promise<readonly GatewayTool[]> => {
+        try {
+          const tools = await listTools(one)
+          return tools.map((tool) => ({ name: tool.name, server: one.identity.name, description: tool.description, inputSchema: tool.inputSchema }))
+        } catch {
+          return []
+        }
+      }),
+    )
+    return lists.flat()
   }
 
   async call(

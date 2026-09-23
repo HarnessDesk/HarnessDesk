@@ -12,7 +12,7 @@ import { builtinAgentRoot } from '../src/host.js'
 import { resolveAttachmentDeclarations } from '../src/attachments/catalog.js'
 import { incarnationOf } from '../src/evidence/seen.js'
 import { McpToolGateway } from '../src/attachments/gate.js'
-import { callStdioMcpServer } from '../src/attachments/transport.js'
+import { callStdioMcpServer, listStdioMcpServerTools } from '../src/attachments/transport.js'
 import { ToolGateway } from '../src/tool-gateway.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
@@ -185,7 +185,12 @@ test('an unapproved MCP tool call is refused at the real gateway, over its own s
   const gateway = new ToolGateway(socketPath, {
     listTools: () => [],
     invokeByName: async () => ({ ok: false, error: 'not used by this test' }),
-    mcpList: (caller) => mcpGateway.list(caller ?? ''),
+    mcpList: (caller) =>
+      mcpGateway.list(caller ?? '', async (gatewayServer) => {
+        const spec = harness.host.mcpSpecFor(gatewayServer.endpoint)
+        if (!spec) return []
+        return listStdioMcpServerTools(spec)
+      }),
     mcpCall: (caller, serverName, toolName, args) =>
       mcpGateway.call(caller ?? '', serverName, toolName, async (gatewayServer) => {
         const spec = harness.host.mcpSpecFor(gatewayServer.endpoint)

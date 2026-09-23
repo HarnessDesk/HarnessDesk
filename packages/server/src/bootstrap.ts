@@ -13,7 +13,7 @@ import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import { invokeForBridge, ToolGateway } from './tool-gateway.js'
 import { GatedRegistry } from './ceilings/gate.js'
 import { McpToolGateway } from './attachments/gate.js'
-import { callStdioMcpServer } from './attachments/transport.js'
+import { callStdioMcpServer, listStdioMcpServerTools } from './attachments/transport.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -328,7 +328,16 @@ export const createDefaultHost = (
       invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
         logger.debug(message, details),
       ),
-    mcpList: (caller) => mcpGateway.list(caller ?? ''),
+    mcpList: (caller) =>
+      mcpGateway.list(caller ?? '', async (gatewayServer) => {
+        const spec = host.mcpSpecFor(gatewayServer.endpoint)
+        // A server whose endpoint no longer resolves (the Seat closed, the
+        // token was revoked) simply has nothing to list — the same silent
+        // omission any other unreachable server's listing gets, never an
+        // invented tool for a server that can no longer be dialed.
+        if (!spec) return []
+        return listStdioMcpServerTools(spec)
+      }),
     mcpCall: (caller, serverName, toolName, args) =>
       mcpGateway.call(caller ?? '', serverName, toolName, async (gatewayServer) => {
         const spec = host.mcpSpecFor(gatewayServer.endpoint)
