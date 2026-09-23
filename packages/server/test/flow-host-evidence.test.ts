@@ -134,12 +134,20 @@ const board = async (d: Desk, goal: string): Promise<readonly Intent[]> =>
 const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
   await d.host.call('flow/execution', { run }) as FlowExecution
 
-/** The open cards of one role once every one of them is claimed by its Seat. */
+/**
+ * The open cards of one role once every one of them is claimed by its Seat
+ * and that Seat has been handed its order — the moment an agent starts on
+ * its card, and not before: a card is claimed while its Seat is still being
+ * journaled, and an agent is never told about it until that is done.
+ */
 const claimed = async (d: Desk, goal: string, role: string, count: number): Promise<readonly Intent[]> =>
   explained(d, goal, until(async () => {
     const cards = (await board(d, goal)).filter((one) => one.role === role && one.state !== 'done')
-    return cards.length === count && cards.every((one) => one.state === 'claimed' && one.claim) ? cards : null
-  }, `${count} claimed ${role} card(s)`, 20_000))
+    if (cards.length !== count || !cards.every((one) => one.state === 'claimed' && one.claim)) return null
+    const ordered = (await Promise.all(d.runs.map((run) => execution(d, run)))).flatMap((run) => run.operations)
+      .filter((one) => one.kind === 'turn' && one.state === 'finished')
+    return cards.every((card) => ordered.some((one) => one.card === card.id)) ? cards : null
+  }, `${count} claimed ${role} card(s), each handed to its Seat`, 20_000))
 
 /** A wait that timed out says where the run and its board stood, rather than only that it waited. */
 const explained = async <T>(d: Desk, goal: string, waiting: Promise<T>): Promise<T> => {
