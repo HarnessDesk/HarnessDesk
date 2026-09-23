@@ -27,7 +27,39 @@ import type { TeamCallScope } from './team.js'
 
 // -------------------------------------------------------------- the subject
 
-/** One candidate this guard judges: a card, the round it belongs to, and the observed revision to judge it at. */
+/*
+ * How a fact comes to speak for a finished round — the one invariant every
+ * guard kind below obeys, and the one `FlowExecutions` builds its context to:
+ *
+ * 1. A guard judges subjects, never Seats. A subject is a revision: the head
+ *    of a card that could change files (its binding's grant is above read),
+ *    found by walking back from the finished round's own cards along
+ *    `dependsOn` to the nearest such round — the finished round itself when
+ *    it is one. A judge's or a reviewer's own checkout is never a subject. A
+ *    writer whose checkout has no clean head right now is `unsettled`: it
+ *    waits, and is never quietly left out.
+ * 2. The facts that may speak for a subject are those filed on a card of that
+ *    walk — the finished round's own cards (its checks, its reviews), every
+ *    round between, and the subjects' own cards (what the desk observed about
+ *    them: diff, pull request, CI, whose `round` is null). Card membership,
+ *    not the round number a fact carries, is what scopes it to this run.
+ * 3. A fact speaks for a subject only at the subject's own revision
+ *    (`check.at`, `ci.at`, `review.at`, `pr.head`, `diff.to`), only while it
+ *    is fresh, and only if this desk observed it (never a restored one).
+ * 4. Each question — a check by its exact command, CI, a pull request by its
+ *    number, the diff, a review by the Seat that wrote it — is decided by its
+ *    last observation in append order: a later failure defeats an earlier
+ *    pass, and a last observation that has gone stale waits.
+ * 5. Every subject must pass every guard, unless the rule's review guards
+ *    single out one subject every required reviewer chose; then that subject
+ *    alone is judged by the rest. Required reviewers are the finished round's
+ *    own Seats.
+ *
+ * Nothing here is woken by a message: a durable append to a Goal's facts is
+ * what makes `FlowExecutions.wakeEvidence` read these again.
+ */
+
+/** One candidate this guard judges: a writer's card, the round it belongs to, and the observed revision to judge it at. */
 export interface FlowSubject {
   readonly card: number
   readonly round: number
@@ -35,11 +67,17 @@ export interface FlowSubject {
   readonly at: string
 }
 
-/** What a finished round's rule sees: its own cards' subjects, and the facts that might satisfy a guard about them. */
+/** What a finished round's rule sees: its subjects, the cards whose facts may speak for them, and those facts. */
 export interface FlowEvidenceContext {
   readonly goal: string
   readonly finished: FlowRoundState
   readonly subjects: readonly FlowSubject[]
+  /** Writers in the closure with no clean head right now, and why: each one waits rather than being dropped. */
+  readonly unsettled: readonly { readonly card: number; readonly why: string }[]
+  /** Every card of the dependency walk: the finished round's own, those between, and the subjects'. */
+  readonly cards: readonly number[]
+  /** The Seats whose reviews a `review` guard needs: the finished round's own. */
+  readonly reviewers: readonly string[]
   readonly facts: readonly EvidenceView[]
   readonly outcomes: readonly (string | null)[]
 }
@@ -51,6 +89,7 @@ export type FlowGuardResult =
 
 export const MISSING_EVIDENCE = 'The evidence this card needs is missing or ambiguous. Observe it again.'
 export const AMBIGUOUS_REVIEWS = 'These reviews name different revisions. Ask for one revision before continuing.'
+export const NO_SUBJECT = 'Nothing in this step’s history changed any files, so there is no revision to judge.'
 const WAITING_CHECK = 'Waiting for a passing check at this revision.'
 const WAITING_CI = 'Waiting for CI to go green at this revision.'
 const WAITING_REVIEW = 'Waiting for a structured review at this revision.'
@@ -59,36 +98,30 @@ const WAITING_DIFF = 'Waiting for an observed diff at this revision.'
 
 // ----------------------------------------------------------------- chooseFact
 
-/** One logical question's observations, in canonical append order — never sorted by wall clock or id. */
+/** One observation of one logical question, in canonical append order — never sorted by wall clock or id. */
 export interface FactChoice {
-  id: string
-  kind: string
-  at: string
-  fresh: boolean
-  restored: boolean
-  card: number
-  round: number
-  observedAt: number
-  passed: boolean
+  readonly id: string
+  /** The question it answers: `check`, `ci`, `diff`, `pr:<number>`, `review:<seat>`. */
+  readonly question: string
+  readonly at: string
+  readonly fresh: boolean
+  /** Null when it is not a verdict yet: CI still running, a pull request still open when another state is wanted. */
+  readonly passed: boolean | null
 }
 
 /**
- * The last observation of one logical question, judged. Null means unusable —
- * missing, stale, restored or itself a failure — so the caller can tell "no
- * observation yet" from "an explicit negative fact" by looking at `facts`
- * again with the freshness check dropped, which is exactly the mutation this
- * function is built to fail under.
+ * The last observation of one question at one revision, judged. `pass` and
+ * `fail` only for a fresh last observation; anything else — none at all, a
+ * last one gone stale, one that is not a verdict yet — is `missing`, which
+ * waits and never falls through to a later rule.
  */
 export function chooseFact(
   facts: readonly FactChoice[],
-  scope: { readonly cards: readonly number[]; readonly round: number; readonly kind: string; readonly at: string },
-): FactChoice | null {
-  const matching = facts.filter(
-    (fact) => scope.cards.includes(fact.card) && fact.round === scope.round && fact.kind === scope.kind && fact.at === scope.at,
-  )
-  const latest = matching.at(-1)
-  if (!latest || !latest.fresh || latest.restored || !latest.passed) return null
-  return latest
+  scope: { readonly question: string; readonly at: string },
+): { readonly state: 'pass' | 'fail'; readonly fact: FactChoice } | { readonly state: 'missing' } {
+  const latest = facts.filter((fact) => fact.question === scope.question && fact.at === scope.at).at(-1)
+  if (!latest || !latest.fresh || latest.passed === null) return { state: 'missing' }
+  return { state: latest.passed ? 'pass' : 'fail', fact: latest }
 }
 
 // -------------------------------------------------------------- renderEvidence
@@ -103,123 +136,183 @@ const EVIDENCE_FIELD = /^(check\.(at|name|exit)|ci\.at|review\.(at|verdict|by)|p
  * through this or any other pass.
  */
 export function renderEvidence(template: string, values: Readonly<Record<string, string>>): string {
-  return template.replace(/\{\{\s*evidence\.([^{}]*?)\s*\}\}/g, (_whole, path: string) => {
-    if (!EVIDENCE_FIELD.test(path)) {
-      throw new Error('This evidence field is not supported. Use one kind and one field.')
-    }
-    if (!Object.hasOwn(values, path)) {
-      throw new Error(MISSING_EVIDENCE)
-    }
-    return values[path]!
-  })
+  return template.replace(/\{\{\s*evidence\.([^{}]*?)\s*\}\}/g, (_whole, path: string) => evidenceField(path, values))
+}
+
+const evidenceField = (path: string, values: Readonly<Record<string, string>>): string => {
+  if (!EVIDENCE_FIELD.test(path)) throw new Error('This evidence field is not supported. Use one kind and one field.')
+  if (!Object.hasOwn(values, path)) throw new Error(MISSING_EVIDENCE)
+  return values[path]!
+}
+
+/**
+ * A v2 card's title or detail: its ordinary slots and its evidence fields, in
+ * one pass over the template. Neither kind of value is ever read again as a
+ * template, so an input or a fact that itself says `{{...}}` stays literal.
+ * An unknown ordinary slot stays as written; an evidence field this rule has
+ * no single value for refuses, so a merge card never names a guessed revision.
+ */
+export function renderCardTemplate(
+  template: string,
+  vars: Readonly<Record<string, string>>,
+  evidence: Readonly<Record<string, string>>,
+): string {
+  return template.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (whole, name: string) =>
+    name.startsWith('evidence.') ? evidenceField(name.slice('evidence.'.length), evidence)
+      : Object.hasOwn(vars, name) ? vars[name]! : whole)
+}
+
+/** Whether a template names any evidence field at all — the only case a card needs its round's facts read. */
+export const namesEvidence = (template: string | null | undefined): boolean => /\{\{\s*evidence\./.test(template ?? '')
+
+/**
+ * The template values a set of facts supports: each field only when every
+ * fact of its kind agrees on it. Two reviews naming two revisions give no
+ * `review.at` at all rather than the first or the last of them.
+ */
+export function evidenceValues(records: readonly EvidenceRecord[]): Readonly<Record<string, string>> {
+  const seen = new Map<string, Set<string>>()
+  const put = (path: string, value: string | number | null): void => {
+    if (value === null) return
+    const set = seen.get(path) ?? new Set<string>()
+    set.add(String(value))
+    seen.set(path, set)
+  }
+  for (const { fact } of records) {
+    if (fact.kind === 'check') { put('check.at', fact.at); put('check.name', fact.name); put('check.exit', fact.exit) }
+    else if (fact.kind === 'ci') put('ci.at', fact.at)
+    else if (fact.kind === 'review') { put('review.at', fact.at); put('review.verdict', fact.verdict); put('review.by', fact.by) }
+    else if (fact.kind === 'pr') { put('pr.head', fact.head); put('pr.number', fact.number) }
+    else if (fact.kind === 'diff') { put('diff.from', fact.from); put('diff.to', fact.to) }
+  }
+  const out: Record<string, string> = {}
+  for (const [path, values] of seen) if (values.size === 1) out[path] = [...values][0]!
+  return out
 }
 
 // ---------------------------------------------------------------- the guard
 
-/** A guard's own scope key: `check:<run text>`, `ci`, `review:<answer>`, `pr:<state>`, `diff`. */
-const kindOf = (guard: FlowEvidenceGuard): string =>
-  'check' in guard ? `check:${guard.check}`
-    : 'ci' in guard ? 'ci'
-      : 'review' in guard ? `review:${guard.review}`
-        : 'pr' in guard ? `pr:${guard.pr}`
-          : 'diff'
-
 const waitingFor = (guard: FlowEvidenceGuard): string =>
   'check' in guard ? WAITING_CHECK : 'ci' in guard ? WAITING_CI : 'review' in guard ? WAITING_REVIEW : 'pr' in guard ? WAITING_PR : WAITING_DIFF
 
-/** `EvidenceView[]` reduced to the questions this guard kind can answer, in append order. */
-const choicesFor = (guard: FlowEvidenceGuard, facts: readonly EvidenceView[]): FactChoice[] => {
-  const kind = kindOf(guard)
+/**
+ * The facts this context lets speak (rule 2 and 3's scope: a card of the
+ * walk, observed here), reduced to the questions this guard kind asks, in
+ * append order. Freshness is carried, not filtered, so a stale last
+ * observation still hides an older fresh one (rule 4).
+ */
+const choicesFor = (guard: FlowEvidenceGuard, context: FlowEvidenceContext): FactChoice[] => {
+  const cards = new Set(context.cards)
   const out: FactChoice[] = []
-  for (const view of facts) {
-    const fact = view.record.fact
-    const card = view.record.card?.id
-    const round = view.record.round
-    if (card === undefined || round == null) continue
+  for (const view of context.facts) {
+    const { record } = view
+    if (record.restored || record.card?.board !== context.goal || !cards.has(record.card.id)) continue
+    const fact = record.fact
     const fresh = view.freshness.state === 'fresh'
-    const restored = Boolean(view.record.restored)
-    const observedAt = view.record.observedAt
+    const one = (question: string, at: string, passed: boolean | null): void => { out.push({ id: record.id, question, at, fresh, passed }) }
     if ('check' in guard && fact.kind === 'check' && fact.run === guard.check) {
-      out.push({ id: view.record.id, kind, at: fact.at, fresh, restored, card, round, observedAt, passed: checkPassed(fact) })
+      one('check', fact.at, checkPassed(fact) && fact.counted !== false)
     } else if ('ci' in guard && fact.kind === 'ci') {
-      out.push({ id: view.record.id, kind, at: fact.at, fresh, restored, card, round, observedAt, passed: ciVerdict(fact.checks) === 'passed' })
+      const verdict = ciVerdict(fact.checks)
+      one('ci', fact.at, verdict === 'passed' ? true : verdict === 'running' ? null : false)
     } else if ('review' in guard && fact.kind === 'review') {
-      out.push({ id: view.record.id, kind, at: fact.at, fresh, restored, card, round, observedAt, passed: fact.verdict === guard.review })
-    } else if ('pr' in guard && fact.kind === 'pr' && fact.state === guard.pr) {
-      out.push({ id: view.record.id, kind, at: fact.head, fresh, restored, card, round, observedAt, passed: true })
+      one(`review:${fact.by}`, fact.at, fact.verdict === guard.review)
+    } else if ('pr' in guard && fact.kind === 'pr') {
+      const settledOther = fact.state !== guard.pr && fact.state !== 'open'
+      one(`pr:${fact.number}`, fact.head, fact.state === guard.pr ? true : settledOther || guard.pr === 'open' ? false : null)
     } else if ('diff' in guard && fact.kind === 'diff') {
-      out.push({ id: view.record.id, kind, at: fact.to, fresh, restored, card, round, observedAt, passed: true })
+      one('diff', fact.to, fact.files > 0)
     }
   }
   return out
 }
 
-/** Whether any fresh, kept fact of this guard's kind exists for the exact subject, whatever it decided. */
-const observedAt = (choices: readonly FactChoice[], round: number, kind: string, subject: FlowSubject): boolean =>
-  choices.some((one) => one.card === subject.card && one.round === round && one.kind === kind && one.at === subject.at && one.fresh && !one.restored)
-
 /**
- * One guard, over the current candidate subjects: every subject must match,
- * except a `review` guard, which may instead pick out exactly one candidate
- * by the revision its reviewers named (`review.at` narrowing).
+ * One non-review guard at one subject: a pass on any of its questions passes
+ * (a pull request is any of its numbers), a fail on every one of them fails,
+ * and anything else waits.
  */
-const evaluateGuard = (guard: FlowEvidenceGuard, context: FlowEvidenceContext, subjects: readonly FlowSubject[]): FlowGuardResult => {
-  const kind = kindOf(guard)
-  const choices = choicesFor(guard, context.facts)
-  if ('review' in guard && subjects.length > 1) return reviewNarrowing(guard.review, kind, choices, context, subjects)
-  const matched: FlowSubject[] = []
+const judgeAt = (choices: readonly FactChoice[], subject: FlowSubject): { readonly state: 'pass' | 'fail' | 'missing'; readonly id?: string } => {
+  const questions = [...new Set(choices.filter((one) => one.at === subject.at).map((one) => one.question))]
+  const verdicts = questions.map((question) => chooseFact(choices, { question, at: subject.at }))
+  const pass = verdicts.find((one) => one.state === 'pass')
+  if (pass && pass.state === 'pass') return { state: 'pass', id: pass.fact.id }
+  if (verdicts.length > 0 && verdicts.every((one) => one.state === 'fail')) return { state: 'fail' }
+  return { state: 'missing' }
+}
+
+/** A non-review guard over every subject still standing (rule 5): all pass, or one fails, or it waits. */
+const everySubject = (guard: FlowEvidenceGuard, context: FlowEvidenceContext, subjects: readonly FlowSubject[]): FlowGuardResult => {
+  const choices = choicesFor(guard, context)
   const evidence: string[] = []
-  let sawNegative = false
+  let failed = false
+  let missing = false
   for (const subject of subjects) {
-    const found = chooseFact(choices, { cards: [subject.card], round: context.finished.n, kind, at: subject.at })
-    if (found) {
-      matched.push(subject)
-      evidence.push(found.id)
-      continue
-    }
-    if (observedAt(choices, context.finished.n, kind, subject)) sawNegative = true
+    const verdict = judgeAt(choices, subject)
+    if (verdict.state === 'pass') evidence.push(verdict.id!)
+    else if (verdict.state === 'fail') failed = true
+    else missing = true
   }
-  if (subjects.length > 0 && matched.length === subjects.length) return { state: 'matched', evidence: [...new Set(evidence)], subjects: matched }
-  if (sawNegative) return { state: 'no-match' }
-  return { state: 'waiting', reason: waitingFor(guard) }
+  if (failed) return { state: 'no-match' }
+  if (missing) return { state: 'waiting', reason: waitingFor(guard) }
+  return { state: 'matched', evidence, subjects }
 }
 
 /**
- * A `review` guard over more than one candidate: the reviewers' own `at`
- * chooses which one they judged. Every fresh, kept review naming the answer
- * must agree on one revision; disagreement is ambiguous rather than a partial
- * match, and a revision no candidate carries is not one that exists here.
+ * A review guard: which subject the required reviewers chose. Each
+ * reviewer's last fresh review at a subject is its verdict there. More than
+ * one subject chosen is ambiguous — never a partial match at each — and the
+ * one chosen needs every required reviewer's pass at it: one reviewer's
+ * explicit other verdict there is a no-match, one still to review waits.
  */
-const reviewNarrowing = (
-  answer: string, kind: string, choices: readonly FactChoice[], context: FlowEvidenceContext, subjects: readonly FlowSubject[],
-): FlowGuardResult => {
-  const seen = choices.filter((one) => one.round === context.finished.n && one.fresh && !one.restored)
-  if (seen.length === 0) return { state: 'waiting', reason: waitingFor({ review: answer }) }
-  const negative = seen.filter((one) => !one.passed)
-  const positive = seen.filter((one) => one.passed)
-  const heads = new Set(positive.map((one) => one.at))
-  if (heads.size > 1) return { state: 'waiting', reason: AMBIGUOUS_REVIEWS }
-  if (heads.size === 0) return negative.length > 0 ? { state: 'no-match' } : { state: 'waiting', reason: waitingFor({ review: answer }) }
-  const [at] = heads
-  const subject = subjects.find((one) => one.at === at)
-  if (!subject) return { state: 'waiting', reason: MISSING_EVIDENCE }
-  const winners = positive.filter((one) => one.at === at && one.card === subject.card)
-  return { state: 'matched', evidence: [...new Set(winners.map((one) => one.id))], subjects: [subject] }
+const reviewChoice = (answer: string, context: FlowEvidenceContext, subjects: readonly FlowSubject[]): FlowGuardResult => {
+  const choices = choicesFor({ review: answer }, context)
+  const required = context.reviewers.length > 0
+    ? context.reviewers.map((seat) => `review:${seat}`)
+    : [...new Set(choices.map((one) => one.question))]
+  if (required.length === 0) return { state: 'waiting', reason: WAITING_REVIEW }
+  const verdictsAt = (subject: FlowSubject) => required.map((question) => chooseFact(choices, { question, at: subject.at }))
+  const chosen = subjects.filter((subject) => verdictsAt(subject).some((one) => one.state === 'pass'))
+  if (chosen.length > 1) return { state: 'waiting', reason: AMBIGUOUS_REVIEWS }
+  if (chosen.length === 0) {
+    const refused = subjects.some((subject) => verdictsAt(subject).some((one) => one.state === 'fail'))
+    return refused ? { state: 'no-match' } : { state: 'waiting', reason: WAITING_REVIEW }
+  }
+  const [subject] = chosen as [FlowSubject]
+  const verdicts = verdictsAt(subject)
+  if (verdicts.some((one) => one.state === 'fail')) return { state: 'no-match' }
+  if (verdicts.some((one) => one.state === 'missing')) return { state: 'waiting', reason: WAITING_REVIEW }
+  return { state: 'matched', evidence: verdicts.map((one) => (one.state === 'pass' ? one.fact.id : '')).filter(Boolean), subjects: [subject] }
 }
 
 /**
- * A rule's whole evidence list. Every guard must match, over the same
- * surviving subjects — a `review` guard may narrow them, and a later guard is
- * judged only against what an earlier one left. Empty guards match trivially,
- * over every subject the round offers.
+ * A rule's whole evidence list. Review guards are judged first, since they
+ * may single out one subject; every other guard is then judged against the
+ * subjects still standing. A writer with no clean head waits unless a review
+ * already chose another subject. Empty guards match trivially.
  */
 export function evidenceGuard(guards: readonly FlowEvidenceGuard[], context: FlowEvidenceContext): FlowGuardResult {
+  if (guards.length === 0) return { state: 'matched', evidence: [], subjects: context.subjects }
+  if (context.subjects.length === 0 && context.unsettled.length === 0) return { state: 'waiting', reason: NO_SUBJECT }
   let subjects = context.subjects
   const evidence = new Set<string>()
-  for (const guard of guards) {
-    const result = evaluateGuard(guard, context, subjects)
+  const reviews = guards.filter((guard) => 'review' in guard)
+  let narrowed = false
+  for (const guard of reviews) {
+    const result = reviewChoice(guard.review, context, subjects)
     if (result.state !== 'matched') return result
     subjects = result.subjects
+    narrowed = true
+    for (const id of result.evidence) evidence.add(id)
+  }
+  if (!narrowed && context.unsettled.length > 0) {
+    const [first] = context.unsettled as [{ readonly card: number; readonly why: string }]
+    return { state: 'waiting', reason: `Waiting for card #${first.card}: ${first.why}.` }
+  }
+  for (const guard of guards) {
+    if ('review' in guard) continue
+    const result = everySubject(guard, context, subjects)
+    if (result.state !== 'matched') return result
     for (const id of result.evidence) evidence.add(id)
   }
   if (subjects.length === 0) return { state: 'waiting', reason: MISSING_EVIDENCE }
@@ -240,6 +333,8 @@ export interface ReviewBinding {
   readonly answers: readonly string[]
   readonly round: number
   readonly subjects: readonly FlowSubject[]
+  /** Predecessor writers with no clean head right now: still owed a review, but not one that can be recorded yet. */
+  readonly unsettled?: readonly { readonly card: number; readonly why: string }[]
 }
 
 /** What appending one review record found already durable: a fresh write, an identical repeat, or a genuine conflict. */
@@ -323,6 +418,21 @@ export class FlowReview implements FlowReviewPort {
         view.record.round === bound.round &&
         !view.record.restored,
     )
+  }
+
+  /**
+   * Whether this caller still owes a review before `complete_claim` may
+   * finish its card: it holds the card, the card has predecessor work to
+   * judge — a revision, or a writer whose checkout is not yet clean — and
+   * its own Seat has recorded nothing on it. A step with nothing before it
+   * to judge (a seed that proposes, say) owes none: there is no candidate a
+   * review could name.
+   */
+  async owed(intent: number, scope: TeamCallScope): Promise<boolean> {
+    const bound = await this.#port.bindingFor(intent, scope)
+    if (!bound) return true
+    if (bound.subjects.length === 0 && (bound.unsettled?.length ?? 0) === 0) return false
+    return !(await this.recorded(intent, scope))
   }
 
   async candidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]> {

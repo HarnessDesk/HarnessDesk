@@ -39,7 +39,13 @@ export interface GoalPlanePort extends GoalOperationPort {
     readonly gaps: readonly string[]
   }>
   revision(cwd: string): Promise<{ readonly head: string | null; readonly dirty: boolean | null }>
-  changed(view: GoalView): void
+  /**
+   * A Goal's view moved. `install: false` when the caller only wants windows
+   * told — a flow run's own state changed and the Goal store did not — so a
+   * view read before the board's own pending write lands is never installed
+   * over the newer board the desk holds in memory.
+   */
+  changed(view: GoalView, options?: { readonly install: boolean }): void
   activity(goal: string, previous: NonNullable<GoalView['activity']>, activity: NonNullable<GoalView['activity']>, sentence: string): void
   ready(): { ok: true } | { ok: false; reason: string }
   /** Stops every flow run dispatching on this Goal, inside each run's own queue, before a wrap is taken. */
@@ -147,12 +153,12 @@ export class GoalPlane {
     }
   }
 
-  async refresh(id: string): Promise<void> {
+  async refresh(id: string, options: { readonly install: boolean } = { install: true }): Promise<void> {
     const view = await this.view(id)
     const previous = this.#activity.get(id)
     if (view.activity === null) this.#activity.delete(id)
     else this.#activity.set(id, view.activity)
-    this.port.changed(view)
+    this.port.changed(view, options)
     if (previous !== undefined && view.activity !== null && previous !== view.activity) {
       this.port.activity(id, previous, view.activity, view.goal.sentence)
     }

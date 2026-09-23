@@ -19,18 +19,11 @@ import { agent, goalRig } from './fixtures/flow-goal-rig.js'
  * and review logic UC2 depends on, including the transitive dependency walk
  * a judge one round after a check needs to reach what it is actually judging.
  *
- * The referee's own gate names only `evidence: [{ review: picked }]`, not
- * also a `check` guard: `chooseFact` requires a fact's own `round` to equal
- * the round whose outgoing rule is being decided (proven directly in
- * `flow-evidence.test.ts`, where a matching check and its gating round share
- * one number throughout). A check's fact is stamped with the check round's
- * own number, so a `check` guard can gate the rule immediately after that
- * check — `to-judge`'s `when: { every: [pass] }` already is that gate, on an
- * outcome a check can never misreport — but not a rule two rounds later,
- * which is what naming both guards together on `to-referee` would need. The
- * plan's own text names both; this is the one place this task's standing
- * authority to fix an invalid claim in the same commit applies, and it is
- * exercised in the plan-review PR's terms, not silently.
+ * The referee's gate names only `evidence: [{ review: picked }]`. A `check`
+ * guard beside it would be judged too: a fact counts for a rule by the card
+ * it is filed on — any card of the walk back to the competitors, the check
+ * round's included — and the revision it names, never by the round number it
+ * carries (the invariant at `FlowSubject` in `flow-evidence.ts`).
  */
 
 const JUDGE_PRODUCES_REVIEW = (id: string, runtime: string): AgentEntry => ({
@@ -107,18 +100,14 @@ test('UC2 keeps two lanes and carries the chosen revision', async (t) => {
   const referee = board().intents.find((one) => one.role === 'referee')
   assert.ok(referee, 'the guarded rule fired: a fresh review naming the winner satisfied it')
   const execution = rig.flows.executionsFor(run.goal)[0]!
-  // `reviewNarrowing`'s own `winners` line additionally requires a fact's
-  // `card` to equal the winning subject's card, which a review record never
-  // is (it is filed against the reviewer's own card, by `record()`'s design
-  // above) — so a multi-candidate review's cited evidence ids come back
-  // empty even though the guard state is `matched`. Noted, not fixed here:
-  // Task 4's own surface, and it does not affect whether the rule fires.
-  assert.deepEqual(execution.rounds.find((one) => one.role === 'referee')?.evidence, [])
+  // The referee round keeps the review that authorized it, by id — the
+  // judge's own record, filed on the judge's card, naming attempt 1.
+  const reviewFact = rig.facts.get(run.goal)?.find((one) => one.fact.kind === 'review')
+  assert.ok(reviewFact)
+  assert.deepEqual(execution.rounds.find((one) => one.role === 'referee')?.evidence, [reviewFact!.id])
 
   // Moving the selected head after the fact stales the recorded review: the
   // same guard, evaluated again, no longer matches on the now-superseded fact.
-  const reviewFact = rig.facts.get(run.goal)?.find((one) => one.fact.kind === 'review')
-  assert.ok(reviewFact)
   rig.staleFacts.add(reviewFact!.id)
   const judgeRound = execution.rounds.find((one) => one.role === 'judge')!
   const subjects = await rig.executions.subjectsOf(run.goal, judgeRound)
@@ -128,7 +117,10 @@ test('UC2 keeps two lanes and carries the chosen revision', async (t) => {
   }))
   const guard = evidenceGuard(
     [{ review: 'picked' }],
-    { goal: run.goal, finished: judgeRound, subjects, facts, outcomes },
+    {
+      goal: run.goal, finished: judgeRound, subjects, unsettled: [], facts, outcomes, reviewers: judgeRound.seats,
+      cards: [...judgeRound.cards, ...verifies.map((one) => one.id), ...competitors.map((one) => one.id)],
+    },
   )
   // Stale, not a fresh match: the same guard, asked again, does not silently
   // keep authorizing a merge once the winning branch has moved on.

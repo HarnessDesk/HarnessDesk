@@ -84,7 +84,7 @@ import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
-import { evidenceGuard, FlowReview } from './flow-evidence.js'
+import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { FlowUpdates } from './flow-update.js'
 import { previewAgent } from './methods/agents.js'
@@ -756,6 +756,17 @@ export class Host {
             return false
           }
         },
+        /* The one place a new fact reaches the flow engine: every durable
+           append, whoever wrote it, re-reads the guards of runs waiting on
+           those Goals. Never a message. Read lazily: the engine is made
+           after this plane, and nothing appends before both exist. */
+        appended: (boards) => {
+          if (this.#disposed) return
+          for (const board of boards) {
+            void this.#flows?.wakeEvidence(board).catch((error: unknown) =>
+              this.#logger.warn('a flow could not re-read its evidence', { goal: board, error: error instanceof Error ? error.message : String(error) }))
+          }
+        },
       },
     )
     // A conversation seen for the first time wears the Agent its Seat record names.
@@ -874,7 +885,10 @@ export class Host {
         if (!seat || seat.closed || !seat.board) return null
         const bound = await this.#flows.reviewBindingFor(seat.board, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
         if (!bound) return null
-        return { goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round, subjects: bound.subjects }
+        return {
+          goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round,
+          subjects: bound.subjects, unsettled: bound.unsettled,
+        }
       },
       facts: async (goal) => {
         const state = this.#goalState(goal)
@@ -956,8 +970,10 @@ export class Host {
         await this.#applySeatPicks(live, seat.seat)
         return this.#labelOf(seat.seat.runtime, live.options())
       },
+      // Tells windows only: a run's own journal moved, not the Goal's board,
+      // and a view read here could predate the board's own pending write.
       changed: (goal) => {
-        void this.#goals.refresh(goal).catch(() => {})
+        void this.#goals.refresh(goal, { install: false }).catch(() => {})
       },
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       headOf: async (cwd) => {
@@ -967,17 +983,13 @@ export class Host {
       runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
     }, {
       /**
-       * The one evidence guard the desk actually runs: this Goal's own facts,
-       * freshly read and freshly judged against git, never the board's
-       * folded display projection.
+       * What every evidence guard reads: this Goal's own facts in append
+       * order, each judged against git now, never the board's folded display
+       * projection. The engine builds the subjects and judges them itself.
        */
-      evidence: async (goal, round, rule) => {
+      facts: async (goal) => {
         const state = this.#goalState(goal)
-        const project = await projectOf(state.cwd ?? state.root)
-        const facts = await this.#evidence.factsForGoal(goal, project)
-        const subjects = await this.#flows.subjectsOf(goal, round)
-        const outcomes = round.cards.map((id) => state.intents.find((one) => one.id === id)?.outcome ?? null)
-        return evidenceGuard(rule.when!.evidence!, { goal, finished: round, subjects, facts, outcomes })
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
       },
     }), review)
     this.#team.attachFlows(this.#flows)
@@ -1072,8 +1084,8 @@ export class Host {
         const revision = await revisionOf(cwd)
         return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
       },
-      changed: (view) => {
-        if (!this.#publishingTeamProjection) {
+      changed: (view, options) => {
+        if (options?.install !== false && !this.#publishingTeamProjection) {
           this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
         }
         this.#push({ method: 'goal/changed', params: { view } })

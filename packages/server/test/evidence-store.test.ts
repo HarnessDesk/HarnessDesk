@@ -302,6 +302,7 @@ test('a folder whose name does not match the project it claims is not listed', a
 test('nothing in the store can change or remove a line once it is written: it only appends', () => {
   assert.deepEqual(
     Object.getOwnPropertyNames(EvidenceStore.prototype).sort(),
-    ['append', 'constructor', 'flush', 'folderOf', 'merge', 'projects', 'read'],
+    // `onDurable` only listens: it is told of lines once they are synced, and hands nothing a way to write.
+    ['append', 'constructor', 'flush', 'folderOf', 'merge', 'onDurable', 'projects', 'read'],
   )
 })

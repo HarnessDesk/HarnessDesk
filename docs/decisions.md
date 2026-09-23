@@ -412,32 +412,32 @@ the same way, can replay.
 **The rule:** no fs call on a project path bypasses the confined tree, and no
 write there happens on a platform without an any-component no-follow open.
 
-## A check without an explicit checkout fans out, and a review's subjects walk back through it
+## An evidence guard judges revisions, found by card and revision, never by round
 
-A round with no checkout of its own — a check seats nobody — has to ask
-somewhere else what it is a fact about. The obvious answer, "the round that
-finished before it," is only sometimes true: a check gating a judge's own
-round needs the *competitor's* checkouts, and a check sits directly between
-them. Walking one hop back is not enough, so the same lookup — first try the
-round's own Seats, then its cards' `dependsOn`, repeated (bounded) until a
-round with real Seats answers — is what both a check's own width and a
-structured review's candidate list are computed from. Before this, a check
-role always opened one aggregate card in the Goal's checkout regardless of a
-predecessor's width, and a reviewer one round after a check was offered no
-candidates at all; both read as the round two-steps-back problem solved once
-rather than twice.
+A finished round's rule asks whether some work is good enough to move on,
+and the facts that answer are filed all over the run: a check on the check's
+own card, a judge's review on the judge's card, an observed diff or pull
+request on the writer's card with no round at all. The first version asked
+for a fact on the *subject's own card, in the finished round* — a join no
+fact the desk records ever satisfied, so every guarded rule waited forever,
+and a judge sitting in a clean Goal checkout was even taken for the thing
+being judged.
 
-`chooseFact`, correctly, still requires a fact's own `round` to equal the
-round a guard is evaluated for: a check gates the rule immediately after it.
-A rule two rounds later that also names the same check as a guard — the
-plan text for the shipped `comparison.yml` originally asked for exactly that
-on its person-facing rule — cannot be satisfied this way, because the fact
-was never recorded against that later round. The shipped file gates that
-rule on the structured review alone, which *is* recorded against the round
-being decided; the plan's own text is the one place this phase's standing
-authority to correct an unrunnable claim in the same commit applies, and
-`flow-acceptance.test.ts` says why in place.
+So a guard judges *subjects*, and a subject is a revision: the head, read
+now, of the nearest cards back along `dependsOn` whose grant lets them change
+files. A judge or reviewer (grant `read`) is never a subject; a check or a
+person round is walked through. The facts that may speak for a subject are
+those filed on any card that walk crossed — which is what scopes a fact to
+this run — at the subject's own revision, fresh, and observed here. The last
+observation of each question decides. Review guards are judged first and may
+single out one candidate every required reviewer (the finished round's own
+Seats) chose; every other guard is then judged at that revision. A writer
+whose checkout is dirty is kept as unsettled and waits, rather than being
+dropped from "every subject". The same walk, started from a card's own
+`dependsOn`, gives a check its fan-out width and a reviewer its candidates.
+Every durable append to the evidence store wakes waiting guards; a message
+never does.
 
-**The rule:** a round with no Seats of its own asks its dependency chain,
-not just its immediate predecessor, for what it is a fact about; a guard
-still only ever reads a fact recorded against the exact round deciding it.
+**The rule:** a fact counts for a rule by the card it is filed on and the
+revision it names, never by the round number it carries, and never for a
+checkout that could not have changed.

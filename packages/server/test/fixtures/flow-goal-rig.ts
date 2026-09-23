@@ -4,7 +4,7 @@ import { join } from 'node:path'
 
 import type { AgentEntry, Evidence, EvidenceRecord, EvidenceView, Lane, RuntimeId, SeatRecord, TeamState } from '@harnessdesk/protocol'
 
-import { evidenceGuard, FlowReview, type ReviewAppendOutcome, type ReviewSubjectPort } from '../../src/flow-evidence.js'
+import { FlowReview, type ReviewAppendOutcome, type ReviewSubjectPort } from '../../src/flow-evidence.js'
 import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort, type StoredFlowExecution } from '../../src/flow-execution.js'
 import { compileFlowPolicy, parseFlowPolicy } from '../../src/flow-policy.js'
 import { Flows, type FlowPort } from '../../src/flows.js'
@@ -256,7 +256,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       if (!goal) return null
       const bound = await rig.flows.reviewBindingFor(goal, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
       if (!bound) return null
-      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects }
+      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects, unsettled: bound.unsettled }
     },
     facts: async (goal) => viewsFor(goal),
     // The same compare-and-merge `FakePort` in flow-review.test.ts proves against a bare port: an
@@ -291,11 +291,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   const build = () => {
     const files = new FaultyFiles(join(dir, 'flows-v2'))
     const executions: FlowExecutions = new FlowExecutions(files, team, port, {
-      evidence: async (goal, round, rule) => {
-        const subjects = await rig.executions.subjectsOf(goal, round)
-        const outcomes = round.cards.map((id) => team.stateFor(goal).intents.find((one) => one.id === id)?.outcome ?? null)
-        return evidenceGuard(rule.when!.evidence!, { goal, finished: round, subjects, facts: viewsFor(goal), outcomes })
-      },
+      facts: async (goal) => viewsFor(goal),
     })
     const flows = new Flows(join(dir, 'flows'), team, legacy, undefined, executions, review)
     team.attachFlows(flows)

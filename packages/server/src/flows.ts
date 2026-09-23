@@ -420,8 +420,8 @@ export class Flows implements TeamFlows {
     if (!this.#review || !caller.runtime || !caller.sessionId) {
       return 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
     }
-    const recorded = await this.#review.recorded(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
-    return recorded ? null : 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
+    const owed = await this.#review.owed(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
+    return owed ? 'This card needs a structured review before it can complete. Ask for review candidates and record one first.' : null
   }
 
   /**

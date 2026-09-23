@@ -137,7 +137,7 @@ const FAN_OUT_FLOW = `
 version: 2
 name: Two writers, one gate
 roles:
-  author: { kind: agent, uses: writer, count: 2, isolate: true }
+  author: { kind: agent, uses: writer, count: 2, isolate: true, grant: edit }
   gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
 seed: { role: author, title: Write it }
 rules:

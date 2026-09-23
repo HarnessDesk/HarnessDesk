@@ -37,6 +37,12 @@ export interface EvidencePort {
   push(notification: WireNotification): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
   canMutateBoard?(board: string): boolean
+  /**
+   * New facts are on the disk for these boards — whoever appended them: a
+   * check, an observed branch, a structured review, a restore. Called once
+   * per durable append, after it is synced, never for a line that is not.
+   */
+  appended?(boards: readonly string[]): void
 }
 
 export interface EvidenceOptions {
@@ -72,6 +78,17 @@ export class EvidencePlane {
     this.#now = options.now ?? Date.now
     this.store = new EvidenceStore(options.dir, (message, details) => port.log(message, details))
     this.seats = new SeatBook(this.store, options.now)
+    this.store.onDurable((_project, file, lines) => {
+      if (file !== 'evidence' || !port.appended) return
+      const boards = new Set<string>()
+      for (const line of lines) {
+        if (line.type !== 'evidence') continue
+        if (line.record.card?.board) boards.add(line.record.card.board)
+        const board = line.record.seat ? this.seats.byId(line.record.seat)?.board : null
+        if (board) boards.add(board)
+      }
+      if (boards.size > 0) port.appended([...boards])
+    })
     this.seen = new CommandsSeen(options.seenFile, {
       ...(options.cipher ? { cipher: options.cipher } : {}),
       ...(options.now ? { now: options.now } : {}),

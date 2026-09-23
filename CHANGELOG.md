@@ -21,6 +21,12 @@ move is real work and is not news to a person weighing an upgrade.
   runs it exactly like any other flow, so its progress, checks and evidence
   show up the same way. A run's status is visible on its Goal, including a
   failed check's retry.
+- **Evidence guards are satisfied by the facts the desk records** — a check,
+  a structured review, an observed diff, CI or pull request now speaks for
+  the revision it names wherever in the run's dependency chain it was filed,
+  and every new fact re-reads a waiting rule, so a guarded step no longer
+  waits forever. The comparison flow's merge card names the exact revision
+  the judge picked.
 - **A check without an explicit checkout now runs once per predecessor
   subject** — each competitor's own isolated work is checked on its own,
   rather than one command picking a single subject to stand in for all of

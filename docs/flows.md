@@ -478,17 +478,24 @@ command through the bounded `HARNESSDESK_FLOW_CONTEXT` JSON (never an
 arbitrary environment map).
 
 **Evidence guards** read what the desk already observed, never a message or
-an agent's own claim: `evidence: [{ check: "pnpm verify" }]` names the exact
-command text a passing check must have run at the exact revision a rule's
-subjects are evaluated at; `{ review: "picked" }` narrows several candidate
-revisions to the one a structured `record_review` call named, when more than
-one subject reaches the rule at once. A guard whose fact has not landed yet
-*waits*; one contradicted by a fresh, explicit failure is a *no-match* a
-later fallback rule may still take. A fact's own `round` must be the round a
-guard is being evaluated for — a check gates the rule immediately after it,
-never a rule several rounds later naming the same guard on its own (the
-shipped `comparison.yml` deliberately gates its person round on `review`
-alone for exactly this reason).
+an agent's own claim. A guard judges *subjects*: the revisions of the
+nearest cards back along the finished round's dependencies whose grant lets
+them change files — never a judge's or reviewer's own checkout. A fact
+speaks for a subject when it is filed on a card of that walk (the finished
+round's own, the rounds between, or the subject's own), names the subject's
+current revision, is fresh, and was observed on this desk. So
+`evidence: [{ check: "pnpm verify" }]` is satisfied by the check card's own
+fact at the writer's head, `{ review: "picked" }` by the judge's structured
+review naming one candidate revision (and it narrows several candidates to
+that one), and `{ diff: true }`, `{ ci: green }` and `{ pr: open }` by what
+the desk observed on the writer's branch. The last observation of each
+question decides; a guard whose fact has not landed yet *waits*, and every
+durable append of a new fact wakes it; one contradicted by a fresh, explicit
+failure is a *no-match* a later fallback rule may still take. A writer whose
+checkout has uncommitted changes waits rather than being left out. A card
+may name what authorized it — `{{evidence.review.at}}`, say — and a field
+the facts do not settle to one value stops the run before any card is
+added.
 
 **The catalogue** a project's Flows section and `/race` both read is layered
 — a project's own `.harnessdesk/flows`, then this Mac's, then the ones that
