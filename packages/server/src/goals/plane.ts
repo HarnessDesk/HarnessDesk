@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import {
   activityOf, checkedDependencies, flowStepOf, placeCard,
   type BoardEvidence, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
@@ -27,7 +27,8 @@ export interface GoalPlanePort extends GoalOperationPort {
   opening(goal: string, session: SessionPointer, id: SeatId): Promise<SeatOpening>
   board(goal: string): TeamState
   evidence(goal: string): Promise<BoardEvidence>
-  evidenceIds(goal: string, project: string): Promise<readonly string[]>
+  /** Every fact attributable to this Goal, by id — and the Seat that produced each, for `GoalReceipt['evidenceSeats']`. */
+  evidenceIds(goal: string, project: string): Promise<readonly GoalReceiptEvidenceSeat[]>
   flow(goal: string): FlowRun | undefined
   busy(session: SessionPointer): boolean
   waits(session: SessionPointer): boolean
@@ -465,10 +466,11 @@ export class GoalPlane {
     const folders = [...new Set([document.goal.cwd, ...seats.map((seat) => seat.checkout.cwd), ...lanes.map((lane) => lane.cwd)].filter(Boolean))].sort()
     const revisions = await Promise.all(folders.map(async (cwd) => ({ cwd, ...await this.port.revision(cwd) })))
     const revisionByCwd = new Map(revisions.map((revision) => [revision.cwd, revision]))
-    const evidenceIds = [...await this.port.evidenceIds(id, document.goal.root)].sort()
+    const evidenceRefs = [...await this.port.evidenceIds(id, document.goal.root)]
+      .sort((left, right) => left.id.localeCompare(right.id))
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
-      ...(evidenceIds.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
+      ...(evidenceRefs.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
       ...revisions.filter((revision) => revision.head === null || revision.dirty === null)
         .map((revision) => `Revision state was unavailable for ${revision.cwd}.`),
     ]
@@ -482,7 +484,13 @@ export class GoalPlane {
       pending: document.board.channel.some((entry) => entry.kind === 'message' && ['queued', 'held'].includes(entry.state)) ||
         goalMembers(document, this.port.seats.all()).some((seat) => this.port.waits(seat.session)),
       seats: seats.map((seat) => seat.id),
-      evidence: evidenceIds,
+      // Named here, once, while the Seat is still full — not derived later
+      // from `GoalView.members`, which answers `[]` the moment this Goal
+      // wraps (see `membersOf`). A receipt read after that has nowhere else
+      // to learn a Seat's name from.
+      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel })),
+      evidence: evidenceRefs.map((ref) => ref.id),
+      evidenceSeats: evidenceRefs,
       answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),
       lanes: lanes.map((lane) => ({
         lane: lane.id,

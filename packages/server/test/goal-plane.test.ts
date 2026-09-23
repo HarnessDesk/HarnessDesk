@@ -41,7 +41,7 @@ const rig = async (root = '/work/repo', citationCheck?: (root: string, path: str
         updatedAt: document.goal.updatedAt, members: [] }
     },
     evidence: async () => { if (readError) throw new Error('evidence unavailable'); return facts },
-    evidenceIds: async () => facts.cards.flatMap((card) => card.facts.map((fact) => fact.record.id)),
+    evidenceIds: async () => facts.cards.flatMap((card) => card.facts.map((fact) => ({ id: fact.record.id, seat: fact.record.seat ?? null }))),
     flow: () => undefined,
     busy: () => false,
     waits: () => false,
@@ -260,6 +260,31 @@ test('a wrap that will proceed does stop flow dispatch, exactly once, before it 
   const receipt = await proof.plane.wrap('g1', preview.stamp, choices)
   assert.equal(receipt.summary, 'Done')
   assert.equal(stopFlowsCalls, 1, 'a wrap that goes on to commit still stops dispatch, once, as its barrier')
+})
+
+/*
+ * A receipt names its Seats once, while they are still full — read later,
+ * `GoalView.members` answers `[]` for a wrapped Goal (see `membersOf`), so
+ * this is the only chance to capture a name at all. An Agent's name is
+ * trimmed to `null` rather than kept as an empty or blank string: a receipt
+ * that carries `''` reads as "this Seat's Agent is named nothing" rather
+ * than "no Agent held it", and `nameOf` in `GoalReceipt.tsx` falls back to
+ * `seatLabel` only on `null`.
+ */
+test('a wrap names each Seat once — an Agent’s name, or its bare seatLabel when blank or absent', async () => {
+  const proof = await rig()
+  proof.seats.push(
+    seat('seat-named', { agent: { id: 'a1', name: '  Reviewer  ', origin: 'project' }, seatLabel: 'Claude · Opus' }),
+    seat('seat-blank', { agent: { id: 'a2', name: '   ', origin: 'project' }, seatLabel: 'Codex · gpt-5.6' }),
+    seat('seat-none', { agent: null, seatLabel: 'Fake · default' }),
+  )
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  assert.deepEqual([...preview.receipt.members ?? []].sort((left, right) => left.seat.localeCompare(right.seat)), [
+    { seat: 'seat-blank', agent: null, seatLabel: 'Codex · gpt-5.6' },
+    { seat: 'seat-named', agent: 'Reviewer', seatLabel: 'Claude · Opus' },
+    { seat: 'seat-none', agent: null, seatLabel: 'Fake · default' },
+  ].sort((left, right) => left.seat.localeCompare(right.seat)))
 })
 
 /*

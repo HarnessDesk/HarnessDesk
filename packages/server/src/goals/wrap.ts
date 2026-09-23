@@ -14,7 +14,9 @@ export interface WrapInput {
   flow: boolean
   pending: boolean
   seats: GoalReceipt['seats']
+  members: NonNullable<GoalReceipt['members']>
   evidence: GoalReceipt['evidence']
+  evidenceSeats: NonNullable<GoalReceipt['evidenceSeats']>
   answers: GoalReceipt['answers']
   lanes: GoalReceipt['lanes']
   citations: GoalReceipt['citations']
@@ -66,7 +68,9 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       summary: choices.summary.trim(),
       cards: choices.cards,
       seats: input.seats,
+      members: input.members,
       evidence: input.evidence,
+      evidenceSeats: input.evidenceSeats,
       answers: input.answers,
       lanes: input.lanes,
       citations: input.citations,

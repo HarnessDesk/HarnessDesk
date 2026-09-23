@@ -113,3 +113,57 @@ test('wrap journals and receipts are validated as complete durable facts', () =>
   const wrapped = { ...open, goal: { ...open.goal, state: 'wrapped' as const, receipt: 'receipt-1', revision: 1 }, receipt }
   assert.equal(documentOf(wrapped).receipt?.id, 'receipt-1')
 })
+
+/*
+ * `members` and `evidenceSeats` are optional additions to `GoalReceipt`, on
+ * an already-durable shape: a receipt this store already holds, wrapped
+ * before either field existed, has neither and must go on being read back
+ * exactly as it was. Present, each is validated the same as every other
+ * array here — malformed is refused, not silently repaired or dropped.
+ */
+test('a receipt from before members and evidenceSeats existed is still read; malformed ones are refused', () => {
+  const base = {
+    version: 1 as const, id: 'receipt-1', goal: 'g1', sentence: 'Finish the Goal', wrappedAt: 3,
+    summary: 'Finished.', cards: [], seats: ['seat-1'], evidence: ['fact-1'], answers: [], lanes: [], revisions: [],
+    citations: [], gaps: [],
+  }
+  const open = document()
+  const wrappedWith = (receipt: unknown) => documentOf({
+    ...open,
+    goal: { ...open.goal, state: 'wrapped' as const, receipt: 'receipt-1', revision: 1 },
+    receipt,
+  })
+
+  // No `members`/`evidenceSeats` at all: the pre-#875 shape, read exactly as before.
+  assert.equal(wrappedWith(base).receipt?.id, 'receipt-1')
+
+  // Present and well-formed: an Agent's name, a flow-seated runtime with
+  // none, and evidence attributed to a Seat, to nobody, or to a restored
+  // Seat by its own captured label (#875 review — a restored Seat has no
+  // entry in `members`, so its evidence carries `seatLabel` directly).
+  const named = {
+    ...base,
+    members: [
+      { seat: 'seat-1', agent: 'Code reviewer', seatLabel: 'Claude · Opus' },
+      { seat: 'seat-2', agent: null, seatLabel: 'Codex · gpt-5.6' },
+    ],
+    evidenceSeats: [
+      { id: 'fact-1', seat: 'seat-1' },
+      { id: 'fact-2', seat: null },
+      { id: 'fact-3', seat: 'restored-seat', seatLabel: 'Claude · Opus' },
+    ],
+  }
+  assert.equal(wrappedWith(named).receipt?.id, 'receipt-1')
+
+  // Malformed `members`: missing seatLabel, and a non-string agent.
+  assert.throws(() => wrappedWith({ ...base, members: [{ seat: 'seat-1', agent: null }] }), /cannot be read/)
+  assert.throws(() => wrappedWith({ ...base, members: [{ seat: 'seat-1', agent: 7, seatLabel: 'Claude' }] }), /cannot be read/)
+  assert.throws(() => wrappedWith({ ...base, members: 'seat-1' }), /cannot be read/)
+
+  // Malformed `evidenceSeats`: missing id, a non-string non-null seat, and a
+  // non-string non-null seatLabel.
+  assert.throws(() => wrappedWith({ ...base, evidenceSeats: [{ seat: 'seat-1' }] }), /cannot be read/)
+  assert.throws(() => wrappedWith({ ...base, evidenceSeats: [{ id: 'fact-1', seat: 7 }] }), /cannot be read/)
+  assert.throws(() => wrappedWith({ ...base, evidenceSeats: [{ id: 'fact-1', seat: 'seat-1', seatLabel: 7 }] }), /cannot be read/)
+  assert.throws(() => wrappedWith({ ...base, evidenceSeats: 'fact-1' }), /cannot be read/)
+})
