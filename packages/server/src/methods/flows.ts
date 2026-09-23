@@ -115,6 +115,17 @@ export const flowMethods = {
   },
 
   /**
+   * The exact source/vars this run was started with, so `flow/preview`'s own
+   * `retry` equality check can be satisfied by a renderer that only just
+   * read this run — never by one that started it, which already has them.
+   */
+  'flow/execution/source': (ctx, params) => {
+    const stored = ctx.flows.storedRun(params.run)
+    if (!stored) throw new Error(`There is no saved source for flow run ${params.run}.`)
+    return stored
+  },
+
+  /**
    * Re-runs an interrupted check, once a person has looked. The token is a
    * fresh `flow/preview` one, additionally bound to this exact run and card —
    * `flow/preview`'s own `retry` param is what mints it, validated there

@@ -14,10 +14,10 @@ multi-agent work splits in practice:
    hands its state to another agent. Use this when work progresses in stages
    (for example, an architect drafts a plan, Codex writes the code, and Claude
    Code reviews the implementation).
-2. **`/race` (parallel competition)**: two agents receive the same prompt at
-   the same time, each running in an isolated git worktree on its own branch.
-   Use this to compare approaches to a hard problem side by side without
-   either agent seeing or colliding with the other's uncommitted edits.
+2. **`/race` (parallel competition)**: one Agent, on two explicit isolated
+   seats, receives the same prompt at the same time. Use this to compare two
+   models, efforts or configurations of the same Agent on a hard problem
+   side by side, checked and judged rather than eyeballed.
 3. **Rooms and Boards (concurrent team)**: several conversations share a
    workspace board and a communication channel with a human referee. Use this
    when work divides into independent or dependent tasks that multiple agents
@@ -96,24 +96,35 @@ choose one of three carry modes:
 
 ## 3. /race: competing in parallel
 
-The `/race <task>` command runs a single prompt against two agents
-simultaneously, giving each its own isolated workspace.
+`/race <task>` is UI input to an ordinary flow file, not a second execution
+path. It opens a dialog asking for one Agent and two explicit, isolated
+seats — never the other installed runtime, never two ordinary drafts made
+directly — then substitutes them into the project's effective `comparison`
+catalogue entry and starts that complete source through the same
+`flow/start-goal` path any other flow uses.
 
-### Isolation and dispatch
+### Choosing the Agent and its two seats
 
-Racing requires a git repository and at least two configured, ready runtimes in
-`~/.harnessdesk/agents.json`. When you run `/race <task>`:
+Racing needs a git repository (each competitor gets its own isolated
+checkout, lane and browser profile) and a `comparison` flow the effective
+catalogue can resolve — the one that ships works out of the box, and a
+customized one still works as long as it keeps a designated two-seat Agent
+role. Choosing the Agent lists every seat it could take here, with the
+reason and fix beside any it cannot; two identical complete seat specs
+refuse with *Choose two different seats to compare*, but the same runtime
+with a different model or effort is a valid pair. Nothing here falls back to
+a default when a choice is unavailable — it stays listed, disabled, with its
+reason.
 
-1. The host identifies the currently active runtime and the first alternative
-   ready runtime.
-2. Two separate git worktrees are created automatically: `race-<stamp>-a` and
-   `race-<stamp>-b`. Each runs on its own branch.
-3. Two sessions start in parallel. The second conversation takes the main
-   screen, while the first conversation runs concurrently in the background and
-   remains accessible in the sidebar.
-4. Neither agent can see, overwrite, or collide with the other's working tree.
-   When both finish, you compare their solutions directly by inspecting the git
-   diff in each worktree.
+### What actually runs
+
+The comparison flow the dialog previews and starts is an ordinary policy:
+one implementer role on the two chosen seats, an isolated checkout each,
+`pnpm verify` (or whatever the project names) run against both branches, an
+independent judge that reviews what it actually observed and records a
+structured verdict — never prose read as a winner — and a person who does
+the actual merge. `docs/flows.md`'s "Agents and Seats (v2)" section
+describes the shape in full; racing is that shape, not a shape of its own.
 
 ---
 

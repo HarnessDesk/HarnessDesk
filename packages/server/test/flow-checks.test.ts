@@ -126,3 +126,90 @@ rules:
   assert.equal(gates.length, 2, 'each round got its own gate card')
   assert.deepEqual(gates.map((one) => one.outcome), ['fail', 'pass'])
 })
+
+/*
+ * Two isolated writers, one gate with no explicit cwd: the gate must fan out
+ * over each writer's own checkout — one card and one fact per revision —
+ * never pick one of the two arbitrarily by running a single aggregate card
+ * in a checkout neither writer actually worked in.
+ */
+const FAN_OUT_FLOW = `
+version: 2
+name: Two writers, one gate
+roles:
+  author: { kind: agent, uses: writer, count: 2, isolate: true }
+  gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+seed: { role: author, title: Write it }
+rules:
+  - { id: check, on: author, when: { every: [done] }, then: { role: gate, title: Verify } }
+`
+
+test('a check with no explicit cwd fans out over each predecessor subject: one card and fact per revision', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
+  rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: false })
+  const run = await rig.start(FAN_OUT_FLOW, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+
+  assert.deepEqual(checks(rig.events), ['check:pnpm verify', 'check:pnpm verify'], 'the command ran once per subject, not once in total')
+  assert.deepEqual(rig.checkCwds, ['/repo/.lanes/1', '/repo/.lanes/2'], 'each ran in its own predecessor checkout, never a shared or arbitrary one')
+  const board = rig.board(run.goal)
+  const gates = board.intents.filter((one) => one.role === 'gate')
+  assert.equal(gates.length, 2, 'one card per subject — never one aggregate card standing in for both')
+  assert.ok(gates.every((one) => one.state === 'done'))
+  // Each fact is bound to its own revision, not the other subject's.
+  const contexts = rig.checkContexts.map((raw) => JSON.parse(raw!) as { subjects: readonly { at: string; cwd: string }[] })
+  assert.deepEqual(contexts.map((one) => one.subjects.map((s) => s.at)), [['sha-writer-1', 'sha-writer-2'], ['sha-writer-1', 'sha-writer-2']])
+})
+
+test('a check with no predecessor subject keeps one aggregate card in the Goal checkout', async (t) => {
+  // A seed check — no predecessor round at all — is the other way width stays
+  // 1 with no explicit `cwd`: there is nothing to fan out over.
+  const rig = await goalRig(t)
+  const flow = `
+version: 2
+name: Gate first
+roles:
+  gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }
+  person: { kind: person, outcomes: [done] }
+seed: { role: gate, title: Verify }
+rules:
+  - { id: pass, on: gate, when: { every: [pass] }, then: { role: person, title: Ship it } }
+`
+  const run = await rig.start(flow, [])
+  await rig.flows.flush()
+  assert.deepEqual(checks(rig.events), ['check:pnpm verify'], 'exactly one aggregate command')
+  assert.deepEqual(rig.checkCwds, ['/repo'], 'in the Goal checkout, having no predecessor subject to fan out over')
+  const board = rig.board(run.goal)
+  assert.equal(board.intents.filter((one) => one.role === 'gate').length, 1, 'one aggregate card')
+  const context = JSON.parse(rig.checkContexts[0]!) as { subjects: readonly unknown[] }
+  assert.deepEqual(context.subjects, [], 'no subject exists yet to report')
+})
+
+test('a check that names an explicit cwd keeps its one aggregate card, whatever the predecessor width', async (t) => {
+  const rig = await goalRig(t)
+  rig.heads.set('/repo/.lanes/1', { at: 'sha-writer-1', dirty: false })
+  rig.heads.set('/repo/.lanes/2', { at: 'sha-writer-2', dirty: false })
+  const flow = FAN_OUT_FLOW.replace(
+    'gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30 }',
+    'gate: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 30, cwd: "sub" }',
+  )
+  const run = await rig.start(flow, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  await rig.team.complete(1, { outcome: 'done' }, rig.sessionOf('seat-1'))
+  await rig.team.complete(2, { outcome: 'done' }, rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+
+  // This rig keeps no real `/repo` on disk, so resolving `cwd: "sub"` under
+  // it refuses before anything spawns — exactly like the existing confinement
+  // test above. What matters here is what mattered before either writer
+  // finished: exactly one card was opened for `gate`, not one per subject.
+  const board = rig.board(run.goal)
+  assert.equal(board.intents.filter((one) => one.role === 'gate').length, 1, 'one aggregate card, never one per subject')
+  assert.deepEqual(checks(rig.events), [])
+  const execution = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(execution.reason, CHECK_CWD_OUTSIDE)
+})

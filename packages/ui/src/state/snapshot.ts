@@ -412,6 +412,14 @@ export interface AppSnapshot {
    * in the one place, so a run status surface reads whichever arrived last.
    */
   readonly flowExecutions: ReadonlyMap<string, FlowExecution>
+  /**
+   * `/race`'s dialog, open on the task it was typed with — or null. Store
+   * state because the command that opens it runs wherever the composer is,
+   * not inside whatever screen happens to be mounted; `App.tsx` renders
+   * `RaceStart` from this the same way it reads every other deep-linked
+   * request.
+   */
+  readonly raceStart: { readonly task: string } | null
   /** What the desk observed on each room's cards, newest host read by stamp. */
   readonly boardEvidence: ReadonlyMap<string, BoardEvidence>
   /** Rooms whose first evidence read failed before any facts could be established. */
@@ -748,6 +756,7 @@ const EMPTY: AppSnapshot = {
   lanes: [],
   flowRuns: new Map(),
   flowExecutions: new Map(),
+  raceStart: null,
   boardEvidence: new Map(),
   boardEvidenceFailed: new Set(),
   agents: null,

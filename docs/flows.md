@@ -435,6 +435,82 @@ slice fails loudly rather than being half-supported.
 
 ---
 
+## Agents and Seats (v2)
+
+Everything above is the legacy grammar (`permission:`, `count:`, one
+runtime spec per seat). A flow written with `uses:` and `grant:` instead of
+`seat:`/`order:`/`permission:` is read on the current, second-generation
+format — mixed old and new fields in one role, or one document, refuses with
+both locations rather than guessing which the author meant.
+
+```yaml
+version: 2
+name: "Fix and review"
+inputs:
+  task: { label: "Task" }
+roles:
+  fixer: { kind: agent, uses: [implementer], isolate: true, grant: edit, independentOf: [] }
+  verify: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 900 }
+  reviewer: { kind: agent, uses: [code-reviewer], grant: read, independentOf: [] }
+seed: { role: fixer, title: "{{task}}" }
+rules:
+  - { id: to-verify, on: fixer, then: { role: verify, title: "Check the fix" } }
+  - { id: to-reviewer, on: verify, when: { every: [pass] }, then: { role: reviewer, title: "Review the fix" } }
+messaging: board-only
+wait: 240
+```
+
+A role's own file no longer carries an Agent's brief, answers or ceiling —
+those come from the resolved Agent named in `uses:`, the same one Settings ›
+Agents lists. `uses:` a list of Agents, or `seats:` a list of seat specs
+(`runtime=model/effort+`), never both — a scalar Agent plus a seat list opens
+one card per seat, a list of Agents plus zero or one seat opens one per
+Agent, and an explicit `count:` must agree with whichever list sets the
+round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
+this role's grant)`; an omitted `grant:` is `read`.
+
+**Checks fan out.** A check with no explicit `cwd` opens one card, and
+records one fact, per predecessor subject — each competitor's own isolated
+checkout — rather than picking one of them for an aggregate command. Naming
+`cwd:` explicitly keeps the old one-aggregate-card behaviour, resolved
+relative to the Goal's own checkout, with every subject still visible to the
+command through the bounded `HARNESSDESK_FLOW_CONTEXT` JSON (never an
+arbitrary environment map).
+
+**Evidence guards** read what the desk already observed, never a message or
+an agent's own claim: `evidence: [{ check: "pnpm verify" }]` names the exact
+command text a passing check must have run at the exact revision a rule's
+subjects are evaluated at; `{ review: "picked" }` narrows several candidate
+revisions to the one a structured `record_review` call named, when more than
+one subject reaches the rule at once. A guard whose fact has not landed yet
+*waits*; one contradicted by a fresh, explicit failure is a *no-match* a
+later fallback rule may still take. A fact's own `round` must be the round a
+guard is being evaluated for — a check gates the rule immediately after it,
+never a rule several rounds later naming the same guard on its own (the
+shipped `comparison.yml` deliberately gates its person round on `review`
+alone for exactly this reason).
+
+**The catalogue** a project's Flows section and `/race` both read is layered
+— a project's own `.harnessdesk/flows`, then this Mac's, then the ones that
+ship — the nearer file always winning, broken or not, with what it shadows
+listed rather than hidden. *Update…* converts an old project file in place:
+every Agent it names becomes a real file, then the flow file itself is
+replaced, previewed as one whole diff before either write, journaled so a
+partial result (Agent files written, flow file not yet) can be continued
+rather than repeated. *Customize…* copies a shipped or your-Mac file into
+the project verbatim, no conversion — a project flow is then edited in
+place, through the normal editor, not through this dialog again.
+
+**`/race`** is UI input to an ordinary file, not a second execution path: it
+asks for one Agent and two explicit, isolated seats, substitutes them into
+the effective `comparison` catalogue entry's own designated Agent role (a
+plain `layout: { race: <role id> }` marker, never an engine-read execution
+type), and previews and starts that complete source exactly the way any
+other flow does. `packages/server/flows/` ships seven such starting points —
+`comparison`, `fan-out`, `independent-review`, `staged-relay`,
+`investigation`, `alignment`, `mechanical-contest` — as ordinary, editable
+files over the same three step kinds; no shape's id ever reaches the engine.
+
 ## Triggers
 
 A flow is started by a person pressing a thing. That is the whole of v1, and

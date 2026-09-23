@@ -117,3 +117,45 @@ it('root switch and reconnect discard old preview tokens', async () => {
   await stale
   expect(store.flowGeneration()).not.toBe(before)
 })
+
+it('readFlowExecution reads by run id and keeps the answer, whole, in flowExecutions', async () => {
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(EXECUTION)
+  const result = await store.readFlowExecution('run-1')
+  expect(result).toEqual(EXECUTION)
+  expect(spy).toHaveBeenCalledWith('flow/execution', { run: 'run-1' })
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(EXECUTION)
+})
+
+it('previewFlowRetry reads the run’s own saved source back before asking flow/preview, never a blank or guessed one', async () => {
+  push({ method: 'flow/execution-changed', params: { execution: EXECUTION } })
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'flow/execution/source') return { source: 'version: 2\nname: Fix\n', vars: { task: 'ship it' } }
+    if (method === 'flow/preview') return PREVIEW
+    return null
+  }) as never)
+  const result = await store.previewFlowRetry('run-1', 3)
+  expect(result).toEqual(PREVIEW)
+  expect(spy.mock.calls).toEqual([
+    ['flow/execution/source', { run: 'run-1' }],
+    ['flow/preview', { root: 'goal-1', source: 'version: 2\nname: Fix\n', vars: { task: 'ship it' }, retry: { run: 'run-1', card: 3 } }],
+  ])
+})
+
+it('retryFlowCheck redeems a check-retry token and keeps the resulting execution', async () => {
+  const settled: FlowExecution = { ...EXECUTION, state: 'settled' }
+  const spy = vi.spyOn(store.transport, 'request').mockResolvedValue(settled)
+  const result = await store.retryFlowCheck('run-1', 3, 'retry-token')
+  expect(result).toEqual(settled)
+  expect(spy).toHaveBeenCalledWith('flow/check/retry', { run: 'run-1', card: 3, token: 'retry-token' })
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(settled)
+})
+
+it('raceAgents opens dialog state only — no session, worktree or draft is created', async () => {
+  const spy = vi.spyOn(store.transport, 'request')
+  expect(store.getSnapshot().raceStart).toBeNull()
+  await store.raceAgents('Fix the retry bug')
+  expect(store.getSnapshot().raceStart).toEqual({ task: 'Fix the retry bug' })
+  expect(spy).not.toHaveBeenCalled()
+  store.closeRaceStart()
+  expect(store.getSnapshot().raceStart).toBeNull()
+})

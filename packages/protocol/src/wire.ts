@@ -1665,6 +1665,14 @@ export interface HostMethods {
   'flow/start-goal': { params: FlowStartRequest; result: FlowExecution }
   /** One run's current execution state. */
   'flow/execution': { params: { readonly run: string }; result: FlowExecution }
+  /**
+   * The exact source and variables this run was started with — never sent
+   * unprompted (a run's execution state omits them), only read back for
+   * `flow/preview`'s own `retry` equality check, which cannot otherwise be
+   * satisfied by a renderer that did not itself start this run in this
+   * session.
+   */
+  'flow/execution/source': { params: { readonly run: string }; result: { readonly source: string; readonly vars: Readonly<Record<string, string>> } }
   /** Runs an interrupted check again, once a person has reviewed it — a fresh preview token, bound to this exact run and card. */
   'flow/check/retry': { params: { readonly run: string; readonly card: number; readonly token: string }; result: FlowExecution }
   /** What updating this project flow to the Agent format would write, previewed before anything is touched. */

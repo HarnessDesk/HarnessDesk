@@ -1947,35 +1947,18 @@ export class AppStore {
   }
 
   /**
-   * One task, two agents, each in its own worktree so neither sees
-   * the other's half-finished work. The task goes to the active runtime and
-   * the first other ready runtime; the second conversation takes the screen
-   * (one conversation at a time) and the first waits in the sidebar, and
-   * each worktree's diff is the result to compare.
+   * Opens the race dialog on the typed task — dialog state only. It no
+   * longer picks the other installed runtime or creates two drafts itself:
+   * `RaceStart` chooses one Agent and two explicit, isolated seats, then
+   * starts the ordinary `comparison` flow through `flow/start-goal`, the
+   * same single-Goal path every other flow start takes.
    */
   async raceAgents(text: string): Promise<void> {
-    const active = this.#snapshot.activeRuntime
-    const rival = this.#snapshot.runtimes.find((entry) => entry.id !== active)?.id
-    if (!active || !rival) {
-      this.notice('warning', 'Racing needs a second runtime. Add one in ~/.harnessdesk/agents.json.')
-      return
-    }
-    if (!this.#snapshot.workspace?.git?.branch) {
-      this.notice('warning', 'Racing needs a git repository, so each agent gets its own worktree.')
-      return
-    }
-    const stamp = Date.now().toString(36)
-    const input: UserContent[] = [{ type: 'text', text }]
-    const first = await this.newSession({ worktree: `race-${stamp}-a`, runtime: active })
-    if (!first) return
-    await this.send(input, first)
-    const second = await this.newSession({
-      worktree: `race-${stamp}-b`,
-      runtime: rival,
-      split: 'row',
-    })
-    if (!second) return
-    await this.send(input, second)
+    this.#patch({ raceStart: { task: text } })
+  }
+
+  closeRaceStart(): void {
+    this.#patch({ raceStart: null })
   }
 
   /**
@@ -3952,6 +3935,40 @@ export class AppStore {
     return mode === 'update'
       ? this.transport.request('flow/update/apply', { root, token })
       : this.transport.request('flow/customize/apply', { root, id, token })
+  }
+
+  /** One run's execution state, read fresh — the pull half of `flow/execution-changed`'s push. */
+  async readFlowExecution(run: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/execution', { run })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
+  }
+
+  /**
+   * A fresh preview bound to an interrupted check's exact saved source and
+   * inputs — `flow/preview`'s own `retry` param validates that equality on
+   * the host, so this can never choose a new command or checkout, only ask
+   * again for consent to run the same one. Reads the run's own saved source
+   * back first: a renderer that only just opened this run, rather than
+   * starting it, otherwise has no way to supply what the equality check asks for.
+   */
+  async previewFlowRetry(run: string, card: number): Promise<FlowPreview> {
+    const execution = this.#snapshot.flowExecutions.get(run) ?? (await this.readFlowExecution(run))
+    const goal = this.#snapshot.goals.get(execution.goal)
+    const root = goal?.goal.root ?? execution.goal
+    const stored = await this.transport.request('flow/execution/source', { run })
+    return this.transport.request('flow/preview', { root, source: stored.source, vars: stored.vars, retry: { run, card } })
+  }
+
+  /** Redeems a check-retry token, minted only by `previewFlowRetry` above and bound to this exact run and card. */
+  async retryFlowCheck(run: string, card: number, token: string): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/check/retry', { run, card, token })
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    flowExecutions.set(execution.id, execution)
+    this.#patch({ flowExecutions })
+    return execution
   }
 
   // ------------------------------------------------------------------ evidence

@@ -76,6 +76,7 @@ const FIX_SOURCE = [
   '    then: { role: reviewer, title: "Review the fix" }',
   'messaging: board-only',
   'wait: 240',
+  'layout: {"race":"fixer"}',
   '',
 ].join('\n')
 
@@ -98,6 +99,7 @@ const FIX_DOCUMENT: CompiledFlow['document'] = {
     seed: { role: 'fixer', title: '{{task}}' },
     messaging: 'board-only',
     wait: 240,
+    layout: { race: 'fixer' },
   },
 }
 

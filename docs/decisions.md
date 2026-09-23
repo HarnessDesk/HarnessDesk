@@ -411,3 +411,33 @@ the same way, can replay.
 
 **The rule:** no fs call on a project path bypasses the confined tree, and no
 write there happens on a platform without an any-component no-follow open.
+
+## A check without an explicit checkout fans out, and a review's subjects walk back through it
+
+A round with no checkout of its own — a check seats nobody — has to ask
+somewhere else what it is a fact about. The obvious answer, "the round that
+finished before it," is only sometimes true: a check gating a judge's own
+round needs the *competitor's* checkouts, and a check sits directly between
+them. Walking one hop back is not enough, so the same lookup — first try the
+round's own Seats, then its cards' `dependsOn`, repeated (bounded) until a
+round with real Seats answers — is what both a check's own width and a
+structured review's candidate list are computed from. Before this, a check
+role always opened one aggregate card in the Goal's checkout regardless of a
+predecessor's width, and a reviewer one round after a check was offered no
+candidates at all; both read as the round two-steps-back problem solved once
+rather than twice.
+
+`chooseFact`, correctly, still requires a fact's own `round` to equal the
+round a guard is evaluated for: a check gates the rule immediately after it.
+A rule two rounds later that also names the same check as a guard — the
+plan text for the shipped `comparison.yml` originally asked for exactly that
+on its person-facing rule — cannot be satisfied this way, because the fact
+was never recorded against that later round. The shipped file gates that
+rule on the structured review alone, which *is* recorded against the round
+being decided; the plan's own text is the one place this phase's standing
+authority to correct an unrunnable claim in the same commit applies, and
+`flow-acceptance.test.ts` says why in place.
+
+**The rule:** a round with no Seats of its own asks its dependency chain,
+not just its immediate predecessor, for what it is a fact about; a guard
+still only ever reads a fact recorded against the exact round deciding it.

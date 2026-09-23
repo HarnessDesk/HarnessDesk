@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AgentEntry, FlowEntry, FlowPreview, FlowPreviewSeat } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowEntry, FlowPolicy, FlowPreview, FlowPreviewSeat, FlowProblem } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, RowValue, SectionHead, Text } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
@@ -230,83 +230,98 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         </Field>
       ))}
 
-      {preview && !legacy && (
-        <>
-          <section aria-label="Seats this would open">
-            <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
-            <Rows>
-              {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
-              {preview.seats.map((seat) => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
-            </Rows>
-          </section>
-
-          {preview.commands.length > 0 && (
-            <section aria-label="Commands it runs">
-              <SectionHead name="It runs these commands" />
-              <Rows>
-                {preview.commands.map((command) => (
-                  <Row
-                    key={`${command.role}-${command.run}`}
-                    title={command.role}
-                    wrapDesc
-                    desc={<CodeText as="code">{`${command.run} — in ${command.cwd}, ${command.timeout}s`}</CodeText>}
-                  />
-                ))}
-              </Rows>
-            </section>
-          )}
-
-          {flow && flow.rules.length > 0 && (
-            <section aria-label="Rounds and rules">
-              <SectionHead name="Its rounds" />
-              <Rows>
-                <Row title={flow.seed.role} desc={`Seed round — ${flow.seed.title}`} />
-                {flow.rules.map((rule) => {
-                  const guard = preview.guards.find((one) => one.rule === rule.id)
-                  return (
-                    <Row
-                      key={rule.id}
-                      title={`${rule.on} → ${rule.then.role}`}
-                      wrapDesc
-                      desc={rule.then.title}
-                      control={guard?.requires.length
-                        ? <RowValue>{evidenceGuardsWords(guard.requires)}</RowValue>
-                        : guard?.unevidenced
-                          ? <Chip tone="warning">Unevidenced</Chip>
-                          : undefined}
-                    />
-                  )
-                })}
-              </Rows>
-            </section>
-          )}
-
-          <Note>{messagingWords(preview.messaging)}</Note>
-
-          {preview.seats.length > 0 && (
-            <Note tone="warn" className={styles.note}>
-              That is what opening them costs. Each seat then keeps working inside its one turn — one round trip
-              per step, for as long as the flow runs — so on usage-based pricing the run costs more than the
-              seating.
-            </Note>
-          )}
-
-          {warnings.length > 0 && (
-            <Banner tone="warning" title="Worth reading first">
-              <NoteList>
-                {warnings.map((one) => (
-                  <li key={`${one.at}-${one.text}`}>
-                    <code>{one.at}</code> — {one.text}
-                  </li>
-                ))}
-              </NoteList>
-            </Banner>
-          )}
-        </>
-      )}
+      {preview && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
     </div>
   )
 }
+
+/**
+ * The dry run's own report — every seat, every command verbatim, every
+ * round and guard, the messaging disclosure and the cost note — shared by
+ * `FlowStart` and `RaceStart` so a race's dry run reads exactly like every
+ * other flow's rather than a second, narrower rendering of the same data.
+ */
+export const FlowPreviewReport = ({
+  preview, flow, warnings, roster,
+}: {
+  readonly preview: FlowPreview
+  readonly flow: FlowPolicy | null
+  readonly warnings: readonly FlowProblem[]
+  readonly roster: ReadonlyMap<string, AgentEntry>
+}) => (
+  <>
+    <section aria-label="Seats this would open">
+      <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
+      <Rows>
+        {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
+        {preview.seats.map((seat) => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
+      </Rows>
+    </section>
+
+    {preview.commands.length > 0 && (
+      <section aria-label="Commands it runs">
+        <SectionHead name="It runs these commands" />
+        <Rows>
+          {preview.commands.map((command) => (
+            <Row
+              key={`${command.role}-${command.run}`}
+              title={command.role}
+              wrapDesc
+              desc={<CodeText as="code">{`${command.run} — in ${command.cwd}, ${command.timeout}s`}</CodeText>}
+            />
+          ))}
+        </Rows>
+      </section>
+    )}
+
+    {flow && flow.rules.length > 0 && (
+      <section aria-label="Rounds and rules">
+        <SectionHead name="Its rounds" />
+        <Rows>
+          <Row title={flow.seed.role} desc={`Seed round — ${flow.seed.title}`} />
+          {flow.rules.map((rule) => {
+            const guard = preview.guards.find((one) => one.rule === rule.id)
+            return (
+              <Row
+                key={rule.id}
+                title={`${rule.on} → ${rule.then.role}`}
+                wrapDesc
+                desc={rule.then.title}
+                control={guard?.requires.length
+                  ? <RowValue>{evidenceGuardsWords(guard.requires)}</RowValue>
+                  : guard?.unevidenced
+                    ? <Chip tone="warning">Unevidenced</Chip>
+                    : undefined}
+              />
+            )
+          })}
+        </Rows>
+      </section>
+    )}
+
+    <Note>{messagingWords(preview.messaging)}</Note>
+
+    {preview.seats.length > 0 && (
+      <Note tone="warn">
+        That is what opening them costs. Each seat then keeps working inside its one turn — one round trip
+        per step, for as long as the flow runs — so on usage-based pricing the run costs more than the
+        seating.
+      </Note>
+    )}
+
+    {warnings.length > 0 && (
+      <Banner tone="warning" title="Worth reading first">
+        <NoteList>
+          {warnings.map((one) => (
+            <li key={`${one.at}-${one.text}`}>
+              <code>{one.at}</code> — {one.text}
+            </li>
+          ))}
+        </NoteList>
+      </Banner>
+    )}
+  </>
+)
 
 /** One role's slot: the Agent it names, its effective ceiling, and every candidate this machine tried. */
 const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; readonly roster: ReadonlyMap<string, AgentEntry> }) => {

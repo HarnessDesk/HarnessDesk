@@ -2,8 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AgentEntry, Lane, RuntimeId, SeatRecord, TeamState } from '@harnessdesk/protocol'
+import type { AgentEntry, Evidence, EvidenceRecord, EvidenceView, Lane, RuntimeId, SeatRecord, TeamState } from '@harnessdesk/protocol'
 
+import { evidenceGuard, FlowReview, type ReviewAppendOutcome, type ReviewSubjectPort } from '../../src/flow-evidence.js'
 import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort, type StoredFlowExecution } from '../../src/flow-execution.js'
 import { compileFlowPolicy, parseFlowPolicy } from '../../src/flow-policy.js'
 import { Flows, type FlowPort } from '../../src/flows.js'
@@ -75,6 +76,23 @@ export interface GoalRig {
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
+  /** Every check's own `cwd`, in call order — how a fan-out's distinct checkouts are told apart. */
+  readonly checkCwds: string[]
+  /** Every check's own `flowContext`, in call order, undefined where none was sent. */
+  readonly checkContexts: (string | undefined)[]
+  /**
+   * A minimal, real evidence store, wired into the run's own evidence guards
+   * and into `review`, below — so a rule's `when.evidence` and a scripted
+   * `record_review` are the real `evidenceGuard`/`FlowReview` logic, not a
+   * second, test-only imitation of it. Every check step's own result is
+   * appended here automatically; a scripted review is the test's own to add,
+   * through `review.record(...)`.
+   */
+  readonly facts: Map<string, EvidenceRecord[]>
+  /** Fact ids to report stale (`moved`) instead of fresh — the "the branch moved on" scenario. */
+  readonly staleFacts: Set<string>
+  /** The real guard/review logic, over `facts` above. */
+  readonly review: FlowReview
   /** Asked of each opening before it happens; throw to refuse it. */
   beforeOpen: ((n: number, agent: string) => void) | null
   /** Asked after the conversation exists but before its card is claimed. */
@@ -117,6 +135,10 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     heads: new Map<string, { at: string | null; dirty: boolean }>(),
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
+    checkCwds: [] as string[],
+    checkContexts: [] as (string | undefined)[],
+    facts: new Map<string, EvidenceRecord[]>(),
+    staleFacts: new Set<string>(),
     beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, comesBackAs: null,
     dispatch: { ok: true } as GoalRig['dispatch'],
     laneFor: (n: number, seat: SeatRecord): Lane => ({
@@ -125,6 +147,19 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     }),
   } as unknown as GoalRig & { executions: FlowExecutions; flows: Flows; files: FaultyFiles }
   let opened = 0
+  let factSeq = 0
+  const viewsFor = (goal: string): EvidenceView[] =>
+    (rig.facts.get(goal) ?? []).map((record) => ({
+      record,
+      freshness: rig.staleFacts.has(record.id) ? { state: 'moved' as const } : { state: 'fresh' as const },
+      by: null,
+    }))
+  const pushFact = (goal: string, fact: Evidence, extra: Partial<EvidenceRecord> = {}): EvidenceRecord => {
+    factSeq += 1
+    const record: EvidenceRecord = { id: `fact-${factSeq}`, fact, observedAt: Date.now(), ...extra }
+    rig.facts.set(goal, [...(rig.facts.get(goal) ?? []), record])
+    return record
+  }
   const port: FlowExecutionPort = {
     providerOf: (runtime) => rig.providers.get(runtime) ?? null,
     canDispatch: () => rig.dispatch,
@@ -190,12 +225,57 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     changed: () => {},
     log: () => {},
     headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
-    runCheck: async (command, where) => {
+    runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
+      rig.checkCwds.push(where.cwd)
+      rig.checkContexts.push(where.flowContext)
       const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
+      if (!rig.checkEvidenceFails) {
+        const head = rig.heads.get(where.cwd) ?? { at: null, dirty: false }
+        if (head.at) {
+          pushFact(
+            card.goal,
+            { kind: 'check', name: card.name, run: command, exit: outcome.exit, timedOut: outcome.timedOut, at: head.at, dirty: head.dirty, tail: outcome.tail },
+            { card: { board: card.goal, id: card.card }, round: card.round },
+          )
+        }
+      }
       return { result: outcome, evidence: rig.checkEvidenceFails ? null : 'fact-check', problem: rig.checkEvidenceFails ? 'evidence could not be saved' : null }
     },
   }
+  const goalOfIntent = (intent: number): string | null => {
+    for (const goal of rig.goals.keys()) {
+      if (team.stateFor(goal).intents.some((one) => one.id === intent)) return goal
+    }
+    return null
+  }
+  const reviewPort: ReviewSubjectPort = {
+    bindingFor: async (intent, scope) => {
+      if (!scope.runtime || !scope.sessionId) return null
+      const goal = goalOfIntent(intent)
+      if (!goal) return null
+      const bound = await rig.flows.reviewBindingFor(goal, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
+      if (!bound) return null
+      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects }
+    },
+    facts: async (goal) => viewsFor(goal),
+    // The same compare-and-merge `FakePort` in flow-review.test.ts proves against a bare port: an
+    // identical repeat is a no-op, a different verdict for the same (round,card,seat,at) conflicts.
+    append: async (goal, record): Promise<ReviewAppendOutcome> => {
+      const list = rig.facts.get(goal) ?? []
+      const existing = list.filter((one) =>
+        one.fact.kind === 'review' && record.fact.kind === 'review' &&
+        one.fact.by === record.fact.by && one.fact.at === record.fact.at &&
+        one.card?.id === record.card?.id && one.round === record.round)
+      const matching = existing.find((one) => one.fact.kind === 'review' && record.fact.kind === 'review' && one.fact.verdict === record.fact.verdict)
+      if (matching) return { outcome: 'duplicate', record: matching }
+      if (existing.length > 0) return { outcome: 'conflict' }
+      rig.facts.set(goal, [...list, record])
+      return { outcome: 'added', record }
+    },
+    now: () => Date.now(),
+  }
+  const review = new FlowReview(reviewPort)
   const legacy: FlowPort = {
     openLegacySeat: async () => { throw new Error('no old flows here') },
     releaseGoalSeat: async () => {},
@@ -210,12 +290,18 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   }
   const build = () => {
     const files = new FaultyFiles(join(dir, 'flows-v2'))
-    const executions = new FlowExecutions(files, team, port)
-    const flows = new Flows(join(dir, 'flows'), team, legacy, undefined, executions)
+    const executions: FlowExecutions = new FlowExecutions(files, team, port, {
+      evidence: async (goal, round, rule) => {
+        const subjects = await rig.executions.subjectsOf(goal, round)
+        const outcomes = round.cards.map((id) => team.stateFor(goal).intents.find((one) => one.id === id)?.outcome ?? null)
+        return evidenceGuard(rule.when!.evidence!, { goal, finished: round, subjects, facts: viewsFor(goal), outcomes })
+      },
+    })
+    const flows = new Flows(join(dir, 'flows'), team, legacy, undefined, executions, review)
     team.attachFlows(flows)
     return { files, executions, flows }
   }
-  Object.assign(rig, build())
+  Object.assign(rig, build(), { review })
   rig.compile = (source, agents) => {
     const parsed = parseFlowPolicy(source)
     if (!parsed.document) throw new Error(JSON.stringify(parsed.problems))

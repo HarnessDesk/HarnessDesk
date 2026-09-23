@@ -6,6 +6,7 @@ import type {
   CompiledFlow,
   FlowBinding,
   FlowCheck,
+  FlowCheckContext,
   FlowExecution,
   FlowOperation,
   FlowPolicy,
@@ -388,8 +389,39 @@ export class FlowExecutions {
     for (const card of round.cards) {
       for (const dep of board.intents.find((one) => one.id === card)?.dependsOn ?? []) deps.add(dep)
     }
-    const depRound = run.rounds.find((one) => [...deps].some((dep) => one.cards.includes(dep)))
-    return depRound ? this.#seatSubjects(run, [...deps], depRound.n) : []
+    return this.#depSubjects(run, deps)
+  }
+
+  /**
+   * The predecessor cards a round with no checkout of its own depends on,
+   * resolved to their own Seats' current heads — the same join `subjectsOf`
+   * makes from a round's own `dependsOn`, extracted so a check round can ask
+   * it before that round's own cards exist yet (its width *is* this list's
+   * length, for a check with no explicit `cwd`).
+   *
+   * Walks back through a chain of rounds with no checkout of their own — a
+   * check gating a review, say — rather than stopping at the first: a judge
+   * one round after a check needs the check's own predecessor's subjects,
+   * the actual candidates it reviews, not the empty set a check's seatless
+   * cards would otherwise give it. Bounded, so a corrupt or cyclic
+   * `dependsOn` graph cannot loop forever instead of finding nothing.
+   */
+  async #depSubjects(run: StoredFlowExecution, deps: ReadonlySet<number> | readonly number[]): Promise<readonly FlowSubjectLike[]> {
+    const board = this.#team.stateFor(run.goal)
+    let frontier = [...deps]
+    for (let hop = 0; hop < 10 && frontier.length > 0; hop += 1) {
+      const depRound = run.rounds.find((one) => frontier.some((dep) => one.cards.includes(dep)))
+      if (!depRound) return []
+      const direct = await this.#seatSubjects(run, frontier, depRound.n)
+      if (direct.length > 0) return direct
+      const next = new Set<number>()
+      for (const card of frontier) {
+        for (const dep of board.intents.find((one) => one.id === card)?.dependsOn ?? []) next.add(dep)
+      }
+      if (next.size === 0) return []
+      frontier = [...next]
+    }
+    return []
   }
 
   async #seatSubjects(run: StoredFlowExecution, cards: readonly number[], round: number): Promise<readonly FlowSubjectLike[]> {
@@ -440,8 +472,10 @@ export class FlowExecutions {
     const answers = role?.kind === 'agent' ? (bindingsFor(run, role.id)[index]?.agent.answers ?? []) : []
     const board = this.#team.stateFor(goal)
     const deps = board.intents.find((one) => one.id === card)?.dependsOn ?? []
-    const depRound = run.rounds.find((one) => deps.some((dep) => one.cards.includes(dep)))
-    const subjects = depRound ? await this.#seatSubjects(run, deps, depRound.n) : []
+    // The same closure `subjectsOf`'s own deps-fallback walks: a review one
+    // round after a check needs the check's own predecessors, the actual
+    // candidates it judges, not the check's seatless (and so empty) cards.
+    const subjects = await this.#depSubjects(run, deps)
     return { seat: String(seat.id), answers, round: round.n, subjects }
   }
 
@@ -594,7 +628,17 @@ export class FlowExecutions {
     }
     // Cards, each under its dispatch key: a replay finds them rather than adding more.
     const bindings = role.kind === 'agent' ? bindingsFor(run, role.id) : []
-    const width = role.kind === 'agent' ? bindings.length : 1
+    /*
+     * A check with no explicit `cwd` fans out over its predecessor round's
+     * own subjects — one card per revision, each checked in that subject's
+     * own checkout — rather than running one aggregate command that would
+     * silently pick just one of them. A check that names `cwd` stays one
+     * aggregate card in the Goal's own checkout regardless of predecessor
+     * width; so does a check with no predecessor subject at all (a seed
+     * check, or one whose predecessor left no clean checkout).
+     */
+    const checkSubjects = role.kind === 'check' && !role.check.cwd ? await this.#depSubjects(run, dependsOn) : []
+    const width = role.kind === 'agent' ? bindings.length : role.kind === 'check' && checkSubjects.length > 0 ? checkSubjects.length : 1
     const board = this.#team.stateFor(run.goal)
     const before = run.rounds.find((one) => one.n === round.n - 1)
     const cards: number[] = []
@@ -761,22 +805,72 @@ export class FlowExecutions {
   // ---------------------------------------------------------------- checks
 
   /**
-   * Runs a check round's one aggregate card in the Goal's own checkout —
-   * confined exactly like any other read of a repository-authored path, since
-   * `check.cwd` arrives with whatever cloned the flow file. Journaled before
-   * it spawns, so a crash mid-run leaves it `uncertain` for a person rather
-   * than run a second time, and its evidence append is awaited before the
-   * card is marked done — a storage failure stalls the run instead.
-   *
-   * Fan-out over each predecessor subject's own checkout, for a check with no
-   * explicit `cwd`, is not yet built: every check round today runs its one
-   * card in the Goal's checkout (or `check.cwd` under it), whatever the
-   * predecessor round's width was.
+   * The bounded, host-derived context every check of a round shares —
+   * `HARNESSDESK_FLOW_CONTEXT` — built once from every predecessor subject,
+   * lane included, whether this round runs one aggregate card or fans out
+   * over them: a fanned-out card's own subject is not the only one a script
+   * might reasonably want to compare itself against.
+   */
+  async #checkContext(goal: string, round: number, subjects: readonly FlowSubjectLike[]): Promise<string> {
+    const run = subjects[0] ? this.#runOfCard(goal, subjects[0].card) : null
+    const withPorts: FlowCheckContext['subjects'][number][] = []
+    for (const subject of subjects) {
+      const lane = run ? this.#port.laneOf(this.#seatForCard(run, subject.card).seat!) : null
+      withPorts.push({
+        card: subject.card, at: subject.at, cwd: subject.checkout.cwd, branch: subject.checkout.branch,
+        portStart: lane?.ports.start ?? null, portEnd: lane?.ports.end ?? null,
+      })
+    }
+    const context: FlowCheckContext = { version: 1, goal, round, subjects: withPorts }
+    return JSON.stringify(context)
+  }
+
+  /**
+   * Runs a check round's cards — one aggregate card in the Goal's own
+   * checkout when the role names `cwd` or has no predecessor subject to fan
+   * out over, otherwise one card per predecessor subject, each in that
+   * subject's own checkout. Journaled before it spawns, so a crash mid-run
+   * leaves it `uncertain` for a person rather than run a second time, and its
+   * evidence append is awaited before the card is marked done — a storage
+   * failure stalls the run instead.
    */
   async #runCheckRound(id: string, round: FlowRoundState, check: FlowCheck): Promise<boolean> {
-    const card = round.cards[0]
-    if (card === undefined) return true
-    const key = `check:${round.n}:0`
+    if (round.cards.length === 0) return true
+    const run = this.#get(id)
+    // Discovered the same way whether or not `cwd` is explicit: an aggregate
+    // card still wants every subject in its context (illustrative
+    // `$A_BRANCH`/`$B_BRANCH` aliases read this), only its own card and
+    // checkout stay singular.
+    const subjects = await this.subjectsOf(run.goal, round)
+    const flowContext = await this.#checkContext(run.goal, round.n, subjects)
+    if (check.cwd || subjects.length === 0) {
+      const board = this.#team.stateFor(run.goal)
+      const base = board.cwd ?? board.root
+      let cwd = base
+      if (check.cwd) {
+        if (isAbsolute(check.cwd)) return this.#failCheck(id, CHECK_CWD_OUTSIDE)
+        try {
+          cwd = await (await ConfinedTree.open(base)).resolveDir(check.cwd)
+        } catch {
+          return this.#failCheck(id, CHECK_CWD_OUTSIDE)
+        }
+      }
+      return this.#runOneCheck(id, round, check, round.cards[0]!, 0, cwd, flowContext)
+    }
+    // Fan-out: each card is its subject's own checkout, in the same order subjectsOf returned them.
+    for (const [index, card] of round.cards.entries()) {
+      const subject = subjects[index]
+      if (!subject) continue
+      const ok = await this.#runOneCheck(id, round, check, card, index, subject.checkout.cwd, flowContext)
+      if (!ok) return false
+    }
+    return true
+  }
+
+  async #runOneCheck(
+    id: string, round: FlowRoundState, check: FlowCheck, card: number, index: number, cwd: string, flowContext: string,
+  ): Promise<boolean> {
+    const key = `check:${round.n}:${index}`
     let run = this.#get(id)
     const prior = run.operations.find((one) => one.key === key)
     if (prior?.state === 'finished') return true
@@ -784,19 +878,8 @@ export class FlowExecutions {
       await this.#stall(id, `This check was interrupted. Inspect its effects, then choose Run again.`)
       return false
     }
-    const board = this.#team.stateFor(run.goal)
-    const base = board.cwd ?? board.root
-    let cwd = base
-    if (check.cwd) {
-      if (isAbsolute(check.cwd)) return this.#failCheck(id, CHECK_CWD_OUTSIDE)
-      try {
-        cwd = await (await ConfinedTree.open(base)).resolveDir(check.cwd)
-      } catch {
-        return this.#failCheck(id, CHECK_CWD_OUTSIDE)
-      }
-    }
     run = await this.#put(this.#operation(run, key, { kind: 'check', state: 'started', card, seat: null }))
-    const outcome = await this.#port.runCheck(check.run, { cwd, timeoutSec: check.timeout }, { goal: run.goal, card, name: round.role, round: round.n })
+    const outcome = await this.#port.runCheck(check.run, { cwd, timeoutSec: check.timeout, flowContext }, { goal: run.goal, card, name: round.role, round: round.n })
     if (outcome.problem) {
       await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
       await this.#stall(id, outcome.problem)
@@ -821,16 +904,25 @@ export class FlowExecutions {
    */
   async retryCheck(id: string, card: number): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      const run = this.#get(id)
+      let run = this.#get(id)
       const round = run.rounds.find((one) => one.cards.includes(card))
       if (!round) throw new Error(`Card #${card} belongs to no round of this run.`)
       const role = policyOf(run).roles.find((one) => one.id === round.role)
       if (role?.kind !== 'check') throw new Error(`Card #${card} is not a check.`)
-      const key = `check:${round.n}:0`
+      const index = round.cards.indexOf(card)
+      const key = `check:${round.n}:${index}`
       const operation = run.operations.find((one) => one.key === key)
       if (operation?.state !== 'uncertain') throw new Error('This check is not waiting to be run again.')
       if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
-      await this.#put({ ...run, state: 'running', reason: null })
+      /*
+       * Re-armed, not resumed: this call is the person's one explicit consent
+       * to run this exact card again, so only its own stale `uncertain`
+       * record is cleared before `#runCheckRound` is asked to run the round
+       * once more. Every other card of the round — already finished, or a
+       * different one still `uncertain` — is untouched, and `#runOneCheck`'s
+       * own "finished" guard skips it without a second spawn.
+       */
+      run = await this.#put({ ...run, state: 'running', reason: null, operations: run.operations.filter((one) => one.key !== key) })
       const opened = await this.#runCheckRound(id, round, role.check)
       if (opened) await this.#advance(id)
       return projectExecution(this.#get(id))

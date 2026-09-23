@@ -7,6 +7,24 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A project's Flows are visible, previewable and updatable** — a project
+  page now lists the flows it can start, layered from the project's own
+  files down to the ones that ship, with what a nearer file shadows called
+  out rather than hidden. Starting one previews the honest dry run first:
+  every round, seat and evidence guard it would open, before anything runs.
+  *Update…* converts an old project flow file to the current format as one
+  reviewable diff, covering every Agent file it would also write, resumable
+  if interrupted partway. Starting a flow from a new session now offers a
+  single Goal the same way an ordinary conversation does.
+- **`/race` is now an ordinary flow, not a second execution path** — racing
+  two seats substitutes them into a shipped flow's own designated role and
+  runs it exactly like any other flow, so its progress, checks and evidence
+  show up the same way. A run's status is visible on its Goal, including a
+  failed check's retry.
+- **A check without an explicit checkout now runs once per predecessor
+  subject** — each competitor's own isolated work is checked on its own,
+  rather than one command picking a single subject to stand in for all of
+  them. Naming a checkout explicitly keeps the old single-command behaviour.
 - Add source-qualified, read-only Insight transport for historical usage,
   receipt cost summaries, project usage, and local Agent-seat ordering review.
 
