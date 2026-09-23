@@ -943,6 +943,21 @@ test('the method list is the validator table\u2019s own keys, not the fields ins
   assert.deepEqual(methodsIn(source), ['session/list', 'team/post'])
 })
 
+test('a hyphenated method name is on the list, not skipped', () => {
+  /* `\w` has no `-`, so `'flow/start-goal':` failed the key pattern outright
+     and the method was invisible to the gate — neither counted nor flagged.
+     Found during the flows work; the control is `session/list` beside it. */
+  const source = [
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  'flow/start-goal': shape({ room: isString }),",
+    "  'agent-pool/lease-one': shape({}),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'flow/start-goal', 'agent-pool/lease-one'])
+  assert.deepEqual([...reachedBy(['flow/start-goal'], ["await request('flow/start-goal', { room })"])], ['flow/start-goal'])
+})
+
 test('a longer method name does not make a shorter one look called', () => {
   /* `plugin/install` is a suffix of `runtime/plugin/install`, and both are
      real methods on this wire. A substring match on the bare name reads the
