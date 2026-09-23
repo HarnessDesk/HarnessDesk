@@ -228,3 +228,58 @@ test('new finding invalidates wrap preview', async () => {
   assert.deepEqual(wrapped.findings, second.receipt.findings)
   assert.deepEqual(store.read('g1').receipt?.findings, second.receipt.findings)
 })
+
+/*
+ * Named addition for the findings ledger's publication: a posting the desk
+ * could not settle is never silently dropped from a wrap, nor silently
+ * recorded. The person says so, and the receipt then says exactly that.
+ */
+test('wrap shows partial publication gaps', async () => {
+  const home = tempDir('hd-goal-wrap-publication-')
+  await migrateDesk(home, async () => {})
+  const store = new GoalStore(home)
+  await store.load()
+  await store.save({
+    version: 1, goal: goal('g1'), board: { nextIntent: 2, messaging: true, intents: [intent(1, { state: 'done' })], channel: [] },
+    citations: [], receipt: null, operation: null,
+  }, null)
+  let publication: string[] = ['Posting finding finding-1 to pull request #7 is uncertain: The pull request shows 2 copies of this. Look at them before deciding which one stands.']
+  const receipt = { version: 1 as const, evidence: ['raise-1', 'post-1'], findings: [], overrides: [] }
+  const forbidden = async (): Promise<never> => { throw new Error('not in this test') }
+  let settled = 0
+  const plane = new GoalPlane(store, {
+    seats: { all: () => [], byId: () => null }, confine: forbidden, known: async () => null, claimable: () => false, opening: forbidden,
+    board: (id) => { const document = store.read(id); return { ...document.board, id, name: document.goal.sentence, root: document.goal.root, updatedAt: 1, members: [] } },
+    evidence: async (id) => ({ room: id, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] }),
+    evidenceIds: async () => ['fact-1'], flow: () => undefined, busy: () => false, waits: () => false, stranded: () => false, held: () => false,
+    settledFor: async () => { settled += 1 }, answer: async () => ({ answer: null, gaps: [] }), revision: async () => ({ head: null, dirty: null }),
+    changed: () => {}, activity: () => {}, ready: () => ({ ok: true }), seatAgent: forbidden, openLegacySeat: forbidden,
+    importOpening: forbidden, closeId: forbidden, claim: forbidden, releaseClaim: forbidden, refuseMail: forbidden, retainLane: forbidden,
+    finish: forbidden, wake: () => {},
+    finishWrap: async (operation) => {
+      const document = store.read(operation.goal)
+      await store.save({
+        ...document, receipt: operation.receipt, operation: null,
+        goal: { ...document.goal, state: 'wrapped', receipt: operation.receipt.id, revision: document.goal.revision + 1 },
+      }, document.goal.revision)
+    },
+    findings: async () => ({ receipt, gaps: [], publication }),
+  })
+  // Posting was worked to its end first, and one posting is still uncertain: the person has to say what to do with it.
+  await assert.rejects(plane.preview('g1', choices()), /One posting of this Goal's findings could not be confirmed on the pull request/)
+  assert.ok(settled > 0, 'the wrap waited for posting to settle before reading it')
+  const recorded = await plane.preview('g1', choices({ publicationGaps: 'record' }))
+  assert.ok(recorded.receipt.gaps.includes(publication[0]!), 'the receipt says exactly what is unsettled')
+  assert.deepEqual(recorded.receipt.findings, receipt)
+  // Reconciled after the preview — that copy was found after all — the preview no longer describes the Goal.
+  publication = []
+  await assert.rejects(plane.wrap('g1', recorded.stamp, choices({ publicationGaps: 'record' })), /changed while you reviewed/)
+  const clean = await plane.preview('g1', choices())
+  assert.equal(clean.receipt.gaps.some((gap) => /Posting finding/.test(gap)), false)
+  // Uncertain again, and recorded: the wrapped receipt freezes it.
+  publication = ['Posting a review summary to pull request #7 is not posted: Pull request #7 moved from aaaaaaaaaaaa to bbbbbbbbbbbb since this was reviewed, so it was not posted. A person has to look at it at the new head.']
+  const again = await plane.preview('g1', choices({ publicationGaps: 'record' }))
+  const wrapped = await plane.wrap('g1', again.stamp, choices({ publicationGaps: 'record' }))
+  assert.ok(wrapped.gaps.includes(publication[0]!))
+  assert.deepEqual(store.read('g1').receipt?.gaps, wrapped.gaps)
+})

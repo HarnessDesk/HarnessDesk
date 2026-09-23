@@ -171,6 +171,7 @@ const remoteForgeEngine: ForgeEngine = {
   seat: (scope) => askHost('forge/seat', { scope }),
   identity: (scope) => askHost('forge/identity', { scope }),
   publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),
+  publicationAllowed: (scope) => askHost('forge/publicationAllowed', { scope }),
 }
 
 setForgeEngine(remoteForgeEngine)

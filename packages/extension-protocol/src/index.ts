@@ -61,7 +61,10 @@ import type {
 // `team/repairFinding`, `team/decideFinding` and `team/listFindings` — each
 // `{ scope, input }`, the input refused whole by the host if it names a Seat,
 // a revision or an authority.
-export const EXTENSION_PROTOCOL_VERSION = 7
+// 8 adds `forge/publicationAllowed` — `{ scope }`, answered `{ ok: true }` or
+// `{ ok: false, reason }` — the embargo every forge mutation asks before it
+// writes, on the same trusted invocation as the other forge verbs.
+export const EXTENSION_PROTOCOL_VERSION = 8
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -276,6 +279,10 @@ export interface ChildToHostMethods {
   'forge/publish': {
     params: { readonly scope: TeamCallScope; readonly reference: ForgeReference }
     result: null
+  }
+  'forge/publicationAllowed': {
+    params: { readonly scope: TeamCallScope }
+    result: { readonly ok: true } | { readonly ok: false; readonly reason: string }
   }
   'team/board': { params: { readonly scope: TeamCallScope }; result: string }
   'team/addIntent': {

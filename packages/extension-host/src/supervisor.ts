@@ -422,6 +422,11 @@ export class PluginHostProcess {
             reply({ response: request.request, result: await plane.seat(scope) })
             return
           }
+          case 'forge/publicationAllowed': {
+            // Answered for the invocation the parent armed, never for a scope the child names.
+            reply({ response: request.request, result: await plane.publicationAllowed(scope) })
+            return
+          }
           case 'forge/publish': {
             // The reference crosses from the child into every window's
             // transcript; a shape the renderer does not expect stops here.

@@ -27,6 +27,12 @@ export interface WrapInput {
    * records none.
    */
   findings?: FindingReceipt
+  /**
+   * Publications of the Goal's findings that posting could not settle — an
+   * uncertain send, a paused one — each said as a sentence. A wrap records
+   * them as gaps only when the person says so (`WrapChoices.publicationGaps`).
+   */
+  publication?: readonly string[]
 }
 
 export type { WrapChoices } from '@harnessdesk/protocol'
@@ -57,6 +63,10 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
   if (resolutions.size !== choices.cards.length || choices.cards.length !== input.cards.length ||
       input.cards.some((card) => !resolutions.has(card.id))) {
     throw new Error('Review every card once before wrapping.')
+  }
+  if ((input.publication?.length ?? 0) > 0 && choices.publicationGaps !== 'record') {
+    const count = input.publication!.length
+    throw new Error(`${count === 1 ? 'One posting' : `${count} postings`} of this Goal's findings could not be confirmed on the pull request. Look at the pull request, then wrap recording ${count === 1 ? 'it' : 'them'} as a gap.`)
   }
   for (const card of input.cards) {
     const resolution = resolutions.get(card.id)!

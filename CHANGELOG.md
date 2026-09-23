@@ -15,7 +15,15 @@ move is real work and is not news to a person weighing an upgrade.
   that brought no new evidence, or when a finding's repair is rejected twice;
   several reviewers judging at once no longer see each other's findings or
   messages until the round closes, and a later review is handed the exact
-  change since the last one.
+  change since the last one. When the round closes, its findings and reviews
+  are posted to the Goal's pull request together, each saying which Agent
+  made the claim and at which revision; a repair lands on its finding's own
+  comment or thread. Nothing is posted twice: a comment whose answer was lost
+  is read back from the pull request, and one the desk cannot confirm waits
+  for you, and is written into the receipt as a gap only when you say so.
+  A reviewer can no longer post to the pull request itself while its round
+  is blind. Without a bound pull request, or with posting off, rounds stay
+  on the desk.
 - **Assigning a card just after adding it no longer leaves the Goal stuck.**
   If the card's save was still queued, the assignment used to be refused and
   stayed half-done, so the Goal then refused every later save. Relaunching

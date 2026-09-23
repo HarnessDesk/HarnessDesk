@@ -31,6 +31,7 @@ import {
 } from './flow-evidence.js'
 import { decideLoop } from './findings/rounds.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
+import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { Team } from './team.js'
 
 /**
@@ -63,6 +64,8 @@ export type StoredFlowExecution = FlowExecution & {
   findingOps?: Readonly<Record<string, FindingJournalEntry>>
   /** A later review round's package, by round number: pinned before its Seats open, handed to each in its order. */
   reviewPackets?: Readonly<Record<string, ReviewPacketPin>>
+  /** Each closed round's release decision and every comment it posts, journaled before the first is sent. */
+  publication?: StoredPublication
 }
 
 /** What a later review round was handed, and the subject revisions it was pinned to. */
@@ -806,6 +809,50 @@ export class FlowExecutions {
         await this.#put({ ...run, findingOps: { ...run.findingOps, [entry.operation]: entry } })
       },
     }))
+  }
+
+  /**
+   * Runs one publication step inside its run's own queue, with the run's
+   * publication journal: every entry it writes is persisted to the run's file
+   * before `put` answers, read back from the run as it is when the step runs.
+   */
+  withPublicationJournal<T>(id: string, step: (journal: PublicationJournal) => Promise<T>): Promise<T> {
+    return this.#queue.within(id, () => step({
+      round: (round) => this.#get(id).publication?.rounds[String(round)] ?? null,
+      entry: (key) => this.#get(id).publication?.ops[key] ?? null,
+      entries: () => Object.values(this.#get(id).publication?.ops ?? {}),
+      decide: async (round, entries) => {
+        const run = this.#get(id)
+        const now = run.publication ?? { rounds: {}, ops: {} }
+        if (now.rounds[String(round.round)]) return
+        const ops = { ...now.ops }
+        for (const entry of entries) {
+          if (ops[entry.key]) throw new Error('A publication of this round was already journaled under another decision.')
+          ops[entry.key] = entry
+        }
+        await this.#put({ ...run, publication: { rounds: { ...now.rounds, [String(round.round)]: round }, ops } })
+      },
+      put: async (entry) => {
+        const run = this.#get(id)
+        const now = run.publication
+        if (!now?.ops[entry.key]) throw new Error('Only a journaled publication is written again.')
+        await this.#put({ ...run, publication: { ...now, ops: { ...now.ops, [entry.key]: entry } } })
+      },
+    }))
+  }
+
+  /** Every run with a publication journaled, and its Goal. */
+  publicationRuns(): readonly { readonly run: string; readonly goal: string }[] {
+    return [...this.#runs.values()].filter((run) => Object.keys(run.publication?.rounds ?? {}).length > 0).map((run) => ({ run: run.id, goal: run.goal }))
+  }
+
+  /** A publication by its key, in whichever run journaled it: a snapshot read. */
+  publicationEntry(key: string): PublicationEntry | null {
+    for (const run of this.#runs.values()) {
+      const found = run.publication?.ops[key]
+      if (found) return found
+    }
+    return null
   }
 
   /** Every run with finding commands journaled but not settled — what a restart has to finish or give up with a reason. */

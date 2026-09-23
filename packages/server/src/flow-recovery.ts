@@ -3,6 +3,7 @@ import { isCeilingLevel, type FlowRun, type FlowSeatRecord, type Intent, type Se
 import { parseFlowPolicy } from './flow-policy.js'
 import { sourceDigest, type StoredFlowExecution } from './flow-execution.js'
 import { findingJournalOf } from './findings/journal.js'
+import { publicationOf } from './findings/publication.js'
 
 /**
  * What a run read back at launch may do next, and why not when it may not.
@@ -158,6 +159,13 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       if (!object(series) || !text(series['id']) || !text(series['role']) || !object(series['checkout']) ||
         !(series['reviewedAt'] === null || text(series['reviewedAt'])) || !Array.isArray(series['reviewRounds']) ||
         !texts(series['initial']) || !texts(series['exceptions']) || !texts(series['pending'])) bad('has a review series it cannot describe')
+    }
+  }
+  if (raw['publication'] !== undefined) {
+    try {
+      publicationOf(raw['publication'])
+    } catch (error) {
+      bad(error instanceof Error ? error.message : String(error))
     }
   }
   if (raw['findingOps'] !== undefined) {

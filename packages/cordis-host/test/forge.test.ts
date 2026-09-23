@@ -30,6 +30,10 @@ const engine = (): ForgeEngine & { readonly seats: unknown[]; readonly published
     publish: async (reference, scope) => {
       published.push({ reference, scope })
     },
+    publicationAllowed: async (scope) => {
+      seats.push({ publicationAllowed: scope })
+      return { ok: true }
+    },
   }
 }
 
@@ -58,6 +62,18 @@ test('the forge plane needs the grant; with it, the scope carries the plugin', a
             }
           },
         })
+        ctx.tools.register({
+          name: 'ungranted_allowed',
+          description: 'x',
+          inputSchema: { type: 'object', properties: {} },
+          execute: async (_args: unknown, scope: unknown) => {
+            try {
+              return JSON.stringify(await ctx.forge.publicationAllowed(scope))
+            } catch (error) {
+              return `refused: ${error instanceof Error ? error.message : String(error)}`
+            }
+          },
+        })
       },
     },
   })
@@ -72,6 +88,12 @@ test('the forge plane needs the grant; with it, the scope carries the plugin', a
           description: 'x',
           inputSchema: { type: 'object', properties: {} },
           execute: async (_args: unknown, scope: unknown) => JSON.stringify(await ctx.forge.seat(scope)),
+        })
+        ctx.tools.register({
+          name: 'granted_allowed',
+          description: 'x',
+          inputSchema: { type: 'object', properties: {} },
+          execute: async (_args: unknown, scope: unknown) => JSON.stringify(await ctx.forge.publicationAllowed(scope)),
         })
         ctx.tools.register({
           name: 'granted_publish',
@@ -109,6 +131,16 @@ test('the forge plane needs the grant; with it, the scope carries the plugin', a
   assert.equal(plane.published.length, 1)
   const recorded = (plane.published[0] as { scope: { plugin: string } }).scope
   assert.match(recorded.plugin, /^granted#\d+$/)
+
+  // Phase 7: the embargo is asked with the same grant and the same stamped scope.
+  const allowed = await kernel.invokeTool(tool('granted_allowed'), {}, scope)
+  assert.match(JSON.stringify(allowed), /\{\\"ok\\":true\}/)
+  const embargo = plane.seats.at(-1) as { publicationAllowed: { runtime: string; sessionId: string; plugin: string } }
+  assert.equal(embargo.publicationAllowed.sessionId, 's1')
+  assert.match(embargo.publicationAllowed.plugin, /^granted#\d+$/)
+  const before = plane.seats.length
+  assert.match(JSON.stringify(await kernel.invokeTool(tool('ungranted_allowed'), {}, scope)), /refused: .*forge/)
+  assert.equal(plane.seats.length, before, 'an ungranted plugin never reaches the embargo either')
 })
 
 test('the grant is read from a manifest and described in a sentence', () => {

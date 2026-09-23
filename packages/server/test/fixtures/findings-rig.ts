@@ -65,6 +65,8 @@ export interface FindingsRig {
   view(id: string): Promise<FindingView>
   /** A fresh plane (and flow engine) over the same files: a restart. */
   restart(): Promise<void>
+  /** Told of every plane the rig attaches, before a restart resumes its runs: where a test attaches a publisher. */
+  onPlane: ((plane: FindingsPlane) => void | Promise<void>) | null
 }
 
 export const findingsRig = async (
@@ -80,7 +82,7 @@ export const findingsRig = async (
   rig.heads.set('/repo', { at: SHA1, dirty: false })
   const store = new EvidenceStore(join(rig.dir, 'evidence'))
   const out = {
-    rig, store, appendHook: null, packetRefusal: null, goal: '', run: '',
+    rig, store, appendHook: null, packetRefusal: null, goal: '', run: '', onPlane: null,
   } as unknown as FindingsRig
   const port: FindingsPort = {
     store: {
@@ -180,6 +182,7 @@ export const findingsRig = async (
     await rig.restart()
     out.plane = new FindingsPlane(port)
     attach()
+    await out.onPlane?.(out.plane)
     // The host's order: runs read back, finding commands settled, then runs resumed.
     await out.plane.recover()
     await rig.flows.resume()

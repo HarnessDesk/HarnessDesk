@@ -278,7 +278,9 @@ const wrapCards: Validator<import('./goal.js').WrapChoices['cards']> = (value, p
   if (new Set(cards.map((card) => card.id)).size !== cards.length) throw new ValidationError(path, 'expected each card once')
   return cards
 }
-const wrapChoices = goalShape({ summary: atMost(4000, isString), cards: wrapCards })
+const wrapChoices = goalShape({
+  summary: atMost(4000, isString), cards: wrapCards, publicationGaps: optional(literalUnion('record')),
+})
 const citationPath: Validator<string> = (value, path = '') => {
   const text = atMost(4096, isFilled)(value, path)
   const parts = text.split('/')

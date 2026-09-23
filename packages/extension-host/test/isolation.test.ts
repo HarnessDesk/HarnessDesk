@@ -520,6 +520,7 @@ test('a forge call rides its own invocation or is refused; the identity needs no
     },
     identity: async () => ({ via: 'gh', login: 'octocat', available: true, reason: null }),
     publish: async () => {},
+    publicationAllowed: async () => ({ ok: true }),
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -603,6 +604,7 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
       return { via: 'gh', login: 'octocat', available: true, reason: null }
     },
     publish: async () => {},
+    publicationAllowed: async () => ({ ok: true }),
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')

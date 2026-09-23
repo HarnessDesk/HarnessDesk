@@ -31,6 +31,7 @@ import { FlowCatalog } from './flow-catalog.js'
 import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type StoredFlowExecution } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
 import type { FindingJournal } from './findings/journal.js'
+import type { PublicationJournal } from './findings/publication.js'
 import { executionOf, legacyCheckUncertain, legacyRunOf, legacySeatsMapped, recoveryOf } from './flow-recovery.js'
 import {
   cardVars,
@@ -360,9 +361,25 @@ export class Flows implements TeamFlows {
     return this.#executions.retryCheck(run, card)
   }
 
-  stopRun(id: string, why?: string): Promise<FlowExecution> {
+  /**
+   * A person's Stop. What the run had released but not yet sent is skipped by
+   * the listeners (`onRunStopped`); a comment already on its way is read
+   * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
+   * wrap waits for its findings' posting instead.
+   */
+  async stopRun(id: string, why?: string): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
-    return this.#executions.stop(id, why)
+    const stopped = await this.#executions.stop(id, why)
+    for (const listener of this.#runStopped) await listener(id)
+    return stopped
+  }
+
+  readonly #runStopped = new Set<(run: string) => Promise<void>>()
+
+  /** Told after a person stops a run on a Goal, awaited before the Stop answers. */
+  onRunStopped(listener: (run: string) => Promise<void>): () => void {
+    this.#runStopped.add(listener)
+    return () => this.#runStopped.delete(listener)
   }
 
   /** The wrap barrier: every run on this Goal stops dispatching before the Goal's receipt is taken. */
@@ -408,6 +425,20 @@ export class Flows implements TeamFlows {
   withFindingJournal<T>(run: string, step: (journal: FindingJournal) => Promise<T>): Promise<T> {
     if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
     return this.#executions.withFindingJournal(run, step)
+  }
+
+  /** One publication step inside its run's queue, with the run's own publication journal. */
+  withPublicationJournal<T>(run: string, step: (journal: PublicationJournal) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
+    return this.#executions.withPublicationJournal(run, step)
+  }
+
+  publicationRuns(): ReturnType<FlowExecutions['publicationRuns']> {
+    return this.#executions?.publicationRuns() ?? []
+  }
+
+  publicationEntry(key: string): ReturnType<FlowExecutions['publicationEntry']> {
+    return this.#executions?.publicationEntry(key) ?? null
   }
 
   /** Runs whose finding commands a restart has to settle. */

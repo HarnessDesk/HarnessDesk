@@ -164,6 +164,8 @@ export interface HarnessContext {
     seat(scope?: ScopeQuery): Promise<ForgeSeat | null>
     identity(scope?: ScopeQuery): Promise<ForgeIdentity>
     publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void>
+    /** Whether this invocation's conversation may put words on the forge now: asked before every forge mutation. */
+    publicationAllowed(scope?: ScopeQuery): Promise<{ ok: true } | { ok: false; reason: string }>
   }
   readonly team: {
     board(scope?: ScopeQuery): Promise<string>

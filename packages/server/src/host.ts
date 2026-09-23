@@ -90,6 +90,7 @@ import { FlowPreviews } from './flow-preview.js'
 import { FlowUpdates } from './flow-update.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
+import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
@@ -110,7 +111,9 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import { GhFindingForge } from './findings/forge.js'
 import { FindingsPlane } from './findings/plane.js'
+import { Publications, type FindingForgePort } from './findings/publication.js'
 import { QuestionDeadline } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
@@ -324,6 +327,12 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
+  /**
+   * The forge a closed round's findings are posted through. Constructor
+   * injection for tests only — a scripted transport — and absent everywhere
+   * else, where the desk's own `gh` adapter is composed.
+   */
+  readonly findingForge?: FindingForgePort
   /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
   readonly evidence?: { readonly gh?: GhInCheckout }
   readonly logger: Logger
@@ -544,6 +553,8 @@ export class Host {
   readonly #goals: GoalPlane
   /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
   readonly #findings: FindingsPlane
+  /** The closed-round publisher: one operation at a time, journaled in each run's own file. */
+  readonly #publications: Publications
   /** Deadlines on questions unattended flow Seats ask. */
   readonly #questions: QuestionDeadline
   /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
@@ -766,6 +777,7 @@ export class Host {
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
+        embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
       },
       options.forge ?? {},
     )
@@ -1022,6 +1034,41 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
     this.#team.attachFindings(this.#findings)
+    this.#publications = new Publications({
+      journal: (run, step) => this.#flows.withPublicationJournal(run, step),
+      runs: () => this.#flows.publicationRuns(),
+      run: (run) => {
+        const snapshot = this.#flows.findingRun(run)
+        return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
+      },
+      entry: (key) => this.#flows.publicationEntry(key),
+      roundClosed: (run, round) => this.#flows.roundClosed(run, round),
+      goal: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return { open: document.goal.state === 'open', preference: document.goal.findingPublication }
+        } catch {
+          return null
+        }
+      },
+      projectOf: async (goal) => {
+        const state = this.#goalState(goal)
+        return projectOf(state.cwd ?? state.root)
+      },
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      ledger: (project) => this.#findings.ledgerOf(project),
+      seat: (id) => this.#evidence.seats.byId(id),
+      template: () => this.#reviewSignature(),
+      appendPost: (input) => this.#findings.appendPost(input),
+      forge: options.findingForge ?? new GhFindingForge(),
+      now: () => Date.now(),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#findings.attachPublisher(this.#publications)
+    this.#flows.onRunStopped((run) => this.#publications.cancel(run, 'The run was stopped before this was posted, so it stays on the desk.'))
     // Every round close of a run with findings bookkeeping is processed by the ledger's writer before the run goes on.
     this.#flows.onRoundClosed((run, round) => this.#findings.roundClosed(run, round))
     this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
@@ -1127,7 +1174,11 @@ export class Host {
       waits: () => false,
       stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
       held: (goal: string) => this.#goalState(goal).channel.some((entry) => entry.kind === 'message' && entry.state === 'held'),
-      settledFor: (goal: string) => this.#evidence.settledFor(goal),
+      settledFor: async (goal: string) => {
+        await this.#evidence.settledFor(goal)
+        // A wrap waits for its findings' posting to end: posted, skipped, or a gap a person records.
+        await this.#publications.settleForWrap(goal)
+      },
       answer: (seat: SeatRecord) => this.#goalAnswer(seat),
       revision: async (cwd: string) => {
         const revision = await revisionOf(cwd)
@@ -1222,7 +1273,10 @@ export class Host {
       holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
-      findings: (goal: string) => this.#findings.receiptWithGaps(goal),
+      findings: async (goal: string) => ({
+        ...await this.#findings.receiptWithGaps(goal),
+        publication: await this.#publications.gaps(goal),
+      }),
     } satisfies GoalPlanePort
     this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
     this.#goals.attachFindings((records) => this.#findings.appendCarry(records))
@@ -1303,6 +1357,12 @@ export class Host {
    * so that key is still read for team — an install made before this keeps
    * the board rules it was left with.
    */
+  /** The person's review signature template, as the Git plugin's stored settings hold it; the shipped one otherwise. */
+  #reviewSignature(): string {
+    const stored = this.#storedPluginSettings('git')?.['reviewSignature']
+    return typeof stored === 'string' ? stored : DEFAULT_REVIEW_SIGNATURE
+  }
+
   #storedPluginSettings(id: string): Record<string, unknown> | null {
     const preferences = this.#state.state.preferences
     const all = preferences['pluginSettings']
@@ -1534,6 +1594,10 @@ export class Host {
     // After the runs: a finding command a stop left part-way is settled from
     // its run's own journal, before any Seat can ask for another.
     await this.#findings.recover()
+    // Then posting: a send a stop interrupted is read back from the forge, never sent again.
+    await this.#publications.recover().catch((error: unknown) => {
+      this.#logger.warn('closed rounds could not be queued for posting again', { error: error instanceof Error ? error.message : String(error) })
+    })
     // Both room and flow recovery can change a Goal's activity. Seed the
     // in-memory comparison point only after they have settled, so the first
     // later change can cross the notification boundary normally.
@@ -1691,6 +1755,7 @@ export class Host {
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
     this.#questions.close()
     await this.#flows.flush()
+    await this.#publications.idle()
     await this.#findings.close()
     await this.#team.flush()
     await this.#provenanceStart
@@ -3196,6 +3261,7 @@ export class Host {
     nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
     askPerson: (runtime, sessionId, question) => this.#askPerson(runtime, sessionId, question),
+    embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
   })
 
   /** A reported child conversation to the conversation that delegated it. */

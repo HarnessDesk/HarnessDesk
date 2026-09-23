@@ -56,6 +56,11 @@ test('wrap accepts bounded choices and never accepts a forged receipt', () => {
     { id: 1, resolution: 'dropped', reason: 'duplicate' },
   ] } }), ValidationError)
   assert.throws(() => request('goal/wrap', { ...valid, stamp: 'short' }), ValidationError)
+  // Phase 7: the one disposition of unsettled postings a person may give, and nothing else.
+  assert.doesNotThrow(() => request('goal/wrap', { ...valid, stamp: 'a'.repeat(64), choices: { ...valid.choices, publicationGaps: 'record' } }))
+  for (const other of ['skip', 'post', true, 1]) {
+    assert.throws(() => request('goal/preview', { ...valid, choices: { ...valid.choices, publicationGaps: other } }), ValidationError)
+  }
 })
 
 test('citation validates full revisions and literal relative paths without host fields', () => {

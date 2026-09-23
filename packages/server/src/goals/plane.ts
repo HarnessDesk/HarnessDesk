@@ -59,7 +59,12 @@ export interface GoalPlanePort extends GoalOperationPort {
   /** Refuses every change to the Goal's board, with `reason`, until the answer is called. */
   holdBoard?(goal: string, reason: string): () => void
   /** The findings this Goal owns, as a wrap would freeze them, and what the receipt cannot vouch for. Absent: none recorded. */
-  findings?(goal: string): Promise<{ readonly receipt: FindingReceipt; readonly gaps: readonly string[] }>
+  findings?(goal: string): Promise<{
+    readonly receipt: FindingReceipt
+    readonly gaps: readonly string[]
+    /** Publications of this Goal's findings still unsettled after posting was worked to its end: a person records them. */
+    readonly publication?: readonly string[]
+  }>
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -545,6 +550,7 @@ export class GoalPlane {
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
       ...(findings?.gaps ?? []),
+      ...(findings?.publication ?? []),
       ...(evidenceIds.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
       ...revisions.filter((revision) => revision.head === null || revision.dirty === null)
         .map((revision) => `Revision state was unavailable for ${revision.cwd}.`),
@@ -571,6 +577,7 @@ export class GoalPlane {
       gaps: [...new Set(gaps)].sort(),
       revisions,
       ...(findings ? { findings: findings.receipt } : {}),
+      ...(findings?.publication && findings.publication.length > 0 ? { publication: [...findings.publication].sort() } : {}),
     } satisfies WrapInput)
   }
 

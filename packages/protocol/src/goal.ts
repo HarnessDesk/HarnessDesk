@@ -125,6 +125,12 @@ export interface GoalSeatRequest {
 export interface WrapChoices {
   summary: string
   cards: GoalReceipt['cards']
+  /**
+   * The person's disposition of findings posting could not confirm on the
+   * pull request: `record` wraps with each one written into the receipt as
+   * a gap. Required when there is any; absent otherwise.
+   */
+  publicationGaps?: 'record'
 }
 
 export interface WrapPreview {

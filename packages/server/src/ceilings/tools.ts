@@ -94,6 +94,22 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
   ),
 }
 
+/**
+ * The desk tools that put words on a forge where other people read them. A
+ * Seat reviewing in a blind round that has not closed may call none of them —
+ * nor may a conversation it delegated to — whatever its ceiling: its
+ * findings are posted with the round, together, once every reviewer has
+ * finished. A ceiling says what a Seat may ever do; this says what it may not
+ * do yet.
+ */
+export const EMBARGOED_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  git: ['pr_review', 'pr_comment', 'issue_comment'],
+}
+
+/** Whether a tool is one a blind round's embargo holds back: only a shipped plugin's, by its own identity. */
+export const publishesToForge = (tool: Pick<ToolContribution, 'name'>, plugin: PluginInstance | undefined): boolean =>
+  plugin?.identity.source.kind === 'builtin' && (EMBARGOED_TOOLS[plugin.identity.id]?.includes(tool.name) ?? false)
+
 /** What a desk tool above read does, in the words its refusal uses. */
 export const TOOL_WORDS: Readonly<Record<string, { readonly doing: string; readonly ask: string }>> = {
   pr_create: { doing: 'opening a pull request', ask: 'open a pull request' },

@@ -5,6 +5,7 @@ import type {
   DecideFindingInput,
   EvidenceRecord,
   EvidenceView,
+  FindingPost,
   FindingRunState,
   FindingRunView,
   FindingSeries,
@@ -32,6 +33,7 @@ import type { TeamCallScope } from '../team.js'
 import type { FindingJournal, FindingJournalEntry } from './journal.js'
 import { canonical, foldFindings, isResolved, liveBlockers } from './model.js'
 import { repairPacket } from './packet.js'
+import type { Publications } from './publication.js'
 import { admittedOf, advanceProgress, closeSeries, decideLoop, progressKeys, rejectedRepairs } from './rounds.js'
 
 /**
@@ -316,9 +318,21 @@ const STALE = (now: number) => `This finding changed since you read it; it is at
 export class FindingsPlane {
   readonly #port: FindingsPort
   readonly #tails = new Map<string, Promise<unknown>>()
+  /** The closed-round publisher, once the host composed one; absent, every round stays on the desk. */
+  #publisher: Publications | null = null
 
   constructor(port: FindingsPort) {
     this.#port = port
+  }
+
+  /** Attaches the publisher a closed round's batch is released to. Set once. */
+  attachPublisher(publisher: Publications | null): void {
+    this.#publisher = publisher
+  }
+
+  /** The project's finding records and views, read under its queue: what the publisher plans and checks against. */
+  async ledgerOf(project: string): Promise<{ readonly records: readonly EvidenceRecord[]; readonly views: readonly FindingView[]; readonly unreadable: number }> {
+    return this.#serial(project, () => this.#ledger(project))
   }
 
   /** One queue per canonical project. Nothing running inside it ever asks for a run or a Goal. */
@@ -658,6 +672,51 @@ export class FindingsPlane {
     }
   }
 
+  // --------------------------------------------------------------- postings
+
+  /**
+   * Where a publication landed, as the finding's `post` event: appended once
+   * for its operation key, at the finding's next sequence read now, carrying
+   * the phase-4 `posted` that agrees with it. Never a Seat's: the host posted.
+   */
+  async appendPost(input: { readonly goal: string; readonly finding: string; readonly operation: string; readonly location: FindingPost }): Promise<void> {
+    if (input.location.operation !== input.operation) throw new Error('A posting names another operation than the one that sent it.')
+    const project = await this.#port.projectOf(input.goal)
+    await this.#serial(project, async () => {
+      const ledger = await this.#ledger(project)
+      if (ledger.records.some((record) => record.finding?.operation === input.operation)) return
+      const view = ledger.views.find((one) => one.id === input.finding)
+      if (!view) throw new Error('This finding could not be read back to record where it was posted.')
+      const last = ledger.records.filter((record) => record.fact.kind === 'finding' && record.fact.id === view.id).at(-1)!
+      await appendOnce(this.#appender(project), {
+        id: mintId(),
+        fact: { kind: 'finding', id: view.id, state: view.lifecycle.state, at: last.fact.kind === 'finding' ? last.fact.at : view.origin.at },
+        card: null,
+        checkout: last.checkout ?? null,
+        seat: null, round: null, observedAt: this.#port.now(),
+        posted: { pr: input.location.pr, comment: input.location.comment },
+        finding: { version: 1, sequence: view.sequence + 1, operation: input.operation, origin: view.origin, event: { kind: 'post', location: input.location } },
+      })
+    })
+    this.#port.changed?.(input.goal)
+  }
+
+  /**
+   * Why a conversation may not publish to a forge right now, or null: it
+   * holds a card in a review round that is still blind. Asked by every desk
+   * publication path — the tool gate, and each forge mutation a plugin makes
+   * — for the caller and for a delegated call's root alike.
+   */
+  embargoOf(runtime: string, sessionId: string): string | null {
+    const seat = this.#port.seats.latestKeptOf(runtime, sessionId)
+    if (!seat || seat.restored || !seat.board) return null
+    const blind = (this.#port.flows.blindRounds?.(seat.board) ?? [])
+      .some((round) => round.holders.some((holder) => holder.runtime === runtime && holder.sessionId === sessionId))
+    return blind
+      ? 'Refused: this Seat is reviewing in a blind round that has not closed. Its findings are posted with the round, together, once every reviewer has finished.'
+      : null
+  }
+
   // ---------------------------------------------------------------- receipts
 
   /**
@@ -693,6 +752,8 @@ export class FindingsPlane {
     const snapshot = flows.run(run)
     if (!snapshot?.findings) return
     if (snapshot.findings.closedRounds.includes(round)) {
+      // A replayed close: the batch was decided the first time and is found, never planned again.
+      await this.#publisher?.close(run, round)
       await flows.recordClose(run, round, null)
       return
     }
@@ -703,6 +764,10 @@ export class FindingsPlane {
     const facts = await flows.facts(snapshot.goal)
     const subjects = closing.reviews ? await flows.subjects(snapshot.goal, closing) : []
     const next = closeRound({ snapshot, round: closing, ledger, facts, subjects })
+    /* The round's release is decided and journaled before the run goes on;
+       its comments are sent afterwards, one at a time, and the run never
+       waits on a forge. A decision that cannot be written stops the run. */
+    await this.#publisher?.close(run, round)
     await flows.recordClose(run, round, next)
   }
 
@@ -771,6 +836,7 @@ export class FindingsPlane {
     const admitted = admittedOf(snapshot.findings?.series ?? [])
     const last = snapshot.rounds.at(-1)
     const blind = (this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
+    const publication = this.#publisher ? await this.#publisher.status(run) : { publication: 'local' as const, reason: null }
     const view = {
       run, goal: snapshot.goal, round: last?.n ?? 0,
       finished: snapshot.findings?.closedRounds.length ?? 0,
@@ -778,8 +844,8 @@ export class FindingsPlane {
       embargoed: blind,
       open: owned.filter((one) => !isResolved(one)).length,
       blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length,
-      reason: snapshot.findings?.stopped?.reason ?? null,
-      publication: 'local' as const,
+      reason: snapshot.findings?.stopped?.reason ?? publication.reason,
+      publication: publication.publication,
     }
     return { ...view, stamp: createHash('sha256').update(canonical({ view, evidence: owned.flatMap((one) => one.evidence) })).digest('hex') }
   }
