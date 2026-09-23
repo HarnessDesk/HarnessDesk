@@ -604,6 +604,26 @@ export class PluginHostProcess {
             })
             return
           }
+          case 'team/reviewCandidates': {
+            reply({ response: request.request, result: await plane.reviewCandidates(Number(params['intent']), scope) })
+            return
+          }
+          case 'team/recordReview': {
+            const { intent, candidate, verdict, against } = params as {
+              intent: number
+              candidate: string
+              verdict: string
+              against?: readonly string[]
+            }
+            reply({
+              response: request.request,
+              result: await plane.recordReview(
+                { intent: Number(intent), candidate: String(candidate), verdict: String(verdict), ...(against !== undefined ? { against } : {}) },
+                scope,
+              ),
+            })
+            return
+          }
           default:
             refuse(`Unknown request ${String(request.method)}.`)
             return

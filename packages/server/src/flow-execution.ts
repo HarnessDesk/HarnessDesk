@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import type {
   CompiledFlow,
   FlowBinding,
+  FlowCheck,
   FlowExecution,
   FlowOperation,
   FlowPolicy,
@@ -19,6 +20,7 @@ import type {
   SeatRecord,
 } from '@harnessdesk/protocol'
 
+import { ConfinedTree } from './confined-tree.js'
 import { cardVars, guardHolds, renderFlowTemplate } from './flow.js'
 import type { Team } from './team.js'
 
@@ -87,6 +89,24 @@ export interface FlowExecutionPort {
   reseat(seat: SeatRecord): Promise<string>
   changed(goal: string, runs: readonly FlowExecution[]): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
+  /**
+   * A checkout's live branch head and whether it holds uncommitted changes,
+   * read fresh — never the stale head a Seat was opened with. Null head
+   * outside a repository or before its first commit.
+   */
+  headOf(cwd: string, branch: string | null): Promise<{ readonly at: string | null; readonly dirty: boolean }>
+  /**
+   * Runs a flow's check command through the bounded runner, and records its
+   * result as that card's check evidence, awaited before this resolves — a
+   * card is never marked done on an unsaved fact. `problem` is set only when
+   * the command finished but its evidence could not be saved; the command's
+   * own result is still returned alongside it, never discarded.
+   */
+  runCheck(
+    command: string,
+    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
+    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
+  ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
 }
 
 // ------------------------------------------------------------------ one queue
@@ -101,8 +121,20 @@ export class SerialRun {
     this.tails.set(id, tail)
     try { return await next } finally { if (this.tails.get(id) === tail) this.tails.delete(id) }
   }
+  /**
+   * Waits for every run's queue to empty, including work a turn queues on
+   * itself while running — a check's own completion opening its next round,
+   * say, which re-enters `within` for the same id before the outer call has
+   * returned. A single snapshot of `tails` taken before that reentry would
+   * miss the promise it queues, so this reads the map again after each wait
+   * until nothing is left, rather than once.
+   */
   async idle(): Promise<void> {
-    await Promise.all([...this.tails.values()])
+    let guard = 0
+    while (this.tails.size > 0) {
+      if (++guard > 10_000) throw new Error('SerialRun.idle() never quieted down: something keeps re-queuing work.')
+      await Promise.all([...this.tails.values()])
+    }
   }
 }
 
@@ -184,37 +216,51 @@ const policyOf = (run: StoredFlowExecution): FlowPolicy => {
 const bindingsFor = (run: StoredFlowExecution, role: string): FlowBinding[] =>
   run.compiled.bindings.filter((binding) => binding.role === role).sort((a, b) => a.index - b.index)
 
+/** Structurally `FlowSubject` (`flow-evidence.ts`) — repeated here rather than imported, so this file names no dependency on evidence guards. */
+export interface FlowSubjectLike {
+  readonly card: number
+  readonly round: number
+  readonly checkout: { readonly cwd: string; readonly branch: string | null }
+  readonly at: string
+}
+
 export const INDEPENDENT = 'This step needs an independent provider. Choose a seat from another provider.'
 export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it.'
+export const CHECK_CWD_OUTSIDE = 'This check points outside the project. Choose a folder inside the project and review it again.'
 const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
 
-/** What a finished round's rule decides: fire one, wait for evidence on one, or end the run. */
+/** What a finished round's rule decides: fire one (with the evidence that authorized it), wait, or end the run. */
 export type RuleDecision =
-  | { readonly kind: 'fire'; readonly rule: FlowPolicyRule }
+  | { readonly kind: 'fire'; readonly rule: FlowPolicyRule; readonly evidence: readonly string[] }
   | { readonly kind: 'wait'; readonly rule: FlowPolicyRule }
   | { readonly kind: 'none' }
+
+/** What one rule's evidence guard decided, however it was computed. */
+export type RuleEvidence = { readonly state: 'matched'; readonly evidence: readonly string[] } | { readonly state: 'no-match' | 'waiting' }
 
 /**
  * Rules are three-valued and read in file order. A rule whose answers match
  * but whose evidence is not yet known waits, and a later fallback cannot
- * overtake it.
+ * overtake it. `evidence` is asked only for a rule whose answers already
+ * matched and which actually names a guard, since evaluating one reads git
+ * and the evidence store.
  */
-export const decide = (
+export const decide = async (
   policy: FlowPolicy,
   role: string,
   outcomes: readonly (string | null)[],
-  evidence: (rule: FlowPolicyRule) => 'matched' | 'unmet' | 'waiting',
-): RuleDecision => {
+  evidence: (rule: FlowPolicyRule) => Promise<RuleEvidence>,
+): Promise<RuleDecision> => {
   for (const rule of policy.rules) {
     if (rule.on !== role) continue
     const answers = rule.when && (rule.when.every?.length || rule.when.any?.length)
       ? guardHolds({ ...(rule.when.every?.length ? { every: rule.when.every } : {}), ...(rule.when.any?.length ? { any: rule.when.any } : {}) }, outcomes)
       : outcomes.length > 0
     if (!answers) continue
-    if (!rule.when?.evidence?.length) return { kind: 'fire', rule }
-    const found = evidence(rule)
-    if (found === 'matched') return { kind: 'fire', rule }
-    if (found === 'waiting') return { kind: 'wait', rule }
+    if (!rule.when?.evidence?.length) return { kind: 'fire', rule, evidence: [] }
+    const found = await evidence(rule)
+    if (found.state === 'matched') return { kind: 'fire', rule, evidence: found.evidence }
+    if (found.state === 'waiting') return { kind: 'wait', rule }
   }
   return { kind: 'none' }
 }
@@ -225,8 +271,12 @@ const now = (): number => Date.now()
 
 export interface FlowExecutionsOptions {
   readonly now?: () => number
-  /** Evidence guards are decided by the evidence plane (a later step); until then every guard waits. */
-  readonly evidence?: (run: FlowExecution, rule: FlowPolicyRule) => 'matched' | 'unmet' | 'waiting'
+  /**
+   * Evaluates one rule's evidence guard against the Goal's own facts, freshly
+   * read. Absent, every guard waits forever — a desk with no evidence plane
+   * attached never fabricates a match.
+   */
+  readonly evidence?: (goal: string, round: FlowRoundState, rule: FlowPolicyRule) => Promise<RuleEvidence>
 }
 
 /** Runs on Goals. `Flows` hands every Goal-born run and every card of one to this. */
@@ -249,7 +299,7 @@ export class FlowExecutions {
     this.#team = team
     this.#port = port
     this.#now = options.now ?? now
-    this.#evidence = options.evidence ?? (() => 'waiting')
+    this.#evidence = options.evidence ?? (async () => ({ state: 'waiting' }))
   }
 
   async idle(): Promise<void> {
@@ -316,6 +366,83 @@ export class FlowExecutions {
     if (outcome === null) return `Refused: #${intent.id} belongs to a flow, so it needs an outcome — one of ${answers.join(', ')}.`
     if (!answers.includes(outcome)) return `Refused: "${outcome}" is not an answer this step accepts. It accepts ${answers.join(', ')}. Nothing was recorded.`
     return null
+  }
+
+  /**
+   * A finished round's evidence subjects: its own cards' Seats, each read
+   * fresh right now rather than trusted from when the Seat opened —
+   * "resolve current branch heads immediately before transition". A round
+   * with no checkout of its own — a check or a person round has no Seat —
+   * falls back to the predecessor cards it depends on, the same join a
+   * structured review makes. A dirty checkout contributes no subject; an
+   * evidence guard over zero subjects waits rather than matching vacuously.
+   */
+  async subjectsOf(goal: string, round: FlowRoundState): Promise<readonly FlowSubjectLike[]> {
+    if (round.cards.length === 0) return []
+    const run = this.#runOfCard(goal, round.cards[0]!)
+    if (!run) return []
+    const direct = await this.#seatSubjects(run, round.cards, round.n)
+    if (direct.length > 0) return direct
+    const board = this.#team.stateFor(goal)
+    const deps = new Set<number>()
+    for (const card of round.cards) {
+      for (const dep of board.intents.find((one) => one.id === card)?.dependsOn ?? []) deps.add(dep)
+    }
+    const depRound = run.rounds.find((one) => [...deps].some((dep) => one.cards.includes(dep)))
+    return depRound ? this.#seatSubjects(run, [...deps], depRound.n) : []
+  }
+
+  async #seatSubjects(run: StoredFlowExecution, cards: readonly number[], round: number): Promise<readonly FlowSubjectLike[]> {
+    const out: FlowSubjectLike[] = []
+    for (const card of cards) {
+      const { seat } = this.#seatForCard(run, card)
+      if (!seat || seat.closed) continue
+      const head = await this.#port.headOf(seat.checkout.cwd, seat.checkout.branch)
+      if (head.at && !head.dirty) out.push({ card, round, checkout: { cwd: seat.checkout.cwd, branch: seat.checkout.branch }, at: head.at })
+    }
+    return out
+  }
+
+  /** Whether this card's Agent binding declares `produces: review` — `complete_claim` alone cannot finish it then. */
+  requiresReview(goal: string, card: number): boolean {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return false
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.flow.roles.find((one) => one.id === round?.role)
+    if (role?.kind !== 'agent') return false
+    const index = round!.cards.indexOf(card)
+    return bindingsFor(run, role.id)[index]?.agent.produces.includes('review') ?? false
+  }
+
+  /**
+   * What a review call binds to: the caller's own kept Seat, holding this
+   * exact card now, its Agent's declared answers, and the predecessor
+   * subjects it may judge — each a fresh, clean (non-dirty) checkout's own
+   * head, read now rather than trusted from when the Seat opened. Null when
+   * the scope holds no live claim on this card at all.
+   */
+  async reviewBinding(
+    goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string },
+  ): Promise<{
+    readonly seat: string
+    readonly answers: readonly string[]
+    readonly round: number
+    readonly subjects: readonly FlowSubjectLike[]
+  } | null> {
+    const run = this.#runOfCard(goal, card)
+    if (!run) return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    if (!round) return null
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat || seat.closed || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
+    const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round.role) : undefined
+    const index = round.cards.indexOf(card)
+    const answers = role?.kind === 'agent' ? (bindingsFor(run, role.id)[index]?.agent.answers ?? []) : []
+    const board = this.#team.stateFor(goal)
+    const deps = board.intents.find((one) => one.id === card)?.dependsOn ?? []
+    const depRound = run.rounds.find((one) => deps.some((dep) => one.cards.includes(dep)))
+    const subjects = depRound ? await this.#seatSubjects(run, deps, depRound.n) : []
+    return { seat: String(seat.id), answers, round: round.n, subjects }
   }
 
   standDown(goal: string, runtime: string, sessionId: string): string | null {
@@ -499,6 +626,10 @@ export class FlowExecutions {
       const opened = await this.#seatRound(id, round, bindings, role.isolate, role.independentOf)
       if (!opened) return this.#get(id).rounds.find((one) => one.n === round.n)!
     }
+    if (role.kind === 'check') {
+      const opened = await this.#runCheckRound(id, round, role.check)
+      if (!opened) return this.#get(id).rounds.find((one) => one.n === round.n)!
+    }
     run = this.#get(id)
     round = { ...run.rounds.find((one) => one.n === round.n)!, state: 'running' }
     await this.#put(this.#operation(this.#round(run, round), `round:${round.n}`, { kind: 'round', state: 'finished', card: null, seat: null }))
@@ -627,6 +758,85 @@ export class FlowExecutions {
     ].filter((one): one is string => Boolean(one)).join('\n\n')
   }
 
+  // ---------------------------------------------------------------- checks
+
+  /**
+   * Runs a check round's one aggregate card in the Goal's own checkout —
+   * confined exactly like any other read of a repository-authored path, since
+   * `check.cwd` arrives with whatever cloned the flow file. Journaled before
+   * it spawns, so a crash mid-run leaves it `uncertain` for a person rather
+   * than run a second time, and its evidence append is awaited before the
+   * card is marked done — a storage failure stalls the run instead.
+   *
+   * Fan-out over each predecessor subject's own checkout, for a check with no
+   * explicit `cwd`, is not yet built: every check round today runs its one
+   * card in the Goal's checkout (or `check.cwd` under it), whatever the
+   * predecessor round's width was.
+   */
+  async #runCheckRound(id: string, round: FlowRoundState, check: FlowCheck): Promise<boolean> {
+    const card = round.cards[0]
+    if (card === undefined) return true
+    const key = `check:${round.n}:0`
+    let run = this.#get(id)
+    const prior = run.operations.find((one) => one.key === key)
+    if (prior?.state === 'finished') return true
+    if (prior?.state === 'started' || prior?.state === 'uncertain') {
+      await this.#stall(id, `This check was interrupted. Inspect its effects, then choose Run again.`)
+      return false
+    }
+    const board = this.#team.stateFor(run.goal)
+    const base = board.cwd ?? board.root
+    let cwd = base
+    if (check.cwd) {
+      if (isAbsolute(check.cwd)) return this.#failCheck(id, CHECK_CWD_OUTSIDE)
+      try {
+        cwd = await (await ConfinedTree.open(base)).resolveDir(check.cwd)
+      } catch {
+        return this.#failCheck(id, CHECK_CWD_OUTSIDE)
+      }
+    }
+    run = await this.#put(this.#operation(run, key, { kind: 'check', state: 'started', card, seat: null }))
+    const outcome = await this.#port.runCheck(check.run, { cwd, timeoutSec: check.timeout }, { goal: run.goal, card, name: round.role, round: round.n })
+    if (outcome.problem) {
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
+      await this.#stall(id, outcome.problem)
+      return false
+    }
+    await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'finished', card, seat: null }))
+    const said = check.exits[String(outcome.result.exit)] ?? check.otherwise
+    this.#team.intentAction(run.goal, card, 'done', outcome.result.tail.slice(0, 400) || undefined, said)
+    return true
+  }
+
+  async #failCheck(id: string, reason: string): Promise<false> {
+    await this.#stall(id, reason)
+    return false
+  }
+
+  /**
+   * The person's own "Run again" for an uncertain check: the operation is
+   * re-armed exactly as a fresh round-open would run it, only once — the
+   * caller (`flow/check/retry`) has already redeemed a token bound to this
+   * exact run and card, so nothing here re-chooses the command or checkout.
+   */
+  async retryCheck(id: string, card: number): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      const round = run.rounds.find((one) => one.cards.includes(card))
+      if (!round) throw new Error(`Card #${card} belongs to no round of this run.`)
+      const role = policyOf(run).roles.find((one) => one.id === round.role)
+      if (role?.kind !== 'check') throw new Error(`Card #${card} is not a check.`)
+      const key = `check:${round.n}:0`
+      const operation = run.operations.find((one) => one.key === key)
+      if (operation?.state !== 'uncertain') throw new Error('This check is not waiting to be run again.')
+      if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
+      await this.#put({ ...run, state: 'running', reason: null })
+      const opened = await this.#runCheckRound(id, round, role.check)
+      if (opened) await this.#advance(id)
+      return projectExecution(this.#get(id))
+    })
+  }
+
   // -------------------------------------------------------------- advance
 
   completed(goal: string, card: number): void {
@@ -647,13 +857,12 @@ export class FlowExecutions {
   }
 
   /** What the last closed-or-closing round decides, recomputed from the board every time it is asked. */
-  #decision(run: StoredFlowExecution, round: FlowRoundState): { decision: RuleDecision; completed: number[] } | null {
+  async #decision(run: StoredFlowExecution, round: FlowRoundState): Promise<{ decision: RuleDecision; completed: number[] } | null> {
     const board = this.#team.stateFor(run.goal)
     const cards = round.cards.map((id) => board.intents.find((one) => one.id === id))
     if (round.cards.length === 0 || cards.some((card) => !done(card))) return null
-    const projection = projectExecution(run)
     return {
-      decision: decide(policyOf(run), round.role, cards.map((card) => card?.outcome ?? null), (rule) => this.#evidence(projection, rule)),
+      decision: await decide(policyOf(run), round.role, cards.map((card) => card?.outcome ?? null), (rule) => this.#evidence(run.goal, round, rule)),
       completed: cards.filter((card) => card?.state === 'done').map((card) => card!.id),
     }
   }
@@ -674,13 +883,13 @@ export class FlowExecutions {
         await this.#openRound(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
         return
       }
-      const earlier = this.#decision(run, previous)
+      const earlier = await this.#decision(run, previous)
       if (earlier?.decision.kind === 'fire') {
         await this.#openRound(id, earlier.decision.rule.then, { key: last.cause, evidence: last.evidence }, earlier.completed)
       }
       return
     }
-    const found = this.#decision(run, last)
+    const found = await this.#decision(run, last)
     if (!found) return
     if (found.decision.kind === 'wait') {
       if (last.state !== 'waiting-evidence') await this.#put(this.#round(run, { ...last, state: 'waiting-evidence' }))
@@ -691,7 +900,7 @@ export class FlowExecutions {
       await this.#finish(id, 'settled', `${last.role} answered ${this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')}, and no rule takes it further`)
       return
     }
-    await this.#openRound(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: [] }, found.completed)
+    await this.#openRound(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: found.decision.evidence }, found.completed)
   }
 
   async #finish(id: string, state: 'settled' | 'stopped', reason: string): Promise<void> {

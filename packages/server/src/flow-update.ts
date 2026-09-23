@@ -1,6 +1,16 @@
 import { createHash } from 'node:crypto'
 
-import { ceilingOfPermission, type Flow, type FlowProblem, type FlowPolicy, type FlowPolicyRole, type FlowSeat } from '@harnessdesk/protocol'
+import {
+  ceilingOfPermission,
+  type Flow,
+  type FlowFileEdit,
+  type FlowProblem,
+  type FlowPolicy,
+  type FlowPolicyRole,
+  type FlowSeat,
+  type FlowUpdatePreview,
+  type FlowUpdateResult,
+} from '@harnessdesk/protocol'
 
 import { agentIdOf } from './agent-files.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, PROJECT_AGENT_DIR } from './agents.js'
@@ -9,22 +19,8 @@ import { errnoOf } from './errno.js'
 import { FLOW_FILE_LIMIT, type FlowCatalog } from './flow-catalog.js'
 import { parseFlowPolicy, serializeFlowPolicy } from './flow-policy.js'
 
-export interface FlowFileEdit {
-  readonly path: string
-  readonly before: string | null
-  readonly after: string
-}
-export interface FlowUpdatePreview {
-  readonly token: string
-  readonly resuming: boolean
-  readonly edits: readonly FlowFileEdit[]
-  readonly problems: readonly FlowProblem[]
-}
-export interface FlowUpdateResult {
-  readonly state: 'applied' | 'partial' | 'refused'
-  readonly written: readonly string[]
-  readonly message: string
-}
+export type { FlowFileEdit, FlowUpdatePreview, FlowUpdateResult } from '@harnessdesk/protocol'
+
 export interface MigrationEdit { readonly path: string; readonly before: string | null; readonly after: string }
 export interface MigrationPort {
   read(path: string): Promise<string | null>
@@ -146,6 +142,7 @@ export class FlowUpdates {
   readonly #now: () => number
   readonly #platform: NodeJS.Platform | undefined
   #tokens = new Map<string, Token>()
+  #customizeTokens = new Map<string, { readonly expires: number; readonly root: string; readonly path: string; readonly source: string }>()
   constructor(options: FlowUpdatesOptions) {
     this.#stateDir = options.stateDir
     this.#catalogue = options.catalogue
@@ -187,6 +184,55 @@ export class FlowUpdates {
   }
 
   #mint(root: string, journal: Journal | null): string { const token = crypto.randomUUID(); this.#tokens.set(token, { expires: this.#now() + 10 * 60_000, root, journal }); return token }
+
+  // ------------------------------------------------------------- customize
+
+  /**
+   * A user or built-in flow, copied into the project verbatim — no format
+   * conversion, unlike `preview`/`apply` above. Never overwrites: a project
+   * layer already holding this id is edited in place through the normal
+   * editor, not customized over.
+   */
+  async customizePreview(root: string, id: string): Promise<FlowUpdatePreview> {
+    const project = await this.#catalogue.project(root)
+    const found = await this.#catalogue.locate(project, id)
+    if (found.entry.origin === 'project') throw new Error('This flow is already a project flow. Edit it directly.')
+    const path = `.harnessdesk/flows/${id}.yml`
+    const problems: FlowProblem[] = []
+    if (!project.writable) {
+      problems.push({ level: 'error', at: 'update', text: 'HarnessDesk cannot change project files on this system, so this cannot be applied.' })
+    }
+    const edits: readonly FlowFileEdit[] = [{ path, before: null, after: found.source }]
+    if (problems.some((one) => one.level === 'error')) return { token: this.#mint(project.root, null), resuming: false, edits, problems }
+    const token = crypto.randomUUID()
+    this.#customizeTokens.set(token, { expires: this.#now() + 10 * 60_000, root: project.root, path, source: found.source })
+    return { token, resuming: false, edits, problems }
+  }
+
+  async customizeApply(root: string, id: string, token: string): Promise<FlowUpdateResult> {
+    const held = this.#customizeTokens.get(token)
+    this.#customizeTokens.delete(token)
+    const expired: FlowUpdateResult = { state: 'refused', written: [], message: 'This update preview expired. Preview the update again.' }
+    if (!held) return expired
+    let project: ConfinedTree
+    try {
+      project = await this.#catalogue.project(root)
+    } catch (error) {
+      return { state: 'refused', written: [], message: error instanceof Error ? error.message : String(error) }
+    }
+    if (held.root !== project.root) return expired
+    if (!project.writable) return { state: 'refused', written: [], message: 'HarnessDesk cannot change project files on this system, so nothing was written.' }
+    void id
+    try {
+      await project.createFile(held.path, held.source)
+      return { state: 'applied', written: [held.path], message: 'The flow was copied into the project.' }
+    } catch (error) {
+      if (errnoOf(error) === 'EEXIST') {
+        return { state: 'refused', written: [], message: 'A project flow already exists at that name. Edit it directly, or choose another name.' }
+      }
+      return { state: 'refused', written: [], message: error instanceof Error ? error.message : String(error) }
+    }
+  }
 
   async preview(root: string, id: string): Promise<FlowUpdatePreview> {
     // One confinement and one canonical root for the whole preview.

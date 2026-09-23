@@ -69,6 +69,12 @@ export interface GoalRig {
   readonly digests: Map<string, string>
   readonly providers: Map<string, string>
   readonly goals: Map<string, string>
+  /** What `headOf` answers for a checkout's `cwd`, keyed by that path; unset cwds read as no repository. */
+  readonly heads: Map<string, { readonly at: string | null; readonly dirty: boolean }>
+  /** What `runCheck` answers for a command, keyed by its exact text; unset commands "pass" (exit 0). */
+  readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
+  /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
+  checkEvidenceFails: boolean
   /** Asked of each opening before it happens; throw to refuse it. */
   beforeOpen: ((n: number, agent: string) => void) | null
   /** Asked after the conversation exists but before its card is claimed. */
@@ -108,6 +114,9 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   const rig = {
     team, dir, peers, events: [] as string[], seats: new Map<string, SeatRecord>(), lanes: new Map<string, Lane>(),
     digests: new Map<string, string>(), providers: new Map<string, string>(), goals: new Map<string, string>(),
+    heads: new Map<string, { at: string | null; dirty: boolean }>(),
+    checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
+    checkEvidenceFails: false,
     beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, comesBackAs: null,
     dispatch: { ok: true } as GoalRig['dispatch'],
     laneFor: (n: number, seat: SeatRecord): Lane => ({
@@ -180,6 +189,12 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     reseat: async (seat) => rig.comesBackAs ?? seat.seatLabel,
     changed: () => {},
     log: () => {},
+    headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
+    runCheck: async (command, where) => {
+      rig.events.push(`check:${command}`)
+      const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
+      return { result: outcome, evidence: rig.checkEvidenceFails ? null : 'fact-check', problem: rig.checkEvidenceFails ? 'evidence could not be saved' : null }
+    },
   }
   const legacy: FlowPort = {
     openLegacySeat: async () => { throw new Error('no old flows here') },

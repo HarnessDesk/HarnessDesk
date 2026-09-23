@@ -250,6 +250,20 @@ export class ConfinedTree {
     return { entries: entries.slice(0, limit), exceeded: entries.length > limit }
   }
 
+  /**
+   * The real absolute path of a folder under the root: every component
+   * looked at without following a link, the folder itself included, exactly
+   * as a read does. Refuses `rel` outside the root, and a component that is
+   * a link or is not there. A flow's own `check.cwd` is exactly the kind of
+   * untrusted, repository-authored path this exists for.
+   */
+  async resolveDir(rel: string): Promise<string> {
+    const parts = partsOf(rel, true)
+    await this.#checkRoot()
+    await this.#directory(parts)
+    return join(this.root, ...parts)
+  }
+
   /** A regular, singly linked UTF-8 file of at most `limit` bytes; null when it is not there. */
   async read(rel: string, limit: number): Promise<string | null> {
     const parts = partsOf(rel)
@@ -362,6 +376,17 @@ export class ConfinedTree {
     } finally {
       if (!moved) await unlink(join(this.root, ...temporary)).catch(() => {})
     }
+  }
+
+  /** Creates one file exclusively: refuses `EEXIST` when anything is already at `rel`, an existing folder included. Never overwrites. */
+  async createFile(rel: string, text: string, mode = 0o644): Promise<void> {
+    this.#mayWrite()
+    const parts = partsOf(rel)
+    const parent = parts.slice(0, -1)
+    await this.#checkRoot()
+    await this.#directory(parent)
+    await this.#writeNew(parts, text, mode)
+    await this.#syncDirectory(parent)
   }
 
   /** Writes host-owned state whole: a synced sibling renamed over `rel`, so a reader never sees a torn file. */

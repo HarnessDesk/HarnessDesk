@@ -10,9 +10,12 @@ import {
   splitSessionKey,
   TEAM_MESSAGE_CHARS,
   wrapContext,
+  type EvidenceRecord,
   type Intent,
   type Plan,
   type IntentState,
+  type ReviewCandidate,
+  type ReviewInput,
   type RuntimeId,
   type SeatRecord,
   type SeatCeiling,
@@ -376,6 +379,12 @@ export interface TeamFlows {
   bindingOf?(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null
   /** Why this board's messaging may not be switched on now — a run started board-only — or null. */
   messagingLocked?(room: string): string | null
+  /** Observed predecessor subjects this caller's claimed card may judge; empty when it holds no such card. */
+  reviewCandidates?(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]>
+  /** Records a structured review for this caller's claimed card. Throws the refusal; never returns one. */
+  recordReview?(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord>
+  /** Why this card cannot complete yet — its role declares `produces: review` and none is recorded — or null. */
+  refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
 }
 
 /**
@@ -2233,6 +2242,26 @@ export class Team {
     return `Conflicts: ${hits.join('; ')}. Do not edit those paths — message the holder, or claim different work.`
   }
 
+  /**
+   * Observed predecessor subjects this conversation's own claimed card may
+   * judge. Structured data, never prose: the plugin tool words it for the
+   * calling model, and nothing here parses an answer back out of text.
+   */
+  async reviewCandidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]> {
+    return (await this.#flows?.reviewCandidates?.(intent, scope)) ?? []
+  }
+
+  /**
+   * Records one structured verdict against an observed candidate. Throws the
+   * refusal rather than returning a sentence — there is no evidence record to
+   * hand back when the call is refused, and a caller that only wants the
+   * board's own words wraps this at the tool boundary.
+   */
+  async recordReview(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
+    if (!this.#flows?.recordReview) throw new Error('This board has no flow to record a review against.')
+    return this.#flows.recordReview(input, scope)
+  }
+
   async complete(
     intentId: number,
     args: { note?: string; handoff?: string; outcome?: string },
@@ -2258,6 +2287,11 @@ export class Team {
     const outcome = args.outcome?.trim() || null
     const refusal = this.#flows?.refuseOutcome(board.id, intent, outcome) ?? null
     if (refusal) return refusal
+    /* A role that declares `produces: review` cannot finish by claim alone:
+       `complete_claim` is never allowed to stand in for the structured
+       judgment a merge step's evidence guard actually reads. */
+    const missingReview = (await this.#flows?.refuseCompletion?.(board.id, intent, caller)) ?? null
+    if (missingReview) return missingReview
     this.#patchIntent(board, intentId, {
       state: 'done',
       claim: null,

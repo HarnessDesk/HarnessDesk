@@ -1,27 +1,15 @@
-import type { FlowProblem } from '@harnessdesk/protocol'
+import type { FlowEntry, FlowOrigin, FlowProblem, FlowUpdateResult } from '@harnessdesk/protocol'
 
 import { ConfinedTree } from './confined-tree.js'
 import { errnoOf, NOTHING_HERE } from './errno.js'
 import { parseFlowPolicy } from './flow-policy.js'
-import type { FlowUpdateResult } from './flow-update.js'
+
+export type { FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
 export const FLOW_FILE_LIMIT = 256 * 1024
 const LAYER_LIMIT = 256
 const FLOW_NAME = /^[^/\\\0]+\.ya?ml$/i
 export const FLOW_DIR = '.harnessdesk/flows'
-
-export type FlowOrigin = 'project' | 'user' | 'builtin'
-
-export interface FlowEntry {
-  readonly id: string
-  readonly origin: FlowOrigin
-  readonly path: string
-  readonly name: string
-  readonly description: string | null
-  readonly format: 'legacy' | 'agents' | null
-  readonly problem: string | null
-  readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]
-}
 
 export interface FlowCatalogOptions {
   readonly userRoot?: string
@@ -185,6 +173,12 @@ export class FlowCatalog {
     directName(candidate)
     const found = await this.locate(await this.project(root), idOf(candidate), origin)
     if (found.entry.path.split('/').at(-1) !== candidate) throw new Error(`A flow is read from ${FLOW_DIR}; "${id}" is somewhere else.`)
+    return found.source
+  }
+
+  /** The v2 catalogue's own read: a bare id, as `list`'s entries name it — never a path. */
+  async readById(root: string, id: string, origin?: FlowOrigin): Promise<string> {
+    const found = await this.locate(await this.project(root), id, origin)
     return found.source
   }
 

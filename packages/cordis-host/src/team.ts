@@ -1,6 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-import type { ScopeQuery } from '@harnessdesk/protocol'
+import type { EvidenceRecord, ReviewCandidate, ReviewInput, ScopeQuery } from '@harnessdesk/protocol'
 
 import type { HostRuntime } from './runtime.js'
 import { currentBrowserIdentity, currentInvocationSignal } from './browser-scopes.js'
@@ -65,6 +65,14 @@ export interface TeamEngine {
     args: { readonly to: string; readonly text: string; readonly wake?: boolean },
     scope: TeamScope,
   ): Promise<string>
+  /**
+   * Structured data, not prose: the plugin tool words these for the calling
+   * model. `reviewCandidates` never throws — an empty list is "nothing to
+   * review yet" — but `recordReview` throws its refusal, since there is no
+   * evidence record to hand back when the call is refused.
+   */
+  reviewCandidates(intent: number, scope: TeamScope): Promise<readonly ReviewCandidate[]>
+  recordReview(input: ReviewInput, scope: TeamScope): Promise<EvidenceRecord>
 }
 
 /** Which conversation a call is on behalf of; the serialisable half of a ScopeQuery. */
@@ -224,5 +232,15 @@ export class TeamService extends Service {
   ): Promise<string> {
     const plugin = this.gate()
     return engine().send(args, asTeamScope(scope, plugin))
+  }
+
+  async reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]> {
+    const plugin = this.gate()
+    return engine().reviewCandidates(intent, asTeamScope(scope, plugin))
+  }
+
+  async recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord> {
+    const plugin = this.gate()
+    return engine().recordReview(input, asTeamScope(scope, plugin))
   }
 }

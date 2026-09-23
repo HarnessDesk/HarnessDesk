@@ -1,4 +1,4 @@
-import type { AgentDefinition, AgentEntry } from './agent.js'
+import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
 import type { CeilingLevel } from './evidence.js'
 import type { Flow, FlowCheck, FlowInput, FlowProblem, FlowRun, FlowSeat, FlowThen } from './flow.js'
 
@@ -112,4 +112,122 @@ export interface FlowExecution {
   readonly operations: readonly FlowOperation[]
   readonly legacyRun: FlowRun | null
   readonly reason: string | null
+}
+
+// ---------------------------------------------------------------- review
+
+/**
+ * One observed predecessor a review may name: a host-minted id bound to the
+ * claimed card and frozen subject snapshot, never an arbitrary Git revision.
+ */
+export interface ReviewCandidate {
+  readonly id: string
+  readonly card: number
+  readonly at: string
+  readonly branch: string | null
+  readonly evidence: readonly string[]
+}
+
+/** What `record_review` takes: a structured verdict against one observed candidate, never prose. */
+export interface ReviewInput {
+  readonly intent: number
+  readonly candidate: string
+  readonly verdict: string
+  readonly against?: readonly string[]
+}
+
+// --------------------------------------------------------------- catalogue
+
+export type FlowOrigin = 'project' | 'user' | 'builtin'
+
+/** One flow the catalogue offers, from whichever layer's file wins. */
+export interface FlowEntry {
+  readonly id: string
+  readonly origin: FlowOrigin
+  readonly path: string
+  readonly name: string
+  readonly description: string | null
+  readonly format: 'legacy' | 'agents' | null
+  readonly problem: string | null
+  readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]
+}
+
+// ----------------------------------------------------------------- update
+
+export interface FlowFileEdit {
+  readonly path: string
+  readonly before: string | null
+  readonly after: string
+}
+export interface FlowUpdatePreview {
+  readonly token: string
+  readonly resuming: boolean
+  readonly edits: readonly FlowFileEdit[]
+  readonly problems: readonly FlowProblem[]
+}
+export interface FlowUpdateResult {
+  readonly state: 'applied' | 'partial' | 'refused'
+  readonly written: readonly string[]
+  readonly message: string
+}
+
+// ---------------------------------------------------------------- preview
+
+/** One role's slot in a dry run: the Agent it resolved to and how it would be seated. */
+export interface FlowPreviewSeat {
+  readonly role: string
+  readonly index: number
+  readonly agent: string | null
+  readonly plan: SeatPlan
+  readonly isolate: boolean
+}
+
+/**
+ * A non-executing statement of what a flow would do: every seat it would
+ * open, every check command verbatim, every guard's requirements, and
+ * everything wrong with it. Opens no session, allocates no lane, sends no
+ * turn, runs no command and creates no Goal.
+ */
+export interface FlowPreview {
+  /** Null when the flow has an error a start could not get past. */
+  readonly token: string | null
+  readonly compiled: CompiledFlow
+  readonly seats: readonly FlowPreviewSeat[]
+  readonly commands: readonly {
+    readonly role: string
+    readonly run: string
+    readonly cwd: string
+    readonly timeout: number
+  }[]
+  readonly guards: readonly {
+    readonly rule: string
+    readonly unevidenced: boolean
+    readonly requires: readonly FlowEvidenceGuard[]
+  }[]
+  readonly messaging: 'board-only' | 'members'
+  readonly problems: readonly FlowProblem[]
+}
+
+/** What `flow/start-goal` takes: a frozen preview token, redeemed once. */
+export interface FlowStartRequest {
+  readonly root: string
+  readonly source: string
+  readonly token: string
+  readonly sentence: string
+  readonly vars?: Readonly<Record<string, string>>
+}
+
+/** Bounded, host-derived context a check command reads from `HARNESSDESK_FLOW_CONTEXT`. */
+export interface FlowCheckContext {
+  readonly version: 1
+  readonly goal: string
+  readonly round: number
+  readonly subjects: readonly {
+    readonly card: number
+    readonly at: string
+    readonly cwd: string
+    readonly branch: string | null
+    readonly portStart: number | null
+    readonly portEnd: number | null
+  }[]
 }

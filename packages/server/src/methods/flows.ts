@@ -1,5 +1,7 @@
 import type { Flow, FlowProblem } from '@harnessdesk/protocol'
 
+import { CHANGED_PREVIEW } from '../flow-preview.js'
+import { sourceDigest } from '../flow-execution.js'
 import { dryRun, parseFlow, validateFlow } from '../flow.js'
 import type { HostContext, MethodsUnder } from './context.js'
 
@@ -67,6 +69,77 @@ export const flowMethods = {
   'flow/stop': (ctx, params) => ctx.flows.stop(params.run),
 
   'flow/runs': (ctx, params) => ctx.flows.runsFor(params.room),
+
+  // ------------------------------------------------------------------- v2
+
+  'flow/catalog': (ctx, params) => ctx.flows.catalog(params.root),
+
+  'flow/source': (ctx, params) => ctx.flows.catalogSource(params.root, params.id, params.origin),
+
+  /**
+   * Spends nothing: every read here is the kind `agent/seat/dry` already
+   * makes, and the token this mints authorizes only the exact text and
+   * inputs it was taken of.
+   */
+  'flow/preview': (ctx, params) => ctx.flowPreviews.preview(params.root, params.source, params.vars, params.retry),
+
+  /**
+   * The only v2 call that spends anything. Redeems the token first — a
+   * caller-supplied `compiled`, ceiling or evidence is not a wire param at
+   * all, so there is nothing here to trust but what the token itself froze —
+   * then hands the frozen policy to `Flows`, which mints the run and its
+   * Goal together.
+   */
+  'flow/start-goal': async (ctx, params) => {
+    const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {})
+    if (!redeemed) throw new Error(CHANGED_PREVIEW)
+    return ctx.flows.startGoal({
+      root: params.root,
+      sentence: params.sentence,
+      source: params.source,
+      sourcePath: null,
+      compiled: redeemed.compiled,
+      ...(params.vars ? { vars: params.vars } : {}),
+      authorization: {
+        sourceDigest: sourceDigest(params.source),
+        commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),
+        approvedAt: Date.now(),
+      },
+    })
+  },
+
+  'flow/execution': (ctx, params) => {
+    const execution = ctx.flows.executionOf(params.run)
+    if (!execution) throw new Error(`There is no flow run ${params.run}.`)
+    return execution
+  },
+
+  /**
+   * Re-runs an interrupted check, once a person has looked. The token is a
+   * fresh `flow/preview` one, additionally bound to this exact run and card —
+   * `flow/preview`'s own `retry` param is what mints it, validated there
+   * against the run's saved source and inputs, so nothing here re-chooses the
+   * command or checkout.
+   */
+  'flow/check/retry': async (ctx, params) => {
+    const bound = ctx.flowPreviews.retryTarget(params.token)
+    if (!bound || bound.run !== params.run || bound.card !== params.card) throw new Error(CHANGED_PREVIEW)
+    const stored = ctx.flows.storedRun(params.run)
+    const execution = ctx.flows.executionOf(params.run)
+    if (!stored || !execution) throw new Error(CHANGED_PREVIEW)
+    const goal = await ctx.goals.view(execution.goal)
+    const redeemed = await ctx.flowPreviews.redeem(params.token, goal.goal.root, stored.source, stored.vars)
+    if (!redeemed) throw new Error(CHANGED_PREVIEW)
+    return ctx.flows.retryCheck(params.run, params.card)
+  },
+
+  'flow/update/preview': (ctx, params) => ctx.flowUpdates.preview(params.root, params.id),
+
+  'flow/update/apply': (ctx, params) => ctx.flowUpdates.apply(params.root, params.token),
+
+  'flow/customize/preview': (ctx, params) => ctx.flowUpdates.customizePreview(params.root, params.id),
+
+  'flow/customize/apply': (ctx, params) => ctx.flowUpdates.customizeApply(params.root, params.id, params.token),
 } satisfies MethodsUnder<'flow/'>
 
 /**

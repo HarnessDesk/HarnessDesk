@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'node:path'
 
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
+  EvidenceRecord,
   Flow,
   FlowCheck,
   FlowExecution,
@@ -18,6 +19,8 @@ import type {
   FlowSeat,
   FlowSeatRecord,
   Intent,
+  ReviewCandidate,
+  ReviewInput,
   RuntimeId,
   SeatId,
   SeatRecord,
@@ -26,6 +29,7 @@ import type {
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type StoredFlowExecution } from './flow-execution.js'
+import type { FlowReview } from './flow-evidence.js'
 import { executionOf, legacyCheckUncertain, legacyRunOf, legacySeatsMapped, recoveryOf } from './flow-recovery.js'
 import {
   cardVars,
@@ -37,7 +41,7 @@ import {
   seatAt,
   validateFlow,
 } from './flow.js'
-import type { Team, TeamFlows } from './team.js'
+import type { Team, TeamCallScope, TeamFlows } from './team.js'
 
 /**
  * Running a flow: seating it, handing out its orders, and opening the round
@@ -286,13 +290,16 @@ export class Flows implements TeamFlows {
   #corrupt: string | null = null
   /** Runs on Goals: every new run, and the only engine that seats Agents. */
   readonly #executions: FlowExecutions | null
+  /** Structured review: candidates and record, host-scoped through the caller's own claimed card. */
+  readonly #review: FlowReview | null
 
-  constructor(dir: string, team: Team, port: FlowPort, catalogue?: FlowCatalog, executions?: FlowExecutions) {
+  constructor(dir: string, team: Team, port: FlowPort, catalogue?: FlowCatalog, executions?: FlowExecutions, review?: FlowReview) {
     this.#dir = dir
     this.#team = team
     this.#port = port
     this.#catalogue = catalogue ?? new FlowCatalog({ confine: async () => {}, legacyStrict: true })
     this.#executions = executions ?? null
+    this.#review = review ?? null
   }
 
   /** Waits out the write chain — a disposer's courtesy, and the tests'. */
@@ -334,6 +341,24 @@ export class Flows implements TeamFlows {
     return this.#executions?.runs(goal) ?? []
   }
 
+  /** A stored v2 run's own frozen source and inputs — never re-read from a path — for a check retry's exact-equality check. */
+  storedRun(run: string): { readonly source: string; readonly vars: Readonly<Record<string, string>> } | null {
+    const stored = this.#executions?.stored(run)
+    return stored ? { source: stored.source, vars: stored.vars } : null
+  }
+
+  /** One run's current execution state, by id alone — the wire read `flow/execution` answers. */
+  executionOf(run: string): FlowExecution | null {
+    const stored = this.#executions?.stored(run)
+    return stored ? this.#executions!.runs(stored.goal).find((one) => one.id === run) ?? null : null
+  }
+
+  /** Runs an interrupted check again, once a person has reviewed it. The only way a v2 check ever runs a second time. */
+  retryCheck(run: string, card: number): Promise<FlowExecution> {
+    if (!this.#executions) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.retryCheck(run, card)
+  }
+
   stopRun(id: string, why?: string): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
     return this.#executions.stop(id, why)
@@ -359,6 +384,44 @@ export class Flows implements TeamFlows {
 
   messagingLocked(room: string): string | null {
     return this.#executions?.messagingLocked(room) ?? null
+  }
+
+  /** A finished round's evidence subjects, forwarded so the host's evidence-guard wiring never reaches `FlowExecutions` around this. */
+  subjectsOf(goal: string, round: FlowRoundState): ReturnType<FlowExecutions['subjectsOf']> {
+    return this.#executions?.subjectsOf(goal, round) ?? Promise.resolve([])
+  }
+
+  /** What a review call binds to on this Goal: forwarded to the host's `FlowReviewPort` wiring, never resolved twice. */
+  reviewBindingFor(
+    goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string },
+  ): ReturnType<FlowExecutions['reviewBinding']> {
+    return this.#executions?.reviewBinding(goal, card, caller) ?? Promise.resolve(null)
+  }
+
+  /** Observed predecessor subjects this caller's own claimed card may judge. */
+  async reviewCandidates(intent: number, scope: TeamCallScope): Promise<readonly ReviewCandidate[]> {
+    return (await this.#review?.candidates(intent, scope)) ?? []
+  }
+
+  /** Records one structured verdict. Throws the refusal — there is no evidence record to hand back otherwise. */
+  async recordReview(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord> {
+    if (!this.#review) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#review.record(input, scope)
+  }
+
+  /**
+   * Why `complete_claim` may not finish this card yet: its role declares
+   * `produces: review` and this caller's Seat has not recorded one. `null`
+   * for every card no v2 run bound, and for one whose role asks nothing of
+   * the kind — the common case, checked first so it costs nothing there.
+   */
+  async refuseCompletion(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null> {
+    if (!this.#executions?.requiresReview(room, intent.id)) return null
+    if (!this.#review || !caller.runtime || !caller.sessionId) {
+      return 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
+    }
+    const recorded = await this.#review.recorded(intent.id, { runtime: caller.runtime, sessionId: caller.sessionId })
+    return recorded ? null : 'This card needs a structured review before it can complete. Ask for review candidates and record one first.'
   }
 
   /**
@@ -426,6 +489,16 @@ export class Flows implements TeamFlows {
   /** One flow's text, as it is on disk. */
   async source(root: string, path: string): Promise<string> {
     return this.#catalogue.read(root, path)
+  }
+
+  /** The v2 catalogue, whole: every layer's entries, shadows included. */
+  async catalog(root: string): Promise<readonly import('@harnessdesk/protocol').FlowEntry[]> {
+    return this.#catalogue.list(root)
+  }
+
+  /** One catalogue entry's text, by its bare id — never a path. */
+  async catalogSource(root: string, id: string, origin?: import('@harnessdesk/protocol').FlowOrigin): Promise<string> {
+    return this.#catalogue.readById(root, id, origin)
   }
 
   // ------------------------------------------------------------------ the runs

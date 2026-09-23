@@ -346,6 +346,8 @@ test('a team call rides its own invocation or is refused: the child cannot imper
       return 'status ok'
     },
     send: async () => 'x',
+    reviewCandidates: async () => [],
+    recordReview: async () => ({}) as never,
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -385,6 +387,7 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
     board: async () => 'x', addIntent: async () => 'x', claim: async () => 'x', claimNext: async () => 'x',
     awaitWork: async () => 'x', conflicts: async () => 'x', complete: async () => 'x', release: async () => 'x',
     handoff: async () => 'x', status: async () => 'x', send: async () => 'x',
+    reviewCandidates: async () => [], recordReview: async () => ({}) as never,
     awaitMember: async (scope) => {
       pending++
       seenInvocation = scope.invocation ?? ''
@@ -452,6 +455,8 @@ test('a plugin without the grant cannot ride a granted sibling’s armed scope',
       return 'status ok'
     },
     send: async () => 'x',
+    reviewCandidates: async () => [],
+    recordReview: async () => ({}) as never,
   }
   const dir = await mkdtemp(join(tmpdir(), 'hd-exthost-'))
   const store = join(dir, 'plugins')
@@ -577,6 +582,8 @@ test('a grant is for one plane: the arming alone opens neither the other plane n
     handoff: async () => 'x',
     status: async () => 'status ok',
     send: async () => 'x',
+    reviewCandidates: async () => [],
+    recordReview: async () => ({}) as never,
   }
   const forge: ForgeEngine = {
     seat: async (callScope) => {

@@ -56,7 +56,7 @@ export class RunningChecks {
 }
 
 /** The revision a fact is bound to, or null for one bound to none (`spend`). */
-const boundTo = (record: EvidenceRecord): Sha | null => {
+export const boundTo = (record: EvidenceRecord): Sha | null => {
   const fact = record.fact
   switch (fact.kind) {
     case 'check':
@@ -106,20 +106,18 @@ export interface BoardEvidenceInput {
   readonly seatWords: (id: SeatId) => { readonly agent: string | null; readonly seat: string } | null
 }
 
-export const boardEvidence = async (input: BoardEvidenceInput): Promise<BoardEvidence> => {
-  const latest = new Map<number, Map<string, EvidenceRecord>>()
-  for (const record of input.records) {
-    if (!record.card || record.card.board !== input.room) continue
-    const card = latest.get(record.card.id) ?? new Map<string, EvidenceRecord>()
-    const key = factKey(record.fact)
-    const before = card.get(key)
-    if (!before || supersedes(record, before)) card.set(key, record)
-    latest.set(record.card.id, card)
-  }
-
-  // One read of git per checkout, branch, revision and kind of question, however many cards share them.
+/**
+ * One record's freshness, against a project's checkouts. A backup's fact is
+ * always unknown, a check whose HEAD moved mid-run is unknown for either
+ * revision, and one bound to no revision at all (`spend`) is trivially fresh.
+ *
+ * Returns a reader that caches by checkout, branch, revision and kind of
+ * question, so a caller judging many records that share one — every card of
+ * a round sharing one checkout, say — reads that git state once.
+ */
+export const freshnessReader = (project: string): ((record: EvidenceRecord) => Promise<Freshness>) => {
   const standing = new Map<string, Promise<Freshness>>()
-  const freshness = (record: EvidenceRecord): Promise<Freshness> => {
+  return (record: EvidenceRecord): Promise<Freshness> => {
     if (record.restored) return Promise.resolve({ state: 'unknown', why: RESTORED_WHY })
     if (record.fact.kind === 'check' && record.fact.counted === false) {
       return Promise.resolve({ state: 'unknown', why: MOVED_CHECK_WHY })
@@ -132,10 +130,25 @@ export const boardEvidence = async (input: BoardEvidenceInput): Promise<BoardEvi
     const key = JSON.stringify([record.checkout.cwd, record.checkout.branch, at, dirty, merged])
     const known = standing.get(key)
     if (known) return known
-    const reading = freshnessOf(record.checkout, at, { dirty, merged, project: input.project })
+    const reading = freshnessOf(record.checkout, at, { dirty, merged, project })
     standing.set(key, reading)
     return reading
   }
+}
+
+export const boardEvidence = async (input: BoardEvidenceInput): Promise<BoardEvidence> => {
+  const latest = new Map<number, Map<string, EvidenceRecord>>()
+  for (const record of input.records) {
+    if (!record.card || record.card.board !== input.room) continue
+    const card = latest.get(record.card.id) ?? new Map<string, EvidenceRecord>()
+    const key = factKey(record.fact)
+    const before = card.get(key)
+    if (!before || supersedes(record, before)) card.set(key, record)
+    latest.set(record.card.id, card)
+  }
+
+  // One read of git per checkout, branch, revision and kind of question, however many cards share them.
+  const freshness = freshnessReader(input.project)
 
   const cards: CardEvidence[] = []
   const ids = new Set([...latest.keys(), ...input.running.map((run) => run.card)])

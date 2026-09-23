@@ -84,6 +84,10 @@ import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
+import { evidenceGuard, FlowReview } from './flow-evidence.js'
+import { FlowPreviews } from './flow-preview.js'
+import { FlowUpdates } from './flow-update.js'
+import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
@@ -107,7 +111,7 @@ import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
-import { revisionOf } from './evidence/revision.js'
+import { projectOf, revisionOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
@@ -503,6 +507,8 @@ export class Host {
    * and is the only thing on this plane that spends anything.
    */
   readonly #flows: Flows
+  readonly #flowPreviews: FlowPreviews
+  readonly #flowUpdates: FlowUpdates
   /**
    * The Agent roster: this machine's under the state directory, the built-in
    * ones beside this package, and a project's own under whichever open folder a
@@ -817,6 +823,32 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       settled: (room, intent) => this.#evidence.settled(room, intent),
     })
+    /**
+     * Structured review, host-scoped: the caller's Seat resolves the Goal it
+     * is on (the Seat book, never a caller-supplied id), and `Flows` resolves
+     * the round/candidates from there. `this.#flows` is read lazily inside
+     * these closures — they are only ever called well after the constructor
+     * returns, once a Flows instance exists to read.
+     */
+    const review = new FlowReview({
+      bindingFor: async (intent, scope) => {
+        if (!scope.runtime || !scope.sessionId) return null
+        const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+        if (!seat || seat.closed || !seat.board) return null
+        const bound = await this.#flows.reviewBindingFor(seat.board, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
+        if (!bound) return null
+        return { goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round, subjects: bound.subjects }
+      },
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      append: async (goal, record) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+      },
+      now: () => Date.now(),
+    })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
          pick it declines rather than failing, so a seat that believes it is
@@ -891,8 +923,48 @@ export class Host {
         void this.#goals.refresh(goal).catch(() => {})
       },
       log: (message, details) => this.#logger.warn(message, details ?? {}),
-    }))
+      headOf: async (cwd) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+      },
+      runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
+    }, {
+      /**
+       * The one evidence guard the desk actually runs: this Goal's own facts,
+       * freshly read and freshly judged against git, never the board's
+       * folded display projection.
+       */
+      evidence: async (goal, round, rule) => {
+        const state = this.#goalState(goal)
+        const project = await projectOf(state.cwd ?? state.root)
+        const facts = await this.#evidence.factsForGoal(goal, project)
+        const subjects = await this.#flows.subjectsOf(goal, round)
+        const outcomes = round.cards.map((id) => state.intents.find((one) => one.id === id)?.outcome ?? null)
+        return evidenceGuard(rule.when!.evidence!, { goal, finished: round, subjects, facts, outcomes })
+      },
+    }), review)
     this.#team.attachFlows(this.#flows)
+    this.#flowPreviews = new FlowPreviews({
+      confine: (root) => this.#confineRoom(root),
+      // `root` here is already a confined, real project path — the same one
+      // that becomes the started Goal's own — so this reads that project's
+      // roster directly, without `agent/seat/dry`'s extra "or its repository
+      // top" step for an optional, possibly-a-subfolder `project` param.
+      agents: (root) => this.#agents.list(root),
+      // `this.#context` is assigned once the whole constructor has run; every
+      // wire call this preview port answers happens long after that.
+      previewAgent: (root, agent, seats, grant) => previewAgent(this.#context, root, agent, seats, grant),
+      storedRun: async (run) => this.#flows.storedRun(run),
+      now: () => Date.now(),
+    })
+    this.#flowUpdates = new FlowUpdates({
+      stateDir: join(this.#state.directory, 'flow-updates'),
+      catalogue: new FlowCatalog({
+        userRoot: join(this.#state.directory, 'flows'),
+        builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+        confine: (root) => this.#confineRoom(root),
+      }),
+    })
     const goalPort = {
       seats: {
         all: () => this.#evidence.seats.all(),
@@ -2028,6 +2100,8 @@ export class Host {
       worktrees: this.#worktrees,
       team: this.#team,
       flows: this.#flows,
+      flowPreviews: this.#flowPreviews,
+      flowUpdates: this.#flowUpdates,
       goals: this.#goals,
       lanes: this.#lanes,
       laneSettings: {

@@ -1,16 +1,18 @@
 import { isAbsolute, normalize } from 'node:path'
 
-import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type Intent, type ProjectChecks, type TeamState, type WireNotification } from '@harnessdesk/protocol'
+import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type Intent, type ProjectChecks, type TeamState, type WireNotification } from '@harnessdesk/protocol'
 
+import type { ReviewAppendOutcome } from '../flow-evidence.js'
 import type { CredentialCipher } from '../credentials.js'
 import type { SeatedAs } from '../registry.js'
-import { boardEvidence, RunningChecks } from './board.js'
+import { boardEvidence, freshnessReader, RunningChecks } from './board.js'
 import { CheckRuns } from './check-runs.js'
 import { readChecks } from './checks-file.js'
 import type { GhInCheckout } from './forge.js'
 import { Observer, type Look } from './observe.js'
 import { idOfLine, LINE_LIMIT, lineOf, LINE_VERSION, mintId, type StoreFile, type StoredLine } from './records.js'
 import { projectOf, revisionOf } from './revision.js'
+import { runCommand, type CommandRun } from './run.js'
 import { SeatBook } from './seats.js'
 import { CommandsSeen, incarnationOf } from './seen.js'
 import { EvidenceMergeError, EvidenceStore, type Admit } from './store.js'
@@ -208,6 +210,60 @@ export class EvidencePlane {
     return factsOfGoal(goal, this.seats.all(), records).map((record) => record.id).sort()
   }
 
+  /**
+   * Every fact attributable to a Goal, in the order they were appended, each
+   * carrying its own freshly computed freshness. Unlike `board()`, this is
+   * never folded to one winner per card and kind: a flow's evidence guard
+   * reads the whole append-only sequence itself, so a later failure can
+   * defeat an earlier pass at the exact revision it names.
+   */
+  async factsForGoal(goal: string, project: string): Promise<readonly EvidenceView[]> {
+    const { lines } = await this.store.read(project, 'evidence')
+    const records = lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+    const scoped = factsOfGoal(goal, this.seats.all(), records)
+    const freshness = freshnessReader(project)
+    const out: EvidenceView[] = []
+    for (const record of scoped) {
+      const seat = record.seat ? this.seats.byId(record.seat) : null
+      out.push({ record, freshness: await freshness(record), by: seat ? { agent: seat.agent?.name ?? null, seat: seat.seatLabel } : null })
+    }
+    return out
+  }
+
+  /**
+   * Appends one structured review through the store's own compare-and-swap
+   * merge, so two callers racing the same verdict can never both write, and
+   * a caller naming a different one for the same question is told so rather
+   * than silently dropped or silently overwritten.
+   */
+  async appendReview(project: string, record: EvidenceRecord): Promise<ReviewAppendOutcome> {
+    const fact = record.fact
+    if (fact.kind !== 'review') throw new Error('appendReview only appends review facts.')
+    const sameQuestion = (candidate: EvidenceRecord): candidate is EvidenceRecord & { fact: typeof fact } =>
+      candidate.fact.kind === 'review' &&
+      candidate.fact.by === fact.by &&
+      candidate.fact.at === fact.at &&
+      candidate.card?.id === record.card?.id &&
+      candidate.round === record.round
+    let outcome: ReviewAppendOutcome = { outcome: 'added', record }
+    await this.store.merge(project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
+      if (line.type !== 'evidence') return 'refused'
+      const existing = [...here, ...added].flatMap((one) => (one.type === 'evidence' && sameQuestion(one.record) ? [one.record] : []))
+      const matching = existing.find((one) => one.fact.verdict === fact.verdict)
+      if (matching) {
+        outcome = { outcome: 'duplicate', record: matching }
+        return 'duplicate'
+      }
+      if (existing.length > 0) {
+        outcome = { outcome: 'conflict' }
+        return 'refused'
+      }
+      return 'add'
+    })
+    if (outcome.outcome === 'added' && record.card) this.announce(record.card.board)
+    return outcome
+  }
+
   /** Tells every window a room's evidence moved. Never throws: a fact is kept whether or not a window hears of it. */
   announce(room: string): void {
     void this.board(room).then(
@@ -364,6 +420,51 @@ export class EvidencePlane {
           }),
       )
     return result
+  }
+
+  /**
+   * The v2 flow check path: runs through the same bounded `runCommand` a
+   * person's own check uses, and — unlike the legacy `flowCheck` above —
+   * awaits its evidence append before answering, so a card is never marked
+   * done on an unsaved fact. One append, never two: the caller consumes
+   * `FlowCheckResult` directly rather than the compatibility `{status}` the
+   * legacy path still returns.
+   */
+  async runFlowCheck(
+    command: string,
+    where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
+    card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
+  ): Promise<{ readonly result: CommandRun; readonly evidence: string | null; readonly problem: string | null }> {
+    const revision = await revisionOf(where.cwd)
+    const result = await runCommand(command, {
+      cwd: where.cwd, timeoutSec: where.timeoutSec,
+      ...(where.flowContext !== undefined ? { flowContext: where.flowContext } : {}),
+      ...(where.signal ? { signal: where.signal } : {}),
+    })
+    if (!revision) return { result, evidence: null, problem: null }
+    const board = this.#port.board(card.goal)
+    if (!board) return { result, evidence: null, problem: null }
+    const project = await projectOf(board.cwd ?? board.root)
+    const record: EvidenceRecord = {
+      id: mintId(),
+      fact: { kind: 'check', name: card.name, run: command, exit: result.exit, timedOut: result.timedOut, at: revision.head, dirty: revision.dirty, tail: result.tail },
+      card: { board: card.goal, id: card.card },
+      checkout: { cwd: where.cwd, branch: revision.branch },
+      seat: null,
+      round: card.round,
+      observedAt: this.#now(),
+      posted: null,
+    }
+    try {
+      await this.store.append(project, 'evidence', [{ type: 'evidence', record }])
+    } catch (error) {
+      this.#port.log("a flow check's result could not be recorded", {
+        goal: card.goal, card: card.card, error: error instanceof Error ? error.message : String(error),
+      })
+      return { result, evidence: null, problem: 'The check finished, but its evidence could not be saved. Fix storage before continuing.' }
+    }
+    this.announce(card.goal)
+    return { result, evidence: record.id, problem: null }
   }
 
   /**
