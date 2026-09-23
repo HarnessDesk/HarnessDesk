@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import type { BackgroundTask, FlowRun, GoalView, Session, SessionQueue, TeamState, WrapPreview } from '@harnessdesk/protocol'
 
+import { resolveProvider, SINGLE_VENDOR_RUNTIMES } from '../src/host.js'
 import { FAKE_RUNTIME_ID, type FakeSession } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -222,4 +223,30 @@ test('wrapped or restored Goal cannot dispatch', async (t) => {
   assert.equal(harness.runtime.sessions.size, sessions, 'no runtime was started')
   assert.equal(client.events.filter((event) => event.type === 'turn/started').length, turns, 'no turn was sent')
   assert.equal((await client.call('team/state', { room: goal }) as TeamState).channel.length, channel, 'no channel traffic')
+})
+
+test('provider identity: a caller’s registry wins, the conservative table fills what it leaves out, and an unknown runtime stays unknown', () => {
+  // The three first-party CLIs each run one vendor's own models and nothing
+  // else — the same fact their own `tagline` already states. A bridge that
+  // lets its own user pick among several vendors' models (Cursor, GitHub
+  // Copilot, OpenCode, Cline, OpenClaw, Antigravity) must never appear here.
+  assert.equal(SINGLE_VENDOR_RUNTIMES['codex'], 'openai')
+  assert.equal(SINGLE_VENDOR_RUNTIMES['claude-code'], 'anthropic')
+  assert.equal(SINGLE_VENDOR_RUNTIMES['gemini'], 'google')
+  assert.equal(SINGLE_VENDOR_RUNTIMES['cursor'], undefined, 'a multi-vendor bridge is never in the conservative table')
+
+  // No caller registry: the conservative table alone answers for the three
+  // runtimes it knows, and null — never a guess — for everything else,
+  // including a real but multi-vendor bridge and a runtime nobody has heard of.
+  assert.equal(resolveProvider('codex', undefined), 'openai')
+  assert.equal(resolveProvider('claude-code', undefined), 'anthropic')
+  assert.equal(resolveProvider('cursor', undefined), null)
+  assert.equal(resolveProvider('some-future-acp-agent', undefined), null)
+
+  // A caller that knows — `HostOptions.providers` — is consulted first and
+  // can both override a conservative entry and add one the table does not
+  // have; the table only fills gaps the caller left.
+  assert.equal(resolveProvider('codex', { codex: 'openai-via-azure' }), 'openai-via-azure')
+  assert.equal(resolveProvider('cursor', { cursor: 'anthropic' }), 'anthropic')
+  assert.equal(resolveProvider('gemini', { cursor: 'anthropic' }), 'google', 'an unrelated override does not blank out the table')
 })
