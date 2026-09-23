@@ -296,3 +296,54 @@ test('interrupted conversion leaves the old flow runnable and a restarted desk c
   assert.equal((await lstat(join(project, '.harnessdesk', 'agents', 'review-writer', 'AGENT.md'))).ino, writer.ino, 'a journaled Agent was written again')
   assert.deepEqual((await readdir(join(project, '.harnessdesk', 'agents'))).sort(), ['review-checker', 'review-writer'])
 })
+
+/*
+ * Customize copies a shipped or this-Mac flow into a project that may never
+ * have had a `.harnessdesk` folder at all: the folder is made through the
+ * same confined tree that writes the file. A refusal never names a path on
+ * this machine, and a preview's token stops working when it expires.
+ */
+const customizeSetup = async (options: { readonly now?: () => number } = {}) => {
+  const scratch = tempDir('hd-flow-customize-')
+  const project = join(scratch, 'project')
+  const state = join(scratch, 'state')
+  const builtin = join(scratch, 'builtin')
+  await Promise.all([mkdir(project), mkdir(state), mkdir(builtin)])
+  await writeFile(join(builtin, 'fan-out.yml'), 'version: 2\nname: Fan-out\nroles:\n  a: { kind: person, outcomes: [done] }\nseed: { role: a, title: A }\nrules: []\n', 'utf8')
+  const catalogue = new FlowCatalog({ userRoot: join(scratch, 'user'), builtinRoot: builtin, confine: async () => {} })
+  return { project, updates: new FlowUpdates({ stateDir: state, catalogue, ...(options.now ? { now: options.now } : {}) }) }
+}
+
+test('customize makes the project’s flows folder when there is none yet', async () => {
+  const { project, updates } = await customizeSetup()
+  const preview = await updates.customizePreview(project, 'fan-out')
+  const applied = await updates.customizeApply(project, 'fan-out', preview.token!)
+  assert.deepEqual([applied.state, applied.written], ['applied', ['.harnessdesk/flows/fan-out.yml']])
+  assert.match(await readFile(join(project, '.harnessdesk', 'flows', 'fan-out.yml'), 'utf8'), /name: Fan-out/)
+})
+
+test('a customize refusal never names a path on this machine', async (t) => {
+  const { project, updates } = await customizeSetup()
+  await mkdir(join(project, '.harnessdesk'))
+  await chmod(join(project, '.harnessdesk'), 0o555)
+  t.after(() => chmod(join(project, '.harnessdesk'), 0o755))
+  const preview = await updates.customizePreview(project, 'fan-out')
+  const refused = await updates.customizeApply(project, 'fan-out', preview.token!)
+  assert.equal(refused.state, 'refused')
+  assert.doesNotMatch(refused.message, /(^|[\s'"(])\/[A-Za-z]/, `no absolute path in: ${refused.message}`)
+  assert.ok(!refused.message.includes(await realpath(project)))
+})
+
+test('a customize token past its expiry, or for another flow, writes nothing', async () => {
+  let now = 1_000
+  const { project, updates } = await customizeSetup({ now: () => now })
+  const preview = await updates.customizePreview(project, 'fan-out')
+  now += 10 * 60_000 + 1
+  const late = await updates.customizeApply(project, 'fan-out', preview.token!)
+  assert.equal(late.state, 'refused')
+  assert.match(late.message, /expired/)
+  now = 1_000
+  const again = await updates.customizePreview(project, 'fan-out')
+  assert.equal((await updates.customizeApply(project, 'another', again.token!)).state, 'refused', 'a token names the flow it previewed')
+  await assert.rejects(readdir(join(project, '.harnessdesk')))
+})

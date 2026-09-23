@@ -95,9 +95,24 @@ const journalIsSafe = (value: unknown, root: string, id: string): value is Journ
     && journal.written.every((path) => typeof path === 'string' && permitted.has(path))
 }
 
+const FLOWS_DIR = '.harnessdesk/flows'
 const CHANGED = 'This flow changed after the preview. Preview the update again.'
 const ROOT_CHANGED = 'The project folder changed after the preview. Preview the update again.'
 const EXISTS = 'An Agent file already exists. Choose another flow name and preview again.'
+
+/**
+ * A refusal as a sentence a window may show: never a path on this machine.
+ * The confined tree's own refusals name project-relative paths only; an error
+ * straight from the file system names the absolute one, so it is replaced by
+ * what happened and its code.
+ */
+const refusalOf = (error: unknown, root: string): string => {
+  const raw = error instanceof Error ? error.message : String(error)
+  const fromFs = typeof error === 'object' && error !== null && ('syscall' in error || 'path' in error)
+  if (!fromFs && !raw.includes(root) && !/(^|[\s'"(])\/[^\s'"]/.test(raw)) return raw
+  const code = errnoOf(error)
+  return `The file system refused to write the flow into the project${code ? ` (${code})` : ''}, so nothing was written.`
+}
 
 const q = (text: string): string => JSON.stringify(text)
 const safeId = (flow: string, role: string): string => {
@@ -197,7 +212,7 @@ export class FlowUpdates {
     const project = await this.#catalogue.project(root)
     const found = await this.#catalogue.locate(project, id)
     if (found.entry.origin === 'project') throw new Error('This flow is already a project flow. Edit it directly.')
-    const path = `.harnessdesk/flows/${id}.yml`
+    const path = `${FLOWS_DIR}/${id}.yml`
     const problems: FlowProblem[] = []
     if (!project.writable) {
       problems.push({ level: 'error', at: 'update', text: 'HarnessDesk cannot change project files on this system, so this cannot be applied.' })
@@ -213,24 +228,25 @@ export class FlowUpdates {
     const held = this.#customizeTokens.get(token)
     this.#customizeTokens.delete(token)
     const expired: FlowUpdateResult = { state: 'refused', written: [], message: 'This update preview expired. Preview the update again.' }
-    if (!held) return expired
+    if (!held || held.expires < this.#now() || held.path !== `${FLOWS_DIR}/${id}.yml`) return expired
     let project: ConfinedTree
     try {
       project = await this.#catalogue.project(root)
     } catch (error) {
-      return { state: 'refused', written: [], message: error instanceof Error ? error.message : String(error) }
+      return { state: 'refused', written: [], message: refusalOf(error, root) }
     }
     if (held.root !== project.root) return expired
     if (!project.writable) return { state: 'refused', written: [], message: 'HarnessDesk cannot change project files on this system, so nothing was written.' }
-    void id
     try {
+      // A project that never had a flow of its own has no folder for one yet: made through the same confined tree.
+      await project.ensureDir(FLOWS_DIR)
       await project.createFile(held.path, held.source)
       return { state: 'applied', written: [held.path], message: 'The flow was copied into the project.' }
     } catch (error) {
       if (errnoOf(error) === 'EEXIST') {
         return { state: 'refused', written: [], message: 'A project flow already exists at that name. Edit it directly, or choose another name.' }
       }
-      return { state: 'refused', written: [], message: error instanceof Error ? error.message : String(error) }
+      return { state: 'refused', written: [], message: refusalOf(error, project.root) }
     }
   }
 
@@ -284,7 +300,7 @@ export class FlowUpdates {
     try {
       project = await this.#catalogue.project(root)
     } catch (error) {
-      return { state: 'refused', written: [], message: error instanceof Error ? error.message : String(error) }
+      return { state: 'refused', written: [], message: refusalOf(error, root) }
     }
     if (held.root !== project.root) return expired
     const heldJournal = held.journal
@@ -326,7 +342,7 @@ export class FlowUpdates {
       await this.#save(done)
       return { state: 'applied', written: [...written], message: 'The flow update was applied.' }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = refusalOf(error, project.root)
       await this.#save(journal()).catch(() => {})
       return written.size
         ? { state: 'partial', written: [...written], message: 'The flow was not replaced. Some Agent files were created; review them, then continue the update.' }
