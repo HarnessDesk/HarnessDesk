@@ -140,6 +140,32 @@ test('a failed stage closes no Seat and a failed close never writes finished sta
   assert.deepEqual(closeEffects, ['stage', 'close'])
 })
 
+test('the board hold is let go when a wrap throws while closing Seats or finishing', async () => {
+  for (const failing of ['closeSeats', 'finish'] as const) {
+    const effects: string[] = []
+    const port: WrapPort = {
+      hold: () => {
+        effects.push('hold')
+        return () => { effects.push('let go') }
+      },
+      read: async () => input(),
+      stage: async () => { effects.push('stage') },
+      closeSeats: async () => {
+        effects.push('close')
+        if (failing === 'closeSeats') throw new Error('EIO')
+      },
+      finish: async () => {
+        effects.push('finish')
+        if (failing === 'finish') throw new Error('EIO')
+      },
+    }
+    const approved = choices()
+    await assert.rejects(new Wraps(port).commit('g1', previewWrap(input(), approved).stamp, approved, 'receipt-1', 10), /EIO/)
+    assert.equal(effects.at(-1), 'let go', `after ${failing} threw: ${effects.join(', ')}`)
+    assert.equal(effects.filter((one) => one === 'let go').length, 1)
+  }
+})
+
 // ------------------------------------------------------------- findings (phase 7)
 /*
  * Named addition for the findings ledger: a wrap freezes the findings the

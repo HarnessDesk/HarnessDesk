@@ -285,7 +285,7 @@ export class GoalPlane {
       seat.session.runtime === session.runtime && seat.session.sessionId === session.sessionId).map((seat) => seat.id)
     const operation = { kind: 'assignment', id: randomUUID(), goal, card, opening, close } as const
     await this.#stage(document, operation)
-    await recoverOperation(operation, this.port)
+    await this.#complete(operation)
     const kept = this.port.seats.byId(opening.id)
     if (!kept) throw new Error('The assigned Seat could not be read back. Finish recovery before starting work.')
     await this.refresh(goal)
@@ -302,7 +302,7 @@ export class GoalPlane {
       if (this.port.busy(record.session)) throw new Error("Stop this Seat's current turn before releasing it")
       const operation = { kind: 'release', id: randomUUID(), goal, seat: id, reason: 'released' } as const
       await this.#stage(document, operation)
-      await recoverOperation(operation, this.port)
+      await this.#complete(operation)
       await this.refresh(goal)
     })
   }
@@ -455,18 +455,77 @@ export class GoalPlane {
           await recoverOperation(document.operation, this.port, this.#carryPort())
           this.#recoveryProblems.delete(document.goal.id)
         } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error)
           if (document.operation.kind === 'carry') {
-            this.#recoveryProblems.set(document.goal.id,
-              `Carrying findings could not finish: ${error instanceof Error ? error.message : String(error)}. Restart to retry recovery.`)
+            this.#recoveryProblems.set(document.goal.id, `Carrying findings could not finish: ${reason}. Restart to retry recovery.`)
             continue
           }
-          if (document.operation.kind !== 'wrap') throw error
-          this.#recoveryProblems.set(document.goal.id,
-            `Wrapping could not finish: ${error instanceof Error ? error.message : String(error)}. Restart to retry recovery.`)
+          if (document.operation.kind === 'wrap') {
+            this.#recoveryProblems.set(document.goal.id, `Wrapping could not finish: ${reason}. Restart to retry recovery.`)
+            continue
+          }
+          /* An assignment or a release that cannot finish is set aside rather
+             than retried on every launch, where a refusal that will never
+             change — a card the Goal does not hold — failed the desk's start
+             each time. Either way the Goal says what happened. */
+          this.#recoveryProblems.set(document.goal.id, (await this.#setAside(document.operation, reason)).sentence)
         }
       }
       if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
     })
+  }
+
+  /**
+   * Runs a staged assignment or release to its end, or sets it aside: an
+   * operation left staged refuses every later save of its Goal, so a refusal
+   * must never leave one behind. Rethrows the refusal once set aside.
+   */
+  async #complete(operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>): Promise<void> {
+    try {
+      await recoverOperation(operation, this.port)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      const aside = await this.#setAside(operation, reason)
+      // Set aside, the refusal says it all; stuck, the Goal says so until a launch clears it.
+      if (!aside.settled) this.#recoveryProblems.set(operation.goal, aside.sentence)
+      await this.refresh(operation.goal).catch(() => {})
+      throw error
+    }
+    // The Goal took an assignment or a release: a note about an earlier one set aside no longer applies.
+    this.#recoveryProblems.delete(operation.goal)
+  }
+
+  /**
+   * Sets aside an assignment or a release that could not finish, and answers
+   * the sentence the Goal shows for it. An assignment is undone: the Seat it
+   * opened is closed and any claim it took released, so the card can be
+   * assigned again. A release is closed out as far as it got. Should even
+   * that fail, the operation stays (`settled: false`), the Goal refuses new
+   * work saying so, and the next launch tries again — the desk still starts.
+   */
+  async #setAside(operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>, reason: string): Promise<{ settled: boolean; sentence: string }> {
+    const what = operation.kind === 'assignment'
+      ? `Assigning ${operation.card === null ? 'a Seat' : `card ${operation.card}`}`
+      : 'Releasing a Seat'
+    try {
+      if (operation.kind === 'assignment') {
+        const seat = this.port.seats.byId(operation.opening.id)
+        if (seat && !seat.closed && !seat.restored) await this.port.closeId(seat.id, 'released')
+        if (seat) await this.port.releaseClaim(operation.goal, seat.id)
+      }
+      await this.port.finish(operation.goal, operation.id)
+    } catch (error) {
+      return {
+        settled: false,
+        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). Restart to retry recovery.`,
+      }
+    }
+    return {
+      settled: true,
+      sentence: operation.kind === 'assignment'
+        ? `${what} could not finish: ${reason}. The Seat it opened was closed; assign the card again.`
+        : `${what} could not finish: ${reason}. It was set aside; release the Seat again if it is still kept.`,
+    }
   }
 
   async #wrapInput(id: string): Promise<WrapInput> {

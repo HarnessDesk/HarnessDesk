@@ -16,6 +16,16 @@ move is real work and is not news to a person weighing an upgrade.
   several reviewers judging at once no longer see each other's findings or
   messages until the round closes, and a later review is handed the exact
   change since the last one.
+- **Assigning a card just after adding it no longer leaves the Goal stuck.**
+  If the card's save was still queued, the assignment used to be refused and
+  stayed half-done, so the Goal then refused every later save. Relaunching
+  didn't help, because the desk failed to start while it tried to finish the
+  assignment. An assignment or release that can't finish is now set aside:
+  the Seat it opened is closed, and the Goal says what happened. A patch
+  applied with `git am`, or a cherry-pick committed after a conflict, now
+  counts as a step's own work. A wrap receipt lists any card that recovery
+  set aside, with the reason. A change refused because its save failed no
+  longer leaves its line in the Goal's channel.
 - **A project's Flows are visible, previewable and updatable** — a project
   page now lists the flows it can start, layered from the project's own
   files down to the ones that ship, with what a nearer file shadows called

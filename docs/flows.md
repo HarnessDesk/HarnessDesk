@@ -555,8 +555,10 @@ the desk observed on the writer's branch. A diff is the card's own committed
 work, measured from where the card began — the commit its holder's checkout
 was at when it took the card, which the claim records: the non-merge commits
 on the checkout's first-parent line since then that its own record of HEAD
-(the reflog) says were made there — committed, amended or picked — rather than
-brought in by a pull. So it holds for a step that commits straight onto the
+(the reflog) says were made there — committed, amended, picked, reverted or
+applied with `git am` — rather than brought in by a pull. A commit written with
+`commit-tree` and moved in with `update-ref` leaves no such record, so it is not
+counted. So it holds for a step that commits straight onto the
 project's default branch (a role neither isolated nor told to branch), the
 step's commits stay its own after it pushes them, a pull is not its work, a
 merge brings nothing of its own, and a Seat that takes a second card is
