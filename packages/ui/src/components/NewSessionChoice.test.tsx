@@ -38,7 +38,7 @@ const rig = (
   plans: ReadonlyMap<string, SeatPlan> = new Map(),
 ) => {
   const open = over.workspace ?? { path: '/repo', name: 'repo', lastOpenedAt: 1 }
-  const snapshot = {
+  let snapshot = {
     ...emptySnapshot(),
     status: 'open',
     workspace: open,
@@ -48,8 +48,9 @@ const rig = (
     agentPlans: plans,
     ...(over.teams ? { teams: over.teams } : {}),
   } as unknown as AppSnapshot
+  const listeners = new Set<() => void>()
   const store = {
-    subscribe: () => () => {},
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     getSnapshot: () => snapshot,
     newDraft: vi.fn(),
     openTeamRoom: vi.fn(),
@@ -65,7 +66,17 @@ const rig = (
     previewFlow: vi.fn(async () => null),
     startFlowGoal: vi.fn(),
   } as unknown as AppStore
-  return { store }
+  /**
+   * A snapshot change with nobody's own state involved — the shape of a
+   * `useSyncExternalStore` re-render that has nothing to do with focus.
+   * `agentPlans` refreshing after a dry-run seat check is exactly this: the
+   * dialog stays open and nobody touched the roster, but React re-renders it.
+   */
+  const notify = (): void => {
+    snapshot = { ...snapshot }
+    listeners.forEach((listener) => listener())
+  }
+  return { store, notify }
 }
 
 const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {
@@ -207,9 +218,14 @@ it('an Agent that cannot be seated here stays, greyed with its reason — and pr
   const judge = choice('Judge')
   expect(judge.hasAttribute('data-refused')).toBe(true)
   // Greyed, not merely annotated: the same fade a refused control wears
-  // everywhere else in the app (#871), on the exact variant this row draws.
-  expect(judge.className).toContain('data-[refused]:opacity-45')
-  expect(judge.textContent).toContain('Cursor is signed out')
+  // everywhere else in the app (#871), on the exact variant this row draws —
+  // but only its lead and name. The reason has to clear body-text contrast
+  // to be read at all, so it carries none of that fade.
+  expect(judge.className).toContain('data-[refused]:[&_[data-slot=icon-tile]]:opacity-45')
+  expect(judge.className).toContain('data-[refused]:[&_[data-role=row]]:opacity-45')
+  const reason = judge.querySelector<HTMLElement>('[data-role="muted"]')
+  expect(reason?.textContent).toContain('Cursor is signed out')
+  expect(reason?.className).not.toContain('opacity-45')
   expect(judge.disabled).toBe(false)
   act(() => judge.click())
   expect(store.startAsAgent).toHaveBeenCalledWith('judge')
@@ -240,6 +256,24 @@ it('focuses the plain choice without scrolling the roster out from under a perso
   const call = spy.mock.calls.find(([options]) => (options as FocusOptions | undefined)?.preventScroll === true)
   expect(call, `focus() was called as: ${JSON.stringify(spy.mock.calls)}`).toBeDefined()
   spy.mockRestore()
+})
+
+/*
+ * #870 (Opus review): the callback ref that focuses the plain choice must be
+ * stable. A new function identity every render calls the ref again — Base
+ * UI's Button merges refs by identity — which refocuses the plain choice and
+ * throws a keyboard user on an Agent row back to it the next time this
+ * component re-renders for any reason, such as the roster's plans refreshing
+ * after a dry-run seat check.
+ */
+it('never steals focus back to the plain choice once a person has moved off it', () => {
+  const { store, notify } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  const agentRow = choice('Code reviewer')
+  act(() => agentRow.focus())
+  expect(document.activeElement).toBe(agentRow)
+  act(() => notify())
+  expect(document.activeElement).toBe(agentRow)
 })
 
 it('Enter still starts a plain conversation on the default runtime — agent/seat is never asked for it', () => {

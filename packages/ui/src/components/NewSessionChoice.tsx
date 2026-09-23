@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import type { AgentEntry } from '@harnessdesk/protocol'
 
@@ -40,10 +40,28 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
    * effect keyed to "run on mount" can fire before the button exists. A
    * callback ref runs exactly when React attaches the node, on whichever
    * render that turns out to be.
+   *
+   * `useCallback` with an empty dependency list, deliberately: Base UI's
+   * Button merges refs by identity, so a new function every render calls
+   * this again — refocusing the plain choice and throwing a keyboard user
+   * on an Agent row back to it the next time anything in this dialog
+   * re-renders (the roster's plans refreshing after a dry-run seat check,
+   * for one). A stable identity means React calls it once, when the node
+   * first attaches, and never again just because the component re-rendered.
+   *
+   * This chooses `preventScroll` over reshaping the header and list so
+   * focus never lands under it: on a roster long enough to push the plain
+   * choice below the fold, showing every row *and* keeping the freshly
+   * mounted choice on screen are the same fold fighting itself — the roster
+   * cannot both stay where a person is looking and bring an off-screen row
+   * into view without moving it. Between "the plain choice is initially
+   * off-screen, reachable by Tab or by Enter, exactly the keyboard shortcut
+   * this focus exists for" and "the rows this dialog leads with are
+   * unclickable," the second is the bug a person actually filed.
    */
-  const focusWithoutScrolling = (node: HTMLButtonElement | null): void => {
+  const focusWithoutScrolling = useCallback((node: HTMLButtonElement | null): void => {
     node?.focus({ preventScroll: true })
-  }
+  }, [])
 
   if (creatingGoal && root) return <GoalCreate root={root} onClose={onClose} />
   if (startingFlow && root) return <FlowGoalCreate root={root} onClose={onClose} />
