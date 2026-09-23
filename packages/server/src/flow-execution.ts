@@ -1,0 +1,871 @@
+import { createHash } from 'node:crypto'
+import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
+import { join } from 'node:path'
+
+import type {
+  CompiledFlow,
+  FlowBinding,
+  FlowExecution,
+  FlowOperation,
+  FlowPolicy,
+  FlowPolicyRule,
+  FlowRoundState,
+  FlowSeat,
+  FlowThen,
+  GoalCreateInput,
+  GoalSeatRequest,
+  Intent,
+  Lane,
+  SeatRecord,
+} from '@harnessdesk/protocol'
+
+import { cardVars, guardHolds, renderFlowTemplate } from './flow.js'
+import type { Team } from './team.js'
+
+/**
+ * A flow run as execution state on one Goal.
+ *
+ * A run is not a room with members: it is the Goal's rounds, the cards each
+ * round opened, and the Seats the Goal opened for those cards — each one
+ * journaled here before the external work it stands for starts. Membership
+ * is the Goal's Seats and nothing else.
+ *
+ * Every step that reaches outside the desk — a card on the board, a Seat and
+ * its conversation, an order sent to it — is written as `prepared`, then
+ * `started`, then `finished`. A restart that finds a step `started` and cannot
+ * tell from the board whether it happened marks it `uncertain` and stops the
+ * run for a person, rather than doing it a second time.
+ */
+
+export type StoredFlowExecution = FlowExecution & {
+  compiled: CompiledFlow
+  source: string
+  sourcePath: string | null
+  vars: Readonly<Record<string, string>>
+  startedAt: number
+  updatedAt: number
+  authorization: { sourceDigest: string; commandDigest: string; approvedAt: number }
+  operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
+}
+
+/** What `startGoal` is handed: a compiled, authorized policy. Preview and its token are a later step's. */
+export interface FlowStartRequest {
+  readonly root: string
+  readonly cwd?: string
+  readonly sentence: string
+  readonly source: string
+  readonly sourcePath: string | null
+  readonly compiled: CompiledFlow
+  readonly vars?: Readonly<Record<string, string>>
+  readonly authorization: StoredFlowExecution['authorization']
+}
+
+/**
+ * The host, as a run on a Goal needs it. The first four are the plan's
+ * boundary; the rest are the reads and sends a round cannot happen without.
+ */
+export interface FlowExecutionPort {
+  /** The provider that serves this runtime's models, from the host's registry; null when unknown. */
+  providerOf(runtime: string): string | null
+  /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
+  openSeat(input: GoalSeatRequest): Promise<SeatRecord>
+  release(goal: string, seat: string): Promise<void>
+  canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
+  createGoal(input: GoalCreateInput): Promise<{ readonly id: string }>
+  /** Goals whose origin names this run: how an interrupted create is found instead of repeated. */
+  goalsOf(run: string): readonly string[]
+  seatOf(id: string): SeatRecord | null
+  /** Open Seats kept on this Goal. */
+  seatsOn(goal: string): readonly SeatRecord[]
+  /** The Agent's current brief digest where this Goal would read it; null when it cannot be read. */
+  digestOf(goal: string, agent: string): Promise<string | null>
+  /** Sends one turn to a Seat's conversation. */
+  order(seat: SeatRecord, text: string): Promise<void>
+  /** The lane a Seat was given, or null when it has none. */
+  laneOf(seat: SeatRecord): Lane | null
+  /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
+  reseat(seat: SeatRecord): Promise<string>
+  changed(goal: string, runs: readonly FlowExecution[]): void
+  log(message: string, details?: Readonly<Record<string, unknown>>): void
+}
+
+// ------------------------------------------------------------------ one queue
+
+/** One queue per run: board completions, evidence notices, stop and restart reconciliation take turns. */
+export class SerialRun {
+  private tails = new Map<string, Promise<void>>()
+  async within<T>(id: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.tails.get(id) ?? Promise.resolve()
+    const next = previous.then(work)
+    const tail = next.then(() => undefined, () => undefined)
+    this.tails.set(id, tail)
+    try { return await next } finally { if (this.tails.get(id) === tail) this.tails.delete(id) }
+  }
+  async idle(): Promise<void> {
+    await Promise.all([...this.tails.values()])
+  }
+}
+
+// ------------------------------------------------------------------- storage
+
+export const CORRUPT_RUN = 'A saved flow run could not be read. Restore its state file before starting another run.'
+
+/** `flows-v2/` under the host's state: one file per run, written whole, synced and renamed into place. */
+export class ExecutionFiles {
+  constructor(readonly dir: string) {}
+
+  #file(id: string): string {
+    return join(this.dir, `${encodeURIComponent(id)}.json`)
+  }
+
+  async save(run: StoredFlowExecution): Promise<void> {
+    await mkdir(this.dir, { recursive: true })
+    const target = this.#file(run.id)
+    const temporary = `${target}.${process.pid}.${Date.now()}.writing`
+    const handle = await open(temporary, 'wx', 0o600)
+    try {
+      await handle.writeFile(JSON.stringify(run), 'utf8')
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    try {
+      await rename(temporary, target)
+    } catch (error) {
+      await unlink(temporary).catch(() => {})
+      throw error
+    }
+    const folder = await open(this.dir, 'r')
+    try { await folder.sync() } finally { await folder.close() }
+  }
+
+  /** Every file as it was read, or why it could not be: a broken file is never skipped silently. */
+  async list(): Promise<readonly { readonly file: string; readonly raw: unknown; readonly error: string | null }[]> {
+    let names: string[]
+    try {
+      names = await readdir(this.dir)
+    } catch (error) {
+      if ((error as { code?: string }).code === 'ENOENT') return []
+      throw error
+    }
+    const out: { file: string; raw: unknown; error: string | null }[] = []
+    for (const name of names.filter((one) => one.endsWith('.json')).sort()) {
+      try {
+        out.push({ file: name, raw: JSON.parse(await readFile(join(this.dir, name), 'utf8')), error: null })
+      } catch (error) {
+        out.push({ file: name, raw: null, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    return out
+  }
+}
+
+// ---------------------------------------------------------------- the pieces
+
+export const sourceDigest = (source: string): string => createHash('sha256').update(source).digest('hex')
+
+export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
+  version: 2,
+  id: run.id,
+  goal: run.goal,
+  document: run.document,
+  state: run.state,
+  rounds: run.rounds,
+  operations: run.operations,
+  legacyRun: run.legacyRun,
+  reason: run.reason,
+})
+
+const policyOf = (run: StoredFlowExecution): FlowPolicy => {
+  if (run.document.format !== 'agents') throw new Error('This run uses the old format and is run by the old engine.')
+  return run.document.flow
+}
+
+const bindingsFor = (run: StoredFlowExecution, role: string): FlowBinding[] =>
+  run.compiled.bindings.filter((binding) => binding.role === role).sort((a, b) => a.index - b.index)
+
+export const INDEPENDENT = 'This step needs an independent provider. Choose a seat from another provider.'
+export const BRIEF_CHANGED = 'The Agent brief changed. Start a new run to use it.'
+const LANE_REFUSED = 'This step needs its own checkout, ports and browser profile, and they could not all be prepared, so its Seat was released.'
+
+/** What a finished round's rule decides: fire one, wait for evidence on one, or end the run. */
+export type RuleDecision =
+  | { readonly kind: 'fire'; readonly rule: FlowPolicyRule }
+  | { readonly kind: 'wait'; readonly rule: FlowPolicyRule }
+  | { readonly kind: 'none' }
+
+/**
+ * Rules are three-valued and read in file order. A rule whose answers match
+ * but whose evidence is not yet known waits, and a later fallback cannot
+ * overtake it.
+ */
+export const decide = (
+  policy: FlowPolicy,
+  role: string,
+  outcomes: readonly (string | null)[],
+  evidence: (rule: FlowPolicyRule) => 'matched' | 'unmet' | 'waiting',
+): RuleDecision => {
+  for (const rule of policy.rules) {
+    if (rule.on !== role) continue
+    const answers = rule.when && (rule.when.every?.length || rule.when.any?.length)
+      ? guardHolds({ ...(rule.when.every?.length ? { every: rule.when.every } : {}), ...(rule.when.any?.length ? { any: rule.when.any } : {}) }, outcomes)
+      : outcomes.length > 0
+    if (!answers) continue
+    if (!rule.when?.evidence?.length) return { kind: 'fire', rule }
+    const found = evidence(rule)
+    if (found === 'matched') return { kind: 'fire', rule }
+    if (found === 'waiting') return { kind: 'wait', rule }
+  }
+  return { kind: 'none' }
+}
+
+const done = (card: Intent | undefined): boolean => card?.state === 'done' || card?.state === 'abandoned'
+
+const now = (): number => Date.now()
+
+export interface FlowExecutionsOptions {
+  readonly now?: () => number
+  /** Evidence guards are decided by the evidence plane (a later step); until then every guard waits. */
+  readonly evidence?: (run: FlowExecution, rule: FlowPolicyRule) => 'matched' | 'unmet' | 'waiting'
+}
+
+/** Runs on Goals. `Flows` hands every Goal-born run and every card of one to this. */
+export class FlowExecutions {
+  readonly #files: ExecutionFiles
+  readonly #team: Team
+  readonly #port: FlowExecutionPort
+  readonly #now: () => number
+  readonly #evidence: NonNullable<FlowExecutionsOptions['evidence']>
+  readonly #queue = new SerialRun()
+  #runs = new Map<string, StoredFlowExecution>()
+  /** Goals a broken run file names: no new round opens on them until it is restored. */
+  #blocked = new Map<string, string>()
+  /** Set when a run file names no readable Goal: nothing new starts anywhere. */
+  #corrupt: string | null = null
+  #rearms = new Map<string, number[]>()
+
+  constructor(files: ExecutionFiles, team: Team, port: FlowExecutionPort, options: FlowExecutionsOptions = {}) {
+    this.#files = files
+    this.#team = team
+    this.#port = port
+    this.#now = options.now ?? now
+    this.#evidence = options.evidence ?? (() => 'waiting')
+  }
+
+  async idle(): Promise<void> {
+    await this.#queue.idle()
+  }
+
+  // ------------------------------------------------------------- reading
+
+  runs(goal?: string): FlowExecution[] {
+    return [...this.#runs.values()]
+      .filter((run) => goal === undefined || run.goal === goal)
+      .sort((a, b) => a.startedAt - b.startedAt)
+      .map(projectExecution)
+  }
+
+  stored(id: string): StoredFlowExecution | null {
+    return this.#runs.get(id) ?? null
+  }
+
+  owns(goal: string): boolean {
+    return [...this.#runs.values()].some((run) => run.goal === goal)
+  }
+
+  /** Why a new run may not start, or open a round on this Goal; null when it may. */
+  refusal(goal?: string): string | null {
+    if (this.#corrupt) return this.#corrupt
+    return goal === undefined ? null : this.#blocked.get(goal) ?? null
+  }
+
+  #runOfCard(goal: string, card: number): StoredFlowExecution | null {
+    return [...this.#runs.values()].find((run) => run.goal === goal && run.rounds.some((round) => round.cards.includes(card))) ?? null
+  }
+
+  /** The Seat bound to a card, from the run's own journal. */
+  #seatForCard(run: StoredFlowExecution, card: number): { readonly operation: FlowOperation | null; readonly seat: SeatRecord | null } {
+    const operation = run.operations.find((one) => one.kind === 'seat' && one.card === card) ?? null
+    return { operation, seat: operation?.seat ? this.#port.seatOf(operation.seat) : null }
+  }
+
+  /** Which conversation may take this card, or null for a card no v2 run bound. */
+  bindingOf(goal: string, card: number): { readonly session: SeatRecord['session'] | null; readonly opening: boolean } | null {
+    const run = this.#runOfCard(goal, card)
+    if (!run) return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    const role = run.document.format === 'agents' ? run.document.flow.roles.find((one) => one.id === round?.role) : undefined
+    if (role?.kind !== 'agent') return null
+    const { operation, seat } = this.#seatForCard(run, card)
+    return { session: seat?.session ?? null, opening: operation?.state === 'started' && !operation.seat }
+  }
+
+  roundClosed(run: string, round: number): boolean {
+    return this.#runs.get(run)?.rounds.find((one) => one.n === round)?.state === 'closed'
+  }
+
+  refuseOutcome(goal: string, intent: Intent, outcome: string | null): string | null {
+    const run = this.#runOfCard(goal, intent.id)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(intent.id))!
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
+    let answers: readonly string[] = []
+    if (role?.kind === 'agent') answers = bindingsFor(run, role.id)[round.cards.indexOf(intent.id)]?.agent.answers ?? []
+    else if (role?.kind === 'person') answers = role.outcomes
+    if (answers.length === 0) return null
+    if (outcome === null) return `Refused: #${intent.id} belongs to a flow, so it needs an outcome — one of ${answers.join(', ')}.`
+    if (!answers.includes(outcome)) return `Refused: "${outcome}" is not an answer this step accepts. It accepts ${answers.join(', ')}. Nothing was recorded.`
+    return null
+  }
+
+  standDown(goal: string, runtime: string, sessionId: string): string | null {
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal) continue
+      const operation = run.operations.find((one) => {
+        if (one.kind !== 'seat' || !one.seat) return false
+        const seat = this.#port.seatOf(one.seat)
+        return seat?.session.runtime === runtime && seat.session.sessionId === sessionId
+      })
+      if (!operation) continue
+      if (run.state !== 'running') return run.reason ?? 'this flow run has ended'
+      const card = this.#team.stateFor(goal).intents.find((one) => one.id === operation.card)
+      if (done(card)) return 'the card this Seat was opened for is finished'
+      return null
+    }
+    return null
+  }
+
+  messagingLocked(goal: string): string | null {
+    const live = [...this.#runs.values()].find((run) => run.goal === goal && (run.state === 'running' || run.state === 'stalled'))
+    if (!live || live.document.format !== 'agents' || live.document.flow.messaging === 'members') return null
+    return 'This Goal’s flow runs board-only. Stop the run and start one whose policy allows messages to change this.'
+  }
+
+  // -------------------------------------------------------------- writing
+
+  /** Persist first, then hold it in memory, then say so: a failed write changes nothing the desk believes. */
+  async #put(run: StoredFlowExecution): Promise<StoredFlowExecution> {
+    const next = { ...run, updatedAt: this.#now() }
+    await this.#files.save(next)
+    this.#runs.set(next.id, next)
+    this.#port.changed(next.goal, this.runs(next.goal))
+    return next
+  }
+
+  #operation(run: StoredFlowExecution, key: string, patch: Omit<FlowOperation, 'key'>): StoredFlowExecution {
+    const at = this.#now()
+    const times = run.operationTimes[key] ?? { preparedAt: at, startedAt: null, finishedAt: null }
+    const stamped = {
+      ...times,
+      ...(patch.state === 'started' && times.startedAt === null ? { startedAt: at } : {}),
+      ...((patch.state === 'finished' || patch.state === 'uncertain') && times.finishedAt === null ? { finishedAt: at } : {}),
+    }
+    const operation: FlowOperation = { key, ...patch }
+    const exists = run.operations.some((one) => one.key === key)
+    return {
+      ...run,
+      operations: exists ? run.operations.map((one) => (one.key === key ? operation : one)) : [...run.operations, operation],
+      operationTimes: { ...run.operationTimes, [key]: stamped },
+    }
+  }
+
+  #round(run: StoredFlowExecution, round: FlowRoundState): StoredFlowExecution {
+    const exists = run.rounds.some((one) => one.n === round.n)
+    return { ...run, rounds: exists ? run.rounds.map((one) => (one.n === round.n ? round : one)) : [...run.rounds, round] }
+  }
+
+  #get(id: string): StoredFlowExecution {
+    const run = this.#runs.get(id)
+    if (!run) throw new Error(`There is no flow run ${id}.`)
+    return run
+  }
+
+  /** Stops the run for a person, reason persisted before anyone is told. */
+  async #stall(id: string, reason: string): Promise<void> {
+    const run = this.#get(id)
+    if (run.state !== 'running') return
+    await this.#put({ ...run, state: 'stalled', reason })
+    this.#port.log('a flow run stalled', { run: id, reason })
+    this.#team.nudgeRoom(run.goal)
+  }
+
+  async #release(goal: string, ids: readonly string[]): Promise<void> {
+    for (const id of ids) {
+      try {
+        await this.#port.release(goal, id)
+      } catch (error) {
+        this.#port.log('a flow Seat could not be released', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------- start
+
+  async startGoal(request: FlowStartRequest): Promise<FlowExecution> {
+    const refused = this.refusal()
+    if (refused) throw new Error(refused)
+    if (request.compiled.document.format !== 'agents') throw new Error('Only a flow in the Agent format starts a new Goal. Update this flow first.')
+    const errors = request.compiled.problems.filter((one) => one.level === 'error')
+    if (errors.length) throw new Error(`This flow will not run yet:\n${errors.map((one) => `• ${one.at}: ${one.text}`).join('\n')}`)
+    const policy = request.compiled.document.flow
+    const vars: Record<string, string> = {}
+    for (const input of policy.inputs) vars[input.id] = request.vars?.[input.id] ?? input.default ?? ''
+    const id = `flow-${this.#now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
+    const at = this.#now()
+    // The start is journaled before the Goal exists, so a restart finds the Goal by this run rather than making another.
+    let run = await this.#put(this.#operation({
+      version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
+      legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
+      vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
+    }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
+    const goal = await this.#port.createGoal({
+      root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
+      origin: { kind: 'flow', run: id },
+    })
+    run = await this.#put(this.#operation({ ...run, goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+    await this.#queue.within(id, () => this.#afterStart(id))
+    return projectExecution(this.#get(id))
+  }
+
+  /** Board policy, then the seed round. Shared by a fresh start and a restart that finds the start half done. */
+  async #afterStart(id: string): Promise<void> {
+    const run = this.#get(id)
+    const policy = policyOf(run)
+    // Visible and fixed for the life of the run: board-only unless the policy said members.
+    this.#team.setMessaging(run.goal, policy.messaging === 'members')
+    try {
+      await this.#openRound(id, policy.seed, { key: 'seed', evidence: [] }, [])
+    } catch (error) {
+      this.#port.log('a flow run could not open its first round', { run: id, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+  // --------------------------------------------------------------- rounds
+
+  /** Phase 8's entry: a round opened for an outside cause, idempotent on its key. */
+  openRound(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }): Promise<FlowRoundState> {
+    return this.#queue.within(id, () => this.#openRound(id, then, { key: `cause:${cause.key}`, evidence: cause.evidence }, []))
+  }
+
+  async #openRound(id: string, then: FlowThen, cause: { readonly key: string; readonly evidence: readonly string[] }, dependsOn: readonly number[]): Promise<FlowRoundState> {
+    let run = this.#get(id)
+    const existing = run.rounds.find((one) => one.cause === cause.key)
+    if (existing && existing.state !== 'opening') return existing
+    if (run.state !== 'running') throw new Error(run.reason ?? 'This flow run is not running.')
+    const ready = this.#port.canDispatch(run.goal)
+    if (!ready.ok) throw new Error(ready.reason)
+    const blocked = this.refusal(run.goal)
+    if (blocked) throw new Error(blocked)
+    const policy = policyOf(run)
+    const role = policy.roles.find((one) => one.id === then.role)
+    if (!role) throw new Error(`There is no role called "${then.role}".`)
+    let round: FlowRoundState = existing ?? {
+      n: run.rounds.length + 1, role: role.id, cards: [], seats: [], evidence: cause.evidence, state: 'opening', cause: cause.key,
+    }
+    if (!existing) {
+      run = await this.#put(this.#operation(this.#round(run, round), `round:${round.n}`, { kind: 'round', state: 'prepared', card: null, seat: null }))
+    }
+    // Cards, each under its dispatch key: a replay finds them rather than adding more.
+    const bindings = role.kind === 'agent' ? bindingsFor(run, role.id) : []
+    const width = role.kind === 'agent' ? bindings.length : 1
+    const board = this.#team.stateFor(run.goal)
+    const before = run.rounds.find((one) => one.n === round.n - 1)
+    const cards: number[] = []
+    for (let index = 0; index < width; index += 1) {
+      const vars = cardVars({
+        flow: policy.name, run: id, room: board.name, repo: board.root, role: role.id, round: round.n, n: index + 1, count: width,
+        ...(before ? { from: before.role, answered: before.cards.length } : {}), vars: run.vars,
+      })
+      const answers = role.kind === 'agent' ? bindings[index]!.agent.answers : role.kind === 'person' ? role.outcomes : []
+      const detail = [
+        then.detail ? renderFlowTemplate(then.detail, vars) : null,
+        answers.length > 0 && role.kind !== 'check' ? `Finish this with complete_claim and an outcome of exactly one of: ${answers.join(', ')}.` : null,
+      ].filter((one): one is string => Boolean(one)).join('\n\n')
+      const card = this.#team.addIntentForFlow(run.goal, {
+        title: renderFlowTemplate(then.title, vars),
+        ...(detail ? { detail } : {}),
+        ...(then.files?.length ? { files: then.files } : {}),
+        ...(dependsOn.length ? { dependsOn } : {}),
+        role: role.id,
+        dispatch: `${id}:${round.n}:${index}`,
+      })
+      cards.push(card.id)
+    }
+    if (JSON.stringify(cards) !== JSON.stringify(round.cards)) {
+      round = { ...round, cards }
+      run = await this.#put(this.#round(run, round))
+    }
+    if (role.kind === 'agent') {
+      const opened = await this.#seatRound(id, round, bindings, role.isolate, role.independentOf)
+      if (!opened) return this.#get(id).rounds.find((one) => one.n === round.n)!
+    }
+    run = this.#get(id)
+    round = { ...run.rounds.find((one) => one.n === round.n)!, state: 'running' }
+    await this.#put(this.#operation(this.#round(run, round), `round:${round.n}`, { kind: 'round', state: 'finished', card: null, seat: null }))
+    this.#team.nudgeRoom(run.goal)
+    return round
+  }
+
+  /** Providers of every Seat that worked a round of these roles; null in the set means one was unknown. */
+  #writers(run: StoredFlowExecution, roles: readonly string[]): Set<string | null> {
+    const providers = new Set<string | null>()
+    for (const round of run.rounds) {
+      if (!roles.includes(round.role)) continue
+      for (const id of round.seats) {
+        const seat = this.#port.seatOf(id)
+        providers.add(seat ? this.#port.providerOf(seat.session.runtime) : null)
+      }
+    }
+    return providers
+  }
+
+  /**
+   * Opens one Seat per slot, then — only once every one of them is durable —
+   * sends each its card. False when the round could not be seated; the run
+   * is stalled with the reason and only this round's new openings released.
+   */
+  async #seatRound(id: string, round: FlowRoundState, bindings: readonly FlowBinding[], isolate: boolean, independentOf: readonly string[]): Promise<boolean> {
+    const openedNow: string[] = []
+    const fail = async (reason: string): Promise<false> => {
+      await this.#release(this.#get(id).goal, openedNow)
+      await this.#stall(id, reason)
+      return false
+    }
+    const seats: SeatRecord[] = []
+    for (const [index, binding] of bindings.entries()) {
+      let run = this.#get(id)
+      const card = round.cards[index]!
+      const key = `seat:${round.n}:${index}`
+      const prior = run.operations.find((one) => one.key === key)
+      if (prior?.state === 'finished' && prior.seat) {
+        const kept = this.#port.seatOf(prior.seat)
+        if (!kept) return fail(`The Seat recorded for card #${card} can no longer be read. Its work is kept; start a new run.`)
+        seats.push(kept)
+        continue
+      }
+      if (prior?.state === 'started' || prior?.state === 'uncertain') {
+        return fail(`A Seat for card #${card} may have opened while the desk was stopped. Check this Goal’s conversations, then start a new run.`)
+      }
+      // Independence is decided on providers the host knows, before and after opening.
+      let candidates: readonly FlowSeat[] = binding.seats
+      let writers: Set<string | null> | null = null
+      if (independentOf.length > 0) {
+        writers = this.#writers(run, independentOf)
+        const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
+        candidates = writers.has(null) ? [] : offered.filter((seat) => {
+          const provider = this.#port.providerOf(seat.runtime)
+          return provider !== null && !writers!.has(provider)
+        })
+        if (candidates.length === 0) return fail(INDEPENDENT)
+      }
+      if (await this.#port.digestOf(run.goal, binding.agent.id) !== binding.digest) return fail(BRIEF_CHANGED)
+      run = await this.#put(this.#operation(run, key, { kind: 'seat', state: 'started', card, seat: null }))
+      let record: SeatRecord
+      try {
+        record = await this.#port.openSeat({
+          goal: run.goal, agent: binding.agent.id,
+          ...(candidates.length ? { seats: candidates } : {}),
+          grant: { kind: 'ceiling', level: binding.grant }, card, isolate,
+        })
+      } catch (error) {
+        // The opening failed and said so: nothing is left open for this slot.
+        await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: null }))
+        return fail(`The Seat for card #${card} could not be opened: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      openedNow.push(String(record.id))
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: String(record.id) }))
+      if (record.briefDigest !== binding.digest) return fail(BRIEF_CHANGED)
+      if (writers) {
+        const actual = this.#port.providerOf(record.session.runtime)
+        if (actual === null || writers.has(actual)) return fail(INDEPENDENT)
+      }
+      if (isolate) {
+        const lane = this.#port.laneOf(record)
+        if (!lane || lane.cwd !== record.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) return fail(LANE_REFUSED)
+      }
+      try {
+        this.#team.setRole(run.goal, record.session.runtime, record.session.sessionId, round.role)
+      } catch (error) {
+        this.#port.log('a flow Seat could not be given its role on the board', { run: id, error: error instanceof Error ? error.message : String(error) })
+      }
+      const current = this.#get(id)
+      const kept = current.rounds.find((one) => one.n === round.n)!
+      if (!kept.seats.includes(String(record.id))) await this.#put(this.#round(current, { ...kept, seats: [...kept.seats, String(record.id)] }))
+      seats.push(record)
+    }
+    // Every Seat of the round is durable; only now does any of them get its card.
+    for (const [index, seat] of seats.entries()) {
+      const key = `turn:${round.n}:${index}`
+      const prior = this.#get(id).operations.find((one) => one.key === key)
+      if (prior?.state === 'finished') continue
+      if (prior?.state === 'started' || prior?.state === 'uncertain') {
+        return fail(`The order for card #${round.cards[index]} may not have reached its Seat while the desk was stopped. Check that conversation, then start a new run.`)
+      }
+      const card = this.#team.stateFor(this.#get(id).goal).intents.find((one) => one.id === round.cards[index])
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'started', card: round.cards[index] ?? null, seat: String(seat.id) }))
+      try {
+        await this.#port.order(seat, this.#cardOrder(this.#get(id), card, bindings[index]!))
+      } catch (error) {
+        await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'finished', card: round.cards[index] ?? null, seat: String(seat.id) }))
+        return fail(`Card #${round.cards[index]} could not be handed to its Seat: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'finished', card: round.cards[index] ?? null, seat: String(seat.id) }))
+    }
+    return true
+  }
+
+  #cardOrder(run: StoredFlowExecution, card: Intent | undefined, binding: FlowBinding): string {
+    const answers = binding.agent.answers
+    return [
+      `Card #${card?.id ?? '?'} on this Goal is yours: ${card?.title ?? ''}`,
+      card?.detail ?? null,
+      'It is already claimed for you. Work only on this card.',
+      answers.length > 0
+        ? `When it is done, call complete_claim for #${card?.id} with an outcome of exactly one of: ${answers.join(', ')}.`
+        : `When it is done, call complete_claim for #${card?.id}.`,
+      `Flow run ${run.id}.`,
+    ].filter((one): one is string => Boolean(one)).join('\n\n')
+  }
+
+  // -------------------------------------------------------------- advance
+
+  completed(goal: string, card: number): void {
+    const run = this.#runOfCard(goal, card)
+    if (!run) return
+    void this.#queue.within(run.id, () => this.#advance(run.id)).catch((error: unknown) => {
+      this.#port.log('a flow could not open its next round', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+    })
+  }
+
+  async wakeEvidence(goal: string): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.goal !== goal || run.state !== 'running') continue
+      await this.#queue.within(run.id, () => this.#advance(run.id)).catch((error: unknown) => {
+        this.#port.log('a flow could not re-read its evidence', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+  }
+
+  /** What the last closed-or-closing round decides, recomputed from the board every time it is asked. */
+  #decision(run: StoredFlowExecution, round: FlowRoundState): { decision: RuleDecision; completed: number[] } | null {
+    const board = this.#team.stateFor(run.goal)
+    const cards = round.cards.map((id) => board.intents.find((one) => one.id === id))
+    if (round.cards.length === 0 || cards.some((card) => !done(card))) return null
+    const projection = projectExecution(run)
+    return {
+      decision: decide(policyOf(run), round.role, cards.map((card) => card?.outcome ?? null), (rule) => this.#evidence(projection, rule)),
+      completed: cards.filter((card) => card?.state === 'done').map((card) => card!.id),
+    }
+  }
+
+  async #advance(id: string): Promise<void> {
+    let run = this.#get(id)
+    if (run.state !== 'running') return
+    if (run.goal === '') return
+    const last = run.rounds.at(-1)
+    if (!last) {
+      await this.#afterStart(id)
+      return
+    }
+    if (last.state === 'opening') {
+      // Half opened before a crash or a failed write: the same cause opens it the same way.
+      const previous = run.rounds.find((one) => one.n === last.n - 1)
+      if (last.cause === 'seed' || !previous) {
+        await this.#openRound(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
+        return
+      }
+      const earlier = this.#decision(run, previous)
+      if (earlier?.decision.kind === 'fire') {
+        await this.#openRound(id, earlier.decision.rule.then, { key: last.cause, evidence: last.evidence }, earlier.completed)
+      }
+      return
+    }
+    const found = this.#decision(run, last)
+    if (!found) return
+    if (found.decision.kind === 'wait') {
+      if (last.state !== 'waiting-evidence') await this.#put(this.#round(run, { ...last, state: 'waiting-evidence' }))
+      return
+    }
+    if (last.state !== 'closed') run = await this.#put(this.#round(run, { ...last, state: 'closed' }))
+    if (found.decision.kind === 'none') {
+      await this.#finish(id, 'settled', `${last.role} answered ${this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')}, and no rule takes it further`)
+      return
+    }
+    await this.#openRound(id, found.decision.rule.then, { key: `after:${last.n}:${found.decision.rule.id}`, evidence: [] }, found.completed)
+  }
+
+  async #finish(id: string, state: 'settled' | 'stopped', reason: string): Promise<void> {
+    const run = this.#get(id)
+    if (run.state === 'settled' || run.state === 'stopped') return
+    await this.#put({ ...run, state, reason })
+    // Kept Seats are released once. The Goal stays open for its person to wrap.
+    const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
+      .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
+    await this.#release(run.goal, open)
+    this.#team.nudgeRoom(run.goal)
+  }
+
+  // ----------------------------------------------------------------- stop
+
+  stop(id: string, why = 'the person stopped this flow'): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      await this.#finish(id, 'stopped', why)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  /** Stops every live run on a Goal, inside each run's own queue: the wrap barrier. */
+  async stopGoal(goal: string, why: string): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.goal === goal && (run.state === 'running' || run.state === 'stalled')) await this.stop(run.id, why)
+    }
+  }
+
+  // ---------------------------------------------------------------- re-arm
+
+  /** A v2 Seat whose turn ended with its card still open is handed the card again, within the run's budget. */
+  async reArm(runtime: string, sessionId: string): Promise<boolean> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running') continue
+      const operation = run.operations.find((one) => {
+        if (one.kind !== 'seat' || !one.seat) return false
+        const seat = this.#port.seatOf(one.seat)
+        return seat?.session.runtime === runtime && seat.session.sessionId === sessionId
+      })
+      if (!operation?.seat) continue
+      await this.#queue.within(run.id, () => this.#reArm(run.id, operation))
+      return true
+    }
+    return false
+  }
+
+  async #reArm(id: string, operation: FlowOperation): Promise<void> {
+    const run = this.#get(id)
+    if (run.state !== 'running') return
+    const seat = this.#port.seatOf(operation.seat!)
+    if (!seat || seat.closed) return
+    const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
+    if (!card || done(card)) return
+    const round = run.rounds.find((one) => one.cards.includes(card.id))!
+    const index = round.cards.indexOf(card.id)
+    const binding = bindingsFor(run, round.role)[index]
+    if (!binding) return
+    const budget = policyOf(run).rearm ?? 3
+    const spent = (this.#rearms.get(String(seat.id)) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
+    if (spent.length >= budget) {
+      await this.#stall(id, `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`)
+      return
+    }
+    // The same environment and the same model before the same card, or not at all.
+    const role = policyOf(run).roles.find((one) => one.id === round.role)
+    if (role?.kind === 'agent' && role.isolate) {
+      const lane = this.#port.laneOf(seat)
+      if (!lane || lane.cwd !== seat.checkout.cwd || !lane.browserProfile) {
+        await this.#stall(id, `The Seat for card #${card.id} no longer has its own checkout, ports and browser profile, so it was not re-armed.`)
+        return
+      }
+    }
+    const running = await this.#port.reseat(seat)
+    if (running !== seat.seatLabel) {
+      await this.#stall(id, `The Seat for card #${card.id} came back on ${running}, not ${seat.seatLabel}, so it was not handed its card again.`)
+      return
+    }
+    this.#rearms.set(String(seat.id), [...spent, this.#now()])
+    const key = `turn:${round.n}:${index}:${spent.length + 1}`
+    await this.#put(this.#operation(run, key, { kind: 'turn', state: 'started', card: card.id, seat: String(seat.id) }))
+    try {
+      await this.#port.order(seat, this.#cardOrder(this.#get(id), card, binding))
+    } finally {
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'turn', state: 'finished', card: card.id, seat: String(seat.id) }))
+    }
+  }
+
+  // --------------------------------------------------------------- restart
+
+  /**
+   * Reads every run back, validated whole. A broken file blocks its Goal; a
+   * file that names no Goal blocks every start. Steps a crash left `started`
+   * are reconciled from the board, or marked uncertain for a person.
+   */
+  async load(validate: (raw: unknown) => StoredFlowExecution): Promise<void> {
+    for (const entry of await this.#files.list()) {
+      let run: StoredFlowExecution
+      try {
+        if (entry.error) throw new Error(entry.error)
+        run = validate(entry.raw)
+      } catch (error) {
+        const goal = typeof (entry.raw as { goal?: unknown } | null)?.goal === 'string' && (entry.raw as { goal: string }).goal
+          ? (entry.raw as { goal: string }).goal : null
+        if (goal) this.#blocked.set(goal, CORRUPT_RUN)
+        else this.#corrupt = CORRUPT_RUN
+        this.#port.log('a saved flow run could not be read', { file: entry.file, error: error instanceof Error ? error.message : String(error) })
+        continue
+      }
+      if (run.legacyRun) continue
+      this.#runs.set(run.id, run)
+    }
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running') continue
+      await this.#queue.within(run.id, () => this.#reconcile(run.id)).catch((error: unknown) => {
+        this.#port.log('a flow run could not be reconciled', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+  }
+
+  async #reconcile(id: string): Promise<void> {
+    let run = this.#get(id)
+    // An interrupted start: find its Goal by origin before ever making another.
+    if (run.goal === '') {
+      const goals = this.#port.goalsOf(id)
+      if (goals.length > 1) {
+        await this.#put({ ...run, state: 'stalled', reason: 'More than one Goal claims this run. Keep one, then start a new run.' })
+        return
+      }
+      if (goals.length === 0) {
+        // Nothing outside the desk happened yet; the person starts it again rather than the desk guessing its folder.
+        await this.#put(this.#operation({ ...run, state: 'stopped', reason: 'This run stopped before its Goal was made. Start it again.' },
+          'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        return
+      }
+      run = await this.#put(this.#operation({ ...run, goal: goals[0]! }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+    }
+    const board = run.goal ? this.#team.stateFor(run.goal) : null
+    for (const operation of run.operations) {
+      if (operation.state !== 'started') continue
+      if (operation.kind === 'seat' && board && operation.card !== null) {
+        // Deterministic: the card's claim, held by exactly one open Seat on this Goal, is the Seat that opened.
+        const claim = board.intents.find((one) => one.id === operation.card)?.claim
+        const holders = claim ? this.#port.seatsOn(run.goal).filter((seat) =>
+          seat.closed === null && seat.session.runtime === claim.runtime && seat.session.sessionId === claim.sessionId) : []
+        if (holders.length === 1) {
+          run = await this.#put(this.#operation(run, operation.key, { kind: 'seat', state: 'finished', card: operation.card, seat: String(holders[0]!.id) }))
+          const round = run.rounds.find((one) => one.cards.includes(operation.card!))!
+          if (!round.seats.includes(String(holders[0]!.id))) run = await this.#put(this.#round(run, { ...round, seats: [...round.seats, String(holders[0]!.id)] }))
+          continue
+        }
+      }
+      if (operation.kind === 'round' && operation.key === 'start') continue
+      // Anything else that started and did not say how it ended needs a person.
+      run = await this.#put(this.#operation(run, operation.key, { ...operation, state: 'uncertain' }))
+    }
+    const uncertain = run.operations.find((one) => one.state === 'uncertain')
+    if (uncertain && run.state === 'running') {
+      await this.#put({
+        ...run, state: 'stalled',
+        reason: uncertain.kind === 'turn'
+          ? `The order for card #${uncertain.card} may not have reached its Seat while the desk was stopped. Check that conversation, then start a new run.`
+          : `A step for card #${uncertain.card ?? '?'} was interrupted while the desk was stopped. Check this Goal’s conversations, then start a new run.`,
+      })
+    }
+  }
+
+  /** Once runtimes are up: finish half-opened rounds and advance rounds the board already finished. */
+  async resume(): Promise<void> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running') continue
+      await this.#queue.within(run.id, () => this.#advance(run.id)).catch((error: unknown) => {
+        this.#port.log('a flow run could not resume', { run: run.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+  }
+}

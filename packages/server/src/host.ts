@@ -83,6 +83,7 @@ import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
 import { FlowCatalog } from './flow-catalog.js'
+import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
@@ -337,6 +338,14 @@ export interface HostOptions {
   readonly builtinAgents?: string
   /** Test-only override for the flows which ship with the host. */
   readonly builtinFlows?: string
+  /**
+   * Which provider serves each runtime's models, by runtime id: what a flow
+   * step that must be independent of an earlier one is checked against. A
+   * runtime missing here is unknown, and an unknown provider is never taken
+   * for an independent one. Empty unless a caller that knows says so: the
+   * host guesses no vendor from a name.
+   */
+  readonly providers?: Readonly<Record<string, string>>
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -848,10 +857,40 @@ export class Host {
       run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
+      recovery: {
+        goal: (room) => {
+          const exists = this.#goalStore.list().some((document) => document.goal.id === room)
+          return { exists, writable: exists && this.#goals.canDispatch(room).ok }
+        },
+        seats: (room) => this.#evidence.seats.all().filter((seat) => seat.board === room),
+      },
     }, new FlowCatalog({
       userRoot: join(this.#state.directory, 'flows'),
       builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
       confine: (root) => this.#confineRoom(root),
+    }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
+      providerOf: (runtime) => options.providers?.[runtime] ?? null,
+      openSeat: (input) => this.#goals.seat(input),
+      release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
+      canDispatch: (goal) => this.#goals.canDispatch(goal),
+      createGoal: async (input) => (await this.#goals.create(input)).goal,
+      goalsOf: (run) => this.#goalStore.list()
+        .filter((document) => document.goal.origin.kind === 'flow' && document.goal.origin.run === run)
+        .map((document) => document.goal.id),
+      seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
+      seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
+      digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
+      order: (seat, text) => this.#orderSeat(seat.session.runtime, seat.session.sessionId, text),
+      laneOf: (seat) => this.#lanes.forSeat(seat.id),
+      reseat: async (seat) => {
+        const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
+        await this.#applySeatPicks(live, seat.seat)
+        return this.#labelOf(seat.seat.runtime, live.options())
+      },
+      changed: (goal) => {
+        void this.#goals.refresh(goal).catch(() => {})
+      },
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
     }))
     this.#team.attachFlows(this.#flows)
     const goalPort = {
@@ -1006,6 +1045,8 @@ export class Host {
         if (lane) await this.#lanes.retain(lane.id)
       },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
+      stopFlows: (goal: string) => this.#flows.stopGoal(goal),
+      flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
     } satisfies GoalPlanePort
@@ -1786,6 +1827,11 @@ export class Host {
   }
 
   #goalClaimable(goal: string, card: number, runtime: string, sessionId: string): boolean {
+    /* A card a flow bound to one Seat is that Seat's alone; while the Seat is
+       still opening, only that opening's own claim — the one GoalPlane.seat
+       makes inside the same transaction — may take it. */
+    const bound = this.#flows.bindingFor(goal, card)
+    if (bound && !(bound.session ? bound.session.runtime === runtime && bound.session.sessionId === sessionId : bound.opening)) return false
     const board = this.#goalStore.read(goal).board
     const intent = board.intents.find((one) => one.id === card)
     if (!intent || intent.state === 'done' || intent.state === 'abandoned' ||

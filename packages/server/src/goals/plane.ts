@@ -42,6 +42,10 @@ export interface GoalPlanePort extends GoalOperationPort {
   changed(view: GoalView): void
   activity(goal: string, previous: NonNullable<GoalView['activity']>, activity: NonNullable<GoalView['activity']>, sentence: string): void
   ready(): { ok: true } | { ok: false; reason: string }
+  /** Stops every flow run dispatching on this Goal, inside each run's own queue, before a wrap is taken. */
+  stopFlows?(goal: string): Promise<void>
+  /** Whether a run on this Goal (not only an old room's run) is still running or stalled. */
+  flowLive?(goal: string): boolean
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -127,7 +131,7 @@ export class GoalPlane {
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
         (evidence?.cards.some((card) => card.running.length > 0) ?? false),
-      liveFlow: run?.state === 'running' || run?.state === 'stalled',
+      liveFlow: run?.state === 'running' || run?.state === 'stalled' || (this.port.flowLive?.(id) ?? false),
       cards: board.intents,
       dependencies,
     })
@@ -273,6 +277,8 @@ export class GoalPlane {
   }
 
   async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
+    // The flow barrier first: no round opens and no Seat is sent work once wrapping has begun.
+    await this.port.stopFlows?.(goal)
     await this.port.settledFor(goal)
     return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
   }
@@ -381,7 +387,7 @@ export class GoalPlane {
       dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
       busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
         evidence.cards.some((card) => card.running.length > 0),
-      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? ''),
+      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? '') || (this.port.flowLive?.(id) ?? false),
       pending: document.board.channel.some((entry) => entry.kind === 'message' && ['queued', 'held'].includes(entry.state)) ||
         goalMembers(document, this.port.seats.all()).some((seat) => this.port.waits(seat.session)),
       seats: seats.map((seat) => seat.id),

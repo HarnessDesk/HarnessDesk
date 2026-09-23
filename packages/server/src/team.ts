@@ -366,6 +366,16 @@ export interface TeamFlows {
   standDown(room: string, runtime: string, sessionId: string): string | null
   /** The room was deleted: stop any flow runs in it and release their seats. */
   deleteRoom?(room: string): void
+  /**
+   * The one conversation a flow bound this card to, or null for a card no
+   * run bound — which keeps every older rule, roles included. A bound card
+   * whose Seat has not opened yet answers `{ session: null }`: nobody may
+   * take it until its own Seat does. Enforced here, where claims are
+   * refereed, never in the words of an order.
+   */
+  bindingOf?(room: string, intent: number): { readonly session: { readonly runtime: string; readonly sessionId: string } | null } | null
+  /** Why this board's messaging may not be switched on now — a run started board-only — or null. */
+  messagingLocked?(room: string): string | null
 }
 
 /**
@@ -1293,6 +1303,8 @@ export class Team {
    * switch exists to stop agents, not the person.
    */
   setMessaging(id: string, enabled: boolean): void {
+    const locked = enabled ? this.#flows?.messagingLocked?.(id) ?? null : null
+    if (locked) throw new Error(locked)
     const board = this.#mutableBoardById(id)
     board.messaging = enabled
     if (!enabled) {
@@ -1989,9 +2001,25 @@ export class Team {
       files?: readonly string[]
       dependsOn?: readonly number[]
       role: string
+      /**
+       * The host's key for this card (run, round, slot). A card already
+       * carrying it is returned rather than added again, and one carrying it
+       * with different content is refused: a replay never forks a round.
+       */
+      dispatch?: string
     },
   ): Intent {
     const board = this.#mutableBoardById(room)
+    if (args.dispatch) {
+      const found = board.intents.find((intent) => intent.dispatch === args.dispatch)
+      if (found) {
+        const same = found.title === args.title.trim() && (found.detail ?? null) === (args.detail?.trim() || null)
+          && (found.role ?? null) === (args.role.trim() || null)
+          && JSON.stringify([...found.dependsOn].sort((a, b) => a - b)) === JSON.stringify([...new Set(args.dependsOn ?? [])].filter((dep) => board.intents.some((intent) => intent.id === dep)).sort((a, b) => a - b))
+        if (!same) throw new Error(`Card #${found.id} was already opened for this step with different content, so nothing was added.`)
+        return found
+      }
+    }
     return this.#addIntent(board, args, { kind: 'user' })
   }
 
@@ -3611,6 +3639,15 @@ export class Team {
    * put them in separate rooms, which then made the loop impossible to close.
    */
   #misaddressed(board: Board, intent: Intent, caller: TeamPeer): string | null {
+    /* A card a flow bound to one Seat goes to that Seat and nobody else — not
+       a sibling holding the same role, not a member with no role at all. */
+    const bound = this.#flows?.bindingOf?.(board.id, intent.id) ?? null
+    if (bound) {
+      if (bound.session?.runtime === caller.runtime && bound.session.sessionId === caller.sessionId) return null
+      return bound.session
+        ? `Refused: #${intent.id} belongs to another Seat of this flow. Take the card you were given.`
+        : `Refused: #${intent.id} is waiting for the Seat this flow is opening for it.`
+    }
     const wanted = intent.role
     if (!wanted) return null
     const key = keyOf(caller.runtime, caller.sessionId)
@@ -3709,6 +3746,8 @@ export class Team {
       plan?: number
       /** Who the card is for. Only a flow sets this; everything else adds open work. */
       role?: string
+      /** The host's dispatch key, for a card a flow opened. */
+      dispatch?: string
     },
     by: TeamActor,
   ): Intent {
@@ -3740,6 +3779,7 @@ export class Team {
       /* Null rather than absent, so a card added without one is explicitly
          open to anybody rather than merely missing a field. */
       role: args.role?.trim() || null,
+      ...(args.dispatch ? { dispatch: args.dispatch } : {}),
       outcome: null,
       claim: null,
       blockedReason: null,

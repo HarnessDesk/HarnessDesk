@@ -72,6 +72,7 @@ const rig = (t: TestContext) => {
     run: async () => ({ status: 0 }),
     changed: () => {},
     log: () => {},
+    recovery: { goal: () => ({ exists: true, writable: true }), seats: () => records },
   }
   const flows = new Flows(join(directory, 'flows'), team, port)
   t.after(async () => { await flows.flush() })

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { BackgroundTask, Session, SessionQueue } from '@harnessdesk/protocol'
+import type { BackgroundTask, FlowRun, GoalView, Session, SessionQueue, TeamState, WrapPreview } from '@harnessdesk/protocol'
 
 import { FAKE_RUNTIME_ID, type FakeSession } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
+import { tempDir } from './scratch.js'
 
 /**
  * One flow through the real host, over the wire.
@@ -162,4 +163,58 @@ test('a send the agent never accepts stops counting as busy after the deadline, 
   }
   assert.equal(second.sent, true, 'the conversation is judged by its session again')
   assert.deepEqual(await first, { queuedId: null, sent: true })
+})
+
+test('wrapped or restored Goal cannot dispatch', async (t) => {
+  const work = tempDir('hd-flow-wrap-barrier-')
+  const harness = await start()
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: work })
+  const goal = (await client.call('goal/create', { root: work, sentence: 'Hold the barrier' }) as GoalView).goal.id
+  const nothing = { summary: 'Nothing was left to do.', cards: [] }
+  const early = await client.call('goal/preview', { goal, choices: nothing }) as WrapPreview
+
+  // A run starts between the preview and the wrap: its Seat opens and gets its order.
+  const run = await client.call('flow/start', { room: goal, source: [
+    'name: Barrier', 'roles:', '  worker: { kind: agent, seat: fake, permission: publish, outcomes: [done], order: Do the card. }',
+    'seed: { role: worker, title: The card }', 'rules: []', '',
+  ].join('\n') }) as FlowRun
+  assert.equal(run.state, 'running')
+  const seated = run.seats[0]!
+  assert.ok(harness.runtime.sessions.has(seated.sessionId))
+  await client.until(() => client.events.some((event) => event.type === 'turn/started'))
+
+  // The wrap stops the run's dispatch first; its stale stamp is then refused, and nothing was wrapped.
+  await assert.rejects(client.call('goal/wrap', { goal, stamp: early.stamp, choices: nothing }))
+  const runs = await client.call('flow/runs', { room: goal }) as readonly FlowRun[]
+  assert.equal(runs.at(-1)?.state, 'stopped')
+  assert.equal((await client.call('goal/read', { goal }) as GoalView).goal.state, 'open')
+  // Stopping kept the conversation and what it had said so far.
+  assert.ok(harness.runtime.sessions.has(seated.sessionId), 'the partial answer is retained')
+
+  // Its turn ends on its own; the stopped run sends it nothing more.
+  const before = client.events.filter((event) => event.type === 'turn/started').length
+  ;(harness.runtime.sessions.get(seated.sessionId) as FakeSession).finish()
+  await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
+  assert.equal(client.events.filter((event) => event.type === 'turn/started').length, before, 'a stopped run re-arms nobody')
+
+  // Wrapped now, nothing more can be dispatched onto it. The board's own write lands behind the run's.
+  let board = (await client.call('goal/read', { goal }) as GoalView).board
+  for (let tries = 0; board.intents.length === 0 && tries < 100; tries += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    board = (await client.call('goal/read', { goal }) as GoalView).board
+  }
+  assert.equal(board.intents.length, 1, 'the run’s one card is on the Goal')
+  const choices = { summary: 'Stopped by hand.', cards: board.intents.map((card) => ({ id: card.id, resolution: 'dropped' as const, reason: 'The run was stopped.' })) }
+  const preview = await client.call('goal/preview', { goal, choices }) as WrapPreview
+  await client.call('goal/wrap', { goal, stamp: preview.stamp, choices })
+  const sessions = harness.runtime.sessions.size
+  const turns = client.events.filter((event) => event.type === 'turn/started').length
+  const channel = (await client.call('team/state', { room: goal }) as TeamState).channel.length
+  await assert.rejects(client.call('flow/start', { room: goal, source: 'name: Late\nroles:\n  w: { kind: agent, seat: fake, order: W }\nseed: { role: w, title: W }\n' }), /closing|wrapped/)
+  assert.equal(harness.runtime.sessions.size, sessions, 'no runtime was started')
+  assert.equal(client.events.filter((event) => event.type === 'turn/started').length, turns, 'no turn was sent')
+  assert.equal((await client.call('team/state', { room: goal }) as TeamState).channel.length, channel, 'no channel traffic')
 })

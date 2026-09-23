@@ -142,6 +142,12 @@ export interface Intent {
   readonly note?: string | null
   /** The goal this belongs to, when it came from one. */
   readonly plan?: number | null
+  /**
+   * The host's key for a card a flow run opened — run, round and slot — so
+   * inserting it again after a crash finds this card instead of adding a
+   * second. Absent on every card a person or an agent added.
+   */
+  readonly dispatch?: string | null
   readonly createdAt: number
   readonly updatedAt: number
 }
