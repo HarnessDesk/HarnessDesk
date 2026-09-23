@@ -294,7 +294,6 @@ test('the quit owns a provenance startup before its state directory can be remov
  */
 test('a host disposed before start() ever runs makes no roster watch', async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-watch-'))
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
@@ -307,7 +306,10 @@ test('a host disposed before start() ever runs makes no roster watch', async (t)
 
   await host.dispose()
   await host.start()
+  // Dispose before removing the folder it wrote into: removing first races
+  // the host's own writes and can leave later hooks unrun (#868).
   t.after(() => host.dispose())
+  t.after(() => rm(stateDir, { recursive: true, force: true }))
 
   // If a watch had been made anyway, this is exactly what it exists to notice.
   await mkdir(join(stateDir, 'agents', 'scout'), { recursive: true })
