@@ -123,6 +123,38 @@ it('every candidate and effective ceiling remains visible', async () => {
   expect(chips).toEqual(expect.arrayContaining(['Edit · held', 'Read · asked']))
 })
 
+it('a review flow discloses its effective budget and the blind-round messaging restriction; a plain flow shows neither', async () => {
+  const reviewSeat: FlowPreviewSeat = {
+    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false,
+    plan: { id: 'reviewer', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'held' }, candidates: [] } as SeatPlan,
+  }
+  const reviewPreview: FlowPreview = {
+    ...emptyPreview(),
+    seats: [reviewSeat],
+    compiled: {
+      ...compiled({ flow: { version: 2, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only', wait: 240, budget: { rounds: 5, withoutProgress: 2 } } as never }),
+      bindings: [{ role: 'reviewer', index: 0, agent: { id: 'reviewer', produces: ['review'] } as never, origin: 'project', digest: 'd', seats: [], grant: 'read' }],
+    },
+  }
+  const theStore = store({
+    entries: [ENTRY('review'), ENTRY('plain')],
+    agents: [AGENT('reviewer', 'Reviewer')],
+    source: (id) => `version: 2\nname: ${id}\n`,
+    preview: (source) => source.includes('review') ? reviewPreview : emptyPreview(),
+  })
+  render(theStore, () => {})
+  await act(async () => {})
+  await select('review')
+  await act(async () => {})
+  expect(container.textContent).toContain('stop for a person after 5 rounds')
+  expect(container.textContent).toContain('cannot message or post')
+
+  await select('plain')
+  await act(async () => {})
+  expect(container.textContent).not.toContain('stop for a person after')
+  expect(container.textContent).not.toContain('cannot message or post')
+})
+
 it('late preview cannot re-enable Start after source changes', async () => {
   let resolveA!: (text: string) => void
   const theStore = store({

@@ -24,7 +24,9 @@ import {
 import { ReviewIcon } from './Icons'
 import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
 import { useSnapshot, useStore } from '../state/context'
+import { FindingDecision } from './FindingDecision'
 import { FindingDetail } from './FindingDetail'
+import { FindingRoundStatus } from './FindingRoundStatus'
 
 /**
  * The Goal's findings, as a person reads them: filterable, paged, with the
@@ -47,12 +49,20 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const snapshot = useSnapshot()
   const state = snapshot.findings.get(goal)
   const [opened, setOpened] = useState<string | null>(null)
+  const [deciding, setDeciding] = useState(false)
   const [publicationPending, setPublicationPending] = useState<boolean | null>(null)
   const [publicationError, setPublicationError] = useState<string | null>(null)
+
+  const run = [...snapshot.flowExecutions.values()].find((one) => one.goal === goal && one.findings)
+  const runView = run ? snapshot.findingRuns.get(run.id) : undefined
 
   useEffect(() => {
     void store.loadFindings(goal, 'all')
   }, [store, goal])
+
+  useEffect(() => {
+    if (run) void store.loadFindingRun(goal, run.id)
+  }, [store, goal, run?.id])
 
   const filter = state?.filter ?? 'all'
   const setFilter = (next: FindingFilter): void => {
@@ -99,6 +109,14 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
         }
       />
       <ToolPaneBody className="flex flex-col gap-3">
+        {runView && (
+          <>
+            <FindingRoundStatus view={runView} />
+            {(runView.reason !== null || runView.blocking > 0) && (
+              <Button variant="outline" size="sm" onClick={() => setDeciding(true)}>Decide this run</Button>
+            )}
+          </>
+        )}
         {boundPr ? (
           <Note>
             <span className="flex items-center justify-between gap-3">
@@ -156,6 +174,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
         )}
       </ToolPaneBody>
       {opened && <FindingDetail goal={goal} finding={opened} onClose={() => setOpened(null)} />}
+      {deciding && runView && <FindingDecision goal={goal} view={runView} onClose={() => setDeciding(false)} />}
     </ToolPane>
   )
 }

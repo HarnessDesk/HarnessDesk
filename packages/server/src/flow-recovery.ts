@@ -154,7 +154,10 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       !integer((findings['budget'] as Record<string, unknown>)['withoutProgress']) || !Array.isArray(findings['closedRounds']) ||
       !(findings['closedRounds'] as unknown[]).every(integer) || !integer(findings['idleRounds']) || !texts(findings['progress']) ||
       !Array.isArray(findings['series']) || !(findings['stopped'] === null || object(findings['stopped'])) ||
-      !(findings['extraRound'] === null || object(findings['extraRound'])) || !Array.isArray(findings['overrides'])) bad('has findings bookkeeping it cannot describe')
+      !(findings['extraRound'] === null || object(findings['extraRound'])) || !Array.isArray(findings['overrides']) ||
+      // Absent on a run saved before this field existed; that run keeps its old behaviour, per phase 7 decision 7.
+      !(findings['lastDecision'] === undefined || findings['lastDecision'] === null || object(findings['lastDecision'])))
+      bad('has findings bookkeeping it cannot describe')
     for (const series of findings['series'] as unknown[]) {
       if (!object(series) || !text(series['id']) || !text(series['role']) || !object(series['checkout']) ||
         !(series['reviewedAt'] === null || text(series['reviewedAt'])) || !Array.isArray(series['reviewRounds']) ||

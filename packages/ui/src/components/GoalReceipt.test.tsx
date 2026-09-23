@@ -26,3 +26,40 @@ it('keeps partial answers, retained lanes and gaps explicit while escaping hosti
   expect(container.textContent).toContain('As recorded when wrapped')
   expect(container.querySelector('input, select, textarea')).toBeNull()
 })
+
+const baseReceipt = {
+  version: 1, id: 'r1', goal: 'g1', sentence: 'Ship', wrappedAt: 4, summary: 'Finished.',
+  cards: [], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [],
+} as unknown as Receipt
+
+it('an old receipt with no findings field never claims none were found', () => {
+  act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" />))
+  expect(container.textContent).toContain('Findings were not recorded.')
+  expect(container.textContent).not.toContain('No findings recorded.')
+})
+
+it('an explicitly empty version-1 receipt says so, distinctly from an old one', () => {
+  const receipt = { ...baseReceipt, findings: { version: 1, evidence: [], findings: [], overrides: [] } } as unknown as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  expect(container.textContent).toContain('No findings recorded.')
+  expect(container.textContent).not.toContain('were not recorded')
+})
+
+it('a populated receipt shows a repair claim honestly and a person override without editing the finding', () => {
+  const finding = {
+    id: 'finding-0001', origin: { goal: 'g1', run: 'run-1', round: 2, card: 1, seat: 'seat-1', at: 'a'.repeat(40) },
+    ownerGoal: 'g1', title: 'Off-by-one', body: '', category: 'ordinary', blocking: true, related: null, anchor: null,
+    lifecycle: { state: 'repaired', confirmed: false, repairs: ['a'.repeat(40)] }, sequence: 2, evidence: ['ev-1'], posted: [],
+    restored: false, problem: null,
+  }
+  const override = { by: 'person', run: 'run-1', round: 3, at: 'b'.repeat(40), findings: ['finding-0001'], reason: 'shipping with a tracked follow-up', decidedAt: 10 }
+  const receipt = { ...baseReceipt, findings: { version: 1, evidence: ['ev-1'], findings: [finding], overrides: [override] } } as unknown as Receipt
+  const opened: string[] = []
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" onOpenFinding={(id) => opened.push(id)} />))
+  expect(container.textContent).toContain('Repair claimed · awaiting review')
+  expect(container.textContent).not.toContain('Repair accepted')
+  expect(container.textContent).toContain('shipping with a tracked follow-up')
+  const button = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-0001'))!
+  act(() => button.click())
+  expect(opened).toEqual(['finding-0001'])
+})

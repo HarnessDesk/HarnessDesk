@@ -566,6 +566,17 @@ test('the other shipped flows each reach their end', async (t) => {
     await person(d, run.goal, 'ship', 'shipped')
     await settled(d, run.id)
   })
+  await t.test('review-pr', async (t) => {
+    const d = await desk(t)
+    const run = await start(d, await shipped(d, 'review-pr'), TASK)
+    const [fixer] = await claimed(d, run.goal, 'fixer', 1)
+    d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
+    await write(d, fixer!, 'fixed')
+    for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'approve')
+    // The mechanical check runs by itself, the way mechanical-contest's `decide` does; no card to drive.
+    await person(d, run.goal, 'referee', 'merged')
+    await settled(d, run.id)
+  })
 })
 
 /*
@@ -596,5 +607,5 @@ for (const second of UNKNOWN) {
 
 test('every flow that ships is one this file runs to its end', async () => {
   const ids = (await readdir(builtinFlowRoot())).filter((one) => one.endsWith('.yml')).map((one) => one.slice(0, -4)).sort()
-  assert.deepEqual(ids, ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'staged-relay'])
+  assert.deepEqual(ids, ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'review-pr', 'staged-relay'])
 })

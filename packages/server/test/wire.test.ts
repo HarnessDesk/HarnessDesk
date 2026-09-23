@@ -2349,6 +2349,7 @@ seed: { role: worker, title: "Do it" }
         ['independent-review.yml', 'Independent review'],
         ['investigation.yml', 'Investigation'],
         ['mechanical-contest.yml', 'Mechanical contest'],
+        ['review-pr.yml', 'Review, then a person merges'],
         ['staged-relay.yml', 'Staged relay'],
       ],
     })
@@ -2374,6 +2375,7 @@ seed: { role: worker, title: "Do it" }
         ['investigation.yml', 'Investigation'],
         ['.harnessdesk/flows/main.yml', 'In the main checkout'],
         ['mechanical-contest.yml', 'Mechanical contest'],
+        ['review-pr.yml', 'Review, then a person merges'],
         ['staged-relay.yml', 'Staged relay'],
       ],
     })

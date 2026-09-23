@@ -492,9 +492,20 @@ export class Flows implements TeamFlows {
     return this.#executions.recordOverride(run, override)
   }
 
+  /** The last `finding/decide` this run actually applied, so a resubmitted stamp replays rather than refuses. */
+  recordDecisionStamp(run: string, stamp: string, key: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordDecisionStamp(run, stamp, key)
+  }
+
   /** Every review series across every run this Goal has had, unioned by role and checkout: what "currently blocking" reads against. */
   seriesOfGoal(goal: string): readonly FindingSeries[] {
     return this.#executions?.seriesOfGoal(goal) ?? []
+  }
+
+  /** Every person override this Goal has recorded, across every run: what a wrap freezes into its receipt. */
+  overridesOfGoal(goal: string): readonly FindingOverride[] {
+    return this.#executions?.overridesOfGoal(goal) ?? []
   }
 
   /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */

@@ -68,6 +68,7 @@ import {
   type CarryFindingsInput,
   type CeilingLevel,
   type FindingDetailPage,
+  type FindingRunView,
   type FindingView,
   type FlowRun,
   type FlowSeat,
@@ -76,6 +77,7 @@ import {
   type GoalReceipt,
   type GoalSeatRequest,
   type GoalView,
+  type HostParams,
   type Lane,
   type LanePreferences,
   type SessionPointer,
@@ -3832,16 +3834,18 @@ export class AppStore {
   #findingsRefreshers = new Map<string, () => void>()
 
   #findingsRefresh(goal: GoalId): void {
-    if (!this.#snapshot.findings.has(goal)) return
     let trigger = this.#findingsRefreshers.get(goal)
     if (!trigger) {
       trigger = coalesce(() => {
         const current = this.#snapshot.findings.get(goal)
         if (current) void this.loadFindings(goal, current.filter)
+        for (const run of this.#snapshot.findingRuns.values()) {
+          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
+        }
       })
       this.#findingsRefreshers.set(goal, trigger)
     }
-    trigger()
+    if (this.#snapshot.findings.has(goal) || [...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
   }
 
   #withFindings(goal: GoalId, state: FindingsListState): void {
@@ -3908,6 +3912,22 @@ export class AppStore {
   async setFindingPublication(goal: GoalId, revision: number, enabled: boolean): Promise<GoalView> {
     const view = await this.transport.request('finding/publication', { goal, revision, enabled })
     this.#keepGoal(view)
+    return view
+  }
+
+  /** A run's findings, as a person reads and decides them. */
+  async loadFindingRun(goal: GoalId, run: string): Promise<void> {
+    const view = await this.transport.request('finding/run', { goal, run })
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(run, view)
+    this.#patch({ findingRuns })
+  }
+
+  async decideFindingRun(input: HostParams<'finding/decide'>): Promise<FindingRunView> {
+    const view = await this.transport.request('finding/decide', input)
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(input.run, view)
+    this.#patch({ findingRuns })
     return view
   }
 

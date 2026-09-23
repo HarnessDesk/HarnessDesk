@@ -278,6 +278,15 @@ export interface FindingRunState {
   /** One more round a person authorized after a stop. */
   readonly extraRound: { readonly after: number; readonly reason: string } | null
   readonly overrides: readonly FindingOverride[]
+  /**
+   * The last `finding/decide` this run actually applied: its one-use stamp,
+   * and a hash of the action and reason it carried. A resubmission of that
+   * same stamp replays this decision's outcome rather than re-running it —
+   * necessary because applying a decision is what moves the stamp, so a lost
+   * answer's retry would otherwise always read as conflicting. A resubmission
+   * naming a different action or reason under that same stamp is refused.
+   */
+  readonly lastDecision: { readonly stamp: string; readonly key: string } | null
 }
 
 /** What a later review round is handed: the repair delta, and only the findings still in question. */
@@ -333,4 +342,12 @@ export interface FindingRunView {
   readonly reason: string | null
   readonly stamp: string
   readonly publication: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'
+  /**
+   * How many of the current round's review cards hold a durable completed
+   * card — never a token stream ending — and how many the round opened.
+   * Null outside a review round. A crashed or timed-out reviewer is not
+   * counted finished: this never rounds up to claim every reviewer answered.
+   */
+  readonly reviewersFinished: number | null
+  readonly reviewersTotal: number | null
 }

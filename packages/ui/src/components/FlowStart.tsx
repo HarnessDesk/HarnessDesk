@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AgentEntry, FlowEntry, FlowPolicy, FlowPreview, FlowPreviewSeat, FlowProblem } from '@harnessdesk/protocol'
+import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem } from '@harnessdesk/protocol'
 
 import { ActionError, Banner, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
@@ -307,6 +307,15 @@ export const FlowPreviewReport = ({
     )}
 
     <Note>{messagingWords(preview.messaging)}</Note>
+
+    {preview.compiled.bindings.some((one) => one.agent.produces.includes('review')) && (() => {
+      const budget = flow?.budget ?? DEFAULT_FLOW_BUDGET
+      return (
+        <Note>
+          {`Reviews stop for a person after ${budget.rounds} round${budget.rounds === 1 ? '' : 's'}, or ${budget.withoutProgress} in a row with no new evidence. While a review round is open, its reviewers cannot message or post — not each other, not the board, not the pull request — until every reviewer has finished and the round closes together.`}
+        </Note>
+      )
+    })()}
 
     {preview.seats.length > 0 && (
       <Note tone="warn">

@@ -7,6 +7,28 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **The findings ledger has a home in the Goal rail, and a stopped run asks you directly** —
+  Findings joins Board and Chat on a Goal's own rail: filter All, Open or
+  Blocking; a row shows a claimed repair honestly ("Repair claimed · awaiting
+  review", never "Verified") and whether it is currently blocking or
+  advisory; opening one shows its full history — the original claim, every
+  later repair and verdict with who recorded it, and where it was actually
+  posted — and the raising Agent's own historical record, even if that
+  session has since moved on. A run that stopped for you — its round budget
+  reached, too many rounds without progress, or a repair rejected twice —
+  says so on the Goal, with the choice to authorise one more round, merge
+  anyway with the exact unresolved findings on record, or drop it; none of
+  these edits a check, review or finding to passing, and merging still goes
+  through the existing confirmation. A wrapped Goal's receipt now shows the
+  findings it owned when it wrapped and any such override, and you can carry
+  an unresolved one into a later open Goal by reference — the same id, the
+  same original Agent, the wrapped receipt untouched. Starting a review flow
+  now shows its effective round budget up front, and that a review round's
+  reviewers cannot message or post anything — not each other, not the pull
+  request — until every reviewer has finished and the round closes together.
+  A new shipped flow, `review-pr`, is the ordinary example: a fixer, two
+  independent reviewers, a mechanical check, and a person referee gated on
+  the pull request still being the one that was reviewed.
 - **Review findings are recorded once and followed to the end** — a reviewer
   raises each finding as its own record, a repair is a claim until the
   reviewer that raised it confirms it in a later round, and a finding keeps

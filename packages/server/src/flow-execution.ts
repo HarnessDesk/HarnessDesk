@@ -269,6 +269,7 @@ export const startingFindings = (policy: FlowPolicy): FindingRunState => ({
   stopped: null,
   extraRound: null,
   overrides: [],
+  lastDecision: null,
 })
 
 /** A run as the findings plane reads it at a round's close: its rounds, which of them review, and each review Seat's stable slot. */
@@ -554,6 +555,24 @@ export class FlowExecutions {
   }
 
   /**
+   * Records the last `finding/decide` this run actually applied, so a
+   * resubmission of the same stamp can be told from a genuinely stale one:
+   * applying a decision is what moves the run's own read stamp, so without
+   * this a lost answer's retry would always look like a conflicting replay.
+   * Idempotent on an identical (stamp, key) pair.
+   */
+  async recordDecisionStamp(id: string, stamp: string, key: string): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+      if (run.findings.lastDecision?.stamp !== stamp || run.findings.lastDecision.key !== key) {
+        run = await this.#put({ ...run, findings: { ...run.findings, lastDecision: { stamp, key } } })
+      }
+      return projectExecution(run)
+    })
+  }
+
+  /**
    * A person's recorded disagreement: unresolved findings stay unresolved,
    * and nothing here edits a check, CI or review to passing. It is never a
    * merge by itself — the existing person merge action, with its own
@@ -638,6 +657,16 @@ export class FlowExecutions {
       }
     }
     return [...merged.values()]
+  }
+
+  /** Every person override this Goal has recorded, across every run — what a wrap freezes into its receipt. */
+  overridesOfGoal(goal: string): readonly FindingOverride[] {
+    const out: FindingOverride[] = []
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal || !run.findings) continue
+      out.push(...run.findings.overrides)
+    }
+    return out
   }
 
   /** An unattended Seat's question went unanswered: its run stops for a person, with the reason. */

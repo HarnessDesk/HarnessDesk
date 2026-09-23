@@ -29,6 +29,7 @@ import type {
   SessionKey,
   SessionSummary,
   TeamState,
+  FindingRunView,
   FlowExecution,
   FlowRun,
   GoalView,
@@ -402,6 +403,8 @@ export interface AppSnapshot {
    * server pages the ledger it is actually showing, never all three at once.
    */
   readonly findings: ReadonlyMap<string, FindingsListState>
+  /** A run's findings, as a person reads and decides them (`finding/run`), keyed by run id. */
+  readonly findingRuns: ReadonlyMap<string, FindingRunView>
   readonly goalMigrationPending: boolean
   /** Machine-wide defaults for new isolated lanes, plus every durable descriptor. */
   readonly lanePreferences: LanePreferences | null
@@ -760,6 +763,7 @@ const EMPTY: AppSnapshot = {
   goals: new Map(),
   goalProblem: null,
   findings: new Map(),
+  findingRuns: new Map(),
   goalMigrationPending: false,
   lanePreferences: null,
   lanes: [],
@@ -834,4 +838,5 @@ export const emptySnapshot = (): AppSnapshot => ({
   seatAgents: new Map(),
   goals: new Map(),
   findings: new Map(),
+  findingRuns: new Map(),
 })

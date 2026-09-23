@@ -1,0 +1,50 @@
+version: 2
+name: "Review, then a person merges"
+description: "A fix is read by two independent specialists in one blind round, a script checks it mechanically, and a person merges once the pull request the review judged is still exactly what it was — never an automatic merge."
+inputs:
+  task:
+    label: "Task"
+roles:
+  fixer:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+  reviewer:
+    kind: agent
+    uses: [code-reviewer, security-reviewer]
+    grant: read
+    independentOf: []
+  gate:
+    kind: check
+    run: "true"
+    cwd: "."
+    exits:
+      "0": passed
+    otherwise: failed
+    timeout: 300
+  referee:
+    kind: person
+    outcomes: [merged, dropped]
+seed: { role: fixer, title: "{{task}}" }
+rules:
+  - id: to-review
+    on: fixer
+    then: { role: reviewer, title: "Review the fix" }
+  - id: again
+    on: reviewer
+    when: { any: [request-changes] }
+    then: { role: fixer, title: "Repair the findings" }
+  - id: to-gate
+    on: reviewer
+    when: { every: [approve] }
+    then: { role: gate, title: "Run the mechanical check" }
+  - id: to-referee
+    on: gate
+    when: { every: [passed], evidence: [{ pr: "open" }] }
+    then: { role: referee, title: "Merge the reviewed pull request" }
+messaging: board-only
+# How far a run may go before it stops for a person: closed rounds in all, and
+# closed rounds in a row that brought no new evidence. Raise it for longer loops.
+budget: { rounds: 5, without-progress: 2 }
+wait: 240

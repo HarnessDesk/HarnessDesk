@@ -1020,10 +1020,12 @@ export class Host {
           return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
         },
         seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
+        overridesOfGoal: (goal) => this.#flows.overridesOfGoal(goal),
         authorizeExtraRound: (run, round, reason) => this.#flows.authorizeExtraRound(run, round, reason),
         recordExceptionDecision: (run, findings, admit) => this.#flows.recordExceptionDecision(run, findings, admit),
         recordOverride: (run, override) => this.#flows.recordOverride(run, override),
         stopRun: (run, reason) => this.#flows.stopRun(run, reason),
+        recordDecisionStamp: (run, stamp, key) => this.#flows.recordDecisionStamp(run, stamp, key),
       },
       goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
       projectOf: async (goal) => {

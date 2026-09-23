@@ -57,6 +57,7 @@ const rig = (findings: FindingsListState | undefined, overrides: Partial<AppSnap
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadFindings: vi.fn().mockResolvedValue(undefined),
+    loadFindingRun: vi.fn().mockResolvedValue(undefined),
     readFinding: vi.fn().mockResolvedValue({
       finding: row('f-open'), records: [], seat: null, next: null, problem: null,
     }),
@@ -185,6 +186,26 @@ it('preview smoke: the real preview store answers every findings method, never t
   expect(findingCalls).toEqual([])
   expect(container.textContent).toContain('Missing null check on the checkout path')
   warn.mockRestore()
+})
+
+it('shows the run’s status and a Decide control once a stopped run is cached, and opens the decision dialog', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
+  const findingRuns = new Map([['run-1', {
+    run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
+    reviewersFinished: null, reviewersTotal: null,
+  } as never]])
+  const { store } = rig(state, { flowExecutions, findingRuns })
+  await render(store)
+  expect(container.textContent).toContain('Round 2 ended with 1 open finding.')
+  const decide = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Decide this run')!
+  act(() => decide.click())
+  await act(async () => {})
+  expect(document.body.textContent).toContain('Decide this run')
 })
 
 it('opening a row reads its history explicitly, and closing returns focus to the row', async () => {

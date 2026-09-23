@@ -129,6 +129,8 @@ export interface FindingFlows {
   facts?(goal: string): Promise<readonly EvidenceView[]>
   /** Every review series this Goal has had, across every run: what "currently blocking" reads against. */
   seriesOfGoal?(goal: string): readonly FindingSeries[]
+  /** Every person override this Goal has recorded, across every run: what a wrap freezes into its receipt. */
+  overridesOfGoal?(goal: string): readonly FindingOverride[]
   /** A person's "Another round": one further transition past a recorded stop. */
   authorizeExtraRound?(run: string, round: number, reason: string): Promise<FlowExecution>
   /** A person admitting or declining a pending regression or security exception. */
@@ -137,6 +139,8 @@ export interface FindingFlows {
   recordOverride?(run: string, override: FindingOverride): Promise<FlowExecution>
   /** A person's Stop, handed off to the existing run-stop action; never a Goal wrap. */
   stopRun?(run: string, reason: string): Promise<FlowExecution>
+  /** The last `finding/decide` this run actually applied: what makes a resubmitted stamp replay rather than refuse. */
+  recordDecisionStamp?(run: string, stamp: string, key: string): Promise<FlowExecution>
 }
 
 /** The Goal plane's side of a carry: its own transaction, which asks this plane for the records under its queue. */
@@ -874,8 +878,9 @@ export class FindingsPlane {
     const project = await this.#port.projectOf(goal)
     const ledger = await this.#serial(project, () => this.#ledger(project))
     const findings = ledger.views.filter((one) => one.ownerGoal === goal)
+    const overrides = this.#port.flows.overridesOfGoal?.(goal) ?? []
     return {
-      receipt: { version: 1, evidence: findings.flatMap((one) => one.evidence), findings, overrides: [] },
+      receipt: { version: 1, evidence: findings.flatMap((one) => one.evidence), findings, overrides },
       gaps: ledger.unreadable > 0 ? ['Some evidence records could not be read, so this receipt’s findings may be incomplete.'] : [],
     }
   }
@@ -989,6 +994,16 @@ export class FindingsPlane {
     const last = snapshot.rounds.at(-1)
     const blind = (this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
     const publication = this.#publisher ? await this.#publisher.status(run) : { publication: 'local' as const, reason: null }
+    let reviewersFinished: number | null = null
+    let reviewersTotal: number | null = null
+    if (last?.reviews) {
+      reviewersTotal = last.cards.length
+      const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
+      reviewersFinished = new Set(facts.filter((view) =>
+        !view.record.restored && view.record.fact.kind === 'review' &&
+        view.record.card?.board === snapshot.goal && last.cards.includes(view.record.card.id))
+        .map((view) => view.record.card!.id)).size
+    }
     const view = {
       run, goal: snapshot.goal, round: last?.n ?? 0,
       finished: snapshot.findings?.closedRounds.length ?? 0,
@@ -998,6 +1013,7 @@ export class FindingsPlane {
       blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length,
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
       publication: publication.publication,
+      reviewersFinished, reviewersTotal,
     }
     const cwds = [...new Set(series.map((one) => one.checkout.cwd))].sort()
     const heads = await Promise.all(cwds.map(async (cwd) => ({ cwd, ...(await this.#port.headOf(cwd)) })))
@@ -1014,11 +1030,14 @@ export class FindingsPlane {
    * A person's bounded decision on a run, `finding/decide`. Every action is
    * bound to the run/round/stamp the person actually read: a stamp that does
    * not match — because the round moved on, a commit landed, a finding
-   * changed — refuses before anything is touched, which is what makes a
-   * genuinely stale replay refuse while a harmless duplicate of the same
-   * unchanged decision is safe to repeat. Only `adjudicate` writes a finding
-   * event; the rest are the run's own bookkeeping, or a hand-off to an
-   * existing action (merge, drop) this never performs itself.
+   * changed — refuses before anything is touched. Applying a decision is
+   * itself what moves the stamp (the action's own effect is folded into
+   * `runView`), so a lost answer's retry is told apart by the run's own
+   * `lastDecision` record: the *same* stamp with the *same* action and reason
+   * replays the outcome already reached; the same stamp with anything else is
+   * a genuine conflict. Only `adjudicate` writes a finding event; the rest
+   * are the run's own bookkeeping, or a hand-off to an existing action
+   * (merge, drop) this never performs itself.
    */
   async decideRun(input: {
     readonly goal: string
@@ -1034,6 +1053,12 @@ export class FindingsPlane {
     if (!snapshot) throw new Error(`There is no flow run ${input.run}.`)
     if (snapshot.goal !== input.goal) throw new Error('That run does not belong to this Goal.')
     if (!snapshot.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    const key = canonical({ action: input.action, reason })
+    const last = snapshot.findings.lastDecision
+    if (last && last.stamp === input.stamp) {
+      if (last.key !== key) throw new Error('This exact read was already used for a different decision. Read the run again.')
+      return this.runView(input.run)
+    }
     const current = await this.runView(input.run)
     if (current.stamp !== input.stamp || current.round !== input.round) {
       throw new Error('This run changed since you read it. Read it again before deciding.')
@@ -1079,6 +1104,7 @@ export class FindingsPlane {
         break
       }
     }
+    await this.#port.flows.recordDecisionStamp?.(input.run, input.stamp, key)
     this.#invalidateList(input.goal)
     this.#port.changed?.(input.goal)
     return this.runView(input.run)
