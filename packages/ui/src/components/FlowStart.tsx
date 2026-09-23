@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AgentEntry, FlowEntry, FlowPolicy, FlowPreview, FlowPreviewSeat, FlowProblem } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, RowValue, SectionHead, Text } from '../design'
+import { ActionError, Banner, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
 import { useSnapshot, useStore } from '../state/context'
@@ -288,17 +288,17 @@ export const FlowPreviewReport = ({
           <Row title={flow.seed.role} desc={`Seed round — ${flow.seed.title}`} />
           {flow.rules.map((rule) => {
             const guard = preview.guards.find((one) => one.rule === rule.id)
+            // A guard's requirement is a sentence, not a value — it belongs
+            // beside the round's own title, in the wrapped description, never
+            // squeezed into the fixed value column next to it.
+            const requires = guard?.requires.length ? evidenceGuardsWords(guard.requires) : null
             return (
               <Row
                 key={rule.id}
                 title={`${rule.on} → ${rule.then.role}`}
                 wrapDesc
-                desc={rule.then.title}
-                control={guard?.requires.length
-                  ? <RowValue>{evidenceGuardsWords(guard.requires)}</RowValue>
-                  : guard?.unevidenced
-                    ? <Chip tone="warning">Unevidenced</Chip>
-                    : undefined}
+                desc={requires ? `${rule.then.title} — ${requires}` : rule.then.title}
+                control={guard?.unevidenced ? <Chip tone="warning">Unevidenced</Chip> : undefined}
               />
             )
           })}

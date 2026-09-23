@@ -210,3 +210,41 @@ it('unevidenced merge is an error and messages are disclosure only', async () =>
   await act(async () => {})
   expect(container.textContent).toContain('Board-only: members do not message each other')
 })
+
+const previewWithGuard = (): FlowPreview => ({
+  token: 't', messaging: 'board-only',
+  compiled: {
+    document: {
+      format: 'agents',
+      flow: {
+        version: 2, name: 'Guarded', inputs: [], roles: [], messaging: 'board-only', wait: 240,
+        seed: { role: 'fixer', title: 'Go' },
+        rules: [{ id: 'r1', on: 'verify', when: { every: ['done'] }, then: { role: 'reviewer', title: 'Review the fix' } }],
+      },
+    },
+    bindings: [], problems: [],
+  },
+  seats: [], commands: [],
+  guards: [{ rule: 'r1', unevidenced: false, requires: [{ check: 'verify' }] }],
+  problems: [],
+})
+
+it("a long guard sentence wraps as the round row's description, not its value column", async () => {
+  const theStore = store({
+    entries: [ENTRY('guarded')],
+    source: (id) => `version: 2\nname: ${id}\n`,
+    preview: () => previewWithGuard(),
+  })
+  render(theStore, () => {})
+  await act(async () => {})
+
+  await select('guarded')
+  await act(async () => {})
+
+  // The guard's sentence-length requirement belongs in a wrapped description
+  // (`data-wrap`), never squeezed into the row's fixed value column — that
+  // column does not shrink or wrap, so a sentence placed there instead
+  // collapses the title next to it.
+  const wrapped = [...container.querySelectorAll('[data-wrap]')].map((el) => el.textContent ?? '').join(' | ')
+  expect(wrapped).toContain('A passing “verify” check at the selected revision')
+})
