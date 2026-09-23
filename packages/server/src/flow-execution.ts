@@ -6,7 +6,10 @@ import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceView,
+  FindingId,
+  FindingOverride,
   FindingRunState,
+  FindingSeries,
   FlowBinding,
   FlowCheck,
   FlowCheckContext,
@@ -496,6 +499,79 @@ export class FlowExecutions {
   }
 
   /**
+   * A person's "Another round": authorizes exactly one further round past a
+   * stop this run's findings recorded, then resumes dispatch. `after` is the
+   * round the stop named — the same one `#advance`'s stall check compares —
+   * so the very next transition it would otherwise block is let through once.
+   * Idempotent while that transition has not happened yet: a duplicate press,
+   * or a crash before the round actually opens, replays the same one round
+   * rather than spending a second.
+   */
+  async authorizeExtraRound(id: string, round: number, reason: string): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
+      if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
+      if (!run.findings.stopped || run.findings.stopped.round !== round) {
+        throw new Error('This run is not stopped at that round any more. Read its status again.')
+      }
+      const already = run.findings.extraRound
+      if (!already || already.after !== round || already.reason !== reason) {
+        run = await this.#put({ ...run, findings: { ...run.findings, extraRound: { after: round, reason } } })
+      }
+      run = await this.#put({ ...run, state: 'running', reason: null })
+      await this.#advance(id)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  /**
+   * A person admits a pending regression or security claim into a series's
+   * blocking set, or declines it out of consideration entirely. Only ids
+   * still actually pending are touched — a stale id (already decided, or a
+   * head that moved the series on) is silently left alone rather than
+   * refusing ids that were never a problem, which is what makes a duplicate
+   * press of the same decision harmless.
+   */
+  async recordExceptionDecision(id: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+      const names = new Set(findings)
+      const series: readonly FindingSeries[] = run.findings.series.map((one) => {
+        const applicable = one.pending.filter((pending) => names.has(pending))
+        if (applicable.length === 0) return one
+        return {
+          ...one,
+          pending: one.pending.filter((pending) => !names.has(pending)),
+          exceptions: admit ? [...one.exceptions, ...applicable] : one.exceptions,
+        }
+      })
+      run = await this.#put({ ...run, findings: { ...run.findings, series } })
+      await this.#advance(id)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  /**
+   * A person's recorded disagreement: unresolved findings stay unresolved,
+   * and nothing here edits a check, CI or review to passing. It is never a
+   * merge by itself — the existing person merge action, with its own
+   * expected-head precondition, is what actually merges.
+   */
+  async recordOverride(id: string, override: FindingOverride): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to override.')
+      const exact = JSON.stringify(override)
+      if (!run.findings.overrides.some((one) => JSON.stringify(one) === exact)) {
+        run = await this.#put({ ...run, findings: { ...run.findings, overrides: [...run.findings.overrides, override] } })
+      }
+      return projectExecution(run)
+    })
+  }
+
+  /**
    * A close with no findings plane listening: the round is still counted and
    * the budget still holds, so a desk without the ledger never runs past it.
    */
@@ -536,6 +612,32 @@ export class FlowExecutions {
       }
     }
     return out
+  }
+
+  /**
+   * Every review series this Goal has had, across every run — unioned by
+   * series id (`role@cwd`), never only the latest run's. A finding this Goal
+   * still owns can have been raised under an earlier run than the one open
+   * now, and "currently blocking" has to mean the same thing for both. Two
+   * runs that somehow share one series id are merged the conservative way:
+   * a finding either union ever admits or ever leaves pending stays that way.
+   */
+  seriesOfGoal(goal: string): readonly FindingSeries[] {
+    const merged = new Map<string, FindingSeries>()
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal || !run.findings) continue
+      for (const series of run.findings.series) {
+        const before = merged.get(series.id)
+        merged.set(series.id, before ? {
+          ...series,
+          reviewRounds: [...new Set([...before.reviewRounds, ...series.reviewRounds])].sort((a, b) => a - b),
+          initial: [...new Set([...before.initial, ...series.initial])],
+          exceptions: [...new Set([...before.exceptions, ...series.exceptions])],
+          pending: [...new Set([...before.pending, ...series.pending])],
+        } : series)
+      }
+    }
+    return [...merged.values()]
   }
 
   /** An unattended Seat's question went unanswered: its run stops for a person, with the reason. */
@@ -1539,7 +1641,9 @@ export class FlowExecutions {
         }
       }
       const stopped = run.findings?.stopped
-      if (stopped && stopped.round === last.n && found.decision.kind === 'fire') {
+      // A person's "Another round" authorizes exactly this one transition past the stop; consumed here, not re-granted.
+      const authorized = run.findings?.extraRound?.after === last.n
+      if (stopped && stopped.round === last.n && found.decision.kind === 'fire' && !authorized) {
         await this.#stall(id, stopped.reason)
         return
       }

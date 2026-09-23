@@ -46,6 +46,8 @@ import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
 
 import type { GitColumnWidths } from '../lib/git-columns'
 
+import type { FindingsListState } from '../lib/findings'
+
 import type { Carry } from '../lib/handoff'
 
 import { emptyNoticePolicy, type NoticePolicy } from '../lib/notice-policy'
@@ -394,6 +396,12 @@ export interface AppSnapshot {
   /** Durable Goals, keyed by Goal id; their embedded board is mirrored into `teams`. */
   readonly goals: ReadonlyMap<string, GoalView>
   readonly goalProblem: string | null
+  /**
+   * `finding/list`'s cache, keyed by Goal id. One filter's rows at a time —
+   * changing the filter reloads rather than keeping three lists — because the
+   * server pages the ledger it is actually showing, never all three at once.
+   */
+  readonly findings: ReadonlyMap<string, FindingsListState>
   readonly goalMigrationPending: boolean
   /** Machine-wide defaults for new isolated lanes, plus every durable descriptor. */
   readonly lanePreferences: LanePreferences | null
@@ -751,6 +759,7 @@ const EMPTY: AppSnapshot = {
   teams: new Map(),
   goals: new Map(),
   goalProblem: null,
+  findings: new Map(),
   goalMigrationPending: false,
   lanePreferences: null,
   lanes: [],
@@ -824,4 +833,5 @@ export const emptySnapshot = (): AppSnapshot => ({
   seating: null,
   seatAgents: new Map(),
   goals: new Map(),
+  findings: new Map(),
 })

@@ -1,4 +1,4 @@
-import type { Evidence, EvidenceRecord } from './evidence.js'
+import type { Evidence, EvidenceRecord, SeatRecord } from './evidence.js'
 import type { FlowBudget } from './flow-policy.js'
 
 /**
@@ -148,6 +148,33 @@ export interface FindingReceipt {
   readonly overrides: readonly FindingOverride[]
 }
 
+// -------------------------------------------------------------------- reads
+
+/**
+ * One page of a Goal's findings, as a person reads them: rows in initial
+ * raise order, stable across reloads and preserved by a filter. `stamp` names
+ * the read snapshot the page came from, not a finding's own revision.
+ */
+export interface FindingPage {
+  readonly goal: string
+  readonly stamp: string
+  readonly rows: readonly FindingView[]
+  readonly next: string | null
+  /** Over the whole ledger, not only this page. Null — never a reassuring zero — when it could not be read whole. */
+  readonly totals: { readonly all: number; readonly open: number; readonly blocking: number } | null
+  readonly problem: string | null
+}
+
+/** One finding's full history, as a person reads it: the immutable claim, then its later events in order. */
+export interface FindingDetailPage {
+  readonly finding: FindingView
+  readonly records: readonly FindingRecord[]
+  /** The raising Seat's own record, by its permanent id — never the latest Seat of a reused session. */
+  readonly seat: SeatRecord | null
+  readonly next: string | null
+  readonly problem: string | null
+}
+
 // ----------------------------------------------------------------- commands
 
 /*
@@ -274,6 +301,24 @@ export interface RepairPacket {
   /** Set when history was rewritten between the two tips: the delta is two trees, not a descendant range. */
   readonly warning: string | null
 }
+
+/**
+ * A person's bounded decision on a stopped or stoppable run. Only `adjudicate`
+ * changes a finding's lifecycle; the rest change the run's own bookkeeping or
+ * hand off to an existing action (merge, drop) that this never performs
+ * itself.
+ */
+export type FindingDecisionAction =
+  | { readonly kind: 'another-round' }
+  | { readonly kind: 'merge-anyway' }
+  | { readonly kind: 'drop' }
+  | { readonly kind: 'admit-exceptions'; readonly findings: readonly FindingId[] }
+  | { readonly kind: 'decline-exceptions'; readonly findings: readonly FindingId[] }
+  | {
+      readonly kind: 'adjudicate'
+      readonly finding: FindingId
+      readonly state: 'open' | 'repaired' | 'withdrawn'
+    }
 
 /** A run's findings as a person reads them. */
 export interface FindingRunView {

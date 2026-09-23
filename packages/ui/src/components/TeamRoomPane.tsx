@@ -27,6 +27,7 @@ import {
   CrossIcon,
   PlanIcon,
   PlusIcon,
+  ReviewIcon,
   SearchIcon,
   ShieldOffIcon,
   TeamIcon,
@@ -39,6 +40,7 @@ import { Conversation } from './Conversation'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
+import { GoalFindings } from './GoalFindings'
 import { GoalHeader } from './GoalHeader'
 import { GoalWrap } from './GoalWrap'
 import { GoalReceipt } from './GoalReceipt'
@@ -212,7 +214,7 @@ export const TeamRoomPane = ({
   /* Restored from the view, so an arrangement of columns survives the middle
      being given to something else and handed back by Back. */
   const restored = mount?.view.kind === 'room' ? mount.view.watching : undefined
-  const [open, setOpen] = useState<'board' | 'room' | readonly SessionKey[]>(
+  const [open, setOpen] = useState<'board' | 'room' | 'findings' | readonly SessionKey[]>(
     restored && restored.length > 0 ? restored : 'room',
   )
   /**
@@ -251,13 +253,14 @@ export const TeamRoomPane = ({
    */
   const [railTrouble, setRailTrouble] = useState<string | null>(null)
 
-  const show = (next: 'board' | 'room' | SessionKey): void => {
+  const show = (next: 'board' | 'room' | 'findings' | SessionKey): void => {
     setOnRail(false)
     /* Written against the literals rather than narrowed: `SessionKey` is a
        branded string, so comparing it to `'board'` tells the compiler nothing
        and the union survives into the other branch. */
     if (next === 'board') return setOpen('board')
     if (next === 'room') return setOpen('room')
+    if (next === 'findings') return setOpen('findings')
     // A member opens as a list of one; the plural case is `watch`.
     const key = next as SessionKey
     setOpen([key])
@@ -845,6 +848,24 @@ export const TeamRoomPane = ({
                 ) : undefined
               }
             />
+            {/* A Goal only: a plain conversation keeps no findings ledger, so
+                this room owns no destination for one and reads nothing here. */}
+            {goal ? (
+              <ListRow
+                as="button"
+                size="sm"
+                nav
+                interactive
+                selected={open === 'findings'}
+                onClick={() => show('findings')}
+                lead={
+                  <IconTile size="sm" tint="violet">
+                    <ReviewIcon />
+                  </IconTile>
+                }
+                title="Findings"
+              />
+            ) : null}
           </div>
 
           {/* The roster's heading does three jobs: names the section, counts
@@ -970,6 +991,8 @@ export const TeamRoomPane = ({
           </span>
           {open === 'board' ? (
             <TeamBoardPane room={room} />
+          ) : open === 'findings' ? (
+            goal ? <GoalFindings goal={room} /> : null
           ) : columns.length > 0 ? (
             /* Members, side by side. Each column is the agent's *own*
                conversation — scoped by a provider rather than reimplemented, so

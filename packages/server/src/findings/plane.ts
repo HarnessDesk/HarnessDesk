@@ -5,11 +5,18 @@ import type {
   DecideFindingInput,
   EvidenceRecord,
   EvidenceView,
+  FindingDecisionAction,
+  FindingDetailPage,
+  FindingId,
+  FindingOverride,
+  FindingPage,
   FindingPost,
+  FindingRecord,
   FindingRunState,
   FindingRunView,
   FindingSeries,
   RepairPacket,
+  FlowExecution,
   FlowRoundState,
   FindingAnchor,
   FindingCategory,
@@ -33,6 +40,7 @@ import type { TeamCallScope } from '../team.js'
 import type { FindingJournal, FindingJournalEntry } from './journal.js'
 import { canonical, foldFindings, isResolved, liveBlockers } from './model.js'
 import { repairPacket } from './packet.js'
+import { boundPullRequest } from './publication.js'
 import type { Publications } from './publication.js'
 import { admittedOf, advanceProgress, closeSeries, decideLoop, progressKeys, rejectedRepairs } from './rounds.js'
 
@@ -119,6 +127,16 @@ export interface FindingFlows {
   blindRounds?(goal: string): readonly { readonly run: string; readonly round: number; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[]
   /** A Goal's facts in append order, each with its freshness now. */
   facts?(goal: string): Promise<readonly EvidenceView[]>
+  /** Every review series this Goal has had, across every run: what "currently blocking" reads against. */
+  seriesOfGoal?(goal: string): readonly FindingSeries[]
+  /** A person's "Another round": one further transition past a recorded stop. */
+  authorizeExtraRound?(run: string, round: number, reason: string): Promise<FlowExecution>
+  /** A person admitting or declining a pending regression or security exception. */
+  recordExceptionDecision?(run: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution>
+  /** A person's recorded merge-anyway disagreement. */
+  recordOverride?(run: string, override: FindingOverride): Promise<FlowExecution>
+  /** A person's Stop, handed off to the existing run-stop action; never a Goal wrap. */
+  stopRun?(run: string, reason: string): Promise<FlowExecution>
 }
 
 /** The Goal plane's side of a carry: its own transaction, which asks this plane for the records under its queue. */
@@ -315,11 +333,30 @@ interface Caller {
 }
 const STALE = (now: number) => `This finding changed since you read it; it is at sequence ${now}. Read it again before recording this.`
 
+/** The most rows or event records a person's page reads at once. */
+export const READ_PAGE_LIMIT = 100
+/** A list snapshot is read fresh again after this long, even with no new evidence. */
+const SNAPSHOT_TTL_MS = 5 * 60 * 1000
+/** How many list snapshots this desk keeps waiting for their next page at once. */
+const MAX_SNAPSHOTS = 32
+const SNAPSHOT_STALE = 'The findings changed. Reload the list.'
+
+interface ListSnapshot {
+  readonly goal: string
+  readonly filter: 'all' | 'open' | 'blocking'
+  readonly rows: readonly FindingView[]
+  readonly totals: { readonly all: number; readonly open: number; readonly blocking: number } | null
+  readonly problem: string | null
+  readonly at: number
+}
+
 export class FindingsPlane {
   readonly #port: FindingsPort
   readonly #tails = new Map<string, Promise<unknown>>()
   /** The closed-round publisher, once the host composed one; absent, every round stays on the desk. */
   #publisher: Publications | null = null
+  /** `finding/list`'s read snapshots, oldest-inserted first, bounded and goal-invalidated. */
+  readonly #snapshots = new Map<string, ListSnapshot>()
 
   constructor(port: FindingsPort) {
     this.#port = port
@@ -435,6 +472,7 @@ export class FindingsPlane {
       await journal.put({ operation: input.operation, kind: input.kind, hash, record: appended, state: 'finished', reason: null })
       return this.#viewOf([...ledger.records, appended], appended)
     }))
+    this.#invalidateList(input.goal)
     this.#port.changed?.(input.goal)
     return view
   }
@@ -607,6 +645,109 @@ export class FindingsPlane {
     return rows
   }
 
+  // ------------------------------------------------------------------- reads
+
+  /** Drops every list snapshot of `goal`: new evidence is never read through a page taken before it. */
+  #invalidateList(goal: string): void {
+    for (const [id, snapshot] of this.#snapshots) if (snapshot.goal === goal) this.#snapshots.delete(id)
+  }
+
+  #putSnapshot(id: string, snapshot: ListSnapshot): void {
+    const now = this.#port.now()
+    for (const [key, one] of this.#snapshots) if (now - one.at > SNAPSHOT_TTL_MS) this.#snapshots.delete(key)
+    while (this.#snapshots.size >= MAX_SNAPSHOTS) {
+      const oldest = this.#snapshots.keys().next().value
+      if (oldest === undefined) break
+      this.#snapshots.delete(oldest)
+    }
+    this.#snapshots.set(id, snapshot)
+  }
+
+  #pageOf(id: string, snapshot: ListSnapshot, offset: number): FindingPage {
+    const rows = snapshot.rows.slice(offset, offset + READ_PAGE_LIMIT)
+    const nextOffset = offset + rows.length
+    return {
+      goal: snapshot.goal, stamp: id, rows,
+      next: nextOffset < snapshot.rows.length ? `${id}.${nextOffset}` : null,
+      totals: snapshot.totals, problem: snapshot.problem,
+    }
+  }
+
+  /**
+   * A page of a Goal's findings, as a person reads them. With no cursor, the
+   * ledger is read fresh and frozen into a new snapshot — the frame no row
+   * moves inside while its later pages are read. A cursor names that exact
+   * snapshot and an offset into it; it goes stale five minutes after it was
+   * taken, when the snapshot has aged out under the cap, or the instant any
+   * new evidence lands on this Goal, whichever comes first.
+   */
+  async list(input: { readonly goal: string; readonly cursor?: string; readonly filter?: 'all' | 'open' | 'blocking' }): Promise<FindingPage> {
+    const filter = input.filter ?? 'all'
+    if (input.cursor !== undefined) {
+      const match = /^([0-9a-f]{32})\.(\d+)$/.exec(input.cursor)
+      const snapshot = match ? this.#snapshots.get(match[1]!) : undefined
+      const offset = match ? Number(match[2]) : NaN
+      if (!match || !snapshot || snapshot.goal !== input.goal || snapshot.filter !== filter ||
+        !Number.isSafeInteger(offset) || offset < 0 || offset > snapshot.rows.length ||
+        this.#port.now() - snapshot.at > SNAPSHOT_TTL_MS) {
+        throw new Error(SNAPSHOT_STALE)
+      }
+      return this.#pageOf(match[1]!, snapshot, offset)
+    }
+    const project = await this.#port.projectOf(input.goal)
+    const ledger = await this.#serial(project, () => this.#ledger(project))
+    const owned = ledger.views.filter((one) => one.ownerGoal === input.goal)
+    const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? []
+    const admitted = admittedOf(series)
+    const activeBlocking = (view: FindingView): boolean => (admitted.has(view.id) && !isResolved(view)) || view.problem !== null
+    const rows = filter === 'blocking' ? owned.filter(activeBlocking)
+      : filter === 'open' ? owned.filter((one) => !isResolved(one))
+      : owned
+    const problem = ledger.unreadable > 0
+      ? 'Some evidence records could not be read, so this ledger cannot be shown as complete. A person has to look.'
+      : null
+    const totals = problem !== null ? null : {
+      all: owned.length,
+      open: owned.filter((one) => !isResolved(one)).length,
+      blocking: owned.filter(activeBlocking).length,
+    }
+    const id = randomUUID().replace(/-/g, '')
+    this.#putSnapshot(id, { goal: input.goal, filter, rows, totals, problem, at: this.#port.now() })
+    return this.#pageOf(id, this.#snapshots.get(id)!, 0)
+  }
+
+  /**
+   * One finding's full history, as a person reads it: the exact historical
+   * raise, then its later events in append order — the origin Seat's own
+   * permanent record, never the latest Seat of a reused session. Events are
+   * append-only, so a plain offset into a fresh read is stable on its own; a
+   * cursor from before a new event still names the same rows it did.
+   */
+  async read(input: { readonly goal: string; readonly finding: string; readonly cursor?: string }): Promise<FindingDetailPage> {
+    const project = await this.#port.projectOf(input.goal)
+    const ledger = await this.#serial(project, () => this.#ledger(project))
+    const view = ledger.views.find((one) => one.id === input.finding && one.ownerGoal === input.goal)
+    if (!view) throw new Error('There is no such finding on this Goal.')
+    const records = ledger.records.filter((record): record is FindingRecord =>
+      record.fact.kind === 'finding' && record.fact.id === input.finding && record.finding !== undefined && record.finding !== null)
+    let offset = 0
+    if (input.cursor !== undefined) {
+      if (!/^\d+$/.test(input.cursor)) throw new Error(SNAPSHOT_STALE)
+      offset = Number(input.cursor)
+      if (!Number.isSafeInteger(offset) || offset < 0 || offset > records.length) throw new Error(SNAPSHOT_STALE)
+    }
+    const page = records.slice(offset, offset + READ_PAGE_LIMIT)
+    const nextOffset = offset + page.length
+    const seat = view.origin.seat ? this.#port.seats.byId(view.origin.seat) : null
+    return {
+      finding: view, records: page, seat,
+      next: nextOffset < records.length ? String(nextOffset) : null,
+      problem: ledger.unreadable > 0
+        ? 'Some evidence records could not be read, so this history cannot be shown as complete. A person has to look.'
+        : null,
+    }
+  }
+
   // ------------------------------------------------------------------ carry
 
   /**
@@ -659,6 +800,7 @@ export class FindingsPlane {
       })
     }))
     const ledger = await this.#serial(project, () => this.#ledger(project))
+    this.#invalidateList(input.goal)
     this.#port.changed?.(input.goal)
     return input.findings.map((id) => ledger.views.find((one) => one.id === id)!)
   }
@@ -698,6 +840,7 @@ export class FindingsPlane {
         finding: { version: 1, sequence: view.sequence + 1, operation: input.operation, origin: view.origin, event: { kind: 'post', location: input.location } },
       })
     })
+    this.#invalidateList(input.goal)
     this.#port.changed?.(input.goal)
   }
 
@@ -826,14 +969,23 @@ export class FindingsPlane {
     }
   }
 
-  /** A run's findings, as a person reads them. */
+  /**
+   * A run's findings, as a person reads them. `stamp` is the one-use
+   * operation token a decision is bound to: it folds in the view, every
+   * owned finding's evidence, the review series (initial/exceptions/pending),
+   * the run's extra-round and override bookkeeping, and — because none of
+   * that moves when a writer simply commits — the live head of each series's
+   * checkout. A commit between a preview and a decision changes none of the
+   * ledger, so only that last part makes the stamp go stale for it.
+   */
   async runView(run: string): Promise<FindingRunView> {
     const snapshot = this.#port.flows.run?.(run)
     if (!snapshot) throw new Error(`There is no flow run ${run}.`)
     const project = await this.#port.projectOf(snapshot.goal)
     const ledger = await this.#serial(project, () => this.#ledger(project))
     const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
-    const admitted = admittedOf(snapshot.findings?.series ?? [])
+    const series = this.#port.flows.seriesOfGoal?.(snapshot.goal) ?? snapshot.findings?.series ?? []
+    const admitted = admittedOf(series)
     const last = snapshot.rounds.at(-1)
     const blind = (this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
     const publication = this.#publisher ? await this.#publisher.status(run) : { publication: 'local' as const, reason: null }
@@ -847,7 +999,125 @@ export class FindingsPlane {
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
       publication: publication.publication,
     }
-    return { ...view, stamp: createHash('sha256').update(canonical({ view, evidence: owned.flatMap((one) => one.evidence) })).digest('hex') }
+    const cwds = [...new Set(series.map((one) => one.checkout.cwd))].sort()
+    const heads = await Promise.all(cwds.map(async (cwd) => ({ cwd, ...(await this.#port.headOf(cwd)) })))
+    const stamp = createHash('sha256').update(canonical({
+      view, evidence: owned.flatMap((one) => one.evidence), series,
+      extraRound: snapshot.findings?.extraRound ?? null, overrides: snapshot.findings?.overrides ?? [], heads,
+    })).digest('hex')
+    return { ...view, stamp }
+  }
+
+  // ---------------------------------------------------------------- decide
+
+  /**
+   * A person's bounded decision on a run, `finding/decide`. Every action is
+   * bound to the run/round/stamp the person actually read: a stamp that does
+   * not match — because the round moved on, a commit landed, a finding
+   * changed — refuses before anything is touched, which is what makes a
+   * genuinely stale replay refuse while a harmless duplicate of the same
+   * unchanged decision is safe to repeat. Only `adjudicate` writes a finding
+   * event; the rest are the run's own bookkeeping, or a hand-off to an
+   * existing action (merge, drop) this never performs itself.
+   */
+  async decideRun(input: {
+    readonly goal: string
+    readonly run: string
+    readonly round: number
+    readonly stamp: string
+    readonly action: FindingDecisionAction
+    readonly reason: string
+  }): Promise<FindingRunView> {
+    const reason = input.reason.trim()
+    if (reason === '' || input.reason.length > 4096) throw new Error('Say why, in 1 to 4096 characters.')
+    const snapshot = this.#port.flows.run?.(input.run)
+    if (!snapshot) throw new Error(`There is no flow run ${input.run}.`)
+    if (snapshot.goal !== input.goal) throw new Error('That run does not belong to this Goal.')
+    if (!snapshot.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    const current = await this.runView(input.run)
+    if (current.stamp !== input.stamp || current.round !== input.round) {
+      throw new Error('This run changed since you read it. Read it again before deciding.')
+    }
+    const project = await this.#port.projectOf(input.goal)
+    const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? snapshot.findings.series
+    switch (input.action.kind) {
+      case 'another-round': {
+        if (!this.#port.flows.authorizeExtraRound) throw new Error('This desk cannot authorize another round.')
+        await this.#port.flows.authorizeExtraRound(input.run, input.round, reason)
+        break
+      }
+      case 'admit-exceptions':
+      case 'decline-exceptions': {
+        if (!this.#port.flows.recordExceptionDecision) throw new Error('This desk cannot decide a pending exception.')
+        await this.#port.flows.recordExceptionDecision(input.run, input.action.findings, input.action.kind === 'admit-exceptions')
+        break
+      }
+      case 'merge-anyway': {
+        if (!this.#port.flows.recordOverride) throw new Error('This desk cannot record a merge override.')
+        const facts = (await this.#port.flows.facts?.(input.goal)) ?? []
+        const bound = boundPullRequest(facts)
+        if (bound.kind === 'none') throw new Error('Publish a pull request before merging here.')
+        const ledger = await this.#serial(project, () => this.#ledger(project))
+        const owned = ledger.views.filter((one) => one.ownerGoal === input.goal)
+        const admitted = admittedOf(series)
+        const unresolved = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).map((one) => one.id)
+        const cwd = series[0]?.checkout.cwd
+        const at = cwd ? (await this.#port.headOf(cwd)).at ?? '' : ''
+        const override: FindingOverride = {
+          by: 'person', run: input.run, round: input.round, at, findings: unresolved, reason, decidedAt: this.#port.now(),
+        }
+        await this.#port.flows.recordOverride(input.run, override)
+        break
+      }
+      case 'drop': {
+        if (!this.#port.flows.stopRun) throw new Error('This desk cannot drop this run.')
+        await this.#port.flows.stopRun(input.run, reason)
+        break
+      }
+      case 'adjudicate': {
+        await this.#adjudicate(input.goal, input.run, input.round, input.action.finding, input.action.state, reason, input.stamp)
+        break
+      }
+    }
+    this.#invalidateList(input.goal)
+    this.#port.changed?.(input.goal)
+    return this.runView(input.run)
+  }
+
+  /**
+   * A person's verdict on a finding — the same lifecycle event a raising
+   * Agent's own `decide` would record, with actor Seat null and `by:
+   * 'person'` instead. Appended through the same idempotent ledger writer as
+   * every other finding event: the operation key is the stamp the person
+   * read, so a duplicate submission finds the same record rather than a
+   * second one, and a stamp reused after the finding moved on is refused by
+   * the sequence check already enforced there.
+   */
+  async #adjudicate(
+    goal: string, run: string, round: number, finding: string,
+    state: 'open' | 'repaired' | 'withdrawn', reason: string, stamp: string,
+  ): Promise<void> {
+    const project = await this.#port.projectOf(goal)
+    const operation = operationKey('verdict', `person:${goal}`, round, stamp)
+    await this.#serial(project, async () => {
+      const ledger = await this.#ledger(project)
+      if (ledger.records.some((record) => record.finding?.operation === operation)) return
+      const view = ledger.views.find((one) => one.id === finding && one.ownerGoal === goal)
+      if (!view) throw new Error('There is no such finding on this Goal.')
+      if (view.restored) throw new Error('This finding came from a backup. It is history here; ask for a new review instead.')
+      if (view.problem !== null) throw new Error(`This finding cannot be changed until its history is repaired: ${view.problem}`)
+      if (view.lifecycle.confirmed) throw new Error('This finding is resolved. Record a new linked finding.')
+      if (view.origin.run !== run && view.origin.goal === goal) throw new Error('This finding belongs to another run on this Goal.')
+      const last = ledger.records.filter((record) => record.fact.kind === 'finding' && record.fact.id === view.id).at(-1)!
+      await appendOnce(this.#appender(project), {
+        id: mintId(),
+        fact: { kind: 'finding', id: view.id, state, at: last.fact.kind === 'finding' ? last.fact.at : view.origin.at },
+        card: null,
+        checkout: last.checkout ?? null,
+        seat: null, round, observedAt: this.#port.now(), posted: null,
+        finding: { version: 1, sequence: view.sequence + 1, operation, origin: view.origin, event: { kind: 'verdict', state, note: reason, by: 'person' } },
+      })
+    })
   }
 
   // ----------------------------------------------------------------- restart

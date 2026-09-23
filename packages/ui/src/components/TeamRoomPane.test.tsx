@@ -407,6 +407,38 @@ it('Board opens in the right half, not as a second pane', async () => {
   expect(store.openTeamBoard).not.toHaveBeenCalled()
 })
 
+const GOAL: GoalView = {
+  goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: null },
+  activity: 'working', waitingOn: [], members: [], board: state, receipt: null, problem: null,
+} as unknown as GoalView
+
+it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  const loadFindings = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { loadFindings })
+  await render(store)
+
+  act(() => row('Findings').click())
+  await act(async () => {})
+  expect(container.textContent).toContain('Findings')
+  expect(loadFindings).toHaveBeenCalledWith(ROOM, 'all')
+
+  // Board and Chat, the rail's other two destinations, are unaffected.
+  act(() => row('Board').click())
+  await act(async () => {})
+  expect(container.textContent).toContain('Migrate auth callers')
+})
+
+it('a plain conversation room shows no Findings row and never asks for one', async () => {
+  const { store } = rig(undefined, undefined, {}, null)
+  const loadFindings = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { loadFindings })
+  await render(store)
+
+  expect([...container.querySelectorAll('[data-slot="list-row"]')].some((one) => one.textContent?.includes('Findings'))).toBe(false)
+  expect(loadFindings).not.toHaveBeenCalled()
+})
+
 it('a post goes to the conversation the audience names', async () => {
   const { store } = rig()
   await render(store)

@@ -5,6 +5,9 @@ import { isAbsolute, join } from 'node:path'
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
   EvidenceRecord,
+  FindingId,
+  FindingOverride,
+  FindingSeries,
   Flow,
   FlowCheck,
   FlowExecution,
@@ -469,6 +472,29 @@ export class Flows implements TeamFlows {
 
   recordRoundClose(run: string, round: number, next: Parameters<FlowExecutions['recordRoundClose']>[2]): Promise<void> {
     return this.#executions?.recordRoundClose(run, round, next) ?? Promise.resolve()
+  }
+
+  /** A person's "Another round": one more transition past a recorded stop, never a budget reset. */
+  authorizeExtraRound(run: string, round: number, reason: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.authorizeExtraRound(run, round, reason)
+  }
+
+  /** A person admitting or declining a pending regression or security exception. */
+  recordExceptionDecision(run: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordExceptionDecision(run, findings, admit)
+  }
+
+  /** A person's recorded merge-anyway disagreement: never a merge by itself. */
+  recordOverride(run: string, override: FindingOverride): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordOverride(run, override)
+  }
+
+  /** Every review series across every run this Goal has had, unioned by role and checkout: what "currently blocking" reads against. */
+  seriesOfGoal(goal: string): readonly FindingSeries[] {
+    return this.#executions?.seriesOfGoal(goal) ?? []
   }
 
   /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */

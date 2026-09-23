@@ -1019,6 +1019,11 @@ export class Host {
           const state = this.#goalState(goal)
           return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
         },
+        seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
+        authorizeExtraRound: (run, round, reason) => this.#flows.authorizeExtraRound(run, round, reason),
+        recordExceptionDecision: (run, findings, admit) => this.#flows.recordExceptionDecision(run, findings, admit),
+        recordOverride: (run, override) => this.#flows.recordOverride(run, override),
+        stopRun: (run, reason) => this.#flows.stopRun(run, reason),
       },
       goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
       projectOf: async (goal) => {
@@ -1030,7 +1035,10 @@ export class Host {
         return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
       },
       now: () => Date.now(),
-      changed: (goal) => this.#evidence.announce(goal),
+      changed: (goal) => {
+        this.#evidence.announce(goal)
+        this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
+      },
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
     this.#team.attachFindings(this.#findings)
@@ -2401,6 +2409,14 @@ export class Host {
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
+      findings: {
+        list: (input) => this.#findings.list(input),
+        read: (input) => this.#findings.read(input),
+        carry: (input) => this.#findings.carry(input),
+        setPublication: (goal, revision, enabled) => this.#goals.update(goal, revision, { findingPublication: enabled }),
+        run: (input) => this.#findings.runView(input.run),
+        decide: (input) => this.#findings.decideRun(input),
+      },
       provenance: {
         read: (root, shas) => this.#provenance.read(root, shas),
         status: (root) => this.#provenance.status(root),

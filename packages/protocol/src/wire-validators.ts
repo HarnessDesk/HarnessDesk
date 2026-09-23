@@ -1,5 +1,6 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import type { FindingDecisionAction } from './findings.js'
 import { lanePreferences } from './goal.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import type {
@@ -321,6 +322,57 @@ const goalValidators = {
   'goal/migration/ack': goalShape({}),
 }
 
+/** A finding id the ledger minted, never one a caller invents. */
+const findingId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^finding-[0-9a-f-]{1,190}$/.test(text)) throw new ValidationError(path, 'expected a finding id the ledger gave it')
+  return text
+}
+/** A read cursor: opaque to the caller, so only its shape (never its meaning) is checked here. */
+const findingCursor = atMost(512, isFilled)
+const findingRun = goalIdentifier
+const findingRequest: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (text.trim() === '' || text.length > 200 || /[\u0000-\u001f]/.test(text)) {
+    throw new ValidationError(path, 'expected a printable request token of 1 to 200 characters')
+  }
+  return text
+}
+const findingIds: Validator<string[]> = (value, path = '') => {
+  const ids = arrayOf(findingId)(value, path)
+  if (ids.length < 1 || ids.length > 200) throw new ValidationError(path, 'expected 1 to 200 findings')
+  if (new Set(ids).size !== ids.length) throw new ValidationError(path, 'expected each finding once')
+  return ids
+}
+const findingReason: Validator<string> = (value, path = '') => atMost(4096, isFilled)(value, path)
+const findingDecisionAction = taggedUnion<FindingDecisionAction, 'kind'>('kind', {
+  'another-round': goalShape({ kind: literalUnion('another-round') }),
+  'merge-anyway': goalShape({ kind: literalUnion('merge-anyway') }),
+  drop: goalShape({ kind: literalUnion('drop') }),
+  'admit-exceptions': goalShape({ kind: literalUnion('admit-exceptions'), findings: findingIds }),
+  'decline-exceptions': goalShape({ kind: literalUnion('decline-exceptions'), findings: findingIds }),
+  adjudicate: goalShape({
+    kind: literalUnion('adjudicate'), finding: findingId, state: literalUnion('open', 'repaired', 'withdrawn'),
+  }),
+})
+
+const findingValidators = {
+  'finding/list': goalShape({
+    goal: goalId, cursor: optional(findingCursor), filter: optional(literalUnion('all', 'open', 'blocking')),
+  }),
+  'finding/read': goalShape({ goal: goalId, finding: findingId, cursor: optional(findingCursor) }),
+  'finding/carry': goalShape({
+    goal: goalId, revision: goalInteger(0), source: goalId, receipt: goalIdentifier,
+    findings: findingIds, request: findingRequest,
+  }),
+  'finding/publication': goalShape({ goal: goalId, revision: goalInteger(0), enabled: isBoolean }),
+  'finding/run': goalShape({ goal: goalId, run: findingRun }),
+  'finding/decide': goalShape({
+    goal: goalId, run: findingRun, round: goalInteger(1), stamp: goalHex([64]),
+    action: findingDecisionAction, reason: findingReason,
+  }),
+}
+
 /** Read-only Insight accepts selectors, never values the host is responsible for measuring. */
 const insightMillis: Validator<number> = (value, path = '') => {
   const number = isNumber(value, path)
@@ -409,6 +461,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   },
   'lane/release': goalShape({ lane: goalIdentifier }),
   ...goalValidators,
+  ...findingValidators,
   ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
 
