@@ -140,6 +140,26 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
           object(target) && text(target['cwd']) && (target['at'] === null || text(target['at'])))) bad('has a check plan it cannot describe')
     }
   }
+  if (raw['reviewPackets'] !== undefined) {
+    if (!object(raw['reviewPackets'])) bad('has unreadable review packets')
+    for (const [round, pin] of Object.entries(raw['reviewPackets'] as Record<string, unknown>)) {
+      if (!/^[1-9][0-9]*$/.test(round) || !object(pin) || !text(pin['text']) || !Array.isArray(pin['pinned']) ||
+        !(pin['pinned'] as unknown[]).every((one) => object(one) && text(one['cwd']) && text(one['at']))) bad('has a review packet it cannot describe')
+    }
+  }
+  if (raw['findings'] !== undefined) {
+    const findings = raw['findings'] as Record<string, unknown>
+    if (!object(findings) || findings['version'] !== 1 || !object(findings['budget']) || !integer((findings['budget'] as Record<string, unknown>)['rounds']) ||
+      !integer((findings['budget'] as Record<string, unknown>)['withoutProgress']) || !Array.isArray(findings['closedRounds']) ||
+      !(findings['closedRounds'] as unknown[]).every(integer) || !integer(findings['idleRounds']) || !texts(findings['progress']) ||
+      !Array.isArray(findings['series']) || !(findings['stopped'] === null || object(findings['stopped'])) ||
+      !(findings['extraRound'] === null || object(findings['extraRound'])) || !Array.isArray(findings['overrides'])) bad('has findings bookkeeping it cannot describe')
+    for (const series of findings['series'] as unknown[]) {
+      if (!object(series) || !text(series['id']) || !text(series['role']) || !object(series['checkout']) ||
+        !(series['reviewedAt'] === null || text(series['reviewedAt'])) || !Array.isArray(series['reviewRounds']) ||
+        !texts(series['initial']) || !texts(series['exceptions']) || !texts(series['pending'])) bad('has a review series it cannot describe')
+    }
+  }
   if (raw['findingOps'] !== undefined) {
     try {
       findingJournalOf(raw['findingOps'])

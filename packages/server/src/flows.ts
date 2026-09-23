@@ -415,6 +415,45 @@ export class Flows implements TeamFlows {
     return this.#executions?.pendingFindings() ?? []
   }
 
+  /**
+   * Subscribes to round closes (`FindingFlowHooks`): the listener schedules
+   * work and returns; no later round opens until the close is recorded
+   * through `recordRoundClose`. A desk with no flows on Goals never calls it.
+   */
+  onRoundClosed(listener: (run: string, round: number) => void | Promise<void>): () => void {
+    return this.#executions?.onRoundClosed(listener) ?? (() => {})
+  }
+
+  attachFindingsGate(gate: Parameters<FlowExecutions['attachFindingsGate']>[0]): void {
+    this.#executions?.attachFindingsGate(gate)
+  }
+
+  attachReviewPackets(packets: Parameters<FlowExecutions['attachReviewPackets']>[0]): void {
+    this.#executions?.attachReviewPackets(packets)
+  }
+
+  findingRun(run: string): ReturnType<FlowExecutions['findingRun']> {
+    return this.#executions?.findingRun(run) ?? null
+  }
+
+  recordRoundClose(run: string, round: number, next: Parameters<FlowExecutions['recordRoundClose']>[2]): Promise<void> {
+    return this.#executions?.recordRoundClose(run, round, next) ?? Promise.resolve()
+  }
+
+  /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */
+  blindRounds(room: string): ReturnType<FlowExecutions['blindRounds']> {
+    return this.#executions?.blindRounds(room) ?? []
+  }
+
+  /** Whether nobody is watching this conversation's questions: it is a Seat of a running run. */
+  unattended(runtime: string, sessionId: string): boolean {
+    return this.#executions?.unattended(runtime, sessionId) ?? false
+  }
+
+  stopForQuestion(runtime: string, sessionId: string, reason: string): Promise<boolean> {
+    return this.#executions?.stopForQuestion(runtime, sessionId, reason) ?? Promise.resolve(false)
+  }
+
   /** A candidate this process minted for this caller's card, still current. */
   heldCandidate(candidate: string, intent: number, scope: TeamCallScope): ReturnType<FlowReview['held']> {
     return this.#review?.held(candidate, intent, scope) ?? Promise.resolve(null)

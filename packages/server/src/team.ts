@@ -401,6 +401,12 @@ export interface TeamFlows {
   recordReview?(input: ReviewInput, scope: TeamCallScope): Promise<EvidenceRecord>
   /** Why this card cannot complete yet — its role declares `produces: review` and none is recorded — or null. */
   refuseCompletion?(room: string, intent: Intent, caller: TeamCallScope): Promise<string | null>
+  /**
+   * The review rounds on this board still open and blind: several reviewers
+   * judging at once, none of whom may read another's card, context or
+   * messages until the round closes. Empty for every board without one.
+   */
+  blindRounds?(room: string): readonly { readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[]
 }
 
 /**
@@ -1711,7 +1717,7 @@ export class Team {
     // asks for. Renewing on use rather than on a heartbeat means the signal is
     // the work itself.
     if (this.#renew(board, caller)) this.#commit(board)
-    return this.#renderBoard(board)
+    return this.#renderBoard(board, caller)
   }
 
   async addIntent(
@@ -1730,7 +1736,7 @@ export class Team {
     if (title === '') return 'An intent needs a title. Nothing was added.'
     for (const dep of args.dependsOn ?? []) {
       if (!board.intents.some((intent) => intent.id === dep)) {
-        return `There is no intent #${dep} to depend on. Nothing was added.\n\n${this.#renderBoard(board)}`
+        return `There is no intent #${dep} to depend on. Nothing was added.\n\n${this.#renderBoard(board, caller)}`
       }
     }
     const outside = (args.files ?? []).filter(
@@ -1747,7 +1753,7 @@ export class Team {
       kind: 'team/intent',
       decision: 'added',
     })
-    return `Added intent #${intent.id} — ${intent.title}.\n\n${this.#renderBoard(board)}`
+    return `Added intent #${intent.id} — ${intent.title}.\n\n${this.#renderBoard(board, caller)}`
   }
 
   /**
@@ -2161,7 +2167,7 @@ export class Team {
     if (others > 0) parts.push(`${others} ${others === 1 ? 'is' : 'are'} held by others`)
     if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? 'waits' : 'wait'} on other work or ${waiting === 1 ? 'is' : 'are'} blocked`)
     const why = parts.length > 0 ? `${parts.join('; ')}.` : 'The board is empty.'
-    return `Nothing to take right now. ${why} ${this.#renderBoard(board)}`
+    return `Nothing to take right now. ${why} ${this.#renderBoard(board, caller)}`
   }
 
   async claim(intentId: number, scope: TeamCallScope, files?: readonly string[]): Promise<string> {
@@ -2171,7 +2177,7 @@ export class Team {
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board)}`
+    if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board, caller)}`
 
     /* Canonical before anything compares them, exactly as `add_intent` does.
        Trimming alone let `src/../README.md` and `README.md` claim the same
@@ -2509,6 +2515,9 @@ export class Team {
     const board = await this.#boardOf(caller)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}.`
+    if (this.#embargoed(board, caller).has(intentId)) {
+      return `Refused: #${intentId} belongs to a review round that is still open. What its reviewer left is released when the round closes.`
+    }
     if (intent.handoff) {
       return `Context package for #${intentId} — ${intent.title}:\n\n${intent.handoff}`
     }
@@ -2614,6 +2623,11 @@ export class Team {
       audit('refused-empty')
       return 'Refused: the message is empty.'
     }
+    // A blind review round is blind in the channel too: nothing out of it, and nothing into it, until it closes.
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId)) {
+      audit('refused-blind-round')
+      return 'Refused: your review round is still open and blind, so you cannot message anyone until it closes. Record what you found with the finding tools.'
+    }
     if (text.length > this.#settings.messageChars) {
       audit('refused-too-long')
       return `Refused: the message is ${text.length} characters; the limit is ${this.#settings.messageChars}. Put long material on the board as a context package instead.`
@@ -2637,6 +2651,18 @@ export class Team {
       return `Refused: ${resolved.refusal}`
     }
     const peer = resolved.peer
+    if (this.#inBlindRound(board, peer.runtime, peer.sessionId)) {
+      this.#message(board, {
+        from: this.#actorOf(board, caller),
+        to: null,
+        text,
+        state: 'refused',
+        reason: 'the recipient is reviewing in a blind round that is still open',
+      })
+      this.#commit(board)
+      audit('refused-blind-round')
+      return `Refused: ${args.to} is reviewing in a blind round that is still open. Messages reach it once the round closes.`
+    }
     const address = {
       runtime: peer.runtime,
       sessionId: peer.sessionId,
@@ -4376,11 +4402,39 @@ export class Team {
     return parts.length > 0 ? `The board has ${parts.join(' · ')}` : 'The board is empty'
   }
 
-  #renderBoard(board: Board): string {
+  /**
+   * The cards on this board whose words a caller may not read yet: every card
+   * of an open blind review round but the caller's own. What a reviewer
+   * wrote — its note, its context package — is released to the others only
+   * when the round closes; a person's own view of the board is never this.
+   */
+  #embargoed(board: Board, caller: { readonly runtime: string; readonly sessionId: string }): ReadonlySet<number> {
+    const hidden = new Set<number>()
+    for (const round of this.#flows?.blindRounds?.(board.id) ?? []) {
+      for (const card of round.cards) {
+        const holder = round.holders.find((one) => one.card === card)
+        if (holder?.runtime !== caller.runtime || holder.sessionId !== caller.sessionId) hidden.add(card)
+      }
+    }
+    return hidden
+  }
+
+  /** Whether a conversation holds a card of an open blind review round on this board. */
+  #inBlindRound(board: Board, runtime: string, sessionId: string): boolean {
+    return (this.#flows?.blindRounds?.(board.id) ?? []).some((round) =>
+      round.holders.some((one) => one.runtime === runtime && one.sessionId === sessionId))
+  }
+
+  #renderBoard(board: Board, viewer?: { readonly runtime: string; readonly sessionId: string }): string {
     if (board.intents.length === 0) {
       return 'The board is empty. Add work with add_intent — a title, the files it will own, and what it depends on.'
     }
+    const hidden = viewer ? this.#embargoed(board, viewer) : new Set<number>()
     const lines = board.intents.map((intent) => {
+      if (hidden.has(intent.id)) {
+        const state = intent.state === 'claimed' ? 'under review' : intent.state
+        return `#${intent.id} ${state} — ${intent.title} (its review is released when the round closes)`
+      }
       const status =
         intent.state === 'claimed' && intent.claim
           ? `claimed by ${this.#holderName(board, intent)} (${ago(intent.claim.at)})`

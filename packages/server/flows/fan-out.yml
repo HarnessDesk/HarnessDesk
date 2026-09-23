@@ -29,4 +29,7 @@ rules:
     when: { every: [approve] }
     then: { role: ship, title: "Ship it — every reviewer approved" }
 messaging: board-only
+# How far a run may go before it stops for a person: closed rounds in all, and
+# closed rounds in a row that brought no new evidence. Raise it for longer loops.
+budget: { rounds: 3, without-progress: 2 }
 wait: 240

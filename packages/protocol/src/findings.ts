@@ -1,4 +1,5 @@
 import type { Evidence, EvidenceRecord } from './evidence.js'
+import type { FlowBudget } from './flow-policy.js'
 
 /**
  * The findings ledger's nouns.
@@ -208,4 +209,83 @@ export interface CarryFindingsInput {
 export interface FindingReadInput {
   readonly intent: number
   readonly filter?: 'all' | 'open' | 'blocking'
+}
+
+// ------------------------------------------------------------------- rounds
+
+/**
+ * One review series of a run: the reviews of one subject checkout by one
+ * role. Its initial blocking set is frozen when its first review round
+ * closes; later ordinary claims are advisory, and a later regression or
+ * security claim waits for a person as a pending exception.
+ */
+export interface FindingSeries {
+  /** `<role>@<cwd>`: stable across rounds, never a Seat id. */
+  readonly id: string
+  readonly role: string
+  readonly checkout: { readonly cwd: string; readonly branch: string | null }
+  /** The subject revision its last closed review judged: the start of the next repair delta. */
+  readonly reviewedAt: string | null
+  readonly reviewRounds: readonly number[]
+  /** Blocking findings admitted when the first review closed. Never grows. */
+  readonly initial: readonly FindingId[]
+  /** Later regression or security findings a person admitted. */
+  readonly exceptions: readonly FindingId[]
+  /** Later regression or security findings waiting for a person. */
+  readonly pending: readonly FindingId[]
+}
+
+/** A run's findings bookkeeping, frozen at start for a new-format run; absent on runs saved before it. */
+export interface FindingRunState {
+  readonly version: 1
+  readonly budget: FlowBudget
+  /** Every closed round, counted once. */
+  readonly closedRounds: readonly number[]
+  /** Consecutive closed rounds that brought no new evidence. */
+  readonly idleRounds: number
+  /** Every progress key this run has seen, so repeated evidence never counts twice. */
+  readonly progress: readonly string[]
+  readonly series: readonly FindingSeries[]
+  /** Why the run stopped for a person, and after which round; null while it may go on. */
+  readonly stopped: { readonly round: number; readonly reason: string } | null
+  /** One more round a person authorized after a stop. */
+  readonly extraRound: { readonly after: number; readonly reason: string } | null
+  readonly overrides: readonly FindingOverride[]
+}
+
+/** What a later review round is handed: the repair delta, and only the findings still in question. */
+export interface RepairPacket {
+  readonly run: string
+  readonly round: number
+  readonly series: string
+  /** The subject revision the last closed review judged. */
+  readonly from: string
+  /** The subject's committed head now, pinned before the reviewer is seated. */
+  readonly to: string
+  /** The exact two-tip diff, whole — refused rather than cut short. */
+  readonly diff: string
+  readonly findings: readonly FindingView[]
+  /** Findings whose repair was claimed since the last review. */
+  readonly claimed: readonly FindingId[]
+  /** Findings still unresolved. */
+  readonly unresolved: readonly FindingId[]
+  /** Evidence ids the review must also honour: requirement revisions, checks, CI. */
+  readonly evidence: readonly string[]
+  /** Set when history was rewritten between the two tips: the delta is two trees, not a descendant range. */
+  readonly warning: string | null
+}
+
+/** A run's findings as a person reads them. */
+export interface FindingRunView {
+  readonly run: string
+  readonly goal: string
+  readonly round: number
+  readonly finished: number
+  readonly total: number
+  readonly embargoed: boolean
+  readonly open: number
+  readonly blocking: number
+  readonly reason: string | null
+  readonly stamp: string
+  readonly publication: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'
 }

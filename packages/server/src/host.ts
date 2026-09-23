@@ -111,6 +111,7 @@ import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { FindingsPlane } from './findings/plane.js'
+import { QuestionDeadline } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
@@ -543,6 +544,8 @@ export class Host {
   readonly #goals: GoalPlane
   /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
   readonly #findings: FindingsPlane
+  /** Deadlines on questions unattended flow Seats ask. */
+  readonly #questions: QuestionDeadline
   /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
   readonly #insight: InsightPlane
   readonly #turnInsight = new InsightContexts()
@@ -996,6 +999,14 @@ export class Host {
         candidate: (id, card, scope) => this.#flows.heldCandidate(id, card, scope),
         journal: (run, step) => this.#flows.withFindingJournal(run, step),
         pending: () => this.#flows.pendingFindings(),
+        run: (run) => this.#flows.findingRun(run),
+        subjects: (goal, round) => this.#flows.subjectsOf(goal, round),
+        recordClose: (run, round, next) => this.#flows.recordRoundClose(run, round, next),
+        blindRounds: (goal) => this.#flows.blindRounds(goal),
+        facts: async (goal) => {
+          const state = this.#goalState(goal)
+          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        },
       },
       goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
       projectOf: async (goal) => {
@@ -1011,6 +1022,26 @@ export class Host {
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
     this.#team.attachFindings(this.#findings)
+    // Every round close of a run with findings bookkeeping is processed by the ledger's writer before the run goes on.
+    this.#flows.onRoundClosed((run, round) => this.#findings.roundClosed(run, round))
+    this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
+    this.#flows.attachReviewPackets((run, round, role, subjects) => this.#findings.packetFor(run, round, role, subjects))
+    /* An unattended Seat's question: nobody is there to answer it, so after
+       twenty seconds its turn is interrupted once — what it already said is
+       kept — and its run stops for a person with the reason. It is never
+       answered on anyone's behalf. */
+    this.#questions = new QuestionDeadline({
+      setTimer: (fire, ms) => { const timer = setTimeout(fire, ms); timer.unref?.(); return timer },
+      clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+      interrupt: async (key) => {
+        const [runtime, sessionId] = splitQuestionKey(key)
+        await this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live?.interrupt()
+      },
+      stop: async (key, reason) => {
+        const [runtime, sessionId] = splitQuestionKey(key)
+        await this.#flows.stopForQuestion(runtime, sessionId, reason)
+      },
+    })
     this.#flowPreviews = new FlowPreviews({
       confine: (root) => this.#confineRoom(root),
       // `root` here is already a confined, real project path — the same one
@@ -1658,6 +1689,7 @@ export class Host {
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
+    this.#questions.close()
     await this.#flows.flush()
     await this.#findings.close()
     await this.#team.flush()
@@ -4367,6 +4399,14 @@ export class Host {
     if (event.type === 'approval/requested') {
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
+      // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.
+      if ((event.approval.type === 'userInput' || event.approval.type === 'elicitation') &&
+        this.#flows.unattended(String(runtime), String(event.approval.sessionId))) {
+        this.#questions.asked(questionKey(String(runtime), String(event.approval.sessionId)), String(event.approval.id))
+      }
+    }
+    if (event.type === 'approval/resolved') {
+      this.#questions.answered(questionKey(String(runtime), String(event.sessionId)), String(event.approvalId))
     }
     // A denial, noticed while the original approval is still in the
     // registry (`registry.apply` below deletes it). The team plane holds
@@ -5418,3 +5458,10 @@ export const isDirectory = async (path: string): Promise<boolean> => {
  * Worded from the runtime's own presentation, so the message is true for
  * whichever runtime was asked and never names one the host has not met.
  */
+
+/** One conversation, as a question deadline keys it. */
+const questionKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
+const splitQuestionKey = (key: string): [string, string] => {
+  const at = key.indexOf('\u0000')
+  return [key.slice(0, at), key.slice(at + 1)]
+}

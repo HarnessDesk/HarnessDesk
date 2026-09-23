@@ -7,6 +7,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Review findings are recorded once and followed to the end** — a reviewer
+  raises each finding as its own record, a repair is a claim until the
+  reviewer that raised it confirms it in a later round, and a finding keeps
+  its identity when a person carries it into a later Goal. A flow run now
+  stops for you after its round budget (three by default), after two rounds
+  that brought no new evidence, or when a finding's repair is rejected twice;
+  several reviewers judging at once no longer see each other's findings or
+  messages until the round closes, and a later review is handed the exact
+  change since the last one.
 - **A project's Flows are visible, previewable and updatable** — a project
   page now lists the flows it can start, layered from the project's own
   files down to the ones that ship, with what a nearer file shadows called

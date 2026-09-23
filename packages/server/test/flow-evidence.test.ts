@@ -12,10 +12,15 @@ import {
   evidenceValues,
   renderCardTemplate,
   renderEvidence,
+  readyGuard,
+  WAITING_EXCEPTION,
+  WAITING_FINDINGS,
+  WAITING_LEDGER,
   type FactChoice,
   type FlowEvidenceContext,
   type FlowSubject,
 } from '../src/flow-evidence.js'
+import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
 /*
  * Evidence guards read what the desk already observed, never a message or a
@@ -248,4 +253,73 @@ test('evidence values are only the fields every fact agrees on', () => {
   })
   assert.equal(evidenceValues([a, b])['review.at'], undefined, 'two revisions give no single one')
   assert.equal(evidenceValues([a, b])['review.verdict'], 'picked')
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named additions for the findings ledger: a ready rule of a run that keeps
+ * findings also waits on its open admitted blockers — and clearing them never
+ * stands in for a fresh check, CI or review. A run saved before the ledger is
+ * judged exactly as it always was.
+ */
+
+test('empty blockers with stale checks cannot become ready', () => {
+  const guards = [{ review: 'approve' }, { check: 'pnpm verify' }, { ci: 'green' as const }]
+  const facts = [
+    view({ kind: 'review', card: 5, round: 3, at: 'sha-a', verdict: 'approve', by: 'seat-judge' }),
+    view({ kind: 'check', card: 3, round: 2, at: 'sha-a', freshness: STALE }),
+    view({ kind: 'ci', card: 1, at: 'sha-a', freshness: STALE }),
+  ]
+  const clear = { blockers: 0, pending: false, unreadable: false }
+  const stale = readyGuard(guards, judged([A], facts), clear)
+  assert.equal(stale.state, 'waiting', 'every approval and zero blockers, and still not ready')
+  assert.equal(stale.state === 'waiting' ? stale.reason : null, 'Waiting for a passing check at this revision.', 'the phase-6 reason, unchanged')
+  // Fresh evidence, but a blocker still open: the findings wait comes first.
+  const fresh = [facts[0]!, view({ kind: 'check', card: 3, round: 2, at: 'sha-a' }), view({ kind: 'ci', card: 1, at: 'sha-a' })]
+  const blocked = readyGuard(guards, judged([A], fresh), { ...clear, blockers: 2 })
+  assert.deepEqual(blocked, { state: 'waiting', reason: WAITING_FINDINGS(2) })
+  assert.deepEqual(readyGuard(guards, judged([A], fresh), { ...clear, pending: true }), { state: 'waiting', reason: WAITING_EXCEPTION })
+  // A ledger that cannot be read is not an empty one.
+  assert.deepEqual(readyGuard(guards, judged([A], fresh), { ...clear, unreadable: true }), { state: 'waiting', reason: WAITING_LEDGER })
+  assert.deepEqual(readyGuard(guards, judged([A], fresh), null), { state: 'waiting', reason: WAITING_LEDGER })
+  assert.equal(readyGuard(guards, judged([A], fresh), clear).state, 'matched')
+})
+
+test('plain legacy flow unchanged', async (t) => {
+  // A rule with no evidence guards is no ready gate: findings never hold it.
+  assert.equal(readyGuard([], judged([A], []), { blockers: 5, pending: true, unreadable: false }).state, 'matched')
+  // Without the ledger's say — a run saved before it — the guard is the phase-6 guard, verdict for verdict.
+  const facts = [view({ kind: 'review', card: 5, round: 3, at: 'sha-a', verdict: 'approve', by: 'seat-judge' })]
+  assert.deepEqual(readyGuard([{ review: 'approve' }], judged([A], facts)), evidenceGuard([{ review: 'approve' }], judged([A], facts)))
+  // A run saved before findings bookkeeping keeps no budget: it goes past three rounds with no stop, and its file is not rewritten into a new shape.
+  const rig = await goalRig(t)
+  const LOOP = `
+version: 2
+name: A long relay
+roles:
+  one: { kind: agent, uses: writer }
+seed: { role: one, title: Step }
+rules:
+  - { id: again, on: one, when: { every: [done] }, then: { role: one, title: Step again } }
+`
+  const run = await rig.start(LOOP, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  // As a run saved before this phase: its file carries no findings bookkeeping.
+  const stored = rig.executions.stored(run.id)!
+  const { findings: _findings, ...legacy } = stored
+  await rig.files.save(legacy as typeof stored)
+  const restarted = await rig.restart()
+  assert.equal(restarted.executions.stored(run.id)?.findings, undefined, 'read back as it was written: no coercion')
+  await restarted.flows.resume()
+  await restarted.flows.flush()
+  for (let step = 1; step <= 4; step += 1) {
+    const open = rig.board(run.goal).intents.find((one) => one.state === 'claimed')!
+    const seat = [...rig.seats.values()].find((one) => one.session.sessionId === open.claim?.sessionId)!
+    await rig.team.complete(open.id, { outcome: 'done' }, rig.sessionOf(String(seat.id)))
+    await rig.flows.flush()
+  }
+  const after = rig.executions.stored(run.id)!
+  assert.equal(after.state, 'running', 'no budget stopped it')
+  assert.equal(after.rounds.length, 5, 'five rounds, past a three-round default it never had')
+  assert.equal(after.findings, undefined)
 })

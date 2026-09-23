@@ -10,6 +10,7 @@ import { ExecutionFiles, FlowExecutions, type FlowExecutionPort } from '../src/f
 import { recoveryOf } from '../src/flow-recovery.js'
 import { Flows, type FlowPort } from '../src/flows.js'
 import { Team, type TeamPeer } from '../src/team.js'
+import { findingsRig } from './fixtures/findings-rig.js'
 import { agent, Crash, goalRig } from './fixtures/flow-goal-rig.js'
 import { seat } from './fixtures/goals.js'
 
@@ -284,4 +285,35 @@ rules: []
   assert.equal(turn(rig.flows.executionsFor(run.goal)), 'finished')
   assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.operations.filter((one) => one.kind === 'turn').map((one) => one.key), ['turn:1:0'],
     'a Seat inside the turn its order started is not handed its card again')
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named addition for the findings ledger: a round's close is journaled before
+ * it is processed, and processed outside the run's queue. A desk that stops
+ * between the two processes it once on the way back up — one more closed
+ * round counted, one next round opened — and a replay changes nothing.
+ */
+test('closed round replay neither double-counts nor redispatches', async (t) => {
+  const f = await findingsRig(t, { dropCloses: true })
+  await f.finishFixer()
+  // The round closed and its close was journaled; the subscriber never ran.
+  let stored = f.rig.executions.stored(f.run)!
+  assert.equal(stored.rounds[0]!.state, 'closed')
+  assert.equal(stored.operations.find((one) => one.key === 'close:1')?.state, 'started')
+  assert.deepEqual(stored.findings?.closedRounds, [])
+  assert.equal(f.cards('reviewer').length, 0, 'no round opens before its close is recorded')
+  await f.restart()
+  stored = f.rig.executions.stored(f.run)!
+  assert.deepEqual(stored.findings?.closedRounds, [1], 'counted once')
+  assert.equal(stored.operations.find((one) => one.key === 'close:1')?.state, 'finished')
+  assert.equal(f.cards('reviewer').length, 2, 'the next round opened once')
+  // Replayed: by the subscriber again, and by the engine resuming again.
+  await f.plane.roundClosed(f.run, 1)
+  await f.rig.flows.resume()
+  await f.rig.flows.flush()
+  stored = f.rig.executions.stored(f.run)!
+  assert.deepEqual(stored.findings?.closedRounds, [1])
+  assert.equal(f.cards('reviewer').length, 2, 'and never opened twice')
+  assert.equal(stored.rounds.length, 2)
 })

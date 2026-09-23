@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
+import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceView,
+  FindingRunState,
   FlowBinding,
   FlowCheck,
   FlowCheckContext,
@@ -25,8 +27,9 @@ import type {
 import { ConfinedTree } from './confined-tree.js'
 import { cardVars, guardHolds } from './flow.js'
 import {
-  evidenceGuard, evidenceValues, namesEvidence, renderCardTemplate, type FlowEvidenceContext, type FlowSubject,
+  evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
+import { decideLoop } from './findings/rounds.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { Team } from './team.js'
 
@@ -58,6 +61,14 @@ export type StoredFlowExecution = FlowExecution & {
   checkPlans?: Readonly<Record<string, CheckPlan>>
   /** Each finding command a Seat of this run made, by operation key, journaled before its record is appended. */
   findingOps?: Readonly<Record<string, FindingJournalEntry>>
+  /** A later review round's package, by round number: pinned before its Seats open, handed to each in its order. */
+  reviewPackets?: Readonly<Record<string, ReviewPacketPin>>
+}
+
+/** What a later review round was handed, and the subject revisions it was pinned to. */
+export interface ReviewPacketPin {
+  readonly text: string
+  readonly pinned: readonly { readonly cwd: string; readonly at: string }[]
 }
 
 /**
@@ -238,7 +249,36 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   operations: run.operations,
   legacyRun: run.legacyRun,
   reason: run.reason,
+  ...(run.findings ? { findings: run.findings } : {}),
 })
+
+/** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
+export const startingFindings = (policy: FlowPolicy): FindingRunState => ({
+  version: 1,
+  budget: policy.budget ?? DEFAULT_FLOW_BUDGET,
+  closedRounds: [],
+  idleRounds: 0,
+  progress: [],
+  series: [],
+  stopped: null,
+  extraRound: null,
+  overrides: [],
+})
+
+/** A run as the findings plane reads it at a round's close: its rounds, which of them review, and each review Seat's stable slot. */
+export interface FindingRunSnapshot {
+  readonly id: string
+  readonly goal: string
+  readonly state: FlowExecution['state']
+  readonly findings: FindingRunState | null
+  readonly rounds: readonly (FlowRoundState & { readonly reviews: boolean })[]
+  /** A review's Seat as its role, its place in the round and its Agent: the same slot however often it is seated. */
+  readonly slots: Readonly<Record<string, string>>
+  /** Finding commands a stop left part-way: no round closes over one. */
+  readonly pendingFindings: number
+  /** Each later review round's pinned subject revisions: a finding or verdict there judges exactly these. */
+  readonly pinned: Readonly<Record<string, readonly { readonly cwd: string; readonly at: string }[]>>
+}
 
 const policyOf = (run: StoredFlowExecution): FlowPolicy => {
   if (run.document.format !== 'agents') throw new Error('This run uses the old format and is run by the old engine.')
@@ -348,6 +388,14 @@ export class FlowExecutions {
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
   #corrupt: string | null = null
   #rearms = new Map<string, number[]>()
+  /** Told when a round of a run with findings bookkeeping closes: the findings plane's close processing. */
+  readonly #closeListeners = new Set<(run: string, round: number) => void | Promise<void>>()
+  /** Close processing a listener started, so `idle()` waits for it as it waits for the run queues. */
+  readonly #closing = new Set<Promise<void>>()
+  /** What a ready rule also needs besides its guards: no open admitted blocker and no pending exception. */
+  #findingsGate: ((run: string) => Promise<FindingsGate | null>) | null = null
+  /** A later review round's package, read before its Seats open; throws when the delta cannot be read in full. */
+  #reviewPackets: ((run: string, round: number, role: string, subjects: readonly FlowSubject[]) => Promise<ReviewPacketPin | null>) | null = null
 
   constructor(files: ExecutionFiles, team: Team, port: FlowExecutionPort, options: FlowExecutionsOptions = {}) {
     this.#files = files
@@ -358,7 +406,158 @@ export class FlowExecutions {
   }
 
   async idle(): Promise<void> {
+    let guard = 0
+    do {
+      if (++guard > 10_000) throw new Error('FlowExecutions.idle() never quieted down.')
+      await this.#queue.idle()
+      await Promise.all([...this.#closing])
+    } while (this.#closing.size > 0)
     await this.#queue.idle()
+  }
+
+  // ------------------------------------------------------- round closing
+
+  /**
+   * Subscribes to round closes of runs with findings bookkeeping. The
+   * listener schedules its work and returns; the engine never awaits it
+   * inside a run's queue, and opens no round after a close until the close
+   * has been recorded (`recordRoundClose`).
+   */
+  onRoundClosed(listener: (run: string, round: number) => void | Promise<void>): () => void {
+    this.#closeListeners.add(listener)
+    return () => this.#closeListeners.delete(listener)
+  }
+
+  attachFindingsGate(gate: ((run: string) => Promise<FindingsGate | null>) | null): void {
+    this.#findingsGate = gate
+  }
+
+  attachReviewPackets(packets: ((run: string, round: number, role: string, subjects: readonly FlowSubject[]) => Promise<ReviewPacketPin | null>) | null): void {
+    this.#reviewPackets = packets
+  }
+
+  #emitClosed(run: string, round: number): void {
+    for (const listener of this.#closeListeners) {
+      try {
+        const work = listener(run, round)
+        if (work) {
+          const tracked = Promise.resolve(work).catch(async (error: unknown) => {
+            const why = error instanceof Error ? error.message : String(error)
+            this.#port.log('a closed round could not be processed', { run, round, error: why })
+            // Never a silent wait: the run stops for a person, saying why, and nothing opens after the round.
+            await this.#queue.within(run, () => this.#stall(run, `Round ${round} could not be closed: ${why}`)).catch(() => undefined)
+          }).finally(() => this.#closing.delete(tracked))
+          this.#closing.add(tracked)
+        }
+      } catch (error) {
+        this.#port.log('a closed round could not be processed', { run, round, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+  }
+
+  /** A run as the findings plane reads it when one of its rounds closes. */
+  findingRun(id: string): FindingRunSnapshot | null {
+    const run = this.#runs.get(id)
+    if (!run || run.document.format !== 'agents') return null
+    const policy = run.document.flow
+    const slots: Record<string, string> = {}
+    const rounds = run.rounds.map((round) => {
+      const role = policy.roles.find((one) => one.id === round.role)
+      const bindings = role?.kind === 'agent' ? bindingsFor(run, role.id) : []
+      for (const [index, card] of round.cards.entries()) {
+        const seat = this.#seatForCard(run, card).seat
+        if (seat) slots[String(seat.id)] = `${round.role}:${index}:${bindings[index]?.agent.id ?? seat.seat.runtime}`
+      }
+      return { ...round, reviews: bindings.some((binding) => binding.agent.produces.includes('review')) }
+    })
+    const pendingFindings = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared').length
+    const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
+    return { id: run.id, goal: run.goal, state: run.state, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned }
+  }
+
+  /**
+   * Records a closed round's findings bookkeeping — `next`, or none when the
+   * round was already counted — with its close operation finished, in one
+   * write, then advances the run from its own queue. Idempotent on the round.
+   */
+  recordRoundClose(id: string, round: number, next: FindingRunState | null): Promise<void> {
+    return this.#queue.within(id, async () => {
+      const run = this.#runs.get(id)
+      if (!run?.findings) return
+      const key = `close:${round}`
+      const operation = run.operations.find((one) => one.key === key)
+      if (operation?.state === 'finished') return
+      await this.#put(this.#operation({ ...run, findings: next ?? run.findings }, key, { kind: 'round', state: 'finished', card: null, seat: null }))
+      await this.#advance(id)
+    })
+  }
+
+  /**
+   * A close with no findings plane listening: the round is still counted and
+   * the budget still holds, so a desk without the ledger never runs past it.
+   */
+  async #closeUnwatched(id: string, round: number): Promise<void> {
+    const run = this.#get(id)
+    const state = run.findings!
+    if (state.closedRounds.includes(round)) return
+    const closed = state.closedRounds.length + 1
+    const limit = Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0)
+    const decision = decideLoop({
+      closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
+      unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
+    })
+    await this.#put(this.#operation({
+      ...run,
+      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
+    }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  /**
+   * The open review rounds of a Goal whose several reviewers must not read
+   * each other until the round closes: each round's cards and the
+   * conversations holding them. Only runs with findings bookkeeping.
+   */
+  blindRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
+    const out: { run: string; round: number; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal || !run.findings || run.document.format !== 'agents' || (run.state !== 'running' && run.state !== 'stalled')) continue
+      for (const round of run.rounds) {
+        if (round.state === 'closed' || round.cards.length < 2) continue
+        const role = run.document.flow.roles.find((one) => one.id === round.role)
+        if (role?.kind !== 'agent' || !bindingsFor(run, role.id).some((binding) => binding.agent.produces.includes('review'))) continue
+        const holders = round.cards.flatMap((card) => {
+          const seat = this.#seatForCard(run, card).seat
+          return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []
+        })
+        out.push({ run: run.id, round: round.n, cards: round.cards, holders })
+      }
+    }
+    return out
+  }
+
+  /** An unattended Seat's question went unanswered: its run stops for a person, with the reason. */
+  async stopForQuestion(runtime: string, sessionId: string, reason: string): Promise<boolean> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running') continue
+      const seat = run.operations.find((one) => {
+        if (one.kind !== 'seat' || !one.seat) return false
+        const record = this.#port.seatOf(one.seat)
+        return record?.session.runtime === runtime && record.session.sessionId === sessionId
+      })
+      if (!seat) continue
+      await this.#queue.within(run.id, () => this.#stall(run.id, `Card #${seat.card ?? '?'}: its Seat ${reason}. Its answer so far is kept.`))
+      return true
+    }
+    return false
+  }
+
+  /** Whether a conversation is a Seat of a running run: nobody is watching for its questions. */
+  unattended(runtime: string, sessionId: string): boolean {
+    return [...this.#runs.values()].some((run) => run.state === 'running' && run.operations.some((one) => {
+      if (one.kind !== 'seat' || !one.seat) return false
+      const record = this.#port.seatOf(one.seat)
+      return record !== null && record.closed === null && record.session.runtime === runtime && record.session.sessionId === sessionId
+    }))
   }
 
   // ------------------------------------------------------------- reading
@@ -505,7 +704,9 @@ export class FlowExecutions {
   /** One rule's evidence guard, read fresh. */
   async #guard(run: StoredFlowExecution, round: FlowRoundState, rule: FlowPolicyRule): Promise<RuleEvidence> {
     if (!this.#facts) return { state: 'waiting' }
-    const result = evidenceGuard(rule.when?.evidence ?? [], await this.#evidenceContext(run, round, await this.#facts(run.goal)))
+    // A ready rule of a run with findings bookkeeping also waits on its open admitted blockers.
+    const findings = run.findings && this.#findingsGate ? await this.#findingsGate(run.id) : undefined
+    const result = readyGuard(rule.when?.evidence ?? [], await this.#evidenceContext(run, round, await this.#facts(run.goal)), findings)
     if (result.state === 'matched') return { state: 'matched', evidence: result.evidence }
     return result.reason ? { state: result.state, reason: result.reason } : { state: result.state }
   }
@@ -718,6 +919,8 @@ export class FlowExecutions {
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
+      // Written before the first dispatch, and frozen for the life of the run.
+      findings: startingFindings(policy),
     }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
     const goal = await this.#port.createGoal({
       root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
@@ -866,6 +1069,23 @@ export class FlowExecutions {
     // claim one: the Goal a Seat claims through reads that write, not the
     // engine's memory, and a claim that raced it found no such card.
     await this.#team.flush()
+    /* A later review of a series gets its repair packet, read and pinned
+       before any of its Seats opens: a delta that cannot be read in full
+       stops the run here, with nothing seated. */
+    if (role.kind === 'agent' && run.findings && this.#reviewPackets && !this.#get(id).reviewPackets?.[String(round.n)] &&
+      bindings.some((binding) => binding.agent.produces.includes('review'))) {
+      let packet: ReviewPacketPin | null
+      try {
+        packet = await this.#reviewPackets(id, round.n, round.role, (await this.#closure(this.#get(id), dependsOn)).subjects)
+      } catch (error) {
+        await this.#stall(id, error instanceof Error ? error.message : String(error))
+        return this.#get(id).rounds.find((one) => one.n === round.n)!
+      }
+      if (packet) {
+        const current = this.#get(id)
+        run = await this.#put({ ...current, reviewPackets: { ...current.reviewPackets, [String(round.n)]: packet } })
+      }
+    }
     if (role.kind === 'agent') {
       const opened = await this.#seatRound(id, round, bindings, role.isolate, role.independentOf)
       if (!opened) return this.#get(id).rounds.find((one) => one.n === round.n)!
@@ -1030,6 +1250,8 @@ export class FlowExecutions {
 
   #cardOrder(run: StoredFlowExecution, card: Intent | undefined, binding: FlowBinding): string {
     const answers = binding.agent.answers
+    const round = card ? run.rounds.find((one) => one.cards.includes(card.id)) : undefined
+    const packet = round ? run.reviewPackets?.[String(round.n)]?.text ?? null : null
     return [
       `Card #${card?.id ?? '?'} on this Goal is yours: ${card?.title ?? ''}`,
       card?.detail ?? null,
@@ -1037,6 +1259,7 @@ export class FlowExecutions {
       answers.length > 0
         ? `When it is done, call complete_claim for #${card?.id} with an outcome of exactly one of: ${answers.join(', ')}.`
         : `When it is done, call complete_claim for #${card?.id}.`,
+      packet,
       `Flow run ${run.id}.`,
     ].filter((one): one is string => Boolean(one)).join('\n\n')
   }
@@ -1252,6 +1475,28 @@ export class FlowExecutions {
       return
     }
     if (last.state !== 'closed') run = await this.#put({ ...this.#round(run, { ...last, state: 'closed' }), reason: null })
+    if (run.findings) {
+      /* The close is journaled, then processed outside this queue, and no
+         round opens until its processing is recorded: a restart that finds
+         it started processes it again, keyed by the round, never twice. */
+      const key = `close:${last.n}`
+      const closing = run.operations.find((one) => one.key === key)
+      if (closing?.state !== 'finished') {
+        if (!closing) run = await this.#put(this.#operation(run, key, { kind: 'round', state: 'started', card: null, seat: null }))
+        if (this.#closeListeners.size === 0) {
+          await this.#closeUnwatched(id, last.n)
+          run = this.#get(id)
+        } else {
+          this.#emitClosed(id, last.n)
+          return
+        }
+      }
+      const stopped = run.findings?.stopped
+      if (stopped && stopped.round === last.n && found.decision.kind === 'fire') {
+        await this.#stall(id, stopped.reason)
+        return
+      }
+    }
     if (found.decision.kind === 'none') {
       const answered = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
@@ -1419,6 +1664,8 @@ export class FlowExecutions {
         }
       }
       if (operation.kind === 'round' && operation.key === 'start') continue
+      // A round's close processing is idempotent on its round: resuming it again is safe, so it is never uncertain.
+      if (operation.kind === 'round' && operation.key.startsWith('close:')) continue
       // Anything else that started and did not say how it ended needs a person.
       run = await this.#put(this.#operation(run, operation.key, { ...operation, state: 'uncertain' }))
     }

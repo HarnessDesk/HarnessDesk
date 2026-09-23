@@ -4,6 +4,12 @@ import type {
   CarryFindingsInput,
   DecideFindingInput,
   EvidenceRecord,
+  EvidenceView,
+  FindingRunState,
+  FindingRunView,
+  FindingSeries,
+  RepairPacket,
+  FlowRoundState,
   FindingAnchor,
   FindingCategory,
   FindingReadInput,
@@ -19,10 +25,14 @@ import {
   evidenceRecordOf, FINDING_TEXT_LIMIT, FINDING_TITLE_LIMIT, isRelativePath, isSha, mintId, type StoredLine,
 } from '../evidence/records.js'
 import type { StoreRead } from '../evidence/store.js'
+import type { FindingsGate, FlowSubject } from '../flow-evidence.js'
+import type { FindingRunSnapshot, ReviewPacketPin } from '../flow-execution.js'
 import type { GoalDocument } from '../goals/store.js'
 import type { TeamCallScope } from '../team.js'
 import type { FindingJournal, FindingJournalEntry } from './journal.js'
 import { canonical, foldFindings, isResolved, liveBlockers } from './model.js'
+import { repairPacket } from './packet.js'
+import { admittedOf, advanceProgress, closeSeries, decideLoop, progressKeys, rejectedRepairs } from './rounds.js'
 
 /**
  * The findings plane: the one writer of the findings ledger.
@@ -97,6 +107,16 @@ export interface FindingFlows {
   journal<T>(run: string, step: (journal: FindingJournal) => Promise<T>): Promise<T>
   /** Runs with finding commands a restart has to settle. */
   pending(): readonly { readonly run: string; readonly entries: readonly FindingJournalEntry[] }[]
+  /** A run as its round closes: its rounds, which review, each review Seat's slot and its findings bookkeeping. */
+  run?(run: string): FindingRunSnapshot | null
+  /** A round's subjects, read now: the revisions its reviewers judged. */
+  subjects?(goal: string, round: FlowRoundState): Promise<readonly FlowSubject[]>
+  /** Records a closed round's bookkeeping and lets the run go on. Idempotent on the round. */
+  recordClose?(run: string, round: number, next: FindingRunState | null): Promise<void>
+  /** Open blind review rounds on a Goal. */
+  blindRounds?(goal: string): readonly { readonly run: string; readonly round: number; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[]
+  /** A Goal's facts in append order, each with its freshness now. */
+  facts?(goal: string): Promise<readonly EvidenceView[]>
 }
 
 /** The Goal plane's side of a carry: its own transaction, which asks this plane for the records under its queue. */
@@ -124,6 +144,8 @@ export interface FindingsPort {
   /** A checkout's committed head now, and whether it holds uncommitted changes. */
   headOf(cwd: string): Promise<{ readonly at: string | null; readonly dirty: boolean }>
   now(): number
+  /** How a later review's delta is read; the real repository reader unless a test supplies its own. */
+  readonly repairPacket?: typeof repairPacket
   /** Findings on this Goal moved: tell whoever draws them. Never awaited. */
   changed?(goal: string): void
   log(message: string, details?: Readonly<Record<string, unknown>>): void
@@ -420,6 +442,14 @@ export class FindingsPlane {
     return view
   }
 
+  /** A later review judges exactly the revisions its packet was pinned to: a subject that moved since is not what it was handed. */
+  #pinned(run: string, round: number, at: string): void {
+    const pinned = this.#port.flows.run?.(run)?.pinned[String(round)]
+    if (pinned && !pinned.some((one) => one.at === at)) {
+      throw new Error('The subject moved since this review was handed its packet. A person has to reopen the review.')
+    }
+  }
+
   #reuse(journaled: EvidenceRecord | null, record: EvidenceRecord): EvidenceRecord {
     if (!journaled) return record
     // A retry keeps what was minted, and only what was minted.
@@ -444,6 +474,7 @@ export class FindingsPlane {
           throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
         }
         if (!isSha(held.candidate.at)) throw new Error('That candidate has no committed revision to raise a finding against.')
+        this.#pinned(bound.run, bound.round, held.candidate.at)
         if (input.related !== undefined && !ledger.views.some((one) => one.id === input.related && one.ownerGoal === caller.goal)) {
           throw new Error('The related finding is not one on this Goal.')
         }
@@ -524,6 +555,7 @@ export class FindingsPlane {
           throw new Error('That candidate is no longer being offered. Ask for review candidates again.')
         }
         if (!isSha(held.candidate.at)) throw new Error('That candidate has no committed revision to judge.')
+        this.#pinned(bound.run, bound.round, held.candidate.at)
         const last = ledger.records.filter((record) => record.fact.kind === 'finding' && record.fact.id === view.id).at(-1)!
         return this.#reuse(journaled, {
           id: mintId(),
@@ -548,7 +580,11 @@ export class FindingsPlane {
     if (!bound || bound.seat !== String(caller.seat.id)) throw new Error(`You do not hold card #${input.intent}, so its findings are not yours to read.`)
     const project = await this.#port.projectOf(caller.goal)
     const ledger = await this.#serial(project, () => this.#ledger(project))
-    const owned = ledger.views.filter((one) => one.ownerGoal === caller.goal)
+    // A finding raised in a blind round still open is its raiser's alone until the round closes.
+    const blind = (this.#port.flows.blindRounds?.(caller.goal) ?? [])
+    const embargoed = (view: FindingView): boolean => view.origin.seat !== String(caller.seat.id) &&
+      blind.some((round) => round.run === view.origin.run && round.round === view.origin.round)
+    const owned = ledger.views.filter((one) => one.ownerGoal === caller.goal && !embargoed(one))
     const rows = input.filter === 'blocking' ? liveBlockers(owned) : input.filter === 'open' ? owned.filter((one) => !isResolved(one)) : owned
     if (rows.length > READ_LIMIT) throw new Error('Narrow this review before continuing: it has more findings than one card may read.')
     if (ledger.unreadable > 0 && input.filter !== 'all') {
@@ -642,6 +678,112 @@ export class FindingsPlane {
     }
   }
 
+  // ------------------------------------------------------------------ rounds
+
+  /**
+   * A flow round closed: count it once, update its review series, and decide
+   * whether the run may go on — then record that, with the round's close
+   * operation, in the run's own journal. Keyed by run and round: a replay
+   * after a restart, or a second call, records nothing twice. Called
+   * outside the run's queue; `recordClose` takes it.
+   */
+  async roundClosed(run: string, round: number): Promise<void> {
+    const flows = this.#port.flows
+    if (!flows.run || !flows.recordClose || !flows.subjects || !flows.facts) throw new Error('This desk cannot close review rounds.')
+    const snapshot = flows.run(run)
+    if (!snapshot?.findings) return
+    if (snapshot.findings.closedRounds.includes(round)) {
+      await flows.recordClose(run, round, null)
+      return
+    }
+    const closing = snapshot.rounds.find((one) => one.n === round)
+    if (!closing) throw new Error(`Run ${run} has no round ${round}.`)
+    const project = await this.#port.projectOf(snapshot.goal)
+    const ledger = await this.#serial(project, () => this.#ledger(project))
+    const facts = await flows.facts(snapshot.goal)
+    const subjects = closing.reviews ? await flows.subjects(snapshot.goal, closing) : []
+    const next = closeRound({ snapshot, round: closing, ledger, facts, subjects })
+    await flows.recordClose(run, round, next)
+  }
+
+  /**
+   * A later review round's packet, for each subject whose series was
+   * reviewed before: the delta since that review, the findings still in
+   * question, and the evidence the review must still honour, rendered for
+   * the reviewers' orders and pinned to the heads read now. Null for a first
+   * review, which reads the change whole. Throws — and the round is not
+   * seated — when a delta cannot be read in full.
+   */
+  async packetFor(run: string, round: number, role: string, subjects: readonly FlowSubject[]): Promise<ReviewPacketPin | null> {
+    const snapshot = this.#port.flows.run?.(run)
+    if (!snapshot?.findings) return null
+    const later = subjects.flatMap((subject) => {
+      const series = snapshot.findings!.series.find((one) => one.id === `${role}@${subject.checkout.cwd}` && one.reviewedAt !== null)
+      return series ? [{ subject, series }] : []
+    })
+    if (later.length === 0) return null
+    const project = await this.#port.projectOf(snapshot.goal)
+    const ledger = await this.#serial(project, () => this.#ledger(project))
+    const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
+    const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
+    const raisedAt = (view: FindingView): string | null =>
+      ledger.records.find((record) => record.fact.kind === 'finding' && record.fact.id === view.id && record.finding?.event.kind === 'raise')?.checkout?.cwd ?? null
+    const read = this.#port.repairPacket ?? repairPacket
+    const packets: RepairPacket[] = []
+    for (const { subject, series } of later) {
+      const evidence = facts.filter((view) => !view.record.restored && view.freshness.state === 'fresh' && (
+        (view.record.card?.board === snapshot.goal && view.record.card.id === subject.card &&
+          ['check', 'ci', 'pr', 'diff'].includes(view.record.fact.kind)) ||
+        (view.record.fact.kind === 'review' && (view.record.fact.against?.length ?? 0) > 0)))
+        .map((view) => view.record.id)
+      packets.push(await read({
+        run, round, series, to: subject.at,
+        findings: owned.filter((one) => one.origin.goal !== snapshot.goal || raisedAt(one) === series.checkout.cwd),
+        evidence,
+      }))
+    }
+    return { text: packets.map(renderPacket).join('\n\n'), pinned: later.map(({ subject }) => ({ cwd: subject.checkout.cwd, at: subject.at })) }
+  }
+
+  /** What a ready rule of this run also needs: its admitted blockers, a pending exception, a readable ledger. */
+  async gate(run: string): Promise<FindingsGate | null> {
+    const snapshot = this.#port.flows.run?.(run)
+    if (!snapshot?.findings) return null
+    const project = await this.#port.projectOf(snapshot.goal)
+    const ledger = await this.#serial(project, () => this.#ledger(project))
+    const admitted = admittedOf(snapshot.findings.series)
+    const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
+    const blockers = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length
+    return {
+      blockers,
+      pending: snapshot.findings.series.some((one) => one.pending.length > 0) || snapshot.pendingFindings > 0,
+      unreadable: ledger.unreadable > 0,
+    }
+  }
+
+  /** A run's findings, as a person reads them. */
+  async runView(run: string): Promise<FindingRunView> {
+    const snapshot = this.#port.flows.run?.(run)
+    if (!snapshot) throw new Error(`There is no flow run ${run}.`)
+    const project = await this.#port.projectOf(snapshot.goal)
+    const ledger = await this.#serial(project, () => this.#ledger(project))
+    const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
+    const admitted = admittedOf(snapshot.findings?.series ?? [])
+    const last = snapshot.rounds.at(-1)
+    const blind = (this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
+    const view = {
+      run, goal: snapshot.goal, round: last?.n ?? 0,
+      finished: snapshot.findings?.closedRounds.length ?? 0,
+      total: snapshot.findings?.budget.rounds ?? 0,
+      embargoed: blind,
+      open: owned.filter((one) => !isResolved(one)).length,
+      blocking: owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).length,
+      reason: snapshot.findings?.stopped?.reason ?? null,
+      publication: 'local' as const,
+    }
+    return { ...view, stamp: createHash('sha256').update(canonical({ view, evidence: owned.flatMap((one) => one.evidence) })).digest('hex') }
+  }
+
   // ----------------------------------------------------------------- restart
 
   /**
@@ -677,4 +819,103 @@ export class FindingsPlane {
   async close(): Promise<void> {
     while (this.#tails.size > 0) await Promise.all([...this.#tails.values()])
   }
+}
+
+// ------------------------------------------------------------- closing a round
+
+/**
+ * A closed round's bookkeeping, computed from what the ledger, the facts and
+ * the subjects say now. The first closed round is the progress baseline; a
+ * review round closes its series (freezing the first review's blocking set);
+ * the loop decision stops at a person or lets the run go on.
+ */
+export function closeRound(input: {
+  readonly snapshot: FindingRunSnapshot
+  readonly round: FindingRunSnapshot['rounds'][number]
+  readonly ledger: { readonly records: readonly EvidenceRecord[]; readonly views: readonly FindingView[]; readonly unreadable: number }
+  readonly facts: readonly EvidenceView[]
+  readonly subjects: readonly FlowSubject[]
+}): FindingRunState {
+  const { snapshot, round, ledger } = input
+  const state = snapshot.findings!
+  const goal = snapshot.goal
+  const owned = ledger.views.filter((one) => one.ownerGoal === goal)
+  // Series: the round's reviews, by role and subject checkout.
+  let series = [...state.series]
+  if (round.reviews) {
+    const raisedHere = owned.filter((one) => one.origin.run === snapshot.id && one.origin.round === round.n)
+    const carried = owned.filter((one) => one.origin.goal !== goal)
+    const checkouts = new Map<string, { cwd: string; branch: string | null; at: string | null }>()
+    for (const subject of input.subjects) checkouts.set(subject.checkout.cwd, { ...subject.checkout, at: subject.at })
+    const raiseCheckout = (view: FindingView): string | null =>
+      ledger.records.find((record) => record.fact.kind === 'finding' && record.fact.id === view.id && record.finding?.event.kind === 'raise')?.checkout?.cwd ?? null
+    for (const one of raisedHere) {
+      const cwd = raiseCheckout(one)
+      if (cwd && !checkouts.has(cwd)) checkouts.set(cwd, { cwd, branch: null, at: one.origin.at })
+    }
+    for (const [cwd, checkout] of checkouts) {
+      const id = `${round.role}@${cwd}`
+      const existing: FindingSeries = series.find((one) => one.id === id) ?? {
+        id, role: round.role, checkout: { cwd, branch: checkout.branch }, reviewedAt: null, reviewRounds: [], initial: [], exceptions: [], pending: [],
+      }
+      const next = closeSeries(existing, {
+        round: round.n,
+        at: checkout.at,
+        raised: raisedHere.filter((one) => raiseCheckout(one) === cwd),
+        carried: existing.reviewRounds.length === 0 ? carried : [],
+      })
+      series = [...series.filter((one) => one.id !== id), next]
+    }
+  }
+  const admitted = admittedOf(series)
+  const active = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null)
+  // Progress: the run's own facts, as tuples it has not seen before.
+  const cards = new Set(snapshot.rounds.flatMap((one) => one.cards))
+  const facts = input.facts.filter((view) => view.record.card?.board === goal && cards.has(view.record.card.id))
+  const keys = progressKeys({
+    facts,
+    slotOf: (seat) => snapshot.slots[seat] ?? null,
+    confirmed: owned.filter((one) => isResolved(one)).map((one) => one.id),
+  })
+  const progress = advanceProgress(state.progress, keys, state.closedRounds.length === 0)
+  const closed = state.closedRounds.length + 1
+  const decision = decideLoop({
+    closed,
+    limit: Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0),
+    idle: state.idleRounds,
+    idleLimit: state.budget.withoutProgress,
+    newProgress: progress.newProgress,
+    unresolvedRepairs: active.map((one) => rejectedRepairs(ledger.records, one.id)),
+    unresolved: active.length,
+    // The flow's own rules route a ready round; this decides only whether to stop.
+    reviewComplete: false,
+    freshGuards: false,
+    pendingException: series.some((one) => one.pending.length > 0),
+  })
+  const unreadable = ledger.unreadable > 0 ? 'Some findings could not be read, so the open findings cannot be counted. A person has to look.' : null
+  const reason = unreadable ?? decision.reason
+  return {
+    ...state,
+    closedRounds: [...state.closedRounds, round.n],
+    idleRounds: decision.idle,
+    progress: progress.progress,
+    series,
+    stopped: reason !== null && (unreadable !== null || decision.next === 'person') ? { round: round.n, reason } : null,
+  }
+}
+
+/** A packet as a reviewer's order carries it: the findings in question first, then the delta, then the contract. */
+export const renderPacket = (packet: RepairPacket): string => {
+  const line = (view: FindingView): string =>
+    `- ${view.id} · ${view.lifecycle.state === 'repaired' ? 'repair claimed, not yet confirmed' : view.lifecycle.state} · sequence ${view.sequence}: ${view.title}\n  ${view.body.replace(/\n/g, '\n  ')}`
+  return [
+    `This review continues an earlier one of ${packet.series}. Judge the change since ${packet.from.slice(0, 12)}, up to ${packet.to.slice(0, 12)}, and the findings still in question — nothing else.`,
+    packet.warning,
+    `Repairs claimed since the last review: ${packet.claimed.length > 0 ? packet.claimed.join(', ') : 'none'}.`,
+    `Still unresolved: ${packet.unresolved.length > 0 ? packet.unresolved.join(', ') : 'none'}.`,
+    packet.findings.length > 0 ? `Findings in question:\n${packet.findings.map(line).join('\n')}` : null,
+    `The change:\n\`\`\`diff\n${packet.diff}\`\`\``,
+    packet.evidence.length > 0 ? `Evidence this review must still honour: ${packet.evidence.join(', ')}.` : null,
+    'Decide each finding you raised with decide_finding, and raise anything new with raise_finding.',
+  ].filter((one): one is string => Boolean(one)).join('\n\n')
 }

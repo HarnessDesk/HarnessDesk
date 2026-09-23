@@ -38,6 +38,7 @@ rules:
   - { id: again, on: reviewer, when: { any: [request-changes] }, then: { role: fixer, title: "Repair the findings" } }
 messaging: board-only
 wait: 240
+budget: { rounds: 10, without-progress: 5 }
 `
 
 export const AGENTS = (): AgentEntry[] => [agent('implementer', ['done'], 'alpha'), REVIEWER('code-reviewer'), REVIEWER('security-reviewer')]
@@ -51,6 +52,8 @@ export interface FindingsRig {
   run: string
   /** Appends pass through here: a test may delay or refuse one. */
   appendHook: ((record: EvidenceRecord) => Promise<void>) | null
+  /** Set, a later review's delta cannot be read, with this refusal. */
+  packetRefusal: string | null
   /** Cards of a role, in order. */
   cards(role: string): Intent[]
   scope(seat: string): { runtime: string; sessionId: string }
@@ -64,12 +67,20 @@ export interface FindingsRig {
   restart(): Promise<void>
 }
 
-export const findingsRig = async (t: { after(fn: () => Promise<void>): void }): Promise<FindingsRig> => {
+export const findingsRig = async (
+  t: { after(fn: () => Promise<void>): void },
+  options: {
+    /** The first engine's round closes are heard and dropped, as a desk that stopped before its subscriber ran. */
+    readonly dropCloses?: boolean
+    /** The flow's messaging policy; board-only unless a test needs the channel. */
+    readonly messaging?: 'board-only' | 'members'
+  } = {},
+): Promise<FindingsRig> => {
   const rig = await goalRig(t)
   rig.heads.set('/repo', { at: SHA1, dirty: false })
   const store = new EvidenceStore(join(rig.dir, 'evidence'))
   const out = {
-    rig, store, appendHook: null, goal: '', run: '',
+    rig, store, appendHook: null, packetRefusal: null, goal: '', run: '',
   } as unknown as FindingsRig
   const port: FindingsPort = {
     store: {
@@ -89,15 +100,43 @@ export const findingsRig = async (t: { after(fn: () => Promise<void>): void }): 
       candidate: (id, card, scope) => rig.flows.heldCandidate(id, card, scope),
       journal: (run, step) => rig.flows.withFindingJournal(run, step),
       pending: () => rig.flows.pendingFindings(),
+      run: (run) => rig.flows.findingRun(run),
+      subjects: (goal, round) => rig.flows.subjectsOf(goal, round),
+      recordClose: (run, round, next) => rig.flows.recordRoundClose(run, round, next),
+      blindRounds: (goal) => rig.flows.blindRounds(goal),
+      facts: async (goal) => (rig.facts.get(goal) ?? []).map((record) => ({
+        record,
+        freshness: rig.staleFacts.has(record.id) ? { state: 'moved' as const } : { state: 'fresh' as const },
+        by: null,
+      })),
     },
     projectOf: async () => '/repo',
     headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
+    // The rig's checkouts are not repositories: a later review's delta is the one a test scripts.
+    repairPacket: async (input) => {
+      if (out.packetRefusal) throw new Error(out.packetRefusal)
+      return {
+        run: input.run, round: input.round, series: input.series.id, from: input.series.reviewedAt ?? '', to: input.to,
+        diff: `-scripted before\n+scripted after\n`, findings: input.findings.filter((one) => !one.lifecycle.confirmed),
+        claimed: input.findings.filter((one) => one.lifecycle.state === 'repaired' && !one.lifecycle.confirmed).map((one) => one.id),
+        unresolved: input.findings.filter((one) => !one.lifecycle.confirmed).map((one) => one.id), evidence: [...input.evidence], warning: null,
+      }
+    },
     now: () => Date.now(),
     log: () => {},
   }
   Object.assign(out, { port, plane: new FindingsPlane(port) })
-  rig.team.attachFindings(out.plane)
-  const execution = await rig.start(FIX_AND_REVIEW, AGENTS())
+  /* The host's wiring, on the rig's own engine: every round close reaches the
+     plane, and a ready rule reads its gate. Again after a restart, whose
+     engine is new. */
+  const attach = (drop = false): void => {
+    rig.team.attachFindings(out.plane)
+    rig.flows.onRoundClosed(drop ? () => {} : (run, round) => out.plane.roundClosed(run, round))
+    rig.flows.attachFindingsGate((run) => out.plane.gate(run))
+    rig.flows.attachReviewPackets((run, round, role, subjects) => out.plane.packetFor(run, round, role, subjects))
+  }
+  attach(options.dropCloses === true)
+  const execution = await rig.start(FIX_AND_REVIEW.replace('messaging: board-only', `messaging: ${options.messaging ?? 'board-only'}`), AGENTS())
   await rig.flows.flush()
   out.goal = execution.goal
   out.run = execution.id
@@ -140,8 +179,11 @@ export const findingsRig = async (t: { after(fn: () => Promise<void>): void }): 
     await out.plane.close()
     await rig.restart()
     out.plane = new FindingsPlane(port)
-    rig.team.attachFindings(out.plane)
+    attach()
+    // The host's order: runs read back, finding commands settled, then runs resumed.
     await out.plane.recover()
+    await rig.flows.resume()
+    await rig.flows.flush()
   }
   return out
 }

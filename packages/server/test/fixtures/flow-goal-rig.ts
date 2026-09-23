@@ -107,6 +107,8 @@ export interface GoalRig {
   busySeats: Set<string>
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
+  /** Every accepted order's text, by Seat id, in order. */
+  readonly orderTexts: Map<string, string[]>
   /** The lane a Seat gets when it asked for isolation. */
   laneFor: (n: number, seat: SeatRecord) => Lane | null
   dispatch: { ok: true } | { ok: false; reason: string }
@@ -147,6 +149,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
+    orderTexts: new Map<string, string[]>(),
     dispatch: { ok: true } as GoalRig['dispatch'],
     laneFor: (n: number, seat: SeatRecord): Lane => ({
       id: `lane-${n}`, goal: seat.board!, seat: String(seat.id), cwd: seat.checkout.cwd, branch: `harnessdesk/lane-${n}`,
@@ -223,10 +226,11 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       const record = rig.seats.get(id)
       if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
     },
-    order: async (seat) => {
+    order: async (seat, text) => {
       if (rig.failOrder) throw new Error('the agent is not running')
       if (rig.busySeats.has(String(seat.id))) throw new Error('still working on the last message')
       rig.events.push(`order:${seat.id}`)
+      rig.orderTexts.set(String(seat.id), [...(rig.orderTexts.get(String(seat.id)) ?? []), text])
       rig.onOrder?.(seat)
     },
     busy: (seat) => rig.busySeats.has(String(seat.id)),

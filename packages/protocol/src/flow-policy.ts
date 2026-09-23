@@ -1,5 +1,6 @@
 import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
 import type { CeilingLevel } from './evidence.js'
+import type { FindingRunState } from './findings.js'
 import type { Flow, FlowCheck, FlowInput, FlowProblem, FlowRun, FlowSeat, FlowThen } from './flow.js'
 
 /** The second-generation, Agent-routed flow document. */
@@ -36,6 +37,19 @@ export interface FlowPolicyRule {
   readonly then: FlowThen
 }
 
+/**
+ * How long a run may go before it stops for a person: `rounds` closed rounds
+ * in all, and `withoutProgress` closed rounds in a row that brought no new
+ * evidence. YAML spells the second `without-progress`.
+ */
+export interface FlowBudget {
+  readonly rounds: number
+  readonly withoutProgress: number
+}
+
+/** What a new-format run gets when its file names no budget. */
+export const DEFAULT_FLOW_BUDGET: FlowBudget = { rounds: 3, withoutProgress: 2 }
+
 export interface FlowPolicy {
   readonly version: 2
   readonly name: string
@@ -47,6 +61,8 @@ export interface FlowPolicy {
   readonly messaging: 'board-only' | 'members'
   readonly wait: number
   readonly rearm?: number
+  /** Absent in a file that names none: a run started from it freezes `DEFAULT_FLOW_BUDGET`. */
+  readonly budget?: FlowBudget
   readonly layout?: unknown
 }
 
@@ -112,6 +128,8 @@ export interface FlowExecution {
   readonly operations: readonly FlowOperation[]
   readonly legacyRun: FlowRun | null
   readonly reason: string | null
+  /** The run's findings bookkeeping; absent on a run saved before it existed, which keeps its old behaviour. */
+  readonly findings?: FindingRunState
 }
 
 // ---------------------------------------------------------------- review

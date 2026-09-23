@@ -458,6 +458,7 @@ rules:
   - { id: to-reviewer, on: verify, when: { every: [pass] }, then: { role: reviewer, title: "Review the fix" } }
 messaging: board-only
 wait: 240
+budget: { rounds: 3, without-progress: 2 }
 ```
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
@@ -502,6 +503,30 @@ added to it, and a card added just before is on the board the wrap reviews,
 so the wrap is refused rather than leave it out. Once a Goal is wrapped its
 document's dispositions are final; a card an earlier build let in after the
 wrap read the board is set aside, saying so, when that wrap finishes.
+
+**A run is bounded.** `budget: { rounds: 3, without-progress: 2 }` is how
+far a run may go before it stops for a person: closed rounds in all, and
+closed rounds in a row that brought no new evidence. Each is a whole number
+from 1 to 100; a file that names none gets those two numbers, frozen when a
+run starts, and a save writes them out. Every closed round counts — repair,
+check and person rounds too — and progress is what the desk observed that it
+had not seen before: a confirmed finding, a new diff, a changed check, CI or
+review result. Two repairs of one finding rejected in turn stop the run as a
+design problem. A run saved before budgets existed keeps running as it was.
+
+**Findings are a ledger.** A reviewer raises each finding with
+`raise_finding` against a candidate it was offered; the writer claims a
+repair with `repair_finding` at its committed head; only the Agent that
+raised it confirms or withdraws it, from a later review card. A claimed
+repair stays blocking until then. The first review of a subject freezes
+the blocking set; a later ordinary finding is advisory, and a later
+regression or security finding waits for a person. A ready rule also waits
+while an admitted blocker is unresolved. A review round with several
+reviewers is blind until it closes: no reviewer reads another's card,
+context, findings or messages through the desk. A later review is handed a
+packet — the findings still in question and the exact delta since the last
+review — pinned before its Seats open, and a delta that cannot be read in
+full stops the run instead.
 
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated
