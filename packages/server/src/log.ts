@@ -28,6 +28,36 @@ export interface LoggerOptions {
   readonly console?: boolean
 }
 
+/**
+ * The console streams that have failed, and the ones the file has been told
+ * about.
+ *
+ * A pipe does not refuse a write by throwing. Node dispatches the write, and
+ * the EPIPE comes back afterwards as an `error` event on the stream — one per
+ * later write, too, because stdio streams are never destroyed. With nobody
+ * listening, each became an uncaught exception, which the shell's handler
+ * logged through this same console, which failed again: measured 2026-09-23,
+ * a desk whose launcher had exited died on the first refused request after
+ * that (a refusal is logged as a warning), with exit code 1 and 26 crash
+ * files written in 3 ms before the storm guard stopped it.
+ *
+ * So the logger listens on the streams it writes to. The first error retires
+ * that stream for the rest of the process — a console that has gone does not
+ * come back — and the file sink, which has every line anyway, says so once.
+ * Module-level, because every child logger shares the same two streams.
+ */
+const watched = new WeakSet<NodeJS.WritableStream>()
+const gone = new WeakSet<NodeJS.WritableStream>()
+const announced = new WeakSet<NodeJS.WritableStream>()
+
+const watch = (stream: NodeJS.WritableStream): void => {
+  if (watched.has(stream)) return
+  watched.add(stream)
+  stream.on('error', () => {
+    gone.add(stream)
+  })
+}
+
 export class Logger {
   readonly #level: number
   readonly #file: string | null
@@ -80,17 +110,30 @@ export class Logger {
       ...(details === undefined ? {} : { details }),
     }
 
-    if (this.#console) {
+    let lost: LogRecord | null = null
+    const stream = level === 'error' || level === 'warn' ? process.stderr : process.stdout
+    if (this.#console && gone.has(stream)) {
+      // Only a logger with a file can carry the note, so only one marks it said.
+      if (this.#file && !announced.has(stream)) {
+        announced.add(stream)
+        lost = {
+          time: record.time,
+          level: 'warn',
+          scope: this.scope,
+          message: `the console behind ${stream === process.stderr ? 'stderr' : 'stdout'} went away; this log continues here only`,
+        }
+      }
+    } else if (this.#console) {
+      watch(stream)
       const line = `${record.time} ${level.toUpperCase().padEnd(5)} [${this.scope}] ${message}`
-      const stream = level === 'error' || level === 'warn' ? process.stderr : process.stdout
       /* A console that has gone away must not become the caller's problem.
-         The desk is routinely started detached, and when its parent exits the
-         pipe behind stdout breaks: `write` then raises EPIPE at whatever line
-         asked for a log. Measured 2026-09-13 — the one line that logs
-         unconditionally is the shell's `uncaughtException` handler, so the
-         throw was delivered back to that handler, which logged again: 267,665
-         crash files and 1.0 GB of disk in six minutes, then the process died.
-         The file sink below still has the line. */
+         On a pipe it does not say so here: the write is dispatched and the
+         EPIPE arrives later as an `error` event, which `watch` above answers.
+         This try/catch is only for a write that throws synchronously — a file
+         or a TTY. Measured 2026-09-13: a throw from here reached the shell's
+         `uncaughtException` handler, which logged again, and wrote 267,665
+         crash files and 1.0 GB of disk in six minutes before the process
+         died. The file sink below still has the line. */
       try {
         stream.write(details === undefined ? `${line}\n` : `${line} ${safeJson(details)}\n`)
       } catch {
@@ -104,7 +147,7 @@ export class Logger {
       this.#writes = this.#writes
         .then(async () => {
           await mkdir(dirname(path), { recursive: true })
-          await appendFile(path, `${safeJson(record)}\n`)
+          await appendFile(path, `${lost === null ? '' : `${safeJson(lost)}\n`}${safeJson(record)}\n`)
         })
         .catch(() => {
           // A failing log sink must never take the host down with it.
