@@ -233,11 +233,103 @@ export const factOf = (value: unknown): Evidence | null => {
   return ok ? (value as unknown as Evidence) : null
 }
 
+// ------------------------------------------------------------------ findings
+
+/** The only version of finding metadata this build writes and reads. A later one is counted unreadable. */
+export const FINDING_VERSION = 1
+/** A finding's title, and any other finding text: a note, a body. */
+export const FINDING_TITLE_LIMIT = 200
+export const FINDING_TEXT_LIMIT = 4_096
+
+const hasExactly = (value: Record<string, unknown>, keys: readonly string[]): boolean => {
+  const own = Object.keys(value)
+  return own.length === keys.length && keys.every((key) => Object.hasOwn(value, key))
+}
+const isPositive = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
+const isFindingId = (value: unknown): value is string => isId(value) && value.startsWith('finding-')
+const isBoundedText = (value: unknown, limit: number): value is string => typeof value === 'string' && value.length <= limit
+
+/** A repository-relative path: forward slashes, no empty, `.` or `..` part, no drive, no NUL. */
+export const isRelativePath = (value: unknown): value is string => {
+  if (!isFilled(value) || value.includes('\0') || value.includes('\\') || /^[A-Za-z]:/.test(value) || value.startsWith('/')) return false
+  return value.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
+}
+
+const isAnchor = (value: unknown): boolean =>
+  isRecord(value) && hasExactly(value, ['path', 'line', 'side']) && isRelativePath(value['path']) &&
+  isPositive(value['line']) && (value['side'] === 'LEFT' || value['side'] === 'RIGHT')
+
+const isPost = (value: unknown): boolean =>
+  isRecord(value) && hasExactly(value, ['repo', 'pr', 'comment', 'kind', 'url', 'operation']) &&
+  isFilled(value['repo']) && isPositive(value['pr']) && isPositive(value['comment']) &&
+  (value['kind'] === 'review-comment' || value['kind'] === 'issue-comment') &&
+  isFilled(value['url']) && isId(value['operation'])
+
+const FINDING_STATES = new Set(['open', 'repaired', 'withdrawn'])
+const CATEGORIES = new Set(['ordinary', 'regression', 'security'])
+
+const isFindingEvent = (value: unknown): boolean => {
+  if (!isRecord(value)) return false
+  switch (value['kind']) {
+    case 'raise':
+      return hasExactly(value, ['kind', 'title', 'body', 'category', 'blocking', 'related', 'anchor']) &&
+        isFilled(value['title']) && (value['title'] as string).length <= FINDING_TITLE_LIMIT &&
+        isBoundedText(value['body'], FINDING_TEXT_LIMIT) && CATEGORIES.has(value['category'] as string) &&
+        typeof value['blocking'] === 'boolean' && orNull(value['related'], isFindingId) &&
+        (value['anchor'] === null || isAnchor(value['anchor']))
+    case 'repair':
+      return hasExactly(value, ['kind', 'note']) && isBoundedText(value['note'], FINDING_TEXT_LIMIT)
+    case 'verdict':
+      return hasExactly(value, ['kind', 'state', 'note', 'by']) && FINDING_STATES.has(value['state'] as string) &&
+        isBoundedText(value['note'], FINDING_TEXT_LIMIT) && (value['by'] === 'seat' || value['by'] === 'person')
+    case 'carry':
+      return hasExactly(value, ['kind', 'from', 'receipt', 'to']) && isId(value['from']) && isId(value['receipt']) && isId(value['to'])
+    case 'post':
+      return hasExactly(value, ['kind', 'location']) && isPost(value['location'])
+    default:
+      return false
+  }
+}
+
+const isOrigin = (value: unknown): boolean =>
+  isRecord(value) && hasExactly(value, ['goal', 'run', 'round', 'card', 'seat', 'at']) &&
+  isId(value['goal']) && isId(value['run']) && isPositive(value['round']) && isPositive(value['card']) &&
+  isId(value['seat']) && isSha(value['at'])
+
+/**
+ * A finding event's metadata, checked against the record it rides on: only
+ * on a `finding` fact, exactly the keys its version says, bounded, with the
+ * fact's state what the event says it is (a raise is open, a repair claims
+ * repaired, a verdict is its own state) and phase 4's `posted` present on a
+ * post — agreeing with where it says it posted — and on nothing else. Carry
+ * and post keep the preceding state, which only the fold can check.
+ */
+const findingDetailFits = (detail: unknown, record: Record<string, unknown>): boolean => {
+  if (!isRecord(detail) || detail['version'] !== FINDING_VERSION) return false
+  if (!hasExactly(detail, ['version', 'sequence', 'operation', 'origin', 'event'])) return false
+  if (!isPositive(detail['sequence']) || !isId(detail['operation']) || !isOrigin(detail['origin']) || !isFindingEvent(detail['event'])) return false
+  const fact = record['fact'] as Record<string, unknown>
+  if (fact['kind'] !== 'finding' || !isFindingId(fact['id'])) return false
+  if (!Number.isSafeInteger(record['observedAt'])) return false
+  const event = detail['event'] as Record<string, unknown>
+  if (event['kind'] === 'raise' && (fact['state'] !== 'open' || detail['sequence'] !== 1)) return false
+  if (event['kind'] !== 'raise' && detail['sequence'] === 1) return false
+  if (event['kind'] === 'repair' && fact['state'] !== 'repaired') return false
+  if (event['kind'] === 'verdict' && fact['state'] !== event['state']) return false
+  const posted = record['posted']
+  if (event['kind'] === 'post') {
+    const location = event['location'] as Record<string, unknown>
+    return isRecord(posted) && posted['pr'] === location['pr'] && posted['comment'] === location['comment']
+  }
+  return posted === undefined || posted === null
+}
+
 export const evidenceRecordOf = (value: unknown): EvidenceRecord | null => {
   if (!isRecord(value)) return null
   const card = value['card']
   const checkout = value['checkout']
   const posted = value['posted']
+  const finding = value['finding']
   const ok =
     isId(value['id']) &&
     factOf(value['fact']) !== null &&
@@ -249,7 +341,9 @@ export const evidenceRecordOf = (value: unknown): EvidenceRecord | null => {
     optionalNull(value['round'], isCount) &&
     isTime(value['observedAt']) &&
     (posted === undefined || posted === null || (isRecord(posted) && isCount(posted['pr']) && isCount(posted['comment']))) &&
-    optionalNull(value['restored'], isRestored)
+    optionalNull(value['restored'], isRestored) &&
+    // Phase 7: a finding event's metadata, or none. Metadata a later build wrote in another version is not read.
+    (finding === undefined || finding === null || findingDetailFits(finding, value))
   return ok ? (value as unknown as EvidenceRecord) : null
 }
 
