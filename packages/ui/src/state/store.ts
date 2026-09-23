@@ -4055,9 +4055,16 @@ export class AppStore {
     return this.transport.request('attachment/notes/clear', { ...this.#editTarget({ id, origin }), digest })
   }
 
-  /** What a person is asked to approve before this Agent's declared content may load for one runtime — the exact bytes, never a promise to fetch them again later. */
-  async reviewAttachments(id: string, origin: AgentEntry['origin'], runtime: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
-    return this.transport.request('attachment/review', { ...this.#attachmentTarget({ id, origin }), runtime })
+  /**
+   * What a person is asked to approve before this Agent's declared content
+   * may load for one runtime, in one project — the exact bytes, never a
+   * promise to fetch them again later. `root` must name the project this
+   * Agent is actually about to be seated in: trust binds to that project's
+   * own incarnation, the same one `agent/seat` itself uses, which for a
+   * `user` Agent is never its own folder.
+   */
+  async reviewAttachments(id: string, origin: AgentEntry['origin'], root: string, runtime: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
+    return this.transport.request('attachment/review', { id, origin, root, runtime })
   }
 
   /** Records a person's approval of exactly the reviewed token. */

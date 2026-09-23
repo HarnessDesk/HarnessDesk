@@ -3,8 +3,9 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import type { AgentAttachmentsView, AgentEntry, AgentNotesView, AttachmentEditPreview } from '@harnessdesk/protocol'
+import type { AgentAttachmentsView, AgentEntry, AgentNotesView, AttachmentEditPreview, AttachmentReview, SeatAttachmentsRecord, Session } from '@harnessdesk/protocol'
 
+import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, start } from './fixtures/harness.js'
 
 /**
@@ -174,4 +175,43 @@ test('notes clear refuses a stale digest, leaving the newer text intact', async 
     /changed since it was shown to you/,
   )
   assert.equal(await readFile(`${folder}/NOTES.md`, 'utf8'), 'changed since then')
+})
+
+test('attachment/review binds trust to the exact project a Seat will actually open in, so an approval survives to the real Seat', async (t) => {
+  // A `user` Agent's own folder (under the state directory) is never the
+  // project it gets seated into (a work checkout) — this test's whole point
+  // is that `attachment/review` must use the *latter*, matching exactly what
+  // `agent/seat` itself binds trust to (`incarnationOf(project ?? cwd)`).
+  const runtime = new FakeRuntime({
+    id: 'fake' as never,
+    attachments: { runtime: 'fake', build: '1.0.0', skills: 'scoped', mcp: 'unsupported', suppressUnapproved: true, reason: null },
+  })
+  const harness = await start({}, undefined, runtime)
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const folder = `${harness.stateDir}/agents/reviewer`
+  await mkdir(`${folder}/skills/review-checklist`, { recursive: true })
+  await writeFile(`${folder}/AGENT.md`, ['---', 'name: Reviewer', 'ceiling: read', 'prefer: [fake]', 'skills: [review-checklist]', '---', 'Read the diff.', ''].join('\n'), 'utf8')
+  await writeFile(`${folder}/skills/review-checklist/SKILL.md`, ['---', 'name: review-checklist', 'description: Checklist.', '---', 'Check things.', ''].join('\n'), 'utf8')
+
+  const work = `${harness.stateDir}-work`
+  await mkdir(work, { recursive: true })
+  t.after(async () => rm(work, { recursive: true, force: true }))
+  await client.call('workspace/open', { path: work })
+
+  const review = (await client.call('attachment/review', { id: 'reviewer', origin: 'user', root: work, runtime: 'fake' })) as AttachmentReview
+  assert.equal(review.declarations[0]?.name, 'review-checklist')
+  await client.call('attachment/approve', { token: review.token })
+
+  const seated = (await client.call('agent/seat', { id: 'reviewer', cwd: work })) as Session
+  const seatId = harness.host.registry.attachmentSeatOf(seated.runtime as never, seated.id as never)
+  assert.ok(seatId, 'seatAgent must have recorded this live conversation’s attachment Seat')
+  const receipt = (await client.call('attachment/seat', { seat: seatId })) as SeatAttachmentsRecord | null
+  assert.equal(receipt?.results[0]?.status, 'loaded', 'the approval made against the real Seat’s own project must be the one the Seat actually finds')
+  assert.equal(receipt?.results[0]?.reason, null)
 })

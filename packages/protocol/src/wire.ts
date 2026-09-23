@@ -1845,9 +1845,18 @@ export interface HostMethods {
    * promise to fetch them again later. `runtime` and every other fact in the
    * answer (ceiling, incarnation, build) are host-derived; a client cannot
    * supply them.
+   *
+   * `root` is required, unlike the `project?` an Agent's own file operations
+   * take: trust is bound to the *repository this Seat will actually open in*
+   * (`evidence/seen.ts`'s own incarnation, the same call `seatAgent` makes
+   * with the Seat's real `cwd`), which for a `user`-origin Agent is never the
+   * Agent's own folder — the two can be, and normally are, different
+   * directories entirely. Reviewing without naming that root would bind
+   * trust to the wrong incarnation, and a later Seat opened in the project
+   * a person actually meant would find nothing approved.
    */
   'attachment/review': {
-    params: { readonly id: string; readonly origin: AgentOrigin; readonly project?: string; readonly runtime: string }
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly root: string; readonly runtime: string }
     result: AttachmentReview
   }
   /** Records a person's approval of exactly the reviewed token. */

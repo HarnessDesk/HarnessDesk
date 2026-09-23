@@ -149,8 +149,15 @@ export const attachmentMethods = {
 
   'attachment/review': async (ctx, params) => {
     const attachments = requireAttachments(ctx)
-    const project = await projectOf(ctx, params.project)
-    const at = await definitionAt(ctx, params.id, params.origin, project)
+    // `root` names the project this Agent would actually be *seated* in —
+    // never re-derived from the Agent's own origin, which for a `user`
+    // Agent is a different folder entirely. `seatAgent` binds trust to
+    // `incarnationOf(project ?? params.cwd)`, i.e. exactly this same
+    // project; reviewing against any other root would freeze an approval
+    // the real Seat could never actually match.
+    const root = await projectOf(ctx, params.root)
+    if (!root) throw new Error('Choose the project this Agent would be seated in.')
+    const at = await definitionAt(ctx, params.id, params.origin, root)
     if (!at.definition || at.digest === null) {
       throw new Error(`${at.path} cannot be read as an Agent, so nothing here can be reviewed.`)
     }
@@ -158,13 +165,13 @@ export const attachmentMethods = {
     if (!runtime) throw new Error(`There is no runtime called “${params.runtime}” to review this Agent against.`)
     const { resolved } = await resolveAttachmentDeclarations(
       asEntry(params.id, params.origin, { path: at.path, digest: at.digest, definition: at.definition }),
-      project ?? '',
+      root,
       ctx.runtimes.inventory(),
     )
-    const incarnation = await incarnationOf(project ?? at.folder)
+    const incarnation = await incarnationOf(root)
     return attachments.trust.preview(
       {
-        project: project ?? at.folder,
+        project: root,
         incarnation,
         agent: params.id,
         origin: params.origin,

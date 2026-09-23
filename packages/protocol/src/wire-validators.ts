@@ -733,19 +733,25 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     project: optional(isString),
   }),
 
-  'attachment/agent': shape({
+  // `goalShape`, not the plain `shape` most methods above use: decision 2 of
+  // Task 5 is explicit that these particular methods reject an extra key
+  // before dispatch — a ceiling, a digest, an "approved" or "loaded" flag, a
+  // client can never plant on a request it does not own. `goalShape` is
+  // exactly that check (already proven by every `goal/*` method above);
+  // named for where it was first needed, not for what it is.
+  'attachment/agent': goalShape({
     id: isFilled,
     origin: literalUnion('project', 'user', 'builtin'),
     project: optional(isString),
   }),
-  'attachment/edit/preview': shape({
+  'attachment/edit/preview': goalShape({
     id: isFilled,
     origin: literalUnion('user', 'project'),
     project: optional(isString),
     skills: arrayOf(isString),
     mcp: arrayOf(isString),
   }),
-  'attachment/edit/write': shape({
+  'attachment/edit/write': goalShape({
     id: isFilled,
     origin: literalUnion('user', 'project'),
     project: optional(isString),
@@ -753,25 +759,25 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     mcp: arrayOf(isString),
     digest: isFilled,
   }),
-  'attachment/notes': shape({
+  'attachment/notes': goalShape({
     id: isFilled,
     origin: literalUnion('project', 'user', 'builtin'),
     project: optional(isString),
   }),
-  'attachment/notes/clear': shape({
+  'attachment/notes/clear': goalShape({
     id: isFilled,
     origin: literalUnion('user', 'project'),
     project: optional(isString),
     digest: isFilled,
   }),
-  'attachment/review': shape({
+  'attachment/review': goalShape({
     id: isFilled,
     origin: literalUnion('project', 'user', 'builtin'),
-    project: optional(isString),
+    root: atMost(4096, isFilled),
     runtime: isFilled,
   }),
-  'attachment/approve': shape({ token: atMost(200, isFilled) }),
-  'attachment/seat': shape({ seat: isFilled }),
+  'attachment/approve': goalShape({ token: atMost(200, isFilled) }),
+  'attachment/seat': goalShape({ seat: isFilled }),
 
   'evidence/seat': shape({ runtime: isFilled, sessionId: isFilled }),
   'evidence/checks': shape({ project: isFilled }),

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { AgentAttachmentsView, AgentEntry, AttachmentEditPreview, AttachmentReview } from '@harnessdesk/protocol'
 
 import { Banner, Button, CodeText, ConfirmDialog, Dialog, Note, Checkbox, Row, Rows, SectionHead } from '../design'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { DiffView } from './Diff'
 
 /**
@@ -20,6 +20,7 @@ import { DiffView } from './Diff'
  */
 export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [view, setView] = useState<AgentAttachmentsView | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
@@ -60,9 +61,9 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
           title={view.mcpMode === 'runtime-defaults' ? 'Runtime defaults' : mcpNames.join(', ')}
           control={editable ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit…</Button> : undefined}
         />
-        {loadable && capableRuntime && (
+        {loadable && capableRuntime && snapshot.workspace && (
           <Row
-            title={`Review what ${capableRuntime} would load`}
+            title={`Review what ${capableRuntime} would load in ${snapshot.workspace.name}`}
             control={<Button size="sm" variant="outline" onClick={() => setReviewing(true)}>Review & Approve…</Button>}
           />
         )}
@@ -75,8 +76,8 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
           onSaved={(next) => { setView(next); setEditing(false) }}
         />
       )}
-      {reviewing && capableRuntime && (
-        <AttachmentReviewDialog entry={entry} runtime={capableRuntime} onClose={() => setReviewing(false)} />
+      {reviewing && capableRuntime && snapshot.workspace && (
+        <AttachmentReviewDialog entry={entry} root={snapshot.workspace.path} runtime={capableRuntime} onClose={() => setReviewing(false)} />
       )}
     </>
   )
@@ -200,10 +201,12 @@ const AttachmentEditDialog = ({
  */
 const AttachmentReviewDialog = ({
   entry,
+  root,
   runtime,
   onClose,
 }: {
   readonly entry: AgentEntry
+  readonly root: string
   readonly runtime: string
   readonly onClose: () => void
 }) => {
@@ -215,12 +218,12 @@ const AttachmentReviewDialog = ({
 
   useEffect(() => {
     let live = true
-    store.reviewAttachments(entry.id, entry.origin, runtime).then(
+    store.reviewAttachments(entry.id, entry.origin, root, runtime).then(
       (next) => { if (live) setReview(next) },
       (error: unknown) => { if (live) setProblem(error instanceof Error ? error.message : String(error)) },
     )
     return () => { live = false }
-  }, [entry.id, entry.origin, runtime, store])
+  }, [entry.id, entry.origin, root, runtime, store])
 
   if (approved) {
     return (
