@@ -98,3 +98,51 @@ it('keeps generic historical gaps visible beside partial Agent Seats', async () 
   expect(container.textContent).toContain('Expensive')
   expect(container.textContent).toContain('Some historical usage is unavailable.')
 })
+
+it('wraps every unavailable source’s full failure sentence instead of clipping it, one row per source', async () => {
+  const longSentence = 'Recorded usage is unavailable because the folder that holds this Agent’s own transcripts could not be opened for reading on this machine.'
+  const secondSentence = 'A second, differently unavailable recorded usage source.'
+  const multiFailure = {
+    ...report(),
+    seats: [],
+    sources: [
+      { id: 'unavailable-one', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: longSentence },
+      { id: 'unavailable-two', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: secondSentence },
+    ],
+  }
+  const readAgentInsight = vi.fn(async () => multiFailure)
+  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight, previewInsightOrder: vi.fn(), applyInsightOrder: vi.fn() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+  await act(async () => {})
+
+  // `data-wrap` is what the stylesheet keys on to let a sentence run to a
+  // second line instead of being ellipsised — see Row's `wrapDesc`.
+  const wrapped = [...container.querySelectorAll('[data-wrap]')]
+  expect(wrapped.map((el) => el.textContent)).toEqual([longSentence, secondSentence])
+})
+
+it('keeps a group-level gap note outside the Rows card rather than flush against it', async () => {
+  const withGapAndFailure = {
+    ...report(),
+    seats: [],
+    sources: [{ id: 'unavailable', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Recorded usage is unavailable.' }],
+    gaps: ['Some historical usage is unavailable.'],
+  }
+  const readAgentInsight = vi.fn(async () => withGapAndFailure)
+  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight, previewInsightOrder: vi.fn(), applyInsightOrder: vi.fn() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+  await act(async () => {})
+
+  const note = [...container.querySelectorAll('[data-slot="note"]')].find((el) => el.textContent === 'Some historical usage is unavailable.')
+  expect(note).toBeTruthy()
+  // The failed-source row's wrapped desc span sits, by Row's own fixed
+  // markup, three levels below the Rows card: the desc span, inside
+  // rowText, inside the row itself, inside the card — not a guess at a
+  // hashed CSS-module class name.
+  const wrappedDesc = container.querySelector('[data-wrap]')
+  expect(wrappedDesc).toBeTruthy()
+  const card = wrappedDesc!.parentElement!.parentElement!.parentElement!
+  expect(card.contains(note!)).toBe(false)
+})

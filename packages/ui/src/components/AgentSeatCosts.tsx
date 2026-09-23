@@ -67,7 +67,17 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
   return (
     <section aria-label="Historical seat costs">
       <SectionHead name="Historical seat costs" />
-      {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <Rows>{historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}{failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}{report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}</Rows>}
+      {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <>
+        <Rows>
+          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
+          {failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} wrapDesc control={<Chip tone="warning">Unavailable</Chip>} />)}
+        </Rows>
+        {/* A gap belongs to the whole read, not to one row, and Note carries
+            no card padding of its own — inside Rows its text sat flush
+            against the card's edge. Outside it, Note's own margin is the
+            spacing. */}
+        {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
+      </>}
       <Note>This history is read-only. Ordering seats remains an explicit local action.</Note>
       <Button size="sm" variant="outline" disabled={!comparable || ordering} title={comparable ? 'Review a local order from comparable historical seats.' : 'Two current candidates need a shared recorded brief and completed Goal.'} onClick={() => void review()}>Order by cost</Button>
       {orderProblem && !preview ? <Note tone="warn">{orderProblem}</Note> : null}

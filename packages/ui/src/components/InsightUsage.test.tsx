@@ -82,3 +82,53 @@ it('keeps safe unreadable-source warnings visible when the Dashboard has no attr
   expect(container.textContent).toContain('Recorded usage')
   expect(container.textContent).toContain('Unavailable')
 })
+
+it('wraps every unavailable source’s full failure sentence instead of clipping it, one row per source', async () => {
+  const longSentence = 'Recorded usage source could not be discovered because the folder that holds an agent’s own transcripts could not be opened for reading on this machine.'
+  const secondSentence = 'A second, differently unavailable recorded usage source.'
+  const multiFailure = {
+    ...report(),
+    breakdowns: [],
+    sources: [
+      { id: 'unreadable-one', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: longSentence },
+      { id: 'unreadable-two', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: secondSentence },
+    ],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => multiFailure), openGoal: vi.fn() } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+
+  // `data-wrap` is what the stylesheet keys on to let a sentence run to a
+  // second line instead of being ellipsised — see Row's `wrapDesc`.
+  const wrapped = [...container.querySelectorAll('[data-wrap]')]
+  expect(wrapped.map((el) => el.textContent)).toEqual([longSentence, secondSentence])
+})
+
+it('keeps a group-level gap note outside the Rows card rather than flush against it', async () => {
+  const withGapAndFailure = {
+    ...report(),
+    breakdowns: [],
+    sources: [{ id: 'unreadable', kind: 'corpus' as const, label: 'Recorded usage', observedAt: null, checkedAt: 10, stale: false, problem: 'Recorded usage source could not be discovered.' }],
+    gaps: ['Recorded usage may be incomplete.'],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => withGapAndFailure), openGoal: vi.fn() } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+
+  const note = [...container.querySelectorAll('[data-slot="note"]')].find((el) => el.textContent === 'Recorded usage may be incomplete.')
+  expect(note).toBeTruthy()
+  // The failed-source row's wrapped desc span sits, by Row's own fixed
+  // markup, three levels below the Rows card: the desc span, inside
+  // rowText, inside the row itself, inside the card — not a guess at a
+  // hashed CSS-module class name.
+  const wrappedDesc = container.querySelector('[data-wrap]')
+  expect(wrappedDesc).toBeTruthy()
+  const card = wrappedDesc!.parentElement!.parentElement!.parentElement!
+  expect(card.contains(note!)).toBe(false)
+})
