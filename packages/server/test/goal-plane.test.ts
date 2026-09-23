@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
-import type { BoardEvidence, SeatRecord } from '@harnessdesk/protocol'
+import type { BoardEvidence, FlowExecution, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalPlanePort } from '../src/goals/plane.js'
 import { migrateDesk } from '../src/goals/migration.js'
@@ -260,4 +260,34 @@ test('a wrap that will proceed does stop flow dispatch, exactly once, before it 
   const receipt = await proof.plane.wrap('g1', preview.stamp, choices)
   assert.equal(receipt.summary, 'Done')
   assert.equal(stopFlowsCalls, 1, 'a wrap that goes on to commit still stops dispatch, once, as its barrier')
+})
+
+/*
+ * A person step a run on this Goal opened is the person's to answer: the
+ * Goal itself says it needs them, the same as the board draws the card.
+ */
+test('a person step of a run on the Goal makes the Goal need its person', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({
+    ...document,
+    board: { ...document.board, nextIntent: 3, intents: [intent(1, { state: 'done' }), intent(2, { state: 'open', role: 'close' })] },
+    goal: { ...document.goal, revision: 1 },
+  }, 0)
+  proof.facts({
+    room: 'g1', stamp: 2, checks: ['verify'], refused: [], unreadable: null,
+    cards: [{ card: 1, running: [], facts: [{
+      record: { id: 'fact', card: { board: 'g1', id: 1 }, observedAt: 2,
+        fact: { kind: 'check', name: 'verify', run: 'node --test', exit: 0, timedOut: false, at: 'a'.repeat(40), dirty: false, tail: '' } },
+      freshness: { state: 'fresh' }, by: null,
+    }] }],
+  })
+  const execution = {
+    version: 2, id: 'flow-1', goal: 'g1', state: 'running', reason: null, operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'close', kind: 'person', outcomes: ['closed'] }] } },
+    rounds: [{ n: 2, role: 'close', cards: [2], seats: [], evidence: [], state: 'running', cause: 'after:1:to-close' }],
+  } as unknown as FlowExecution
+  assert.notEqual((await proof.plane.view('g1')).activity, 'needs-you', 'an open card no run addressed to a person is not the person’s')
+  proof.port.executions = () => [execution]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
 })

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 
 import {
-  activityOf, checkedDependencies, flowRoleOf, placeCard,
-  type BoardEvidence, type FlowPermission, type FlowRun, type FlowSeat,
+  activityOf, checkedDependencies, flowStepOf, placeCard,
+  type BoardEvidence, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
   type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
@@ -52,6 +52,8 @@ export interface GoalPlanePort extends GoalOperationPort {
   stopFlows?(goal: string): Promise<void>
   /** Whether a run on this Goal (not only an old room's run) is still running or stalled. */
   flowLive?(goal: string): boolean
+  /** The runs on this Goal, as the flow engine keeps them: which of its cards are a person's steps. */
+  executions?(goal: string): readonly FlowExecution[]
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -123,12 +125,13 @@ export class GoalPlane {
       problem = error instanceof Error ? error.message : String(error)
     }
     const run = this.port.flow(id)
+    const executions = this.port.executions?.(id) ?? []
     const placements = board.intents.map((intent) => placeCard({
       intent,
       evidence: evidence?.cards.find((card) => card.card === intent.id),
       stranded: this.port.stranded(id, intent.id),
       holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
-      forPerson: flowRoleOf(intent, run)?.kind === 'person',
+      forPerson: flowStepOf(intent, run, executions)?.kind === 'person',
     }))
     const dependencies = this.store.list().map((one) => one.goal)
     const activity = document.restored ? null : activityOf(document.goal, {

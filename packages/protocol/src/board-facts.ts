@@ -1,5 +1,6 @@
 import type { CardEvidence, EvidenceView } from './evidence.js'
 import type { FlowRole, FlowRun } from './flow.js'
+import type { FlowExecution } from './flow-policy.js'
 import type { Intent } from './team.js'
 
 import { checkPassed, ciVerdict, isCurrent } from './evidence-status.js'
@@ -32,6 +33,38 @@ export const flowRoleOf = (intent: Intent, run: FlowRun | undefined): FlowRole |
   if (!intent.role || !run) return null
   if (!run.rounds.some((round) => round.intents.includes(intent.id))) return null
   return run.flow.roles.find((one) => one.id === intent.role) ?? null
+}
+
+/** What a card is to the flow that opened it: whose step, and the words that step may answer. */
+export interface FlowStep {
+  readonly kind: FlowRole['kind']
+  readonly outcomes: readonly string[]
+}
+
+/**
+ * The step a live flow addressed this card to — an old-format run on a room,
+ * or a run on a Goal — only when one of that run's own rounds opened it. A
+ * person's step is answered with its declared words; a card no live run
+ * opened is none. The board and the Goal's own activity both read this, so
+ * a card that needs its person is drawn and counted the same way.
+ */
+export const flowStepOf = (
+  intent: Intent,
+  run: FlowRun | undefined,
+  executions: readonly FlowExecution[],
+): FlowStep | null => {
+  const legacy = flowRoleOf(intent, run)
+  if (legacy) return { kind: legacy.kind, outcomes: legacy.outcomes }
+  if (!intent.role) return null
+  for (const execution of executions) {
+    if (execution.state !== 'running' && execution.state !== 'stalled') continue
+    if (execution.document.format !== 'agents') continue
+    if (!execution.rounds.some((round) => round.role === intent.role && round.cards.includes(intent.id))) continue
+    const role = execution.document.flow.roles.find((one) => one.id === intent.role)
+    if (!role) continue
+    return { kind: role.kind, outcomes: role.kind === 'person' ? role.outcomes : [] }
+  }
+  return null
 }
 
 const subjectOf = (view: EvidenceView): string | null => {
