@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { open, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import type { Goal, GoalBoard, GoalCitation, GoalId, GoalReceipt, Lane, Plan, SeatId } from '@harnessdesk/protocol'
+import type { Goal, GoalBoard, GoalCitation, GoalId, GoalMemoryIndex, GoalReceipt, Lane, Plan, SeatId } from '@harnessdesk/protocol'
 
 import type { RememberedMember } from './migration.js'
 import type { GoalOperation } from './operations.js'
@@ -21,6 +21,13 @@ export interface GoalDocument {
     readonly seatLocations: Readonly<Record<SeatId, 'remembered' | 'inferred'>>
   }
   readonly citations: readonly GoalCitation[]
+  /**
+   * Phase 12's citation archive references and citation-created dependency
+   * markers. Optional: missing means legacy, never corrupted, and a document
+   * with citations but no `memory` simply has nothing retained for any of
+   * them yet.
+   */
+  readonly memory?: GoalMemoryIndex
   readonly receipt: GoalReceipt | null
   readonly operation: GoalOperation | null
 }
@@ -91,11 +98,13 @@ const strings = (value: unknown): value is string[] =>
 const sha = (value: unknown): value is string =>
   typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
 
-const citationOf = (value: unknown): value is GoalCitation =>
+/** Shared with `memory/plane.ts`, which reads a retained snapshot's own citation back through the same rule this store already applies to `GoalDocument.citations`. */
+export const citationOf = (value: unknown): value is GoalCitation =>
   object(value) && typeof value.goal === 'string' && typeof value.receipt === 'string' &&
   typeof value.project === 'string' && typeof value.path === 'string' && sha(value.at)
 
-const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalReceipt => {
+/** Shared with `memory/plane.ts`: a retained snapshot's own receipt is read back exactly as strictly as this store already reads a wrapped Goal's. */
+export const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalReceipt => {
   if (!object(value) || value.version !== 1 || value.goal !== goal || value.id !== id ||
     typeof value.id !== 'string' || typeof value.sentence !== 'string' ||
     !Number.isFinite(value.wrappedAt) || typeof value.summary !== 'string' ||
@@ -114,6 +123,16 @@ const receiptOf = (value: unknown, goal: string, id: unknown): value is GoalRece
     (revision.head === null || sha(revision.head)) && (revision.dirty === null || typeof revision.dirty === 'boolean'))) return false
   return value.citations.every(citationOf)
 }
+
+const archiveKeyOf = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
+
+/** Phase 12's optional `memory` field: archive references and citation-created dependency markers, read no more leniently than anything else here. */
+export const memoryIndexOf = (value: unknown): value is GoalMemoryIndex =>
+  object(value) &&
+  Array.isArray(value.citations) &&
+  value.citations.every((one) => object(one) && citationOf(one.citation) && archiveKeyOf(one.archive)) &&
+  Array.isArray(value.satisfiedCitationSources) &&
+  value.satisfiedCitationSources.every((one) => object(one) && typeof one.goal === 'string' && typeof one.receipt === 'string')
 
 /** Refuse a partial or newer document; do not repair it by dropping fields. */
 export function documentOf(value: unknown): GoalDocument {
@@ -134,6 +153,7 @@ export function documentOf(value: unknown): GoalDocument {
     !Number.isSafeInteger(board.nextIntent) || Number(board.nextIntent) < 1 ||
     typeof board.messaging !== 'boolean' || !Array.isArray(board.intents) || !Array.isArray(board.channel) ||
     !Array.isArray(value.citations) || !value.citations.every(citationOf) ||
+    (value.memory !== undefined && !memoryIndexOf(value.memory)) ||
     !('receipt' in value) || !('operation' in value)
   ) return bad()
   for (const card of board.intents) {
@@ -185,6 +205,11 @@ export class GoalStore {
   #index: GoalIndex = { version: 1, noticeSeen: true, ids: [] }
   #tail: Promise<void> = Promise.resolve()
   #problem: Error | null = null
+
+  /** This store's own machine-state directory — never a repository path — for a sibling like the memory citation archive to be placed under. */
+  get directory(): string {
+    return this.#directory
+  }
 
   constructor(home: string, write: typeof atomicJson = atomicJson) {
     this.#directory = join(home, 'goals')

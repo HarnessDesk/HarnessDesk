@@ -64,6 +64,23 @@ test('a preview owns immutable copies of every reviewed collection', () => {
   assert.equal(preview.stamp, wrapStamp(input(), choices()))
 })
 
+test('receipt freezes citation references: a later revision of the same input never changes the wrapped copy', () => {
+  const citation = {
+    goal: 'source', receipt: 'receipt-source', project: '/work/repo',
+    path: '.harnessdesk/memory/note.md', at: 'a'.repeat(40),
+  }
+  const source = input({ citations: [citation] })
+  const preview = previewWrap(source, choices())
+  assert.deepEqual(preview.receipt.citations, [citation])
+  // A later citation naming the same source at a newer commit — or the
+  // same input object mutated in place by a caller that kept a reference —
+  // must never reach back into the already-built receipt: `previewWrap`
+  // clones on the way in, once, and the receipt owns its own copy from then on.
+  ;(source.citations as WrapInput['citations'] & unknown[])[0] = { ...citation, at: 'b'.repeat(40) }
+  assert.deepEqual(preview.receipt.citations, [citation])
+  assert.notDeepEqual(preview.receipt.citations, source.citations)
+})
+
 test('a changed reviewed snapshot stages, closes and finishes nothing', async () => {
   let current = input()
   const effects: string[] = []

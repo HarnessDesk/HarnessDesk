@@ -1,20 +1,22 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
-import type { BoardEvidence, SeatRecord } from '@harnessdesk/protocol'
+import type { BoardEvidence, GoalCitation, SeatRecord } from '@harnessdesk/protocol'
 
-import { GoalPlane, type GoalPlanePort } from '../src/goals/plane.js'
+import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
 import { migrateDesk } from '../src/goals/migration.js'
+import { MemoryPlane } from '../src/memory/plane.js'
 import { GoalStore } from '../src/goals/store.js'
 import { goal, intent, seat } from './fixtures/goals.js'
 import { tempDir } from './scratch.js'
 
 const exec = promisify(execFile)
 
-const rig = async (root = '/work/repo', citationCheck?: (root: string, path: string, at: string) => Promise<void>) => {
+/** A real `MemoryPlane`, optionally wrapping `capture` with a caller-controlled delay — this file's own stand-in for the old bare `citationCheck` injection point. */
+const rig = async (root = '/work/repo', delayCapture?: (citation: GoalCitation) => Promise<void>) => {
   const home = tempDir('hd-goal-plane-')
   await migrateDesk(home, async () => {})
   const store = new GoalStore(home)
@@ -65,9 +67,22 @@ const rig = async (root = '/work/repo', citationCheck?: (root: string, path: str
     finishWrap: forbidden,
     wake: () => {},
   }
+  const real = new MemoryPlane(tempDir('hd-goal-plane-memory-'), {
+    receiptOf: (id) => { try { return store.read(id).receipt } catch { return null } },
+    seats: { byId: (id) => seats.find((one) => one.id === id) ?? null },
+  })
+  const memory: GoalMemorySupport = {
+    capture: async (citation) => {
+      if (delayCapture) await delayCapture(citation)
+      return real.capture(citation)
+    },
+    resolve: (citation) => real.resolve(citation),
+    register: (index, restored) => real.register(index, restored),
+    isKnownRestored: (citation) => real.isKnownRestored(citation),
+  }
   return {
     store, seats, port, transitions,
-    plane: new GoalPlane(store, port, undefined, Date.now, citationCheck),
+    plane: new GoalPlane(store, port, undefined, Date.now, memory),
     facts: (next: BoardEvidence) => { facts = next },
     failRead: () => { readError = true },
   }
@@ -149,7 +164,10 @@ test('failed wrap replay keeps startup readable and exposes a retryable read-onl
 test('citation and dependency commit atomically, deduplicate, and reject cycles or save failure', async () => {
   const root = tempDir('hd-goal-plane-citation-')
   await exec('git', ['init', '-q'], { cwd: root })
-  await writeFile(`${root}/receipt.md`, 'reviewed\n')
+  // Citations now name a memory file specifically (decision 1, phase 12):
+  // `.harnessdesk/memory/<slug>.md`, never an arbitrary repository path.
+  await mkdir(`${root}/.harnessdesk/memory`, { recursive: true })
+  await writeFile(`${root}/.harnessdesk/memory/receipt.md`, 'reviewed\n')
   await exec('git', ['add', '.'], { cwd: root })
   await exec('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-qm', 'receipt'], { cwd: root })
   const at = (await exec('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim()
@@ -167,7 +185,7 @@ test('citation and dependency commit atomically, deduplicate, and reject cycles 
     }
   }
   await proof.store.save(wrapped('source'), null)
-  const citation = { goal: 'source', receipt: 'receipt-source', project: root, path: 'receipt.md', at }
+  const citation = { goal: 'source', receipt: 'receipt-source', project: root, path: '.harnessdesk/memory/receipt.md', at }
   await proof.plane.cite('g1', citation)
   assert.deepEqual(proof.store.read('g1').goal.dependsOn, ['source'])
   assert.deepEqual(proof.store.read('g1').citations, [citation])
@@ -183,7 +201,7 @@ test('citation and dependency commit atomically, deduplicate, and reject cycles 
     board: { nextIntent: 1, messaging: true, intents: [], channel: [] }, citations: [], receipt: null, operation: null,
   }, null)
   await assert.rejects(proof.plane.cite('cycle-target', {
-    goal: 'cycle-source', receipt: 'receipt-cycle-source', project: root, path: 'receipt.md', at,
+    goal: 'cycle-source', receipt: 'receipt-cycle-source', project: root, path: '.harnessdesk/memory/receipt.md', at,
   }), /wait on each other|circular/)
   assert.deepEqual(proof.store.read('cycle-target').goal.dependsOn, [])
   assert.deepEqual(proof.store.read('cycle-target').citations, [])
@@ -196,7 +214,7 @@ test('citation and dependency commit atomically, deduplicate, and reject cycles 
   const save = proof.store.save.bind(proof.store)
   proof.store.save = async () => { throw new Error('injected save failure') }
   await assert.rejects(proof.plane.cite('failure-target', {
-    goal: 'failure-source', receipt: 'receipt-failure-source', project: root, path: 'receipt.md', at,
+    goal: 'failure-source', receipt: 'receipt-failure-source', project: root, path: '.harnessdesk/memory/receipt.md', at,
   }), /injected save failure/)
   proof.store.save = save
   assert.deepEqual(proof.store.read('failure-target').goal.dependsOn, [])
@@ -216,7 +234,7 @@ test('citation and dependency commit atomically, deduplicate, and reject cycles 
   let racedWrites = 0
   raced.store.save = async (...args) => { racedWrites += 1; await racedSave(...args) }
   const pending = raced.plane.cite('raced-target', {
-    goal: 'raced-source', receipt: 'receipt-raced-source', project: root, path: 'receipt.md', at,
+    goal: 'raced-source', receipt: 'receipt-raced-source', project: root, path: '.harnessdesk/memory/receipt.md', at,
   })
   await checking
   const closed = wrapped('raced-target')

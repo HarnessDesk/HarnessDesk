@@ -1,20 +1,35 @@
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
 import {
   activityOf, checkedDependencies, flowRoleOf, placeCard,
   type BoardEvidence, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
 import type { SeatOpening } from '../evidence/records.js'
+import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
 import { recoverOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
-import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
+import { previewWrap, Wraps, type WrapInput } from './wrap.js'
+
+/**
+ * What `GoalPlane` needs from memory beyond the citation/resolution pair
+ * every other consumer sees (`GoalMemoryPort`): the same live-registration
+ * bookkeeping `MemoryPlane` already keeps for `resolve`, reused here so a
+ * citation-created dependency edge can be checked synchronously — no
+ * `canDispatch` caller in this codebase can be made to await one more I/O
+ * round trip just to learn whether a Goal may be dispatched.
+ */
+export interface GoalMemorySupport extends GoalMemoryPort {
+  register(index: GoalMemoryIndex, restored?: boolean): void
+  isKnownRestored(citation: GoalCitation): boolean
+}
 
 export interface GoalPlanePort extends GoalOperationPort {
   seats: {
@@ -63,13 +78,25 @@ export class GoalPlane {
   readonly #activity = new Map<string, NonNullable<GoalView['activity']>>()
   readonly #recoveryProblems = new Map<string, string>()
 
+  private readonly memory: GoalMemorySupport
+
   constructor(
     readonly store: GoalStore,
     private readonly port: GoalPlanePort,
     readonly serial = new Serial(),
     private readonly now: () => number = Date.now,
-    private readonly citationCheck: typeof citationBlob = citationBlob,
+    memory?: GoalMemorySupport,
   ) {
+    this.memory = memory ?? new MemoryPlane(join(store.directory, 'memory-archive'), {
+      receiptOf: (goal) => {
+        try {
+          return this.store.read(goal).receipt
+        } catch {
+          return null
+        }
+      },
+      seats: { byId: (id) => this.port.seats.byId(id) },
+    }, now)
     this.#assignments = new Assignments({
       goal: (id) => { this.#dispatch(id); return this.store.read(id).goal },
       seats: () => port.seats.all(),
@@ -217,9 +244,22 @@ export class GoalPlane {
 
   dependenciesReady(id: string): boolean {
     const documents = this.store.list()
-    return this.store.read(id).goal.dependsOn.every((dependency) =>
-      documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped',
-    )
+    const document = this.store.read(id)
+    return document.goal.dependsOn.every((dependency) => {
+      if (documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped') return true
+      // Missing, or not yet wrapped: an ordinary dependency stays blocked.
+      // Only the one edge a citation itself created — and only while its
+      // retention is genuinely, locally verified, never merely restored —
+      // may still count as satisfied. Checked synchronously and entirely
+      // from what `cite` already recorded: no caller here can be made to
+      // await an archive read just to learn whether a Goal may dispatch.
+      const source = document.memory?.satisfiedCitationSources.find((one) => one.goal === dependency)
+      if (!source) return false
+      const citation = document.memory?.citations.find(
+        (one) => one.citation.goal === dependency && one.citation.receipt === source.receipt,
+      )?.citation
+      return citation !== undefined && !this.memory.isKnownRestored(citation)
+    })
   }
 
   canDispatch(id: string): { ok: true } | { ok: false; reason: string } {
@@ -274,7 +314,46 @@ export class GoalPlane {
 
   async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
     await this.port.settledFor(goal)
+    await this.#resolveCitationsBeforeWrap(goal)
     return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
+  }
+
+  /**
+   * Best-effort retention for any citation on this Goal that was never
+   * captured — a document from before this phase shipped, most of all. The
+   * citation itself is never rewritten, only `memory` gains an entry for it;
+   * a source no longer available is left exactly as unresolved as it already
+   * was; a wrapped receipt this pass could not enrich still freezes whatever
+   * `document.citations` already says, honestly.
+   */
+  async #resolveCitationsBeforeWrap(goal: string): Promise<void> {
+    const document = this.store.read(goal)
+    if (document.restored || document.goal.state !== 'open') return
+    const known = new Set((document.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
+    const missing = document.citations.filter((one) => !known.has(JSON.stringify(one)))
+    if (missing.length === 0) return
+    const captured: { citation: GoalCitation; archive: string }[] = []
+    for (const citation of missing) {
+      try {
+        captured.push({ citation, archive: await this.memory.capture(citation) })
+      } catch {
+        // Best-effort: a source that can no longer be captured stays unresolved rather than blocking the wrap.
+      }
+    }
+    if (captured.length === 0) return
+    await this.serial.run(async () => {
+      const current = this.store.read(goal)
+      if (current.restored || current.goal.state !== 'open') return
+      const knownNow = new Set((current.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
+      const fresh = captured.filter((one) => !knownNow.has(JSON.stringify(one.citation)))
+      if (fresh.length === 0) return
+      const memory: GoalMemoryIndex = {
+        citations: [...(current.memory?.citations ?? []), ...fresh],
+        satisfiedCitationSources: current.memory?.satisfiedCitationSources ?? [],
+      }
+      await this.store.save({ ...current, memory, goal: { ...current.goal, revision: current.goal.revision + 1, updatedAt: this.now() } }, current.goal.revision)
+      this.memory.register(memory)
+    })
   }
 
   async receipt(goal: string): Promise<GoalReceipt | null> {
@@ -292,7 +371,14 @@ export class GoalPlane {
       if (source.goal.state !== 'wrapped' || source.receipt?.id !== citation.receipt) {
         throw new Error('Choose an existing wrapped receipt.')
       }
-      await this.citationCheck(target.goal.root, citation.path, citation.at)
+      // Retention precedes the Goal mutation: bytes, receipt and Seat context
+      // land durably in the archive before anything here ever references
+      // them, so a failure past this point leaves at most an unreferenced
+      // archive object — never a citation pointing at nothing. This await is
+      // also this method's one race window: another change can land on
+      // `goal` while it is pending, which the re-read and re-check right
+      // after it exist to catch.
+      const archive = await this.memory.capture(citation)
       target = this.store.read(goal)
       this.#editable(target)
       const currentSource = this.store.read(citation.goal)
@@ -303,11 +389,23 @@ export class GoalPlane {
       const dependsOn = checkedDependencies(target.goal,
         target.goal.dependsOn.includes(citation.goal) ? target.goal.dependsOn : [...target.goal.dependsOn, citation.goal],
         this.store.list().map((one) => one.goal))
+      const memory: GoalMemoryIndex = {
+        citations: [...(target.memory?.citations ?? []), { citation: structuredClone(citation), archive }],
+        satisfiedCitationSources: [
+          ...(target.memory?.satisfiedCitationSources ?? []).filter((one) => one.goal !== citation.goal),
+          { goal: citation.goal, receipt: citation.receipt },
+        ],
+      }
       await this.store.save({
         ...target,
         citations: [...target.citations, structuredClone(citation)],
+        memory,
         goal: { ...target.goal, dependsOn, revision: target.goal.revision + 1, updatedAt: this.now() },
       }, target.goal.revision)
+      // Registered only now, after the durable Goal mutation committed: a
+      // failed compare-and-swap above must never make this citation look
+      // resolvable when no Goal document actually references it.
+      this.memory.register(memory)
     })
   }
 
