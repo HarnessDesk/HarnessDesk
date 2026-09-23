@@ -292,3 +292,25 @@ seed: { role: writer, title: Write }
   assert.ok(legacy.problems.some((one) => one.text === 'This flow uses the old format'))
   assert.ok(legacy.problems.some((one) => one.text === 'Old read permission allows editing and committing.'))
 })
+
+test('rules must be a list: a scalar, a map or null is a parse error, never an empty list', () => {
+  const base = source('    kind: agent\n    uses: writer')
+  const rules = '  - { id: handoff, on: worker, when: { every: done }, then: { role: person, title: Review } }\n'
+  for (const [label, value] of [['scalar', ' handoff'], ['map', '\n  handoff: { on: worker, then: { role: person, title: Review } }'], ['null', ' null'], ['empty', '']] as const) {
+    const parsed = parseFlowPolicy(base.replace(`rules:\n${rules}`, `rules:${value}\n`))
+    assert.ok(parsed.problems.some((one) => one.level === 'error' && one.at === 'rules' && /list of rules/.test(one.text)), `${label}: ${JSON.stringify(parsed.problems)}`)
+  }
+  // An absent collection is still simply no rules.
+  const absent = parseFlowPolicy(base.replace(`rules:\n${rules}`, ''))
+  assert.equal(absent.problems.filter((one) => one.at === 'rules').length, 0)
+  assert.deepEqual(absent.document?.format === 'agents' ? absent.document.flow.rules : null, [])
+})
+
+test('when.evidence must be a list: a scalar, a map or null is a parse error, never an empty guard', () => {
+  for (const [label, value] of [['scalar', 'verify'], ['map', '{ check: verify }'], ['null', 'null']] as const) {
+    const parsed = parseFlowPolicy(source('    kind: agent\n    uses: writer').replace('when: { every: done }', `when: { every: done, evidence: ${value} }`))
+    assert.ok(parsed.problems.some((one) => one.level === 'error' && one.at === 'rules[0].when.evidence' && /list of guards/.test(one.text)), `${label}: ${JSON.stringify(parsed.problems)}`)
+  }
+  const listed = parseFlowPolicy(source('    kind: agent\n    uses: writer').replace('when: { every: done }', 'when: { every: done, evidence: [{ check: verify }] }'))
+  assert.equal(listed.problems.filter((one) => one.level === 'error').length, 0)
+})

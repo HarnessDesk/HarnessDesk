@@ -147,7 +147,13 @@ const readCheck = (record: Record<string, unknown>, at: string, problems: FlowPr
 
 const readEvidence = (value: unknown, at: string, problems: FlowProblem[]): FlowEvidenceGuard[] => {
   const out: FlowEvidenceGuard[] = []
-  for (const [index, raw] of (asList(value) ?? []).entries()) {
+  const list = asList(value)
+  // A scalar, a map or null is not "no guards": a guard written wrongly must never open a round unguarded.
+  if (!list) {
+    problems.push(problem('error', at, 'evidence is a list of guards, such as [{ check: verify }]'))
+    return out
+  }
+  for (const [index, raw] of list.entries()) {
     const guard = asRecord(raw)
     if (!guard || Object.keys(guard).length !== 1) {
       problems.push(problem('error', `${at}[${index}]`, 'an evidence guard names exactly one observed fact'))
@@ -232,10 +238,13 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
       roles.push({ id, kind: 'person', outcomes: words(record['outcomes'], `${at}.outcomes`, problems) })
     } else problems.push(problem('error', `${at}.kind`, `"${kind}" is not a kind — it is agent, person or check`))
   }
-  const rawRules = asList(root['rules']) ?? []
-  if (rawRules.length > RULE_LIMIT) problems.push(problem('error', 'rules', 'a flow may name at most 256 rules'))
+  // Absent means no rules; anything else that is not a list is refused rather than read as none.
+  const rawRules = root['rules'] === undefined ? [] : asList(root['rules'])
+  if (!rawRules) problems.push(problem('error', 'rules', 'rules is a list of rules, each starting with "- "'))
+  if (rawRules && rawRules.length > RULE_LIMIT) problems.push(problem('error', 'rules', 'a flow may name at most 256 rules'))
   const rules: FlowPolicyRule[] = []
-  rawRules.slice(0, RULE_LIMIT).forEach((raw, index) => {
+  const ruleList = rawRules ?? []
+  ruleList.slice(0, RULE_LIMIT).forEach((raw, index) => {
     const at = `rules[${index}]`
     const record = asRecord(raw)
     if (!record) { problems.push(problem('error', at, 'a rule is a map')); return }
