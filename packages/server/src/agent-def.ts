@@ -8,6 +8,7 @@ import {
   type FlowSeat,
 } from '@harnessdesk/protocol'
 
+import { parseNames } from './attachments/catalog.js'
 import { asList, asRecord, asText, isPermission, parseSeatList, problem } from './flow.js'
 import { parseYaml, YamlError } from './yaml.js'
 
@@ -48,12 +49,28 @@ const asWords = (value: unknown): string[] =>
     .filter(Boolean)
 
 /**
+ * Bounds an already-listed field — `skills`' words after `asWords` has
+ * dropped what is not one, or `mcp`'s raw listed values, which get no such
+ * forgiveness — through the one catalogue-name grammar every declared name
+ * answers to (`parseNames`, phase 12). A violation is one error naming the
+ * field, never a partial list quietly missing the entry that broke it.
+ */
+const namesField = (raw: unknown[], at: 'skills' | 'mcp', problems: AgentProblem[]): string[] => {
+  try {
+    return [...parseNames(raw)]
+  } catch (error) {
+    problems.push(problem('error', at, error instanceof Error ? error.message : String(error)))
+    return []
+  }
+}
+
+/**
  * The fields an Agent has. The front matter is read for these and nothing else,
  * each only where the file itself sets it; any other key is named in a warning,
  * because read as nothing it fails silently — `permissions: merge` is a ceiling
  * of read, and an author who believes otherwise.
  */
-const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'prefer'] as const
+const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'mcp', 'prefer'] as const
 type Field = (typeof FIELDS)[number]
 
 /** Front matter opens on a line of exactly `---`, so `--- draft` opens nothing. */
@@ -169,6 +186,18 @@ export const parseAgentDefinition = (
   const { seats: prefer, broken } = parseSeatList(listed)
   for (const one of broken) problems.push(problem('error', `prefer[${one.index}]`, one.text))
 
+  /* Both catalogues share one bounded-name grammar (`parseNames`) and one
+     empty-means-runtime-defaults meaning, but never each other's names.
+     `skills` first keeps phase 2's scalar-to-one-word compatibility and its
+     silent drop of a non-scalar list entry (`- name: review` is not a name);
+     what changes here is the bound applied *after* that: at most 64 already-
+     scalar words, each a catalogue identifier. `mcp` gets no such forgiving
+     first pass — an object, a URL or a bare path must be refused on its own
+     line rather than silently dropped, because it is exactly the shape of a
+     command or a credential a repository must never get to hand a runtime. */
+  const skills = namesField(asWords(field('skills')), 'skills', problems)
+  const mcp = namesField(oneOrMore(field('mcp')), 'mcp', problems)
+
   for (const key of Object.keys(head)) {
     if (!(FIELDS as readonly string[]).includes(key)) {
       problems.push(
@@ -189,7 +218,8 @@ export const parseAgentDefinition = (
       ceilingFrom,
       answers: asWords(field('answers')),
       produces: asWords(field('produces')),
-      skills: asWords(field('skills')),
+      skills,
+      mcp,
       prefer,
       brief,
     },

@@ -30,6 +30,14 @@ export interface AgentDefinition {
   /** Skills it may load, by name. Empty means whatever the runtime already has. */
   readonly skills: readonly string[]
   /**
+   * MCP servers it may load, by catalogue name — never a command, url or
+   * path. Empty means whatever the runtime already has, the same rule
+   * `skills` uses (phase 12's decision 7): the two lists share their
+   * empty-means-defaults meaning and their bounded-name grammar
+   * (`parseNames` in `attachments/catalog.ts`), but never each other's names.
+   */
+  readonly mcp: readonly string[]
+  /**
    * Ordered seat preference — the first candidate that is installed, signed in
    * and unspent is taken. The same grammar a flow role's `seats` uses, because
    * it is the same thing: `runtime[=model][/effort][+thinking]`.
