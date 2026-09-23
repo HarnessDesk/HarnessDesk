@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import nodeFs from 'node:fs'
+import nodeFsPromises from 'node:fs/promises'
 import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -391,4 +393,62 @@ test('the OpenCode database scanner refuses a source already over the remaining 
     (error) => error instanceof InsightBudgetExceededError,
   )
   assert.equal(samples.length, 0, 'a database already over budget is refused before it is opened for its real read')
+})
+
+test('a line with no terminator at all is never buffered past the remaining Insight budget', async (t) => {
+  const dir = tempDir('hd-insight-no-newline-')
+  const path = join(dir, 'rollout.jsonl')
+  // One line, deliberately with no terminator anywhere in it — the shape
+  // that let `pending` grow without bound, since the budget was checked
+  // only when a newline arrived.
+  await writeFile(path, 'x'.repeat(2_000_000))
+  let capturedEnd: number | undefined
+  let calledForTarget = false
+  const originalCreateReadStream = nodeFs.createReadStream
+  t.mock.method(nodeFs, 'createReadStream', ((streamPath: unknown, options?: { start?: number; end?: number }) => {
+    if (streamPath === path) { calledForTarget = true; capturedEnd = options?.end }
+    return (originalCreateReadStream as (...args: unknown[]) => unknown)(streamPath, options)
+  }) as typeof nodeFs.createReadStream)
+
+  const target = { runtime: 'codex', kind: 'codex' as const, path, size: 0, mtime: 0 }
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  await assert.rejects(
+    scanCodexRollout(target, 0, [], { emit: (sample) => samples.push(sample), byteLimit: 1024 }),
+    (error) => error instanceof InsightBudgetExceededError,
+  )
+  assert.ok(calledForTarget, 'the mock observed the actual stream open for this file')
+  assert.equal(capturedEnd, 1024, 'the stream itself is bounded to the remaining budget, so a terminator-free line is never buffered past it')
+})
+
+test('a Gemini chat that grows right after its size is checked is refused, not read past the checked size', async (t) => {
+  const dir = tempDir('hd-insight-gemini-growth-')
+  const geminiDir = join(dir, 'project', 'chats'); await mkdir(geminiDir, { recursive: true })
+  const path = join(geminiDir, 'chat.jsonl')
+  const initial = `${JSON.stringify({ type: 'gemini', id: 'g', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10, output: 5 } })}\n`
+  await writeFile(path, initial)
+  const initialSize = Buffer.byteLength(initial, 'utf8')
+
+  // Injects the growth at the exact moment the round 1 fix could not see —
+  // right after the size is checked (`handle.stat()`), before the content
+  // that followed trusted it.
+  const originalOpen = nodeFsPromises.open
+  t.mock.method(nodeFsPromises, 'open', (async (...args: Parameters<typeof nodeFsPromises.open>) => {
+    const handle = await originalOpen(...args)
+    if (args[0] !== path) return handle
+    const originalStat = handle.stat.bind(handle)
+    t.mock.method(handle, 'stat', async () => {
+      const result = await originalStat()
+      await appendFile(path, 'y'.repeat(1000))
+      return result
+    })
+    return handle
+  }) as typeof nodeFsPromises.open)
+
+  const geminiTarget = { runtime: 'gemini', kind: 'gemini' as const, path, size: 0, mtime: 0 }
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  await assert.rejects(
+    scanGeminiChat(geminiTarget, { emit: (sample) => samples.push(sample), byteLimit: initialSize + 500 }),
+    (error) => error instanceof InsightBudgetExceededError,
+  )
+  assert.equal(samples.length, 0, 'a source that grew right after the check is refused wholesale, never partly parsed')
 })

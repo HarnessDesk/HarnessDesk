@@ -1,13 +1,13 @@
-import { createReadStream, existsSync, readFileSync } from 'node:fs'
+import nodeFs, { existsSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { open, readdir, readFile, stat } from 'node:fs/promises'
+import nodeFsPromises from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { DatabaseSync } from 'node:sqlite'
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
-import { readForeignDatabase } from './foreign-db.js'
+import { readForeignDatabase, type ForeignReadOptions } from './foreign-db.js'
 import type { UsageRow } from './store.js'
 import { InsightBudgetExceededError, type InsightScanOptions, type UsageSample } from './insight.js'
 import type { Measure } from '@harnessdesk/protocol'
@@ -275,6 +275,17 @@ const parseTime = (value: unknown): number | null => {
  * more line would spend more than is left, never silently past it. Absent
  * (the incremental background scan, which has no such budget), nothing here
  * changes.
+ *
+ * The per-line check alone is not enough: it only ever runs where a `\n`
+ * is found, and a line with none — one huge record, or no terminator in the
+ * file at all — is buffered whole into `pending` first, growing without
+ * bound until either a terminator turns up or the real end of file does
+ * (round 2 review: measured at 300 MiB read, 566 MiB peak, 81 s to the
+ * eventual throw, against a 1 KiB budget). So the stream itself is bounded
+ * to `budget + 1` bytes — one more than the budget, so a file that ends
+ * exactly there is told apart from one that keeps going — which keeps
+ * `pending` itself from ever holding more than that, whatever the file
+ * contains between newlines.
  */
 const readLines = async (
   path: string,
@@ -282,7 +293,7 @@ const readLines = async (
   onLine: (record: unknown, bytes: number) => void,
   budget?: number,
 ): Promise<number> => {
-  const stream = createReadStream(path, { start: offset })
+  const stream = nodeFs.createReadStream(path, budget === undefined ? { start: offset } : { start: offset, end: offset + budget })
   let consumed = offset
   let pending: Buffer = Buffer.alloc(0)
   const spend = (bytes: number): void => {
@@ -461,7 +472,7 @@ const contextFrom = (tail: readonly string[]): CodexContext | null => {
  */
 const contextBefore = async (path: string, offset: number): Promise<CodexContext> => {
   const context = unknownContext()
-  const stream = createReadStream(path, { start: 0, end: offset - 1 })
+  const stream = nodeFs.createReadStream(path, { start: 0, end: offset - 1 })
   try {
     for await (const line of createInterface({ input: stream, crlfDelay: Infinity })) {
       if (!line.includes('"session_meta"') && !line.includes('"turn_context"')) continue
@@ -680,17 +691,40 @@ const geminiProjectOf = (chatFile: string): string => {
  * never undercounted. Refuses before a single byte of content is read when
  * that real size is already more than what remains, rather than reading a
  * file this scanner cannot meaningfully stop partway through.
+ *
+ * The checked size only bounds what follows if the read itself is also
+ * bounded to it: `handle.read` (not `handle.readFile`, round 2 review) reads
+ * into a buffer sized from the size just checked — one byte more than it, so
+ * a file that ends exactly there is told apart from one that does not — and
+ * whatever fills that buffer without reaching end of file, however that
+ * compares to the checked size, is refused rather than trusted. A file mid
+ * truncate that reads as size zero is not an exception: reading finds
+ * whatever is actually there by then, one byte at a time if it must, and the
+ * same refusal applies the moment more than was checked turns up.
  */
 const readWholeFileWithinBudget = async (
   target: ScanTarget,
   insight: InsightScanOptions | undefined,
 ): Promise<{ text: string; size: number }> => {
-  if (!insight) return { text: await readFile(target.path, 'utf8'), size: target.size }
-  const handle = await open(target.path, 'r')
+  if (!insight) return { text: await nodeFsPromises.readFile(target.path, 'utf8'), size: target.size }
+  const handle = await nodeFsPromises.open(target.path, 'r')
   try {
     const { size } = await handle.stat()
     if (size > insight.byteLimit) throw new InsightBudgetExceededError()
-    return { text: await handle.readFile('utf8'), size }
+    const capacity = Math.min(size, insight.byteLimit) + 1
+    const buffer = Buffer.alloc(capacity)
+    let read = 0
+    while (read < capacity) {
+      const { bytesRead } = await handle.read(buffer, read, capacity - read, read)
+      if (bytesRead === 0) break
+      read += bytesRead
+    }
+    // The buffer filled without reaching end of file: there is more content
+    // than the checked size allowed for, whether that means the file was
+    // already over budget or grew since the check — either way, this is not
+    // the file that was approved a moment ago.
+    if (read === capacity) throw new InsightBudgetExceededError()
+    return { text: buffer.subarray(0, read).toString('utf8'), size: read }
   } finally {
     await handle.close()
   }
@@ -776,51 +810,33 @@ const requireColumns = (
  * `readForeignDatabase` for what makes it consistent and why nothing is written
  * beside it. A file that is not one throws here, so a scan fails loudly and
  * keeps its previous rows rather than replacing them with nothing.
+ *
+ * A database is not read byte-bounded — it runs whole queries, not a line at
+ * a time — so an Insight budget can only ever refuse it wholesale. That
+ * refusal is `readForeignDatabase`'s own: passing `byteLimit` here ties it to
+ * the exact same fingerprint the consistency check already takes, rather
+ * than a separate, earlier look at the file that could go stale by the time
+ * the real read happens (round 2 review — the gap an
+ * `ensureDatabaseWithinBudget` that checked, closed, and only then called
+ * this left open). `onSize` reports what that fingerprint actually covered,
+ * once the read is known to match it, so a caller tracking a shared budget
+ * counts bytes truly read rather than a guess taken before the read did.
  */
-const readForeign = <T>(path: string, read: (database: DatabaseSync) => T): T => {
-  const value = readForeignDatabase(path, read)
+const readForeign = <T>(path: string, read: (database: DatabaseSync) => T, options?: ForeignReadOptions): T => {
+  const value = readForeignDatabase(path, read, options)
   if (value === null) throw new Error('the database could not be opened for reading')
   return value
 }
 
 /**
- * A database is not read byte-bounded — `readForeignDatabase` runs whole
- * queries, not a line at a time — so the remaining Insight budget can only
- * ever refuse the file wholesale, before it is opened for that read.
- *
- * The size that refusal is measured against comes from `fstat` on a handle
- * this opens itself, never a `stat(path)` repeated from discovery: a path can
- * name a different, larger file by the time it is checked again, and only an
- * already-open handle's own size is the size the read that follows would
- * actually see. Summed with the write-ahead log the same way `databaseTarget`
- * sums it at discovery, since a WAL database takes its writes there.
- *
- * Outside an Insight-budgeted read (`insight` absent), this does nothing and
- * costs nothing extra: the incremental background scan keeps its own,
- * separate discovery-time size.
+ * The options an Insight-budgeted database scan passes to `readForeign`:
+ * absent outside one (`insight` undefined), so the incremental background
+ * scan is untouched. `report` is called back with the fingerprinted size
+ * `readForeignDatabase` verified the read against, for the scanner to return
+ * as its own `offset`.
  */
-const ensureDatabaseWithinBudget = async (target: ScanTarget, insight: InsightScanOptions | undefined): Promise<number> => {
-  if (!insight) return target.size
-  const main = await open(target.path, 'r')
-  let size: number
-  try {
-    size = (await main.stat()).size
-  } finally {
-    await main.close()
-  }
-  try {
-    const wal = await open(`${target.path}-wal`, 'r')
-    try {
-      size += (await wal.stat()).size
-    } finally {
-      await wal.close()
-    }
-  } catch {
-    // No log: every write is in the main file, as `databaseTarget` also assumes.
-  }
-  if (size > insight.byteLimit) throw new InsightBudgetExceededError()
-  return size
-}
+const foreignBudgetOptions = (insight: InsightScanOptions | undefined, report: (size: number) => void): ForeignReadOptions | undefined =>
+  insight ? { byteLimit: insight.byteLimit, onSize: report } : undefined
 
 const OPENCODE_COLUMNS = [
   'directory',
@@ -870,11 +886,15 @@ const opencodeModel = (value: string | null): string => {
  * last touched: the table keeps totals, not calls.
  */
 export const scanOpencodeDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
-  const size = await ensureDatabaseWithinBudget(target, insight)
-  const sessions = readForeign(target.path, (database) => {
-    requireColumns(database, 'session', OPENCODE_COLUMNS)
-    return database.prepare(`SELECT ${OPENCODE_COLUMNS.join(', ')} FROM session`).all() as unknown as OpencodeSession[]
-  })
+  let size = target.size
+  const sessions = readForeign(
+    target.path,
+    (database) => {
+      requireColumns(database, 'session', OPENCODE_COLUMNS)
+      return database.prepare(`SELECT ${OPENCODE_COLUMNS.join(', ')} FROM session`).all() as unknown as OpencodeSession[]
+    },
+    foreignBudgetOptions(insight, (checked) => { size = checked }),
+  )
   const into: Accumulator = { rows: new Map() }
   for (const session of sessions) {
     const at = typeof session.time_updated === 'number' && session.time_updated > 0 ? session.time_updated : null
@@ -935,11 +955,15 @@ interface ClineUsage {
  * and falls on the day the session was last touched.
  */
 export const scanClineDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
-  const size = await ensureDatabaseWithinBudget(target, insight)
-  const sessions = readForeign(target.path, (database) => {
-    requireColumns(database, 'sessions', CLINE_COLUMNS)
-    return database.prepare(`SELECT ${CLINE_COLUMNS.join(', ')} FROM sessions`).all() as unknown as ClineSession[]
-  })
+  let size = target.size
+  const sessions = readForeign(
+    target.path,
+    (database) => {
+      requireColumns(database, 'sessions', CLINE_COLUMNS)
+      return database.prepare(`SELECT ${CLINE_COLUMNS.join(', ')} FROM sessions`).all() as unknown as ClineSession[]
+    },
+    foreignBudgetOptions(insight, (checked) => { size = checked }),
+  )
   const into: Accumulator = { rows: new Map() }
   for (const session of sessions) {
     let usage: ClineUsage = {}
@@ -1005,7 +1029,7 @@ const walkJsonl = async (
     if (found.length >= limit) return
     let entries
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      entries = await nodeFsPromises.readdir(dir, { withFileTypes: true })
     } catch (error) {
       /* The root is the agent's own history, and has to be a folder: one that
          is not there is an agent never run, not worth a line, but a file at
@@ -1028,7 +1052,7 @@ const walkJsonl = async (
       }
       if (!entry.name.endsWith('.jsonl') || !keep(full)) continue
       try {
-        const info = await stat(full)
+        const info = await nodeFsPromises.stat(full)
         found.push({ path: full, size: info.size, mtime: Math.round(info.mtimeMs) })
       } catch {
         // Deleted between the listing and the stat.
@@ -1088,7 +1112,7 @@ const databaseTarget = async (
 ): Promise<{ path: string; size: number; mtime: number } | null> => {
   let main
   try {
-    main = await stat(path)
+    main = await nodeFsPromises.stat(path)
   } catch (error) {
     unreadable(path, error)
     return null
@@ -1100,7 +1124,7 @@ const databaseTarget = async (
   let size = main.size
   let mtime = main.mtimeMs
   try {
-    const wal = await stat(`${path}-wal`)
+    const wal = await nodeFsPromises.stat(`${path}-wal`)
     size += wal.size
     mtime = Math.max(mtime, wal.mtimeMs)
   } catch {
