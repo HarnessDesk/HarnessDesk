@@ -72,6 +72,9 @@ const fingerprint = (input: { compiled: CompiledFlow; seats: readonly FlowPrevie
     })),
   })
 
+/** Why an old-format flow's preview carries no start token: the one thing that makes it startable here. */
+export const LEGACY_START = 'This flow uses the old format, so it cannot start a new Goal. Update it from the project’s Flows list first.'
+
 const emptyPreview = (problems: readonly FlowProblem[]): FlowPreview => ({
   token: null,
   compiled: { document: { format: 'legacy', flow: { name: '', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
@@ -137,6 +140,9 @@ export class FlowPreviews {
     const agents = await this.#port.agents(root)
     const compiled = compileFlowPolicy(parsed.document, agents)
     problems.push(...compiled.problems)
+    // Only the Agent format starts a new Goal (`startGoal` refuses the old
+    // one), so the old one is never handed a token that could only fail.
+    if (compiled.document.format !== 'agents') problems.push({ level: 'error', at: 'format', text: LEGACY_START })
     const seats: FlowPreviewSeat[] = []
     if (compiled.document.format === 'agents') {
       for (const role of compiled.document.flow.roles) {

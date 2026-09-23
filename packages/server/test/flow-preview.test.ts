@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { AgentEntry, CeilingLevel, FlowSeat, SeatPlan } from '@harnessdesk/protocol'
 
-import { CHANGED_PREVIEW, FlowPreviews, type FlowPreviewPort } from '../src/flow-preview.js'
+import { CHANGED_PREVIEW, FlowPreviews, LEGACY_START, type FlowPreviewPort } from '../src/flow-preview.js'
 
 /*
  * A dry run spends nothing and opens nothing; its token authorizes exactly
@@ -136,4 +136,13 @@ test('a check retry preview validates the exact saved source and vars, never a n
   saved = null
   const gone = await previews.preview('/repo', FLOW, {}, { run: 'flow-1', card: 3 })
   assert.equal(gone.token, null, 'a run that can no longer be read is refused the same way')
+})
+
+test('an old-format flow mints no start token, and says to update it', async () => {
+  const state = rig()
+  const previews = new FlowPreviews(state.port)
+  const preview = await previews.preview('/repo', 'name: Old\nroles:\n  w: { kind: agent, seat: alpha, order: Work, outcomes: [done] }\nseed: { role: w, title: W }\n', {})
+  assert.equal(preview.compiled.document.format, 'legacy')
+  assert.equal(preview.token, null, 'flow/start-goal starts only the Agent format, so nothing here may authorize it')
+  assert.deepEqual(preview.problems.filter((one) => one.level === 'error').map((one) => one.text), [LEGACY_START])
 })

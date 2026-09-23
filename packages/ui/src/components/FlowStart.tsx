@@ -25,6 +25,15 @@ import styles from './FlowStart.module.css'
 
 const NONE = ''
 
+/**
+ * Whether a dry run may light Start: a token, no error, and the Agent
+ * format — the only one that starts a new Goal. An old-format flow is never
+ * startable here, whatever token a host hands it.
+ */
+const startable = (preview: FlowPreview): boolean =>
+  preview.token !== null && preview.compiled.document.format === 'agents' &&
+  !preview.problems.some((one) => one.level === 'error')
+
 /** What the parent needs to start the flow, once it holds a live token. */
 export interface FlowChoice {
   readonly source: string
@@ -91,8 +100,7 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         const dry = await store.previewFlow(root, text, nextVars)
         if (mine !== sequence.current || generation !== store.flowGeneration()) return
         setPreview(dry)
-        const errors = dry.problems.filter((one) => one.level === 'error')
-        if (dry.token && errors.length === 0) onChange({ source: text, token: dry.token, vars: nextVars })
+        if (startable(dry)) onChange({ source: text, token: dry.token!, vars: nextVars })
       } catch (error) {
         if (mine !== sequence.current) return
         setProblem(error instanceof Error ? error.message : 'That flow could not be checked.')
@@ -130,8 +138,7 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
         setVars(defaults)
         if (inputs.length === 0) {
           setPreview(learn)
-          const errors = learn.problems.filter((one) => one.level === 'error')
-          if (learn.token && errors.length === 0) onChange({ source: text, token: learn.token, vars: {} })
+          if (startable(learn)) onChange({ source: text, token: learn.token!, vars: {} })
         } else {
           await runPreview(text, defaults)
         }
@@ -201,12 +208,12 @@ export const FlowStart = ({ root, disabled, onChange }: FlowStartProps) => {
 
       {legacy && (
         <Banner tone="warning" title="This flow uses the old format">
-          It runs with its original answer routing and permissions. Update it from the project’s Flows list to
-          see its Agents and commands here.
+          Update it from the project’s Flows list before it can start a Goal here. The update shows every file
+          it would write before it writes any.
         </Banner>
       )}
 
-      {errors.length > 0 && (
+      {errors.length > 0 && !legacy && (
         <Banner tone="danger" title="This flow will not run yet">
           <NoteList>
             {errors.map((one) => (
