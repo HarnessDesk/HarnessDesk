@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import type { GhInCheckout } from '../src/evidence/forge.js'
+import { INDEPENDENT } from '../src/flow-execution.js'
 import { builtinFlowRoot } from '../src/host.js'
 import { Host, StateStore } from '../src/index.js'
 import { makeRepo, until } from './fixtures/evidence-desk.js'
@@ -76,7 +77,10 @@ interface Desk {
   readonly runs: string[]
 }
 
-const desk = async (t: TestContext): Promise<Desk> => {
+/** The second runtime: another vendor's by default, so a step independent of the first has somewhere to sit. */
+interface Second { readonly id: string; readonly provider?: string | null }
+
+const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-host-')
   // A committed contest script, so the mechanical contest's own command runs as shipped.
   await mkdir(join(repo.dir, 'script'), { recursive: true })
@@ -94,7 +98,7 @@ const desk = async (t: TestContext): Promise<Desk> => {
       '---', `name: ${id}`, `ceiling: ${agent.ceiling}`,
       ...(agent.answers ? [`answers: ${agent.answers}`] : []),
       ...(agent.produces ? [`produces: ${agent.produces}`] : []),
-      `prefer: [${agent.prefer}]`, '---', `Do the ${id} part.`, '',
+      `prefer: [${agent.prefer === 'fake-b' ? second.id : agent.prefer}]`, '---', `Do the ${id} part.`, '',
     ].join('\n'), 'utf8')
   }
   const host = new Host({
@@ -103,10 +107,9 @@ const desk = async (t: TestContext): Promise<Desk> => {
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
-    providers: { fake: 'vendor-a', 'fake-b': 'vendor-b' },
   })
-  host.register(new FakeRuntime())
-  host.register(new FakeRuntime({ id: 'fake-b' as never, name: 'Second Fake' }))
+  host.register(new FakeRuntime({ provider: 'vendor-a' }))
+  host.register(new FakeRuntime({ id: second.id as never, name: 'Second Fake', ...(second.provider !== undefined ? { provider: second.provider } : {}) }))
   await host.start()
   t.after(() => host.dispose())
   await host.call('workspace/open', { path: repo.dir })
@@ -324,6 +327,32 @@ test('the other shipped flows each reach their end', async (t) => {
     await settled(d, run.id)
   })
 })
+
+/*
+ * Independence is read from what each runtime's adapter reports about the
+ * vendor behind it. A runtime that cannot rule out an override reports
+ * none, and one that says nothing is unknown too — even one whose id names
+ * a vendor. Either way the judge is refused a seat, never assumed
+ * independent.
+ */
+const UNKNOWN: readonly (Second & { readonly why: string })[] = [
+  { id: 'fake-b', provider: null, why: 'reporting an unknown provider' },
+  { id: 'codex', why: 'reporting no provider, named for a vendor' },
+]
+for (const second of UNKNOWN) {
+  test(`a judge on a runtime ${second.why} is never taken for independent`, async (t) => {
+    const d = await desk(t, second)
+    const run = await start(d, await comparison(d, 1), TASK)
+    const [competitor] = await claimed(d, run.goal, 'competitor', 1)
+    await write(d, competitor!, 'attempt 1')
+    const stalled = await until(async () => {
+      const now = await execution(d, run.id)
+      return now.state === 'stalled' ? now : null
+    }, 'the run to stall at the judge', 20_000)
+    assert.equal(stalled.reason, INDEPENDENT)
+    assert.equal((await board(d, run.goal)).find((one) => one.role === 'judge')?.state, 'open', 'no Seat took the judge’s card')
+  })
+}
 
 test('every flow that ships is one this file runs to its end', async () => {
   const ids = (await readdir(builtinFlowRoot())).filter((one) => one.endsWith('.yml')).map((one) => one.slice(0, -4)).sort()

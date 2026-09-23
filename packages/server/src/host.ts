@@ -304,34 +304,13 @@ export const builtinFlowRoot = (): string =>
   packagedPath(fileURLToPath(new URL('../../flows', import.meta.url)))
 
 /**
- * The vendor a first-party runtime's own models always and only come from —
- * never a bridge whose person picks among several vendors' models from
- * inside it. Cursor, GitHub Copilot, OpenCode, Cline and OpenClaw all let the
- * person choose; Antigravity is Google's own product but is itself such a
- * bridge. Each entry below repeats what that runtime's own `tagline` already
- * tells the person — "OpenAI's coding agent" (Codex), "Anthropic's coding
- * agent" (Claude Code), "Google's Gemini CLI" (Gemini) — as a fact `host.ts`
- * owns, not a guess made from a name or a brand icon at decision time: a
- * bridge's brand names the tool, never the vendor behind whichever model its
- * own person chose. Deliberately short — a runtime this table has not
- * learned about answers unknown, same as one it has never heard of, and
- * `resolveProvider` never widens that on its own.
+ * Which vendor a session of `runtime` in `cwd` reaches, as its adapter
+ * reports it: `providerAt` where the agent reads project configuration,
+ * `info.provider` otherwise, and unknown for an account that pays through a
+ * gateway, which can serve anyone's models. See `Host.#providerOf`.
  */
-export const SINGLE_VENDOR_RUNTIMES: Readonly<Record<string, string>> = {
-  codex: 'openai',
-  'claude-code': 'anthropic',
-  gemini: 'google',
-}
-
-/**
- * What `FlowExecutionPort.providerOf` answers the independence guard with: a
- * caller's own registry first — `HostOptions.providers`, "a caller that
- * knows" — then the conservative table above, then unknown. A runtime absent
- * from both is unknown, and unknown is never taken for an independent one;
- * see `HostOptions.providers`.
- */
-export const resolveProvider = (runtime: string, configured: Readonly<Record<string, string>> | undefined): string | null =>
-  configured?.[runtime] ?? SINGLE_VENDOR_RUNTIMES[runtime] ?? null
+export const reportedProvider = (runtime: AgentRuntime, cwd: string, throughGateway: boolean): string | null =>
+  throughGateway ? null : (runtime.providerAt ? runtime.providerAt(cwd) : runtime.info.provider) ?? null
 
 /**
  * The "Last terminal output" composer chip. Terminals are the host's own
@@ -374,16 +353,6 @@ export interface HostOptions {
   readonly builtinAgents?: string
   /** Test-only override for the flows which ship with the host. */
   readonly builtinFlows?: string
-  /**
-   * Which provider serves each runtime's models, by runtime id: what a flow
-   * step that must be independent of an earlier one is checked against. Read
-   * through `resolveProvider`, which checks this registry first and a small
-   * conservative table of first-party, single-vendor runtimes second
-   * (`SINGLE_VENDOR_RUNTIMES`); a runtime absent from both is unknown, and an
-   * unknown provider is never taken for an independent one. Empty unless a
-   * caller that knows says so: the host guesses no vendor from a name.
-   */
-  readonly providers?: Readonly<Record<string, string>>
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -952,7 +921,7 @@ export class Host {
       builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
-      providerOf: (runtime) => resolveProvider(runtime, options.providers),
+      providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       openSeat: (input) => this.#goals.seat(input),
       release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
       canDispatch: (goal) => this.#goals.canDispatch(goal),
@@ -1788,6 +1757,19 @@ export class Host {
     return lanePreferences(Object.hasOwn(this.#state.state.preferences, 'lanes')
       ? this.#state.state.preferences['lanes']
       : DEFAULT_LANE_PREFERENCES)
+  }
+
+  /**
+   * Which vendor a session of this runtime in `cwd` reaches, as its adapter
+   * reports it (`RuntimeInfo.provider`, `AgentRuntime.providerAt`) — what a
+   * flow step that must be independent of an earlier one is checked against.
+   * Unknown for a runtime that does not say, and for an account slot that
+   * runs through a gateway, which can serve anyone's models. Never inferred
+   * from a runtime's id or name.
+   */
+  #providerOf(runtime: string, cwd: string): string | null {
+    const agent = this.#runtimes.get(runtime)
+    return agent ? reportedProvider(agent, cwd, Boolean(this.options.accounts?.slotOf(agent.info)?.gateway)) : null
   }
 
   #goalState(id: string): TeamState {

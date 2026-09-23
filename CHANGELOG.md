@@ -27,6 +27,12 @@ move is real work and is not news to a person weighing an upgrade.
   and every new fact re-reads a waiting rule, so a guarded step no longer
   waits forever. The comparison flow's merge card names the exact revision
   the judge picked.
+- **An independent step is judged on the vendor an agent really calls** —
+  each runtime now reports which vendor's models it reaches, read from the
+  agent's own configuration, and says it cannot tell whenever a provider or
+  base URL is overridden or the account pays through a gateway. A step that
+  must be independent of an earlier one is refused rather than seated on a
+  runtime whose vendor is unknown, whatever that runtime is called.
 - **A check without an explicit checkout now runs once per predecessor
   subject** — each competitor's own isolated work is checked on its own,
   rather than one command picking a single subject to stand in for all of

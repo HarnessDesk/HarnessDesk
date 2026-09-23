@@ -263,6 +263,8 @@ export class FakeRuntime implements AgentRuntime {
       sessionStore?: string
       /** What `getAccount` calls this identity, so two accounts can be told apart. */
       accountLabel?: string
+      /** Which vendor its models come from, as an adapter would report it (`RuntimeInfo.provider`). */
+      provider?: string | null
     } = {},
   ) {
     this.info = {
@@ -274,6 +276,7 @@ export class FakeRuntime implements AgentRuntime {
       ...(identity.capabilities
         ? { capabilities: { ...this.info.capabilities, ...identity.capabilities } }
         : {}),
+      ...(identity.provider !== undefined ? { provider: identity.provider } : {}),
     }
     this.sessionStore = identity.sessionStore ?? null
     this.accountLabel = identity.accountLabel ?? 'API key'

@@ -469,6 +469,16 @@ Agent, and an explicit `count:` must agree with whichever list sets the
 round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
 this role's grant)`; an omitted `grant:` is `read`.
 
+**Independence** (`independentOf: [build]`) is judged on the vendor behind
+each Seat, as the runtime's adapter reads it from the agent's own
+configuration — Codex's `config.toml`, profiles and project `.codex`,
+Claude Code's settings files and environment, Gemini CLI's `.env` files and
+settings. Anything that could point an agent at another provider or base
+URL, a gateway account, or an agent the desk has no reader for, makes the
+vendor unknown, and an unknown vendor is never taken for an independent
+one: the step is refused a seat and the run stalls with the reason. A
+runtime's name decides nothing.
+
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated
 checkout — rather than picking one of them for an aggregate command. Naming

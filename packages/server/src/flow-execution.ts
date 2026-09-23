@@ -90,8 +90,8 @@ export interface FlowStartRequest {
  * boundary; the rest are the reads and sends a round cannot happen without.
  */
 export interface FlowExecutionPort {
-  /** The provider that serves this runtime's models, from the host's registry; null when unknown. */
-  providerOf(runtime: string): string | null
+  /** Which vendor a session of this runtime in `cwd` reaches, as its adapter reports it; null when unknown. */
+  providerOf(runtime: string, cwd: string): string | null
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
@@ -809,7 +809,7 @@ export class FlowExecutions {
       if (!roles.includes(round.role)) continue
       for (const id of round.seats) {
         const seat = this.#port.seatOf(id)
-        providers.add(seat ? this.#port.providerOf(seat.session.runtime) : null)
+        providers.add(seat ? this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null)
       }
     }
     return providers
@@ -848,8 +848,9 @@ export class FlowExecutions {
       if (independentOf.length > 0) {
         writers = this.#writers(run, independentOf)
         const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
+        const board = this.#team.stateFor(run.goal)
         candidates = writers.has(null) ? [] : offered.filter((seat) => {
-          const provider = this.#port.providerOf(seat.runtime)
+          const provider = this.#port.providerOf(seat.runtime, board.cwd ?? board.root)
           return provider !== null && !writers!.has(provider)
         })
         if (candidates.length === 0) return fail(INDEPENDENT)
@@ -872,7 +873,7 @@ export class FlowExecutions {
       await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: String(record.id) }))
       if (record.briefDigest !== binding.digest) return fail(BRIEF_CHANGED)
       if (writers) {
-        const actual = this.#port.providerOf(record.session.runtime)
+        const actual = this.#port.providerOf(record.session.runtime, record.checkout.cwd)
         if (actual === null || writers.has(actual)) return fail(INDEPENDENT)
       }
       if (isolate) {
