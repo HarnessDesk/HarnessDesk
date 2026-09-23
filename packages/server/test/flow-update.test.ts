@@ -347,3 +347,29 @@ test('a customize token past its expiry, or for another flow, writes nothing', a
   assert.equal((await updates.customizeApply(project, 'another', again.token!)).state, 'refused', 'a token names the flow it previewed')
   await assert.rejects(readdir(join(project, '.harnessdesk')))
 })
+
+/*
+ * `order:` was optional in the old format: a role without one ran on the old
+ * engine's own sentence. Update carries that sentence into the Agent it
+ * writes — an Agent is its brief, and one written with none would convert a
+ * flow that ran into one that cannot seat anybody.
+ */
+test('a role with no order of its own becomes an Agent carrying the brief the old engine gave it', async () => {
+  const { project, path, updates } = await setup()
+  await writeFile(path, legacy.replace('    order: Write the change.\n', '').replace('      order: Write the change.\n', ''), 'utf8')
+  assert.doesNotMatch(await readFile(path, 'utf8'), /order:/)
+  const preview = await updates.preview(project, 'review')
+  assert.equal(preview.problems.filter((problem) => problem.level === 'error').length, 0)
+  const agent = preview.edits.find((edit) => edit.path.endsWith('/AGENT.md'))!
+  const parsed = parseAgentDefinition(agent.after ?? '', 'review-writer')
+  assert.deepEqual(parsed.problems.filter((problem) => problem.level === 'error'), [], 'the written Agent is seatable')
+  assert.equal(parsed.agent?.brief.trim(), 'You are the writer. The cards say the rest.')
+})
+
+test('a role whose order is only blank space is given the same brief', async () => {
+  const { project, path, updates } = await setup()
+  await writeFile(path, legacy.replace('    order: Write the change.\n', '    order: "   "\n'), 'utf8')
+  const preview = await updates.preview(project, 'review')
+  const agent = preview.edits.find((edit) => edit.path.endsWith('/AGENT.md'))!
+  assert.equal(parseAgentDefinition(agent.after ?? '', 'review-writer').agent?.brief.trim(), 'You are the writer. The cards say the rest.')
+})

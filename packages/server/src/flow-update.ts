@@ -16,6 +16,7 @@ import { agentIdOf } from './agent-files.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX, PROJECT_AGENT_DIR } from './agents.js'
 import { ConfinedTree, type TreeIdentity } from './confined-tree.js'
 import { errnoOf } from './errno.js'
+import { legacyBrief } from './flow.js'
 import { FLOW_FILE_LIMIT, type FlowCatalog } from './flow-catalog.js'
 import { parseFlowPolicy, serializeFlowPolicy } from './flow-policy.js'
 
@@ -125,7 +126,7 @@ const agentText = (name: string, role: Flow['roles'][number], prefer: readonly F
   '---', `name: ${q(name)}`, `ceiling: ${ceilingOfPermission(role.permission)}`,
   `answers: [${role.outcomes.map(q).join(', ')}]`,
   ...(prefer.length ? ['prefer:', ...prefer.map((seat) => `  - ${q(`${seat.runtime}${seat.model ? `=${seat.model}` : ''}${seat.effort ? `/${seat.effort}` : ''}${seat.thinking ? '+' : ''}`)}`)] : []),
-  '---', '', role.order ?? '', '',
+  '---', '', legacyBrief(role), '',
 ].join('\n')
 
 const converted = (id: string, flow: Flow): readonly FlowFileEdit[] => {

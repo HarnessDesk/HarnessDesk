@@ -41,6 +41,16 @@ import { parseYaml, YamlError } from './yaml.js'
 const DEFAULT_WAIT_SEC = 240
 
 /** How many times one seat may be re-armed inside the hourly window when not specified. */
+
+/**
+ * What an old-format role is told it is for: its own `order:`, or — since
+ * `order:` was optional there — the old engine's own sentence. Update writes
+ * the same brief into the Agent it converts the role to, so a role that ran
+ * before the update still has a brief after it.
+ */
+export const legacyBrief = (role: { readonly id: string; readonly order?: string | null }): string =>
+  role.order?.trim() || `You are the ${role.id}. The cards say the rest.`
+
 export const DEFAULT_REARM = 3
 
 /** The most re-arms an author may ask for inside one hour. */
@@ -1100,7 +1110,7 @@ export const orderVars = (
     role: role.id,
     outcomes: role.outcomes.join(', ') || 'nothing — leave outcome out',
     blockMs: String(waitFor(where.runtime, flow.wait) * 1000),
-    brief: role.order?.trim() || `You are the ${role.id}. The cards say the rest.`,
+    brief: legacyBrief(role),
     /* Read off the role's permission every time it is rendered, never stored
        beside the text: a seat re-armed after its turn died must come back with
        the permission it was seated for, and a publishing seat that comes back
