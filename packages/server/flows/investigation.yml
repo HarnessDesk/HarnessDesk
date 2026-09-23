@@ -1,0 +1,23 @@
+version: 2
+name: "Investigation"
+description: "A researcher answers a question and commits its answer where the diff itself is the evidence a person reads before closing it out."
+inputs:
+  question:
+    label: "Question"
+roles:
+  research:
+    kind: agent
+    uses: [researcher]
+    grant: edit
+    independentOf: []
+  close:
+    kind: person
+    outcomes: [closed]
+seed: { role: research, title: "{{question}}" }
+rules:
+  - id: to-close
+    on: research
+    when: { every: [gathered], evidence: [{ diff: true }] }
+    then: { role: close, title: "Read the committed answer" }
+messaging: board-only
+wait: 240

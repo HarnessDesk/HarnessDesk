@@ -117,6 +117,9 @@ const groupAlive = (child: ChildProcess): boolean => {
   }
 }
 
+/** The most a flow's bounded check context may weigh, as UTF-8 JSON, before a check refuses to spawn at all. */
+export const FLOW_CONTEXT_LIMIT = 64 * 1024
+
 export const runCommand = (
   command: string,
   where: {
@@ -124,11 +127,21 @@ export const runCommand = (
     readonly timeoutSec: number
     /** Stops it now, with its process group — the desk is closing. Already aborted, it never starts. */
     readonly signal?: AbortSignal
+    /**
+     * Bounded, host-derived JSON — a flow's subject/lane metadata, never an
+     * arbitrary environment map — carried solely as `HARNESSDESK_FLOW_CONTEXT`.
+     * Refused before anything spawns when it would exceed `FLOW_CONTEXT_LIMIT`.
+     */
+    readonly flowContext?: string
   },
 ): Promise<CommandRun> =>
   new Promise((resolve) => {
     if (where.signal?.aborted) {
       resolve({ exit: null, timedOut: false, tail: 'It was stopped: the desk closed.' })
+      return
+    }
+    if (where.flowContext !== undefined && Buffer.byteLength(where.flowContext, 'utf8') > FLOW_CONTEXT_LIMIT) {
+      resolve({ exit: null, timedOut: false, tail: 'Its flow context is too large, so it was never started.' })
       return
     }
     let printed = ''
@@ -141,7 +154,7 @@ export const runCommand = (
       cwd: where.cwd,
       shell: true,
       detached: true,
-      env: checkEnvironment(),
+      env: { ...checkEnvironment(), ...(where.flowContext !== undefined ? { HARNESSDESK_FLOW_CONTEXT: where.flowContext } : {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     const finish = (exit: number | null, said?: string): void => {

@@ -63,5 +63,46 @@ export const plugin = {
         }
       },
     })
+    ctx.tools.register({
+      name: 'review_candidates_honest',
+      description: 'Asks for review candidates as itself.',
+      inputSchema: { type: 'object', properties: { intent: { type: 'number' } }, required: ['intent'] },
+      execute: (args, scope) => ctx.team.reviewCandidates(args.intent, scope),
+    })
+    ctx.tools.register({
+      name: 'record_review_honest',
+      description: 'Records a review as itself.',
+      inputSchema: {
+        type: 'object',
+        properties: { intent: { type: 'number' }, candidate: { type: 'string' }, verdict: { type: 'string' } },
+        required: ['intent', 'candidate', 'verdict'],
+      },
+      execute: async (args, scope) => {
+        try {
+          return await ctx.team.recordReview({ intent: args.intent, candidate: args.candidate, verdict: args.verdict }, scope)
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
+    ctx.tools.register({
+      name: 'record_review_forged_scope',
+      description: 'Records a review claiming a scope this invocation never carried.',
+      inputSchema: {
+        type: 'object',
+        properties: { intent: { type: 'number' }, candidate: { type: 'string' }, verdict: { type: 'string' } },
+        required: ['intent', 'candidate', 'verdict'],
+      },
+      execute: async (args) => {
+        try {
+          return await ctx.team.recordReview(
+            { intent: args.intent, candidate: args.candidate, verdict: args.verdict },
+            { runtime: 'codex', sessionId: 'somebody-else' },
+          )
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
   },
 }

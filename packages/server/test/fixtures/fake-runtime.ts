@@ -243,6 +243,15 @@ export class FakeRuntime implements AgentRuntime {
   #health: RuntimeHealth = { state: 'unavailable', reason: 'unknown', message: 'not started' }
   #counter = 0
   readonly sessions = new Map<string, FakeSession>()
+  /**
+   * Refuses a second message while a turn is still running, in the words a
+   * real agent adapter uses — off by default, since most suites drive one
+   * turn at a time and never ask. The flow suites turn it on: a seat's brief
+   * is a turn of its own, and a card order sent into it is refused there.
+   */
+  refusesWhileBusy = false
+  /** Called once a sent turn has started, so a test can play an agent that works inside that turn. */
+  onSend: ((session: FakeSession, text: string, opts?: { readonly recordAs?: 'user' | 'notice' }) => void) | null = null
   /** Turn ids the test asked to leave running, so interrupt has something to do. */
   readonly history: SessionSummary[] = []
 
@@ -263,6 +272,8 @@ export class FakeRuntime implements AgentRuntime {
       sessionStore?: string
       /** What `getAccount` calls this identity, so two accounts can be told apart. */
       accountLabel?: string
+      /** Which vendor its models come from, as an adapter would report it (`RuntimeInfo.provider`). */
+      provider?: string | null
     } = {},
   ) {
     this.info = {
@@ -274,6 +285,7 @@ export class FakeRuntime implements AgentRuntime {
       ...(identity.capabilities
         ? { capabilities: { ...this.info.capabilities, ...identity.capabilities } }
         : {}),
+      ...(identity.provider !== undefined ? { provider: identity.provider } : {}),
     }
     this.sessionStore = identity.sessionStore ?? null
     this.accountLabel = identity.accountLabel ?? 'API key'
@@ -749,6 +761,9 @@ export class FakeSession implements AgentSession {
       throw failure
     }
     if (this.sendDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.sendDelayMs))
+    if (this.host.refusesWhileBusy && this.#activeTurn) {
+      throw new Error(`${this.host.info.name} is still working on the last message; wait for the turn to end, or interrupt it.`)
+    }
     this.#turn += 1
     const id = turnId(`fake-turn-${this.#turn}`)
     this.#activeTurn = id
@@ -787,7 +802,13 @@ export class FakeSession implements AgentSession {
         text: first?.type === 'text' ? `echo: ${first.text}` : 'echo',
       },
     })
+    this.host.onSend?.(this, input.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'), opts)
     return id
+  }
+
+  /** Whether a turn is running now. */
+  get busy(): boolean {
+    return this.#activeTurn !== null
   }
 
   /** Completes the turn. Tests call this so timing is deterministic. */

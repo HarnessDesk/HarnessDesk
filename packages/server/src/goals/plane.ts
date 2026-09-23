@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 
 import {
-  activityOf, checkedDependencies, flowRoleOf, placeCard,
-  type BoardEvidence, type FlowPermission, type FlowRun, type FlowSeat,
+  activityOf, checkedDependencies, flowStepOf, placeCard,
+  type BoardEvidence, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
   type Goal, type GoalCitation, type GoalCreateInput, type GoalReceipt, type GoalSeatRequest, type GoalView,
-  type SeatId, type SeatRecord, type SessionPointer, type TeamState,
+  type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
@@ -39,9 +39,25 @@ export interface GoalPlanePort extends GoalOperationPort {
     readonly gaps: readonly string[]
   }>
   revision(cwd: string): Promise<{ readonly head: string | null; readonly dirty: boolean | null }>
-  changed(view: GoalView): void
+  /**
+   * A Goal's view moved. `install: false` when the caller only wants windows
+   * told — a flow run's own state changed and the Goal store did not — so a
+   * view read before the board's own pending write lands is never installed
+   * over the newer board the desk holds in memory.
+   */
+  changed(view: GoalView, options?: { readonly install: boolean }): void
   activity(goal: string, previous: NonNullable<GoalView['activity']>, activity: NonNullable<GoalView['activity']>, sentence: string): void
   ready(): { ok: true } | { ok: false; reason: string }
+  /** Stops every flow run dispatching on this Goal, inside each run's own queue, before a wrap is taken. */
+  stopFlows?(goal: string): Promise<void>
+  /** Whether a run on this Goal (not only an old room's run) is still running or stalled. */
+  flowLive?(goal: string): boolean
+  /** The runs on this Goal, as the flow engine keeps them: which of its cards are a person's steps. */
+  executions?(goal: string): readonly FlowExecution[]
+  /** The Goal's cards as they stand — the board's one writer's copy — which a wrap reviews. Absent, the document's. */
+  cards?(goal: string): readonly Intent[]
+  /** Refuses every change to the Goal's board, with `reason`, until the answer is called. */
+  holdBoard?(goal: string, reason: string): () => void
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -53,6 +69,9 @@ export interface GoalPlanePort extends GoalOperationPort {
     lane?: string
   }, goal: Goal): Promise<SeatRecord>
 }
+
+/** Why a Goal's board takes no change while it wraps. */
+export const WRAPPING = 'This Goal is wrapping, so its board takes no new work. Start another Goal for it.'
 
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
@@ -78,6 +97,7 @@ export class GoalPlane {
       commit: (goal, card, session) => this.#assign(goal, card, session),
     }, serial)
     this.#wraps = new Wraps({
+      hold: (goal) => this.port.holdBoard?.(goal, WRAPPING) ?? (() => {}),
       read: (goal) => this.#wrapInput(goal),
       stage: (goal, receipt, stamp) => this.#stageWrap(goal, receipt, stamp),
       closeSeats: (goal, ids) => this.#closeWrapSeats(goal, ids),
@@ -113,12 +133,13 @@ export class GoalPlane {
       problem = error instanceof Error ? error.message : String(error)
     }
     const run = this.port.flow(id)
+    const executions = this.port.executions?.(id) ?? []
     const placements = board.intents.map((intent) => placeCard({
       intent,
       evidence: evidence?.cards.find((card) => card.card === intent.id),
       stranded: this.port.stranded(id, intent.id),
       holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
-      forPerson: flowRoleOf(intent, run)?.kind === 'person',
+      forPerson: flowStepOf(intent, run, executions)?.kind === 'person',
     }))
     const dependencies = this.store.list().map((one) => one.goal)
     const activity = document.restored ? null : activityOf(document.goal, {
@@ -127,7 +148,7 @@ export class GoalPlane {
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
         (evidence?.cards.some((card) => card.running.length > 0) ?? false),
-      liveFlow: run?.state === 'running' || run?.state === 'stalled',
+      liveFlow: run?.state === 'running' || run?.state === 'stalled' || (this.port.flowLive?.(id) ?? false),
       cards: board.intents,
       dependencies,
     })
@@ -143,12 +164,12 @@ export class GoalPlane {
     }
   }
 
-  async refresh(id: string): Promise<void> {
+  async refresh(id: string, options: { readonly install: boolean } = { install: true }): Promise<void> {
     const view = await this.view(id)
     const previous = this.#activity.get(id)
     if (view.activity === null) this.#activity.delete(id)
     else this.#activity.set(id, view.activity)
-    this.port.changed(view)
+    this.port.changed(view, options)
     if (previous !== undefined && view.activity !== null && previous !== view.activity) {
       this.port.activity(id, previous, view.activity, view.goal.sentence)
     }
@@ -274,6 +295,22 @@ export class GoalPlane {
 
   async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
     await this.port.settledFor(goal)
+    /*
+     * Validate before touching anything a refusal must leave alone. A stamp
+     * from `preview` can only ever have been taken while flow dispatch read
+     * as not live — `previewWrap` itself refuses otherwise — so checking as
+     * if it were already stopped is exactly what redoing the same preview
+     * would show once it is: every other input still has to match untouched.
+     * A wrap stale for any other reason — the sentence changed, a card
+     * moved — is refused right here, and this run was never stopped for it.
+     */
+    const approved = structuredClone(choices)
+    const input = await this.#wrapInput(goal)
+    const ready = previewWrap({ ...input, flow: false }, approved)
+    if (ready.stamp !== stamp) throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    // Only now, with the wrap otherwise certain to proceed: the barrier — no
+    // round opens and no Seat is sent work once wrapping has begun.
+    await this.port.stopFlows?.(goal)
     return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
   }
 
@@ -377,11 +414,11 @@ export class GoalPlane {
     ]
     return structuredClone({
       goal: document.goal,
-      cards: document.board.intents.map((card) => ({ id: card.id, state: card.state })),
+      cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => ({ id: card.id, state: card.state })),
       dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
       busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
         evidence.cards.some((card) => card.running.length > 0),
-      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? ''),
+      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? '') || (this.port.flowLive?.(id) ?? false),
       pending: document.board.channel.some((entry) => entry.kind === 'message' && ['queued', 'held'].includes(entry.state)) ||
         goalMembers(document, this.port.seats.all()).some((seat) => this.port.waits(seat.session)),
       seats: seats.map((seat) => seat.id),

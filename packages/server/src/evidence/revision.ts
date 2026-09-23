@@ -178,13 +178,104 @@ export const baseOf = async (cwd: string): Promise<string | null> => {
   return null
 }
 
-/** What a checkout's branch changes against its base, committed work only: the `diff` fact. */
+/**
+ * The remote's copy of the branch a checkout works on, when there is one:
+ * what a pull brings into it. The branch's own configured upstream, whatever
+ * it is called; else the remote's default branch as `origin/HEAD` — or any
+ * remote's — names it. A local branch is never it.
+ */
+const upstreamOf = async (cwd: string): Promise<string | null> => {
+  const tracked = (await gitOr(cwd, ['rev-parse', '--symbolic-full-name', '--verify', '--quiet', '@{upstream}']))?.trim()
+  if (tracked && tracked.startsWith('refs/remotes/') && isRevisionName(tracked)) return tracked
+  const heads = (await gitOr(cwd, ['for-each-ref', '--format=%(refname) %(symref)', 'refs/remotes/*/HEAD'])) ?? ''
+  const named = heads.split('\n').map((line) => line.trim().split(' ')).filter((parts) => parts.length === 2 && parts[1])
+  const origin = named.find((parts) => parts[0] === 'refs/remotes/origin/HEAD') ?? named[0]
+  return origin && isRevisionName(origin[1]!) ? origin[1]! : null
+}
+
+/** Where the remote's copy of a checkout's branch stands now, as git last fetched it; null when there is none. */
+export const upstreamTipOf = async (cwd: string): Promise<Sha | null> => {
+  const upstream = await upstreamOf(cwd)
+  if (!upstream) return null
+  const tip = (await gitOr(cwd, ['rev-parse', '--verify', '--quiet', `${upstream}^{commit}`]))?.trim() ?? ''
+  return isSha(tip) ? tip : null
+}
+
+/** How a reflog entry says a commit was made in this checkout, rather than brought into it. */
+const MADE_HERE = /^(commit( \((amend|initial|merge)\))?|cherry-pick|revert|[a-z -]*\((pick|reword|edit|squash|fixup)\)):/
+
+/**
+ * The commits this checkout's HEAD record says were made here — committed,
+ * amended, picked, reworded — as opposed to brought in by a pull, a reset or
+ * a checkout. Null when there is no such record to read.
+ */
+const madeHere = async (cwd: string): Promise<ReadonlySet<string> | null> => {
+  const log = await gitOr(cwd, ['log', '-g', '--format=%H%x09%gs', '-n', '10000', 'HEAD', '--'])
+  if (log === null || log.trim() === '') return null
+  const out = new Set<string>()
+  for (const line of log.split('\n')) {
+    const tab = line.indexOf('\t')
+    if (tab > 0 && MADE_HERE.test(line.slice(tab + 1))) out.add(line.slice(0, tab))
+  }
+  return out
+}
+
+/**
+ * What a checkout's work changes, committed work only: the `diff` fact.
+ *
+ * Measured from `since` when it is given and the checkout's history leads
+ * from it — the commit the card's holder was at when it took the card — as
+ * the card's own work: the non-merge commits on the checkout's first-parent
+ * line since then that were made in this checkout, as its own record of
+ * HEAD's moves says. So a pull is not the step's work whether or not the
+ * step has pushed since, a merge brings nothing of its own, and a Seat's
+ * second card is measured from where that card began. With no such record
+ * (reflogs off, or removed), what the remote's copy of the branch held when
+ * the card was taken (`upstream`) is set aside instead — which keeps a push
+ * of the step's own commits and cannot tell a later pull apart. What neither
+ * can tell apart is whose commit it is: on a checkout several Seats share,
+ * every commit made in it while the card was held counts. With no usable
+ * `since`, what the branch changes against the base branch it came from —
+ * nothing, on the base branch itself.
+ */
 export const diffOf = async (
   cwd: string,
+  since: Sha | null = null,
+  options: { readonly upstream?: Sha | null } = {},
 ): Promise<{ readonly files: number; readonly added: number; readonly removed: number; readonly from: Sha; readonly to: Sha } | null> => {
   const revision = await revisionOf(cwd)
+  if (!revision) return null
+  const began = since !== null && isSha(since) && (since === revision.head || (await gitOr(cwd, ['merge-base', '--is-ancestor', since, revision.head])) !== null)
+    ? since : null
+  if (began !== null) {
+    const here = await madeHere(cwd)
+    // Without the record, the remote as it stood when the card was taken; a card from before that was kept, the remote now.
+    const setAside = here ? null
+      : options.upstream !== undefined ? (options.upstream !== null && isSha(options.upstream) ? options.upstream : null)
+        : await upstreamOf(cwd)
+    const log = await gitOr(cwd, [
+      'log', '--first-parent', '--no-merges', '--numstat', '--format=%x00%H', `${began}..${revision.head}`,
+      ...(setAside ? ['--not', setAside] : []), '--',
+    ])
+    if (log === null) return null
+    const files = new Set<string>()
+    let added = 0
+    let removed = 0
+    for (const commit of log.split('\0').slice(1)) {
+      const [sha, ...lines] = commit.split('\n')
+      if (here && !here.has(sha!.trim())) continue
+      for (const line of lines) {
+        const found = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line)
+        if (!found) continue
+        files.add(found[3]!)
+        added += found[1] === '-' ? 0 : Number(found[1])
+        removed += found[2] === '-' ? 0 : Number(found[2])
+      }
+    }
+    return { files: files.size, added, removed, from: began, to: revision.head }
+  }
   const base = await baseOf(cwd)
-  if (!revision || !base) return null
+  if (!base) return null
   const from = (await gitOr(cwd, ['merge-base', base, revision.head]))?.trim() ?? ''
   if (!isSha(from)) return null
   const shortstat = (await gitOr(cwd, ['diff', '--shortstat', from, revision.head])) ?? ''

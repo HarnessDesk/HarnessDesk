@@ -12,7 +12,7 @@ import {
 
 import { Dialog, Input } from '../design'
 import { runtimeTint } from '../lib/accounts'
-import { FACT_COLUMNS, flowRoleOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
+import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
@@ -326,13 +326,17 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const flowRun = (snapshot.flowRuns.get(room) ?? []).find(
     (one) => one.state === 'running' || one.state === 'stalled',
   )
+  const executions = useMemo(
+    () => [...snapshot.flowExecutions.values()].filter((one) => one.goal === room),
+    [snapshot.flowExecutions, room],
+  )
   const placed = useMemo(() => {
     const out = new Map<number, Placement>()
     for (const intent of intents) {
       // A completed card's column is an evidence verdict. Until the first
       // read succeeds, omitting it is honest; “nothing checked” is not.
       if (intent.state === 'done' && evidence === undefined) continue
-      const role = flowRoleOf(intent, flowRun)
+      const role = flowStepOf(intent, flowRun, executions)
       out.set(
         intent.id,
         placeCard({
@@ -347,7 +351,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
       )
     }
     return out
-  }, [intents, evidence, now, attached, waiting, flowRun])
+  }, [intents, evidence, now, attached, waiting, flowRun, executions])
   const byColumn = useMemo(() => {
     const out = new Map<FactColumn, Intent[]>()
     for (const column of COLUMNS) out.set(column.id, [])
@@ -735,13 +739,14 @@ const IntentCard = ({
      the card has always drawn. */
   const role = useMemo(
     () =>
-      flowRoleOf(
+      flowStepOf(
         intent,
         (snapshot.flowRuns.get(room) ?? []).find(
           (one) => one.state === 'running' || one.state === 'stalled',
         ),
+        [...snapshot.flowExecutions.values()].filter((one) => one.goal === room),
       ),
-    [intent, room, snapshot.flowRuns],
+    [intent, room, snapshot.flowRuns, snapshot.flowExecutions],
   )
 
   const runtime = intent.claim

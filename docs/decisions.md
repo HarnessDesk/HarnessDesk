@@ -385,3 +385,60 @@ execution authority: journals are cleared and lanes are released archives.
 
 **The rule:** active work is derived from open Seats; finished or restored work
 is read-only history.
+
+## A cloned tree is hostile; the person's own processes are not
+
+A project's `.harnessdesk` arrives with a clone, so its flows, Agent folders,
+planted links, hard links, odd names, oversized files and malformed YAML are
+the repository's, not the person's. That static tree is the threat. Another
+process running as the same person, swapping folders between two calls, is
+not: it can already write anything the person can, and Node's path-only fs
+API cannot close that race anyway, so the code does not pretend to.
+
+Every read and write the flow catalogue, the flow update, its journal and the
+Agent files it creates make goes through one module, `confined-tree.ts`. It
+resolves the root once and pins its identity, so an update previewed against
+one folder is refused against a folder that replaced it. Every open below the
+root uses macOS's `O_NOFOLLOW_ANY`, which refuses a link at any component.
+Where that flag does not exist, reads walk each component without following
+it, and every write fails closed with a refusal rather than falling back to a
+last-component `O_NOFOLLOW`. A file is replaced by writing a synced sibling,
+checking that the target still holds the previewed bytes (or already holds
+the new ones), renaming the sibling over it and syncing the folder. It is
+never truncated in place, a person's edit since the preview is kept, and a
+crash leaves the old bytes or the new ones, which the update journal, written
+the same way, can replay.
+
+**The rule:** no fs call on a project path bypasses the confined tree, and no
+write there happens on a platform without an any-component no-follow open.
+
+## An evidence guard judges revisions, found by card and revision, never by round
+
+A finished round's rule asks whether some work is good enough to move on,
+and the facts that answer are filed all over the run: a check on the check's
+own card, a judge's review on the judge's card, an observed diff or pull
+request on the writer's card with no round at all. The first version asked
+for a fact on the *subject's own card, in the finished round* — a join no
+fact the desk records ever satisfied, so every guarded rule waited forever,
+and a judge sitting in a clean Goal checkout was even taken for the thing
+being judged.
+
+So a guard judges *subjects*, and a subject is a revision: the head, read
+now, of the nearest cards back along `dependsOn` whose grant lets them change
+files and whose Agent does not produce reviews. A judge or reviewer is never
+a subject, whatever its grant; a check or a
+person round is walked through. The facts that may speak for a subject are
+those filed on any card that walk crossed — which is what scopes a fact to
+this run — at the subject's own revision, fresh, and observed here. The last
+observation of each question decides. Review guards are judged first and may
+single out one candidate every required reviewer (the finished round's own
+Seats) chose; every other guard is then judged at that revision. A writer
+whose checkout is dirty is kept as unsettled and waits, rather than being
+dropped from "every subject". The same walk, started from a card's own
+`dependsOn`, gives a check its fan-out width and a reviewer its candidates.
+Every durable append to the evidence store wakes waiting guards; a message
+never does.
+
+**The rule:** a fact counts for a rule by the card it is filed on and the
+revision it names, never by the round number it carries, and never for a
+checkout that could not have changed.

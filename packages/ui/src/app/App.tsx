@@ -18,6 +18,8 @@ import { FolderPicker } from '../components/FolderPicker'
 import { resolveSection, Settings, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
+import { RaceStart } from '../components/RaceStart'
+import { projectRootOf } from '../lib/projects'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
@@ -437,6 +439,15 @@ export const App = () => {
         <NewWorktree
           root={snapshot.newWorktreeFor}
           onClose={() => store.askNewWorktree(null)}
+        />
+      )}
+      {/* /race opens dialog state only; the store no longer picks a second
+          runtime or creates two drafts itself — see AppStore.raceAgents. */}
+      {snapshot.raceStart && projectRootOf(snapshot.workspace) && (
+        <RaceStart
+          root={projectRootOf(snapshot.workspace)!}
+          task={snapshot.raceStart.task}
+          onClose={() => store.closeRaceStart()}
         />
       )}
       {/* One mount for the sheet every door that starts an Agent can raise. */}

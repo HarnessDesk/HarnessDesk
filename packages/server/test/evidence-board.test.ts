@@ -299,6 +299,33 @@ test("a message between agents is never evidence: an agent telling another the t
   assert.deepEqual(board.cards.flatMap((card) => card.running), [], 'speech starts no check run')
 })
 
+test('all reviewer Seats remain distinct: three producers at the same revision draw as three observations', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const at = await repo.git('rev-parse', 'HEAD')
+  const review = (seat: string, verdict: string, observedAt: number): EvidenceRecord => ({
+    id: `review-${seat}`,
+    fact: { kind: 'review', verdict, by: seat, at },
+    card: { board: 'room-1', id: 4 },
+    checkout: { cwd: repo.dir, branch: 'main' },
+    seat,
+    round: 2,
+    observedAt,
+    posted: null,
+  })
+  const records = [review('seat-r1', 'approve', 1), review('seat-r2', 'approve', 2), review('seat-r3', 'request-changes', 3)]
+  const read = await boardEvidence({
+    room: 'room-1', stamp: 1, project, records, checks: [], refused: [], unreadable: null, running: [],
+    seatWords: (id) => ({ agent: 'Reviewer', seat: String(id) }),
+  })
+  const card = read.cards.find((one) => one.card === 4)
+  assert.equal(card?.facts.length, 3, 'one entry per reviewing Seat, not one overwritten display entry')
+  assert.deepEqual(
+    card?.facts.map((view) => (view.record.fact.kind === 'review' ? [view.record.fact.by, view.record.fact.verdict] : null)).sort(),
+    [['seat-r1', 'approve'], ['seat-r2', 'approve'], ['seat-r3', 'request-changes']].sort(),
+  )
+})
+
 test('the wire refuses a board read that names no room', () => {
   assert.throws(() => parseClientMessage({ id: 1, method: 'evidence/board', params: { room: '' } }), ValidationError)
 })

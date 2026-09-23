@@ -11,6 +11,10 @@ import { AgentsView, ChangesView, TrajectoryView } from '../components/Details'
 import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
+import { ProjectFlows } from '../components/ProjectFlows'
+import { FlowUpdate } from '../components/FlowUpdate'
+import { RaceStart } from '../components/RaceStart'
+import { FlowRunStatus } from '../components/FlowRunStatus'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -208,6 +212,9 @@ const Preview = () => {
     | 'save as agent'
     | 'what was observed'
     | 'run a check'
+    | 'flow update'
+    | 'flow customize'
+    | 'race'
   >('off')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
@@ -252,7 +259,7 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race'] as const}
           onChange={setDialog}
         />
       </div>
@@ -279,6 +286,15 @@ const Preview = () => {
         />
       )}
       {dialog === 'new session' && <NewSessionChoice onClose={() => setDialog('off')} />}
+      {dialog === 'flow update' && (
+        <FlowUpdate root={PREVIEW_ROOT} id="old-fix" mode="update" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
+      )}
+      {dialog === 'flow customize' && (
+        <FlowUpdate root={PREVIEW_ROOT} id="comparison" mode="customize" onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />
+      )}
+      {dialog === 'race' && (
+        <RaceStart root={PREVIEW_ROOT} task="Fix the retry bug" onClose={() => setDialog('off')} />
+      )}
       {dialog === 'seat sheet' && (
         <SeatSheet
           refusal={{
@@ -466,6 +482,24 @@ const Preview = () => {
             >
               <AgentsView />
             </PaneProvider>
+          </div>
+        </Frame>
+        <Frame title="Project — its flows">
+          <div className="p-4">
+            <ProjectFlows root={PREVIEW_ROOT} current />
+          </div>
+        </Frame>
+        <Frame title="Flow — run status, interrupted check">
+          <div className="p-4">
+            <FlowRunStatus
+              execution={{
+                version: 2, id: 'run-preview', goal: PREVIEW_ROOM, document: { format: 'agents', flow: { version: 2, name: 'Fix and review', inputs: [], roles: [], rules: [], seed: { role: 'verify', title: 'Check the fix' }, messaging: 'board-only', wait: 240 } },
+                state: 'stalled',
+                rounds: [{ n: 2, role: 'verify', cards: [7], seats: [], evidence: [], state: 'running', cause: 'x' }],
+                operations: [{ key: 'check:2:0', kind: 'check', state: 'uncertain', card: 7, seat: null }],
+                legacyRun: null, reason: 'This check was interrupted. Inspect its effects, then choose Run again.',
+              }}
+            />
           </div>
         </Frame>
         <Frame title="Project — its checks">

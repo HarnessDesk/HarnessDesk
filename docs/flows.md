@@ -435,6 +435,151 @@ slice fails loudly rather than being half-supported.
 
 ---
 
+## Agents and Seats (v2)
+
+Everything above is the legacy grammar (`permission:`, `count:`, one
+runtime spec per seat). A flow written with `uses:` and `grant:` instead of
+`seat:`/`order:`/`permission:` is read on the current, second-generation
+format — mixed old and new fields in one role, or one document, refuses with
+both locations rather than guessing which the author meant.
+
+```yaml
+version: 2
+name: "Fix and review"
+inputs:
+  task: { label: "Task" }
+roles:
+  fixer: { kind: agent, uses: [implementer], isolate: true, grant: edit, independentOf: [] }
+  verify: { kind: check, run: "pnpm verify", exits: { "0": pass }, otherwise: fail, timeout: 900 }
+  reviewer: { kind: agent, uses: [code-reviewer], grant: read, independentOf: [] }
+seed: { role: fixer, title: "{{task}}" }
+rules:
+  - { id: to-verify, on: fixer, then: { role: verify, title: "Check the fix" } }
+  - { id: to-reviewer, on: verify, when: { every: [pass] }, then: { role: reviewer, title: "Review the fix" } }
+messaging: board-only
+wait: 240
+```
+
+A role's own file no longer carries an Agent's brief, answers or ceiling —
+those come from the resolved Agent named in `uses:`, the same one Settings ›
+Agents lists. `uses:` a list of Agents, or `seats:` a list of seat specs
+(`runtime=model/effort+`), never both — a scalar Agent plus a seat list opens
+one card per seat, a list of Agents plus zero or one seat opens one per
+Agent, and an explicit `count:` must agree with whichever list sets the
+round's width. A seat's actual ceiling is `narrower(Agent's own ceiling,
+this role's grant)`; an omitted `grant:` is `read`.
+
+**Independence** (`independentOf: [build]`) is judged on the vendor behind
+each Seat, as the runtime's adapter reads it from the agent's own
+configuration — Codex's `config.toml`, profiles and project `.codex`,
+Claude Code's settings files and environment, Gemini CLI's `.env` files and
+settings. Anything that could point an agent at another provider or base
+URL, a gateway account, or an agent the desk has no reader for, makes the
+vendor unknown, and an unknown vendor is never taken for an independent
+one: the step is refused a seat and the run stalls with the reason. A
+runtime's name decides nothing. A project's own files arrive with a clone,
+so they are read bounded and without blocking, a regular file only, through
+a link at no point below the project; anything that cannot be read that way
+is unknown.
+
+**A Seat's card** is claimed for it as the Seat opens, and the Seat reads its
+Agent's brief in a turn of its own. A Seat that asks for work inside that turn
+is handed its card there and may finish it there; the card's own order is left
+*prepared* and sent, once, only when that turn ends — well or in an error —
+with the card still open, never into a turn that is running: an agent refuses
+a second message while it works, and a run does not stall on that refusal. A
+restart keeps a prepared order as it is. The run's rounds follow the board: a
+card finished inside the brief's turn closes its round like any other.
+
+**A Goal's board has one writer**: the Team engine's copy. Agents' verbs, a
+person's answers and the Goal's own claims and releases all change that copy,
+and it is saved as it stands when the save runs, so what is saved is never
+older than what is shown, two changes to one card are one sequence, and a
+card has one holder. A completion or a person's answer is told to the agent,
+and to the run, only once it is saved; one whose save fails is put back and
+refused. A wrap holds the board before it reads it: from then on nothing is
+added to it, and a card added just before is on the board the wrap reviews,
+so the wrap is refused rather than leave it out. Once a Goal is wrapped its
+document's dispositions are final; a card an earlier build let in after the
+wrap read the board is set aside, saying so, when that wrap finishes.
+
+**Checks fan out.** A check with no explicit `cwd` opens one card, and
+records one fact, per predecessor subject — each competitor's own isolated
+checkout — rather than picking one of them for an aggregate command. Naming
+`cwd:` explicitly keeps the old one-aggregate-card behaviour, resolved
+relative to the Goal's own checkout, with every subject still visible to the
+command through the bounded `HARNESSDESK_FLOW_CONTEXT` JSON (never an
+arbitrary environment map). Each card's checkout and revision are journaled
+when its round opens; a retry runs there or, if that checkout's head has
+moved since, stalls and says so. A writer whose checkout has uncommitted
+changes stops the round before any command runs.
+
+**Evidence guards** read what the desk already observed, never a message or
+an agent's own claim. A guard judges *subjects*: the revisions of the
+nearest cards back along the finished round's dependencies whose grant lets
+them change files and whose Agent does not produce reviews — never a judge's
+or reviewer's own checkout, even one granted edit. A fact
+speaks for a subject when it is filed on a card of that walk (the finished
+round's own, the rounds between, or the subject's own), names the subject's
+current revision, is fresh, and was observed on this desk. So
+`evidence: [{ check: "pnpm verify" }]` is satisfied by the check card's own
+fact at the writer's head, `{ review: "picked" }` by the judge's structured
+review naming one candidate revision (and it narrows several candidates to
+that one), and `{ diff: true }`, `{ ci: green }` and `{ pr: open }` by what
+the desk observed on the writer's branch. A diff is the card's own committed
+work, measured from where the card began — the commit its holder's checkout
+was at when it took the card, which the claim records: the non-merge commits
+on the checkout's first-parent line since then that its own record of HEAD
+(the reflog) says were made there — committed, amended or picked — rather than
+brought in by a pull. So it holds for a step that commits straight onto the
+project's default branch (a role neither isolated nor told to branch), the
+step's commits stay its own after it pushes them, a pull is not its work, a
+merge brings nothing of its own, and a Seat that takes a second card is
+measured from that card's start. A checkout that keeps no reflog sets aside
+what the remote's copy of its branch held when the card was taken (the claim
+records that too), which keeps a push and cannot tell a later pull apart.
+What git cannot say is whose commit it is: on a checkout several Seats share,
+every commit made in it while the card was held counts — `isolate: true`
+gives a step a checkout of its own. A card whose claim recorded no start is
+measured from where its Seat opened, else against the base branch its branch
+came from. The dry run says "A committed change in
+the checkout since this step began". A diff that turns out empty is an
+explicit failure, not a wait. The last observation of each
+question decides; a guard whose fact has not landed yet *waits*, and every
+durable append of a new fact wakes it; one contradicted by a fresh, explicit
+failure is a *no-match* a later fallback rule may still take. Neither is
+silent: a run waiting on evidence says in its status which rule waits and for
+what, and a run that ends because no rule applied says which guarded rule did
+not and why. A writer whose checkout has uncommitted changes waits rather than
+being left out. A card
+may name what authorized it — `{{evidence.review.at}}`, say — and a field
+the facts do not settle to one value stops the run before any card is
+added.
+
+**The catalogue** a project's Flows section and `/race` both read is layered
+— a project's own `.harnessdesk/flows`, then this Mac's, then the ones that
+ship — the nearer file always winning, broken or not, with what it shadows
+listed rather than hidden. *Update…* converts an old project file in place:
+every Agent it names becomes a real file, then the flow file itself is
+replaced, previewed as one whole diff before either write, journaled so a
+partial result (Agent files written, flow file not yet) can be continued
+rather than repeated. A role that had no `order:` becomes an Agent whose
+brief is the sentence the old engine gave it — "You are the *role*. The cards
+say the rest." — so a flow that ran before *Update…* still seats every role
+after it. *Customize…* copies a shipped or your-Mac file into
+the project verbatim, no conversion — a project flow is then edited in
+place, through the normal editor, not through this dialog again.
+
+**`/race`** is UI input to an ordinary file, not a second execution path: it
+asks for one Agent and two explicit, isolated seats, substitutes them into
+the effective `comparison` catalogue entry's own designated Agent role (a
+plain `layout: { race: <role id> }` marker, never an engine-read execution
+type), and previews and starts that complete source exactly the way any
+other flow does. `packages/server/flows/` ships seven such starting points —
+`comparison`, `fan-out`, `independent-review`, `staged-relay`,
+`investigation`, `alignment`, `mechanical-contest` — as ordinary, editable
+files over the same three step kinds; no shape's id ever reaches the engine.
+
 ## Triggers
 
 A flow is started by a person pressing a thing. That is the whole of v1, and

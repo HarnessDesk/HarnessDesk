@@ -1,0 +1,44 @@
+version: 2
+name: "Staged relay"
+description: "Work passes through a fixed relay of specialists, one stage at a time, each handing to the next only once its own answer says to."
+inputs:
+  task:
+    label: "Task"
+roles:
+  analyze:
+    kind: agent
+    uses: [requirements-analyst]
+    grant: read
+    independentOf: []
+  build:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+  test_review:
+    kind: agent
+    uses: [test-reviewer]
+    grant: read
+    independentOf: [build]
+  ship:
+    kind: person
+    outcomes: [shipped]
+seed: { role: analyze, title: "{{task}}" }
+rules:
+  - id: to-build
+    on: analyze
+    when: { every: [agreed] }
+    then: { role: build, title: "Build what was agreed" }
+  - id: to-test-review
+    on: build
+    then: { role: test_review, title: "Read the tests for the change" }
+  - id: to-ship
+    on: test_review
+    when: { every: [approve] }
+    then: { role: ship, title: "Ship it" }
+  - id: back-to-build
+    on: test_review
+    when: { every: [request-changes] }
+    then: { role: build, title: "Fix what the test review found" }
+messaging: board-only
+wait: 240

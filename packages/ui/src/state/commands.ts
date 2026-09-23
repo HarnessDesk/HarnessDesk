@@ -95,9 +95,9 @@ export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
   },
   {
     name: 'race',
-    description: 'Send one task to two agents, each in its own worktree; the second waits in the sidebar',
+    description: 'Run one Agent as two isolated seats on the same task, then compare',
     argumentHint: '<task>',
-    available: (snapshot) => snapshot.runtimes.length > 1 && Boolean(snapshot.workspace?.git?.branch),
+    available: (snapshot) => Boolean(snapshot.workspace?.git?.branch),
     kind: { type: 'action', run: (store, argument) => void store.raceAgents(argument) },
   },
   {

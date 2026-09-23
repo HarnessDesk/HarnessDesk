@@ -89,6 +89,7 @@ import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
 import { codexEnvironmentConfig } from './lane-environment.js'
+import { codexProvider } from './provider.js'
 
 /**
  * `AgentRuntime` over `codex app-server`.
@@ -269,6 +270,11 @@ export class CodexRuntime implements AgentRuntime {
   readonly #codexHome: string | null
   /** Resolved once and refreshed on start; see `AgentRuntime.sessionStore`. */
   #sessionStore: string
+  /** What Codex is started with, for reading which provider its sessions reach. */
+  readonly #launch: { readonly env: Readonly<Record<string, string | undefined>>; readonly overrides: readonly string[] }
+  /** Resolved on construction and refreshed on start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void>
 
   constructor(options: CodexRuntimeOptions = {}) {
     this.#id = options.id ?? CODEX_RUNTIME_ID
@@ -277,6 +283,8 @@ export class CodexRuntime implements AgentRuntime {
     this.#settleMs = options.settleMs
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
+    this.#launch = { env: { ...process.env, ...options.env }, overrides: options.configOverrides ?? [] }
+    this.#providerRead = this.#readProvider()
     this.#binaryPath = options.binaryPath ?? null
     this.#logger = options.logger
     this.#capabilities = options.capabilities ?? null
@@ -351,6 +359,7 @@ export class CodexRuntime implements AgentRuntime {
           command: installCommandFor(this.#server.installation?.path),
         },
       },
+      provider: this.#provider,
       // Codex ≥0.135.0 refuses `wire_api = "chat"` outright (probed; see
       // script/probe/README.md), so Responses is the whole truth here.
       supportedWireProtocols: ['responses'],
@@ -368,8 +377,31 @@ export class CodexRuntime implements AgentRuntime {
     return this.#sessionStore
   }
 
+  /**
+   * OpenAI's, from Codex's own configuration, or unknown when anything it is
+   * started with could point it elsewhere — a `-c` override naming a
+   * provider or base URL included. See `codexProvider`.
+   */
+  async #resolveProvider(cwd?: string): Promise<string | null> {
+    if (this.#launch.overrides.some((one) => /model_provider|base_url/.test(one))) return null
+    return codexProvider(this.#codexHome, this.#launch.env, cwd)
+  }
+
+  #readProvider(): Promise<void> {
+    return this.#resolveProvider().then((provider) => { this.#provider = provider }, () => { this.#provider = null })
+  }
+
+  /** `AgentRuntime.providerAt`: a project's own `.codex/config.toml` can point its sessions elsewhere. */
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
+    return this.#provider === null ? null : this.#resolveProvider(cwd)
+  }
+
   async start(): Promise<void> {
+    // Read beside the spawn, never ahead of it: a quit must find the start where it always did.
+    this.#providerRead = this.#readProvider()
     await this.#spawnServer()
+    await this.#providerRead
     // The links a slot's home is made of are relaid on every start, and a home
     // that had never held a thread now has a `sessions` directory to resolve.
     this.#sessionStore = sessionStoreOf(this.#codexHome)

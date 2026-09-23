@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import { sessionKey, type FlowPermission, type FlowSeat, type RuntimeId, type SeatId, type SeatRecord, type TeamState } from '@harnessdesk/protocol'
 
 import { FLOW_DIR, Flows as DurableFlows, runCheck, type FlowPort as DurableFlowPort } from '../src/flows.js'
+import { FlowCatalog } from '../src/flow-catalog.js'
 import { Team, type TeamPeer, type TeamPort } from '../src/team.js'
 
 /**
@@ -77,7 +78,7 @@ const peerOf = (runtime: string, sessionId: string, cwd: string, model: string):
 })
 
 /** Old fake-desk spelling retained only inside this test; production has one durable Seat port. */
-type FlowPort = Omit<DurableFlowPort, 'openLegacySeat' | 'releaseGoalSeat'> & {
+type FlowPort = Omit<DurableFlowPort, 'openLegacySeat' | 'releaseGoalSeat' | 'recovery'> & {
   seat(seat: FlowSeat, where: { readonly cwd: string; readonly title: string }): Promise<{
     readonly runtime: string; readonly sessionId: string; readonly label: string
   }>
@@ -86,11 +87,24 @@ type FlowPort = Omit<DurableFlowPort, 'openLegacySeat' | 'releaseGoalSeat'> & {
   recorded?(room: string, seat: unknown): void
 }
 
+/**
+ * The Seat book this fake desk keeps, per board: what a restart reads back.
+ * Shared by every engine built over one Team, the way the host's book
+ * outlives an engine. (Added for recovery; the rest of this rig is unchanged.)
+ */
+const seatBooks = new WeakMap<Team, SeatRecord[]>()
+
 const durablePort = (team: Team, legacy: FlowPort): DurableFlowPort => {
   const opened = new Map<SeatId, { runtime: string; sessionId: string }>()
   const { seat, join: joinRoom, isolate, recorded: _recorded, ...port } = legacy
+  const book = seatBooks.get(team) ?? []
+  seatBooks.set(team, book)
   return {
     ...port,
+    recovery: {
+      goal: (room) => ({ exists: team.hasRoom(room), writable: team.hasRoom(room) }),
+      seats: (room) => book.filter((record) => record.board === room),
+    },
     openLegacySeat: async (input: {
       goal: string; spec: FlowSeat; permission: FlowPermission; role: string
       isolate: boolean; title: string; lane?: string
@@ -104,16 +118,20 @@ const durablePort = (team: Team, legacy: FlowPort): DurableFlowPort => {
       team.setRole(input.goal, live.runtime, live.sessionId, input.role)
       const id = `test-${live.runtime}-${live.sessionId}` as SeatId
       opened.set(id, live)
-      return {
+      const record: SeatRecord = {
         id, agent: null, briefDigest: null, seat: input.spec, seatLabel: live.label,
         passedOver: [], standing: { kind: 'permission', permission: input.permission }, ceiling: null,
         checkout: { cwd, project: board.root, branch: null, head: null },
         session: { runtime: live.runtime, sessionId: live.sessionId }, board: input.goal,
         role: input.role, openedAt: Date.now(), closed: null,
       }
+      book.push(record)
+      return record
     },
     releaseGoalSeat: async (goal, id) => {
       const live = opened.get(id)
+      const kept = book.findIndex((record) => record.id === id)
+      if (kept !== -1) book[kept] = { ...book[kept]!, closed: { at: Date.now(), why: 'released' } }
       if (!live) return
       team.setRole(goal, live.runtime, live.sessionId, null)
       team.leaveRoom(goal, live.runtime as RuntimeId, live.sessionId)
@@ -1730,8 +1748,12 @@ test('Flows.load stops running flows whose room no longer exists (#441)', async 
   await second.flush()
   const run = second.runsFor('non-existent-room-id')[0]
   assert.ok(run)
-  assert.equal(run.state, 'stopped')
-  assert.equal(run.ended, 'the room this flow ran in is gone')
+  /* Edited for phase 6 recovery: a run whose Goal is gone is held with the
+     reason and its file is left exactly as it was, rather than rewritten as
+     stopped — restoring the Goal lets it go on. */
+  assert.equal(run.state, 'stalled')
+  assert.equal(run.ended, 'This run’s Goal is missing. Restore its Goal before continuing.')
+  assert.equal(JSON.parse(await readFile(join(flowDir, 'orphaned-run.json'), 'utf8')).state, 'running')
 })
 
 test('deleting a room stops active flow runs and allows seats to stand down (#419)', async (t) => {
@@ -1845,11 +1867,19 @@ rules:
   assert.equal(secondRan.length, 0, 'load does not issue check commands')
   assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'open')
 
-  // On resume, the desk wakes seats and resumes open check commands:
+  /* Edited for phase 6 recovery: old storage cannot say whether the check
+     ran before the desk stopped, so a restart never runs it again by itself.
+     The run is held with the reason until the person chooses Run again. */
   await second.resume()
   await second.flush()
+  assert.equal(secondRan.length, 0, 'an interrupted check is not replayed on resume')
+  const held = second.runsFor(one.room).at(-1)!
+  assert.equal(held.state, 'stalled')
+  assert.equal(held.ended, 'This check was interrupted. Inspect its effects, then choose Run again.')
 
-  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  await second.runAgain(held.id)
+  await second.flush()
+  assert.equal(secondRan.length, 1, 'the person asked for it, so it runs once')
   assert.equal(secondRan[0]?.command, 'pnpm verify')
   assert.equal(board(one).intents.find((i) => i.id === 2)?.state, 'done')
   assert.equal(board(one).intents.find((i) => i.id === 2)?.outcome, 'pass')
@@ -1880,7 +1910,8 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
       },
       state: 'running',
       vars: {},
-      seats: [{ key: 'cursor\u0000x', role: 'fixer', runtime: 'cursor', sessionId: 'x', seat: 'cursor', spec: 'cursor', permission: 'publish', cwd: '/repo' }],
+      // Edited for phase 6 recovery: no seat, so only the check's own state decides.
+      seats: [],
       rounds: [{ role: 'tests', intents: [card.id], round: 0 }],
       record: [],
       startedAt: 1,
@@ -1909,10 +1940,14 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
 
   assert.equal(secondRan.length, 0, 'load does not issue check commands')
 
+  // Edited for phase 6 recovery: held on resume, run only when the person asks.
   await second.resume()
   await second.flush()
+  assert.equal(secondRan.length, 0, 'an interrupted seed check is not replayed on resume')
+  await second.runAgain('seed-run')
+  await second.flush()
 
-  assert.equal(secondRan.length, 1, 'check command should have been run after restart')
+  assert.equal(secondRan.length, 1, 'check command should have been run after Run again')
   assert.equal(secondRan[0]?.command, 'pnpm verify')
   assert.equal(board(one).intents.find((i) => i.id === card.id)?.state, 'done')
   assert.equal(board(one).intents.find((i) => i.id === card.id)?.outcome, 'pass')
@@ -2036,6 +2071,20 @@ test('a project with no flows folder, or with a .harnessdesk that is a file, off
   await mkdir(marked, { recursive: true })
   await writeFile(join(marked, '.harnessdesk'), 'somebody touched this instead of making it\n', 'utf8')
   assert.deepEqual(await one.flows.list(marked), [])
+})
+
+test('legacy list and read delegate to the layered catalogue without changing project paths', async (t) => {
+  const one = await rig(t)
+  const root = join(one.dir, 'catalogue-project')
+  const user = join(one.dir, 'catalogue-user')
+  await mkdir(join(root, FLOW_DIR), { recursive: true })
+  await mkdir(user)
+  await writeFile(join(root, FLOW_DIR, 'review.yml'), REVIEW, 'utf8')
+  await writeFile(join(user, 'starter.yml'), REVIEW.replace('Fix and review', 'Personal starter'), 'utf8')
+  const flows = new DurableFlows(join(one.dir, 'catalogue-runs'), one.team, durablePort(one.team, asking([])), new FlowCatalog({ userRoot: user, confine: async () => {} }))
+  const listed = await flows.list(root)
+  assert.deepEqual(listed.map((flow) => flow.path), ['.harnessdesk/flows/review.yml', 'starter.yml'])
+  assert.equal(await flows.source(root, '.harnessdesk/flows/review.yml'), REVIEW)
 })
 
 test('stored runs that cannot be read are raised, and no flow starts on top of them', async (t) => {

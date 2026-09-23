@@ -55,6 +55,7 @@ import {
   type SessionKey,
   type RepoInfo,
   type SessionSummary,
+  type Intent,
   type TeamState,
   type Turn,
   type UserContent,
@@ -82,6 +83,12 @@ import { MachineSeatingFile, SEATING_FILE, parseSeating } from './agent-seating-
 import { noteLeftOnFailure, runningOf, type SeatRunning } from './agent-seating.js'
 import { AgentWatch } from './agent-watch.js'
 import { Agents } from './agents.js'
+import { FlowCatalog } from './flow-catalog.js'
+import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
+import { FlowReview } from './flow-evidence.js'
+import { FlowPreviews } from './flow-preview.js'
+import { FlowUpdates } from './flow-update.js'
+import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
@@ -105,7 +112,7 @@ import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
-import { revisionOf } from './evidence/revision.js'
+import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
@@ -293,6 +300,19 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
 export const builtinAgentRoot = (): string =>
   packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
 
+/** Editable starter flows ship beside Agent starters and are never renderer-selected paths. */
+export const builtinFlowRoot = (): string =>
+  packagedPath(fileURLToPath(new URL('../../flows', import.meta.url)))
+
+/**
+ * Which vendor a session of `runtime` in `cwd` reaches, as its adapter
+ * reports it: `providerAt` where the agent reads project configuration,
+ * `info.provider` otherwise, and unknown for an account that pays through a
+ * gateway, which can serve anyone's models. See `Host.#providerOf`.
+ */
+export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throughGateway: boolean): Promise<string | null> =>
+  throughGateway ? null : (runtime.providerAt ? await runtime.providerAt(cwd) : runtime.info.provider) ?? null
+
 /**
  * The "Last terminal output" composer chip. Terminals are the host's own
  * workbench tool — they never became a plugin — so this contribution lives
@@ -332,6 +352,8 @@ export interface HostOptions {
    * is a notice to every window.
    */
   readonly builtinAgents?: string
+  /** Test-only override for the flows which ship with the host. */
+  readonly builtinFlows?: string
   readonly version?: string
   /**
    * Tells a runtime when a newer build of it is published. Optional: without
@@ -489,6 +511,8 @@ export class Host {
    * and is the only thing on this plane that spends anything.
    */
   readonly #flows: Flows
+  readonly #flowPreviews: FlowPreviews
+  readonly #flowUpdates: FlowUpdates
   /**
    * The Agent roster: this machine's under the state directory, the built-in
    * ones beside this package, and a project's own under whichever open folder a
@@ -702,6 +726,17 @@ export class Host {
             return false
           }
         },
+        /* The one place a new fact reaches the flow engine: every durable
+           append, whoever wrote it, re-reads the guards of runs waiting on
+           those Goals. Never a message. Read lazily: the engine is made
+           after this plane, and nothing appends before both exist. */
+        appended: (boards) => {
+          if (this.#disposed) return
+          for (const board of boards) {
+            void this.#flows?.wakeEvidence(board).catch((error: unknown) =>
+              this.#logger.warn('a flow could not re-read its evidence', { goal: board, error: error instanceof Error ? error.message : String(error) }))
+          }
+        },
       },
     )
     // A conversation seen for the first time wears the Agent its Seat record names.
@@ -794,7 +829,20 @@ export class Host {
         }
       },
       changed: (state) => this.#push({ method: 'team/changed', params: { state } }),
-      mutate: (state) => this.#goalSerial.run(() => this.#saveTeamProjection(state)),
+      // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
+      startOf: async (cwd) => {
+        const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
+        return revision ? { head: revision.head, upstream } : null
+      },
+      // A refused save is put back before the Goal's queue runs anything else.
+      mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
+        try {
+          await this.#saveTeamProjection(snapshot())
+        } catch (error) {
+          refused?.(error instanceof Error ? error : new Error(String(error)))
+          throw error
+        }
+      }),
       removed: (room) => this.#push({ method: 'team/removed', params: { room } }),
       /* Membership moved, so whatever this host was counting about reaching
          that conversation no longer applies. See `TeamPort.membershipChanged`
@@ -805,6 +853,35 @@ export class Host {
       audit: (entry) => this.#audit.append({ at: Date.now(), ...entry }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
       settled: (room, intent) => this.#evidence.settled(room, intent),
+    })
+    /**
+     * Structured review, host-scoped: the caller's Seat resolves the Goal it
+     * is on (the Seat book, never a caller-supplied id), and `Flows` resolves
+     * the round/candidates from there. `this.#flows` is read lazily inside
+     * these closures — they are only ever called well after the constructor
+     * returns, once a Flows instance exists to read.
+     */
+    const review = new FlowReview({
+      bindingFor: async (intent, scope) => {
+        if (!scope.runtime || !scope.sessionId) return null
+        const seat = this.#evidence.seats.latestKeptOf(scope.runtime, scope.sessionId)
+        if (!seat || seat.closed || !seat.board) return null
+        const bound = await this.#flows.reviewBindingFor(seat.board, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
+        if (!bound) return null
+        return {
+          goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round,
+          subjects: bound.subjects, unsettled: bound.unsettled,
+        }
+      },
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      append: async (goal, record) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.appendReview(await projectOf(state.cwd ?? state.root), record)
+      },
+      now: () => Date.now(),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
       /* Opened with the seat's picks, then *read back*: a runtime drops a
@@ -846,8 +923,86 @@ export class Host {
       run: (command, where) => this.#evidence.flowCheck(command, where, runCheck),
       changed: (room, runs) => this.#push({ method: 'flow/changed', params: { room, runs } }),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
-    })
+      recovery: {
+        goal: (room) => {
+          const exists = this.#goalStore.list().some((document) => document.goal.id === room)
+          return { exists, writable: exists && this.#goals.canDispatch(room).ok }
+        },
+        seats: (room) => this.#evidence.seats.all().filter((seat) => seat.board === room),
+      },
+    }, new FlowCatalog({
+      userRoot: join(this.#state.directory, 'flows'),
+      builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+    }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
+      providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
+      openSeat: (input) => this.#goals.seat(input),
+      release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
+      canDispatch: (goal) => this.#goals.canDispatch(goal),
+      createGoal: async (input) => (await this.#goals.create(input)).goal,
+      goalsOf: (run) => this.#goalStore.list()
+        .filter((document) => document.goal.origin.kind === 'flow' && document.goal.origin.run === run)
+        .map((document) => document.goal.id),
+      seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
+      seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
+      digestOf: async (goal, agent) => (await this.#agents.read(agent, this.#goalStore.read(goal).goal.root).catch(() => null))?.digest ?? null,
+      order: (seat, text) => this.#orderSeat(seat.session.runtime, seat.session.sessionId, text),
+      busy: (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        return record ? this.#queueBusy(record) : false
+      },
+      laneOf: (seat) => this.#lanes.forSeat(seat.id),
+      reseat: async (seat) => {
+        const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
+        await this.#applySeatPicks(live, seat.seat)
+        return this.#labelOf(seat.seat.runtime, live.options())
+      },
+      // Tells windows only: a run's own journal moved, not the Goal's board,
+      // and a view read here could predate the board's own pending write.
+      // Each run goes out whole, so a run status on screen never waits to be asked.
+      changed: (goal, runs) => {
+        for (const execution of runs) this.#push({ method: 'flow/execution-changed', params: { execution } })
+        void this.#goals.refresh(goal, { install: false }).catch(() => {})
+      },
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+      headOf: async (cwd) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+      },
+      runCheck: (command, where, card) => this.#evidence.runFlowCheck(command, where, card),
+    }, {
+      /**
+       * What every evidence guard reads: this Goal's own facts in append
+       * order, each judged against git now, never the board's folded display
+       * projection. The engine builds the subjects and judges them itself.
+       */
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+    }), review)
     this.#team.attachFlows(this.#flows)
+    this.#flowPreviews = new FlowPreviews({
+      confine: (root) => this.#confineRoom(root),
+      // `root` here is already a confined, real project path — the same one
+      // that becomes the started Goal's own — so this reads that project's
+      // roster directly, without `agent/seat/dry`'s extra "or its repository
+      // top" step for an optional, possibly-a-subfolder `project` param.
+      agents: (root) => this.#agents.list(root),
+      // `this.#context` is assigned once the whole constructor has run; every
+      // wire call this preview port answers happens long after that.
+      previewAgent: (root, agent, seats, grant) => previewAgent(this.#context, root, agent, seats, grant),
+      storedRun: async (run) => this.#flows.storedRun(run),
+      now: () => Date.now(),
+    })
+    this.#flowUpdates = new FlowUpdates({
+      stateDir: join(this.#state.directory, 'flow-updates'),
+      catalogue: new FlowCatalog({
+        userRoot: join(this.#state.directory, 'flows'),
+        builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+        confine: (root) => this.#confineRoom(root),
+      }),
+    })
     const goalPort = {
       seats: {
         all: () => this.#evidence.seats.all(),
@@ -918,9 +1073,9 @@ export class Host {
         const revision = await revisionOf(cwd)
         return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
       },
-      changed: (view) => {
-        if (!this.#publishingTeamProjection) {
-          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+      changed: (view, options) => {
+        if (options?.install !== false && !this.#publishingTeamProjection) {
+          this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
         }
         this.#push({ method: 'goal/changed', params: { view } })
       },
@@ -1000,6 +1155,11 @@ export class Host {
         if (lane) await this.#lanes.retain(lane.id)
       },
       wake: (goal: string) => this.#team.nudgeRoom(goal),
+      stopFlows: (goal: string) => this.#flows.stopGoal(goal),
+      flowLive: (goal: string) => this.#flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled'),
+      executions: (goal: string) => this.#flows.executionsFor(goal),
+      cards: (goal: string) => this.#goalIntents(goal),
+      holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
     } satisfies GoalPlanePort
@@ -1291,7 +1451,7 @@ export class Host {
       throw error
     })
     for (const view of await this.#goals.list()) {
-      this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster)
+      this.#team.installProjection(view.board, this.#goalStore.read(view.goal.id).legacy?.roster, { final: this.#goalFinal(view.goal.id) })
     }
     /* After the rooms, because a run reconciles against the board it left
        behind: a quit between the last card of a round finishing and the next
@@ -1622,6 +1782,19 @@ export class Host {
       : DEFAULT_LANE_PREFERENCES)
   }
 
+  /**
+   * Which vendor a session of this runtime in `cwd` reaches, as its adapter
+   * reports it (`RuntimeInfo.provider`, `AgentRuntime.providerAt`) — what a
+   * flow step that must be independent of an earlier one is checked against.
+   * Unknown for a runtime that does not say, and for an account slot that
+   * runs through a gateway, which can serve anyone's models. Never inferred
+   * from a runtime's id or name.
+   */
+  async #providerOf(runtime: string, cwd: string): Promise<string | null> {
+    const agent = this.#runtimes.get(runtime)
+    return agent ? reportedProvider(agent, cwd, Boolean(this.options.accounts?.slotOf(agent.info)?.gateway)) : null
+  }
+
   #goalState(id: string): TeamState {
     const document = this.#goalStore.read(id)
     return {
@@ -1680,6 +1853,7 @@ export class Host {
     }, null)
   }
 
+  /** The Team engine's copy of a board, saved into its Goal's document: the one writer of a Goal's cards and channel. */
   async #saveTeamProjection(state: TeamState): Promise<void> {
     const legacy = this.#team.legacyFor(state.id)
     let document: GoalDocument
@@ -1728,6 +1902,7 @@ export class Host {
       throw new Error('This Goal is read-only or is finishing an operation. Start another Goal for new work.')
     }
     const at = state.updatedAt || Date.now()
+    const intents = state.intents
     await this.#goalStore.save({
       ...document,
       goal: {
@@ -1737,9 +1912,9 @@ export class Host {
         updatedAt: at,
       },
       board: {
-        nextIntent: Math.max(1, ...state.intents.map((intent) => intent.id + 1)),
+        nextIntent: Math.max(1, document.board.nextIntent, ...intents.map((intent) => intent.id + 1)),
         messaging: state.messaging,
-        intents: state.intents,
+        intents,
         channel: state.channel,
       },
       ...(document.legacy ? {
@@ -1785,78 +1960,148 @@ export class Host {
     }
   }
 
+  /** Whether a Goal's board can no longer change — wrapped, or brought by a backup — so its document is the last word. */
+  #goalFinal(goal: string): boolean {
+    try {
+      const document = this.#goalStore.read(goal)
+      return Boolean(document.restored) || document.goal.state !== 'open'
+    } catch {
+      return false
+    }
+  }
+
+  /** A Goal's cards as they stand: the Team's copy, the one writer, once it holds the board; the document until then. */
+  #goalIntents(goal: string): readonly Intent[] {
+    return this.#team.hasRoom(goal) ? this.#team.stateFor(goal).intents : this.#goalStore.read(goal).board.intents
+  }
+
   #goalClaimable(goal: string, card: number, runtime: string, sessionId: string): boolean {
-    const board = this.#goalStore.read(goal).board
-    const intent = board.intents.find((one) => one.id === card)
+    return this.#claimableIn(this.#goalIntents(goal), goal, card, runtime, sessionId)
+  }
+
+  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string): boolean {
+    /* A card a flow bound to one Seat is that Seat's alone; while the Seat is
+       still opening, only that opening's own claim — the one GoalPlane.seat
+       makes inside the same transaction — may take it. */
+    const bound = this.#flows.bindingFor(goal, card)
+    if (bound && !(bound.session ? bound.session.runtime === runtime && bound.session.sessionId === sessionId : bound.opening)) return false
+    const intent = intents.find((one) => one.id === card)
     if (!intent || intent.state === 'done' || intent.state === 'abandoned' ||
       intent.state === 'claimed' && !(intent.claim?.runtime === runtime && intent.claim.sessionId === sessionId) ||
       intent.state === 'blocked' && intent.blockedBy === 'hand') return false
     const waits = intent.dependsOn.some((id) => {
-      const dependency = board.intents.find((one) => one.id === id)
+      const dependency = intents.find((one) => one.id === id)
       return dependency !== undefined && dependency.state !== 'done'
     })
     if (waits) return false
-    return !board.intents.some((one) =>
+    return !intents.some((one) =>
       one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
     )
   }
 
   #goalStranded(goal: string, card: number): boolean {
-    const intent = this.#goalStore.read(goal).board.intents.find((one) => one.id === card)
+    const intent = this.#goalIntents(goal).find((one) => one.id === card)
     if (intent?.state !== 'claimed' || !intent.claim?.leaseUntil || Date.now() < intent.claim.leaseUntil) return false
     return this.registry.get(intent.claim.runtime, makeSessionId(intent.claim.sessionId)) === undefined
   }
 
-  async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
+  /**
+   * A change the Goal plane makes to a Goal's cards — a claim, a release —
+   * inside the Goal's queue it already holds. Made to the Team's copy, the one
+   * writer of a Goal's board, and saved from it; only before the Team holds
+   * the board (recovery at launch) is the document written directly, when
+   * there is no second copy to keep up with. `patch` is checked against the
+   * cards as they stand and may refuse by throwing, before anything moves.
+   */
+  async #goalPlaneWrite(goal: string, patch: (intents: readonly Intent[]) => readonly Intent[]): Promise<void> {
+    /* While one of the Goal plane's own operations is staged — a wrap's
+       releases, say — its change is written alone, onto the document as that
+       operation read it: nothing the Team changed since rides along into a
+       document whose receipt never saw it. */
+    const staged = this.#goalStore.read(goal).operation !== null
+    const save = staged
+      ? async () => {
+        const now = this.#goalStore.read(goal)
+        const intents = patch(now.board.intents)
+        if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+      }
+      : (state: TeamState) => this.#writeGoalBoard(goal, state)
+    if (await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged })) return
     const document = this.#goalStore.read(goal)
-    const current = document.board.intents.find((one) => one.id === card)
-    if (!current) throw new Error('Choose an existing card.')
-    if (current.state === 'claimed' && current.claim?.runtime === opening.session.runtime &&
-      current.claim.sessionId === opening.session.sessionId) return
-    if (!this.#goalClaimable(goal, card, opening.session.runtime, opening.session.sessionId)) {
-      throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+    const intents = patch(document.board.intents)
+    if (intents === document.board.intents) return
+    await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+  }
+
+  /**
+   * A Goal's cards and channel, written into its document from one copy of
+   * the board. Refused once the Goal is wrapped or was brought by a backup;
+   * allowed while one of the Goal plane's own operations — a release, the
+   * wrap's own releases — is in progress, since that operation is what is
+   * writing.
+   */
+  async #writeGoalBoard(goal: string, state: TeamState): Promise<void> {
+    const document = this.#goalStore.read(goal)
+    if (document.restored || document.goal.state === 'wrapped') {
+      throw new Error('This Goal is read-only. Start another Goal for new work.')
     }
     const at = Date.now()
-    const intents = document.board.intents.map((intent) => intent.id === card ? {
-      ...intent,
-      state: 'claimed' as const,
-      claim: { runtime: opening.session.runtime as RuntimeId, sessionId: opening.session.sessionId, at },
-      updatedAt: at,
-      blockedBy: null,
-      blockedReason: null,
-    } : intent)
     await this.#goalStore.save({
       ...document,
-      board: { ...document.board, intents },
+      board: {
+        ...document.board,
+        nextIntent: Math.max(1, document.board.nextIntent, ...state.intents.map((intent) => intent.id + 1)),
+        intents: state.intents,
+        channel: state.channel,
+      },
       goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
     }, document.goal.revision)
+  }
+
+  async #claimGoalCard(goal: string, card: number, opening: SeatOpening): Promise<void> {
+    const { runtime, sessionId } = opening.session
+    const upstream = await upstreamTipOf(opening.checkout.cwd).catch(() => null)
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const current = intents.find((one) => one.id === card)
+      if (!current) throw new Error('Choose an existing card.')
+      if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
+      if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+        throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
+      }
+      const at = Date.now()
+      return intents.map((intent) => intent.id === card ? {
+        ...intent,
+        state: 'claimed' as const,
+        // Where the Seat's checkout stood as it took the card: the start of this card's work.
+        claim: { runtime: runtime as RuntimeId, sessionId, at, head: opening.checkout.head, upstream },
+        updatedAt: at,
+        blockedBy: null,
+        blockedReason: null,
+      } : intent)
+    })
   }
 
   async #releaseGoalCard(goal: string, seat: SeatId): Promise<void> {
     const record = this.#evidence.seats.byId(seat)
     if (!record) return
-    const document = this.#goalStore.read(goal)
-    const held = document.board.intents.find((intent) => intent.state === 'claimed' &&
-      intent.claim?.runtime === record.session.runtime && intent.claim.sessionId === record.session.sessionId)
-    if (!held) return
-    const blocked = held.dependsOn.some((id) => {
-      const dependency = document.board.intents.find((one) => one.id === id)
-      return dependency !== undefined && dependency.state !== 'done'
+    await this.#goalPlaneWrite(goal, (intents) => {
+      const held = intents.find((intent) => intent.state === 'claimed' &&
+        intent.claim?.runtime === record.session.runtime && intent.claim.sessionId === record.session.sessionId)
+      if (!held) return intents
+      const blocked = held.dependsOn.some((id) => {
+        const dependency = intents.find((one) => one.id === id)
+        return dependency !== undefined && dependency.state !== 'done'
+      })
+      const at = Date.now()
+      return intents.map((intent) => intent.id === held.id ? {
+        ...intent,
+        state: blocked ? 'blocked' as const : 'open' as const,
+        claim: null,
+        blockedBy: blocked ? 'graph' as const : null,
+        blockedReason: null,
+        updatedAt: at,
+      } : intent)
     })
-    const at = Date.now()
-    const intents = document.board.intents.map((intent) => intent.id === held.id ? {
-      ...intent,
-      state: blocked ? 'blocked' as const : 'open' as const,
-      claim: null,
-      blockedBy: blocked ? 'graph' as const : null,
-      blockedReason: null,
-      updatedAt: at,
-    } : intent)
-    await this.#goalStore.save({
-      ...document,
-      board: { ...document.board, intents },
-      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
-    }, document.goal.revision)
   }
 
   async #finishGoalOperation(goal: string, operation: string): Promise<void> {
@@ -1920,11 +2165,16 @@ export class Host {
     }
     const resolutions = new Map(operation.receipt.cards.map((card) => [card.id, card]))
     const at = operation.receipt.wrappedAt
+    /* A card the receipt has no disposition for was added after the wrap read
+       the board — which the board's wrap barrier now refuses, but an earlier
+       build let through and left the Goal wrapping on every launch. It was
+       never reviewed, so it is set aside, saying why, and the receipt is
+       left as the person approved it. */
+    const unreviewed = { resolution: 'dropped' as const, reason: 'Added while the Goal was wrapping, so it was never reviewed.' }
     const board = {
       ...document.board,
       intents: document.board.intents.map((intent) => {
-        const resolution = resolutions.get(intent.id)
-        if (!resolution) throw new Error(`Receipt ${operation.receipt.id} has no disposition for card ${intent.id}.`)
+        const resolution = resolutions.get(intent.id) ?? unreviewed
         return {
           ...intent,
           state: resolution.resolution === 'finished' ? 'done' as const : 'abandoned' as const,
@@ -1952,7 +2202,7 @@ export class Host {
     this.#team.closeGoalWaits(operation.goal)
     try {
       const view = await this.#goals.view(operation.goal)
-      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster)
+      this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster, { final: true })
       this.#push({ method: 'goal/changed', params: { view } })
     } catch (error) {
       this.#logger.warn('a wrapped Goal could not be announced after its receipt was stored', {
@@ -1982,6 +2232,8 @@ export class Host {
       worktrees: this.#worktrees,
       team: this.#team,
       flows: this.#flows,
+      flowPreviews: this.#flowPreviews,
+      flowUpdates: this.#flowUpdates,
       goals: this.#goals,
       lanes: this.#lanes,
       laneSettings: {
@@ -2531,7 +2783,7 @@ export class Host {
         goals[outcome] += 1
         if (outcome === 'restored') {
           const view = await this.#goals.view(document.goal.id)
-          this.#team.installProjection(view.board)
+          this.#team.installProjection(view.board, undefined, { final: true })
           this.#push({ method: 'goal/changed', params: { view } })
         }
       }

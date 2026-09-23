@@ -486,3 +486,60 @@ export const splitByFile = (diff: string): FileDiff[] => {
   }
   return files
 }
+
+/**
+ * A unified diff between two whole-file texts, computed here because nothing
+ * hands the flow Update dialog one: a converted flow's before and after are a
+ * legacy file and a wholly different v2 document, so no runtime's own diff
+ * exists to reuse. A true line-level diff still keeps identical lines — a
+ * blank line, a comment neither side touched — from being drawn as both
+ * removed and added, which a naive whole-file replace would do.
+ *
+ * Bounded to a plain remove-then-add fallback above the line-count product
+ * limit: the table below is the ordinary O(n·m) longest-common-subsequence
+ * one, and a flow or Agent file has no business being large enough to need
+ * more than that.
+ */
+const LINE_DIFF_PRODUCT_LIMIT = 4_000_000
+
+export const wholeTextDiff = (before: string, after: string): string => {
+  const a = before.split('\n')
+  const b = after.split('\n')
+  if (a.length * b.length > LINE_DIFF_PRODUCT_LIMIT) {
+    return [`@@ -1,${a.length} +1,${b.length} @@`, ...a.map((line) => `-${line}`), ...b.map((line) => `+${line}`)].join('\n')
+  }
+  const n = a.length
+  const m = b.length
+  // dp[i][j]: the LCS length of a[i:] and b[j:].
+  const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+    }
+  }
+  const out: string[] = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push(` ${a[i]}`)
+      i += 1
+      j += 1
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      out.push(`-${a[i]}`)
+      i += 1
+    } else {
+      out.push(`+${b[j]}`)
+      j += 1
+    }
+  }
+  while (i < n) {
+    out.push(`-${a[i]}`)
+    i += 1
+  }
+  while (j < m) {
+    out.push(`+${b[j]}`)
+    j += 1
+  }
+  return [`@@ -1,${n} +1,${m} @@`, ...out].join('\n')
+}

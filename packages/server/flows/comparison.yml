@@ -1,0 +1,44 @@
+version: 2
+name: "Comparison"
+description: "One task, two isolated agents; a check on each, then a judge picks, then a person merges."
+inputs:
+  task:
+    label: "Task"
+roles:
+  competitor:
+    kind: agent
+    uses: [implementer]
+    isolate: true
+    grant: edit
+    independentOf: []
+  verify:
+    kind: check
+    run: "pnpm verify"
+    exits:
+      "0": pass
+    otherwise: fail
+    timeout: 900
+  judge:
+    kind: agent
+    uses: [judge]
+    grant: read
+    independentOf: [competitor]
+  referee:
+    kind: person
+    outcomes: [merged]
+seed: { role: competitor, title: "{{task}}" }
+rules:
+  - id: to-verify
+    on: competitor
+    then: { role: verify, title: "Check the attempt" }
+  - id: to-judge
+    on: verify
+    when: { every: [pass] }
+    then: { role: judge, title: "Pick the better attempt" }
+  - id: to-referee
+    on: judge
+    when: { every: [picked], evidence: [{ review: picked }] }
+    then: { role: referee, title: "Merge the picked change", detail: "Merge exactly {{evidence.review.at}}, the revision the judge picked." }
+messaging: board-only
+wait: 240
+layout: {"race":"competitor"}

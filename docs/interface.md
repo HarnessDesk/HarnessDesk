@@ -721,3 +721,36 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+
+## Flows
+
+A project's page lists its own Flows section beside Agents and Checks, read
+lazily — only once that page is open, never on the plain Workspaces list —
+from the layered catalogue (project, then your Mac, then what ships), each
+row saying its origin in words, never a wire id. An old-format project file
+carries **Update…**; a shipped or your-Mac file carries **Customize…**;
+either opens a dialog showing the whole before/after diff of every file it
+would write, through the same diff viewer an Agent's own ceiling update
+uses, before one confirming write. A broken entry stays listed, disabled,
+with its own parser refusal on screen — never hidden.
+
+**New session → A flow** shows the same dry run FlowStart always has: every
+seat a role would open, every candidate this machine tried and why each was
+passed over, the effective ceiling each seat would hold, every check command
+verbatim with its checkout and timeout, and the plain rule list a round
+would move through — an unevidenced rule (answers alone, no observed fact)
+carries a warning chip rather than reading as already satisfied. Editing the
+source or a variable invalidates Start immediately; a stale reply can never
+re-enable it. Starting a flow opens exactly one new Goal, through one host
+operation — never a bare Goal made first and a flow started into it after.
+
+**`/race`** opens a dialog asking for one Agent and two explicit, isolated
+seats — never the other installed runtime, never two ordinary drafts. It
+shows the same full dry run before Start, including the judge and person
+steps a comparison names. A Goal a flow opened shows its own status strip
+beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
+a person, Interrupted, Stopped or Settled — and an interrupted check's own
+**Review and run again…** action, which asks for a fresh confirmation
+(showing the original command, unchanged) before spending anything a second
+time. Nothing here names a runtime by brand; every word comes from what the
+Agent, seat and evidence actually are.

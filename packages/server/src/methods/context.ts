@@ -46,6 +46,8 @@ import type { Logger } from '../log.js'
 import type { SessionNames } from '../names.js'
 import type { SeatedAs, SessionRecord, SessionRegistry } from '../registry.js'
 import type { StateStore } from '../state.js'
+import type { FlowPreviews } from '../flow-preview.js'
+import type { FlowUpdates } from '../flow-update.js'
 import type { Flows } from '../flows.js'
 import type { GoalPlane } from '../goals/plane.js'
 import type { Team } from '../team.js'
@@ -87,6 +89,10 @@ export interface HostContext {
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows
+  /** Previews a flow, non-executing, and mints the one token `flow/start-goal` redeems. */
+  readonly flowPreviews: FlowPreviews
+  /** Previewed, journaled conversion of a legacy flow to the Agent format, or a customization into the project. */
+  readonly flowUpdates: FlowUpdates
   readonly goals: GoalPlane
   readonly lanes: import('../goals/lanes.js').LaneAllocator
   readonly laneSettings: {

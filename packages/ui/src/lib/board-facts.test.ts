@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import { runtimeId, type FlowRun, type Intent } from '@harnessdesk/protocol'
+import { runtimeId, type FlowExecution, type FlowRun, type Intent } from '@harnessdesk/protocol'
 
 import { cardEvidence, checkView, ciView, diffView, prView } from '../preview/evidence-fixture'
-import { flowRoleOf, placeCard, type PlaceInput } from './board-facts'
+import { flowRoleOf, flowStepOf, placeCard, type PlaceInput } from './board-facts'
 
 const intent = (over: Partial<Intent> = {}): Intent => ({
   id: 1,
@@ -139,5 +139,26 @@ describe('a card a flow addressed to the person', () => {
     expect(flowRoleOf(card, run([3, 4]))).toBeNull()
     expect(flowRoleOf(card, undefined)).toBeNull()
     expect(flowRoleOf(intent({ id: 7, state: 'open' }), run([7]))).toBeNull()
+  })
+})
+
+/*
+ * A run on a Goal addresses a person the same way: its person step is
+ * answered with the words that step declares, from the card's own menu.
+ */
+describe('a card a Goal’s run addressed to the person', () => {
+  const execution = (cards: readonly number[], state: FlowExecution['state'] = 'running'): FlowExecution =>
+    ({
+      id: 'flow-1', goal: 'goal-1', state, reason: null, operations: [], legacyRun: null, version: 2,
+      document: { format: 'agents', flow: { roles: [{ id: 'close', kind: 'person', outcomes: ['closed'] }] } },
+      rounds: [{ n: 2, role: 'close', cards, seats: [], evidence: [], state: 'running', cause: 'after:1:to-close' }],
+    }) as unknown as FlowExecution
+
+  it('is a person step with its declared words, only when one of that run’s rounds opened it', () => {
+    const card = intent({ id: 2, state: 'open', role: 'close' })
+    expect(flowStepOf(card, undefined, [execution([2])])).toEqual({ kind: 'person', outcomes: ['closed'] })
+    expect(flowStepOf(card, undefined, [execution([5])])).toBeNull()
+    expect(flowStepOf(card, undefined, [execution([2], 'settled')])).toBeNull()
+    expect(flowStepOf(card, undefined, [])).toBeNull()
   })
 })

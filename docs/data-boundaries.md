@@ -34,7 +34,11 @@ disk, under `~/.harnessdesk` and your own repositories. The host binds a
 loopback socket the renderer talks to; nothing listens on a routable address.
 To see a card's pull request and its CI, the desk asks your forge with your
 own `gh`, in the card's checkout — the same tool, and the same account, the
-desk already publishes with.
+desk already publishes with. A flow's check command may read
+`HARNESSDESK_FLOW_CONTEXT`: bounded, host-derived JSON naming the revision,
+checkout and lane ports a round's own subjects are — never an arbitrary
+environment map, and never anything that was not already visible in the
+checkout the command runs in.
 
 **Retention:** yours. Deleting the folder deletes it.
 

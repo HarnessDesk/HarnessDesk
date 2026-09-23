@@ -1,4 +1,4 @@
-import type { Evidence, EvidenceRecord } from '@harnessdesk/protocol'
+import type { Evidence, EvidenceRecord, Sha } from '@harnessdesk/protocol'
 
 import { readPullRequest, type GhInCheckout } from './forge.js'
 import { factKey, mintId } from './records.js'
@@ -7,8 +7,9 @@ import type { EvidenceStore } from './store.js'
 
 /**
  * The facts the desk observes about a card's branch without being asked: its
- * diff against the base it came from, its pull request, and the checks the
- * forge ran on that pull request's head.
+ * diff (against the base it came from, or since the card's work began —
+ * `diffOf`), its pull request, and the checks the forge ran on that pull
+ * request's head.
  *
  * Looked at when a card is finished, while its holder's checkout is still
  * known, and when a board is opened, at most once every few minutes a card, so
@@ -28,6 +29,17 @@ export interface Look {
   readonly cwd: string
   /** The Seat holding the card when it was looked at; null when nobody was. */
   readonly seat: string | null
+  /**
+   * The commit the card's work began at — its Seat's head when it opened —
+   * which a diff is measured from when there is no work beyond the base branch
+   * to measure (`diffOf`). Null when no Seat of this desk says.
+   */
+  readonly since?: Sha | null
+  /**
+   * Where the remote's copy of the branch stood when the card was taken, as
+   * its claim recorded it; absent when the claim recorded nothing (`diffOf`).
+   */
+  readonly upstream?: Sha | null
 }
 
 export class Observer {
@@ -77,7 +89,7 @@ export class Observer {
     if (!revision) return false
 
     const facts: Evidence[] = []
-    const diff = await diffOf(look.cwd)
+    const diff = await diffOf(look.cwd, look.since ?? null, look.upstream !== undefined ? { upstream: look.upstream } : {})
     if (diff) facts.push({ kind: 'diff', ...diff })
     const forge = await readPullRequest(look.cwd, this.#gh)
     if (forge.kind === 'unreachable') {

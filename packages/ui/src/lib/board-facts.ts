@@ -32,6 +32,9 @@ export const flowRoleOf = (intent: Intent, run: FlowRun | undefined): FlowRole |
   return run.flow.roles.find((one) => one.id === intent.role) ?? null
 }
 
+/** The step a live flow addressed a card to — the one reading the Goal plane's activity also uses. */
+export { flowStepOf, type FlowStep } from '@harnessdesk/protocol'
+
 const subjectOf = (view: EvidenceView): string | null => {
   const fact = view.record.fact
   switch (fact.kind) {

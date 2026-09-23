@@ -15,6 +15,14 @@ import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, Se
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
+  FlowEntry,
+  FlowExecution,
+  FlowPreview,
+  FlowStartRequest,
+  FlowUpdatePreview,
+  FlowUpdateResult,
+} from './flow-policy.js'
+import type {
   GoalCitation, GoalCreateInput, GoalId, GoalReceipt, GoalSeatRequest, GoalView, Lane, WrapChoices, WrapPreview,
 } from './goal.js'
 import type {
@@ -1630,6 +1638,52 @@ export interface HostMethods {
   /** Every run this room has had, oldest first. */
   'flow/runs': { params: { readonly room: string }; result: readonly FlowRun[] }
 
+  // -- flows v2: the layered catalogue, a non-executing dry run bound to a
+  // one-start token, and the run it may start on a Goal. Legacy `flow/list`,
+  // `flow/read`, `flow/dry`, `flow/start`, `flow/stop` and `flow/runs` above
+  // keep their old contracts for old callers.
+  /** Every flow the project's layers offer — project, then user, then built-in — each with what it shadows, never hidden. */
+  'flow/catalog': { params: { readonly root: string }; result: readonly FlowEntry[] }
+  /** One catalogue entry's text, from the layer named or the nearest winner. */
+  'flow/source': { params: { readonly root: string; readonly id: string; readonly origin?: FlowEntry['origin'] }; result: string }
+  /**
+   * What this flow would do, spending nothing: every seat it would open, every
+   * check command verbatim, every guard's requirements, and everything wrong
+   * with it. `retry` binds the preview to an interrupted check's exact saved
+   * source and inputs instead of the text of a fresh edit.
+   */
+  'flow/preview': {
+    params: {
+      readonly root: string
+      readonly source: string
+      readonly vars?: Readonly<Record<string, string>>
+      readonly retry?: { readonly run: string; readonly card: number }
+    }
+    result: FlowPreview
+  }
+  /** Starts a new Goal from a frozen, previewed flow. The only v2 call that spends anything. */
+  'flow/start-goal': { params: FlowStartRequest; result: FlowExecution }
+  /** One run's current execution state. */
+  'flow/execution': { params: { readonly run: string }; result: FlowExecution }
+  /**
+   * The exact source and variables this run was started with — never sent
+   * unprompted (a run's execution state omits them), only read back for
+   * `flow/preview`'s own `retry` equality check, which cannot otherwise be
+   * satisfied by a renderer that did not itself start this run in this
+   * session.
+   */
+  'flow/execution/source': { params: { readonly run: string }; result: { readonly source: string; readonly vars: Readonly<Record<string, string>> } }
+  /** Runs an interrupted check again, once a person has reviewed it — a fresh preview token, bound to this exact run and card. */
+  'flow/check/retry': { params: { readonly run: string; readonly card: number; readonly token: string }; result: FlowExecution }
+  /** What updating this project flow to the Agent format would write, previewed before anything is touched. */
+  'flow/update/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
+  /** Applies a previously previewed update, exactly as shown. */
+  'flow/update/apply': { params: { readonly root: string; readonly token: string }; result: FlowUpdateResult }
+  /** What customizing a user or built-in flow into this project would write. */
+  'flow/customize/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
+  /** Applies a previously previewed customization. */
+  'flow/customize/apply': { params: { readonly root: string; readonly id: string; readonly token: string }; result: FlowUpdateResult }
+
   // -- agents: who does the work, as opposed to the runtime it runs on. Read
   // only: an Agent is a file, and writing one is editing that file.
   /**
@@ -2390,6 +2444,11 @@ export type WireNotification =
        */
       readonly method: 'flow/changed'
       readonly params: { readonly room: string; readonly runs: readonly FlowRun[] }
+    }
+  | {
+      /** One v2 run's execution state, whole, for the same reason `flow/changed` sends its runs whole. */
+      readonly method: 'flow/execution-changed'
+      readonly params: { readonly execution: FlowExecution }
     }
   | {
       /**

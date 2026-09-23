@@ -1,0 +1,31 @@
+version: 2
+name: "Independent review"
+description: "A change is built, then read by several different specialists at once — a security pass and an API pass, never the same eyes twice."
+inputs:
+  task:
+    label: "Task"
+roles:
+  build:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+  specialists:
+    kind: agent
+    uses: [security-reviewer, api-reviewer]
+    grant: read
+    independentOf: [build]
+  ship:
+    kind: person
+    outcomes: [shipped]
+seed: { role: build, title: "{{task}}" }
+rules:
+  - id: to-specialists
+    on: build
+    then: { role: specialists, title: "Review the change" }
+  - id: to-ship
+    on: specialists
+    when: { every: [approve] }
+    then: { role: ship, title: "Ship it — every specialist approved" }
+messaging: board-only
+wait: 240

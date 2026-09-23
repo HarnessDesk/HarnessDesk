@@ -16,7 +16,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { errnoOf } from '../src/errno.js'
-import { Team, type TeamPeer, type TeamPort, type TeamSender, roomCap } from '../src/team.js'
+import { Team, type TeamFlows, type TeamPeer, type TeamPort, type TeamSender, roomCap } from '../src/team.js'
 
 /**
  * The team plane, against a fake host port.
@@ -739,6 +739,47 @@ test('a held message cannot be released twice, from any number of windows', asyn
   assert.equal(port.sent.length, 1)
   // And once it has landed, the row is no longer held at all.
   await assert.rejects(() => team.deliverHeld(room, held.id), /not waiting to be released/)
+})
+
+test('board-only locks manual release too, not only the messaging switch', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  // Held by a per-conversation inbound hold — ordinary, board-only entirely
+  // unrelated so far: this is exactly the existing "release what is held" path.
+  team.setInbound('claude', 'k1', 'hold')
+  await team.send({ to: 'Auth refactor', text: 'held words' }, codex)
+  const held = team.stateFor(room).channel.find(
+    (candidate): candidate is TeamMessage => candidate.kind === 'message' && candidate.state === 'held',
+  )
+  assert.ok(held)
+
+  // A run attached to this board says its flow is live and runs board-only.
+  const flows: TeamFlows = {
+    refuseOutcome: () => null,
+    completed: () => {},
+    standDown: () => null,
+    messagingLocked: (id) => (id === room ? 'This Goal’s flow runs board-only. Stop the run and start one whose policy allows messages to change this.' : null),
+  }
+  team.attachFlows(flows)
+
+  await assert.rejects(
+    () => team.deliverHeld(room, held.id),
+    /board-only/,
+    'manual release is refused while this board’s flow runs board-only',
+  )
+  assert.equal(
+    team.stateFor(room).channel.find((entry): entry is TeamMessage => entry.kind === 'message' && entry.id === held.id)?.state,
+    'held',
+    'the message is still held: refusing the release did not silently deliver it',
+  )
+  assert.equal(port.sent.length, 0)
+
+  // Once the run says it is no longer live (stopped, in the real engine),
+  // the same release goes through — the lock tracks the run, not a
+  // permanent property of the board.
+  team.attachFlows({ ...flows, messagingLocked: () => null })
+  await team.deliverHeld(room, held.id)
+  assert.equal(port.sent.length, 1)
 })
 
 test('trimming the channel never evicts a queued or held message', async (t) => {

@@ -1,0 +1,32 @@
+version: 2
+name: "Alignment"
+description: "An agent proposes a plan; nothing beyond that proposal is admitted until a person has looked at it."
+inputs:
+  task:
+    label: "Task"
+roles:
+  propose:
+    kind: agent
+    uses: [requirements-analyst]
+    grant: read
+    independentOf: []
+  align:
+    kind: person
+    outcomes: [agreed, disagree]
+  build:
+    kind: agent
+    uses: [implementer]
+    grant: edit
+    independentOf: []
+seed: { role: propose, title: "{{task}}" }
+rules:
+  - id: to-align
+    on: propose
+    when: { every: [agreed] }
+    then: { role: align, title: "Agree the plan before anything is built" }
+  - id: to-build
+    on: align
+    when: { every: [agreed] }
+    then: { role: build, title: "Build the agreed plan" }
+messaging: board-only
+wait: 240
