@@ -2337,8 +2337,21 @@ seed: { role: worker, title: "Do it" }
   })
 
   await t.test('the folder opened here still lists and reads its flows', async () => {
-    // A folder in no repository, which only the folder rule admits.
-    assert.deepEqual(await list(opened), { listed: [['.harnessdesk/flows/here.yml', 'Here']] })
+    // A folder in no repository, which only the folder rule admits. The
+    // catalogue also carries the flows HarnessDesk ships, sorted by id
+    // alongside the project's own.
+    assert.deepEqual(await list(opened), {
+      listed: [
+        ['alignment.yml', 'Alignment'],
+        ['comparison.yml', 'Comparison'],
+        ['fan-out.yml', 'Fan-out review'],
+        ['.harnessdesk/flows/here.yml', 'Here'],
+        ['independent-review.yml', 'Independent review'],
+        ['investigation.yml', 'Investigation'],
+        ['mechanical-contest.yml', 'Mechanical contest'],
+        ['staged-relay.yml', 'Staged relay'],
+      ],
+    })
     assert.deepEqual(await read(opened, '.harnessdesk/flows/here.yml'), { read: flowFile('Here') })
   })
 
@@ -2352,7 +2365,18 @@ seed: { role: worker, title: "Do it" }
     const linked = join(scratch, 'linked')
     await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
     await client.call('workspace/open', { path: linked })
-    assert.deepEqual(await list(main), { listed: [['.harnessdesk/flows/main.yml', 'In the main checkout']] })
+    assert.deepEqual(await list(main), {
+      listed: [
+        ['alignment.yml', 'Alignment'],
+        ['comparison.yml', 'Comparison'],
+        ['fan-out.yml', 'Fan-out review'],
+        ['independent-review.yml', 'Independent review'],
+        ['investigation.yml', 'Investigation'],
+        ['.harnessdesk/flows/main.yml', 'In the main checkout'],
+        ['mechanical-contest.yml', 'Mechanical contest'],
+        ['staged-relay.yml', 'Staged relay'],
+      ],
+    })
     assert.deepEqual(await read(main, '.harnessdesk/flows/main.yml'), { read: flowFile('In the main checkout') })
   })
 })
