@@ -35,6 +35,30 @@ export interface InsightScanOptions {
   readonly byteLimit: number
 }
 
+/** The fixed source-data ceiling one Insight read may spend, across every source together. */
+export const INSIGHT_BYTE_LIMIT = 64 * 1024 * 1024
+
+/** The one sentence a request sees whichever source spent the remaining budget — discovered already too large, or grown large enough to spend what was left while it was being read. */
+export const INSIGHT_BYTE_LIMIT_MESSAGE = 'Insight stopped at 64 MiB of source data. Choose a narrower range.'
+
+/**
+ * Thrown the instant a scanner would spend more of the remaining
+ * `InsightScanOptions.byteLimit` than is left — one more line about to be
+ * read, or a whole file found already too large the moment it was opened.
+ *
+ * Caught beside every other scanner failure and reported with the fixed
+ * message above, never the file's real size or path, so a source that grows
+ * between discovery and this read is exactly as honest as one that was
+ * already large when `listTargets` found it — never a silently complete
+ * result that quietly read past what the request promised.
+ */
+export class InsightBudgetExceededError extends Error {
+  constructor() {
+    super(INSIGHT_BYTE_LIMIT_MESSAGE)
+    this.name = 'InsightBudgetExceededError'
+  }
+}
+
 export const unknownMeasure = (): Measure => ({ value: null, quality: 'unknown' })
 export const exactMeasure = (value: number): Measure => ({ value, quality: 'exact' })
 export type { InsightQuery }

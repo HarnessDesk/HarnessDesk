@@ -17,7 +17,7 @@ import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
 import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
-import { type UsageDetail, type UsageSample } from './insight.js'
+import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, type UsageDetail, type UsageSample } from './insight.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
@@ -41,6 +41,13 @@ export interface LedgerOptions {
   readonly log?: (message: string, details?: Record<string, unknown>) => void
   readonly now?: () => number
   readonly pricing?: Pricing
+  /**
+   * How much source data one Insight read may spend in total, tracked against
+   * bytes a scanner actually read rather than a source's size at discovery.
+   * Defaults to `INSIGHT_BYTE_LIMIT`; narrowed only in tests, to exercise the
+   * bound without fixtures sized in tens of megabytes.
+   */
+  readonly insightByteLimit?: number
 }
 
 const DAY = 86_400_000
@@ -100,12 +107,14 @@ export class Ledger {
   readonly #options: LedgerOptions
   readonly #store: LedgerStore
   readonly #pricing: Pricing
+  readonly #insightByteLimit: number
   #progress: ScanProgress = IDLE
   #scanning: Promise<void> | null = null
   #warmed: Promise<void> | null = null
 
   constructor(options: LedgerOptions) {
     this.#options = options
+    this.#insightByteLimit = options.insightByteLimit ?? INSIGHT_BYTE_LIMIT
     this.#store = new LedgerStore(options.databasePath ?? join(options.stateDir, 'usage.sqlite'))
     const paths = defaultPricingPaths(options.stateDir)
     this.#pricing =
@@ -193,12 +202,17 @@ export class Ledger {
     }
     for (const target of targets) {
       if (options.signal?.aborted) throw new DOMException('Insight read cancelled.', 'AbortError')
-      if (bytes + target.size > 64 * 1024 * 1024) { gaps.push('Insight stopped at 64 MiB of source data. Choose a narrower range.'); break }
-      bytes += target.size
+      // `bytes` is what scanners actually read, never a target's size at
+      // discovery: a source rewritten or appended to after `listTargets` ran
+      // can be larger now than that stale figure says, and trusting it here
+      // would let such a source spend past what this read promises overall.
+      if (bytes >= this.#insightByteLimit) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
       try {
-        await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: 64 * 1024 * 1024 - bytes })
+        const result = await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: this.#insightByteLimit - bytes })
+        bytes += result.offset
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') throw error
+        if (error instanceof InsightBudgetExceededError) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
         detailSources.push(failedCorpusSource(target, this.#now(), 'Recorded usage source could not be read.'))
         // Database and filesystem errors often echo agent-owned paths. The
         // source carries the opaque identity; the rendered gap says only what

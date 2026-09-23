@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -9,7 +9,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
 import { readForeignDatabase } from './foreign-db.js'
 import type { UsageRow } from './store.js'
-import type { InsightScanOptions, UsageSample } from './insight.js'
+import { InsightBudgetExceededError, type InsightScanOptions, type UsageSample } from './insight.js'
 import type { Measure } from '@harnessdesk/protocol'
 
 /**
@@ -264,15 +264,30 @@ const parseTime = (value: unknown): number | null => {
  *
  * Counting the bytes we actually consumed cannot drift, whichever ending the
  * file uses, and needs no guess about what wrote it.
+ *
+ * `budget`, when given, is the most this call may add to `consumed` — the
+ * remaining share of `InsightScanOptions.byteLimit`, tracked here rather than
+ * trusted from a size `listTargets` read earlier. It is checked before every
+ * line, blank ones included, so a source rewritten or appended to after
+ * discovery — larger now than the `target.size` the caller's own budget
+ * arithmetic was seeded with — can never be read past what remains: the
+ * stream is torn down and `InsightBudgetExceededError` thrown the instant one
+ * more line would spend more than is left, never silently past it. Absent
+ * (the incremental background scan, which has no such budget), nothing here
+ * changes.
  */
 const readLines = async (
   path: string,
   offset: number,
   onLine: (record: unknown, bytes: number) => void,
+  budget?: number,
 ): Promise<number> => {
   const stream = createReadStream(path, { start: offset })
   let consumed = offset
   let pending: Buffer = Buffer.alloc(0)
+  const spend = (bytes: number): void => {
+    if (budget !== undefined && consumed - offset + bytes > budget) throw new InsightBudgetExceededError()
+  }
   try {
     for await (const chunk of stream) {
       const next = chunk as Buffer
@@ -281,6 +296,7 @@ const readLines = async (
       while (at !== -1) {
         // Everything through the `\n`, which is what the next pass must skip.
         const bytes = at + 1
+        spend(bytes)
         const line = pending.subarray(0, at).toString('utf8')
         pending = pending.subarray(bytes)
         if (!take(line, bytes, onLine, (added) => (consumed += added))) return consumed
@@ -299,7 +315,10 @@ const readLines = async (
      then on and that last record is never counted — not on the next pass,
      and not on a full rescan either, because the newline it is waiting for
      is never coming. */
-  if (pending.length > 0) take(pending.toString('utf8'), pending.length, onLine, (added) => (consumed += added))
+  if (pending.length > 0) {
+    spend(pending.length)
+    take(pending.toString('utf8'), pending.length, onLine, (added) => (consumed += added))
+  }
   return consumed
 }
 
@@ -395,7 +414,7 @@ export const scanCodexRollout = async (
       input: typeof last.input_tokens === 'number' && typeof last.cached_input_tokens === 'number' ? Math.max(0, last.input_tokens - last.cached_input_tokens) : last.input_tokens,
       output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
     }, 'call', null, context.sessionId ?? null)
-  })
+  }, insight?.byteLimit)
   return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)] }
 }
 
@@ -515,7 +534,7 @@ export const scanClaudeTranscript = async (
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, {
       input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
     }, 'call')
-  })
+  }, insight?.byteLimit)
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
 }
 
@@ -607,7 +626,7 @@ export const scanQwenTranscript = async (
     })
     add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
-  })
+  }, insight?.byteLimit)
   return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
 }
 
@@ -649,6 +668,35 @@ const geminiProjectOf = (chatFile: string): string => {
 }
 
 /**
+ * Reads a whole file for a scanner that cannot meaningfully bound a partial
+ * read — a format rewritten wholesale rather than appended to. Outside an
+ * Insight-budgeted read (`insight` absent, the incremental background scan),
+ * this is a plain whole-file read, unchanged from before.
+ *
+ * Within one, the size that counts against the remaining budget is read from
+ * the same open handle the content then comes from — an `fstat`, never a
+ * second `stat(path)` that could name a different file than the one about to
+ * be read — so a source swapped or grown between discovery and this call is
+ * never undercounted. Refuses before a single byte of content is read when
+ * that real size is already more than what remains, rather than reading a
+ * file this scanner cannot meaningfully stop partway through.
+ */
+const readWholeFileWithinBudget = async (
+  target: ScanTarget,
+  insight: InsightScanOptions | undefined,
+): Promise<{ text: string; size: number }> => {
+  if (!insight) return { text: await readFile(target.path, 'utf8'), size: target.size }
+  const handle = await open(target.path, 'r')
+  try {
+    const { size } = await handle.stat()
+    if (size > insight.byteLimit) throw new InsightBudgetExceededError()
+    return { text: await handle.readFile('utf8'), size }
+  } finally {
+    await handle.close()
+  }
+}
+
+/**
  * One Gemini CLI chat, read whole.
  *
  * Measured on Gemini CLI 0.59 and 0.60 (`chatRecordingService.ts`): the log is
@@ -660,7 +708,7 @@ const geminiProjectOf = (chatFile: string): string => {
  * copies of messages already seen and nothing is subtracted.
  */
 export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
-  const text = await readFile(target.path, 'utf8')
+  const { text, size } = await readWholeFileWithinBudget(target, insight)
   const calls = new Map<string, GeminiMessage>()
   const note = (message: unknown): void => {
     if (!isRecord(message)) return
@@ -707,7 +755,7 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
     add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(aggregate))
     emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
   }
-  return { rows: [...into.rows.values()], offset: target.size, tail: [] }
+  return { rows: [...into.rows.values()], offset: size, tail: [] }
 }
 
 /** The columns a query needs, or a reason the table is not the shape measured. */
@@ -733,6 +781,45 @@ const readForeign = <T>(path: string, read: (database: DatabaseSync) => T): T =>
   const value = readForeignDatabase(path, read)
   if (value === null) throw new Error('the database could not be opened for reading')
   return value
+}
+
+/**
+ * A database is not read byte-bounded — `readForeignDatabase` runs whole
+ * queries, not a line at a time — so the remaining Insight budget can only
+ * ever refuse the file wholesale, before it is opened for that read.
+ *
+ * The size that refusal is measured against comes from `fstat` on a handle
+ * this opens itself, never a `stat(path)` repeated from discovery: a path can
+ * name a different, larger file by the time it is checked again, and only an
+ * already-open handle's own size is the size the read that follows would
+ * actually see. Summed with the write-ahead log the same way `databaseTarget`
+ * sums it at discovery, since a WAL database takes its writes there.
+ *
+ * Outside an Insight-budgeted read (`insight` absent), this does nothing and
+ * costs nothing extra: the incremental background scan keeps its own,
+ * separate discovery-time size.
+ */
+const ensureDatabaseWithinBudget = async (target: ScanTarget, insight: InsightScanOptions | undefined): Promise<number> => {
+  if (!insight) return target.size
+  const main = await open(target.path, 'r')
+  let size: number
+  try {
+    size = (await main.stat()).size
+  } finally {
+    await main.close()
+  }
+  try {
+    const wal = await open(`${target.path}-wal`, 'r')
+    try {
+      size += (await wal.stat()).size
+    } finally {
+      await wal.close()
+    }
+  } catch {
+    // No log: every write is in the main file, as `databaseTarget` also assumes.
+  }
+  if (size > insight.byteLimit) throw new InsightBudgetExceededError()
+  return size
 }
 
 const OPENCODE_COLUMNS = [
@@ -783,6 +870,7 @@ const opencodeModel = (value: string | null): string => {
  * last touched: the table keeps totals, not calls.
  */
 export const scanOpencodeDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
+  const size = await ensureDatabaseWithinBudget(target, insight)
   const sessions = readForeign(target.path, (database) => {
     requireColumns(database, 'session', OPENCODE_COLUMNS)
     return database.prepare(`SELECT ${OPENCODE_COLUMNS.join(', ')} FROM session`).all() as unknown as OpencodeSession[]
@@ -814,7 +902,7 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
     })
     emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
-  return { rows: [...into.rows.values()], offset: target.size, tail: [] }
+  return { rows: [...into.rows.values()], offset: size, tail: [] }
 }
 
 const CLINE_COLUMNS = ['model', 'cwd', 'workspace_root', 'started_at', 'updated_at', 'metadata_json'] as const
@@ -847,6 +935,7 @@ interface ClineUsage {
  * and falls on the day the session was last touched.
  */
 export const scanClineDatabase = async (target: ScanTarget, insight?: InsightScanOptions): Promise<ScanResult> => {
+  const size = await ensureDatabaseWithinBudget(target, insight)
   const sessions = readForeign(target.path, (database) => {
     requireColumns(database, 'sessions', CLINE_COLUMNS)
     return database.prepare(`SELECT ${CLINE_COLUMNS.join(', ')} FROM sessions`).all() as unknown as ClineSession[]
@@ -884,7 +973,7 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
     })
     emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
-  return { rows: [...into.rows.values()], offset: target.size, tail: [] }
+  return { rows: [...into.rows.values()], offset: size, tail: [] }
 }
 
 export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[], insight?: InsightScanOptions): Promise<ScanResult> => {

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 
 import { Ledger } from '../src/ledger/index.js'
+import { INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError } from '../src/ledger/insight.js'
 import { Pricing } from '../src/ledger/pricing.js'
 import { scanClaudeTranscript, scanClineDatabase, scanCodexRollout, scanGeminiChat, scanOpencodeDatabase, scanQwenTranscript } from '../src/ledger/scan.js'
 import { seatFor } from '../src/insight/attribution.js'
@@ -12,6 +13,11 @@ import { InsightPlane } from '../src/insight/plane.js'
 import { tempDir } from './scratch.js'
 
 const target = (kind: 'codex' | 'claude', path: string) => ({ runtime: kind, kind, path, size: 0, mtime: 0 })
+
+/** A minimal Codex `session_meta` line, setting the project and session id every later event line joins. */
+const codexSessionMeta = (id: string): string => `${JSON.stringify({ type: 'session_meta', payload: { id, cwd: '/work/project' } })}\n`
+/** A minimal Codex `token_count` event line: the unit both discovery size and the read budget are measured in for these tests. */
+const codexEvent = (at: string): string => `${JSON.stringify({ timestamp: at, type: 'event_msg', payload: { type: 'token_count', info: { last_token_usage: { input_tokens: 10, output_tokens: 1 } } } })}\n`
 
 test('scanner detail preserves source identity and unknown numeric fields without changing aggregate rows', async () => {
   const dir = tempDir('hd-insight-source-')
@@ -79,15 +85,19 @@ test('scanner omissions remain unknown detail fields instead of zero across ever
   await writeFile(gemini, `${JSON.stringify({ type: 'gemini', id: 'g', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10 } })}\n`)
   await emitted((emit) => scanGeminiChat({ runtime: 'gemini', kind: 'gemini', path: gemini, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }), true)
 
+  // A real SQLite file is at least a page (8 KiB measured here) however small
+  // its one row is, so the budget given a database scanner needs headroom a
+  // JSONL scanner's byte-for-byte fixture does not: this is about omitted
+  // fields, not the budget itself, which gets its own dedicated coverage below.
   const opencode = join(dir, 'opencode.db'); const openDb = new DatabaseSync(opencode)
   openDb.exec('CREATE TABLE session (directory TEXT, model TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER, time_updated INTEGER)')
   openDb.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('/work/project', 'open', 1, 10, null, null, null, 0, 20); openDb.close()
-  await emitted((emit) => scanOpencodeDatabase({ runtime: 'opencode', kind: 'opencode', path: opencode, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+  await emitted((emit) => scanOpencodeDatabase({ runtime: 'opencode', kind: 'opencode', path: opencode, size: 0, mtime: 0 }, { emit, byteLimit: 64 * 1024 }))
 
   const cline = join(dir, 'cline.db'); const clineDb = new DatabaseSync(cline)
   clineDb.exec('CREATE TABLE sessions (model TEXT, cwd TEXT, workspace_root TEXT, started_at TEXT, updated_at TEXT, metadata_json TEXT)')
   clineDb.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run('cline', '/work/project', '/work/project', '2026-09-20T00:00:00.000Z', '2026-09-20T00:00:00.000Z', JSON.stringify({ usage: { inputTokens: 10, totalCost: 1 } })); clineDb.close()
-  await emitted((emit) => scanClineDatabase({ runtime: 'cline', kind: 'cline', path: cline, size: 0, mtime: 0 }, { emit, byteLimit: 1024 }))
+  await emitted((emit) => scanClineDatabase({ runtime: 'cline', kind: 'cline', path: cline, size: 0, mtime: 0 }, { emit, byteLimit: 64 * 1024 }))
 })
 
 test('a missing Gemini-format cache write cannot become a complete list-price cost', async () => {
@@ -285,4 +295,100 @@ test('target corpus-read errors redact paths while retaining an opaque failed so
     for (const gap of detail.gaps) assert.ok(!gap.includes(dir), 'a target read error never exposes its corpus path')
     assert.ok(!detail.sources[0]?.id.includes(dir), 'the failed source identity remains opaque')
   } finally { ledger.close() }
+})
+
+test('a source that grows after discovery is never read past the remaining Insight budget', async () => {
+  const dir = tempDir('hd-insight-growth-')
+  const path = join(dir, 'rollout.jsonl')
+  // What `listTargets` would have measured at discovery: small.
+  await writeFile(path, codexSessionMeta('growth-session') + codexEvent('2026-09-20T00:00:00.000Z'))
+  const discoveredSize = (await stat(path)).size
+  // The source keeps growing after that — an agent still writing, or a
+  // transcript rewritten under the scanner — so by the time this call
+  // actually reads it, it is far larger than the stale `target.size` below
+  // (deliberately left at `discoveredSize`) says it is.
+  const appended = Array.from({ length: 200 }, (_unused, index) => codexEvent(`2026-09-20T00:01:${String(index % 60).padStart(2, '0')}.000Z`)).join('')
+  await appendFile(path, appended)
+  assert.ok((await stat(path)).size > discoveredSize + 1_000, 'the fixture really did grow well past its discovered size')
+
+  const growthTarget = { runtime: 'codex', kind: 'codex' as const, path, size: discoveredSize, mtime: 0 }
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  // Room for the already-discovered content plus a few of the newly appended
+  // lines — nowhere near the 200 that were added after discovery.
+  const remaining = discoveredSize + 400
+  await assert.rejects(
+    scanCodexRollout(growthTarget, 0, [], { emit: (sample) => samples.push(sample), byteLimit: remaining }),
+    (error) => error instanceof InsightBudgetExceededError,
+  )
+  assert.ok(samples.length > 0, 'the source was read up to the point the remaining budget ran out')
+  assert.ok(samples.length < 201, 'growth past the remaining budget was never read, let alone emitted')
+})
+
+test('the Insight byte budget is tracked across sources, not reset for each one', async () => {
+  const dir = tempDir('hd-insight-cross-source-budget-')
+  const alphaDir = join(dir, 'alpha'); await mkdir(alphaDir, { recursive: true })
+  const alphaPath = join(alphaDir, 'rollout.jsonl')
+  const alphaContent = codexSessionMeta('alpha-session') + codexEvent('2026-09-20T00:00:00.000Z')
+  await writeFile(alphaPath, alphaContent)
+  const alphaSize = Buffer.byteLength(alphaContent, 'utf8')
+
+  const betaDir = join(dir, 'beta'); await mkdir(betaDir, { recursive: true })
+  const betaPath = join(betaDir, 'rollout.jsonl')
+  await writeFile(betaPath, codexSessionMeta('beta-session') + codexEvent('2026-09-20T00:00:01.000Z'))
+
+  // The whole shared budget is exactly what the first source spends: nothing
+  // is left for the second, wherever its own size at discovery says it fits.
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [{ runtime: 'alpha', kind: 'codex', root: alphaDir }, { runtime: 'beta', kind: 'codex', root: betaDir }],
+    insightByteLimit: alphaSize,
+  })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: Date.parse('2026-09-19T00:00:00.000Z'), to: Date.parse('2026-09-21T00:00:00.000Z') })
+    assert.deepEqual(detail.samples.map((sample) => sample.sessionId), ['alpha-session'], 'the first source alone spends the whole shared budget; the second is never read')
+    assert.equal(detail.gaps.filter((gap) => gap === INSIGHT_BYTE_LIMIT_MESSAGE).length, 1, 'the shared-budget gap is reported once, not once per source left unread')
+    assert.equal(detail.complete, false)
+  } finally { ledger.close() }
+})
+
+test('the whole-file Gemini scanner refuses a source already over the remaining budget, rather than read part of it', async () => {
+  const dir = tempDir('hd-insight-gemini-budget-')
+  const geminiDir = join(dir, 'project', 'chats'); await mkdir(geminiDir, { recursive: true })
+  const path = join(geminiDir, 'chat.jsonl')
+  await writeFile(path, `${JSON.stringify({ type: 'gemini', id: 'g', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10, output: 5 } })}\n`)
+  const realSize = (await stat(path)).size
+  // `target.size` is deliberately wrong (0): the check must come from the
+  // file itself, at the moment it is opened, never from this stale figure.
+  const geminiTarget = { runtime: 'gemini', kind: 'gemini' as const, path, size: 0, mtime: 0 }
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  await assert.rejects(
+    scanGeminiChat(geminiTarget, { emit: (sample) => samples.push(sample), byteLimit: realSize - 1 }),
+    (error) => error instanceof InsightBudgetExceededError,
+  )
+  assert.equal(samples.length, 0, 'a whole file already over budget is refused wholesale, never partly parsed')
+
+  // Comfortably within budget, the same file reads normally.
+  await scanGeminiChat(geminiTarget, { emit: (sample) => samples.push(sample), byteLimit: realSize })
+  assert.equal(samples.length, 1)
+})
+
+test('the OpenCode database scanner refuses a source already over the remaining budget, measured from an opened handle', async () => {
+  const dir = tempDir('hd-insight-opencode-budget-')
+  const path = join(dir, 'opencode.db')
+  const db = new DatabaseSync(path)
+  db.exec('CREATE TABLE session (directory TEXT, model TEXT, cost REAL, tokens_input INTEGER, tokens_output INTEGER, tokens_reasoning INTEGER, tokens_cache_read INTEGER, tokens_cache_write INTEGER, time_updated INTEGER)')
+  db.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run('/work/project', 'open', 1, 10, null, null, null, 0, 20)
+  db.close()
+  const realSize = (await stat(path)).size
+  // `target.size` is deliberately wrong (0): the refusal must be measured
+  // from `fstat` on a handle this opens itself, never this stale figure and
+  // never a second `stat(path)` that could name a different file by then.
+  const dbTarget = { runtime: 'opencode', kind: 'opencode' as const, path, size: 0, mtime: 0 }
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  await assert.rejects(
+    scanOpencodeDatabase(dbTarget, { emit: (sample) => samples.push(sample), byteLimit: realSize - 1 }),
+    (error) => error instanceof InsightBudgetExceededError,
+  )
+  assert.equal(samples.length, 0, 'a database already over budget is refused before it is opened for its real read')
 })
