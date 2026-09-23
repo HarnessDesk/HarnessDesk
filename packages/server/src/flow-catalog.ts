@@ -1,20 +1,14 @@
-import { constants } from 'node:fs'
-import { lstat, open, opendir, realpath } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
-
 import type { FlowProblem } from '@harnessdesk/protocol'
 
+import { ConfinedTree } from './confined-tree.js'
 import { errnoOf, NOTHING_HERE } from './errno.js'
 import { parseFlowPolicy } from './flow-policy.js'
 import type { FlowUpdateResult } from './flow-update.js'
-const FILE_LIMIT = 256 * 1024
+
+export const FLOW_FILE_LIMIT = 256 * 1024
 const LAYER_LIMIT = 256
 const FLOW_NAME = /^[^/\\\0]+\.ya?ml$/i
-const FLOW_DIR = '.harnessdesk/flows'
-/* macOS's O_NOFOLLOW_ANY refuses a link in any component. Node only exports
-   O_NOFOLLOW for the final component, so retain that portable floor elsewhere. */
-const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
-const openNoFollow = (path: string, flags: number) => open(path, flags | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+export const FLOW_DIR = '.harnessdesk/flows'
 
 export type FlowOrigin = 'project' | 'user' | 'builtin'
 
@@ -37,159 +31,36 @@ export interface FlowCatalogOptions {
   readonly legacyStrict?: boolean
   /** The update surface owns confirmation tokens; catalogue selection itself never writes. */
   readonly customize?: (root: string, id: string, token: string) => Promise<FlowUpdateResult>
+  /** Tests only: the platform every tree this catalogue opens behaves as. */
+  readonly platform?: NodeJS.Platform
 }
 
 interface FoundFlow {
   readonly origin: FlowOrigin
   readonly name: string
   readonly id: string
+  /** What the person is shown: project-relative for a project flow, the bare name otherwise. */
   readonly path: string
-  readonly absolute: string
+  /** The tree the file is read through, and its path inside that tree. */
+  readonly tree: ConfinedTree | null
+  readonly rel: string
   readonly problem?: string
 }
 
-const identity = (info: { readonly dev: number | bigint; readonly ino: number | bigint }) => `${info.dev}:${info.ino}`
-
 const directName = (name: string): string => {
-  if (!FLOW_NAME.test(name) || basename(name) !== name || name === '.' || name === '..') throw new Error('Choose a flow file directly inside .harnessdesk/flows.')
+  if (!FLOW_NAME.test(name) || name === '.' || name === '..') throw new Error('Choose a flow file directly inside .harnessdesk/flows.')
   return name
 }
 
 const idOf = (name: string): string => name.replace(/\.ya?ml$/i, '')
 
-interface CheckedFolder { readonly path: string; readonly info: Awaited<ReturnType<typeof lstat>> }
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
-/** Opens a directory only after refusing a link at every component Node can name. */
-const checkedFolder = async (path: string): Promise<CheckedFolder> => {
-  const info = await lstat(path, { bigint: true })
-  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('A flow folder must be a real directory, not a link.')
-  const handle = await openNoFollow(path, constants.O_RDONLY | constants.O_DIRECTORY)
-  try {
-    const opened = await handle.stat({ bigint: true })
-    if (!opened.isDirectory() || identity(opened) !== identity(info)) throw new Error('The flow folder changed while it was opened.')
-  } finally {
-    await handle.close()
-  }
-  return { path, info }
-}
-
-/** A project root may be reached through an open-folder link; nothing below it may. */
-const projectFlowFolder = async (project: string): Promise<string | null> => {
-  const root = await realpath(project)
-  await checkedFolder(root)
-  const harnessdesk = join(root, '.harnessdesk')
-  let home
-  try { home = await lstat(harnessdesk, { bigint: true }) } catch (error) {
-    if (errnoOf(error) === 'ENOENT') return null
-    throw error
-  }
-  // A pre-flow legacy project may have a file at this name; it has no flows.
-  if (!home.isDirectory() && !home.isSymbolicLink()) return null
-  if (home.isSymbolicLink() || !home.isDirectory()) throw new Error('A flow folder must be a real directory, not a link.')
-  const folder = join(harnessdesk, 'flows')
-  try { await checkedFolder(folder) } catch (error) {
-    if (errnoOf(error) === 'ENOENT') return null
-    throw error
-  }
-  return folder
-}
-
-/** Read at most one more than the layer limit, then reject the whole ambiguous listing. */
-const boundedEntries = async (folder: string): Promise<{ readonly names: string[]; readonly exceeded: boolean }> => {
-  const before = await checkedFolder(folder)
-  const directory = await opendir(folder)
-  const names: string[] = []
-  try {
-    while (names.length <= LAYER_LIMIT) {
-      const entry = await directory.read()
-      if (entry === null) break
-      names.push(entry.name)
-    }
-  } finally {
-    await directory.close().catch((error: unknown) => {
-      if ((error as { code?: string }).code !== 'ERR_DIR_CLOSED') throw error
-    })
-  }
-  const after = await checkedFolder(folder)
-  if (identity(before.info) !== identity(after.info)) throw new Error('The flow folder changed while it was listed.')
-  return { names: names.slice(0, LAYER_LIMIT), exceeded: names.length > LAYER_LIMIT }
-}
-
-/** A bounded no-follow read, with every parent and file identity checked before accepting bytes. */
-export const readConfinedFlow = async (base: string, name: string): Promise<string> => {
-  directName(name)
-  const { path: root, info: rootInfo } = await checkedFolder(base)
-  const path = join(root, name)
-  const before = await lstat(path, { bigint: true })
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) throw new Error('A flow must be a regular file with no links.')
-  const handle = await openNoFollow(path, constants.O_RDONLY | constants.O_NONBLOCK)
-  try {
-    const opened = await handle.stat({ bigint: true })
-    if (!opened.isFile() || identity(opened) !== identity(before)) throw new Error('The flow changed while it was read. Open it again.')
-    const bytes = Buffer.alloc(FILE_LIMIT + 1)
-    let used = 0
-    while (used < bytes.length) {
-      const read = await handle.read(bytes, used, bytes.length - used, used)
-      if (read.bytesRead === 0) break
-      used += read.bytesRead
-    }
-    if (used > FILE_LIMIT) throw new Error('A flow file cannot exceed 256 KiB.')
-    const after = await handle.stat({ bigint: true })
-    const named = await lstat(path, { bigint: true })
-    const rootAfter = await lstat(root, { bigint: true })
-    if (identity(after) !== identity(opened) || after.size !== opened.size || after.mtimeNs !== opened.mtimeNs
-      || identity(named) !== identity(opened) || named.isSymbolicLink() || identity(rootAfter) !== identity(rootInfo)
-      || rootAfter.isSymbolicLink()) throw new Error('The flow changed while it was read. Open it again.')
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, used))
-  } finally {
-    await handle.close()
-  }
-}
-
-/** Resolve a journaled project-relative flow name without ever following `.harnessdesk`. */
-export const readProjectFlow = async (project: string, path: string): Promise<string> => {
-  const match = /^\.harnessdesk\/flows\/([^/]+)$/.exec(path)
-  const name = match ? directName(match[1]!) : null
-  if (!name) throw new Error('A project flow must live directly inside .harnessdesk/flows.')
-  const folder = await projectFlowFolder(project)
-  if (!folder) throw new Error('There is no flow at that path.')
-  return readConfinedFlow(folder, name)
-}
-
-/** Replace one project flow through the same no-follow boundary that read it. */
-export const replaceProjectFlow = async (project: string, path: string, before: string, after: string): Promise<void> => {
-  const match = /^\.harnessdesk\/flows\/([^/]+)$/.exec(path)
-  const name = match ? directName(match[1]!) : null
-  if (!name) throw new Error('The update may replace one project flow only.')
-  const folder = await projectFlowFolder(project)
-  if (!folder) throw new Error('This flow changed after the preview. Preview the update again.')
-  const root = await checkedFolder(folder)
-  const target = join(root.path, name)
-  const handle = await openNoFollow(target, constants.O_RDWR)
-  try {
-    const opened = await handle.stat({ bigint: true })
-    if (!opened.isFile() || opened.nlink !== 1n) throw new Error('A flow must be a regular file with no links.')
-    const bytes = Buffer.alloc(FILE_LIMIT + 1)
-    let used = 0
-    while (used < bytes.length) {
-      const read = await handle.read(bytes, used, bytes.length - used, used)
-      if (read.bytesRead === 0) break
-      used += read.bytesRead
-    }
-    if (used > FILE_LIMIT || new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, used)) !== before) {
-      throw new Error('This flow changed after the preview. Preview the update again.')
-    }
-    await handle.truncate(0)
-    await handle.writeFile(after, 'utf8')
-    await handle.sync()
-    const named = await lstat(target, { bigint: true })
-    const rootAfter = await checkedFolder(folder)
-    if (identity(named) !== identity(opened) || identity(root.info) !== identity(rootAfter.info)) {
-      throw new Error('The flow folder changed while it was updated.')
-    }
-  } finally {
-    await handle.close()
-  }
+/** A flow read through its layer's tree: the bytes, or the reason there are none. */
+const readFlow = async (tree: ConfinedTree, rel: string): Promise<string> => {
+  const source = await tree.read(rel, FLOW_FILE_LIMIT)
+  if (source === null) throw new Error('There is no flow at that path.')
+  return source
 }
 
 const problemText = (problems: readonly FlowProblem[]): string | null => {
@@ -197,41 +68,39 @@ const problemText = (problems: readonly FlowProblem[]): string | null => {
   return problem ? `${problem.at}: ${problem.text}` : null
 }
 
-/** Lists a trusted layer without treating a broken or linked layer as empty. */
-const layer = async (origin: FlowOrigin, base: string | undefined, project = false, strict = false): Promise<FoundFlow[]> => {
-  if (!base) return []
-  let folder = base
-  let names: string[]
-  let exceeded: boolean
+/**
+ * Lists one layer through its tree without treating a broken or linked layer
+ * as empty. `folder` is the layer's place inside `tree`: `.harnessdesk/flows`
+ * in a project, the tree's own root for the user and built-in layers.
+ */
+const layer = async (origin: FlowOrigin, tree: () => Promise<ConfinedTree | null>, folder: string, strict = false): Promise<FoundFlow[]> => {
+  const shown = (name: string) => (folder ? `${folder}/${name}` : name)
+  let opened: ConfinedTree | null = null
+  let listed
   try {
-    const resolved = project ? await projectFlowFolder(base) : await realpath(base)
-    if (!resolved) return []
-    folder = resolved
-    const bounded = await boundedEntries(folder)
-    names = bounded.names
-    exceeded = bounded.exceeded
+    opened = await tree()
+    if (!opened) return []
+    listed = await opened.list(folder, LAYER_LIMIT)
+    if (!listed) return []
   } catch (error) {
     if (NOTHING_HERE.has(errnoOf(error))) return []
     if (strict) throw error
-    return [{ origin, name: 'Unreadable flows', id: '__unreadable__', path: project ? FLOW_DIR : '', absolute: folder, problem: error instanceof Error ? error.message : String(error) }]
+    return [{ origin, name: 'Unreadable flows', id: '__unreadable__', path: folder, tree: null, rel: folder, problem: messageOf(error) }]
   }
-  if (exceeded) return [{ origin, id: '__limit__', name: 'Too many flows', path: project ? FLOW_DIR : '', absolute: folder, problem: 'A flow layer may contain at most 256 entries.' }]
-  const candidates = names.filter((name) => /\.ya?ml$/i.test(name)).sort((a, b) => a.localeCompare(b))
+  if (listed.exceeded) return [{ origin, id: '__limit__', name: 'Too many flows', path: folder, tree: null, rel: folder, problem: 'A flow layer may contain at most 256 entries.' }]
+  const candidates = listed.entries.filter((entry) => /\.ya?ml$/i.test(entry.name)).sort((a, b) => a.name.localeCompare(b.name))
+  const byId = new Map<string, typeof candidates>()
+  for (const entry of candidates) {
+    const id = idOf(entry.name)
+    byId.set(id, [...(byId.get(id) ?? []), entry])
+  }
   const found: FoundFlow[] = []
-  const byId = new Map<string, string[]>()
-  for (const name of candidates) {
-    const id = idOf(name)
-    const names = byId.get(id) ?? []
-    names.push(name)
-    byId.set(id, names)
-  }
-  for (const [id, names] of byId) {
-    for (const name of names) {
-      const path = project ? `${FLOW_DIR}/${name}` : name
-      const absolute = join(folder!, name)
-      const duplicate = names.length > 1
-      const linked = (await lstat(absolute).catch(() => null))?.isSymbolicLink() ?? false
-      found.push({ origin, id, name, path, absolute, ...(duplicate ? { problem: 'A flow id may be spelled by only one .yml or .yaml file.' } : linked ? { problem: 'A flow must be a regular file with no links.' } : {}) })
+  for (const [id, entries] of byId) {
+    for (const entry of entries) {
+      const problem = entries.length > 1 ? 'A flow id may be spelled by only one .yml or .yaml file.'
+        : entry.kind === 'link' ? 'A flow must be a regular file with no links.'
+          : !FLOW_NAME.test(entry.name) ? 'Choose a flow file directly inside .harnessdesk/flows.' : null
+      found.push({ origin, id, name: entry.name, path: shown(entry.name), tree: opened, rel: shown(entry.name), ...(problem ? { problem } : {}) })
     }
   }
   return found
@@ -243,65 +112,78 @@ export class FlowCatalog {
 
   constructor(options: FlowCatalogOptions) { this.#options = options }
 
-  async #all(root: string): Promise<FoundFlow[]> {
+  /**
+   * The project, confined and resolved once for one operation. Everything the
+   * operation then reads or writes in the project goes through this tree.
+   */
+  async project(root: string): Promise<ConfinedTree> {
     await this.#options.confine(root)
+    return ConfinedTree.open(root, this.#options.platform ? { platform: this.#options.platform } : {})
+  }
+
+  #host(root: string | undefined): () => Promise<ConfinedTree | null> {
+    return async () => (root ? ConfinedTree.open(root, this.#options.platform ? { platform: this.#options.platform } : {}) : null)
+  }
+
+  async #all(project: ConfinedTree): Promise<FoundFlow[]> {
     return (await Promise.all([
-      layer('project', root, true, this.#options.legacyStrict === true),
-      layer('user', this.#options.userRoot),
-      layer('builtin', this.#options.builtinRoot),
+      layer('project', async () => project, FLOW_DIR, this.#options.legacyStrict === true),
+      layer('user', this.#host(this.#options.userRoot), ''),
+      layer('builtin', this.#host(this.#options.builtinRoot), ''),
     ])).flat()
   }
 
-  async list(root: string): Promise<readonly FlowEntry[]> {
-    const all = await this.#all(root)
+  /** Every entry, each winner read once, with the source the winner was judged by. */
+  async #entries(project: ConfinedTree): Promise<{ readonly entry: FlowEntry; readonly source: string | null }[]> {
     const grouped = new Map<string, FoundFlow[]>()
-    for (const item of all) {
-      const group = grouped.get(item.id) ?? []
-      group.push(item)
-      grouped.set(item.id, group)
-    }
-    const result: FlowEntry[] = []
+    for (const item of await this.#all(project)) grouped.set(item.id, [...(grouped.get(item.id) ?? []), item])
+    const result: { entry: FlowEntry; source: string | null }[] = []
     for (const group of [...grouped.values()].sort((a, b) => a[0]!.id.localeCompare(b[0]!.id))) {
       const [winner, ...shadows] = group
-      let sourceProblem: string | null | undefined = winner!.problem
+      let problem: string | null = winner!.problem ?? null
       let format: FlowEntry['format'] = null
-      let name = winner!.name.replace(/\.ya?ml$/i, '')
+      let name = idOf(winner!.name)
       let description: string | null = null
-      if (!sourceProblem && winner!.path) {
+      let source: string | null = null
+      if (!problem && winner!.tree) {
         try {
-          const source = await readConfinedFlow(dirname(winner!.absolute), winner!.name)
+          source = await readFlow(winner!.tree, winner!.rel)
           const parsed = parseFlowPolicy(source)
-          sourceProblem = problemText(parsed.problems)
+          problem = problemText(parsed.problems)
           format = parsed.document?.format ?? null
           name = parsed.document?.flow.name ?? name
           description = parsed.document?.flow.description ?? null
         } catch (error) {
-          sourceProblem = error instanceof Error ? error.message : String(error)
+          problem = messageOf(error)
+          source = null
         }
       }
-      result.push({ id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, format, problem: sourceProblem ?? null,
-        shadows: shadows.map((shadow) => ({ origin: shadow.origin, path: shadow.path })) })
+      result.push({
+        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, format, problem,
+          shadows: shadows.map((shadow) => ({ origin: shadow.origin, path: shadow.path })) },
+        source,
+      })
     }
     return result
   }
 
+  async list(root: string): Promise<readonly FlowEntry[]> {
+    return (await this.#entries(await this.project(root))).map((one) => one.entry)
+  }
+
   /** Internal trusted resolution for updates; renderer input selects only an id and optional known layer. */
-  async locate(root: string, id: string, origin?: FlowOrigin): Promise<{ readonly entry: FlowEntry; readonly source: string; readonly absolute: string }> {
-    const entries = await this.list(root)
-    const entry = entries.find((one) => one.id === id && (origin === undefined || one.origin === origin))
-    if (!entry) throw new Error(`There is no flow called "${id}".`)
-    if (entry.problem) throw new Error(entry.problem)
-    const name = directName(entry.path.split('/').at(-1) ?? '')
-    const found = (await this.#all(root)).find((one) => one.origin === entry.origin && one.path === entry.path)
+  async locate(project: ConfinedTree, id: string, origin?: FlowOrigin): Promise<{ readonly entry: FlowEntry; readonly source: string }> {
+    const found = (await this.#entries(project)).find((one) => one.entry.id === id && (origin === undefined || one.entry.origin === origin))
     if (!found) throw new Error(`There is no flow called "${id}".`)
-    return { entry, source: await readConfinedFlow(dirname(found.absolute), name), absolute: found.absolute }
+    if (found.entry.problem || found.source === null) throw new Error(found.entry.problem ?? `There is no flow called "${id}".`)
+    return { entry: found.entry, source: found.source }
   }
 
   async read(root: string, id: string, origin?: FlowOrigin): Promise<string> {
     // Compatibility callers historically pass a path. Only a direct child remains accepted.
     const candidate = id.startsWith(`${FLOW_DIR}/`) ? id.slice(FLOW_DIR.length + 1) : id
     directName(candidate)
-    const found = await this.locate(root, idOf(candidate), origin)
+    const found = await this.locate(await this.project(root), idOf(candidate), origin)
     if (found.entry.path.split('/').at(-1) !== candidate) throw new Error(`A flow is read from ${FLOW_DIR}; "${id}" is somewhere else.`)
     return found.source
   }
