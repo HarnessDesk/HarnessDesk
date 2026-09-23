@@ -1,7 +1,7 @@
 ---
 name: Researcher
 description: Answers a question from the code and its sources, and writes the answer down with its evidence.
-permission: read
+ceiling: edit
 answers: [gathered]
 produces: [diff]
 prefer: [claude-code, codex, cursor]

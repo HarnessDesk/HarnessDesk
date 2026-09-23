@@ -98,6 +98,18 @@ test('single-screen pattern accounting follows a pattern consumer into its scree
   assert.equal(singleScreenAreaOf([approval], importers), null)
 })
 
+test('single-screen patterns leave semantic appearance to system primitives', () => {
+  const css = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/GitHistory.module.css'), 'utf8')
+  const semantic = declarationsOf(css).filter(({ property }) =>
+    property === 'color' || property === 'height' || property === 'min-height' || property.startsWith('padding'),
+  )
+  assert.deepEqual(semantic, [], 'GitHistory.module.css')
+
+  const turnWork = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/TurnWork.tsx'), 'utf8')
+  assert.doesNotMatch(turnWork, /TurnWork\.module\.css/)
+  assert.match(turnWork, /quietHover/)
+})
+
 test('the browser integration job builds workspace package entries before Vite', () => {
   const workflow = fs.readFileSync(path.join(repoRoot, '.github/workflows/ci.yml'), 'utf8')
   const browserJob = workflow.match(/^  ui-system-browser:[\s\S]*?(?=^  [a-z][a-z-]+:|\Z)/m)?.[0] ?? ''

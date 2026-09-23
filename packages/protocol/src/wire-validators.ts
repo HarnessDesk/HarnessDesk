@@ -1,6 +1,7 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import { lanePreferences } from './goal.js'
+import { CEILING_LEVELS } from './ceiling.js'
 import type {
   ClientToHost,
   GitWorktreeCheckout,
@@ -153,6 +154,8 @@ const flowSeatValidator = shape({
  */
 const GRANTS: Readonly<Record<FlowPermission, true>> = { read: true, publish: true, merge: true }
 const grantValidator = literalUnion(...(Object.keys(GRANTS) as FlowPermission[]))
+
+const ceilingValidator = literalUnion(...CEILING_LEVELS)
 
 /** The seats one seating tries in the Agent's place: no more than its `prefer` may name. */
 const seatListValidator: Validator<FlowSeat[]> = (value, path = '') => {
@@ -697,10 +700,23 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'agent/create': shape({
     name: atMost(AGENT_NAME_LIMIT, isFilled),
     description: optional(atMost(AGENT_DESCRIPTION_LIMIT)),
-    permission: grantValidator,
+    ceiling: ceilingValidator,
     seat: flowSeatValidator,
     to: literalUnion('user', 'project'),
     project: optional(isString),
+  }),
+  'agent/ceiling/preview': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    level: ceilingValidator,
+  }),
+  'agent/ceiling/write': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    level: ceilingValidator,
+    digest: isFilled,
   }),
   'agent/copy': shape({
     id: isFilled,

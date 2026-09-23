@@ -201,18 +201,6 @@
   flex: 1;
 }
 
-.empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  text-align: center;
-}
-
-/* Appearance (font-family, font-size, font-weight, color) for .emptyTitle,
-   .emptyBody composed on the elements via Tailwind. */
-
 .jumpButton {
   position: absolute;
   bottom: calc(var(--composer-h, 150px) + 14px);

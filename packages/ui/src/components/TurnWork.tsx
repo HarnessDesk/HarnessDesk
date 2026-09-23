@@ -1,4 +1,4 @@
-import { Button } from '../design'
+import { TurnWorkHeader, TurnWorkHeaderLabel } from '../design'
 import { useEffect, useState } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
@@ -98,14 +98,15 @@ export const TurnWork = ({
       {...(line.trouble ? { 'data-trouble': '' } : {})}
       {...(line.informative ? { 'data-described': '' } : {})}
     >
-      <Button
+      <TurnWorkHeader
+        trouble={line.trouble}
         type="button"
         variant="row" size="row" className={`${styles.head} gap-1.5`}
         aria-expanded={open}
         onClick={() => setChoice(!open)}
         title={open ? 'Fold the work away' : 'Show what the agent did'}
       >
-        <span className={`${styles.headLabel} tabular-nums ${line.trouble ? 'text-(--hd-warning-ink)' : running ? 'text-(--hd-secondary-foreground)' : ''}`}>{line.head}</span>
+        <TurnWorkHeaderLabel className={`tabular-nums ${line.trouble ? 'text-(--hd-warning-ink)' : running ? 'text-(--hd-secondary-foreground)' : ''}`}>{line.head}</TurnWorkHeaderLabel>
         {/* The receipt stands in for the rows, so it shows when they do not:
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}
@@ -118,7 +119,7 @@ export const TurnWork = ({
         )}
         <ChevronIcon className={`${styles.chevron} ${line.trouble ? 'text-(--hd-warning-ink)' : 'text-(--hd-muted-foreground)'}`} size={13} {...(open ? { 'data-open': '' } : {})} />
         <span className={`${styles.rule} h-px bg-(--hd-border)`} />
-      </Button>
+      </TurnWorkHeader>
       {open && (
         <div className={styles.body} data-register="light">
           <StepNameScope items={shown} root={root}>

@@ -1,0 +1,28 @@
+/* The repository history is a specialized renderer. Its chrome is public so
+   every history view shares the same action, filter and commit-detail rhythm. */
+
+.actionBar {
+  flex: none;
+}
+
+.filters {
+  flex: none;
+}
+
+.tableHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+}
+
+.commitDetailHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.diffViewport {
+  flex: 1;
+  overflow: auto;
+}

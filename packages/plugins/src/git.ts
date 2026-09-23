@@ -704,6 +704,39 @@ export const gitPlugin: HarnessPlugin = {
       })
 
       ctx.tools.register({
+        name: 'pr_merge',
+        description:
+          'Merge a pull request, through HarnessDesk, with the person’s own gh — only one you were asked to merge, and only at the commit that was reviewed: head is that commit, and GitHub refuses the merge if the branch has moved since. Squash unless told otherwise. Only a seat whose ceiling is merge may call this; the desk refuses it for any other.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            number: { type: 'number', description: 'The pull request number.' },
+            head: { type: 'string', description: 'The full commit the pull request must still be at — the one that was reviewed.' },
+            method: { type: 'string', enum: ['squash', 'merge', 'rebase'], description: 'How to merge it. Squash unless told otherwise.' },
+          },
+          required: ['number', 'head'],
+        },
+        execute: async (args: { number?: number; head?: string; method?: string }, scope) => {
+          const selector = selectorOf(args.number)
+          if (selector === null) throw new Error('Name the pull request to merge by its number.')
+          const head = String(args.head ?? '').trim()
+          if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(head)) {
+            throw new Error('"head" must be the whole commit the pull request was reviewed at — 40 hex characters, or 64.')
+          }
+          const method = args.method ?? 'squash'
+          if (method !== 'squash' && method !== 'merge' && method !== 'rebase') {
+            throw new Error('method must be squash, merge or rebase.')
+          }
+          await gh(['pr', 'merge', selector, `--${method}`, '--match-head-commit', head])
+          const pr = await viewPullRequest(selector)
+          const note = await publish(referenceOf(pr, { kind: 'pullRequest', via: await viaOf(scope) }), scope)
+          return [`Merged pull request #${pr.number}: ${pr.title}`, pr.url, note]
+            .filter((line) => line !== null && line !== '')
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
         name: 'pr_review',
         description:
           'Post a review on a pull request — approve, request changes, or comment — through HarnessDesk. The review opens with a line naming this conversation’s seat; do not add one. Names the pull request by number, or takes the one open for the current branch.',

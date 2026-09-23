@@ -1,8 +1,10 @@
 import {
+  ceilingOfPermission,
+  isCeilingLevel,
   SEAT_PREFERENCE_LIMIT,
   type AgentDefinition,
   type AgentProblem,
-  type FlowPermission,
+  type CeilingLevel,
   type FlowSeat,
 } from '@harnessdesk/protocol'
 
@@ -51,7 +53,7 @@ const asWords = (value: unknown): string[] =>
  * because read as nothing it fails silently — `permissions: merge` is a ceiling
  * of read, and an author who believes otherwise.
  */
-const FIELDS = ['name', 'description', 'permission', 'answers', 'produces', 'skills', 'prefer'] as const
+const FIELDS = ['name', 'description', 'ceiling', 'permission', 'answers', 'produces', 'skills', 'prefer'] as const
 type Field = (typeof FIELDS)[number]
 
 /** Front matter opens on a line of exactly `---`, so `--- draft` opens nothing. */
@@ -144,20 +146,7 @@ export const parseAgentDefinition = (
     problems.push(problem('warning', 'name', `no name, so this Agent is called “${id}” after its folder`))
   }
 
-  let permission: FlowPermission = 'read'
-  const declared = field('permission')
-  if (declared !== undefined) {
-    const word = asText(declared)?.trim() ?? ''
-    if (!word) {
-      /* `permission:` with nothing after it parses to null, and quoting "null"
-         at somebody who wrote no word at all diagnoses the wrong thing. */
-      problems.push(problem('error', 'permission', 'the permission field is empty — write read, publish or merge'))
-    } else if (!isPermission(word)) {
-      problems.push(problem('error', 'permission', `"${word}" is not a permission — it is read, publish or merge`))
-    } else {
-      permission = word
-    }
-  }
+  const { ceiling, ceilingFrom } = ceilingOf(front, line, field('ceiling'), field('permission'), problems)
 
   /* The seat grammar has one parser, and this is not it: `parseSeatList`
      reads the compact form or the long one, per seat, both of them returning
@@ -196,7 +185,8 @@ export const parseAgentDefinition = (
       id,
       name,
       description: typeof description === 'string' ? description.trim() : null,
-      permission,
+      ceiling,
+      ceilingFrom,
       answers: asWords(field('answers')),
       produces: asWords(field('produces')),
       skills: asWords(field('skills')),
@@ -204,5 +194,140 @@ export const parseAgentDefinition = (
       brief,
     },
     problems,
+  }
+}
+
+/** A top-level key of the front matter, as a line opens with it. */
+const KEY_AT: Readonly<Record<'ceiling' | 'permission', RegExp>> = {
+  ceiling: /^ceiling[ \t]*:/,
+  permission: /^permission[ \t]*:/,
+}
+
+const keyLine = (front: string, first: number, key: 'ceiling' | 'permission'): number | null => {
+  const at = front.split(/\r?\n/).findIndex((text) => KEY_AT[key].test(text))
+  return at === -1 ? null : first + at
+}
+
+/** Read the new ceiling key, translate the legacy key, and refuse ambiguity. */
+const ceilingOf = (
+  front: string,
+  first: number,
+  written: unknown,
+  legacy: unknown,
+  problems: AgentProblem[],
+): { readonly ceiling: CeilingLevel; readonly ceilingFrom: AgentDefinition['ceilingFrom'] } => {
+  const narrowest = { ceiling: 'read' as const, ceilingFrom: 'none' as const }
+  if (written !== undefined && legacy !== undefined) {
+    const ceilingAt = keyLine(front, first, 'ceiling')
+    const permissionAt = keyLine(front, first, 'permission')
+    const ceilingLine = ceilingAt === null ? 'its front matter' : `line ${ceilingAt}`
+    const permissionLine = permissionAt === null ? 'its front matter' : `line ${permissionAt}`
+    problems.push(
+      problem(
+        'error',
+        'ceiling',
+        `it says both ceiling: (${ceilingLine}) and permission: (${permissionLine}) — keep one line: ceiling: is the key this app writes, and permission: is the one Agents were written with before`,
+      ),
+    )
+    return narrowest
+  }
+  if (written !== undefined) {
+    const word = asText(written)?.trim() ?? ''
+    if (!word) {
+      problems.push(problem('error', 'ceiling', 'the ceiling field is empty — write read, edit, publish or merge'))
+    } else if (!isCeilingLevel(word)) {
+      problems.push(problem('error', 'ceiling', `"${word}" is not a ceiling — it is read, edit, publish or merge`))
+    } else {
+      return { ceiling: word, ceilingFrom: 'ceiling' }
+    }
+    return narrowest
+  }
+  if (legacy !== undefined) {
+    const word = asText(legacy)?.trim() ?? ''
+    if (!word) {
+      problems.push(problem('error', 'permission', 'the permission field is empty — write read, publish or merge'))
+    } else if (!isPermission(word)) {
+      problems.push(problem('error', 'permission', `"${word}" is not a permission — it is read, publish or merge`))
+    } else {
+      return { ceiling: ceilingOfPermission(word), ceilingFrom: 'permission' }
+    }
+    return narrowest
+  }
+  return narrowest
+}
+
+export interface CeilingEdit {
+  readonly next: string
+  readonly line: number
+  readonly before: string | null
+  readonly after: string
+  readonly diff: string
+}
+
+const FENCE = /^---[ \t]*\r?$/
+const CEILING_KEY = /^ceiling[ \t]*:/
+const PERMISSION_KEY = /^permission[ \t]*:/
+const ONE_WORD = /^permission[ \t]*:[ \t]*(?:read|publish|merge)([ \t]+#.*?)?\r?$/
+const CONTINUED = /^(?:[ \t]+\S|[ \t]*-)/
+const shown = (line: string): string => line.replace(/\r$/, '')
+
+/** Build exactly one ceiling-line edit while preserving every unrelated byte. */
+export const ceilingEdit = (source: string, level: CeilingLevel): CeilingEdit | { readonly refused: string } => {
+  const bom = source.startsWith('﻿') ? '﻿' : ''
+  const text = source.slice(bom.length)
+  const eol = text.match(/\r?\n/)?.[0] ?? '\n'
+  const lines = text.split(eol)
+  const after = `ceiling: ${level}`
+  const joined = (next: readonly string[]): string => `${bom}${next.join(eol)}`
+
+  if (!FENCE.test(lines[0] ?? '')) {
+    const next = ['---', after, '---', ...lines]
+    return {
+      next: joined(next),
+      line: 2,
+      before: null,
+      after,
+      diff: `@@ -1,1 +1,4 @@\n+---\n+${after}\n+---\n ${shown(lines[0] ?? '')}\n`,
+    }
+  }
+  const close = lines.findIndex((line, index) => index > 0 && FENCE.test(line))
+  if (close === -1) return { refused: 'its front matter opens with "---" and is never closed' }
+  const front = lines.slice(1, close)
+  const ceilingAt = front.findIndex((line) => CEILING_KEY.test(line))
+  const permissionAt = front.findIndex((line) => PERMISSION_KEY.test(line))
+  if (ceilingAt !== -1 && permissionAt !== -1) {
+    return { refused: 'it says both ceiling: and permission: — keep one of the two lines by hand' }
+  }
+  if (ceilingAt !== -1) return { refused: 'it already says ceiling:, so there is nothing to update' }
+
+  if (permissionAt === -1) {
+    const next = [...lines.slice(0, close), after, ...lines.slice(close)]
+    return {
+      next: joined(next),
+      line: close + 1,
+      before: null,
+      after,
+      diff: `@@ -${close},2 +${close},3 @@\n ${shown(lines[close - 1] ?? '')}\n+${after}\n ${shown(lines[close] ?? '')}\n`,
+    }
+  }
+
+  const at = permissionAt + 1
+  const before = lines[at] ?? ''
+  const word = ONE_WORD.exec(before)
+  if (!word || (at + 1 < close && CONTINUED.test(lines[at + 1] ?? ''))) {
+    return { refused: 'its permission: is not one plain word on one line — rewrite it by hand' }
+  }
+  const written = `${after}${word[1] ?? ''}`
+  const next = [...lines.slice(0, at), written, ...lines.slice(at + 1)]
+  const start = at - 1
+  const end = Math.min(lines.length - 1, at + 1)
+  const context = (from: number, to: number): string =>
+    lines.slice(from, to).map((line) => ` ${shown(line)}\n`).join('')
+  return {
+    next: joined(next),
+    line: at + 1,
+    before: shown(before),
+    after: written,
+    diff: `@@ -${start + 1},${end - start + 1} +${start + 1},${end - start + 1} @@\n${context(start, at)}-${shown(before)}\n+${written}\n${context(at + 1, end + 1)}`,
   }
 }

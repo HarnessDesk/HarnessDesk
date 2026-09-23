@@ -1,9 +1,12 @@
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
+import { digestOf } from '@harnessdesk/agent-inventory'
+
 import {
   AGENT_DESCRIPTION_LIMIT,
   AGENT_NAME_LIMIT,
   BriefNotHandedOverError,
+  isCeilingLevel,
   isBlocked,
   remainingOf,
   SeatRefusedError,
@@ -12,6 +15,7 @@ import {
   type AgentId,
   type AgentOrigin,
   type AgentRuntime,
+  type CeilingLevel,
   type FlowSeat,
   type HostMethods,
   type MachineSeating,
@@ -24,7 +28,7 @@ import {
   type UsageReport,
 } from '@harnessdesk/protocol'
 
-import { parseAgentDefinition } from '../agent-def.js'
+import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
 import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
@@ -32,23 +36,30 @@ import {
   copyAgentFolder,
   createAgentFolder,
   projectAgentDir,
+  projectAgentFolder,
   readAgentSource,
+  rewriteAgentFile,
   rollbackCreatedAgent,
+  userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
+import { unheldPolicy } from '../ceilings/policy.js'
 import {
   agentOrder,
   blockedPlan,
   candidateOf,
+  ceilingWithin,
   chooseSeat,
   describeSeat,
   differencesOf,
   effortWord,
   explainRefusal,
+  grantOf,
   leftOnFailure,
   passedFor,
-  permissionWithin,
   planSeats,
+  standingOf,
+  type CeilingNeed,
   type PassedOver,
   type SeatOffer,
   type SeatWords,
@@ -94,12 +105,18 @@ export const agentMethods = {
   'agent/seat/dry': async (ctx, params) => {
     const roster = await ctx.agents.list(await projectOf(ctx, params.project))
     const machine = await ctx.seating.read()
+    const unheld = unheldPolicy(ctx.state.state.preferences)
     const ids = params.ids ?? roster.map((one) => one.id)
     const weighed = ids.map((id): Weighed => {
       const entry = roster.find((one) => one.id === id)
       if (!entry) return { plan: blockedPlan(id, `No Agent called “${id}”.`) }
       if (!entry.definition || entry.digest === null) return { plan: blockedPlan(id, unusable(entry)) }
-      return { id, list: candidatesFor(entry.definition, machine), prefer: entry.definition.prefer }
+      return {
+        id,
+        list: candidatesFor(entry.definition, machine),
+        prefer: entry.definition.prefer,
+        need: { level: ceilingWithin(entry.definition.ceiling, grantOf(undefined)), unheld },
+      }
     })
     // Every runtime either list names, read once: the Agent's own list is only weighed beside this Mac's.
     const desk = await readDesk(
@@ -109,12 +126,12 @@ export const agentMethods = {
     const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
     return weighed.map((one): SeatPlan => {
       if ('plan' in one) return one.plan
-      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer').candidates
+      const own = () => planSeats(one.id, one.prefer, desk.offers, words, 'prefer', one.need).candidates
       if ('refused' in one.list) return { ...blockedPlan(one.id, one.list.refused, 'machine'), own: own() }
       if (one.list.from === 'machine') {
-        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine'), own: own() }
+        return { ...planSeats(one.id, one.list.seats, desk.offers, words, 'machine', one.need), own: own() }
       }
-      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer')
+      return planSeats(one.id, one.list.seats, desk.offers, words, 'prefer', one.need)
     })
   },
 
@@ -234,7 +251,7 @@ export const agentMethods = {
     const source = agentSource({
       name: params.name,
       description: params.description ?? null,
-      permission: params.permission,
+      ceiling: params.ceiling,
       prefer,
     })
     if (Buffer.byteLength(source, 'utf8') > AGENT_FILE_LIMIT) {
@@ -248,7 +265,7 @@ export const agentMethods = {
     const unreadable = parsed.problems.find((one) => one.level === 'error')
     if (unreadable) throw new Error(`“${params.name}” cannot be saved: ${unreadable.at} — ${unreadable.text}`)
     const mismatched = parsed.agent
-      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.permission, prefer)
+      ? savedFieldMismatch(parsed.agent, params.name, params.description ?? null, params.ceiling, prefer)
       : 'definition'
     if (mismatched) {
       throw new Error(`“${params.name}” cannot be saved because its ${mismatched} does not read back exactly as given.`)
@@ -313,6 +330,25 @@ export const agentMethods = {
     }
     ctx.push({ method: 'agent/changed', params: { project: params.to === 'project' ? (project ?? null) : null } })
     return found(await ctx.agents.read(id, project), { id, origin: params.to, path: created.path })
+  },
+
+  'agent/ceiling/preview': async (ctx, params) => {
+    const { path, folder } = await updatable(ctx, params)
+    const source = await readAgentSource(join(folder, 'AGENT.md'))
+    const edit = ceilingEdit(source, params.level)
+    if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
+    return { path, digest: digestOf(source), line: edit.line, before: edit.before, after: edit.after, diff: edit.diff }
+  },
+
+  'agent/ceiling/write': async (ctx, params) => {
+    const { path, folder, project } = await updatable(ctx, params)
+    await rewriteAgentFile(folder, params.digest, (source) => {
+      const edit = ceilingEdit(source, params.level)
+      if ('refused' in edit) throw new Error(`${path} cannot be updated: ${edit.refused}.`)
+      return edit.next
+    })
+    ctx.push({ method: 'agent/changed', params: { project: params.origin === 'project' ? (project ?? null) : null } })
+    return found(await ctx.agents.read(params.id, project), { id: params.id, origin: params.origin, path })
   },
 
   /**
@@ -407,19 +443,17 @@ export async function seatAgent(
   context: AgentSeatContext,
 ): Promise<{ session: HostMethods['agent/seat']['result']; record: SeatRecord }> {
   if (!isAbsolute(params.cwd)) throw new Error(`${params.cwd} is not an absolute path.`)
-  if (context.environment !== undefined) {
-    throw new Error('This runtime cannot pass a lane environment to a session yet. Choose a shared checkout for this Seat.')
-  }
-  if (context.grant?.kind === 'ceiling') {
-    throw new Error('This build cannot hold a ceiling grant yet. Use an Agent with a permission standing order.')
-  }
   const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
   if (!entry) throw new Error(`No Agent called “${params.id}”.`)
   const { definition, digest } = entry
   if (!definition || digest === null) throw new Error(unusable(entry))
 
   const requested = context.grant?.kind === 'permission' ? context.grant.permission : params.permission
-  const permission = permissionWithin(definition.permission, requested ?? 'read')
+  const level = ceilingWithin(
+    definition.ceiling,
+    context.grant?.kind === 'ceiling' ? context.grant.level : grantOf(requested),
+  )
+  const need: CeilingNeed = { level, unheld: unheldPolicy(ctx.state.state.preferences) }
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
@@ -429,25 +463,34 @@ export async function seatAgent(
   const said = (values: readonly PassedOver[]) => values.map((one) => candidateOf(one, words))
   const passed: PassedOver[] = []
   for (let rest = candidates; ; ) {
-    const chosen = chooseSeat(rest, offers)
+    const chosen = chooseSeat(rest, offers, need)
     passed.push(...chosen.passed)
     if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
     const selected = chosen.seat
     rest = rest.slice(chosen.passed.length + 1)
-    const opened = await openAsAsked(ctx, selected, { cwd: params.cwd, title: definition.name })
+    const opened = await openAsAsked(ctx, selected, {
+      cwd: params.cwd, title: definition.name, ...(context.environment ? { environment: context.environment } : {}),
+    })
     if ('reason' in opened) {
       passed.push(opened)
       continue
     }
 
+    const held = await ctx.seats.hold(opened.runtime, opened.sessionId, level)
+    if (held.ceiling.hold !== 'held' && need.unheld === 'refuse') {
+      const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
+      passed.push({ ...passedFor(selected, { kind: 'unheld', level, detail: held.why }), left })
+      continue
+    }
     const seated: SeatedAs = {
       agent: definition.id,
       name: definition.name,
       briefDigest: digest,
-      permission,
+      standing: standingOf(definition.ceilingFrom, level),
       seatLabel: opened.label,
       passedOver: said(passed),
-      ceiling: null,
+      ceiling: held.ceiling,
+      ceilingNote: held.how ?? held.why,
     }
     let record: SeatRecord
     try {
@@ -460,7 +503,7 @@ export async function seatAgent(
         seat: selected,
         seatLabel: seated.seatLabel,
         passedOver: seated.passedOver,
-        standing: { kind: 'permission', permission },
+        standing: seated.standing,
         ceiling: seated.ceiling,
         cwd: params.cwd,
         session: { runtime: opened.runtime, sessionId: opened.sessionId },
@@ -474,7 +517,7 @@ export async function seatAgent(
       )
     }
     try {
-      await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, permission, params.cwd))
+      await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, level, params.cwd))
     } catch (error) {
       await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
       await ctx.seats.retire(opened.runtime, opened.sessionId)
@@ -620,6 +663,22 @@ const listedAgentPath = (
   return { at: 'found', path }
 }
 
+const updatable = async (
+  ctx: HostContext,
+  params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string },
+): Promise<{ readonly path: string; readonly folder: string; readonly project: string | undefined }> => {
+  const project = await projectOf(ctx, params.project)
+  const entry = await ctx.agents.read(params.id, project)
+  const looked = entry ? listedAgentPath(ctx, entry, params.origin, project) : ({ at: 'missing' } as const)
+  if (looked.at === 'missing') throw new Error(`There is no ${originAgent(params.origin)} Agent called “${params.id}” to update.`)
+  if (looked.at === 'invalid') throw new Error(`“${params.id}” is not a real Agent folder, so it cannot be updated.`)
+  const folder =
+    params.origin === 'project'
+      ? await projectAgentFolder(project ?? '', params.id)
+      : await userAgentFolder(ctx.agents.roots.user, params.id)
+  return { path: looked.path, folder, project }
+}
+
 /** Where a new or copied Agent goes: this machine's roster, or the project's own, made inside it. */
 const rootOf = async (ctx: HostContext, to: 'user' | 'project', project: string | undefined): Promise<string> => {
   if (to === 'user') return ctx.agents.roots.user
@@ -645,12 +704,12 @@ const savedFieldMismatch = (
   definition: AgentDefinition,
   name: string,
   description: string | null,
-  permission: AgentDefinition['permission'],
+  ceiling: AgentDefinition['ceiling'],
   prefer: readonly FlowSeat[],
-): 'name' | 'description' | 'permission' | 'preferred seats' | null => {
+): 'name' | 'description' | 'ceiling' | 'preferred seats' | null => {
   if (definition.name !== name) return 'name'
   if ((definition.description ?? null) !== description) return 'description'
-  if (definition.permission !== permission) return 'permission'
+  if (definition.ceiling !== ceiling) return 'ceiling'
   if (definition.prefer.length !== prefer.length) return 'preferred seats'
   if (!definition.prefer.every((seat, index) => sameSeat(seat, prefer[index]!))) return 'preferred seats'
   return null
@@ -671,6 +730,7 @@ type Weighed =
       readonly id: AgentId
       readonly list: CandidateList | { readonly refused: string }
       readonly prefer: readonly FlowSeat[]
+      readonly need: CeilingNeed
     }
 
 /**
@@ -730,7 +790,7 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const openAsAsked = async (
   ctx: HostContext,
   seat: FlowSeat,
-  where: { readonly cwd: string; readonly title: string },
+  where: { readonly cwd: string; readonly title: string; readonly environment?: Readonly<Record<string, string>> },
 ): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {
@@ -954,6 +1014,7 @@ export const offerOf = async (
       signedIn,
       spent: report ? isBlocked(report) : false,
       spentModels: report ? spentScopesOf(report) : [],
+      holds: Object.keys(ctx.runtimes.infoOf(runtime).ceilings ?? {}).filter(isCeilingLevel),
     },
     catalogue,
   }

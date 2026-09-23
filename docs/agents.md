@@ -15,7 +15,7 @@ matter, then the brief.
 ---
 name: Code reviewer
 description: Reads a change it did not write and reports every problem it finds, blocking or not.
-permission: read
+ceiling: read
 answers: [approve, request-changes]
 produces: [review]
 prefer: [claude-code, codex, cursor]
@@ -28,7 +28,8 @@ You review a change somebody else wrote. …
 | --- | --- |
 | `name` | What every surface calls it. |
 | `description` | One line; the roster shows it under the name. |
-| `permission` | The most it may do — `read`, `publish` or `merge`. A ceiling, never a grant: see *Asked, not held* below. |
+| `ceiling` | The most it may do — `read`, `edit`, `publish` or `merge`. A limit, never a grant: see *Held and asked* below. |
+| `permission` | The supported legacy spelling — `read`, `publish` or `merge`. Legacy `read` means `edit` on the ceiling ladder. Do not put both keys in one file. |
 | `answers` | The verdicts it may give. |
 | `produces` | What it leaves behind. |
 | `skills` | The skills it expects, by name. Read-only for now. |
@@ -38,6 +39,22 @@ You review a change somebody else wrote. …
 A file that will not parse is still listed, with where and why — the parser
 (`packages/server/src/agent-def.ts`) names every problem it finds, and a
 listing never drops an Agent it could not read.
+
+The four ceiling levels are cumulative:
+
+| Ceiling | Limit |
+| --- | --- |
+| `read` | Changes nothing. |
+| `edit` | May change and commit inside its checkout, but never pushes. |
+| `publish` | May also push its own branch and open a pull request. |
+| `merge` | May additionally merge the pull request it was asked to merge. |
+
+These are upper bounds, not permission to reset, force, rewrite published
+history, or act outside the task. An old `permission: read` file keeps its old
+meaning and is translated to `edit`; old `publish` and `merge` keep those
+levels. A file with no key is treated as `read` and flagged for review. A file
+with both `ceiling` and `permission` is refused, whichever line comes first,
+and the error names both lines.
 
 ## Three places, one roster
 
@@ -57,17 +74,23 @@ places changes (`packages/server/src/agent-watch.ts`).
 
 ## The nine that ship
 
-| Agent | What it is for | `permission` |
+| Agent | What it is for | `ceiling` |
 | --- | --- | --- |
 | Code reviewer | Reads a change it did not write and reports every problem it finds, blocking or not | `read` |
 | Security reviewer | Reads a change for the ways it could be abused, and how to close each | `read` |
-| Performance reviewer | Reads a change for what it costs in time, memory and I/O, and when that cost shows | `read` |
+| Performance reviewer | Reads a change for what it costs in time, memory and I/O, and when that cost shows | `edit` |
 | API reviewer | Reads a change for what it does to the interfaces other code and other people rely on | `read` |
-| Test reviewer | Judges whether a change's tests would catch it being wrong | `read` |
+| Test reviewer | Judges whether a change's tests would catch it being wrong | `edit` |
 | Implementer | Builds the change it is given on its own branch, proves it with the project's checks, and hands it over | `publish` |
 | Judge | Compares attempts at the same task, picks one or none, and says why | `read` |
-| Researcher | Answers a question from the code and its sources, and writes the answer down with its evidence | `read` |
-| Requirements analyst | Turns a need into requirements that can be built and tested, and later judges whether a change meets them | `read` |
+| Researcher | Answers a question from the code and its sources, and writes the answer down with its evidence | `edit` |
+| Requirements analyst | Turns a need into requirements that can be built and tested, and later judges whether a change meets them | `edit` |
+
+Code, security and API reviewers and the judge only need to inspect and report,
+so they stay at `read`. Test and performance reviewers run checks and write
+their evidence; the researcher and requirements analyst write their results,
+so those four need `edit`. The implementer may hand over its own branch, so it
+has `publish`.
 
 Each names runtimes, not models — `prefer: [claude-code, codex, cursor]` —
 because a model name in a file that travels breaks the Agent on every machine
@@ -149,12 +172,25 @@ has changed since this started* once the file has moved on from the one it was
 handed. That a conversation was seated as an Agent is remembered until the
 desk quits.
 
-**Asked, not held.** A seat is told the narrower of its Agent's `permission`
-and what its seating grants, and nothing started from the app grants more than
-`read`. `read` lets a seat edit and commit in its own checkout and never push,
-merge, reset or force. The seat is *told* this in its standing order, and
-nothing at the tool surface stops one that ignores it yet — so every surface
-labels a ceiling *asked*: *Read · asked*.
+**Held and asked.** A seat's effective ceiling is the narrower of its Agent's
+ceiling and its seating grant. The current `agent/seat` interface still accepts
+the legacy `permission` words; the ordinary app start grants at most the level
+that now corresponds to `edit`, so selecting a `publish` Agent does not by
+itself grant a publish seat.
+
+*Held* means the runtime control was set when the seat opened and the runtime
+reported it back. *Asked* means the standing order carries the limit but the
+runtime supplied no reliable control and read-back for that level. Codex maps
+`read` to its read-only sandbox and `edit` to its workspace sandbox, with
+approval reviewed by the person. The workspace sandbox is narrower than the
+ladder's `edit`: it cannot commit, reach the network or listen on a port.
+Claude Code plan mode is not a read-only sandbox, so it is not claimed as held.
+No runtime is claimed to hold `publish` or `merge` in this phase.
+
+The desk's own tools enforce the effective ceiling whether its chip says held
+or asked. That includes calls from delegated children, which keep their root
+seat's identity. Runtime-native shell publishing is not intercepted globally,
+so an asked seat still depends on its standing order outside desk tools.
 
 ## Making your own
 
@@ -169,6 +205,14 @@ labels a ceiling *asked*: *Read · asked*.
   Trash; the copy it shadowed, if any, is in force again.
 - Or write the folder by hand. The roster notices.
 
+A legacy or missing key is flagged in the roster. Follow that row to the Agent
+page, then choose **Ceiling → Update…**. A legacy file offers the translated
+level or a narrower one; a missing key offers **Keep Read** and **Allow Edit**.
+The dialog shows the exact one-line diff before it writes. If the file changes
+after that preview, the write is refused rather than retried or overwritten.
+A built-in must be customized first. A project Agent's successful update is a
+normal uncommitted project diff for its author to review and commit.
+
 ## Where to find them
 
 **Agents** in the sidebar opens a window of its own: *All Agents*, then the
@@ -181,6 +225,12 @@ parse says why. Each row opens the Agent's page: its file, with *Open file* and
 *Reveal*; its ceiling; its own seats and their state here; *On this Mac*, this
 machine's seats, added to, reordered or cleared; what it answers and produces,
 and its skills; and its brief's first paragraph, with *Open in editor*.
+
+Every would-be or live Agent seat carries an explicit ceiling chip. Neutral
+means held; warning means asked, and both words are written on the chip rather
+than conveyed by colour alone. **Settings › Permissions › Ceilings** shows the
+four declared holds for each runtime and chooses whether a watched conversation
+may open an unheld seat with a warning or must pass it over.
 
 **Settings › Workspaces** opens a page per project — so does *Project
 settings* in the sidebar's project menu — listing the project's own Agents and

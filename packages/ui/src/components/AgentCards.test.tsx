@@ -1676,7 +1676,7 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
       cwd: '/repo',
       agent: 'code-reviewer',
       briefDigest: 'handed-over',
-      permission: 'read',
+      ceiling: { level: 'edit', hold: 'asked' },
       seatLabel: 'Claude · Opus 5 · High',
       passedOver: [
         {
@@ -1701,7 +1701,8 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
       id: 'code-reviewer',
       name: 'Code reviewer',
       description: 'Reviews a change it did not write.',
-      permission: 'read',
+      ceiling: 'edit',
+      ceilingFrom: 'permission',
       answers: [],
       produces: [],
       skills: [],
@@ -1729,7 +1730,10 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
   rest(trigger())
   const text = openCard()?.textContent ?? ''
   expect(text).toContain('Reviews a change it did not write.')
-  expect(text).toContain('Read · asked')
+  expect(text).toContain('Edit · asked')
+  const chip = openCard()?.querySelector('[data-ceiling]')
+  expect(chip?.getAttribute('data-hold')).toBe('asked')
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
   expect(text).toContain('Built in')
   expect(text).toContain('Seated on Claude · Opus 5 · High')
   expect(text).toContain('Passed over Cursor — Cursor is signed out')

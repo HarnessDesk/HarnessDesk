@@ -21,14 +21,6 @@
 
 }
 
-.work:not([data-trouble]) .head:hover .headLabel {
-  color: var(--hd-secondary-foreground);
-}
-
-.headLabel {
-  flex: none;
-}
-
 /* What the turn amounted to, on the same line as how long it took. It is the
    half of a folded turn a reader is actually looking for, so it shortens
    before the duration does. */

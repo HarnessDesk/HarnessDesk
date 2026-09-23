@@ -4,6 +4,7 @@ import {
   runtimeId,
   sessionKey,
   type AgentEntry,
+  type CeilingLevel,
   type CheckUnseen,
   type FlowSeat,
   type MachineSeating,
@@ -12,6 +13,7 @@ import {
   type OptionValue,
   type RuntimeInfo,
   type SeatRecord,
+  type SeatCeiling,
   type SeatPlan,
   type Session,
   type SessionId,
@@ -613,8 +615,9 @@ const agentEntry = (
   name: string,
   origin: AgentEntry['origin'],
   description: string,
-  permission: 'read' | 'publish' = 'read',
+  ceiling: CeilingLevel = 'read',
   shadows: AgentEntry['shadows'] = [],
+  ceilingFrom: NonNullable<AgentEntry['definition']>['ceilingFrom'] = 'ceiling',
 ): AgentEntry => ({
   id,
   origin,
@@ -631,8 +634,9 @@ const agentEntry = (
     id,
     name,
     description,
-    permission,
-    answers: permission === 'read' ? ['approve', 'request-changes'] : [],
+    ceiling,
+    ceilingFrom,
+    answers: ceiling === 'read' ? ['approve', 'request-changes'] : [],
     produces: ['review'],
     skills: [],
     prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
@@ -644,7 +648,7 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   agentEntry('code-reviewer', 'Code reviewer', 'project', 'The storefront team’s reviewer: reads the diff against our checkout rules.', 'read', [
     { origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md' },
   ]),
-  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.'),
+  agentEntry('release-checker', 'Release checker', 'user', 'Reads a release branch against the changelog before it is tagged.', 'edit'),
   agentEntry('implementer', 'Implementer', 'builtin', 'Builds the change it is given on its own branch, proves it with the project’s checks, and hands it over.', 'publish'),
   agentEntry('security-reviewer', 'Security reviewer', 'builtin', 'Reads a change it did not write for the ways it could be abused, and says how to close each one.'),
   {
@@ -658,11 +662,17 @@ const PREVIEW_AGENTS: readonly AgentEntry[] = [
   },
 ]
 
-const takenOn = (id: string, runtime: string, label: string): SeatPlan => ({
+const takenOn = (
+  id: string,
+  runtime: string,
+  label: string,
+  ceiling: SeatCeiling = { level: 'read', hold: 'asked' },
+): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
   blocked: null,
+  ceiling,
   candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
@@ -674,6 +684,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: 0,
       blocked: null,
+      ceiling: { level: 'read', hold: 'asked' },
       candidates: [
         {
           seat: { runtime: 'cursor', model: 'gamma-pro' },
@@ -701,8 +712,8 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol')],
-  ['implementer', takenOn('implementer', 'claude', 'Beta')],
+  ['release-checker', takenOn('release-checker', 'codex', 'Alpha · GPT-5.6 Sol', { level: 'edit', hold: 'held' })],
+  ['implementer', takenOn('implementer', 'claude', 'Beta', { level: 'edit', hold: 'asked' })],
   [
     'security-reviewer',
     {
@@ -710,6 +721,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       from: 'machine',
       winner: null,
       blocked: null,
+      ceiling: null,
       candidates: [
         { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },
         { seat: { runtime: 'shipper' }, label: 'Delta', runtimeName: 'Delta', state: 'passed', reason: { kind: 'notInstalled', added: false }, fix: { kind: 'add', runtime: 'shipper' } },
@@ -723,7 +735,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
       ],
     },
   ],
-  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', candidates: [] }],
+  ['draft', { id: 'draft', from: 'prefer', winner: null, blocked: 'its file will not parse', ceiling: null, candidates: [] }],
 ])
 
 /** The smallest store the mounted screens call. */
@@ -742,7 +754,16 @@ class PreviewStore {
       workspace: previewWorkspace,
       workspaces: previewWorkspaces,
       runtimes: [
-        runtime('codex', 'Alpha'),
+        {
+          ...runtime('codex', 'Alpha'),
+          ceilings: {
+            read: { settings: [{ option: 'permissions', value: ':read-only' }], how: 'Read-only sandbox; anything past it asks you' },
+            edit: {
+              settings: [{ option: 'permissions', value: ':workspace' }],
+              how: 'Workspace sandbox: it changes files here, but cannot commit, reach the network or listen on a port; anything past it asks you',
+            },
+          },
+        } as RuntimeInfo,
         runtime('claude', 'Beta'),
         runtime('cursor', 'Gamma'),
       ],
@@ -900,7 +921,8 @@ class PreviewStore {
               agent: 'code-reviewer',
               // Not the roster's digest: the file has moved on since this was handed over.
               briefDigest: 'digest-when-it-started',
-              permission: 'read',
+              ceiling: { level: 'read', hold: 'held' },
+              ceilingNote: 'Read-only sandbox; anything past it asks you',
               seatLabel: 'Alpha · GPT-5.6 Sol',
               passedOver: [
                 { seat: { runtime: 'cursor' }, label: 'Gamma', runtimeName: 'Gamma', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } },

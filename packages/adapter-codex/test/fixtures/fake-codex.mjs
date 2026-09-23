@@ -953,6 +953,100 @@ const callDeclaredTool = () => {
   })
 }
 
+/** A child thread calls the first client-declared tool after naming its parent. */
+const callDeclaredToolAsChild = () => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      threadId: child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
+    },
+  })
+}
+
+/** Calls every declared tool as one child, optionally withholding its fresh registration. */
+const callDeclaredToolsAsChild = (announceChild) => {
+  if (declaredTools.length === 0) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  const child = `${THREAD}-child`
+  if (announceChild) {
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: THREAD, preview: 'A sub-agent.' }) })
+  }
+  for (const tool of declaredTools) {
+    send({
+      id: ++approvalRequestId,
+      method: 'item/tool/call',
+      params: {
+        threadId: child,
+        turnId: 'turn-child',
+        callId: `call-dyn-child-${tool.name}`,
+        namespace: tool.namespace ?? null,
+        tool: tool.name,
+        arguments: { text: 'from a sub-agent' },
+      },
+    })
+  }
+}
+
+/**
+ * Before the simulated upgrade this establishes C -> R. The replacement
+ * process first calls C without naming it, then repeats with a fresh child
+ * registration, which exercises the adapter's epoch boundary.
+ */
+let restartEpochCalls = 0
+const callRestartEpochTools = () => {
+  if (!since(200)) {
+    callDeclaredToolAsChild()
+    return
+  }
+  restartEpochCalls += 1
+  callDeclaredToolsAsChild(restartEpochCalls > 1)
+}
+
+/** A deeply delegated child calls a declared tool after every parent is announced. */
+const callDeclaredToolAsDeepChild = (count) => {
+  const tool = declaredTools[0]
+  if (!tool) {
+    notify('warning', { threadId: THREAD, message: 'TOOLS_DECLARED (none)' })
+    return
+  }
+  let parent = THREAD
+  let child = THREAD
+  for (let index = 0; index < count; index += 1) {
+    child = `${THREAD}-child-${index}`
+    notify('thread/started', { thread: thread({ id: child, parentThreadId: parent, preview: 'A sub-agent.' }) })
+    parent = child
+  }
+  send({
+    id: ++approvalRequestId,
+    method: 'item/tool/call',
+    params: {
+      // Once the bounded map has evicted its first association, exercise that
+      // original child rather than a still-retained descendant.
+      threadId: count > 2000 ? `${THREAD}-child-0` : child,
+      turnId: 'turn-child',
+      callId: 'call-dyn-child',
+      namespace: tool.namespace ?? null,
+      tool: tool.name,
+      arguments: { text: 'from a sub-agent' },
+    },
+  })
+}
+
 /**
  * A small filesystem for the `fs/*` and `fuzzyFileSearch` methods. The real
  * app-server serves the host filesystem unsandboxed; the fake serves this
@@ -1986,6 +2080,10 @@ rl.on('line', (line) => {
       }
       if (mode === 'turn') setImmediate(playTurn)
       if (mode === 'dynamic-tools') setImmediate(callDeclaredTool)
+      if (mode === 'delegated-tools') setImmediate(callDeclaredToolAsChild)
+      if (mode === 'delegated-tools-deep') setImmediate(() => callDeclaredToolAsDeepChild(9))
+      if (mode === 'delegated-tools-evicted') setImmediate(() => callDeclaredToolAsDeepChild(2001))
+      if (mode === 'delegated-tools-restart-epoch') setImmediate(callRestartEpochTools)
       return
     }
 

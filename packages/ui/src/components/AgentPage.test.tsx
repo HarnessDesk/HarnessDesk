@@ -53,7 +53,8 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], over: Par
     id,
     name,
     description: `${name} does the work.`,
-    permission: 'read',
+    ceiling: 'edit',
+    ceilingFrom: 'permission',
     answers: ['approve', 'request-changes'],
     produces: ['review'],
     skills: ['checkout-rules'],
@@ -108,6 +109,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: 1,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [
         candidate('cursor', 'Cursor', 'passed', { reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'cursor' } }),
         candidate('claude-code', 'Claude · Opus 5 · High', 'taken'),
@@ -121,6 +123,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'machine',
       winner: 0,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [candidate('codex', 'Codex · GPT-5.6 Sol', 'taken'), candidate('claude-code', 'Claude', 'untried')],
       own: [candidate('claude-code', 'Claude', 'taken')],
     },
@@ -132,6 +135,7 @@ const PLANS = new Map<string, SeatPlan>([
       from: 'prefer',
       winner: 1,
       blocked: null,
+      ceiling: { level: 'edit', hold: 'asked' },
       candidates: [
         candidate('claude-code', 'Claude · Opus 9', 'passed', { reason: { kind: 'noModel', model: 'opus-9' }, fix: { kind: 'seats' } }),
         candidate('claude-code', 'Claude', 'taken'),
@@ -243,10 +247,10 @@ it('opens on the Agent Settings was asked for, and goes back to the roster', () 
   expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
 })
 
-it('says its ceiling is asked, and lists each seat with its state here and the fix for one that fails', () => {
+it('says its ceiling and lists each seat with its state here and the fix for one that fails', () => {
   const { store } = mount({ focus: 'judge' })
   const text = container.textContent ?? ''
-  expect(text).toContain('Read · asked')
+  expect(text).toContain('May change files and commit in its own checkout, and never push.')
   expect(text).toContain('Cursor is signed out')
   expect(text).toContain('The seat it takes here')
   act(() => button('Sign in to Cursor').click())
@@ -642,4 +646,99 @@ it('passes a model id with a slash in it through untouched — no special-casing
     [{ runtime: 'claude-code', model: 'gpt-5.6/preview' }],
     null,
   )
+})
+
+it('only an editable flagged Agent offers Update…, and it opens from the Ceiling section', async () => {
+  const project = mount({ focus: 'code-reviewer' })
+  project.store.previewCeiling = vi.fn(async (_entry, level) => ({
+    path: '/w/storefront/.harnessdesk/agents/code-reviewer/AGENT.md',
+    digest: `preview-${level}`,
+    line: 3,
+    before: 'permission: read',
+    after: `ceiling: ${level}`,
+    diff: `--- a/AGENT.md\n+++ b/AGENT.md\n@@ -3 +3 @@\n-permission: read\n+ceiling: ${level}\n`,
+  }))
+  project.store.writeCeiling = vi.fn(async (entry) => entry)
+  expect(section('Ceiling')).toContain('Written with permission:')
+  act(() => button('Update…').click())
+  await settle()
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Update Code reviewer')
+  act(() => button('Cancel').click())
+
+  mount({ focus: 'judge' })
+  expect(section('Ceiling')).not.toContain('Update…')
+
+  const explicit = agent('explicit', 'Explicit', 'user', {
+    definition: { ...agent('explicit', 'Explicit', 'user').definition!, ceilingFrom: 'ceiling' },
+  })
+  const snapshot = { ...snapshotFor(SEATING), agents: [explicit], agentPlans: new Map() } as AppSnapshot
+  const store = storeFor(snapshot)
+  act(() => root.render(<StoreProvider store={store}><AgentPage entry={explicit} onBack={() => {}} onLeave={() => {}} /></StoreProvider>))
+  expect(section('Ceiling')).not.toContain('Update…')
+})
+
+it('a successful update removes the flag, and project navigation closes an old preview', async () => {
+  let snapshot = snapshotFor(SEATING)
+  const listeners = new Set<() => void>()
+  const pending = deferred<import('@harnessdesk/protocol').CeilingUpdate>()
+  const store = storeFor(snapshot, {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getSnapshot: () => snapshot,
+    previewCeiling: vi.fn()
+      .mockResolvedValueOnce({
+        path: ROSTER[0]!.path,
+        digest: 'shown-digest',
+        line: 3,
+        before: 'permission: edit',
+        after: 'ceiling: edit',
+        diff: '-permission: edit\n+ceiling: edit\n',
+      })
+      .mockReturnValueOnce(pending.promise),
+    writeCeiling: vi.fn(async (entry: AgentEntry) => {
+      const written = { ...entry, digest: 'written', definition: { ...entry.definition!, ceilingFrom: 'ceiling' as const } }
+      snapshot = { ...snapshot, agents: snapshot.agents?.map((one) => one.path === entry.path ? written : one) ?? null }
+      for (const listener of listeners) listener()
+      return written
+    }),
+  })
+  act(() => root.render(
+    <StoreProvider store={store}>
+      <AgentsRosterSection focus="code-reviewer" />
+    </StoreProvider>,
+  ))
+
+  act(() => button('Update…').click())
+  await vi.waitFor(() => expect(button('Write this line').disabled).toBe(false))
+  act(() => button('Write this line').click())
+  await settle()
+  expect(section('Ceiling')).not.toContain('Written with permission:')
+  expect(section('Ceiling')).not.toContain('Update…')
+
+  act(() => {
+    snapshot = {
+      ...snapshot,
+      agentsProject: '/w/another',
+      agents: [{ ...ROSTER[0]!, path: '/w/another/.harnessdesk/agents/code-reviewer/AGENT.md' }],
+    }
+    for (const listener of listeners) listener()
+  })
+  await vi.waitFor(() => expect(hasButton('Update…')).toBe(true))
+  act(() => button('Update…').click())
+  await act(async () => {
+    snapshot = { ...snapshot, agentsProject: '/w/third' }
+    for (const listener of listeners) listener()
+  })
+  expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  await act(async () => pending.resolve({
+    path: '/w/another/.harnessdesk/agents/code-reviewer/AGENT.md',
+    digest: 'late',
+    line: 3,
+    before: 'permission: edit',
+    after: 'ceiling: edit',
+    diff: '-permission: edit\n+ceiling: edit\n',
+  }))
+  expect(store.writeCeiling).toHaveBeenCalledTimes(1)
 })

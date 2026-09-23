@@ -126,6 +126,7 @@ export const turnMethods = {
   },
 
   'approval/respond': async (ctx, params) => {
+    if (ctx.ceilings.answerHeld(params.approvalId, params.decision)) return null
     await (await ctx.sessions.live(params)).respondToApproval(makeApprovalId(params.approvalId), params.decision)
     return null
   },

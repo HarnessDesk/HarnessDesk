@@ -400,7 +400,10 @@ test('a child member wait remains invocation-bound and cancellation aborts the h
   const store = join(dir, 'plugins')
   await cp(join(FIXTURES, 'plugin-teamish'), join(store, 'teamish'), { recursive: true })
   const host = new SupervisedExtensionHost(new ExtensionKernel(), {
-    invokeTimeoutMs: 150,
+    // This crosses two processes before it reaches the blocking engine. Keep
+    // the test deadline consistent with the other child-process tests: 150ms
+    // is scheduler-sensitive when the full Node suite is concurrently busy.
+    invokeTimeoutMs: 1500,
     env: { HARNESSDESK_PLUGINS: store },
     teamEngine: engine,
   })

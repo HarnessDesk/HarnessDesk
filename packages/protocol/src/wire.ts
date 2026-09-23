@@ -1,4 +1,4 @@
-import type { AgentEntry, AgentOrigin, MachineSeating, SeatPlan } from './agent.js'
+import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type { CaptureHealth, ProjectProvenance, ProvenanceBackup, ProvenanceSeatDetail } from './provenance.js'
 import type {
@@ -11,7 +11,7 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { BoardEvidence, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
+import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
@@ -1751,10 +1751,30 @@ export interface HostMethods {
     params: {
       readonly name: string
       readonly description?: string
-      readonly permission: FlowPermission
+      /** Written as `ceiling:`; `permission:` is read only for compatibility. */
+      readonly ceiling: CeilingLevel
       readonly seat: FlowSeat
       readonly to: 'user' | 'project'
       readonly project?: string
+    }
+    result: AgentEntry
+  }
+  'agent/ceiling/preview': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly level: CeilingLevel
+    }
+    result: CeilingUpdate
+  }
+  'agent/ceiling/write': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly level: CeilingLevel
+      readonly digest: string
     }
     result: AgentEntry
   }

@@ -105,9 +105,9 @@ it('a conversation seated as an Agent shows the Agent and the seat it took — e
     updatedAt: 1,
     turns: [],
     itemsLoaded: true,
-    settings: { cwd: '/repo', agent: 'code-reviewer', briefDigest: 'd', permission: 'read', seatLabel: 'Claude · Opus 5 · High', passedOver: [] },
+    settings: { cwd: '/repo', agent: 'code-reviewer', briefDigest: 'd', ceiling: { level: 'edit', hold: 'asked' }, seatLabel: 'Claude · Opus 5 · High', passedOver: [] },
   } as unknown as Session
-  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', permission: 'read', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
+  const entry = { id: 'code-reviewer', origin: 'builtin', path: '/app/agents/code-reviewer/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'code-reviewer', name: 'Code reviewer', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } } as AgentEntry
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',

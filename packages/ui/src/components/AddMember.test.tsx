@@ -33,7 +33,8 @@ const agent = (id: string, name: string): AgentEntry => ({
     id,
     name,
     description: null,
-    permission: 'read',
+    ceiling: 'read',
+    ceilingFrom: 'ceiling',
     answers: [],
     produces: [],
     skills: [],
@@ -48,6 +49,7 @@ const plans: readonly SeatPlan[] = [
     from: 'prefer',
     winner: 0,
     blocked: null,
+    ceiling: { level: 'read', hold: 'asked' },
     candidates: [{
       seat: { runtime: 'codex' },
       label: 'Primary seat',
@@ -62,6 +64,7 @@ const plans: readonly SeatPlan[] = [
     from: 'prefer',
     winner: null,
     blocked: null,
+    ceiling: null,
     candidates: [{
       seat: { runtime: 'codex' },
       label: 'Fallback seat',

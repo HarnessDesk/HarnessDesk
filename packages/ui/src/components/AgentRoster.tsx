@@ -155,6 +155,9 @@ export const AgentsRosterSection = ({
   )
 }
 
+import { flagWords } from '../lib/ceilings'
+import { CeilingChip } from './CeilingChip'
+
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
 export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
   const snapshot = useSnapshot()
@@ -173,13 +176,19 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
   const plan = snapshot.agentPlans.get(entry.id)
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
+  const flag = flagWords(definition)
+  const desc = [definition.description, flag].filter((part): part is string => Boolean(part)).join(' ')
   return (
     <RowButton
       title={definition.name}
-      {...(definition.description ? { desc: definition.description } : {})}
+      {...(desc ? { desc } : {})}
       control={
         <span className={`${styles.facts} text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-secondary-foreground)`}>
-          <span title={ceilingMeaning(definition.permission)}>{ceilingWords(definition.permission)}</span>
+          {plan?.ceiling ? (
+            <CeilingChip ceiling={plan.ceiling} />
+          ) : (
+            <span title={ceilingMeaning(definition.ceiling)}>{ceilingWords(definition.ceiling)}</span>
+          )}
           {seat ? (
             <span className={`${styles.seat} text-(--hd-foreground)`}>
               <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />

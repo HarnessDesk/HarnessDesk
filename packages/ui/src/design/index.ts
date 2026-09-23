@@ -111,6 +111,7 @@ export {
 export { Banner, BannerAction, BannerStack, type BannerTone } from './primitives/Banner'
 
 export { ConfirmDialog } from './patterns/ConfirmDialog'
+export { ConversationEmptyState } from './patterns/ConversationEmptyState'
 export { CodeBlock, type CodeBlockProps } from './patterns/CodeBlock'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
@@ -125,6 +126,17 @@ export * from './patterns/InspectorPanel'
 export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
+export { TurnWorkHeader, TurnWorkHeaderLabel } from './patterns/TurnWork'
+export {
+  GitHistoryActionBar,
+  GitHistoryFilters,
+  GitHistoryTableHeader,
+  GitHistoryCommitDetail,
+  GitHistoryCommitDetailHeader,
+  GitHistoryCommitFileList,
+  GitHistoryDiffViewport,
+  GitHistoryInlinePatch,
+} from './patterns/GitHistory'
 export {
   ApprovalChoiceHint,
   ApprovalCode,

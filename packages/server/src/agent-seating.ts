@@ -1,21 +1,27 @@
-import type {
-  AgentId,
-  ConfigOption,
-  FlowPermission,
-  FlowSeat,
-  SeatArchived,
-  SeatCandidate,
-  SeatDifference,
-  SeatFix,
-  SeatLeft,
-  SeatPlan,
-  SeatReason,
-  SessionSettings,
+import {
+  ceilingOfPermission,
+  narrower,
+  permissionOfCeiling,
+  type AgentDefinition,
+  type AgentId,
+  type CeilingLevel,
+  type ConfigOption,
+  type FlowPermission,
+  type FlowSeat,
+  type SeatArchived,
+  type SeatCandidate,
+  type SeatDifference,
+  type SeatFix,
+  type SeatLeft,
+  type SeatPlan,
+  type SeatReason,
+  type SessionSettings,
+  type StandingOrder,
 } from '@harnessdesk/protocol'
 
 import { effortWord } from '@harnessdesk/protocol'
 
-import { GIT_RULES, renderFlowTemplate, seatSpec } from './flow.js'
+import { renderFlowTemplate, seatSpec } from './flow.js'
 
 /**
  * Which seat an Agent takes here, and why not the ones above it — then, once it
@@ -120,6 +126,12 @@ export interface SeatOffer {
    * candidate and changes nothing.
    */
   readonly spentModels?: readonly string[]
+  readonly holds?: readonly CeilingLevel[]
+}
+
+export interface CeilingNeed {
+  readonly level: CeilingLevel
+  readonly unheld: 'seat' | 'refuse'
 }
 
 export interface PassedOver {
@@ -154,7 +166,7 @@ export const durationWords = (ms: number): string => {
 }
 
 /** Why this candidate cannot be taken, as a fact a surface can act on, or null when it can. */
-export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): SeatReason | null => {
+export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[], need?: CeilingNeed): SeatReason | null => {
   const offer = offers.find((one) => one.runtime === seat.runtime)
   if (!offer) return { kind: 'notInstalled', added: false }
   if (offer.unknownRuntime) return { kind: 'unknownRuntime' }
@@ -178,6 +190,9 @@ export const reasonAgainst = (seat: FlowSeat, offers: readonly SeatOffer[]): Sea
   }
   if (seat.effort && offer.efforts !== null && !offer.efforts.includes(seat.effort)) {
     return { kind: 'noEffort', effort: seat.effort }
+  }
+  if (need?.unheld === 'refuse' && !(offer.holds ?? []).includes(need.level)) {
+    return { kind: 'unheld', level: need.level, detail: null }
   }
   return null
 }
@@ -238,6 +253,8 @@ export const sentenceOf = (runtime: string, reason: SeatReason): string => {
       return `${runtime} could not open a conversation: ${reason.detail}`
     case 'openedOtherwise':
       return `${runtime} runs it ${reason.differences.map(fragmentOf).join(', and ')}`
+    case 'unheld':
+      return `${runtime} cannot hold ${reason.level}${reason.detail ? ` — ${quoted(reason.detail)}` : ''}, and this Mac refuses a seat whose ceiling is only asked`
   }
 }
 
@@ -268,6 +285,8 @@ export const fixOf = (runtime: string, reason: SeatReason): SeatFix => {
     case 'noEffort':
     case 'openedOtherwise':
       return { kind: 'seats' }
+    case 'unheld':
+      return { kind: 'ceilings' }
   }
 }
 
@@ -282,10 +301,10 @@ export const passedFor = (seat: FlowSeat, reason: SeatReason): PassedOver => ({
  * The first candidate this machine can seat, exactly as it was written, and
  * each one above it with the reason it was passed over.
  */
-export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly SeatOffer[]): Seating => {
+export const chooseSeat = (candidates: readonly FlowSeat[], offers: readonly SeatOffer[], need?: CeilingNeed): Seating => {
   const passed: PassedOver[] = []
   for (const seat of candidates) {
-    const reason = reasonAgainst(seat, offers)
+    const reason = reasonAgainst(seat, offers, need)
     if (reason === null) return { seat, passed }
     passed.push(passedFor(seat, reason))
   }
@@ -475,8 +494,9 @@ export const openedOtherwise = (asked: FlowSeat, running: SeatRunning): string |
 
 // ------------------------------------------------------------ what it may do
 
-/** How far each permission reaches. Keyed by the union, so a fourth has to be placed before it compiles. */
-const REACH: Readonly<Record<FlowPermission, number>> = { read: 0, publish: 1, merge: 2 }
+/** The old seating grant translated onto the ceiling ladder. */
+export const grantOf = (permission: FlowPermission | undefined): CeilingLevel =>
+  permission === undefined ? 'edit' : ceilingOfPermission(permission)
 
 /**
  * What a seat may do: the narrower of the Agent's ceiling and what the seating
@@ -484,8 +504,23 @@ const REACH: Readonly<Record<FlowPermission, number>> = { read: 0, publish: 1, m
  * told to — and a grant never reaches past the ceiling, so writing needs the
  * Agent and whoever seats it to agree.
  */
-export const permissionWithin = (ceiling: FlowPermission, grant: FlowPermission): FlowPermission =>
-  REACH[grant] < REACH[ceiling] ? grant : ceiling
+export const ceilingWithin = (ceiling: CeilingLevel, grant: CeilingLevel): CeilingLevel => narrower(ceiling, grant)
+
+/** Record the standing order in the vocabulary the Agent file used. */
+export const standingOf = (from: AgentDefinition['ceilingFrom'], level: CeilingLevel): StandingOrder => {
+  const permission = from === 'permission' ? permissionOfCeiling(level) : null
+  return permission ? { kind: 'permission', permission } : { kind: 'ceiling', level }
+}
+
+/** One line of role guidance per level; enforcement is supplied elsewhere. */
+export const CEILING_RULES: Readonly<Record<CeilingLevel, string>> = {
+  read: '- Your ceiling is read: you change nothing, in {{repo}} or anywhere else — no edits, no commits, no pushes. Anything you hand to a sub-agent or a background agent is held to it too.',
+  edit: '- Your ceiling is edit: you may change files and commit in {{repo}}, and you never push, merge, reset or force anything. Anything you hand to a sub-agent or a background agent is held to it too.',
+  publish:
+    '- Your ceiling is publish: you may commit in {{repo}}, push your own branch and open a pull request for it, and you never merge, reset or force anything. Anything you hand to a sub-agent or a background agent is held to it too.',
+  merge:
+    '- Your ceiling is merge: you may merge what you are asked to merge, and you never reset or force anything. Anything you hand to a sub-agent or a background agent is held to it too.',
+}
 
 /**
  * The standing order an Agent's seat is handed: the brief as its author wrote
@@ -499,8 +534,8 @@ export const permissionWithin = (ceiling: FlowPermission, grant: FlowPermission)
  * Told, not enforced. This is all a seat's permission is today, a flow seat's
  * included: nothing at the tool surface holds it to the rule yet.
  */
-export const agentOrder = (brief: string, permission: FlowPermission, cwd: string): string =>
-  `${brief}\n\n${renderFlowTemplate(GIT_RULES[permission], { repo: cwd })}`
+export const agentOrder = (brief: string, level: CeilingLevel, cwd: string): string =>
+  `${brief}\n\n${renderFlowTemplate(CEILING_RULES[level], { repo: cwd })}`
 
 // ------------------------------------------------------------ in words
 
@@ -556,14 +591,20 @@ export const planSeats = (
   offers: readonly SeatOffer[],
   words: SeatWords,
   from: SeatPlan['from'] = 'prefer',
+  need?: CeilingNeed,
 ): SeatPlan => {
-  const chosen = chooseSeat(candidates, offers)
+  const chosen = chooseSeat(candidates, offers, need)
   const winner = chosen.seat === null ? null : chosen.passed.length
+  const taken = chosen.seat ? offers.find((one) => one.runtime === chosen.seat?.runtime) : undefined
   return {
     id,
     from,
     winner,
     blocked: null,
+    ceiling:
+      need && chosen.seat
+        ? { level: need.level, hold: (taken?.holds ?? []).includes(need.level) ? 'held' : 'asked' }
+        : null,
     candidates: candidates.map((seat, index): SeatCandidate => {
       const passed = chosen.passed[index]
       if (passed) return candidateOf(passed, words)
@@ -586,4 +627,5 @@ export const blockedPlan = (id: AgentId, why: string, from: SeatPlan['from'] = '
   candidates: [],
   winner: null,
   blocked: why,
+  ceiling: null,
 })

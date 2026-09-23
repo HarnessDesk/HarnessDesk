@@ -40,6 +40,7 @@ import {
 import { worktreeBranch } from '../lib/worktree-branch'
 import {
   Button,
+  ConversationEmptyState,
   Menu,
   MenuItem,
   MenuLabel,
@@ -96,7 +97,7 @@ const EMPTY_BODY_CLASSES = 'max-w-[460px] text-base leading-(--hd-line)'
 
 const NEAR_BOTTOM_PX = 120
 
-const EmptyState = ({
+const ConversationEmpty = ({
   onSignIn,
   onOpenRuntimes,
 }: {
@@ -122,14 +123,14 @@ const EmptyState = ({
     // next move per agent. A dead agent's empty pane is exactly where the
     // user is standing when they need to know what else would work.
     return (
-      <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
+      <ConversationEmptyState>
         <div className={EMPTY_TITLE_CLASSES}>{words.name} isn’t available</div>
         <p className={`${EMPTY_BODY_CLASSES} m-0`}>
           {health.message}
           {health.remediation ? ` ${health.remediation}` : ''}
         </p>
         <SetupDesk onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
-      </div>
+      </ConversationEmptyState>
     )
   }
 
@@ -139,7 +140,7 @@ const EmptyState = ({
     const driveable = account.signInMethods.some((method) => method.flow !== 'external')
     const external = account.signInMethods.find((method) => method.flow === 'external')
     return (
-      <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
+      <ConversationEmptyState>
         <div className={EMPTY_TITLE_CLASSES}>Sign in to {words.name}</div>
         <p className={`${EMPTY_BODY_CLASSES} m-0`}>
           HarnessDesk uses your existing {words.name} installation and never stores your
@@ -159,7 +160,7 @@ const EmptyState = ({
                 : `Sign in to ${words.name}; this window updates on its own.`)}
           </p>
         )}
-      </div>
+      </ConversationEmptyState>
     )
   }
 
@@ -171,17 +172,17 @@ const EmptyState = ({
       : null
   if (blocked) {
     return (
-      <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
+      <ConversationEmptyState>
         <div className={EMPTY_TITLE_CLASSES}>{blocked.title}</div>
         <p className={`${EMPTY_BODY_CLASSES} m-0`}>
           {words.name} is signed in and healthy. {blocked.detail}
         </p>
-      </div>
+      </ConversationEmptyState>
     )
   }
 
   return (
-    <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
+    <ConversationEmptyState>
       <div className={EMPTY_TITLE_CLASSES}>What should we build?</div>
       <p className={`${EMPTY_BODY_CLASSES} m-0`}>
         {folder
@@ -202,7 +203,7 @@ const EmptyState = ({
           </Button>
         </p>
       )}
-    </div>
+    </ConversationEmptyState>
   )
 }
 
@@ -577,7 +578,7 @@ export const Conversation = ({
         {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
           <WindowControls />
         )}
-        <HeaderTitle session={session} />
+        <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
         {session && (
           <span
             className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${
@@ -709,18 +710,18 @@ export const Conversation = ({
           // the pitch below is the honest answer, and `updatedAt` moving past
           // `createdAt` is what separates the two.
           <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
-            <div className={`${styles.empty} h-full p-10 text-(--hd-muted-foreground)`}>
+            <ConversationEmptyState>
               <div className={EMPTY_TITLE_CLASSES}>Nothing to show</div>
               <p className={`${EMPTY_BODY_CLASSES} m-0`}>
                 {snapshot.runtimes.find((entry) => entry.id === session.runtime)?.presentation.name ?? 'The agent'}{' '}
                 couldn’t restore this conversation’s messages. Sending a message continues the
                 same session.
               </p>
-            </div>
+            </ConversationEmptyState>
           </div>
         ) : (
           <div className={styles.scroll} ref={scroll} onScroll={onScroll} style={{ padding: SCROLL_PADDING }}>
-            <EmptyState onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
+            <ConversationEmpty onSignIn={onSignIn} onOpenRuntimes={onOpenRuntimes} />
           </div>
         )}
 
@@ -974,6 +975,17 @@ export const GitControl = ({
       )}
     </Popover>
   )
+}
+
+import { CeilingChip } from './CeilingChip'
+import { seatCeilingOf } from '../lib/ceilings'
+
+/** The ceiling governing this conversation, or nothing on the plain path. */
+const HeaderCeiling = ({ session }: { readonly session: Session }) => {
+  const snapshot = useSnapshot()
+  const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
+  const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
+  return shown ? <CeilingChip ceiling={shown.ceiling} note={shown.note} /> : null
 }
 
 /**

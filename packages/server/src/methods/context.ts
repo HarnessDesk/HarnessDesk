@@ -2,6 +2,8 @@ import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
   AgentRuntime,
   AgentSession,
+  ApprovalDecision,
+  CeilingLevel,
   ArchiveFilter,
   BackupFile,
   BackupReport,
@@ -29,6 +31,7 @@ import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 
 import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { Agents } from '../agents.js'
+import type { SeatHold } from '../ceilings/hold.js'
 import type { SessionArchive } from '../archive.js'
 import type { AuditLog } from '../audit.js'
 import type { CatalogRefresher } from '../catalog-refresher.js'
@@ -202,6 +205,8 @@ export interface HostContext {
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */
     order(runtime: string, sessionId: string, text: string): Promise<void>
+    /** Set the runtime's controls and read them back before the standing order runs. */
+    hold(runtime: string, sessionId: string, level: CeilingLevel): Promise<SeatHold>
     /**
      * Closes a conversation a seating opened and will not use, and lets the
      * host's handle on it go. Resolves once it is gone, so the next seat can
@@ -229,6 +234,10 @@ export interface HostContext {
      * (`SessionRecord.seatedAs`).
      */
     recordAgent(runtime: string, sessionId: string, seated: SeatedAs): Session
+  }
+
+  readonly ceilings: {
+    answerHeld(approvalId: string, decision: ApprovalDecision): boolean
   }
 
   readonly queue: {

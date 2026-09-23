@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import fs from 'node:fs/promises'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,6 +15,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { Host, Logger, StateStore } from '../src/index.js'
+import { ProvenancePlane } from '../src/provenance/plane.js'
+import { Team } from '../src/team.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { shippedAgentsCopy } from './fixtures/harness.js'
 
@@ -218,6 +221,64 @@ test('the quit waits out the writers, so what was recorded is on disk when it re
     .filter(Boolean)
     .map((line) => (JSON.parse(line) as { kind: string }).kind)
   assert.deepEqual(kinds, ['session/started', 'approval/decided'])
+})
+
+/**
+ * Provenance deliberately starts outside the interactive launch path, but its
+ * state work still belongs to the host that started it. A quit which resolves
+ * while that startup is parked lets a following test remove the state folder
+ * before the observer and its journal have joined the teardown.
+ */
+test('the quit owns a provenance startup before its state directory can be removed', async (t) => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-provenance-'))
+  const host = new Host({
+    logger: silent,
+    state: new StateStore(join(stateDir, 'state.json')),
+    catalogRefreshMs: 0,
+  })
+  host.register(new FakeRuntime())
+  let release: () => void = () => undefined
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let arrived: () => void = () => undefined
+  const reading = new Promise<void>((resolve) => { arrived = resolve })
+  let continueQuit: () => void = () => undefined
+  const afterTeamFlush = new Promise<void>((resolve) => { continueQuit = resolve })
+  let teamFlushed: () => void = () => undefined
+  const atProvenanceBoundary = new Promise<void>((resolve) => { teamFlushed = resolve })
+  let provenanceCloseCalled = false
+  const originalRead = fs.readFile
+  t.mock.method(fs, 'readFile', async (...args: Parameters<typeof fs.readFile>) => {
+    if (String(args[0]).endsWith('provenance-preferences.json')) {
+      arrived()
+      await gate
+    }
+    return originalRead(...args)
+  })
+  const originalTeamFlush = Team.prototype.flush
+  t.mock.method(Team.prototype, 'flush', async function (this: Team) {
+    await originalTeamFlush.call(this)
+    teamFlushed()
+    await afterTeamFlush
+  })
+  const originalProvenanceClose = ProvenancePlane.prototype.close
+  t.mock.method(ProvenancePlane.prototype, 'close', async function (this: ProvenancePlane) {
+    provenanceCloseCalled = true
+    await originalProvenanceClose.call(this)
+  })
+
+  await host.start()
+  await reading
+  const quitting = host.dispose()
+  await atProvenanceBoundary
+  continueQuit()
+  await Promise.resolve()
+  await Promise.resolve()
+  assert.equal(provenanceCloseCalled, false, 'the detached provenance startup still belongs to this quit')
+
+  release()
+  await quitting
+  await rm(stateDir, { recursive: true, force: true })
+  assert.equal(existsSync(stateDir), false, 'nothing the disposed host owns can recreate its state directory')
 })
 
 /**
