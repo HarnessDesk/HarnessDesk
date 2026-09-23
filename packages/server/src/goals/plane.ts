@@ -39,6 +39,14 @@ export interface GoalPlanePort extends GoalOperationPort {
   confine(input: GoalCreateInput): Promise<{ root: string; cwd: string }>
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
   claimable(goal: string, card: number, session: SessionPointer): boolean
+  /**
+   * Passed straight through to `Assignments` (see its own doc comment):
+   * whether this live conversation's attachment loading was actually
+   * observed here, for a session that claims an Agent identity. Optional so
+   * a host not wired for phase 12 keeps today's behavior — `GoalPlane` never
+   * invents a stricter default than the port it was given asks for.
+   */
+  attachmentsObserved?(session: SessionPointer): Promise<boolean>
   opening(goal: string, session: SessionPointer, id: SeatId): Promise<SeatOpening>
   board(goal: string): TeamState
   evidence(goal: string): Promise<BoardEvidence>
@@ -103,6 +111,7 @@ export class GoalPlane {
       known: (runtime, session) => port.known(runtime, session),
       claimable: (goal, card, session) => port.claimable(goal, card, session),
       commit: (goal, card, session) => this.#assign(goal, card, session),
+      ...(port.attachmentsObserved ? { attachmentsObserved: (session: SessionPointer) => port.attachmentsObserved!(session) } : {}),
     }, serial)
     this.#wraps = new Wraps({
       read: (goal) => this.#wrapInput(goal),

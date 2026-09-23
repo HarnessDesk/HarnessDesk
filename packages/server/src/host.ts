@@ -921,6 +921,19 @@ export class Host {
         return project ? { project, busy: isBusy(held) } : null
       },
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
+      // A truly plain conversation (never kept as any Agent's Seat) has
+      // nothing to adopt falsely — `opening` below hands it `agent: null`
+      // either way, so it is not "loose" in the sense this check exists for.
+      // Only a session that already claims an Agent identity, yet whose
+      // *this-process* attachment loading was never recorded for it (a fresh
+      // registry record after a restart, never reconnected through
+      // `seatAgent`), is refused: its native load set is opaque and could
+      // silently stand in for what that Agent's declarations would approve.
+      attachmentsObserved: async (session): Promise<boolean> => {
+        const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
+        if (!previous || previous.agent === null) return true
+        return this.registry.attachmentSeatOf(session.runtime as RuntimeId, makeSessionId(session.sessionId)) !== null
+      },
       opening: async (goal: string, session, id: SeatId): Promise<SeatOpening> => {
         const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
         const runtime = this.#runtimes.get(session.runtime)

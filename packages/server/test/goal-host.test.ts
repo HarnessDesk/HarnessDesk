@@ -2,11 +2,22 @@ import assert from 'node:assert/strict'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { test } from 'node:test'
 
-import type { GoalReceipt, GoalView, Session, TeamState, WrapPreview } from '@harnessdesk/protocol'
+import { isBusy, type GoalReceipt, type GoalView, type SeatRecord, type Session, type TeamState, type WrapPreview } from '@harnessdesk/protocol'
 
 import { EvidenceStore } from '../src/evidence/store.js'
 import { Client, halt, start } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
+
+/** Waits for a fake-runtime turn this test explicitly finished to actually settle in the host's own registry, before a busy check downstream reads it. */
+const settled = async (client: Client, runtime: string, sessionId: string): Promise<void> => {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const read = await client.call('session/read', { runtime, sessionId }) as Session
+    if (!isBusy(read)) return
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${runtime}/${sessionId} to settle`)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
 
 test('Goal Agent seating preserves the held ceiling through the host adapter', async (t) => {
   const work = tempDir('hd-goal-held-seat-work-')
@@ -34,6 +45,61 @@ test('Goal Agent seating preserves the held ceiling through the host adapter', a
   assert.deepEqual(seat.ceiling, { level: 'read', hold: 'asked' })
   const held = harness.host.registry.get(seat.session.runtime as never, seat.session.sessionId as never)
   assert.deepEqual(held?.seatedAs?.ceiling, seat.ceiling)
+})
+
+test('a conversation already claiming an Agent identity may be adopted into a Goal card only while this process observed its attachment loading', async (t) => {
+  const work = tempDir('hd-goal-assign-attachments-work-')
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+    await rm(work, { recursive: true, force: true })
+  })
+  await mkdir(`${harness.stateDir}/agents/reviewer`, { recursive: true })
+  await writeFile(`${harness.stateDir}/agents/reviewer/AGENT.md`, [
+    '---', 'name: Reviewer', 'ceiling: read', 'prefer: [fake]', '---', 'Read the diff.', '',
+  ].join('\n'), 'utf8')
+  await client.call('workspace/open', { path: work })
+
+  // A standalone Agent seat (no board yet): `seatAgent`'s own transaction ran
+  // for this exact live conversation, so its attachment loading is recorded.
+  const first = await client.call('agent/seat', { id: 'reviewer', cwd: work, permission: 'read' }) as Session
+  // The brief order is a turn, and `goal/assign` refuses a busy conversation;
+  // the fake runtime completes a turn only when a test tells it to.
+  harness.runtime.sessions.get(first.id)?.finish()
+  await settled(client, first.runtime, first.id)
+  assert.notEqual(
+    harness.host.registry.attachmentSeatOf(first.runtime as never, first.id as never),
+    null,
+    'seatAgent must have recorded this live conversation’s attachment Seat',
+  )
+  const goal = await client.call('goal/create', { root: work, sentence: 'Adopt an observed reviewer conversation' }) as GoalView
+  const card = await client.call('team/add', { room: goal.goal.id, title: 'Take the reviewer seat' }) as { id: number }
+  const assigned = await client.call('goal/assign', {
+    goal: goal.goal.id, card: card.id, session: { runtime: first.runtime, sessionId: first.id },
+  }) as SeatRecord
+  assert.equal(assigned.agent?.id, 'reviewer', 'an observed Agent identity may be adopted into a card')
+
+  // A second standalone Agent seat, this time with its recorded attachment
+  // Seat cleared — standing in for a fresh registry record that never went
+  // through `seatAgent` here (e.g. a restart before reconnect/resume ran it
+  // again). It still claims the "reviewer" identity, so its opaque native
+  // load set must not silently stand in for what that Agent approved.
+  const second = await client.call('agent/seat', { id: 'reviewer', cwd: work, permission: 'read' }) as Session
+  harness.runtime.sessions.get(second.id)?.finish()
+  await settled(client, second.runtime, second.id)
+  const record = harness.host.registry.get(second.runtime as never, second.id as never)
+  assert.ok(record, 'the freshly seated conversation must be live in the registry')
+  record.attachmentSeat = null
+  const secondGoal = await client.call('goal/create', { root: work, sentence: 'Refuse an unobserved reviewer conversation' }) as GoalView
+  const secondCard = await client.call('team/add', { room: secondGoal.goal.id, title: 'Take the unobserved seat' }) as { id: number }
+  await assert.rejects(
+    client.call('goal/assign', { goal: secondGoal.goal.id, card: secondCard.id, session: { runtime: second.runtime, sessionId: second.id } }),
+    /Start a new Seat/,
+  )
 })
 
 test('live Goal assignments write durable Seats before restart', async () => {

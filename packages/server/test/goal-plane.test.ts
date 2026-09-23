@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import type { BoardEvidence, GoalCitation, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
+import { UNOBSERVED_LOADING_REFUSAL } from '../src/goals/assignments.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { MemoryPlane } from '../src/memory/plane.js'
 import { GoalStore } from '../src/goals/store.js'
@@ -16,7 +17,11 @@ import { tempDir } from './scratch.js'
 const exec = promisify(execFile)
 
 /** A real `MemoryPlane`, optionally wrapping `capture` with a caller-controlled delay — this file's own stand-in for the old bare `citationCheck` injection point. */
-const rig = async (root = '/work/repo', delayCapture?: (citation: GoalCitation) => Promise<void>) => {
+const rig = async (
+  root = '/work/repo',
+  delayCapture?: (citation: GoalCitation) => Promise<void>,
+  attachmentsObserved?: GoalPlanePort['attachmentsObserved'],
+) => {
   const home = tempDir('hd-goal-plane-')
   await migrateDesk(home, async () => {})
   const store = new GoalStore(home)
@@ -66,6 +71,7 @@ const rig = async (root = '/work/repo', delayCapture?: (citation: GoalCitation) 
     finish: forbidden,
     finishWrap: forbidden,
     wake: () => {},
+    ...(attachmentsObserved ? { attachmentsObserved } : {}),
   }
   const real = new MemoryPlane(tempDir('hd-goal-plane-memory-'), {
     receiptOf: (id) => { try { return store.read(id).receipt } catch { return null } },
@@ -243,4 +249,21 @@ test('citation and dependency commit atomically, deduplicate, and reject cycles 
   await assert.rejects(pending, /read-only|finishing/)
   assert.equal(racedWrites, 1)
   assert.deepEqual(raced.store.read('raced-target').citations, [])
+})
+
+test('a port that reports unobserved attachment loading refuses to adopt the session into a card', async () => {
+  const proof = await rig('/work/repo', undefined, async () => false)
+  await assert.rejects(
+    proof.plane.assign('g1', 1, { runtime: 'fake', sessionId: 's1' }),
+    (error: Error) => error.message === UNOBSERVED_LOADING_REFUSAL,
+  )
+})
+
+test('a port with nothing to say about attachments keeps letting a claimable card through to commit', async () => {
+  // No `attachmentsObserved` at all — the default rig. `opening` stays
+  // `forbidden`, so reaching it (rather than an earlier refusal) is itself
+  // the proof that nothing upstream of `commit` silently swallowed the
+  // missing-port-method case as a refusal.
+  const proof = await rig()
+  await assert.rejects(proof.plane.assign('g1', 1, { runtime: 'fake', sessionId: 's1' }), /must not seat or close/)
 })
