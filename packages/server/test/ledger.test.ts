@@ -692,6 +692,162 @@ const quietLedger = (dir: string, corpora: { runtime: string; kind: 'codex' | 'c
     log: (message, details) => logged.push(`${message} ${JSON.stringify(details ?? {})}`),
   })
 
+/*
+ * Background diagnostic boundary inventory:
+ *
+ * - Ledger discovery warnings cover transcript-root walks plus missing and
+ *   non-file database sources. They retain operation, corpus kind, a failure
+ *   category and a cumulative count; never the source path or raw error.
+ * - Ledger target-read warnings cover every scanner, including SQLite snapshot
+ *   failures. They retain the same safe context and never the database error.
+ * - Pricing refresh and overlay warnings share this log boundary. They retain
+ *   their operation and a failure category, never cache/overlay paths or raw
+ *   errors.
+ * - The only ledger event sink is ScanProgress. Its terminal discovery error
+ *   is fixed text, so usage/scanProgress cannot carry a source path or error.
+ */
+test('background ledger diagnostics retain safe scan context without corpus paths or database errors', async () => {
+  const dir = scratch()
+  const marker = 'agent-owned-corpus-DO-NOT-LOG'
+  const transcriptRoot = join(dir, `${marker}-transcript-root`)
+  writeFileSync(transcriptRoot, 'a file where a transcript root should be')
+  const missingDatabase = join(dir, `${marker}-missing.db`)
+  const nonFileDatabase = join(dir, `${marker}-database-directory`)
+  mkdirSync(nonFileDatabase)
+  const targetDatabase = join(dir, `${marker}-target.db`)
+  const header = Buffer.alloc(20)
+  header.write('SQLite format 3\0', 0, 'latin1')
+  header[18] = 2
+  header[19] = 2
+  writeFileSync(targetDatabase, header)
+  // A WAL path that is a directory makes the foreign database reader expose
+  // its raw EISDIR copy error unless the Ledger log boundary removes it.
+  mkdirSync(`${targetDatabase}-wal`)
+
+  const logged: { message: string; details: Record<string, unknown> | undefined }[] = []
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora: [
+      { runtime: 'transcript-root', kind: 'codex', root: transcriptRoot },
+      { runtime: 'missing-database', kind: 'opencode', root: missingDatabase },
+      { runtime: 'non-file-database', kind: 'cline', root: nonFileDatabase },
+      { runtime: 'target-read', kind: 'opencode', root: targetDatabase },
+    ],
+    pricing: new Pricing({
+      cachePath: join(dir, 'cache.json'),
+      overlayPath: join(dir, 'missing-overlay.json'),
+      fetchCatalogue: async () => ({}),
+    }),
+    log: (message, details) => logged.push({ message, details }),
+  })
+  try {
+    await ledger.scan()
+    const rendered = JSON.stringify(logged)
+    assert.ok(!rendered.includes(marker), 'agent-owned corpus paths never enter a background diagnostic')
+    assert.ok(!rendered.includes('EISDIR'), 'the raw SQLite snapshot error never enters a background diagnostic')
+    assert.deepEqual(logged, [
+      {
+        message: 'a folder of transcripts could not be read, so the usage in it was not counted',
+        details: { operation: 'corpus-discovery', kind: 'codex', failures: 1, failure: 'not-a-directory' },
+      },
+      {
+        message: 'a folder of transcripts could not be read, so the usage in it was not counted',
+        details: { operation: 'corpus-discovery', kind: 'opencode', failures: 2, failure: 'missing' },
+      },
+      {
+        message: 'a folder of transcripts could not be read, so the usage in it was not counted',
+        details: { operation: 'corpus-discovery', kind: 'cline', failures: 3, failure: 'not-a-file' },
+      },
+      {
+        message: 'a transcript could not be read',
+        details: { operation: 'transcript-read', kind: 'opencode', failures: 1, failure: 'read-failed' },
+      },
+    ])
+  } finally {
+    ledger.close()
+  }
+})
+
+test('pricing diagnostics share the ledger privacy boundary', async () => {
+  const dir = scratch()
+  const marker = 'agent-owned-pricing-DO-NOT-LOG'
+  const overlay = join(dir, `${marker}-overlay.json`)
+  writeFileSync(overlay, '{ this is not JSON')
+  const logged: { message: string; details: Record<string, unknown> | undefined }[] = []
+  const pricing = new Pricing({
+    cachePath: join(dir, `${marker}-cache.json`),
+    overlayPath: overlay,
+    fetchCatalogue: async () => { throw new Error(`${marker} raw catalogue database error`) },
+    log: (message, details) => logged.push({ message, details }),
+  })
+
+  await pricing.warm()
+
+  assert.ok(!JSON.stringify(logged).includes(marker), 'pricing paths and raw refresh errors never enter diagnostics')
+  assert.deepEqual(logged, [
+    { message: 'the price overlay could not be read', details: { operation: 'price-overlay-read', failure: 'read-failed' } },
+    { message: 'the model price catalogue could not be refreshed', details: { operation: 'price-catalogue-refresh', failure: 'read-failed' } },
+  ])
+})
+
+test('pricing diagnostics retain errno categories without raw error text', async () => {
+  const dir = scratch()
+  const marker = 'agent-owned-pricing-errno-must-not-log'
+  const overlay = join(dir, 'overlay.json')
+  writeFileSync(overlay, '{ intentionally malformed')
+  const logged: { message: string; details: Record<string, unknown> | undefined }[] = []
+  const parse = JSON.parse
+  const denied = Object.assign(new Error(marker), { code: 'EACCES' })
+  Object.defineProperty(JSON, 'parse', {
+    configurable: true,
+    value: ((raw: string) => {
+      if (raw === '{ intentionally malformed') throw denied
+      return parse(raw)
+    }) as typeof JSON.parse,
+  })
+  try {
+    const pricing = new Pricing({
+      cachePath: join(dir, 'cache.json'),
+      overlayPath: overlay,
+      fetchCatalogue: async () => { throw Object.assign(new Error(marker), { code: 'EPERM' }) },
+      log: (message, details) => logged.push({ message, details }),
+    })
+    await pricing.warm()
+  } finally {
+    Object.defineProperty(JSON, 'parse', { configurable: true, value: parse })
+  }
+
+  assert.ok(!JSON.stringify(logged).includes(marker), 'pricing diagnostics never retain the raw error')
+  assert.deepEqual(logged, [
+    { message: 'the price overlay could not be read', details: { operation: 'price-overlay-read', failure: 'access-denied' } },
+    { message: 'the model price catalogue could not be refreshed', details: { operation: 'price-catalogue-refresh', failure: 'access-denied' } },
+  ])
+})
+
+test('an unreadable price overlay is diagnosed without retaining its path or error text', async () => {
+  const dir = scratch()
+  const marker = 'agent-owned-pricing-overlay-must-not-log'
+  const overlay = join(dir, `${marker}-overlay.json`)
+  const logged: { message: string; details: Record<string, unknown> | undefined }[] = []
+  const pricing = new Pricing({
+    cachePath: join(dir, `${marker}-cache.json`),
+    overlayPath: overlay,
+    readText: async (path) => {
+      if (path === overlay) throw Object.assign(new Error(marker), { code: 'EACCES' })
+      throw Object.assign(new Error(marker), { code: 'ENOENT' })
+    },
+    fetchCatalogue: async () => ({}),
+    log: (message, details) => logged.push({ message, details }),
+  })
+  await pricing.warm()
+
+  assert.ok(!JSON.stringify(logged).includes(marker), 'the inaccessible overlay path never reaches diagnostics')
+  assert.deepEqual(logged, [
+    { message: 'the price overlay could not be read', details: { operation: 'price-overlay-read', failure: 'access-denied' } },
+  ])
+})
+
 test('an agent’s folder that cannot be opened is said, and the other agents are still counted', async () => {
   const dir = scratch()
   const claude = join(dir, 'claude-projects')
@@ -712,8 +868,8 @@ test('an agent’s folder that cannot be opened is said, and the other agents ar
   await ledger.scan()
   assert.equal(ledger.progress.filesDone, 1, 'the agent whose folder opened was counted')
   assert.ok(
-    logged.some((line) => line.includes(codex) && line.includes('ELOOP')),
-    'and the one whose folder did not is named, with the reason',
+    logged.some((line) => line.includes('"kind":"codex"') && line.includes('"failure":"read-failed"') && !line.includes(codex)),
+    'and the one whose folder did not is counted under a safe failure category',
   )
   ledger.close()
 })
@@ -741,8 +897,8 @@ test('a folder inside an agent’s transcripts that cannot be opened is said, an
     await ledger.scan()
     assert.equal(ledger.progress.filesDone, 1, 'the folder that opened was counted')
     assert.ok(
-      logged.some((line) => line.includes(join(root, 'locked')) && line.includes('EACCES')),
-      'and the folder that did not is named, with the reason',
+      logged.some((line) => line.includes('"kind":"claude"') && line.includes('"failure":"access-denied"') && !line.includes(join(root, 'locked'))),
+      'and the folder that did not is counted under a safe failure category',
     )
     ledger.close()
   } finally {
@@ -779,8 +935,8 @@ test('a file where an agent’s transcripts folder goes is said, not read as an 
   assert.equal(ledger.progress.filesDone, 1, 'the agent whose folder opened was still counted')
   for (const root of [file, under]) {
     assert.ok(
-      logged.some((line) => line.includes(root) && line.includes('ENOTDIR')),
-      `${root} is named, with the reason`,
+      logged.some((line) => line.includes('"kind":"codex"') && line.includes('"failure":"not-a-directory"') && !line.includes(root)),
+      `${root} is counted without recording its path`,
     )
   }
   ledger.close()

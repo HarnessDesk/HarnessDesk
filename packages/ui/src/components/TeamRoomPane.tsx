@@ -42,6 +42,7 @@ import { TeamBoardPane } from './TeamBoardPane'
 import { GoalHeader } from './GoalHeader'
 import { GoalWrap } from './GoalWrap'
 import { GoalReceipt } from './GoalReceipt'
+import { GoalReceiptCost } from './GoalReceiptCost'
 import { WindowControls } from './WindowControls'
 import {
   Button,
@@ -641,7 +642,7 @@ export const TeamRoomPane = ({
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
-      {goal?.receipt ? <GoalReceipt receipt={goal.receipt} root={goal.goal.root} /> : null}
+      {goal?.receipt ? <><GoalReceipt receipt={goal.receipt} root={goal.goal.root} /><GoalReceiptCost receipt={goal.receipt} /></> : null}
 
       {/*
         * The room's one top row, across both halves.

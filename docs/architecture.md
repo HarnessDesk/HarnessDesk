@@ -121,6 +121,14 @@ name when none is available.
 
 ## The host
 
+### Insight reads
+
+Insight is a host-owned, pull-only plane over the ledger's agent-owned source
+files, durable transcript metadata, Seats and immutable Goal documents. It has
+no evidence or receipt writer port. Its wire methods return source and
+coverage-qualified observations; a local seating apply accepts only a
+host-minted reviewed stamp and checks the seating file in its write queue.
+
 `packages/server` owns everything that must not live in a browser:
 
 - **Sessions and events.** One registry, fanned out to every connected client;

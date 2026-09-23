@@ -31,6 +31,7 @@ import { shortPath } from '../lib/paths'
 import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
+import { AgentSeatCosts } from './AgentSeatCosts'
 import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
 import {
   BackLink,
@@ -253,6 +254,7 @@ export const AgentPage = ({
             onSet={setMachineSeats}
             onAdd={() => setAdding(true)}
           />
+          <AgentSeatCosts entry={entry} />
 
           <SectionHead name="What it hands back" />
           <Rows>

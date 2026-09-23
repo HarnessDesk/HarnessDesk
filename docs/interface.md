@@ -20,6 +20,14 @@ repository pane — is in [`images/app/`](images/app), in both themes.
 
 ## Panels
 
+### Insight
+
+Cost beside a wrapped receipt and project usage are accounting views, not a
+verdict on an Agent. They name source, age and qualification beside each
+number. Unknown is visible; it is not styled as free. Historical partitions
+(Goal, Agent and Seat) are alternate views of one total,
+never contributions to add together.
+
 Four areas — the **sidebar**, the **main content area**, the **right panel**
 and the **bottom panel** — and one model behind all of them. A feature is
 mounted into an area rather than built for one, so Changes can be the right

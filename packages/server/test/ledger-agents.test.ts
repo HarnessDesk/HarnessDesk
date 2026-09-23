@@ -8,6 +8,7 @@ import { tempDir } from './scratch.js'
 
 import { readForeignDatabase } from '../src/ledger/foreign-db.js'
 import { Ledger } from '../src/ledger/index.js'
+import { InsightBudgetExceededError } from '../src/ledger/insight.js'
 import { Pricing } from '../src/ledger/pricing.js'
 import { corpusRoot, listTargets, projectRootOf, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
 import { LedgerStore } from '../src/ledger/store.js'
@@ -486,6 +487,78 @@ test('a commit while the snapshot is being copied sends it round again, and one 
     /changed while it was being read/,
   )
   owner.close()
+})
+
+test('a caller’s byte budget sums the write-ahead log with the main file, not the main file alone', () => {
+  const dir = scratch()
+  const path = join(dir, 'wal-budget.db')
+  const owner = new DatabaseSync(path)
+  // Commits stay in the log, as they do between an owner's checkpoints, so
+  // one large row leaves the main file small and the log holding the bulk.
+  owner.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x)')
+  owner.exec(`INSERT INTO t VALUES ('${'x'.repeat(200_000)}')`)
+  assert.ok(existsSync(`${path}-wal`), 'an owner at work has a log')
+  const mainSize = statSync(path).size
+  const walSize = statSync(`${path}-wal`).size
+  assert.ok(walSize > mainSize, 'the log, not the main file, holds the bulk of what was written')
+
+  assert.throws(
+    () => readForeignDatabase(path, countRows, { byteLimit: mainSize + 100 }),
+    (error: unknown) => error instanceof InsightBudgetExceededError,
+    'a budget that only covers the main file must still refuse once the log is summed in',
+  )
+  assert.equal(
+    readForeignDatabase(path, countRows, { byteLimit: mainSize + walSize }),
+    1,
+    'the same read succeeds once the budget comfortably covers both files summed',
+  )
+  owner.close()
+})
+
+test('a rollback-journal database that grows while it is being read is refused, not counted at the size checked before', () => {
+  const dir = scratch()
+  const path = join(dir, 'rollback-growth.db')
+  const db = new DatabaseSync(path)
+  db.exec('CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  db.close()
+  const before = statSync(path).size
+
+  assert.throws(
+    () =>
+      readForeignDatabase(
+        path,
+        (database) => {
+          const value = countRows(database)
+          // Grows the file while the read this budget approved is still in
+          // flight — the exact race a check taken once, before the read,
+          // and never looked at again would miss.
+          appendFileSync(path, 'x'.repeat(2000))
+          return value
+        },
+        { byteLimit: before + 100 },
+      ),
+    /changed while it was being read/,
+  )
+})
+
+test('a rollback-journal database written to during a no-budget read still succeeds, as SQLite’s own lock already allows', () => {
+  const dir = scratch()
+  const path = join(dir, 'rollback-nobudget-growth.db')
+  const db = new DatabaseSync(path)
+  db.exec('CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  db.close()
+
+  // No `byteLimit`, matching the background scan: the consistency check
+  // that a caller's byte budget needs must not apply here, or a write
+  // elsewhere in the file during the read — a checkpoint, another
+  // connection's commit — fails a read SQLite's own shared lock already
+  // kept consistent, where it never used to.
+  const result = readForeignDatabase(path, (database) => {
+    const value = countRows(database)
+    appendFileSync(path, 'x'.repeat(2000))
+    return value
+  })
+  assert.equal(result, 1)
 })
 
 test('each agent’s records are found where its own override moves them', () => {

@@ -54,6 +54,7 @@ import type { TranscriptStore } from '../transcripts.js'
 import type { UsageMeter } from '../usage/meter.js'
 import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
+import type { InsightPlane } from '../insight/plane.js'
 
 /**
  * What a wire method may reach.
@@ -120,6 +121,8 @@ export interface HostContext {
   usage(): UsageService
   ledger(): Ledger
   libraryUsage(): LibraryUsageReader
+  /** Read-only Insight reports plus the explicitly reviewed local seating action. */
+  readonly insight: Pick<InsightPlane, 'goal' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
 
   /** The extension kernel, or a refusal that names the build. */
   extensions(): ExtensionHost

@@ -36,6 +36,10 @@
   margin: calc(-1 * var(--usage-strip)) 0 0;
 }
 
+.firstBandHead {
+  top: calc(-1 * var(--usage-strip) - var(--hd-space-4) - var(--hd-space-1));
+}
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
