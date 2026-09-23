@@ -58,6 +58,7 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], over: Par
     answers: ['approve', 'request-changes'],
     produces: ['review'],
     skills: ['checkout-rules'],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'You review a change.\nSomebody else wrote it.\n\n## How to report\n\nFindings first.',
   },

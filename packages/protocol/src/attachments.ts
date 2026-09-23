@@ -1,5 +1,5 @@
 import type { AgentOrigin } from './agent.js'
-import type { CeilingLevel } from './evidence.js'
+import type { CeilingLevel, SeatId } from './evidence.js'
 
 /**
  * What an Agent may carry beyond its brief: skills, MCP servers, and its own
@@ -76,4 +76,61 @@ export interface AgentAttachmentsView {
   readonly mcpMode: 'runtime-defaults' | 'allowlist'
   readonly declarations: readonly AttachmentDeclaration[]
   readonly support: readonly AttachmentSupport[]
+}
+
+/**
+ * Phase 12 Task 3: what a Seat froze at open, and what its runtime actually
+ * loaded.
+ *
+ * A Seat's attachments never change after it opens — a shadowed Agent
+ * editing its file, a newly approved grant, a Library copy changing, none of
+ * it reaches a Seat that already exists. Reconnect and resume revalidate
+ * these exact frozen inputs; they never re-read the Agent's current wishes.
+ */
+
+/** One binding's outcome, kept forever once observed: a later epoch never rewrites an earlier one. */
+export interface AttachmentLoadResult {
+  readonly identity: AttachmentIdentity
+  readonly status: 'loaded' | 'not-loaded'
+  readonly reason: string | null
+}
+
+/** The full history of one Seat's attachments: every observation epoch, oldest first. */
+export interface SeatAttachmentsRecord {
+  readonly version: 1
+  readonly seat: SeatId
+  readonly agentDigest: string
+  readonly runtime: string
+  readonly build: string
+  /** 0 at first open; a reconnect or resume appends a new epoch, never rewriting an old one. */
+  readonly epoch: number
+  readonly observedAt: number
+  readonly skillsMode: 'runtime-defaults' | 'allowlist'
+  readonly mcpMode: 'runtime-defaults' | 'allowlist'
+  readonly declarations: readonly AttachmentDeclaration[]
+  readonly results: readonly AttachmentLoadResult[]
+  /** True when this record was read back from a restored (imported) sidecar rather than observed live by this install. */
+  readonly restored: boolean
+}
+
+/**
+ * Host-to-adapter data only — never accepted in a public session-creation
+ * payload, because only host-generated input carries approval. `null` means
+ * native defaults (the runtime's own, unfiltered behavior); an array is an
+ * explicit filter computed after trust resolution. An empty array is not the
+ * same as `null`: it means every declared name was refused, never "use
+ * defaults".
+ */
+export interface SessionAttachments {
+  readonly key: string
+  readonly skills: readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null
+  readonly mcp: readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null
+  readonly notes: { readonly digest: string; readonly text: string } | null
+}
+
+/** What a runtime says it loaded, in answer to `SessionAttachments` — the readback `activateBindings` checks. */
+export interface SessionAttachmentReceipt {
+  readonly key: string
+  readonly loaded: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly digest: string }[]
+  readonly refused: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly reason: string }[]
 }

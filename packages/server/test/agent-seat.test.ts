@@ -57,6 +57,7 @@ import { Host, type OpenedSeat } from '../src/host.js'
 import { knownAgent } from '../src/installs/known-agents.js'
 import { Logger } from '../src/log.js'
 import { agentMethods, offerOf, readDesk } from '../src/methods/agents.js'
+import type { HostContext } from '../src/methods/context.js'
 import type { SeatOpeningInput } from '../src/evidence/seats.js'
 import type { SeatHold } from '../src/ceilings/hold.js'
 import type { SeatedAs } from '../src/registry.js'
@@ -1117,6 +1118,47 @@ test('a brief that could not be handed over stops the seating there: no later se
   assert.deepEqual(seen.retired, ['claude s1'])
   assert.deepEqual(seen.recorded, [])
   assert.equal(seen.alive(), 0)
+})
+
+test('a failed sidecar write blocks the first turn: the Seat is closed, the runtime is stopped, and no brief is sent', async () => {
+  const seen = await rig('claude=opus-5/high')
+  // This Agent now declares an attachment, so there is something for phase
+  // 12's transaction to prepare and record — a plain Agent (nothing
+  // declared) never reaches `record` at all, by design, and so could never
+  // exercise this guard.
+  await writeFile(
+    join(seen.root, 'user', 'reviewer', 'AGENT.md'),
+    '---\nname: Reviewer\npermission: read\nprefer: [claude=opus-5/high]\nmcp: [reviewer-tools]\n---\nRead the diff.\n',
+    'utf8',
+  )
+  let recordCalls = 0
+  ;(seen.ctx as unknown as { attachments: HostContext['attachments'] }).attachments = {
+    prepare: async (subject) => ({
+      subject,
+      input: { key: 'k', skills: null, mcp: [{ name: 'reviewer-tools', digest: 'd', endpoint: 'e' }], notes: null },
+      declarations: [
+        {
+          kind: 'mcp',
+          name: 'reviewer-tools',
+          identity: { kind: 'mcp', name: 'reviewer-tools', digest: 'd', source: 'library', pathLabel: '~/reviewer-tools' },
+          problem: null,
+        },
+      ],
+    }),
+    record: async () => {
+      recordCalls += 1
+      throw new Error('injected sidecar write failure')
+    },
+  }
+  await assert.rejects(
+    () => agentMethods['agent/seat'](seen.ctx, { id: 'reviewer', cwd: '/tmp/x' }),
+    /Reviewer was seated on claude · opus-5 · High, and its attachment record could not be written, so the conversation was closed: injected sidecar write failure$/,
+  )
+  assert.equal(recordCalls, 1, 'record was attempted exactly once')
+  assert.deepEqual(seen.ordered, [], 'no brief was ever sent — the first-turn counter is zero')
+  assert.deepEqual(seen.retired, ['claude s1'], 'the runtime conversation this Seat opened was stopped')
+  assert.deepEqual(seen.recorded, [], 'a Seat whose attachment record failed is never recorded as kept')
+  assert.equal(seen.durable.length, 1, 'the historical Seat-opening record from before the failure still exists')
 })
 
 /** One account's standing, a weekly lane for each figure given — the account's own, or one model's. */

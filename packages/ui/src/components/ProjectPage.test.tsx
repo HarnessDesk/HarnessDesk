@@ -53,6 +53,7 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], folder: s
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'Work.',
   },

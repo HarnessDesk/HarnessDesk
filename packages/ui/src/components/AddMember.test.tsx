@@ -38,6 +38,7 @@ const agent = (id: string, name: string): AgentEntry => ({
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'codex' }],
     brief: 'Work.',
   },

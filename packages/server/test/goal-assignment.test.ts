@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { SeatRecord } from '@harnessdesk/protocol'
 
-import { Assignments, Serial, dispatchAfter, type AssignmentPort } from '../src/goals/assignments.js'
+import { Assignments, Serial, dispatchAfter, UNOBSERVED_LOADING_REFUSAL, type AssignmentPort } from '../src/goals/assignments.js'
 import { goal, seat } from './fixtures/goals.js'
 
 const session = { runtime: 'fake', sessionId: 'one' }
@@ -106,6 +106,24 @@ test('dispatch rechecks authority after asynchronous preparation', async () => {
     async () => { dispatched = true },
   ), /membership changed/)
   assert.equal(dispatched, false)
+})
+
+test('loose session cannot inherit unobserved loading', async () => {
+  // No port answer at all for `attachmentsObserved` (a host not yet wired
+  // for phase 12) keeps today's behavior unchanged.
+  const legacy = rig()
+  const record = await legacy.service.assign('g1', 1, session)
+  assert.equal(record.board, 'g1')
+
+  // Wired, but this exact live session's loading was never observed.
+  const unobserved = rig({ attachmentsObserved: async () => false })
+  await assert.rejects(unobserved.service.assign('g1', 1, session), new RegExp(UNOBSERVED_LOADING_REFUSAL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+  assert.deepEqual(unobserved.writes, [], 'refused before commit — no Seat is written for an opaque native load set')
+
+  // Observed and matching: the ordinary path still succeeds.
+  const observed = rig({ attachmentsObserved: async () => true })
+  const kept = await observed.service.assign('g1', 1, session)
+  assert.equal(kept.board, 'g1')
 })
 
 test('an initial dispatch refusal performs no preparation or effect', async () => {

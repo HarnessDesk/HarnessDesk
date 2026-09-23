@@ -25,8 +25,10 @@ import {
   type SeatGrant,
   type SeatId,
   type SeatRecord,
+  type SessionAttachmentReceipt,
   type UsageReport,
 } from '@harnessdesk/protocol'
+import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
 
 import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
 import type { SeatedAs } from '../registry.js'
@@ -436,6 +438,29 @@ export interface AgentSeatContext {
   grant?: SeatGrant
 }
 
+/**
+ * Prepares this Seat's attachments and durably freezes what was loaded — or
+ * writes nothing at all. An Agent with no `skills:`/`mcp:` declared resolves
+ * to zero declarations, and `record` is never called for it: the plain path
+ * stays plain, with no sidecar file and no input ever computed for it.
+ *
+ * No adapter yet answers what it actually loaded natively — that readback is
+ * a later phase's own wiring — so this reports nothing loaded rather than
+ * assume success. Every declared attachment on a seated build shows
+ * "not-loaded" honestly until that wiring lands; nothing here ever claims a
+ * capability nobody confirmed.
+ */
+async function prepareAndRecordAttachments(
+  attachments: NonNullable<HostContext['attachments']>,
+  subject: AttachmentSubject,
+  record: SeatRecord,
+): Promise<void> {
+  const prepared: PreparedAttachments = await attachments.prepare(subject)
+  if (prepared.declarations.length === 0) return
+  const receipt: SessionAttachmentReceipt = { key: prepared.input.key, loaded: [], refused: [] }
+  await attachments.record(record, prepared, receipt)
+}
+
 /** The one seating operation used by a plain Agent and by Goal staffing. */
 export async function seatAgent(
   ctx: HostContext,
@@ -443,7 +468,8 @@ export async function seatAgent(
   context: AgentSeatContext,
 ): Promise<{ session: HostMethods['agent/seat']['result']; record: SeatRecord }> {
   if (!isAbsolute(params.cwd)) throw new Error(`${params.cwd} is not an absolute path.`)
-  const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
+  const project = await projectOf(ctx, params.project)
+  const entry = await ctx.agents.read(params.id, project)
   if (!entry) throw new Error(`No Agent called “${params.id}”.`)
   const { definition, digest } = entry
   if (!definition || digest === null) throw new Error(unusable(entry))
@@ -515,6 +541,26 @@ export async function seatAgent(
       throw new Error(
         `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
       )
+    }
+    if (ctx.attachments) {
+      try {
+        await prepareAndRecordAttachments(ctx.attachments, {
+          project: project ?? params.cwd,
+          incarnation: project ?? params.cwd,
+          agent: definition.id,
+          origin: entry.origin,
+          agentDigest: digest,
+          runtime: opened.runtime,
+          build: '',
+          ceiling: held.ceiling.level,
+        }, record)
+      } catch (error) {
+        await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw new Error(
+          `${definition.name} was seated on ${describeSeat(selected, words)}, and its attachment record could not be written, so the conversation was closed: ${messageOf(error)}`,
+        )
+      }
     }
     try {
       await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, level, params.cwd))

@@ -1706,6 +1706,7 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
       answers: [],
       produces: [],
       skills: [],
+      mcp: [],
       prefer: [{ runtime: 'claude-code' }],
       brief: 'Review.',
     },

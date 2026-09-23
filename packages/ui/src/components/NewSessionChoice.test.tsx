@@ -153,6 +153,7 @@ const reviewer = (id: string, name: string): AgentEntry => ({
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'Review.',
   },

@@ -639,6 +639,7 @@ const agentEntry = (
     answers: ceiling === 'read' ? ['approve', 'request-changes'] : [],
     produces: ['review'],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
     brief: `You review a change somebody else wrote.\n\n## How to report\n\nEvery finding, then a verdict.\n\n## What you never do\n\nNever push.`,
   },

@@ -17,9 +17,12 @@ import type {
   RuntimeFiles,
   RuntimeId,
   RuntimeInfo,
+  SeatAttachmentsRecord,
   SeatLeft,
+  SeatRecord,
   SecretReload,
   Session,
+  SessionAttachmentReceipt,
   SessionBusyError,
   SessionId,
   SessionSummary,
@@ -55,6 +58,7 @@ import type { UsageMeter } from '../usage/meter.js'
 import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
+import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
 
 /**
  * What a wire method may reach.
@@ -112,6 +116,18 @@ export interface HostContext {
    * the usage ledger (`ledger()`).
    */
   readonly evidence: EvidencePlane
+  /**
+   * Phase 12's attachment freeze — optional so a build that has not wired it
+   * yet keeps today's behavior exactly: `seatAgent` skips every attachment
+   * step entirely when this is absent, the same as it does when an Agent
+   * declares nothing. When present, `prepare` must be called before a
+   * runtime session is created and `record` once (and only once) after it
+   * answers back; neither is ever called for an Agent with no declarations.
+   */
+  readonly attachments?: {
+    prepare(subject: AttachmentSubject): Promise<PreparedAttachments>
+    record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
+  }
   readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
