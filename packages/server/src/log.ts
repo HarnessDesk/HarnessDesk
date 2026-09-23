@@ -113,7 +113,8 @@ export class Logger {
     let lost: LogRecord | null = null
     const stream = level === 'error' || level === 'warn' ? process.stderr : process.stdout
     if (this.#console && gone.has(stream)) {
-      if (!announced.has(stream)) {
+      // Only a logger with a file can carry the note, so only one marks it said.
+      if (this.#file && !announced.has(stream)) {
         announced.add(stream)
         lost = {
           time: record.time,
@@ -126,13 +127,13 @@ export class Logger {
       watch(stream)
       const line = `${record.time} ${level.toUpperCase().padEnd(5)} [${this.scope}] ${message}`
       /* A console that has gone away must not become the caller's problem.
-         The desk is routinely started detached, and when its parent exits the
-         pipe behind stdout breaks: `write` then raises EPIPE at whatever line
-         asked for a log. Measured 2026-09-13 — the one line that logs
-         unconditionally is the shell's `uncaughtException` handler, so the
-         throw was delivered back to that handler, which logged again: 267,665
-         crash files and 1.0 GB of disk in six minutes, then the process died.
-         The file sink below still has the line. */
+         On a pipe it does not say so here: the write is dispatched and the
+         EPIPE arrives later as an `error` event, which `watch` above answers.
+         This try/catch is only for a write that throws synchronously — a file
+         or a TTY. Measured 2026-09-13: a throw from here reached the shell's
+         `uncaughtException` handler, which logged again, and wrote 267,665
+         crash files and 1.0 GB of disk in six minutes before the process
+         died. The file sink below still has the line. */
       try {
         stream.write(details === undefined ? `${line}\n` : `${line} ${safeJson(details)}\n`)
       } catch {

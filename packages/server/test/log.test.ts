@@ -126,3 +126,32 @@ test('a console pipe that closes under a running process does not take it down',
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+/*
+ * Last in this file on purpose: it retires this process's stderr, and a
+ * console that has gone stays gone.
+ */
+test('a console-only logger does not use up the note that the console went away', async () => {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = await mkdtemp(join(tmpdir(), 'hd-log-note-'))
+  const file = join(dir, 'host.ndjson')
+  const stderr = process.stderr.write.bind(process.stderr)
+  process.stderr.write = (() => true) as typeof process.stderr.write
+  try {
+    const consoleOnly = new Logger('console-only', { level: 'debug', file: null, console: true })
+    const withFile = new Logger('with-file', { level: 'debug', file, console: true })
+    consoleOnly.warn('the console is there')
+    process.stderr.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    consoleOnly.warn('after the console went away')
+    withFile.warn('a line for the file')
+    await withFile.flush()
+    const records = (await readFile(file, 'utf8')).trim().split('\n').map((line) => JSON.parse(line) as { message: string })
+    assert.ok(records.some((one) => /console behind stderr went away/.test(one.message)),
+      'the console-only logger used up the note, so no file ever said it')
+  } finally {
+    process.stderr.write = stderr
+    await rm(dir, { recursive: true, force: true })
+  }
+})
