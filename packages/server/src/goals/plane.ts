@@ -369,6 +369,17 @@ export class GoalPlane {
     return this.store.read(goal).receipt
   }
 
+  /**
+   * Opens a citation this Goal (or one it references) already made — Task 6's
+   * own front door onto Task 2's retention. Delegates straight to the memory
+   * plane's own resolution, which is what actually reads the retained
+   * snapshot and reports source/revision availability; this method exists so
+   * `methods/memory.ts` never needs a second reference to that private plane.
+   */
+  resolveMemory(citation: GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
+    return this.memory.resolve(citation)
+  }
+
   cite(goal: string, citation: GoalCitation): Promise<void> {
     return this.serial.run(async () => {
       let target = this.store.read(goal)

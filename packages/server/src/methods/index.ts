@@ -14,6 +14,7 @@ import { gitMethods } from './git.js'
 import { insightMethods } from './insight.js'
 import { libraryMethods } from './library.js'
 import { laneMethods } from './lanes.js'
+import { memoryMethods } from './memory.js'
 import { pluginMethods } from './plugins.js'
 import { runtimeExtensionMethods } from './runtime-extensions.js'
 import { runtimeMethods } from './runtimes.js'
@@ -66,6 +67,7 @@ export const hostMethods: HostMethodTable = {
   ...teamMethods,
   ...flowMethods,
   ...goalMethods,
+  ...memoryMethods,
   ...agentMethods,
   ...attachmentMethods,
   ...evidenceMethods,
@@ -97,6 +99,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   teamMethods,
   flowMethods,
   goalMethods,
+  memoryMethods,
   agentMethods,
   attachmentMethods,
   evidenceMethods,

@@ -407,6 +407,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   },
   'lane/release': goalShape({ lane: goalIdentifier }),
   ...goalValidators,
+  'memory/list': goalShape({ root: atMost(4096, isFilled), at: goalHex([40, 64]) }),
+  'memory/read': goalShape({ root: atMost(4096, isFilled), citation: goalCitation }),
   ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
 

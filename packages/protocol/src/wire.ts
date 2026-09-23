@@ -18,7 +18,8 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
+import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer, Sha } from './evidence.js'
+import type { MemoryFile, MemoryResolution } from './memory.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
@@ -629,6 +630,15 @@ export interface HostMethods {
   'goal/receipt': { params: { goal: GoalId }; result: GoalReceipt | null }
   'goal/cite': { params: { goal: GoalId; citation: GoalCitation }; result: null }
   'goal/migration/ack': { params: Record<string, never>; result: null }
+  /** Project memory files committed at one exact revision — never re-resolving HEAD per row. */
+  'memory/list': { params: { root: string; at: Sha }; result: readonly MemoryFile[] }
+  /**
+   * Opens one citation's retained bytes. `citation` names its own project;
+   * `root` is the caller's admitted project and must match it, so an archive
+   * key or source path from another project can never be read through a
+   * citation that only looks like it belongs to the one open here.
+   */
+  'memory/read': { params: { root: string; citation: GoalCitation }; result: MemoryResolution }
   'host/hello': {
     params: { readonly clientVersion: string }
     result: {
