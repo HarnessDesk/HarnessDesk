@@ -529,7 +529,6 @@ test('store write does not follow preexisting pid temp symlink and overwrite out
 
 test('duplicate runtime IDs are deduplicated in store configs and replaced cleanly in host without ghost listeners (#446)', async (t) => {
   const dir = await tempDir()
-  t.after(() => rm(dir, { recursive: true, force: true }))
   const agentsPath = join(dir, 'agents.json')
   await writeFile(
     agentsPath,
@@ -550,7 +549,9 @@ test('duplicate runtime IDs are deduplicated in store configs and replaced clean
     state: new StateStore(join(dir, 'state.json')),
     catalogRefreshMs: 0,
   })
+  // Dispose before removing the folder the host wrote into (#868).
   t.after(() => host.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
 
   const one = new FakeRuntime({ id: 'dup' as RuntimeId, name: 'One' })
   const two = new FakeRuntime({ id: 'dup' as RuntimeId, name: 'Two' })

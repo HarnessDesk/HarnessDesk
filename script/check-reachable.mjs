@@ -80,7 +80,10 @@ export const methodsIn = (source) => {
   const rest = source.slice(from)
   const end = rest.search(/^\}/m)
   const table = end === -1 ? rest : rest.slice(0, end)
-  return [...new Set([...table.matchAll(/^ {2}'([a-z][\w]*\/[\w/]*)':/gim)].map((one) => one[1]))]
+  /* Hyphens count as name characters: `\w` alone stopped `'flow/start-goal'`
+     at the `-`, so the key failed to match at all and the method was neither
+     counted nor flagged — a gate that could not see it. */
+  return [...new Set([...table.matchAll(/^ {2}'([a-z][\w-]*\/[\w/-]*)':/gim)].map((one) => one[1]))]
 }
 
 /** Every file a call could be written in. */
