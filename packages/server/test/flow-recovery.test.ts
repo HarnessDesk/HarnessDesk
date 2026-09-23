@@ -30,13 +30,20 @@ test('old run recovery never replays an uncertain check', async (t) => {
 
   // The same matrix, read back from old run files by a restarting desk.
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-recovery-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   const peers: TeamPeer[] = []
   const team = new Team(join(dir, 'team'), {
     peers: () => peers, rootOf: async () => '/repo', send: async () => {}, steer: async () => {},
     changed: () => {}, removed: () => {}, membershipChanged: () => {}, audit: () => {},
   })
-  t.after(() => team.flush())
+  let teardown: Flows | null = null
+  // One hook, in order: `node:test` runs `after` hooks in registration order,
+  // so a removal registered first would race the board's and the runs' own
+  // pending writes and have them recreate files under a folder being removed.
+  t.after(async () => {
+    await teardown?.flush().catch(() => {})
+    await team.flush()
+    await rm(dir, { recursive: true, force: true })
+  })
   const rooms = {
     settled: (await team.createRoom('/repo', 'Settled')).id,
     healthy: (await team.createRoom('/repo', 'Healthy')).id,
@@ -91,6 +98,7 @@ test('old run recovery never replays an uncertain check', async (t) => {
   // Nothing new runs here; the Goal engine only keeps the recovery decisions beside the old files.
   const executions = new FlowExecutions(new ExecutionFiles(join(dir, 'flows-v2')), team, {} as FlowExecutionPort)
   const flows = new Flows(folder, team, port, undefined, executions)
+  teardown = flows
   team.attachFlows(flows)
   await flows.load()
   await flows.resume()
