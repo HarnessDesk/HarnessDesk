@@ -96,8 +96,15 @@ const buttonVariants = cva(
            `data-selected`, `data-on`, or the radio's own `aria-checked`.
            Hover takes the plain hover fill, so pointing at an option never
            reads as having chosen it. */
+        /* Unlike `ghost`/`floating`'s whole-control `data-[refused]:opacity-45`,
+           a refused choice keeps its reason in the same control — measured
+           at ~1.9:1 in light mode when the whole row faded with it, well
+           under body-text contrast for the one sentence a refused row exists
+           to let a person read. Only the lead glyph and the name (the row's
+           own `data-role`) fade; nothing marked `data-role=muted` — the
+           reason — is touched, so it keeps its ink. */
         choice:
-          'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim) data-[refused]:opacity-45',
+          'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim) data-[refused]:[&_[data-slot=icon-tile]]:opacity-45 data-[refused]:[&_[data-role=row]]:opacity-45',
         quiet:
           'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-pressed:bg-(--hd-hover) data-[on]:bg-(--hd-active) data-[on]:text-(--hd-foreground) data-[active]:bg-(--hd-accent-dim) data-[active]:text-(--hd-accent) data-[live]:bg-(--hd-success-dim) data-[live]:text-(--hd-success-ink)',
         muted:

@@ -120,8 +120,12 @@ const ListRow = ({
       /* The same fade a refused control wears everywhere else in the app —
          `buttonVariants`'s `ghost`/`floating`/`choice` — so a row a caller
          marks `data-refused` reads as refused at a glance instead of only
-         differing by the reason printed under it. */
-      'data-[refused]:opacity-45',
+         differing by the reason printed under it. Scoped to the lead and
+         the title only, never the row as a whole: the subtitle is where a
+         refused row's reason lives, and fading it along with everything
+         else measured at roughly 1.9:1 in light mode — under body-text
+         contrast for the one line a person is shown this row to read. */
+      'data-[refused]:[&_[data-slot=list-row-lead]]:opacity-45 data-[refused]:[&_[data-slot=list-row-title]]:opacity-45',
       /*
        * A selected destination takes the app's one navigation mark, and
        * everything inside it comes off the row's own ink — a subtitle or a
@@ -151,6 +155,7 @@ const ListRow = ({
     {lead != null && <span data-slot="list-row-lead" className="inline-flex shrink-0 items-center gap-2">{lead}</span>}
     <div data-slot="list-row-content" className="min-w-0 flex-1">
       <div
+        data-slot="list-row-title"
         className={cn(
           'truncate leading-(--hd-line)',
           size === 'sm' ? 'text-base' : 'text-base font-medium',
