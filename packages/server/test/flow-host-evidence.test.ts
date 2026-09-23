@@ -418,6 +418,51 @@ test('independent review with every Seat working inside its brief: each completi
   assert.deepEqual(reordered, [])
 })
 
+/*
+ * A Seat that only reads its brief — the ordinary agent, which answers and
+ * ends its turn — has its card handed over when that turn is over: the
+ * order left for it goes out exactly once, whether the turn ended well or
+ * in an error, and the Seat then finishes the card in the turn it started.
+ */
+for (const ending of ['completes', 'fails'] as const) {
+  test(`a brief turn that ${ending} with the card still open is followed by exactly one card order`, async (t) => {
+    const d = await desk(t, undefined, { refusesWhileBusy: true })
+    const orders: string[] = []
+    for (const runtime of d.runtimes) {
+      runtime.onSend = (session, text, opts) => {
+        if (opts?.recordAs !== 'notice') return
+        if (text.startsWith('Do the ')) {
+          // Reads its brief, and ends its turn without asking for work — once the run has left its order for that.
+          void until(async () => {
+            const id = d.runs[0]
+            const prepared = id ? (await execution(d, id)).operations.some((one) => one.key === 'turn:1:0' && one.state === 'prepared') : false
+            return prepared ? true : null
+          }, 'the order left for the end of the brief turn', 20_000)
+            .then(() => (ending === 'completes' ? session.finish() : session.fail('the model is overloaded')))
+            .catch((error: unknown) => { console.error('a reading agent failed', error) })
+          return
+        }
+        const card = /^Card #(\d+) on this Goal is yours/.exec(text)
+        if (!card) return
+        orders.push(card[1]!)
+        void (async () => {
+          const id = await until(() => d.runs[0] ?? null, 'the run to be started')
+          const goal = (await execution(d, id)).goal
+          const held = (await board(d, goal)).find((one) => one.id === Number(card[1]))!
+          await write(d, held, 'the answer', 'gathered')
+          session.finish()
+        })().catch((error: unknown) => { console.error('a working agent failed', error) })
+      }
+    }
+    const run = await start(d, await shipped(d, 'investigation'), { question: 'Where does the time go?' })
+    await person(d, run.goal, 'close', 'closed')
+    const done = await settled(d, run.id)
+    assert.deepEqual(orders, ['1'], 'the card was handed over once, after the brief turn')
+    assert.equal(done.operations.find((one) => one.key === 'turn:1:0')?.state, 'finished')
+    assert.deepEqual(done.operations.filter((one) => one.kind === 'turn').map((one) => one.key), ['turn:1:0'])
+  })
+}
+
 test('a check, green CI and an open pull request, each observed at the build revision, open the ship card together', async (t) => {
   const d = await desk(t)
   const source = [

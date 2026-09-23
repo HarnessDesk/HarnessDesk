@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import type { SeatRecord } from '@harnessdesk/protocol'
+import type { FlowExecution, SeatRecord } from '@harnessdesk/protocol'
 
 import { ExecutionFiles, FlowExecutions, type FlowExecutionPort } from '../src/flow-execution.js'
 import { recoveryOf } from '../src/flow-recovery.js'
@@ -241,4 +241,47 @@ test('a saved run that no longer matches its own text blocks its Goal, and one n
   await rig.restart()
   await assert.rejects(rig.start(TWO_STAGES, AGENTS), /A saved flow run could not be read. Restore its state file before starting another run./)
   assert.equal(JSON.parse(await readFile(file, 'utf8')).source.endsWith('# edited later\n'), true, 'the broken file is kept as it was')
+})
+
+/*
+ * An order left for the end of its Seat's brief turn is decided, not sent:
+ * a restart while it waits neither calls it uncertain nor stalls the run,
+ * and it goes out exactly once, when the Seat's turn is over.
+ */
+test('a restart while an order is prepared keeps it, and sends it once when the Seat is free', async (t) => {
+  const rig = await goalRig(t)
+  const SOLO = `
+version: 2
+name: Solo
+roles:
+  author: { kind: agent, uses: writer }
+seed: { role: author, title: Write it }
+rules: []
+`
+  // Every Seat is inside its brief's turn as it opens.
+  rig.beforeClaim = (n) => { rig.busySeats.add(`seat-${n}`) }
+  const run = await rig.start(SOLO, [agent('writer', ['done'])])
+  await rig.flows.flush()
+  const turn = (runs: readonly FlowExecution[]) => runs[0]!.operations.find((one) => one.key === 'turn:1:0')?.state
+  assert.equal(turn(rig.flows.executionsFor(run.goal)), 'prepared')
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('order:')), [])
+
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  const after = rig.flows.executionsFor(run.goal)
+  assert.equal(after[0]!.state, 'running', 'a prepared order is not a step that may have happened')
+  assert.equal(turn(after), 'prepared')
+
+  // Its turn ends, as a turn does, twice over (the turn, then the idle status): one order, which starts a turn of its own.
+  rig.busySeats.clear()
+  rig.onOrder = (seat) => { rig.busySeats.add(String(seat.id)) }
+  const { runtime, sessionId } = rig.sessionOf('seat-1')
+  await rig.flows.reArm(runtime, sessionId)
+  await rig.flows.reArm(runtime, sessionId)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('order:')), ['order:seat-1'])
+  assert.equal(turn(rig.flows.executionsFor(run.goal)), 'finished')
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.operations.filter((one) => one.kind === 'turn').map((one) => one.key), ['turn:1:0'],
+    'a Seat inside the turn its order started is not handed its card again')
 })

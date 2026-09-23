@@ -484,11 +484,20 @@ is unknown.
 
 **A Seat's card** is claimed for it as the Seat opens, and the Seat reads its
 Agent's brief in a turn of its own. A Seat that asks for work inside that turn
-is handed its card there and may finish it there; the card's own order is sent
-only when that turn ends with the card still open, never into a turn that is
-running — an agent refuses a second message while it works, and a run does not
-stall on that refusal. The run's rounds follow the board: a card finished
-inside the brief's turn closes its round like any other.
+is handed its card there and may finish it there; the card's own order is left
+*prepared* and sent, once, only when that turn ends — well or in an error —
+with the card still open, never into a turn that is running: an agent refuses
+a second message while it works, and a run does not stall on that refusal. A
+restart keeps a prepared order as it is. The run's rounds follow the board: a
+card finished inside the brief's turn closes its round like any other.
+
+**A Goal's board has one writer**: the Team engine's copy. Agents' verbs, a
+person's answers and the Goal's own claims and releases all change that copy,
+and it is saved as it stands when the save runs, so what is saved is never
+older than what is shown, two changes to one card are one sequence, and a
+card has one holder. A completion or a person's answer is told to the agent,
+and to the run, only once it is saved; one whose save fails is put back and
+refused. Once a Goal is wrapped its document's dispositions are final.
 
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated
@@ -513,13 +522,21 @@ current revision, is fresh, and was observed on this desk. So
 fact at the writer's head, `{ review: "picked" }` by the judge's structured
 review naming one candidate revision (and it narrows several candidates to
 that one), and `{ diff: true }`, `{ ci: green }` and `{ pr: open }` by what
-the desk observed on the writer's branch. A diff is committed work only: what
-the writer's branch changes against the base branch it came from, or — when
-there is no work beyond that base, because the step commits straight onto the
-project's default branch as a role that is neither isolated nor told to branch
-does, or because there is no base branch — what was committed since the step
-began, measured from the commit its Seat opened on. A diff that turns out
-empty is an explicit failure, not a wait. The last observation of each
+the desk observed on the writer's branch. A diff is the card's own committed
+work, measured from where the card began — the commit its holder's checkout
+was at when it took the card, which the claim records: the non-merge commits
+on the checkout's first-parent line since then that are not on the remote's
+copy of the default branch. So it holds for a step that commits straight onto
+the project's default branch (a role neither isolated nor told to branch), a
+pull from upstream is not the step's work, a merge brings nothing of its own,
+and a Seat that takes a second card is measured from that card's start, not
+its first's. What git cannot say is whose commit it is: on a checkout several
+Seats share, every commit made in it while the card was held counts —
+`isolate: true` gives a step a checkout of its own. A card whose claim
+recorded no start (one taken before this was recorded) is measured against
+the base branch its branch came from. The dry run says "A committed change in
+the checkout since this step began". A diff that turns out empty is an
+explicit failure, not a wait. The last observation of each
 question decides; a guard whose fact has not landed yet *waits*, and every
 durable append of a new fact wakes it; one contradicted by a fresh, explicit
 failure is a *no-match* a later fallback rule may still take. Neither is

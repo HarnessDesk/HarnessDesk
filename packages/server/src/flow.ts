@@ -41,6 +41,10 @@ import { parseYaml, YamlError } from './yaml.js'
 const DEFAULT_WAIT_SEC = 240
 
 /** How many times one seat may be re-armed inside the hourly window when not specified. */
+export const DEFAULT_REARM = 3
+
+/** The most re-arms an author may ask for inside one hour. */
+export const REARM_CEILING = 120
 
 /**
  * What an old-format role is told it is for: its own `order:`, or — since
@@ -50,11 +54,6 @@ const DEFAULT_WAIT_SEC = 240
  */
 export const legacyBrief = (role: { readonly id: string; readonly order?: string | null }): string =>
   role.order?.trim() || `You are the ${role.id}. The cards say the rest.`
-
-export const DEFAULT_REARM = 3
-
-/** The most re-arms an author may ask for inside one hour. */
-export const REARM_CEILING = 120
 
 /**
  * How long a runtime's own tool client will hold a call open, in seconds.
