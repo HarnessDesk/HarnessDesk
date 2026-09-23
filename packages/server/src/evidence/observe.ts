@@ -35,6 +35,11 @@ export interface Look {
    * to measure (`diffOf`). Null when no Seat of this desk says.
    */
   readonly since?: Sha | null
+  /**
+   * Where the remote's copy of the branch stood when the card was taken, as
+   * its claim recorded it; absent when the claim recorded nothing (`diffOf`).
+   */
+  readonly upstream?: Sha | null
 }
 
 export class Observer {
@@ -84,7 +89,7 @@ export class Observer {
     if (!revision) return false
 
     const facts: Evidence[] = []
-    const diff = await diffOf(look.cwd, look.since ?? null)
+    const diff = await diffOf(look.cwd, look.since ?? null, look.upstream !== undefined ? { upstream: look.upstream } : {})
     if (diff) facts.push({ kind: 'diff', ...diff })
     const forge = await readPullRequest(look.cwd, this.#gh)
     if (forge.kind === 'unreachable') {

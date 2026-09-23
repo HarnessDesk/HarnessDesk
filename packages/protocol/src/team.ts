@@ -80,6 +80,12 @@ export interface IntentClaim {
    * Null when there was no commit; absent on a claim written before this was.
    */
   readonly head?: string | null
+  /**
+   * Where the remote's copy of the holder's branch stood when it took the
+   * card: what a diff sets aside when the checkout keeps no record of which
+   * commits were made in it. Null when there was none.
+   */
+  readonly upstream?: string | null
 }
 
 /**

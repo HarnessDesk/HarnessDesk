@@ -497,7 +497,11 @@ and it is saved as it stands when the save runs, so what is saved is never
 older than what is shown, two changes to one card are one sequence, and a
 card has one holder. A completion or a person's answer is told to the agent,
 and to the run, only once it is saved; one whose save fails is put back and
-refused. Once a Goal is wrapped its document's dispositions are final.
+refused. A wrap holds the board before it reads it: from then on nothing is
+added to it, and a card added just before is on the board the wrap reviews,
+so the wrap is refused rather than leave it out. Once a Goal is wrapped its
+document's dispositions are final; a card an earlier build let in after the
+wrap read the board is set aside, saying so, when that wrap finishes.
 
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated
@@ -525,16 +529,20 @@ that one), and `{ diff: true }`, `{ ci: green }` and `{ pr: open }` by what
 the desk observed on the writer's branch. A diff is the card's own committed
 work, measured from where the card began — the commit its holder's checkout
 was at when it took the card, which the claim records: the non-merge commits
-on the checkout's first-parent line since then that are not on the remote's
-copy of the default branch. So it holds for a step that commits straight onto
-the project's default branch (a role neither isolated nor told to branch), a
-pull from upstream is not the step's work, a merge brings nothing of its own,
-and a Seat that takes a second card is measured from that card's start, not
-its first's. What git cannot say is whose commit it is: on a checkout several
-Seats share, every commit made in it while the card was held counts —
-`isolate: true` gives a step a checkout of its own. A card whose claim
-recorded no start (one taken before this was recorded) is measured against
-the base branch its branch came from. The dry run says "A committed change in
+on the checkout's first-parent line since then that its own record of HEAD
+(the reflog) says were made there — committed, amended or picked — rather than
+brought in by a pull. So it holds for a step that commits straight onto the
+project's default branch (a role neither isolated nor told to branch), the
+step's commits stay its own after it pushes them, a pull is not its work, a
+merge brings nothing of its own, and a Seat that takes a second card is
+measured from that card's start. A checkout that keeps no reflog sets aside
+what the remote's copy of its branch held when the card was taken (the claim
+records that too), which keeps a push and cannot tell a later pull apart.
+What git cannot say is whose commit it is: on a checkout several Seats share,
+every commit made in it while the card was held counts — `isolate: true`
+gives a step a checkout of its own. A card whose claim recorded no start is
+measured from where its Seat opened, else against the base branch its branch
+came from. The dry run says "A committed change in
 the checkout since this step began". A diff that turns out empty is an
 explicit failure, not a wait. The last observation of each
 question decides; a guard whose fact has not landed yet *waits*, and every

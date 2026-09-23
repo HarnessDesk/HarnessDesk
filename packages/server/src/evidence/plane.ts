@@ -57,6 +57,18 @@ export interface EvidenceOptions {
   readonly now?: () => number
 }
 
+/**
+ * Where a card's work began, for its diff: its claim's own record; else where
+ * its last diff was measured from; else the head its Seat opened on. A
+ * claim's record that is missing — never written, or null because the head
+ * could not be read — falls through, never stopping the search.
+ */
+export const cardStart = (
+  claimed: string | null | undefined,
+  lastDiffFrom: string | null | undefined,
+  seatOpened: string | null | undefined,
+): string | null => claimed ?? lastDiffFrom ?? seatOpened ?? null
+
 export class EvidencePlane {
   readonly #settling = new Map<string, Set<Promise<void>>>()
   readonly store: EvidenceStore
@@ -311,10 +323,10 @@ export class EvidencePlane {
     if (!cwd || !board) return
     const kept = this.seats.latestKeptOf(intent.claim.runtime, intent.claim.sessionId)
     const seat = kept?.id ?? null
-    // Where this card's work began: its claim's own start, or — a claim older than that — its Seat's.
-    const since = intent.claim.head !== undefined ? intent.claim.head : (kept?.checkout.head ?? null)
+    const since = cardStart(intent.claim.head, null, kept?.checkout.head)
+    const upstream = intent.claim.upstream
     const work = (async () => {
-      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since }
+      const look: Look = { room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) }
       if (await this.observer.observe(look)) this.announce(room)
     })()
     let pending = this.#settling.get(room)
@@ -368,10 +380,10 @@ export class EvidencePlane {
       const lastDiff = [...records].reverse()
         .find((one) => !one.restored && one.card?.board === room && one.card.id === intent.id && one.fact.kind === 'diff')
       const began = seat ?? (last?.seat ?? null)
-      const since = holder && intent.claim && intent.claim.head !== undefined ? intent.claim.head
-        : lastDiff?.fact.kind === 'diff' ? lastDiff.fact.from
-          : began ? (this.seats.byId(began)?.checkout.head ?? null) : null
-      looks.push({ room, card: intent.id, project, cwd, seat, since })
+      const since = cardStart(holder ? intent.claim?.head : null, lastDiff?.fact.kind === 'diff' ? lastDiff.fact.from : null,
+        began ? this.seats.byId(began)?.checkout.head : null)
+      const upstream = intent.claim?.upstream
+      looks.push({ room, card: intent.id, project, cwd, seat, since, ...(upstream !== undefined ? { upstream } : {}) })
     }
     if (looks.length === 0) return
     void (async () => {

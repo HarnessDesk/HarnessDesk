@@ -20,7 +20,7 @@ test('a claim records the commit its holder’s checkout was at when it took the
   const port: TeamPort = {
     peers: () => peers, rootOf: async () => '/repo', send: async () => {}, steer: async () => {},
     changed: () => {}, removed: () => {}, membershipChanged: () => {}, audit: () => {},
-    headOf: async (cwd) => (cwd === '/repo' ? head : null),
+    startOf: async (cwd: string) => (cwd === '/repo' ? { head, upstream: 'c'.repeat(40) } : null),
   }
   const team = new Team(dir, port)
   t.after(async () => { team.stopWaiting('done'); await team.flush(); await rm(dir, { recursive: true, force: true }) })
@@ -33,8 +33,17 @@ test('a claim records the commit its holder’s checkout was at when it took the
   await team.claim(1, scope)
   const first = (state: TeamState, id: number) => state.intents.find((one) => one.id === id)
   assert.equal(first(team.stateFor(room), 1)?.claim?.head, 'a'.repeat(40))
+  assert.equal(first(team.stateFor(room), 1)?.claim?.upstream, 'c'.repeat(40), 'and where the remote stood')
   await team.complete(1, {}, scope)
   head = 'b'.repeat(40)
   await team.claim(2, scope)
   assert.equal(first(team.stateFor(room), 2)?.claim?.head, 'b'.repeat(40), 'the second card begins where the checkout stood when it was taken')
+})
+
+test('a claim that recorded no start falls back to where its Seat opened', async () => {
+  const { cardStart } = await import('../src/evidence/plane.js')
+  assert.equal(cardStart('a'.repeat(40), 'b'.repeat(40), 'c'.repeat(40)), 'a'.repeat(40))
+  assert.equal(cardStart(null, null, 'c'.repeat(40)), 'c'.repeat(40), 'a head that could not be read is no start')
+  assert.equal(cardStart(undefined, 'b'.repeat(40), 'c'.repeat(40)), 'b'.repeat(40))
+  assert.equal(cardStart(null, null, null), null)
 })

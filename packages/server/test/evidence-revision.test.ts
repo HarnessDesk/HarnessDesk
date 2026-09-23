@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { diffOf, freshnessOf, projectOf, revisionOf, tipOf } from '../src/evidence/revision.js'
+import { diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -206,4 +206,46 @@ test('a diff from where a card began counts only the step’s own commits, never
   await git('add', '.')
   await git('commit', '-q', '-m', 'next')
   assert.equal((await diffOf(dir, second))?.files, 1)
+})
+
+/*
+ * A step that pushes its own commits keeps them: what tells the step's
+ * commits from someone else's is how they came into the checkout — made
+ * here (its own record of commits), or brought by a pull — never whether
+ * the remote has them now.
+ */
+test('a step that pushes its own commits still has them as its diff, and a later pull still does not count', async () => {
+  const upstream = await makeRepo('hd-evidence-up-')
+  await upstream.git('config', 'receive.denyCurrentBranch', 'ignore')
+  const dir = tempDir('hd-evidence-push-')
+  await run('git', ['clone', '-q', upstream.dir, dir])
+  const git = async (...args: string[]): Promise<string> =>
+    (await run('git', ['-C', dir, '-c', 'user.email=dev@example.com', '-c', 'user.name=Jane Doe', ...args])).stdout.trim()
+  const began = await git('rev-parse', 'HEAD')
+  const tip = await upstreamTipOf(dir)
+  assert.equal(tip, began, 'the remote’s copy of the base branch, as the card is taken')
+  await writeFile(join(dir, 'MINE.md'), 'one\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'mine')
+  await git('push', '-q', 'origin', 'main')
+  assert.equal((await diffOf(dir, began, { upstream: tip }))?.files, 1, 'pushed, and still the step’s own')
+  // Someone else's work, pulled after the push: not the step's.
+  await upstream.git('reset', '-q', '--hard')
+  await writeFile(join(upstream.dir, 'THEIRS.md'), 'theirs\n')
+  await upstream.git('add', 'THEIRS.md')
+  await upstream.git('commit', '-q', '-m', 'theirs')
+  await git('pull', '-q', '--ff-only')
+  assert.equal((await diffOf(dir, began, { upstream: tip }))?.files, 1)
+  // With no record of how commits came in, the remote as it stood when the card was taken is what is set aside.
+  await rm(join(dir, '.git', 'logs'), { recursive: true, force: true })
+  assert.equal((await diffOf(dir, began, { upstream: tip }))?.files, 2, 'a pull cannot be told apart without that record')
+})
+
+test('the remote copy of the base branch is found by the branch’s own upstream, whatever it is called', async () => {
+  const upstream = await makeRepo('hd-evidence-up-')
+  await upstream.git('branch', '-m', 'main', 'trunk')
+  const dir = tempDir('hd-evidence-trunk-')
+  await run('git', ['clone', '-q', upstream.dir, dir])
+  await run('git', ['-C', dir, 'remote', 'set-head', 'origin', '-d'])
+  assert.equal(await upstreamTipOf(dir), await upstream.git('rev-parse', 'HEAD'))
 })
