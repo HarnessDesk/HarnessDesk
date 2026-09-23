@@ -303,6 +303,27 @@ test('a Goal-plane write made during an operation saves its change alone, and an
   assert.match(await said, /^Refused: #1 could not be saved/)
 })
 
+test('a change refused because its save failed leaves no line of its own in the channel', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const lines = () => r.team.stateFor(room).channel.flatMap((entry) => entry.kind === 'signal' ? [`${entry.signal} #${entry.intent}`] : [])
+  const before = lines()
+  r.failNextWrite(new Error('EIO'))
+  assert.match(await r.team.complete(1, {}, scope('worker')), /^Refused/)
+  await r.team.flush()
+  assert.deepEqual(lines(), before, 'the agent’s completed line goes with its refused change')
+  r.failNextWrite(new Error('EIO'))
+  r.team.intentAction(room, 1, 'done')
+  await r.team.flush()
+  assert.deepEqual(lines(), before, 'and the person’s')
+  // A change that is saved keeps its line.
+  r.team.intentAction(room, 1, 'done')
+  await r.team.flush()
+  assert.deepEqual(lines(), [...before, 'completed #1'])
+})
+
 test('a failed save is put back before the next task of the Goal’s queue can read the board', async (t) => {
   const r = await rig(t)
   const room = await setup(r)

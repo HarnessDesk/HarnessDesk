@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
@@ -206,6 +206,72 @@ test('a diff from where a card began counts only the step’s own commits, never
   await git('add', '.')
   await git('commit', '-q', '-m', 'next')
   assert.equal((await diffOf(dir, second))?.files, 1)
+})
+
+/*
+ * A commit made here by a front end other than `git commit` is still made
+ * here: a patch applied with `git am`, and a cherry-pick finished by hand
+ * after a conflict, whose reflog lines read `am:` and `commit (cherry-pick):`.
+ */
+test('a patch applied with git am and a cherry-pick committed after a conflict are the step’s own work', async () => {
+  const { dir, git } = await makeRepo()
+  const began = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', '-b', 'side')
+  await writeFile(join(dir, 'PATCHED.md'), 'one\ntwo\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'patched')
+  const patches = tempDir('hd-evidence-patches-')
+  await git('format-patch', '-q', '-1', '-o', patches)
+  await git('checkout', '-q', 'main')
+  await git('branch', '-q', '-D', 'side')
+  // On a base of its own, so the applied commit is a new one and not the one committed on the side branch.
+  await writeFile(join(dir, 'BASE.md'), 'base\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'base')
+  const applied = await git('rev-parse', 'HEAD')
+  await git('am', '-q', join(patches, (await readdir(patches))[0]!))
+  assert.match(await git('log', '-g', '-1', '--format=%gs', 'HEAD'), /^am: /)
+  assert.deepEqual({ files: (await diffOf(dir, applied))?.files, added: (await diffOf(dir, applied))?.added }, { files: 1, added: 2 },
+    'an applied patch is the step’s own commit')
+  // A cherry-pick that stops on a conflict, then is committed by hand.
+  const second = await git('rev-parse', 'HEAD')
+  await git('checkout', '-q', '-b', 'other', began)
+  await writeFile(join(dir, 'README.md'), 'theirs\n')
+  await git('commit', '-q', '-am', 'theirs')
+  await git('checkout', '-q', 'main')
+  await writeFile(join(dir, 'README.md'), 'ours\n')
+  await git('commit', '-q', '-am', 'ours')
+  const third = await git('rev-parse', 'HEAD')
+  await git('cherry-pick', 'other').catch(() => {})
+  await writeFile(join(dir, 'README.md'), 'both\n')
+  await git('add', 'README.md')
+  await git('commit', '-q', '--no-edit')
+  assert.match(await git('log', '-g', '-1', '--format=%gs', 'HEAD'), /^commit \(cherry-pick\): /)
+  assert.equal((await diffOf(dir, third))?.files, 1, 'a cherry-pick finished by hand is the step’s own commit')
+  assert.equal((await diffOf(dir, second))?.files, 1)
+})
+
+/*
+ * A step that rebases its own commits onto what it pulled keeps them: the
+ * reflog says each rewritten commit was picked here. What it rebased onto is
+ * still not its work.
+ */
+test('a step that rebases its own commits onto a pull still has them as its diff, and nothing of the pull', async () => {
+  const upstream = await makeRepo('hd-evidence-up-')
+  const dir = tempDir('hd-evidence-rebase-')
+  await run('git', ['clone', '-q', upstream.dir, dir])
+  const git = async (...args: string[]): Promise<string> =>
+    (await run('git', ['-C', dir, '-c', 'user.email=dev@example.com', '-c', 'user.name=Jane Doe', ...args])).stdout.trim()
+  const began = await git('rev-parse', 'HEAD')
+  await writeFile(join(dir, 'MINE.md'), 'one\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'mine')
+  await writeFile(join(upstream.dir, 'THEIRS.md'), 'theirs\n')
+  await upstream.git('add', '.')
+  await upstream.git('commit', '-q', '-m', 'theirs')
+  await git('pull', '-q', '--rebase')
+  assert.match(await git('log', '-g', '--format=%gs', 'HEAD'), /--rebase \(pick\): mine/)
+  assert.equal((await diffOf(dir, began))?.files, 1, 'the rebased commit is the step’s own, the pulled one is not')
 })
 
 /*
