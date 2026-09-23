@@ -477,7 +477,10 @@ settings. Anything that could point an agent at another provider or base
 URL, a gateway account, or an agent the desk has no reader for, makes the
 vendor unknown, and an unknown vendor is never taken for an independent
 one: the step is refused a seat and the run stalls with the reason. A
-runtime's name decides nothing.
+runtime's name decides nothing. A project's own files arrive with a clone,
+so they are read bounded and without blocking, a regular file only, through
+a link at no point below the project; anything that cannot be read that way
+is unknown.
 
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated

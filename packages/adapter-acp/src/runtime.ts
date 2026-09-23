@@ -257,7 +257,7 @@ export interface AcpAgentConfig {
    * provider is unknown, whatever the agent is called. See
    * `RuntimeInfo.provider`.
    */
-  readonly resolveProvider?: (cwd?: string) => string | null
+  readonly resolveProvider?: (cwd?: string) => Promise<string | null>
   /**
    * Where an agent that puts no usage on the wire writes it down.
    * Antigravity's server counts every model call in its own conversation
@@ -608,8 +608,9 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
-  /** Read on construction and again on each start; see `RuntimeInfo.provider`. */
+  /** Read on construction and again on each start, unknown until then; see `RuntimeInfo.provider`. */
   #provider: string | null = null
+  #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -675,7 +676,7 @@ export class AcpRuntime implements AgentRuntime {
 
   constructor(config: AcpAgentConfig) {
     this.#config = config
-    this.#provider = this.#readProvider()
+    this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
           config.account,
@@ -818,21 +819,27 @@ export class AcpRuntime implements AgentRuntime {
     // agent behind this adapter.
   }
 
-  #readProvider(cwd?: string): string | null {
+  async #readProvider(cwd?: string): Promise<string | null> {
     try {
-      return this.#config.resolveProvider?.(cwd) ?? null
+      return (await this.#config.resolveProvider?.(cwd)) ?? null
     } catch {
       return null
     }
   }
 
+  #refreshProvider(): Promise<void> {
+    return this.#readProvider().then((provider) => { this.#provider = provider })
+  }
+
   /** `AgentRuntime.providerAt`: an agent that reads a project's own settings can be pointed elsewhere there. */
-  providerAt(cwd: string): string | null {
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
     return this.#provider === null ? null : this.#readProvider(cwd)
   }
 
   async start(): Promise<void> {
-    this.#provider = this.#readProvider()
+    // Read beside the start, never ahead of it; `providerAt` waits for it.
+    this.#providerRead = this.#refreshProvider()
     // A start that never begins. Not the guard that holds the invariant —
     // that one is welded to the spawn in `#spawnBridge` — but the two lines
     // below each shell out to a subprocess of their own, the host's launch

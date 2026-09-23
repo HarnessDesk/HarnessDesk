@@ -164,7 +164,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     return record
   }
   const port: FlowExecutionPort = {
-    providerOf: (runtime) => rig.providers.get(runtime) ?? null,
+    providerOf: async (runtime) => rig.providers.get(runtime) ?? null,
     canDispatch: () => rig.dispatch,
     createGoal: async (input) => {
       const room = await team.createRoom('/repo', input.sentence)

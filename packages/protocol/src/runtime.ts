@@ -895,9 +895,11 @@ export interface AgentRuntime {
    * `info.provider` for a session working in `cwd`, for an agent that also
    * reads configuration kept in the project itself — which can point that
    * folder's sessions somewhere else. Absent: `info.provider` holds for
-   * every folder.
+   * every folder. The project's files arrived with a clone, so they are read
+   * bounded, without blocking and refusing links; anything that cannot be
+   * read that way is unknown.
    */
-  providerAt?(cwd: string): string | null
+  providerAt?(cwd: string): Promise<string | null>
 
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>

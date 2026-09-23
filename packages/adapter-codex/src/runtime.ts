@@ -272,8 +272,9 @@ export class CodexRuntime implements AgentRuntime {
   #sessionStore: string
   /** What Codex is started with, for reading which provider its sessions reach. */
   readonly #launch: { readonly env: Readonly<Record<string, string | undefined>>; readonly overrides: readonly string[] }
-  /** Resolved on construction and refreshed on start; see `RuntimeInfo.provider`. */
-  #provider: string | null
+  /** Resolved on construction and refreshed on start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void>
 
   constructor(options: CodexRuntimeOptions = {}) {
     this.#id = options.id ?? CODEX_RUNTIME_ID
@@ -283,7 +284,7 @@ export class CodexRuntime implements AgentRuntime {
     this.#codexHome = options.codexHome ?? null
     this.#sessionStore = sessionStoreOf(this.#codexHome)
     this.#launch = { env: { ...process.env, ...options.env }, overrides: options.configOverrides ?? [] }
-    this.#provider = this.#resolveProvider()
+    this.#providerRead = this.#readProvider()
     this.#binaryPath = options.binaryPath ?? null
     this.#logger = options.logger
     this.#capabilities = options.capabilities ?? null
@@ -381,19 +382,26 @@ export class CodexRuntime implements AgentRuntime {
    * started with could point it elsewhere — a `-c` override naming a
    * provider or base URL included. See `codexProvider`.
    */
-  #resolveProvider(cwd?: string): string | null {
+  async #resolveProvider(cwd?: string): Promise<string | null> {
     if (this.#launch.overrides.some((one) => /model_provider|base_url/.test(one))) return null
     return codexProvider(this.#codexHome, this.#launch.env, cwd)
   }
 
+  #readProvider(): Promise<void> {
+    return this.#resolveProvider().then((provider) => { this.#provider = provider }, () => { this.#provider = null })
+  }
+
   /** `AgentRuntime.providerAt`: a project's own `.codex/config.toml` can point its sessions elsewhere. */
-  providerAt(cwd: string): string | null {
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
     return this.#provider === null ? null : this.#resolveProvider(cwd)
   }
 
   async start(): Promise<void> {
-    this.#provider = this.#resolveProvider()
+    // Read beside the spawn, never ahead of it: a quit must find the start where it always did.
+    this.#providerRead = this.#readProvider()
     await this.#spawnServer()
+    await this.#providerRead
     // The links a slot's home is made of are relaid on every start, and a home
     // that had never held a thread now has a `sessions` directory to resolve.
     this.#sessionStore = sessionStoreOf(this.#codexHome)

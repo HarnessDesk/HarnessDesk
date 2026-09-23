@@ -120,11 +120,11 @@ test("a managed update leaves the row's name as it was, and the overlay still sh
   assert.equal(knowledgeOverlay(config, knownAgent('antigravity-acp'), { env: {} }).name, 'Antigravity')
 })
 
-test('a row the desk knows gets a reader for which vendor its models come from; an unknown row gets none', () => {
+test('a row the desk knows gets a reader for which vendor its models come from; an unknown row gets none', async () => {
   const env = { ANTHROPIC_BASE_URL: 'https://proxy.example.com' }
   const claude = knowledgeOverlay({ id: 'claude-code', name: 'Claude Code', command: 'claude-acp' }, knownAgent('claude-code'), { env })
   assert.equal(typeof claude.resolveProvider, 'function')
-  assert.equal(claude.resolveProvider?.(), null, 'read with the environment the row is started with')
+  assert.equal(await claude.resolveProvider?.(), null, 'read with the environment the row is started with')
   const stranger = knowledgeOverlay({ id: 'someone-else', name: 'Someone', command: 'someone' }, undefined, { env: {} })
   assert.equal(stranger.resolveProvider, undefined)
 })

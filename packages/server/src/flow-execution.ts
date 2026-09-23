@@ -91,7 +91,7 @@ export interface FlowStartRequest {
  */
 export interface FlowExecutionPort {
   /** Which vendor a session of this runtime in `cwd` reaches, as its adapter reports it; null when unknown. */
-  providerOf(runtime: string, cwd: string): string | null
+  providerOf(runtime: string, cwd: string): Promise<string | null>
   /** GoalPlane.seat: resolves the Agent, opens and records the Seat, hands over its brief, claims `card`. */
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
@@ -806,13 +806,13 @@ export class FlowExecutions {
   }
 
   /** Providers of every Seat that worked a round of these roles; null in the set means one was unknown. */
-  #writers(run: StoredFlowExecution, roles: readonly string[]): Set<string | null> {
+  async #writers(run: StoredFlowExecution, roles: readonly string[]): Promise<Set<string | null>> {
     const providers = new Set<string | null>()
     for (const round of run.rounds) {
       if (!roles.includes(round.role)) continue
       for (const id of round.seats) {
         const seat = this.#port.seatOf(id)
-        providers.add(seat ? this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null)
+        providers.add(seat ? await this.#port.providerOf(seat.session.runtime, seat.checkout.cwd) : null)
       }
     }
     return providers
@@ -849,13 +849,18 @@ export class FlowExecutions {
       let candidates: readonly FlowSeat[] = binding.seats
       let writers: Set<string | null> | null = null
       if (independentOf.length > 0) {
-        writers = this.#writers(run, independentOf)
+        const known = await this.#writers(run, independentOf)
+        writers = known
         const offered = binding.seats.length > 0 ? binding.seats : binding.agent.prefer
         const board = this.#team.stateFor(run.goal)
-        candidates = writers.has(null) ? [] : offered.filter((seat) => {
-          const provider = this.#port.providerOf(seat.runtime, board.cwd ?? board.root)
-          return provider !== null && !writers!.has(provider)
-        })
+        const kept: FlowSeat[] = []
+        if (!known.has(null)) {
+          for (const seat of offered) {
+            const provider = await this.#port.providerOf(seat.runtime, board.cwd ?? board.root)
+            if (provider !== null && !known.has(provider)) kept.push(seat)
+          }
+        }
+        candidates = kept
         if (candidates.length === 0) return fail(INDEPENDENT)
       }
       if (await this.#port.digestOf(run.goal, binding.agent.id) !== binding.digest) return fail(BRIEF_CHANGED)
@@ -876,7 +881,7 @@ export class FlowExecutions {
       await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'finished', card, seat: String(record.id) }))
       if (record.briefDigest !== binding.digest) return fail(BRIEF_CHANGED)
       if (writers) {
-        const actual = this.#port.providerOf(record.session.runtime, record.checkout.cwd)
+        const actual = await this.#port.providerOf(record.session.runtime, record.checkout.cwd)
         if (actual === null || writers.has(actual)) return fail(INDEPENDENT)
       }
       if (isolate) {

@@ -309,8 +309,8 @@ export const builtinFlowRoot = (): string =>
  * `info.provider` otherwise, and unknown for an account that pays through a
  * gateway, which can serve anyone's models. See `Host.#providerOf`.
  */
-export const reportedProvider = (runtime: AgentRuntime, cwd: string, throughGateway: boolean): string | null =>
-  throughGateway ? null : (runtime.providerAt ? runtime.providerAt(cwd) : runtime.info.provider) ?? null
+export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throughGateway: boolean): Promise<string | null> =>
+  throughGateway ? null : (runtime.providerAt ? await runtime.providerAt(cwd) : runtime.info.provider) ?? null
 
 /**
  * The "Last terminal output" composer chip. Terminals are the host's own
@@ -1767,7 +1767,7 @@ export class Host {
    * runs through a gateway, which can serve anyone's models. Never inferred
    * from a runtime's id or name.
    */
-  #providerOf(runtime: string, cwd: string): string | null {
+  async #providerOf(runtime: string, cwd: string): Promise<string | null> {
     const agent = this.#runtimes.get(runtime)
     return agent ? reportedProvider(agent, cwd, Boolean(this.options.accounts?.slotOf(agent.info)?.gateway)) : null
   }

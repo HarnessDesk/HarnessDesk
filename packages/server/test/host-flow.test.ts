@@ -230,13 +230,13 @@ test('wrapped or restored Goal cannot dispatch', async (t) => {
  * reports — never a table of names — and a gateway account is unknown
  * whatever its adapter says, since its endpoint can serve anyone's models.
  */
-test('the provider a flow checks independence against is the one the adapter reports', () => {
-  assert.equal(reportedProvider(new FakeRuntime({ provider: 'vendor-a' }), '/w', false), 'vendor-a')
-  assert.equal(reportedProvider(new FakeRuntime({ provider: 'vendor-a' }), '/w', true), null, 'an account paying through a gateway')
-  assert.equal(reportedProvider(new FakeRuntime({ id: 'codex' as never }), '/w', false), null, 'no report is unknown, whatever the runtime is called')
+test('the provider a flow checks independence against is the one the adapter reports', async () => {
+  assert.equal(await reportedProvider(new FakeRuntime({ provider: 'vendor-a' }), '/w', false), 'vendor-a')
+  assert.equal(await reportedProvider(new FakeRuntime({ provider: 'vendor-a' }), '/w', true), null, 'an account paying through a gateway')
+  assert.equal(await reportedProvider(new FakeRuntime({ id: 'codex' as never }), '/w', false), null, 'no report is unknown, whatever the runtime is called')
   const scoped = Object.assign(new FakeRuntime({ provider: 'vendor-a' }), {
-    providerAt: (cwd: string) => (cwd === '/overridden' ? null : 'vendor-a'),
+    providerAt: async (cwd: string) => (cwd === '/overridden' ? null : 'vendor-a'),
   })
-  assert.equal(reportedProvider(scoped, '/overridden', false), null, 'a project whose own configuration points it elsewhere')
-  assert.equal(reportedProvider(scoped, '/w', false), 'vendor-a')
+  assert.equal(await reportedProvider(scoped, '/overridden', false), null, 'a project whose own configuration points it elsewhere')
+  assert.equal(await reportedProvider(scoped, '/w', false), 'vendor-a')
 })
