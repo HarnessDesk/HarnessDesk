@@ -731,6 +731,46 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     project: optional(isString),
   }),
 
+  'attachment/agent': shape({
+    id: isFilled,
+    origin: literalUnion('project', 'user', 'builtin'),
+    project: optional(isString),
+  }),
+  'attachment/edit/preview': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    skills: arrayOf(isString),
+    mcp: arrayOf(isString),
+  }),
+  'attachment/edit/write': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    skills: arrayOf(isString),
+    mcp: arrayOf(isString),
+    digest: isFilled,
+  }),
+  'attachment/notes': shape({
+    id: isFilled,
+    origin: literalUnion('project', 'user', 'builtin'),
+    project: optional(isString),
+  }),
+  'attachment/notes/clear': shape({
+    id: isFilled,
+    origin: literalUnion('user', 'project'),
+    project: optional(isString),
+    digest: isFilled,
+  }),
+  'attachment/review': shape({
+    id: isFilled,
+    origin: literalUnion('project', 'user', 'builtin'),
+    project: optional(isString),
+    runtime: isFilled,
+  }),
+  'attachment/approve': shape({ token: atMost(200, isFilled) }),
+  'attachment/seat': shape({ seat: isFilled }),
+
   'evidence/seat': shape({ runtime: isFilled, sessionId: isFilled }),
   'evidence/checks': shape({ project: isFilled }),
   'evidence/board': shape({ room: isFilled }),

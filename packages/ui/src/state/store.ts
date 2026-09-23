@@ -3997,6 +3997,73 @@ export class AppStore {
     return written
   }
 
+  /** Any origin, including `builtin` — the read-only front door onto an Agent's declarations, or its notes. */
+  #attachmentTarget(named: { readonly id: string; readonly origin: AgentEntry['origin'] }): { readonly id: string; readonly origin: AgentEntry['origin']; readonly project?: string } {
+    if (named.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before reading it.')
+      return { id: named.id, origin: named.origin, project }
+    }
+    return { id: named.id, origin: named.origin }
+  }
+
+  /** `user` or `project` only — writing an Agent's own file, exactly like `#ceilingTarget`. */
+  #editTarget(named: { readonly id: string; readonly origin: AgentEntry['origin'] }): { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string } {
+    if (named.origin === 'builtin') {
+      throw new Error('An Agent that ships with the app is updated by the app. Customize it first.')
+    }
+    if (named.origin === 'project') {
+      const project = this.#snapshot.agentsProject
+      if (!project) throw new Error('Open the project that owns this Agent before updating it.')
+      return { id: named.id, origin: named.origin, project }
+    }
+    return { id: named.id, origin: named.origin }
+  }
+
+  /** What an Agent declares (`skills:`/`mcp:`) and what each measured runtime build can do with each kind. */
+  async readAgentAttachments(id: string, origin: AgentEntry['origin']): Promise<import('@harnessdesk/protocol').AgentAttachmentsView> {
+    return this.transport.request('attachment/agent', this.#attachmentTarget({ id, origin }))
+  }
+
+  /** Previews exactly the `skills:`/`mcp:` lines a write would change. */
+  async previewAttachmentEdit(entry: AgentEntry, skills: readonly string[], mcp: readonly string[]): Promise<import('@harnessdesk/protocol').AttachmentEditPreview> {
+    return this.transport.request('attachment/edit/preview', { ...this.#editTarget(entry), skills, mcp })
+  }
+
+  /** Writes exactly the previewed edit, bound to the digest that preview showed. */
+  async writeAttachmentEdit(entry: AgentEntry, skills: readonly string[], mcp: readonly string[], digest: string): Promise<AgentEntry> {
+    const project = this.#snapshot.agentsProject
+    const written = await this.transport.request('attachment/edit/write', { ...this.#editTarget(entry), skills, mcp, digest })
+    const agents = this.#snapshot.agents
+    if (agents && project === this.#snapshot.agentsProject) {
+      this.#patch({
+        agents: agents.map((one) => (
+          one.id === written.id && one.origin === written.origin && one.path === written.path ? written : one
+        )),
+      })
+    }
+    return written
+  }
+
+  /** Reads `NOTES.md` beside an Agent's file. A missing file is `text: null`. */
+  async readAgentNotes(id: string, origin: AgentEntry['origin']): Promise<import('@harnessdesk/protocol').AgentNotesView> {
+    return this.transport.request('attachment/notes', this.#attachmentTarget({ id, origin }))
+  }
+
+  /** Clears an Agent's notes to empty, bound to the exact digest it was shown at. */
+  async clearAgentNotes(id: string, origin: AgentEntry['origin'], digest: string): Promise<import('@harnessdesk/protocol').AgentNotesView> {
+    return this.transport.request('attachment/notes/clear', { ...this.#editTarget({ id, origin }), digest })
+  }
+
+  /** What a person is asked to approve before this Agent's declared content may load for one runtime — the exact bytes, never a promise to fetch them again later. */
+  async reviewAttachments(id: string, origin: AgentEntry['origin'], runtime: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
+    return this.transport.request('attachment/review', { ...this.#attachmentTarget({ id, origin }), runtime })
+  }
+
+  /** Records a person's approval of exactly the reviewed token. */
+  async approveAttachments(token: string): Promise<void> {
+    await this.transport.request('attachment/approve', { token })
+  }
 
   /**
    * Numbered against overlapping reads: a workspace switch, an `agent/changed`

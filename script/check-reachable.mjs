@@ -59,6 +59,8 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
+  'attachment/seat':
+    "phase 12 Task 5's own promised interface for Task 6's name-card and Library consumers (SeatAttachments, ComposerControls), which land separately — remove this line in the task that adds the first caller",
 }
 
 /**

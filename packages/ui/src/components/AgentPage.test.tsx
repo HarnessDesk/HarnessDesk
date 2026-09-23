@@ -188,6 +188,23 @@ const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}
     loadSeating: vi.fn(async () => {}),
     setSeating: vi.fn(async () => {}),
     modelsFor: vi.fn(async () => MODELS),
+    // Neutral defaults: every AgentPage render now mounts AgentAttachments
+    // and AgentNotes unconditionally, so a test with no opinion about either
+    // still needs a settled promise rather than "not a function". Tests
+    // about the allowlists or notes themselves override these explicitly.
+    readAgentAttachments: vi.fn(async () => ({
+      agent: 'x',
+      origin: 'user',
+      agentDigest: 'd',
+      skillsMode: 'runtime-defaults',
+      mcpMode: 'runtime-defaults',
+      declarations: [],
+      support: [],
+    })),
+    previewAttachmentEdit: vi.fn(async () => ({ path: '/AGENT.md', digest: 'd', diff: '' })),
+    writeAttachmentEdit: vi.fn(async (entry: AgentEntry) => entry),
+    readAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: null, digest: null, writable: true, problem: null })),
+    clearAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: '', digest: 'e'.repeat(64), writable: true, problem: null })),
     ...overrides,
   }) as unknown as AppStore
 
@@ -266,13 +283,17 @@ it('lists its own seats, muted, where this Mac’s replace them', () => {
   expect(text).toContain('Comes first over the one that ships')
 })
 
-it('shows what it answers, produces and uses, and a skill opens the Library', () => {
+it('shows what it answers and produces, and reads its editable Skills/Servers section from the host, never "None"', async () => {
   const { store } = mount({ focus: 'judge' })
   const text = container.textContent ?? ''
   expect(text).toContain('Approve · Request changes')
   expect(text).toContain('Review')
-  act(() => button('checkout-rules').click())
-  expect(store.askSettings).toHaveBeenCalledWith('library')
+  await settle()
+  // Task 5's replacement for the old read-only Skills row: declarations come
+  // from the host (`attachment/agent`), keyed by this exact Agent/origin —
+  // never rendered as "None" for whatever this fixture's own default answers.
+  expect(store.readAgentAttachments).toHaveBeenCalledWith('judge', 'builtin')
+  expect(container.textContent ?? '').toContain('Runtime defaults')
 })
 
 it('opens on the brief’s first paragraph, and opens the rest in the editor', () => {

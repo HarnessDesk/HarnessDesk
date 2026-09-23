@@ -134,3 +134,31 @@ export interface SessionAttachmentReceipt {
   readonly loaded: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly digest: string }[]
   readonly refused: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly reason: string }[]
 }
+
+/**
+ * Task 5: a previewed `skills:`/`mcp:` rewrite, before anything is written.
+ *
+ * Shaped like the existing `CeilingUpdate` this desk already ships for the
+ * one line phase 3 edits — `digest` of the file exactly as previewed, and a
+ * unified `diff` a person reads before choosing to write it — rather than
+ * the plan's own literal `{token, before, after}` sketch: this repository
+ * already has a working, tested pattern for "preview one front-matter edit,
+ * write it bound to its digest" (`agent-def.ts`'s `ceilingEdit`), and this
+ * follows it rather than inventing a second one. There is no separate
+ * server-held token; the digest a preview shows is exactly what `.../write`
+ * must be given back, the same way `agent/ceiling/write` already works.
+ */
+export interface AttachmentEditPreview {
+  readonly path: string
+  readonly digest: string
+  readonly diff: string
+}
+
+/** `NOTES.md` beside an Agent's file, as the Agent page shows and clears it. */
+export interface AgentNotesView {
+  readonly path: string
+  readonly text: string | null
+  readonly digest: string | null
+  readonly writable: boolean
+  readonly problem: string | null
+}

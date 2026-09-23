@@ -1,0 +1,177 @@
+import assert from 'node:assert/strict'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { test } from 'node:test'
+
+import type { AgentAttachmentsView, AgentEntry, AgentNotesView, AttachmentEditPreview } from '@harnessdesk/protocol'
+
+import { Client, start } from './fixtures/harness.js'
+
+/**
+ * Task 5's wire surface over a real Host: `attachment/agent` for the Agent
+ * page, `attachment/edit/{preview,write}` for its Skills/Servers allowlists,
+ * `attachment/notes` and `.../clear` for its Notes section. Every handler
+ * resolves its own folder from id/origin — never from a path or digest the
+ * client supplies — the same discipline `agent/ceiling/*` already holds.
+ */
+
+const REVIEWER = ['---', 'name: Reviewer', 'ceiling: read', 'prefer: [fake]', '---', 'Read the diff.', ''].join('\n')
+
+test('attachment/agent shows runtime defaults for an undeclared Agent, never "none"', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  await mkdir(`${harness.stateDir}/agents/reviewer`, { recursive: true })
+  await writeFile(`${harness.stateDir}/agents/reviewer/AGENT.md`, REVIEWER, 'utf8')
+
+  const view = (await client.call('attachment/agent', { id: 'reviewer', origin: 'user' })) as AgentAttachmentsView
+  assert.equal(view.agent, 'reviewer')
+  assert.equal(view.origin, 'user')
+  assert.equal(view.skillsMode, 'runtime-defaults')
+  assert.equal(view.mcpMode, 'runtime-defaults')
+  assert.deepEqual(view.declarations, [])
+  assert.ok(view.support.length > 0, 'at least the fake runtime reports its own measured support')
+})
+
+test('attachment/agent refuses an Agent nobody has here', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  await assert.rejects(client.call('attachment/agent', { id: 'ghost', origin: 'user' }), /no.*Agent/i)
+})
+
+test('preview shows the exact diff and changes nothing on disk; write applies exactly that diff, bound to its digest', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const folder = `${harness.stateDir}/agents/reviewer`
+  await mkdir(folder, { recursive: true })
+  await writeFile(`${folder}/AGENT.md`, REVIEWER, 'utf8')
+
+  const preview = (await client.call('attachment/edit/preview', {
+    id: 'reviewer',
+    origin: 'user',
+    skills: ['review-checklist'],
+    mcp: [],
+  })) as AttachmentEditPreview
+  assert.match(preview.diff, /\+skills: \[review-checklist\]/)
+  assert.match(preview.diff, /\+mcp: \[\]/)
+  assert.equal(await readFile(`${folder}/AGENT.md`, 'utf8'), REVIEWER, 'a preview writes nothing')
+
+  const written = (await client.call('attachment/edit/write', {
+    id: 'reviewer',
+    origin: 'user',
+    skills: ['review-checklist'],
+    mcp: [],
+    digest: preview.digest,
+  })) as AgentEntry
+  assert.deepEqual(written.definition?.skills, ['review-checklist'])
+  const onDisk = await readFile(`${folder}/AGENT.md`, 'utf8')
+  assert.match(onDisk, /skills: \[review-checklist\]/)
+  assert.match(onDisk, /name: Reviewer/, 'everything else about the file is untouched')
+})
+
+test('write refuses a stale digest and leaves the newer file exactly as it was', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const folder = `${harness.stateDir}/agents/reviewer`
+  await mkdir(folder, { recursive: true })
+  await writeFile(`${folder}/AGENT.md`, REVIEWER, 'utf8')
+  const preview = (await client.call('attachment/edit/preview', { id: 'reviewer', origin: 'user', skills: ['a'], mcp: [] })) as AttachmentEditPreview
+
+  // Somebody else's edit lands first.
+  await writeFile(`${folder}/AGENT.md`, `${REVIEWER}\nEdited elsewhere.\n`, 'utf8')
+
+  await assert.rejects(
+    client.call('attachment/edit/write', { id: 'reviewer', origin: 'user', skills: ['a'], mcp: [], digest: preview.digest }),
+    /has changed since the update was shown to you/,
+  )
+  assert.match(await readFile(`${folder}/AGENT.md`, 'utf8'), /Edited elsewhere\./)
+})
+
+test('a built-in origin is refused at the wire before it ever reaches a handler — editing and clearing take only user or project', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  await assert.rejects(
+    client.call('attachment/edit/preview', { id: 'reviewer', origin: 'builtin', skills: ['a'], mcp: [] } as never),
+    /expected one of user \| project/,
+  )
+  await assert.rejects(
+    client.call('attachment/notes/clear', { id: 'reviewer', origin: 'builtin', digest: 'a'.repeat(64) } as never),
+    /expected one of user \| project/,
+  )
+})
+
+test('notes: missing reads as text: null, and a person can clear only what was actually shown', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const folder = `${harness.stateDir}/agents/reviewer`
+  await mkdir(folder, { recursive: true })
+  await writeFile(`${folder}/AGENT.md`, REVIEWER, 'utf8')
+
+  const missing = (await client.call('attachment/notes', { id: 'reviewer', origin: 'user' })) as AgentNotesView
+  assert.equal(missing.text, null)
+
+  await writeFile(`${folder}/NOTES.md`, 'Prefer small diffs.\n', 'utf8')
+  const shown = (await client.call('attachment/notes', { id: 'reviewer', origin: 'user' })) as AgentNotesView
+  assert.equal(shown.text, 'Prefer small diffs.\n')
+
+  const cleared = (await client.call('attachment/notes/clear', { id: 'reviewer', origin: 'user', digest: shown.digest })) as AgentNotesView
+  assert.equal(cleared.text, '')
+  assert.equal(await readFile(`${folder}/NOTES.md`, 'utf8'), '')
+})
+
+test('notes clear refuses a stale digest, leaving the newer text intact', async (t) => {
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await harness.server.close().catch(() => {})
+    await harness.host.dispose().catch(() => {})
+    await rm(harness.stateDir, { recursive: true, force: true })
+  })
+  const folder = `${harness.stateDir}/agents/reviewer`
+  await mkdir(folder, { recursive: true })
+  await writeFile(`${folder}/AGENT.md`, REVIEWER, 'utf8')
+  await writeFile(`${folder}/NOTES.md`, 'first', 'utf8')
+  const shown = (await client.call('attachment/notes', { id: 'reviewer', origin: 'user' })) as AgentNotesView
+  await writeFile(`${folder}/NOTES.md`, 'changed since then', 'utf8')
+  await assert.rejects(
+    client.call('attachment/notes/clear', { id: 'reviewer', origin: 'user', digest: shown.digest }),
+    /changed since it was shown to you/,
+  )
+  assert.equal(await readFile(`${folder}/NOTES.md`, 'utf8'), 'changed since then')
+})

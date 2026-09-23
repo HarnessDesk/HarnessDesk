@@ -2076,6 +2076,11 @@ export class Host {
       attachments: {
         prepare: (subject) => this.#attachments.prepare(subject),
         record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
+        trust: {
+          preview: (subject, entries) => this.#attachmentTrust.preview(subject, entries),
+          approve: (token) => this.#attachmentTrust.approve(token),
+        },
+        seatRecord: (seat) => this.#attachments.read(seat),
       },
       provenance: {
         read: (root, shas) => this.#provenance.read(root, shas),

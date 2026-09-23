@@ -1149,6 +1149,11 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
       recordCalls += 1
       throw new Error('injected sidecar write failure')
     },
+    trust: {
+      preview: async () => { throw new Error('not used by this test') },
+      approve: async () => { throw new Error('not used by this test') },
+    },
+    seatRecord: async () => null,
   }
   await assert.rejects(
     // A real directory, unlike every other test's `/tmp/x`: phase 12's Seat

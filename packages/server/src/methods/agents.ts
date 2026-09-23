@@ -655,7 +655,7 @@ export async function seatAgent(
  * A folder inside a checkout is read as that checkout's top (`topLevel`),
  * because that is where a project keeps its Agents.
  */
-const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
+export const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
   if (project === undefined) return undefined
   if (!isAbsolute(project)) throw new Error(`${project} is not an absolute path.`)
   const confined = await ctx.workspaces.confineGitRoot(project)
@@ -669,7 +669,7 @@ const projectOf = async (ctx: HostContext, project: string | undefined): Promise
 }
 
 /** Why an entry cannot be seated: its first error, where it is, in the file's own terms. */
-const unusable = (entry: AgentEntry): string => {
+export const unusable = (entry: AgentEntry): string => {
   const problem = entry.problems.find((one) => one.level === 'error')
   return `${entry.path} cannot be used: ${problem ? `${problem.at} — ${problem.text}` : 'it could not be read'}`
 }
@@ -718,7 +718,7 @@ const RANK: Readonly<Record<AgentOrigin, number>> = { project: 0, user: 1, built
 
 const exactSeat = (seat: FlowSeat): boolean => Boolean(seat.model || seat.effort || seat.thinking)
 
-const originAgent = (origin: AgentOrigin): string =>
+export const originAgent = (origin: AgentOrigin): string =>
   origin === 'builtin' ? 'built-in' : origin === 'user' ? 'personal' : 'project'
 
 const originCopy = (origin: AgentOrigin): string =>
@@ -733,7 +733,7 @@ const shadowedText = (to: 'user' | 'project', winner: AgentOrigin, id: string): 
 const copyAt = (entry: AgentEntry, origin: AgentOrigin): string | null =>
   entry.origin === origin ? entry.path : (entry.shadows.find((one) => one.origin === origin)?.path ?? null)
 
-type ListedAgentPath =
+export type ListedAgentPath =
   | { readonly at: 'found'; readonly path: string }
   | { readonly at: 'missing' }
   | { readonly at: 'invalid' }
@@ -744,7 +744,7 @@ type ListedAgentPath =
  * other path. Neither becomes a copy, Trash target or reveal merely because it
  * appeared in the roster.
  */
-const listedAgentPath = (
+export const listedAgentPath = (
   ctx: HostContext,
   entry: AgentEntry,
   origin: AgentOrigin,
@@ -765,7 +765,7 @@ const listedAgentPath = (
   return { at: 'found', path }
 }
 
-const updatable = async (
+export const updatable = async (
   ctx: HostContext,
   params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string },
 ): Promise<{ readonly path: string; readonly folder: string; readonly project: string | undefined }> => {

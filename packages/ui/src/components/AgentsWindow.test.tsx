@@ -100,6 +100,16 @@ const mount = (focus: string | null = null) => {
     getSnapshot: () => snapshot,
     loadAgents: vi.fn(async () => {}),
     loadSeating: vi.fn(async () => {}),
+    readAgentAttachments: vi.fn(async () => ({
+      agent: 'x',
+      origin: 'user',
+      agentDigest: 'd',
+      skillsMode: 'runtime-defaults',
+      mcpMode: 'runtime-defaults',
+      declarations: [],
+      support: [],
+    })),
+    readAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: null, digest: null, writable: true, problem: null })),
   } as unknown as AppStore
   const onClose = vi.fn()
   const onFocus = vi.fn()

@@ -1,5 +1,12 @@
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import type {
+  AgentAttachmentsView,
+  AgentNotesView,
+  AttachmentEditPreview,
+  AttachmentReview,
+  SeatAttachmentsRecord,
+} from './attachments.js'
 import type { CaptureHealth, ProjectProvenance, ProvenanceBackup, ProvenanceSeatDetail } from './provenance.js'
 import type {
   CapabilityContribution,
@@ -1778,6 +1785,65 @@ export interface HostMethods {
     }
     result: AgentEntry
   }
+  /**
+   * Phase 12, Task 5: what an Agent declares (`skills:`/`mcp:`) and what
+   * each measured runtime build can actually do with each kind, for the
+   * Agent page. A front door — it never loads anything, and never accepts a
+   * loaded state or a digest from the caller: everything here is read back
+   * from the same catalog/trust machinery a real Seat opening consults.
+   */
+  'attachment/agent': {
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly project?: string }
+    result: AgentAttachmentsView
+  }
+  /** Previews exactly the `skills:`/`mcp:` lines a write would change, touching nothing else. */
+  'attachment/edit/preview': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly skills: readonly string[]
+      readonly mcp: readonly string[]
+    }
+    result: AttachmentEditPreview
+  }
+  /** Writes exactly the previewed edit, bound to the digest that preview showed. */
+  'attachment/edit/write': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly skills: readonly string[]
+      readonly mcp: readonly string[]
+      readonly digest: string
+    }
+    result: AgentEntry
+  }
+  /** Reads `NOTES.md` beside an Agent's file. A missing file is `text: null`, never created by reading it. */
+  'attachment/notes': {
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly project?: string }
+    result: AgentNotesView
+  }
+  /** Clears `NOTES.md` to empty — an explicit action bound to the exact digest shown. */
+  'attachment/notes/clear': {
+    params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string; readonly digest: string }
+    result: AgentNotesView
+  }
+  /**
+   * What a person is asked to approve before this Agent's declared content
+   * may ever load for the named runtime: the exact bundle bytes, never a
+   * promise to fetch them again later. `runtime` and every other fact in the
+   * answer (ceiling, incarnation, build) are host-derived; a client cannot
+   * supply them.
+   */
+  'attachment/review': {
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly project?: string; readonly runtime: string }
+    result: AttachmentReview
+  }
+  /** Records a person's approval of exactly the reviewed token. */
+  'attachment/approve': { params: { readonly token: string }; result: null }
+  /** A Seat's frozen attachment identities and load history, by immutable Seat id — never by an Agent's current name or file. */
+  'attachment/seat': { params: { readonly seat: SeatId }; result: SeatAttachmentsRecord | null }
   /**
    * *Customize…*: copies the Agent found at `from` to this machine or to a
    * project, where the copy shadows it, and answers the copy's entry. Refused

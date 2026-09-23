@@ -3,6 +3,7 @@ import type {
   AgentRuntime,
   AgentSession,
   ApprovalDecision,
+  AttachmentReview,
   CeilingLevel,
   ArchiveFilter,
   BackupFile,
@@ -18,6 +19,7 @@ import type {
   RuntimeId,
   RuntimeInfo,
   SeatAttachmentsRecord,
+  SeatId,
   SeatLeft,
   SeatRecord,
   SecretReload,
@@ -60,6 +62,7 @@ import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
 import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
+import type { ResolvedAttachment } from '../attachments/catalog.js'
 
 /**
  * What a wire method may reach.
@@ -128,6 +131,13 @@ export interface HostContext {
   readonly attachments?: {
     prepare(subject: AttachmentSubject): Promise<PreparedAttachments>
     record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
+    /** Task 5's own two person-facing verbs on Task 1's trust store — a preview names exact bytes, an approval names exactly the token that preview minted. */
+    readonly trust: {
+      preview(subject: AttachmentSubject, entries: readonly ResolvedAttachment[]): Promise<AttachmentReview>
+      approve(token: string): Promise<void>
+    }
+    /** A Seat's frozen attachment history, by immutable Seat id — Task 3's own durable receipts, read back for the Agent page and the Library. */
+    seatRecord(seat: SeatId): Promise<SeatAttachmentsRecord | null>
   }
   readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane
