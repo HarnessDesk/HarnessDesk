@@ -69,6 +69,16 @@ export interface ScanResult {
   readonly offset: number
   /** Message ids seen at the end of the file, so a resume cannot re-count them. */
   readonly tail: readonly string[]
+  /**
+   * Bytes actually read from the source in this call — what an Insight
+   * read's shared budget is spent against, never `offset` alone (round 3
+   * review): a line `take()` rejects as not JSON is read from disk before
+   * it is rejected, but never advances `offset`, which exists to resume an
+   * incremental scan from the last *committed* line, not to say how much
+   * was read. For every scanner but the line-based ones this equals
+   * `offset`; there is nothing else it could mean for a whole-file read.
+   */
+  readonly bytesRead: number
 }
 
 /** How many trailing ids are carried across a resume boundary. */
@@ -286,13 +296,20 @@ const parseTime = (value: unknown): number | null => {
  * exactly there is told apart from one that keeps going — which keeps
  * `pending` itself from ever holding more than that, whatever the file
  * contains between newlines.
+ *
+ * Returns `offset` — the resume cursor, advanced only for lines actually
+ * committed — beside `bytesRead`, the stream's own count of bytes pulled
+ * from the file regardless of whether the last one was committed (round 3
+ * review): a line `take()` rejects as not JSON was still read off disk
+ * before it was rejected, and `offset` alone said none of it had been,
+ * which a shared Insight budget took at face value.
  */
 const readLines = async (
   path: string,
   offset: number,
   onLine: (record: unknown, bytes: number) => void,
   budget?: number,
-): Promise<number> => {
+): Promise<{ offset: number; bytesRead: number }> => {
   const stream = nodeFs.createReadStream(path, budget === undefined ? { start: offset } : { start: offset, end: offset + budget })
   let consumed = offset
   let pending: Buffer = Buffer.alloc(0)
@@ -310,7 +327,7 @@ const readLines = async (
         spend(bytes)
         const line = pending.subarray(0, at).toString('utf8')
         pending = pending.subarray(bytes)
-        if (!take(line, bytes, onLine, (added) => (consumed += added))) return consumed
+        if (!take(line, bytes, onLine, (added) => (consumed += added))) return { offset: consumed, bytesRead: stream.bytesRead }
         at = pending.indexOf(NEWLINE)
       }
     }
@@ -330,7 +347,7 @@ const readLines = async (
     spend(pending.length)
     take(pending.toString('utf8'), pending.length, onLine, (added) => (consumed += added))
   }
-  return consumed
+  return { offset: consumed, bytesRead: stream.bytesRead }
 }
 
 const NEWLINE = 0x0a
@@ -399,7 +416,7 @@ export const scanCodexRollout = async (
      the tail carried them has an offset and nothing else, and reads them once
      from the part of the file it had already counted (review, round 2). */
   const context = contextFrom(tail) ?? (offset > 0 ? await contextBefore(target.path, offset) : unknownContext())
-  const consumed = await readLines(target.path, offset, (raw) => {
+  const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as CodexRecord
     const payload = record.payload
     if (!payload) return
@@ -426,7 +443,7 @@ export const scanCodexRollout = async (
       output: last.output_tokens, cacheRead: last.cached_input_tokens, cacheWrite: undefined,
     }, 'call', null, context.sessionId ?? null)
   }, insight?.byteLimit)
-  return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)] }
+  return { rows: [...into.rows.values()], offset: consumed, tail: [JSON.stringify(context)], bytesRead }
 }
 
 interface CodexContext {
@@ -519,7 +536,7 @@ export const scanClaudeTranscript = async (
   // boundary so a message split by two scans is still counted once.
   const seen = new Set<string>(tail)
   const order: string[] = [...tail]
-  const consumed = await readLines(target.path, offset, (raw) => {
+  const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as ClaudeRecord
     const usage = record.message?.usage
     if (!usage) return
@@ -546,7 +563,7 @@ export const scanClaudeTranscript = async (
       input: usage.input_tokens, output: usage.output_tokens, cacheRead: usage.cache_read_input_tokens, cacheWrite: usage.cache_creation_input_tokens,
     }, 'call')
   }, insight?.byteLimit)
-  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
+  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
 }
 
 /** The Gemini API's own counts, which Qwen Code records as it received them. */
@@ -603,7 +620,7 @@ export const scanQwenTranscript = async (
   const into: Accumulator = { rows: new Map() }
   const seen = new Set<string>(tail)
   const order: string[] = [...tail]
-  const consumed = await readLines(target.path, offset, (raw) => {
+  const { offset: consumed, bytesRead } = await readLines(target.path, offset, (raw) => {
     const record = raw as QwenRecord
     if (record.type !== 'assistant') return
     const usage = record.usageMetadata
@@ -638,7 +655,7 @@ export const scanQwenTranscript = async (
     add(into, target.path, target.runtime, at, model, project, aggregateTokens(aggregate))
     emit(insight, target, id ?? JSON.stringify(raw), at, model, project || null, tokens, 'call')
   }, insight?.byteLimit)
-  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL) }
+  return { rows: [...into.rows.values()], offset: consumed, tail: order.slice(-TAIL), bytesRead }
 }
 
 interface GeminiMessage {
@@ -694,13 +711,17 @@ const geminiProjectOf = (chatFile: string): string => {
  *
  * The checked size only bounds what follows if the read itself is also
  * bounded to it: `handle.read` (not `handle.readFile`, round 2 review) reads
- * into a buffer sized from the size just checked — one byte more than it, so
- * a file that ends exactly there is told apart from one that does not — and
- * whatever fills that buffer without reaching end of file, however that
- * compares to the checked size, is refused rather than trusted. A file mid
- * truncate that reads as size zero is not an exception: reading finds
- * whatever is actually there by then, one byte at a time if it must, and the
- * same refusal applies the moment more than was checked turns up.
+ * into a buffer, one byte more than the *budget* allows (round 3 review —
+ * sizing it from the checked size instead made growth of even a few bytes,
+ * comfortably within a 64 MiB budget, throw as if the whole read were over
+ * budget, which stopped every source still to come along with it). Filling
+ * that buffer without reaching end of file means more than the budget itself
+ * arrived, and is the one case refused as a budget stop. Anything smaller
+ * that still does not match the size checked before the read — grown a
+ * little, shrunk, rewritten to the same size at a different moment, a file
+ * mid truncate that read as size zero — is refused too, but as this one
+ * source failing to read, the same as any other unreadable source, never as
+ * a reason to stop reading the sources after it.
  */
 const readWholeFileWithinBudget = async (
   target: ScanTarget,
@@ -709,9 +730,9 @@ const readWholeFileWithinBudget = async (
   if (!insight) return { text: await nodeFsPromises.readFile(target.path, 'utf8'), size: target.size }
   const handle = await nodeFsPromises.open(target.path, 'r')
   try {
-    const { size } = await handle.stat()
-    if (size > insight.byteLimit) throw new InsightBudgetExceededError()
-    const capacity = Math.min(size, insight.byteLimit) + 1
+    const before = await handle.stat()
+    if (before.size > insight.byteLimit) throw new InsightBudgetExceededError()
+    const capacity = insight.byteLimit + 1
     const buffer = Buffer.alloc(capacity)
     let read = 0
     while (read < capacity) {
@@ -719,11 +740,14 @@ const readWholeFileWithinBudget = async (
       if (bytesRead === 0) break
       read += bytesRead
     }
-    // The buffer filled without reaching end of file: there is more content
-    // than the checked size allowed for, whether that means the file was
-    // already over budget or grew since the check — either way, this is not
-    // the file that was approved a moment ago.
-    if (read === capacity) throw new InsightBudgetExceededError()
+    // The buffer filled without reaching end of file: more than the whole
+    // budget arrived, whether the file was already over it or grew past it
+    // since the check. This is the one case that stops the shared read.
+    if (read > insight.byteLimit) throw new InsightBudgetExceededError()
+    const after = await handle.stat()
+    if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
+      throw new Error('the source changed while it was being read')
+    }
     return { text: buffer.subarray(0, read).toString('utf8'), size: read }
   } finally {
     await handle.close()
@@ -789,7 +813,7 @@ export const scanGeminiChat = async (target: ScanTarget, insight?: InsightScanOp
     add(into, target.path, target.runtime, at, call.model, project, aggregateTokens(aggregate))
     emit(insight, target, call.id ?? JSON.stringify(call), at, call.model, project || null, normalized, 'call')
   }
-  return { rows: [...into.rows.values()], offset: size, tail: [] }
+  return { rows: [...into.rows.values()], offset: size, tail: [], bytesRead: size }
 }
 
 /** The columns a query needs, or a reason the table is not the shape measured. */
@@ -922,7 +946,7 @@ export const scanOpencodeDatabase = async (target: ScanTarget, insight?: Insight
     })
     emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
-  return { rows: [...into.rows.values()], offset: size, tail: [] }
+  return { rows: [...into.rows.values()], offset: size, tail: [], bytesRead: size }
 }
 
 const CLINE_COLUMNS = ['model', 'cwd', 'workspace_root', 'started_at', 'updated_at', 'metadata_json'] as const
@@ -997,7 +1021,7 @@ export const scanClineDatabase = async (target: ScanTarget, insight?: InsightSca
     })
     emit(insight, target, JSON.stringify(session), at, model, project || null, observed, 'session', cost)
   }
-  return { rows: [...into.rows.values()], offset: size, tail: [] }
+  return { rows: [...into.rows.values()], offset: size, tail: [], bytesRead: size }
 }
 
 export const scanFile = (target: ScanTarget, offset: number, tail: readonly string[], insight?: InsightScanOptions): Promise<ScanResult> => {

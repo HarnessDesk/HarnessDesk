@@ -541,6 +541,26 @@ test('a rollback-journal database that grows while it is being read is refused, 
   )
 })
 
+test('a rollback-journal database written to during a no-budget read still succeeds, as SQLite’s own lock already allows', () => {
+  const dir = scratch()
+  const path = join(dir, 'rollback-nobudget-growth.db')
+  const db = new DatabaseSync(path)
+  db.exec('CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  db.close()
+
+  // No `byteLimit`, matching the background scan: the consistency check
+  // that a caller's byte budget needs must not apply here, or a write
+  // elsewhere in the file during the read — a checkpoint, another
+  // connection's commit — fails a read SQLite's own shared lock already
+  // kept consistent, where it never used to.
+  const result = readForeignDatabase(path, (database) => {
+    const value = countRows(database)
+    appendFileSync(path, 'x'.repeat(2000))
+    return value
+  })
+  assert.equal(result, 1)
+})
+
 test('each agent’s records are found where its own override moves them', () => {
   const env = {
     GEMINI_CLI_HOME: '/g',

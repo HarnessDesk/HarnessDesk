@@ -402,22 +402,27 @@ test('a line with no terminator at all is never buffered past the remaining Insi
   // that let `pending` grow without bound, since the budget was checked
   // only when a newline arrived.
   await writeFile(path, 'x'.repeat(2_000_000))
+  const budget = 1024
   let capturedEnd: number | undefined
-  let calledForTarget = false
+  let capturedStream: import('node:fs').ReadStream | undefined
   const originalCreateReadStream = nodeFs.createReadStream
   t.mock.method(nodeFs, 'createReadStream', ((streamPath: unknown, options?: { start?: number; end?: number }) => {
-    if (streamPath === path) { calledForTarget = true; capturedEnd = options?.end }
-    return (originalCreateReadStream as (...args: unknown[]) => unknown)(streamPath, options)
+    const stream = (originalCreateReadStream as (...args: unknown[]) => import('node:fs').ReadStream)(streamPath, options)
+    if (streamPath === path) { capturedStream = stream; capturedEnd = options?.end }
+    return stream
   }) as typeof nodeFs.createReadStream)
 
   const target = { runtime: 'codex', kind: 'codex' as const, path, size: 0, mtime: 0 }
   const samples: import('../src/ledger/insight.js').UsageSample[] = []
   await assert.rejects(
-    scanCodexRollout(target, 0, [], { emit: (sample) => samples.push(sample), byteLimit: 1024 }),
+    scanCodexRollout(target, 0, [], { emit: (sample) => samples.push(sample), byteLimit: budget }),
     (error) => error instanceof InsightBudgetExceededError,
   )
-  assert.ok(calledForTarget, 'the mock observed the actual stream open for this file')
-  assert.equal(capturedEnd, 1024, 'the stream itself is bounded to the remaining budget, so a terminator-free line is never buffered past it')
+  assert.ok(capturedStream, 'the mock observed the real stream open for this file')
+  assert.equal(capturedEnd, budget, 'the stream itself is bounded to the remaining budget, so a terminator-free line is never buffered past it')
+  // The bound above is what the source code asks the stream to do; this is
+  // what the real stream, on the real file, actually did.
+  assert.ok(capturedStream!.bytesRead <= budget + 1, `expected at most ${budget + 1} bytes actually read from the real file, got ${capturedStream!.bytesRead}`)
 })
 
 test('a Gemini chat that grows right after its size is checked is refused, not read past the checked size', async (t) => {
@@ -451,4 +456,107 @@ test('a Gemini chat that grows right after its size is checked is refused, not r
     (error) => error instanceof InsightBudgetExceededError,
   )
   assert.equal(samples.length, 0, 'a source that grew right after the check is refused wholesale, never partly parsed')
+})
+
+test('a Gemini chat that grows a little, comfortably staying under a large budget, fails as an ordinary source, never as a budget stop', async (t) => {
+  const dir = tempDir('hd-insight-gemini-minor-growth-')
+  const geminiDir = join(dir, 'project', 'chats'); await mkdir(geminiDir, { recursive: true })
+  const path = join(geminiDir, 'chat.jsonl')
+  const initial = `${JSON.stringify({ type: 'gemini', id: 'g', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10, output: 5 } })}\n`
+  await writeFile(path, initial)
+
+  // Grows by 3 bytes, nowhere near the 64 MiB budget — the checked size no
+  // longer matching what is actually there must still be refused (the
+  // content can no longer be trusted as one coherent snapshot), but as an
+  // ordinary failed source, not the shared-budget stop that would otherwise
+  // end the whole read for every source still to come.
+  const originalOpen = nodeFsPromises.open
+  t.mock.method(nodeFsPromises, 'open', (async (...args: Parameters<typeof nodeFsPromises.open>) => {
+    const handle = await originalOpen(...args)
+    if (args[0] !== path) return handle
+    const originalStat = handle.stat.bind(handle)
+    t.mock.method(handle, 'stat', async () => {
+      const result = await originalStat()
+      await appendFile(path, 'xyz')
+      return result
+    })
+    return handle
+  }) as typeof nodeFsPromises.open)
+
+  const geminiTarget = { runtime: 'gemini', kind: 'gemini' as const, path, size: 0, mtime: 0 }
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  await assert.rejects(
+    scanGeminiChat(geminiTarget, { emit: (sample) => samples.push(sample), byteLimit: 64 * 1024 * 1024 }),
+    (error) => !(error instanceof InsightBudgetExceededError),
+  )
+  assert.equal(samples.length, 0)
+})
+
+test('a Gemini source that only grew a little under budget does not stop a healthy source after it from being read', async (t) => {
+  const dir = tempDir('hd-insight-gemini-minor-growth-ledger-')
+  const failingDir = join(dir, 'gemini', 'failing-project', 'chats'); await mkdir(failingDir, { recursive: true })
+  const failingPath = join(failingDir, 'chat.jsonl')
+  await writeFile(failingPath, `${JSON.stringify({ type: 'gemini', id: 'fail', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 1 } })}\n`)
+
+  const codexDir = join(dir, 'codex'); await mkdir(codexDir, { recursive: true })
+  await writeFile(join(codexDir, 'rollout.jsonl'), codexSessionMeta('healthy-session') + codexEvent('2026-09-20T00:00:01.000Z'))
+
+  const originalOpen = nodeFsPromises.open
+  t.mock.method(nodeFsPromises, 'open', (async (...args: Parameters<typeof nodeFsPromises.open>) => {
+    const handle = await originalOpen(...args)
+    if (args[0] !== failingPath) return handle
+    const originalStat = handle.stat.bind(handle)
+    t.mock.method(handle, 'stat', async () => {
+      const result = await originalStat()
+      await appendFile(failingPath, 'xyz')
+      return result
+    })
+    return handle
+  }) as typeof nodeFsPromises.open)
+
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    // The failing source is listed first, so a bug that stops the whole read
+    // on it would leave the healthy one after it unread.
+    corpora: [
+      { runtime: 'gemini-failing', kind: 'gemini', root: join(dir, 'gemini') },
+      { runtime: 'codex-healthy', kind: 'codex', root: codexDir },
+    ],
+  })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: Date.parse('2026-09-19T00:00:00.000Z'), to: Date.parse('2026-09-21T00:00:00.000Z') })
+    assert.ok(!detail.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE), 'a minor, under-budget change must never be reported as the shared-budget gap')
+    assert.ok(detail.samples.some((sample) => sample.sessionId === 'healthy-session'), 'a source after the failing one must still be read')
+  } finally { ledger.close() }
+})
+
+test('bytes read from a source rejected as not JSON still count against the shared Insight budget', async () => {
+  const dir = tempDir('hd-insight-nonjson-budget-')
+  // Five sources, each a single line of invalid JSON around 900 KiB — well
+  // past a 1 MiB shared budget summed, but `take()` rejects every one of
+  // them outright (never valid JSON), so none of their bytes were ever
+  // committed to the cursor `offset` reports.
+  const corpora = []
+  for (let index = 0; index < 5; index += 1) {
+    const runtimeDir = join(dir, `runtime-${index}`)
+    await mkdir(runtimeDir, { recursive: true })
+    const path = join(runtimeDir, 'rollout.jsonl')
+    await writeFile(path, `not valid json ${'x'.repeat(900_000)}\n`)
+    corpora.push({ runtime: `runtime-${index}`, kind: 'codex' as const, root: runtimeDir })
+  }
+  const ledger = new Ledger({
+    stateDir: dir,
+    databasePath: join(dir, 'usage.sqlite'),
+    corpora,
+    insightByteLimit: 1024 * 1024,
+  })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: Date.parse('2026-09-19T00:00:00.000Z'), to: Date.parse('2026-09-21T00:00:00.000Z') })
+    assert.ok(
+      detail.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE),
+      'reading far more than the budget, even from lines every one of which was rejected, must still report the gap',
+    )
+    assert.equal(detail.complete, false)
+  } finally { ledger.close() }
 })

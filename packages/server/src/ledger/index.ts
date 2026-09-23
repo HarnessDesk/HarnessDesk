@@ -209,7 +209,12 @@ export class Ledger {
       if (bytes >= this.#insightByteLimit) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
       try {
         const result = await scanFile(target, 0, [], { emit: (sample) => detailSamples.push(sample), signal: options.signal, byteLimit: this.#insightByteLimit - bytes })
-        bytes += result.offset
+        // `bytesRead`, never `offset`: `offset` is the incremental-scan
+        // cursor, advanced only for a line actually committed, and a line
+        // `take()` rejects as not JSON was still read off disk before it
+        // was rejected — `offset` alone said none of it had been (round 3
+        // review).
+        bytes += result.bytesRead
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') throw error
         if (error instanceof InsightBudgetExceededError) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }

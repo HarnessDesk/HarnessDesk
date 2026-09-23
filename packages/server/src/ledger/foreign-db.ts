@@ -122,18 +122,28 @@ const overBudget = (size: number, options: ForeignReadOptions): boolean =>
 
 /**
  * A rollback-journal file has no `-wal`/`-shm` side files to fingerprint —
- * SQLite takes an ordinary shared lock instead — so the consistency check
- * here is its own: the plain file's size and time, taken before the read and
- * compared after it. Previously unchecked entirely (round 2 review): a
- * database rewritten while its read was in flight was trusted whole.
+ * SQLite takes an ordinary shared lock instead, which already keeps what a
+ * query reads consistent against a concurrent writer. The plain file's size
+ * and time, taken before the read and compared after it, exist only to tie a
+ * caller's own byte budget to what was verified consistent — never to
+ * second-guess a read SQLite's own lock already made safe.
+ *
+ * That is why the comparison runs only when `byteLimit` is set (round 3
+ * review): applying it unconditionally made an ordinary write elsewhere in
+ * the file during the read — a checkpoint, another connection's commit,
+ * nothing wrong with the data this query saw — fail the background scan,
+ * which has no budget to tie anything to and had no such failure before
+ * this file gained a budget-aware caller.
  */
 const readRollback = <T>(path: string, read: (database: DatabaseSync) => T, options: ForeignReadOptions): T => {
   const before = stamp(path)
   if (before === null) throw changed(path)
   if (overBudget(before.size, options)) throw new InsightBudgetExceededError()
   const value = readIn(open(path), read)
-  if (!sameStamp(before, stamp(path))) throw changed(path)
-  options.onSize?.(before.size)
+  if (options.byteLimit !== undefined) {
+    if (!sameStamp(before, stamp(path))) throw changed(path)
+    options.onSize?.(before.size)
+  }
   return value
 }
 
