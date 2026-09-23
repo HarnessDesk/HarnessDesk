@@ -816,10 +816,10 @@ test("a draft named no folder reads the home folder's configuration, not this pr
   const { homedir, tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'codex-draft-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const folders = join(dir, 'folders.jsonl')
   const runtime = makeRuntime({ FAKE_CODEX_FOLDERS: folders })
   t.after(() => runtime.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await runtime.start()
   // Which folder each configuration read made for one draft was asked about.
   const asked = async (cwd?: string): Promise<string[]> => {
@@ -851,13 +851,13 @@ test('Codex profiles are offered for new sessions while an unselected start stay
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
-  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   writeFileSync(
     join(codexHome, 'sol.config.toml'),
     'model = "gpt-5.6-sol"\nmodel_context_window = 872000\nmodel_auto_compact_token_limit = 550000\n',
   )
   const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
   t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   await runtime.start()
 
   const defaults = await runtime.defaultSessionOptions('/w')
@@ -883,7 +883,6 @@ test('a selected profile reaches thread/start and the context window is read bac
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
-  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   writeFileSync(
     join(codexHome, 'sol.config.toml'),
     'model = "gpt-5.6-sol"\nmodel_context_window = 872000\nmodel_auto_compact_token_limit = 550000\n',
@@ -897,6 +896,7 @@ test('a selected profile reaches thread/start and the context window is read bac
     { codexHome },
   )
   t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   await runtime.start()
 
   const selected = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'sol' })
@@ -939,12 +939,12 @@ test('a profile outside the bounded discovery set cannot be started by a retaine
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
-  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   for (let index = 64; index >= 0; index -= 1) {
     writeFileSync(join(codexHome, `p${String(index).padStart(2, '0')}.config.toml`), 'model = "gpt-profile"\n')
   }
   const runtime = makeRuntime({}, { codexHome })
   t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   await runtime.start()
 
   const selected = await runtime.defaultSessionOptions('/w', { [CODEX_PROFILE_OPTION_ID]: 'p64' })
@@ -964,10 +964,10 @@ test('start model precedence is route, ordinary option, legacy option, then prof
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const codexHome = mkdtempSync(join(tmpdir(), 'codex-profile-runtime-'))
-  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   writeFileSync(join(codexHome, 'sol.config.toml'), 'model = "profile-model"\n')
   const runtime = makeRuntime({ FAKE_CODEX_ECHO_STARTS: '1' }, { codexHome })
   t.after(() => runtime.dispose())
+  t.after(() => rmSync(codexHome, { recursive: true, force: true }))
   await runtime.start()
   const tape = recorder(runtime)
   const profile = { [CODEX_PROFILE_OPTION_ID]: 'sol' }

@@ -2499,10 +2499,7 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
 
 test('git/status does not crash when persisted workspaces contain malformed records missing path (#428)', async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-malformed-workspace-'))
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
-
   const repo = await mkdtemp(join(tmpdir(), 'hd-git-repo-'))
-  t.after(() => rm(repo, { recursive: true, force: true }))
   await gitIn(repo, 'init', '-q', '-b', 'main')
   await writeFile(join(repo, 'a.txt'), 'hello\n')
   await gitIn(repo, 'add', '.')
@@ -2528,13 +2525,20 @@ test('git/status does not crash when persisted workspaces contain malformed reco
   })
   await host.start()
   const server = await serve({ host, logger: silent, port: 0 })
+  const client = await Client.connect(server)
+  // One hook, in order: close the server, dispose the host — which flushes
+  // everything it owns — and only then remove the folders. Removing first
+  // races the still-live host's writes, fails with ENOTEMPTY, and (on
+  // current Node) skips every hook registered after it, so the host is
+  // never disposed and the process idles forever (#868). The retries are
+  // the belt to that brace, the same as `stop()` in fixtures/harness.ts.
   t.after(async () => {
+    await client.close()
     await server.close()
     await host.dispose()
+    await rm(stateDir, { force: true, recursive: true, maxRetries: 3 })
+    await rm(repo, { force: true, recursive: true, maxRetries: 3 })
   })
-
-  const client = await Client.connect(server)
-  t.after(() => client.close())
 
   // Calling git/status must not throw ERR_INVALID_ARG_TYPE
   const status = (await client.call('git/status', { root: repo })) as { root: string }

@@ -279,10 +279,10 @@ test('a plugin granted the workspace cannot read out of it through a symlink', a
   const fixture = await linkedFixture()
   if (!fixture) return t.skip('this filesystem does not make symlinks')
   const { base, root } = fixture
-  t.after(() => rm(base, { recursive: true, force: true }))
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(base, { recursive: true, force: true }))
   kernel.setWorkspace({ root, branch: null })
 
   await kernel.load({
@@ -322,11 +322,11 @@ test('a plugin granted the workspace cannot read out of it through a symlink', a
 
 test('a plugin without workspace permission cannot read the workspace', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'secret.txt'), 'classified')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
 
   await kernel.load({
@@ -353,11 +353,11 @@ test('a plugin without workspace permission cannot read the workspace', async (t
 
 test('a plugin granted workspace read can read, but still cannot write', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'notes.txt'), 'hello')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
 
   await kernel.load({
@@ -402,10 +402,10 @@ test('a plugin granted workspace read can read, but still cannot write', async (
 
 test('workspace permission does not extend outside the open folder', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-perm-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
 
   await kernel.load({
