@@ -252,6 +252,29 @@ test('a patch applied with git am and a cherry-pick committed after a conflict a
 })
 
 /*
+ * A step that rebases its own commits onto what it pulled keeps them: the
+ * reflog says each rewritten commit was picked here. What it rebased onto is
+ * still not its work.
+ */
+test('a step that rebases its own commits onto a pull still has them as its diff, and nothing of the pull', async () => {
+  const upstream = await makeRepo('hd-evidence-up-')
+  const dir = tempDir('hd-evidence-rebase-')
+  await run('git', ['clone', '-q', upstream.dir, dir])
+  const git = async (...args: string[]): Promise<string> =>
+    (await run('git', ['-C', dir, '-c', 'user.email=dev@example.com', '-c', 'user.name=Jane Doe', ...args])).stdout.trim()
+  const began = await git('rev-parse', 'HEAD')
+  await writeFile(join(dir, 'MINE.md'), 'one\n')
+  await git('add', '.')
+  await git('commit', '-q', '-m', 'mine')
+  await writeFile(join(upstream.dir, 'THEIRS.md'), 'theirs\n')
+  await upstream.git('add', '.')
+  await upstream.git('commit', '-q', '-m', 'theirs')
+  await git('pull', '-q', '--rebase')
+  assert.match(await git('log', '-g', '--format=%gs', 'HEAD'), /--rebase \(pick\): mine/)
+  assert.equal((await diffOf(dir, began))?.files, 1, 'the rebased commit is the step’s own, the pulled one is not')
+})
+
+/*
  * A step that pushes its own commits keeps them: what tells the step's
  * commits from someone else's is how they came into the checkout — made
  * here (its own record of commits), or brought by a pull — never whether
