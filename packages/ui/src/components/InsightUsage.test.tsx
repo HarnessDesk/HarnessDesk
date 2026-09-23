@@ -107,6 +107,56 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
   expect(wrapped.map((el) => el.textContent)).toEqual([longSentence, secondSentence])
 })
 
+it('wraps the unattributed row’s reason sentence instead of clipping it', async () => {
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => report()), openGoal: vi.fn() } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+
+  const row = [...container.querySelectorAll('[data-wrap]')].find((el) => el.textContent === 'No unique historical Seat could be established.')
+  expect(row).toBeTruthy()
+})
+
+it('wraps the empty-state reason sentence instead of clipping it', async () => {
+  const empty = {
+    ...report(),
+    breakdowns: [{ dimension: 'goal' as const, rows: [], unattributed: report().breakdowns[0]!.unattributed, reason: null }],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => empty), openGoal: vi.fn() } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+
+  const row = [...container.querySelectorAll('[data-wrap]')].find((el) => el.textContent === 'Unknown historical usage remains unassigned.')
+  expect(row).toBeTruthy()
+})
+
+it('wraps a Goal row’s joined fact list — a RowButton, not just a Row — instead of losing facts to clipping', async () => {
+  const unfresh = {
+    ...report(),
+    sources: [{ id: 'source', kind: 'corpus' as const, label: 'Transcript', observedAt: null, checkedAt: 10, stale: false, problem: null }],
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: emptySnapshot, readUsageInsight: vi.fn(async () => unfresh), openGoal: vi.fn() } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} /></StoreProvider>)
+    await Promise.resolve()
+  })
+
+  // 'One Goal' has a `goal`, so it renders as a RowButton, not a Row — the
+  // fact this joined desc still carries `data-wrap` is what proves RowButton
+  // grew the same option Row already had.
+  const goalButton = [...container.querySelectorAll('button')].find((button) => button.textContent?.includes('One Goal'))
+  expect(goalButton).toBeTruthy()
+  const desc = goalButton!.querySelector('[data-wrap]')
+  expect(desc).toBeTruthy()
+  expect(desc!.textContent).toContain('Observation time unavailable')
+})
+
 it('keeps a group-level gap note outside the Rows card rather than flush against it', async () => {
   const withGapAndFailure = {
     ...report(),

@@ -69,7 +69,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
       <SectionHead name="Historical seat costs" />
       {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <>
         <Rows>
-          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
+          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." wrapDesc /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
           {failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} wrapDesc control={<Chip tone="warning">Unavailable</Chip>} />)}
         </Rows>
         {/* A gap belongs to the whole read, not to one row, and Note carries

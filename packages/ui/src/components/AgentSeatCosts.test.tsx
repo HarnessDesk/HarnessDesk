@@ -88,6 +88,18 @@ it('keeps an unavailable historical source visible when the Agent has no Seats',
   expect(container.textContent).toContain('Recorded usage is unavailable.')
 })
 
+it('wraps the empty-state reason sentence instead of clipping it', async () => {
+  const empty = { ...report(), seats: [] }
+  const readAgentInsight = vi.fn(async () => empty)
+  const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readAgentInsight, previewInsightOrder: vi.fn(), applyInsightOrder: vi.fn() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><AgentSeatCosts entry={entry} /></StoreProvider>))
+  await act(async () => {})
+
+  const row = [...container.querySelectorAll('[data-wrap]')].find((el) => el.textContent === 'Unknown historical usage stays unassigned.')
+  expect(row).toBeTruthy()
+})
+
 it('keeps generic historical gaps visible beside partial Agent Seats', async () => {
   const partial = { ...report(), gaps: ['Some historical usage is unavailable.'] }
   const readAgentInsight = vi.fn(async () => partial)
@@ -117,9 +129,11 @@ it('wraps every unavailable source’s full failure sentence instead of clipping
   await act(async () => {})
 
   // `data-wrap` is what the stylesheet keys on to let a sentence run to a
-  // second line instead of being ellipsised — see Row's `wrapDesc`.
+  // second line instead of being ellipsised — see Row's `wrapDesc`. The
+  // empty-state row (no historical Seats, since `seats` is empty here) wraps
+  // its own reason too, and sits first in the card.
   const wrapped = [...container.querySelectorAll('[data-wrap]')]
-  expect(wrapped.map((el) => el.textContent)).toEqual([longSentence, secondSentence])
+  expect(wrapped.map((el) => el.textContent)).toEqual(['Unknown historical usage stays unassigned.', longSentence, secondSentence])
 })
 
 it('keeps a group-level gap note outside the Rows card rather than flush against it', async () => {

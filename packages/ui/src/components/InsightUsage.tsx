@@ -29,13 +29,13 @@ export const InsightUsage = ({ root, runtime, view, onGoal }: InsightUsageProps)
   const failedSources = report.sources.filter((source) => source.problem !== null)
   return <>
     <Rows>
-      {!breakdown ? <Row title={`Recorded usage has no ${view} attribution.`} /> : breakdown.rows.length === 0 ? <Row title={view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} desc={breakdown.reason ?? 'Unknown historical usage remains unassigned.'} /> : breakdown.rows.map((row) => {
+      {!breakdown ? <Row title={`Recorded usage has no ${view} attribution.`} /> : breakdown.rows.length === 0 ? <Row title={view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} desc={breakdown.reason ?? 'Unknown historical usage remains unassigned.'} wrapDesc /> : breakdown.rows.map((row) => {
         const click = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
         const words = metricWords(row.amounts.usd, report.sources, Date.now())
-        const props = { title: row.label, desc: [row.note, words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ') || undefined, control: <RowValue>{words.value}</RowValue> }
+        const props = { title: row.label, desc: [row.note, words.qualifier, words.coverage, words.source, words.freshness].filter(Boolean).join(' · ') || undefined, wrapDesc: true, control: <RowValue>{words.value}</RowValue> }
         return click ? <RowButton key={row.key} {...props} onClick={click} /> : <Row key={row.key} {...props} />
       })}
-      {breakdown ? <Row title={view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'} desc={breakdown.reason ?? `No unique historical ${view === 'goal' ? 'Seat' : 'Agent Seat'} could be established.`} control={<RowValue>{metricWords(breakdown.unattributed.usd, report.sources, Date.now()).value}</RowValue>} /> : null}
+      {breakdown ? <Row title={view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'} desc={breakdown.reason ?? `No unique historical ${view === 'goal' ? 'Seat' : 'Agent Seat'} could be established.`} wrapDesc control={<RowValue>{metricWords(breakdown.unattributed.usd, report.sources, Date.now()).value}</RowValue>} /> : null}
       {failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} wrapDesc control={<Chip tone="warning">Unavailable</Chip>} />)}
     </Rows>
     {/* A gap belongs to the whole read, not to one row, and Note carries no
