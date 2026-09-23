@@ -854,6 +854,7 @@ export const Row = ({
   mark,
   title,
   desc,
+  wrapDesc = false,
   control,
   className,
   ...props
@@ -861,6 +862,8 @@ export const Row = ({
   mark?: ReactNode
   title: ReactNode
   desc?: ReactNode
+  /** A description too specific to trim — a reason, a per-row fact — arrives whole rather than ellipsised. */
+  wrapDesc?: boolean
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
@@ -868,7 +871,7 @@ export const Row = ({
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={styles.rowDesc}>{desc}</span> : null}
+      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
     {control ? <span className={styles.rowCtl}>{control}</span> : null}
   </div>
@@ -879,6 +882,7 @@ export const RowButton = ({
   mark,
   title,
   desc,
+  wrapDesc = false,
   control,
   onClick,
   chevron = true,
@@ -888,6 +892,8 @@ export const RowButton = ({
   mark?: ReactNode
   title: ReactNode
   desc?: ReactNode
+  /** A description too specific to trim — a reason, a per-row fact — arrives whole rather than ellipsised. */
+  wrapDesc?: boolean
   control?: ReactNode
   onClick: () => void
   chevron?: boolean
@@ -909,7 +915,7 @@ export const RowButton = ({
     {mark ? <span className={styles.rowMark}>{mark}</span> : null}
     <span className={styles.rowText}>
       <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={styles.rowDesc}>{desc}</span> : null}
+      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
     {control ? <span className={styles.rowCtl}>{control}</span> : null}
     {chevron ? (

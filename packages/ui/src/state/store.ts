@@ -75,6 +75,12 @@ import {
   type UiDecoration,
   type UserContent,
   type WireNotification,
+  type InsightQuery,
+  type InsightReport,
+  type InsightCompareQuery,
+  type InsightComparison,
+  type InsightOrderQuery,
+  type InsightOrderPreview,
   type Worktree,
 } from '@harnessdesk/protocol'
 
@@ -1498,6 +1504,21 @@ export class AppStore {
   async ledger(query: LedgerQuery): Promise<LedgerReport | null> {
     return this.transport.request('usage/ledger', query).catch(() => null)
   }
+
+  /** Insight is intentionally pull-only: hidden screens never trigger a corpus read. */
+  readGoalInsight(goal: string): Promise<InsightReport> { return this.transport.request('insight/goal', { goal }) }
+  readUsageInsight(query: InsightQuery): Promise<InsightReport> { return this.transport.request('insight/usage', query) }
+  readAgentInsight(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport> {
+    return this.transport.request('insight/agent', { ...(root ? { root } : {}), agent, origin })
+  }
+  compareInsight(query: InsightCompareQuery): Promise<InsightComparison> { return this.transport.request('insight/compare', query) }
+  previewInsightOrder(query: InsightOrderQuery): Promise<InsightOrderPreview> { return this.transport.request('insight/order/preview', query) }
+  async applyInsightOrder(stamp: string): Promise<MachineSeating> {
+    const seating = await this.transport.request('insight/order/apply', { stamp })
+    this.#patch({ seating })
+    return seating
+  }
+  clearInsightRequests(): void { /* request owners use generations; no global cache is retained */ }
 
   /** Starts a transcript scan; progress arrives as a notification. */
   async scanUsage(full = false): Promise<void> {

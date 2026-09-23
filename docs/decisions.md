@@ -7,6 +7,16 @@ the rule is the last line of its section.
 
 ---
 
+## Insight measures remain source-qualified
+
+Historical usage is read from runtime-owned local records rather than quota
+balances, current context occupancy, or a guessed allocation. The host keeps
+opaque source identity and missing-field information through the wire, so an
+explicit zero is distinct from an unavailable value. Reads do not refresh
+evidence or mutate a wrapped receipt.
+
+---
+
 ## One foundation and one public UI vocabulary
 
 Every first-party surface is downstream of one design system. The editable

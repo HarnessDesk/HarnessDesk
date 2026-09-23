@@ -69,6 +69,18 @@ test('no file is no entries and nothing wrong', async () => {
   assert.deepEqual(await file.read(), { revision: 0, path: file.path, entries: [], problems: [] })
 })
 
+test('expected text hash compares inside the queued write', async () => {
+  const path = join(tempDir('hd-seating-'), 'seating.json')
+  const file = new MachineSeatingFile(path)
+  const fingerprint = await file.fingerprint()
+  await file.set('first', [{ runtime: 'codex' }])
+  await assert.rejects(
+    () => file.set('second', [{ runtime: 'cursor' }], { expectedTextHash: fingerprint }),
+    /Seats changed while you were choosing/,
+  )
+  assert.deepEqual((await file.read()).entries.map((entry) => entry.id), ['first'])
+})
+
 test('setting one Agent leaves every other entry as it was written, in its place', async () => {
   const path = join(tempDir('hd-seating-'), 'seating.json')
   await writeFile(path, JSON.stringify({ judge: ['codex', 'claude-code+fast'], researcher: ['cursor'] }), 'utf8')

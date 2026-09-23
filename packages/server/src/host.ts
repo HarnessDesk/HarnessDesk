@@ -138,6 +138,8 @@ import type { GoalOperation } from './goals/operations.js'
 import { acquireDeskWriter } from './goals/writer-lease.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
+import { InsightPlane } from './insight/plane.js'
+import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
 import { seatAgent } from './methods/agents.js'
@@ -568,6 +570,9 @@ export class Host {
   readonly #goalStore: GoalStore
   readonly #goalSerial = new Serial()
   readonly #goals: GoalPlane
+  /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
+  readonly #insight: InsightPlane
+  readonly #turnInsight = new InsightContexts()
   #goalWriter: Awaited<ReturnType<typeof acquireDeskWriter>> | null = null
   #goalsReady = false
   #publishingTeamProjection = false
@@ -1193,6 +1198,12 @@ export class Host {
       // defaults it was supposed to replace.
       this.#applyBrowserSettings()
     }
+    this.#insight = new InsightPlane({
+      ledger: () => this.#ledgerService,
+      goals: this.#goals,
+      seats: () => this.#evidence.seats.all(),
+      seating: this.#machineSeating,
+    })
     this.#provenance = new ProvenancePlane({
       evidence: this.#evidence,
       stateDir: this.#state.directory,
@@ -2173,6 +2184,7 @@ export class Host {
       catalogs: this.#catalogs,
       usage: () => this.#usageService,
       ledger: () => this.#ledgerService,
+      insight: this.#insight,
       libraryUsage: () => {
         // Lazy: the reader is only built when the page first asks, and the
         // first read pays for the transcripts it walks. Every read after is
@@ -4272,6 +4284,8 @@ export class Host {
     const record = this.registry.apply(runtime, event)
     if (event.type === 'turn/started' && record) {
       this.#sendingNow.delete(recordKey(record))
+      const seat = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime && candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
+      this.#turnInsight.start({ runtime, session: record.session.id, turn: String(event.turn.id), at: Date.now(), seat: seat?.id ?? null, before: record.session.usage ?? null })
     }
     let outgoing: AgentEvent = event
     /* Which Agent a conversation was seated as is the host's to say. A runtime
@@ -4302,7 +4316,8 @@ export class Host {
     if (record && event.type === 'session/tasks') record.tasks = event.tasks
     // What the host just folded in is what a read tomorrow will be missing.
     if (record && event.type !== 'approval/requested' && event.type !== 'approval/resolved') {
-      this.#transcripts.record(record.session, { now: event.type === 'turn/completed' })
+      if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
+      this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id) })
     }
     // The numbers moved because a turn just spent some: re-read that agent
     // only, and only when someone could be looking. Cheaper and fresher than

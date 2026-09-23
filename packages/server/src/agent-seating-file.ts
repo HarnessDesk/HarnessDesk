@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
@@ -283,6 +284,19 @@ export class MachineSeatingFile {
     return Object.fromEntries(Object.entries(record).filter(([key]) => key !== SEATING_REVISION))
   }
 
+  /** Raw-text identity for an explicitly reviewed local order. */
+  async fingerprint(): Promise<string> {
+    await this.#writes
+    let text: string | null
+    try {
+      text = await readFile(this.path, 'utf8')
+    } catch (error) {
+      if ((error as { code?: unknown }).code !== 'ENOENT') throw error
+      text = null
+    }
+    return createHash('sha256').update(JSON.stringify(text)).digest('hex')
+  }
+
   /**
    * Sets one Agent's seats here, or clears them (`null`) so its `prefer`
    * applies again. Every other entry is kept exactly as written — a broken one
@@ -324,7 +338,7 @@ export class MachineSeatingFile {
   set(
     id: string,
     seats: readonly FlowSeat[] | null,
-    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string | SeatingCompareAndSet } = {},
+    options: { onlyIfAbsent?: boolean; refuseIfDifferent?: string | SeatingCompareAndSet; expectedTextHash?: string } = {},
   ): Promise<SeatingSetOutcome> {
     const run = async (): Promise<SeatingSetOutcome> => {
       // Refused before anything is read or written: accepted, this id would
@@ -356,6 +370,10 @@ export class MachineSeatingFile {
           )
         }
         text = null // No file yet: the first entry makes it.
+      }
+      if (options.expectedTextHash !== undefined) {
+        const current = createHash('sha256').update(JSON.stringify(text)).digest('hex')
+        if (current !== options.expectedTextHash) throw new Error('Seats changed while you were choosing. Refresh and try again.')
       }
       let raw: Record<string, unknown> = {}
       if (text !== null) {

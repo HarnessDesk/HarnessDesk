@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 
+import { InsightBudgetExceededError } from './insight.js'
+
 /**
  * Reads a SQLite file another application owns, without writing a byte beside
  * it and without trusting a guess about who else has it open.
@@ -46,10 +48,26 @@ import { pathToFileURL } from 'node:url'
  * than copied, so a very large store stays on its last good rows until it is
  * quiescent or smaller, rather than paying to copy a file that size on every
  * scan.
+ *
+ * A caller's own byte budget (`byteLimit`) is a third limit, checked against
+ * the very same fingerprint every path already takes for its own consistency
+ * check — never a separate, earlier look at the file that could go stale by
+ * the time this one actually reads it (round 2 review). Whichever path reads
+ * the database, growth past what was checked is refused the same way growth
+ * past what a copy started from already is: by the check the read was always
+ * going to make, not a new one bolted on beside it. `onSize`, called only once
+ * a read is known to match the fingerprint it was checked against, reports
+ * the bytes that fingerprint actually covered — database plus its
+ * write-ahead log — so a caller tracking a shared budget across sources
+ * counts what was truly read, not a guess taken before the read happened.
  */
 export interface ForeignReadOptions {
   /** Called between copying and checking the source: the race the check exists for. */
   readonly onCopied?: () => void
+  /** Refuses before the database is opened for its real read if the fingerprinted size is already more than this. */
+  readonly byteLimit?: number
+  /** The fingerprinted size (database plus write-ahead log) a consistent read actually spent, once the read is known to match it. */
+  readonly onSize?: (size: number) => void
 }
 
 /** A snapshot is a copy: past this, reading it costs more than the figure is worth. */
@@ -73,7 +91,7 @@ export const readForeignDatabase = <T>(
 ): T | null => {
   const mode = journalOf(path)
   if (mode === null) return null
-  if (mode === 'rollback') return readIn(open(path), read)
+  if (mode === 'rollback') return readRollback(path, read, options)
   const first = fingerprint(path)
   if (first === null) return null
   if (first.wal === null && !first.shm) return readQuiescent(path, read, first, options)
@@ -96,12 +114,46 @@ const readIn = <T>(database: DatabaseSync, read: (database: DatabaseSync) => T):
   }
 }
 
+/** The database plus its write-ahead log — what a caller's `byteLimit` and `SNAPSHOT_LIMIT_BYTES` both mean by "how large this is". */
+const sizeOf = (print: Fingerprint): number => print.db.size + (print.wal?.size ?? 0)
+
+const overBudget = (size: number, options: ForeignReadOptions): boolean =>
+  options.byteLimit !== undefined && size > options.byteLimit
+
+/**
+ * A rollback-journal file has no `-wal`/`-shm` side files to fingerprint —
+ * SQLite takes an ordinary shared lock instead, which already keeps what a
+ * query reads consistent against a concurrent writer. The plain file's size
+ * and time, taken before the read and compared after it, exist only to tie a
+ * caller's own byte budget to what was verified consistent — never to
+ * second-guess a read SQLite's own lock already made safe.
+ *
+ * That is why the comparison runs only when `byteLimit` is set (round 3
+ * review): applying it unconditionally made an ordinary write elsewhere in
+ * the file during the read — a checkpoint, another connection's commit,
+ * nothing wrong with the data this query saw — fail the background scan,
+ * which has no budget to tie anything to and had no such failure before
+ * this file gained a budget-aware caller.
+ */
+const readRollback = <T>(path: string, read: (database: DatabaseSync) => T, options: ForeignReadOptions): T => {
+  const before = stamp(path)
+  if (before === null) throw changed(path)
+  if (overBudget(before.size, options)) throw new InsightBudgetExceededError()
+  const value = readIn(open(path), read)
+  if (options.byteLimit !== undefined) {
+    if (!sameStamp(before, stamp(path))) throw changed(path)
+    options.onSize?.(before.size)
+  }
+  return value
+}
+
 const readQuiescent = <T>(
   path: string,
   read: (database: DatabaseSync) => T,
   before: Fingerprint,
   options: ForeignReadOptions,
 ): T => {
+  if (overBudget(sizeOf(before), options)) throw new InsightBudgetExceededError()
   let value: T
   try {
     value = readIn(open(path, true), read)
@@ -112,6 +164,7 @@ const readQuiescent = <T>(
   }
   options.onCopied?.()
   if (!same(before, fingerprint(path))) throw changed(path)
+  options.onSize?.(sizeOf(before))
   return value
 }
 
@@ -119,16 +172,19 @@ const readSnapshot = <T>(path: string, read: (database: DatabaseSync) => T, opti
   for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt++) {
     const before = fingerprint(path)
     if (before === null) throw changed(path)
-    if (before.db.size + (before.wal?.size ?? 0) > SNAPSHOT_LIMIT_BYTES) {
+    if (sizeOf(before) > SNAPSHOT_LIMIT_BYTES) {
       throw new Error(`${path} is too large to read while its owner may have it open`)
     }
+    if (overBudget(sizeOf(before), options)) throw new InsightBudgetExceededError()
     const dir = mkdtempSync(join(tmpdir(), 'hd-foreign-'))
     try {
       copyFileSync(path, join(dir, 'db'))
       if (before.wal !== null) copyFileSync(`${path}-wal`, join(dir, 'db-wal'))
       options.onCopied?.()
       if (!same(before, fingerprint(path))) continue
-      return readIn(open(join(dir, 'db')), read)
+      const value = readIn(open(join(dir, 'db')), read)
+      options.onSize?.(sizeOf(before))
+      return value
     } catch (error) {
       // The log a checkpoint removes between the check and the copy is that
       // race too, not a fault.

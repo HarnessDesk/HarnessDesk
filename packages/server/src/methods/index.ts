@@ -10,6 +10,7 @@ import { provenanceMethods } from './provenance.js'
 import { flowMethods } from './flows.js'
 import { goalMethods } from './goals.js'
 import { gitMethods } from './git.js'
+import { insightMethods } from './insight.js'
 import { libraryMethods } from './library.js'
 import { laneMethods } from './lanes.js'
 import { pluginMethods } from './plugins.js'
@@ -53,6 +54,7 @@ export const hostMethods: HostMethodTable = {
   ...accountMethods,
   ...credentialMethods,
   ...usageMethods,
+  ...insightMethods,
   ...libraryMethods,
   ...laneMethods,
   ...sessionMethods,
@@ -82,6 +84,7 @@ export const methodDomains: readonly Readonly<Partial<HostMethodTable>>[] = [
   accountMethods,
   credentialMethods,
   usageMethods,
+  insightMethods,
   libraryMethods,
   laneMethods,
   sessionMethods,
