@@ -166,6 +166,16 @@ test('wrapped source becomes reference in later Goal', async () => {
   assert.equal((await rig.records()).length, records.length)
 })
 
+test('a carried finding\'s row agrees with the target Goal\'s own totals: neither is blocking before the target\'s first round closes', async () => {
+  const rig = await carryRig()
+  await rig.findings.carry(carryInput())
+  const page = await rig.findings.list({ goal: 'target' })
+  assert.equal(page.totals?.blocking, 0, 'nothing on the target Goal has been admitted as blocking yet')
+  const row = page.rows.find((one) => one.id === F1)!
+  assert.equal(row.blocking, true, 'the raise’s own claim of eligibility is unchanged by the carry')
+  assert.equal(row.activeBlocking, false, 'but the row must agree with the totals above, not the raw claim')
+})
+
 test('carry recovery finishes both sides once', async () => {
   // A failed stage: the Goal store stops, and on reopening nothing happened.
   let rig = await carryRig()

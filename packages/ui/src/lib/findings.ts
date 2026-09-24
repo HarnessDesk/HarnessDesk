@@ -56,8 +56,17 @@ export const lifecycleTone = (view: FindingView): LifecycleTone => {
   return state === 'withdrawn' ? 'neutral' : 'success'
 }
 
-/** `FindingView.blocking` is initial eligibility — the row's own claim, not the ledger's current admitted set. */
-export const blockingWords = (view: FindingView): 'Blocking' | 'Advisory' => (view.blocking ? 'Blocking' : 'Advisory')
+/**
+ * `FindingView.blocking` is initial eligibility — the row's own claim, not
+ * whether the ledger currently admits it. A `finding/list` row carries the
+ * live answer as `activeBlocking` (a carried finding starts outside the
+ * admitted set until its own first round closes, though `blocking` still
+ * reads true); this reads that when present, so a row never disagrees with
+ * the same page's own totals. Elsewhere — `finding/read`, a frozen receipt —
+ * no admitted set applies, and the raw claim is what there is to show.
+ */
+export const blockingWords = (view: FindingView): 'Blocking' | 'Advisory' =>
+  ((view.activeBlocking ?? view.blocking) ? 'Blocking' : 'Advisory')
 
 /** Where one posting actually landed, in the reader's own words — never a raw wire kind. */
 export const postWords = (post: FindingPost): string => (post.kind === 'review-comment' ? 'Review thread' : 'PR comment')

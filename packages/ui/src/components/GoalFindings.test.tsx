@@ -115,6 +115,23 @@ it('a carried row still shows its original origin round, not a new claim', async
   expect(container.textContent).toContain('Raised in round 5')
 })
 
+it('a carried finding not yet admitted on its target agrees with the header: Advisory, never Blocking, when the header counts it out', async () => {
+  const state: FindingsListState = {
+    filter: 'all',
+    rows: [row('finding-carried', {
+      origin: { goal: 'source-goal', run: 'run-0', round: 5, card: 1, seat: 'seat-writer', at: A },
+      blocking: true, activeBlocking: false,
+    })],
+    next: null, totals: { all: 1, open: 1, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { store } = rig(state)
+  await render(store)
+  expect(container.textContent).toContain('0 blocking of 1')
+  expect(container.textContent).toContain('Advisory')
+  expect(container.textContent).not.toContain('· Blocking')
+})
+
 it('pressing a filter tab asks the store for that filter, and Load more asks with the cursor', async () => {
   const state: FindingsListState = {
     filter: 'all', rows: [row('finding-a')], next: 'cursor-2', totals: { all: 5, open: 5, blocking: 0 }, problem: null,
@@ -225,6 +242,29 @@ it('a wrapped Goal’s run greys Decide this run and says why', async () => {
   } as never]])
   const { store } = rig(state, { flowExecutions, findingRuns })
   await render(store)
+  const decide = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Decide this run')! as HTMLButtonElement
+  expect(decide.disabled).toBe(true)
+  expect(container.textContent).toContain(undecidable)
+})
+
+it('a dropped run\'s refreshed view greys Decide this run with the drop\'s own reason, and drops the stale ceiling banner', async () => {
+  // The exact shape the server answers once a run has been decided (drop): the stale round-ceiling
+  // `reason` is gone, and `undecidable` now carries the run's own concluded reason instead.
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 1, open: 1, blocking: 1 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const undecidable = 'Design problem; parking this Goal.'
+  const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
+  const findingRuns = new Map([['run-1', {
+    run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: null, stamp: 'stamp-2', publication: 'local',
+    reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+    boundPr: null, unbound: null, undecidable, override: null,
+  } as never]])
+  const { store } = rig(state, { flowExecutions, findingRuns })
+  await render(store)
+  expect(container.textContent).not.toContain('Waiting for a person')
   const decide = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Decide this run')! as HTMLButtonElement
   expect(decide.disabled).toBe(true)
   expect(container.textContent).toContain(undecidable)

@@ -96,3 +96,30 @@ test('merge anyway needs a bound pull request, not posting: the view carries the
   await f.plane.decideRun({ ...input(f, bound), action: { kind: 'merge-anyway' }, reason: 'ship it' })
   assert.equal(f.rig.executions.stored(f.run)!.findings!.overrides.length, 1)
 })
+
+test('merge anyway leaves a durable, readable confirmation on the run\'s own view, not only the port', async (t) => {
+  const { f } = await stoppedRun(t)
+  f.rig.facts.set(f.goal, [...(f.rig.facts.get(f.goal) ?? []), {
+    id: 'pr-1', fact: { kind: 'pr', number: 7, head: SHA2, state: 'open', url: 'https://github.com/acme/widgets/pull/7' },
+    card: { board: f.goal, id: 1 }, checkout: { cwd: '/repo', branch: 'fix' }, seat: null, round: null, observedAt: 1, posted: null,
+  }])
+  const bound = await f.plane.runView(f.run)
+  assert.equal(bound.override ?? null, null, 'nothing was overridden yet')
+  await f.plane.decideRun({ ...input(f, bound), action: { kind: 'merge-anyway' }, reason: 'shipping with a tracked follow-up' })
+  // A person reading this run again — not the direct wire call that recorded it — must still see it happened.
+  const after = await f.plane.runView(f.run)
+  assert.equal(after.override?.reason, 'shipping with a tracked follow-up')
+  assert.equal(typeof after.override?.decidedAt, 'number')
+})
+
+test('a dropped run says so on its own view: the stale round-ceiling reason clears and nothing more is decided', async (t) => {
+  const { f, view } = await stoppedRun(t)
+  assert.ok(view.reason, 'the round is at its ceiling, waiting for a person')
+  assert.equal(view.undecidable, null)
+  await f.plane.decideRun({ ...input(f, view), action: { kind: 'drop' }, reason: 'parking this Goal' })
+  // A fresh read of the run — the same read the Findings pane does after a decision and on every
+  // navigation — must reflect the drop, not repeat the pre-decision ceiling text forever.
+  const after = await f.plane.runView(f.run)
+  assert.equal(after.reason, null, 'the stale "waiting for a person" reason no longer lingers once the run was decided')
+  assert.match(after.undecidable ?? '', /parking this Goal/, 'the run\'s own conclusion is why nothing more is decided')
+})

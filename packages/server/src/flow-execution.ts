@@ -290,6 +290,8 @@ export interface FindingRunSnapshot {
   readonly id: string
   readonly goal: string
   readonly state: FlowExecution['state']
+  /** Why the run itself is in that state — set when it stopped or settled; null while it is still live. */
+  readonly reason: string | null
   readonly findings: FindingRunState | null
   readonly rounds: readonly (FlowRoundState & { readonly reviews: boolean })[]
   /** A review's Seat as its role, its place in the round and its Agent: the same slot however often it is seated. */
@@ -507,7 +509,7 @@ export class FlowExecutions {
     const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
     // `?? []`: absent on a packet pinned before repair leads existed; that packet has no lead to show, not a crash reading it back.
     const leads = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.leads ?? []]))
-    return { id: run.id, goal: run.goal, state: run.state, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned, leads }
+    return { id: run.id, goal: run.goal, state: run.state, reason: run.reason, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned, leads }
   }
 
   /**
@@ -672,8 +674,20 @@ export class FlowExecutions {
       recordExceptionDecision: (findings, admit) => this.#recordExceptionDecision(id, findings, admit),
       recordOverride: (override) => this.#recordOverride(id, override),
       recordDecisionStamp: (stamp, key) => this.#recordDecisionStamp(id, stamp, key),
-      stop: (why) => this.#finish(id, 'stopped', why),
+      stop: (why) => this.#stopForDecision(id, why),
     }))
+  }
+
+  /**
+   * The person's Drop, decided: like "another round," the run's own ceiling
+   * stop is answered here — cleared, so nothing goes on saying a person is
+   * waited on for a round this same decision just settled. Nothing else
+   * about a Drop changes: the run itself stopping is `#finish`'s own job.
+   */
+  async #stopForDecision(id: string, why: string): Promise<void> {
+    const run = this.#get(id)
+    if (run.findings?.stopped) await this.#put({ ...run, findings: { ...run.findings, stopped: null } })
+    await this.#finish(id, 'stopped', why)
   }
 
   /**

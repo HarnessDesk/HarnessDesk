@@ -46,6 +46,11 @@ export const FindingRoundStatus = ({ view }: FindingRoundStatusProps) => {
           <Text as="p" role="value">{view.reason}</Text>
         </Banner>
       )}
+      {view.override && (
+        <Banner tone="warning" title="Merged anyway">
+          <Text as="p" role="value">{view.override.reason}</Text>
+        </Banner>
+      )}
     </div>
   )
 }

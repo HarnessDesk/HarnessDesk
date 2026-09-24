@@ -126,6 +126,17 @@ export interface FindingView {
   readonly restored: boolean
   /** Why this finding cannot be trusted as it stands — a damaged sequence, missing details — or null. */
   readonly problem: string | null
+  /**
+   * Whether the ledger currently admits this finding as blocking its Goal's
+   * round — its raise's own `blocking` claim, gated through the active
+   * admitted set (a round's frozen baseline and whatever exceptions a
+   * person has admitted). A carried finding starts outside that set until
+   * its own first round closes, even though `blocking` still reads true.
+   * Present only on a `finding/list` row; absent from a finding read
+   * another way (`finding/read`, a frozen receipt), where no admitted set
+   * applies and the raw claim is what there is to show.
+   */
+  readonly activeBlocking?: boolean
 }
 
 /** A person's override of unresolved findings: recorded, never a verdict. */
@@ -374,8 +385,19 @@ export interface FindingRunView {
    */
   readonly boundPr: { readonly repo: string; readonly pr: number } | null
   readonly unbound: string | null
-  /** Why no decision can be made on this run now — its Goal is wrapped, closing or from a backup; null while one can. */
+  /**
+   * Why no decision can be made on this run now — its Goal is wrapped,
+   * closing or from a backup, or this run itself already stopped or
+   * settled and left nothing more to decide; null while one can.
+   */
   readonly undecidable: string | null
+  /**
+   * The last "merge anyway" a person recorded on this run — a durable
+   * acknowledgement the Findings pane can still show after the dialog
+   * closes and after a fresh navigation, never only a toast. Null while
+   * none was recorded.
+   */
+  readonly override?: { readonly reason: string; readonly decidedAt: number } | null
 }
 
 /** One closed-round posting a person has to look at: paused, started and never confirmed, or uncertain. */

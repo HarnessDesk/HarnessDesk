@@ -778,9 +778,13 @@ export class FindingsPlane {
     const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? []
     const admitted = admittedOf(series)
     const activeBlocking = (view: FindingView): boolean => (admitted.has(view.id) && !isResolved(view)) || view.problem !== null
-    const rows = filter === 'blocking' ? owned.filter(activeBlocking)
+    const selected = filter === 'blocking' ? owned.filter(activeBlocking)
       : filter === 'open' ? owned.filter((one) => !isResolved(one))
       : owned
+    // Stamped per row, not left to `blocking`'s raw raise-time claim: a carried finding starts outside the
+    // admitted set until its own first round closes, and a row that still said "Blocking" there would
+    // disagree with this same page's own totals below.
+    const rows = selected.map((view) => ({ ...view, activeBlocking: activeBlocking(view) }))
     const problem = ledger.unreadable > 0
       ? 'Some evidence records could not be read, so this ledger cannot be shown as complete. A person has to look.'
       : null
@@ -1091,6 +1095,11 @@ export class FindingsPlane {
         view.record.card?.board === snapshot.goal && last.cards.includes(view.record.card.id))
         .map((view) => view.record.card!.id)).size
     }
+    // The Goal's own closure comes first; failing that, this run's own conclusion — stopped or settled — leaves
+    // nothing more to decide either, whatever the round's own ceiling reason still says below.
+    const goalReason = this.#port.goalClosed?.(snapshot.goal) ?? null
+    const runConcluded = snapshot.state === 'stopped' || snapshot.state === 'settled'
+    const lastOverride = (snapshot.findings?.overrides ?? []).at(-1) ?? null
     const view = {
       run, goal: snapshot.goal, round: last?.n ?? 0,
       finished: snapshot.findings?.closedRounds.length ?? 0,
@@ -1105,7 +1114,8 @@ export class FindingsPlane {
       repair: last ? (snapshot.leads[String(last.n)] ?? null) : null,
       boundPr: bound.kind === 'bound' ? { repo: bound.repo, pr: bound.pr } : null,
       unbound: bound.kind === 'none' ? bound.reason : null,
-      undecidable: this.#port.goalClosed?.(snapshot.goal) ?? null,
+      undecidable: goalReason ?? (runConcluded ? (snapshot.reason ?? 'This run already stopped. Nothing more is decided here.') : null),
+      override: lastOverride ? { reason: lastOverride.reason, decidedAt: lastOverride.decidedAt } : null,
     }
     const cwds = [...new Set(series.map((one) => one.checkout.cwd))].sort()
     const heads = await Promise.all(cwds.map(async (cwd) => ({ cwd, ...(await this.#port.headOf(cwd)) })))

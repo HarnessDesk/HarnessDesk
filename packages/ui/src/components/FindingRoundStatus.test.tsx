@@ -34,3 +34,14 @@ it('a stopped run shows the recorded reason', () => {
   act(() => root.render(<FindingRoundStatus view={view({ reason: 'Round 3 ended with 2 open findings.' })} />))
   expect(container.textContent).toContain('Round 3 ended with 2 open findings.')
 })
+
+it('a merge-anyway override is shown as a durable confirmation, not left for a direct wire call to prove', () => {
+  act(() => root.render(<FindingRoundStatus view={view({ override: { reason: 'shipping with a tracked follow-up', decidedAt: 1_700_000_000_000 } })} />))
+  expect(container.textContent).toContain('Merged anyway')
+  expect(container.textContent).toContain('shipping with a tracked follow-up')
+})
+
+it('says nothing about an override when none was recorded', () => {
+  act(() => root.render(<FindingRoundStatus view={view()} />))
+  expect(container.textContent).not.toContain('Merged anyway')
+})
