@@ -7,7 +7,9 @@ import { test } from 'node:test'
 import type { Evidence, EvidenceRecord } from '@harnessdesk/protocol'
 
 import { foldSeats, LINE_LIMIT, lineOf, TAIL_LIMIT, type SeatOpening, type StoredLine } from '../src/evidence/records.js'
+import { EvidencePlane, type EvidencePort } from '../src/evidence/plane.js'
 import { EvidenceMergeError, EvidenceStore, type Admit } from '../src/evidence/store.js'
+import { foldFindings, isResolved } from '../src/findings/model.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -62,6 +64,8 @@ const checkFact = (over: Partial<EvidenceRecord> = {}): EvidenceRecord => ({
   posted: null,
   ...over,
 })
+
+const planePort: EvidencePort = { board: () => null, cwdOf: () => null, push: () => {}, log: () => {} }
 
 const seatLine = (over: Partial<SeatOpening> = {}): StoredLine => ({ type: 'seat', record: opening(over) })
 const factLine = (over: Partial<EvidenceRecord> = {}): StoredLine => ({ type: 'evidence', record: checkFact(over) })
@@ -305,4 +309,114 @@ test('nothing in the store can change or remove a line once it is written: it on
     // `onDurable` only listens: it is told of lines once they are synced, and hands nothing a way to write.
     ['append', 'constructor', 'flush', 'folderOf', 'merge', 'onDurable', 'projects', 'read'],
   )
+})
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named additions for the findings ledger (phase 7): a finding's events are
+ * ordinary evidence records with one optional `finding` field, read by the
+ * same one rule, bounded the same way. The phase-4 cases above are untouched.
+ */
+
+const FINDING = 'finding-00000000-0000-4000-8000-00000000000a'
+const findingOrigin = { goal: 'goal-1', run: 'run-1', round: 1, card: 4, seat: 'seat-1', at: A }
+const findingRecord = (
+  sequence: number,
+  event: NonNullable<EvidenceRecord['finding']>['event'],
+  over: Partial<EvidenceRecord> = {},
+): EvidenceRecord => ({
+  id: `finding-record-${sequence}`,
+  fact: {
+    kind: 'finding', id: FINDING, at: A,
+    state: event.kind === 'repair' ? 'repaired' : event.kind === 'verdict' ? event.state : sequence > 2 ? 'repaired' : 'open',
+  },
+  card: { board: 'goal-1', id: 4 },
+  checkout: { cwd: '/work/repo', branch: 'fix' },
+  seat: event.kind === 'carry' || event.kind === 'post' || (event.kind === 'verdict' && event.by === 'person') ? null : 'seat-1',
+  round: 1,
+  observedAt: sequence,
+  posted: event.kind === 'post' ? { pr: event.location.pr, comment: event.location.comment } : null,
+  finding: { version: 1, sequence, operation: `op-${sequence}`, origin: findingOrigin, event },
+  ...over,
+})
+const everyArm = (): EvidenceRecord[] => [
+  findingRecord(1, { kind: 'raise', title: 'Unbounded retry', body: 'It never stops.', category: 'security', blocking: true, related: null, anchor: { path: 'src/a.ts', line: 3, side: 'RIGHT' } }),
+  findingRecord(2, { kind: 'repair', note: 'Bounded it.' }),
+  findingRecord(3, { kind: 'carry', from: 'goal-1', receipt: 'receipt-1', to: 'goal-2' }),
+  findingRecord(4, { kind: 'post', location: { repo: 'acme/app', pr: 7, comment: 9, kind: 'review-comment', url: 'https://example.com/acme/app/pull/7', operation: 'publish-1' } }),
+  findingRecord(5, { kind: 'verdict', state: 'withdrawn', note: 'Not a bug.', by: 'person' }),
+]
+
+test('finding metadata round trips through store and backup reader', async () => {
+  const store = new EvidenceStore(tempDir('hd-evidence-store-'))
+  const records = everyArm()
+  await store.append('/work/repo', 'evidence', records.map((record) => ({ type: 'evidence', record }) as const))
+  const read = await store.read('/work/repo', 'evidence')
+  assert.equal(read.skipped, 0)
+  assert.deepEqual(read.lines.map((line) => (line.type === 'evidence' ? line.record : null)), records)
+  // The backup reader: the same lines as a backup carries them, restored into another desk's store.
+  const source = new EvidencePlane({ dir: tempDir('hd-evidence-a-'), seenFile: join(tempDir('hd-evidence-seen-'), 'seen.json') }, planePort)
+  await source.store.append('/work/repo', 'evidence', records.map((record) => ({ type: 'evidence', record }) as const))
+  const backup = await source.backup()
+  const target = new EvidencePlane({ dir: tempDir('hd-evidence-b-'), seenFile: join(tempDir('hd-evidence-seen-'), 'seen.json') }, planePort)
+  const restored = await target.restore(backup)
+  assert.equal(restored.restored, records.length)
+  assert.equal(restored.refused, 0)
+  const back = (await target.store.read('/work/repo', 'evidence')).lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+  assert.deepEqual(back.map((record) => record.finding), records.map((record) => record.finding))
+  assert.ok(back.every((record) => record.restored), 'every restored event is marked history')
+  // The existing shape rules are not weakened: metadata on a fact that is not a finding is no record.
+  assert.equal(lineOf({ v: 1, type: 'evidence', record: { ...checkFact(), finding: records[0]!.finding } }, FACTS), null)
+})
+
+test('old finding fact remains history', async () => {
+  const store = new EvidenceStore(tempDir('hd-evidence-store-'))
+  const bare: EvidenceRecord = { ...checkFact({ id: 'bare-1', seat: null }), fact: { kind: 'finding', id: 'finding-old', state: 'withdrawn', at: A } }
+  await store.append('/work/repo', 'evidence', [{ type: 'evidence', record: bare }])
+  const read = await store.read('/work/repo', 'evidence')
+  assert.equal(read.skipped, 0, 'a bare finding fact is still a record this build reads')
+  const [view] = foldFindings(read.lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : [])))
+  assert.ok(view)
+  assert.equal(view.problem, 'Details were not recorded.')
+  assert.equal(view.origin.seat, '', 'no raiser is invented')
+  assert.equal(view.title, '')
+  assert.equal(view.body, '')
+  assert.equal(view.lifecycle.confirmed, false, 'a withdrawn state without details is not a cleared finding')
+  assert.equal(isResolved(view), false)
+})
+
+test('bounded malformed fields refuse', async () => {
+  const store = new EvidenceStore(tempDir('hd-evidence-store-'))
+  const [raiseRecord, repairRecord, , postRecord] = everyArm()
+  const raised = raiseRecord!.finding!
+  const raiseEvent = raised.event as Extract<typeof raised.event, { kind: 'raise' }>
+  const bad: unknown[] = [
+    // A body over 4,096 characters, and a title over 200.
+    { ...raiseRecord, id: 'b1', finding: { ...raised, event: { ...raiseEvent, body: 'x'.repeat(4_097) } } },
+    { ...raiseRecord, id: 'b2', finding: { ...raised, event: { ...raiseEvent, title: 'x'.repeat(201) } } },
+    // A post whose phase-4 `posted` does not agree with the location it says it posted to.
+    { ...postRecord, id: 'b3', posted: { pr: 7, comment: 10 } },
+    // Metadata `posted` on an event that is not a post.
+    { ...repairRecord, id: 'b4', posted: { pr: 7, comment: 9 } },
+    // An origin revision that is not a full commit id, and an anchor that climbs out of the project.
+    { ...raiseRecord, id: 'b5', finding: { ...raised, origin: { ...raised.origin, at: 'HEAD' } } },
+    { ...raiseRecord, id: 'b6', finding: { ...raised, event: { ...raiseEvent, anchor: { path: '../etc/passwd', line: 1, side: 'RIGHT' } } } },
+    { ...raiseRecord, id: 'b7', finding: { ...raised, event: { ...raiseEvent, anchor: { path: '/abs/a.ts', line: 1, side: 'RIGHT' } } } },
+    { ...raiseRecord, id: 'b8', finding: { ...raised, event: { ...raiseEvent, anchor: { path: 'src\\a.ts', line: 1, side: 'RIGHT' } } } },
+    { ...raiseRecord, id: 'b9', finding: { ...raised, event: { ...raiseEvent, anchor: { path: 'src/a.ts', line: 0, side: 'RIGHT' } } } },
+    // A version this build does not know, a sequence that is not a positive integer, an extra event key.
+    { ...raiseRecord, id: 'b10', finding: { ...raised, version: 2 } },
+    { ...raiseRecord, id: 'b11', finding: { ...raised, sequence: 0 } },
+    { ...raiseRecord, id: 'b12', finding: { ...raised, event: { ...raiseEvent, confirmed: true } } },
+    // A raise whose fact does not say open.
+    { ...raiseRecord, id: 'b13', fact: { ...raiseRecord!.fact, state: 'withdrawn' } },
+  ]
+  await store.append('/work/repo', 'evidence', [factLine()])
+  const file = join(store.folderOf('/work/repo'), 'evidence.ndjson')
+  const text = bad.map((record) => `${JSON.stringify({ v: 1, type: 'evidence', record })}\n`).join('')
+  await appendFile(file, text)
+  const read = await store.read('/work/repo', 'evidence')
+  assert.equal(read.lines.length, 1)
+  assert.equal(read.skipped, bad.length, 'every malformed finding line is counted, not read')
+  assert.ok((await readFile(file, 'utf8')).includes(text), 'and its bytes are kept as written')
 })

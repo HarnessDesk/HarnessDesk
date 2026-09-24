@@ -203,3 +203,26 @@ test('expired token is not plain authority', async () => {
   if (!result.ok) assert.equal(result.reason, EXPIRED_CALLER_REFUSAL)
   assert.deepEqual(calls, [], 'an unidentified caller must never fall through to phase 3’s own permissive default for this path')
 })
+
+test('a blind round embargoes an external server that may publish, but not one held to read', async () => {
+  const embargo = 'Your review round is blind until every reviewer has finished.'
+  const port = new FakePort() as FakePort & { embargoOf(runtime: string, session: string): string | null }
+  port.embargoOf = () => embargo
+  port.ceilings.set('claude:one', { level: 'merge', hold: 'held' })
+  const gate = new CeilingGate(port)
+  for (const [ceiling, admitted] of [['merge', false], ['publish', false], ['edit', true], ['read', true]] as const) {
+    let invoked = false
+    const gateway = new McpToolGateway({
+      serversFor: () => [server({ ceiling })],
+      callerOf: () => ({ seat: 'seat-1', runtime: 'claude', sessionId: 'one' }),
+      admit: (call) => gate.admit(call),
+    })
+    const result = await gateway.call('token', 'reviewer-tools', 'post_comment', async () => {
+      invoked = true
+      return 'ok'
+    })
+    assert.equal(result.ok, admitted, ceiling)
+    assert.equal(invoked, admitted, ceiling)
+    if (!result.ok) assert.equal(result.reason, embargo, ceiling)
+  }
+})

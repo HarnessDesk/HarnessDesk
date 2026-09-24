@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import {
   activityOf, checkedDependencies, flowStepOf, placeCard,
-  type BoardEvidence, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
+  type BoardEvidence, type CarryFindingsInput, type EvidenceRecord, type FindingReceipt, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
   type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
@@ -14,7 +14,7 @@ import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
-import { recoverOperation, type GoalOperation, type GoalOperationPort } from './operations.js'
+import { recoverOperation, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { previewWrap, Wraps, type WrapInput } from './wrap.js'
 
@@ -88,6 +88,13 @@ export interface GoalPlanePort extends GoalOperationPort {
   cards?(goal: string): readonly Intent[]
   /** Refuses every change to the Goal's board, with `reason`, until the answer is called. */
   holdBoard?(goal: string, reason: string): () => void
+  /** The findings this Goal owns, as a wrap would freeze them, and what the receipt cannot vouch for. Absent: none recorded. */
+  findings?(goal: string): Promise<{
+    readonly receipt: FindingReceipt
+    readonly gaps: readonly string[]
+    /** Publications of this Goal's findings still unsettled after posting was worked to its end: a person records them. */
+    readonly publication?: readonly string[]
+  }>
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -111,6 +118,8 @@ export class GoalPlane {
   #lanePreferences: (() => import('@harnessdesk/protocol').LanePreferences) | null = null
   readonly #activity = new Map<string, NonNullable<GoalView['activity']>>()
   readonly #recoveryProblems = new Map<string, string>()
+  /** How a carry's events reach the findings ledger: its one writer's append. */
+  #appendCarry: ((records: readonly EvidenceRecord[]) => Promise<void>) | null = null
 
   private readonly memory: GoalMemorySupport
 
@@ -152,6 +161,17 @@ export class GoalPlane {
     if (this.#lanes && this.#lanes !== lanes) throw new Error('This Goal plane already has its lane allocator.')
     this.#lanes = lanes
     this.#lanePreferences = preferences
+  }
+
+  /** The findings ledger's writer, for a carry's events. Set once. */
+  attachFindings(append: (records: readonly EvidenceRecord[]) => Promise<void>): void {
+    if (this.#appendCarry && this.#appendCarry !== append) throw new Error('This Goal plane already has its findings ledger.')
+    this.#appendCarry = append
+  }
+
+  #carryPort(): CarryPort | null {
+    const append = this.#appendCarry
+    return append ? { append, finish: (operation) => this.#finishCarry(operation) } : null
   }
 
   laneFor(seat: SeatId): import('@harnessdesk/protocol').Lane | null {
@@ -276,7 +296,7 @@ export class GoalPlane {
     })
   }
 
-  update(id: string, revision: number, patch: { sentence?: string; dependsOn?: readonly string[] }): Promise<GoalView> {
+  update(id: string, revision: number, patch: { sentence?: string; dependsOn?: readonly string[]; findingPublication?: boolean }): Promise<GoalView> {
     return this.serial.run(async () => {
       const document = this.store.read(id)
       this.#editable(document)
@@ -288,8 +308,12 @@ export class GoalPlane {
       if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
       const dependsOn = checkedDependencies(document.goal, patch.dependsOn ?? document.goal.dependsOn,
         this.store.list().map((one) => one.goal))
+      if (patch.findingPublication !== undefined && typeof patch.findingPublication !== 'boolean') {
+        throw new Error('Say whether findings are posted to this Goal’s pull request.')
+      }
       await this.store.save({ ...document, goal: {
         ...document.goal, sentence, dependsOn, revision: revision + 1, updatedAt: this.now(),
+        ...(patch.findingPublication !== undefined ? { findingPublication: patch.findingPublication } : {}),
       } }, revision)
       const view = await this.view(id)
       this.#rememberAndPublish(view)
@@ -528,6 +552,58 @@ export class GoalPlane {
     })
   }
 
+  /**
+   * A person carries unresolved findings from a wrapped receipt into this
+   * open Goal. Inside this plane's queue: the target is checked against the
+   * revision the person saw, the source against the receipt they chose, the
+   * project against both, and the new dependency against the graph; then
+   * `prepare` — the findings ledger's writer, under its own queue — builds
+   * the carry events; then the dependency and the events are journaled as one
+   * operation before either is applied, and applied once each.
+   */
+  carryFindings(
+    input: CarryFindingsInput,
+    prepare: (target: GoalDocument, source: GoalDocument) => Promise<readonly EvidenceRecord[]>,
+  ): Promise<void> {
+    return this.serial.run(async () => {
+      const target = this.store.read(input.goal)
+      this.#editable(target)
+      if (target.goal.revision !== input.revision) throw new Error('This Goal changed. Read it again before carrying findings into it.')
+      let source: GoalDocument
+      try {
+        source = this.store.read(input.source)
+      } catch {
+        throw new Error('Choose an existing wrapped receipt.')
+      }
+      if (source.goal.id === target.goal.id) throw new Error('A Goal cannot carry findings into itself.')
+      if (source.restored) throw new Error('That receipt came from a backup, so its findings are history. Ask for a new review instead.')
+      if (source.goal.root !== target.goal.root) throw new Error('Findings can only be carried within one project.')
+      if (source.goal.state !== 'wrapped' || source.receipt?.id !== input.receipt) throw new Error('Choose an existing wrapped receipt.')
+      const dependsOn = checkedDependencies(target.goal,
+        target.goal.dependsOn.includes(source.goal.id) ? target.goal.dependsOn : [...target.goal.dependsOn, source.goal.id],
+        this.store.list().map((one) => one.goal))
+      const records = await prepare(target, source)
+      const operation: Extract<GoalOperation, { kind: 'carry' }> = {
+        kind: 'carry', id: randomUUID(), goal: target.goal.id, source: source.goal.id, receipt: input.receipt,
+        dependsOn, records: structuredClone(records),
+      }
+      await this.#stage(target, operation)
+      await recoverOperation(operation, this.port, this.#carryPort())
+      await this.refresh(target.goal.id)
+    })
+  }
+
+  async #finishCarry(operation: Extract<GoalOperation, { kind: 'carry' }>): Promise<void> {
+    const document = this.store.read(operation.goal)
+    if (document.operation === null) return
+    if (document.operation.id !== operation.id) throw new Error('Another Goal operation replaced this carry. Finish recovery first.')
+    await this.store.save({
+      ...document,
+      operation: null,
+      goal: { ...document.goal, dependsOn: operation.dependsOn, revision: document.goal.revision + 1, updatedAt: this.now() },
+    }, document.goal.revision)
+  }
+
   seat(input: GoalSeatRequest): Promise<SeatRecord> {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
@@ -561,10 +637,14 @@ export class GoalPlane {
       for (const document of this.store.list()) {
         if (document.restored || !document.operation) continue
         try {
-          await recoverOperation(document.operation, this.port)
+          await recoverOperation(document.operation, this.port, this.#carryPort())
           this.#recoveryProblems.delete(document.goal.id)
         } catch (error) {
           const reason = error instanceof Error ? error.message : String(error)
+          if (document.operation.kind === 'carry') {
+            this.#recoveryProblems.set(document.goal.id, `Carrying findings could not finish: ${reason}. Restart to retry recovery.`)
+            continue
+          }
           if (document.operation.kind === 'wrap') {
             this.#recoveryProblems.set(document.goal.id, `Wrapping could not finish: ${reason}. Restart to retry recovery.`)
             continue
@@ -585,7 +665,7 @@ export class GoalPlane {
    * operation left staged refuses every later save of its Goal, so a refusal
    * must never leave one behind. Rethrows the refusal once set aside.
    */
-  async #complete(operation: Exclude<GoalOperation, { kind: 'wrap' }>): Promise<void> {
+  async #complete(operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>): Promise<void> {
     try {
       await recoverOperation(operation, this.port)
     } catch (error) {
@@ -608,7 +688,7 @@ export class GoalPlane {
    * that fail, the operation stays (`settled: false`), the Goal refuses new
    * work saying so, and the next launch tries again — the desk still starts.
    */
-  async #setAside(operation: Exclude<GoalOperation, { kind: 'wrap' }>, reason: string): Promise<{ settled: boolean; sentence: string }> {
+  async #setAside(operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>, reason: string): Promise<{ settled: boolean; sentence: string }> {
     const what = operation.kind === 'assignment'
       ? `Assigning ${operation.card === null ? 'a Seat' : `card ${operation.card}`}`
       : 'Releasing a Seat'
@@ -647,8 +727,11 @@ export class GoalPlane {
     const revisionByCwd = new Map(revisions.map((revision) => [revision.cwd, revision]))
     const evidenceRefs = [...await this.port.evidenceIds(id, document.goal.root)]
       .sort((left, right) => left.id.localeCompare(right.id))
+    const findings = this.port.findings ? await this.port.findings(id) : null
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
+      ...(findings?.gaps ?? []),
+      ...(findings?.publication ?? []),
       ...(evidenceRefs.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
       ...revisions.filter((revision) => revision.head === null || revision.dirty === null)
         .map((revision) => `Revision state was unavailable for ${revision.cwd}.`),
@@ -680,6 +763,8 @@ export class GoalPlane {
       citations: [...document.citations].sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
       gaps: [...new Set(gaps)].sort(),
       revisions,
+      ...(findings ? { findings: findings.receipt } : {}),
+      ...(findings?.publication && findings.publication.length > 0 ? { publication: [...findings.publication].sort() } : {}),
     } satisfies WrapInput)
   }
 

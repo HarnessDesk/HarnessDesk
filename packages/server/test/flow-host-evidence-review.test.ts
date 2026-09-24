@@ -6,7 +6,7 @@ import {
 } from './fixtures/flow-host-evidence.js'
 
 /*
- * Review shapes: the shipped `independent-review` and `fan-out` flows, and
+ * Review shapes: the shipped `independent-review`, `fan-out` and `review-pr` flows, and
  * a hand-written flow whose `to-ship` rule waits on three evidence guards
  * at once (a check, green CI, an open pull request). Split out of
  * `flow-host-evidence.test.ts` (see that file's sibling `-comparison`,
@@ -86,4 +86,44 @@ test('a check, green CI and an open pull request, each observed at the build rev
   assert.equal(ship.title, `Ship pull request 41 at ${head}`)
   const done = await settled(d, run.id)
   assert.equal(done.rounds.find((one) => one.role === 'ship')!.evidence.length, 3, 'one fact for each guard')
+})
+
+test('the review-pr flow reaches its end', E2E, async (t) => {
+  const d = await desk(t)
+  const run = await start(d, await shipped(d, 'review-pr'), TASK)
+  const [fixer] = await claimed(d, run.goal, 'fixer', 1)
+  d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
+  await write(d, fixer!, 'fixed')
+  for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'approve')
+  // The mechanical check runs by itself, the way mechanical-contest's `decide` does; no card to drive.
+  await person(d, run.goal, 'referee', 'merged')
+  await settled(d, run.id)
+})
+
+/* The loop review-pr exists for: reviewers ask for changes, the fixer
+   repairs — twice — they approve, the check runs, and the person referee
+   still gets the card: the shipped budget has to reach that far. */
+test('the review-pr flow reaches its person referee through two repairs', E2E, async (t) => {
+  const d = await desk(t)
+  /* Both fake runtimes mint `fake-session-<n>` from their own counters, so a
+     third Seat on the first can be answered with an id the second already
+     used, which the desk refuses as a conversation it holds. Real runtimes
+     mint unique ids; this puts the first's counter out of the second's way. */
+  for (let n = 0; n < 50; n += 1) await d.runtimes[0]!.createSession({ cwd: d.root })
+  const run = await start(d, await shipped(d, 'review-pr'), TASK)
+  const [fixer] = await claimed(d, run.goal, 'fixer', 1)
+  d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
+  await write(d, fixer!, 'fixed')
+  for (const attempt of ['repaired once', 'repaired twice']) {
+    for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'request-changes')
+    const [repair] = await claimed(d, run.goal, 'fixer', 1)
+    // Each repair is its own Seat's checkout: the pull request the forge reports is the one on its branch.
+    d.forge.open.add(await git(cwdOf(d, repair!), 'symbolic-ref', '--short', 'HEAD'))
+    await write(d, repair!, attempt)
+  }
+  for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'approve')
+  const referee = await person(d, run.goal, 'referee', 'merged')
+  assert.equal(referee.role, 'referee', 'the person referee was reached, not a stop for the budget')
+  const done = await settled(d, run.id)
+  assert.equal(done.findings?.stopped ?? null, null)
 })

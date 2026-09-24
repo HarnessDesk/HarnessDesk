@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 
 import type { Goal, GoalBoard, GoalCitation, GoalId, GoalMemoryIndex, GoalReceipt, Lane, Plan, SeatId } from '@harnessdesk/protocol'
 
+import { evidenceRecordOf } from '../evidence/records.js'
 import type { RememberedMember } from './migration.js'
 import type { GoalOperation } from './operations.js'
 
@@ -128,7 +129,8 @@ export const receiptOf = (value: unknown, goal: string, id: unknown): value is G
     (lane.dirty === null || typeof lane.dirty === 'boolean') && lane.retained === true)) return false
   if (!value.revisions.every((revision) => object(revision) && typeof revision.cwd === 'string' &&
     (revision.head === null || sha(revision.head)) && (revision.dirty === null || typeof revision.dirty === 'boolean'))) return false
-  return value.citations.every(citationOf)
+  if (!value.citations.every(citationOf)) return false
+  return value.findings === undefined || findingReceiptOf(value.findings)
 }
 
 const archiveKeyOf = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
@@ -140,6 +142,14 @@ export const memoryIndexOf = (value: unknown): value is GoalMemoryIndex =>
   value.citations.every((one) => object(one) && citationOf(one.citation) && archiveKeyOf(one.archive)) &&
   Array.isArray(value.satisfiedCitationSources) &&
   value.satisfiedCitationSources.every((one) => object(one) && typeof one.goal === 'string' && typeof one.receipt === 'string')
+
+/** A wrap's frozen findings: their event ids and the views they folded to. Shape only; the views are the host's own. */
+const findingReceiptOf = (value: unknown): boolean =>
+  object(value) && value.version === 1 && strings(value.evidence) && Array.isArray(value.findings) &&
+  value.findings.every((view) => object(view) && typeof view.id === 'string' && object(view.origin) && object(view.lifecycle) &&
+    typeof view.ownerGoal === 'string' && strings(view.evidence)) &&
+  Array.isArray(value.overrides) && value.overrides.every((override) => object(override) && override.by === 'person' &&
+    typeof override.run === 'string' && strings(override.findings) && typeof override.reason === 'string')
 
 /** Refuse a partial or newer document; do not repair it by dropping fields. */
 export function documentOf(value: unknown): GoalDocument {
@@ -156,6 +166,7 @@ export function documentOf(value: unknown): GoalDocument {
     !Number.isFinite(goal.createdAt) || !Number.isFinite(goal.updatedAt) ||
     !object(goal.origin) || !['person', 'legacy', 'flow', 'trigger'].includes(String(goal.origin.kind)) ||
     !(goal.receipt === null || typeof goal.receipt === 'string') ||
+    !(goal.findingPublication === undefined || typeof goal.findingPublication === 'boolean') ||
     'members' in goal || 'members' in board || 'roles' in board || 'plans' in board ||
     !Number.isSafeInteger(board.nextIntent) || Number(board.nextIntent) < 1 ||
     typeof board.messaging !== 'boolean' || !Array.isArray(board.intents) || !Array.isArray(board.channel) ||
@@ -178,7 +189,11 @@ export function documentOf(value: unknown): GoalDocument {
   }
   if (value.receipt !== null && !receiptOf(value.receipt, String(goal.id), goal.receipt)) return bad()
   if (value.operation !== null && (!object(value.operation) || value.operation.goal !== goal.id ||
-    typeof value.operation.id !== 'string' || !['assignment', 'release', 'wrap'].includes(String(value.operation.kind)))) return bad()
+    typeof value.operation.id !== 'string' || !['assignment', 'release', 'wrap', 'carry'].includes(String(value.operation.kind)))) return bad()
+  if (value.operation !== null && value.operation.kind === 'carry' &&
+    (goal.state !== 'open' || typeof value.operation.source !== 'string' || typeof value.operation.receipt !== 'string' ||
+      !strings(value.operation.dependsOn) || !Array.isArray(value.operation.records) ||
+      !value.operation.records.every((record) => evidenceRecordOf(record) !== null))) return bad()
   if (value.operation !== null && value.operation.kind === 'wrap' &&
     (goal.state !== 'wrapping' || !sha(value.operation.stamp) ||
       !receiptOf(value.operation.receipt, String(goal.id), object(value.operation.receipt) ? value.operation.receipt.id : null))) return bad()

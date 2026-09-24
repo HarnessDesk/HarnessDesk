@@ -2,9 +2,14 @@ import { createHash } from 'node:crypto'
 import { mkdir, open, readdir, readFile, rename, unlink } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
+import { DEFAULT_FLOW_BUDGET } from '@harnessdesk/protocol'
 import type {
   CompiledFlow,
   EvidenceView,
+  FindingId,
+  FindingOverride,
+  FindingRunState,
+  FindingSeries,
   FlowBinding,
   FlowCheck,
   FlowCheckContext,
@@ -19,14 +24,18 @@ import type {
   GoalSeatRequest,
   Intent,
   Lane,
+  RepairLead,
   SeatRecord,
 } from '@harnessdesk/protocol'
 
 import { ConfinedTree } from './confined-tree.js'
 import { cardVars, guardHolds } from './flow.js'
 import {
-  evidenceGuard, evidenceValues, namesEvidence, renderCardTemplate, type FlowEvidenceContext, type FlowSubject,
+  evidenceValues, namesEvidence, readyGuard, renderCardTemplate, type FindingsGate, type FlowEvidenceContext, type FlowSubject,
 } from './flow-evidence.js'
+import { decideLoop } from './findings/rounds.js'
+import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
+import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
 import type { Team } from './team.js'
 
 /**
@@ -55,6 +64,20 @@ export type StoredFlowExecution = FlowExecution & {
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
   /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
   checkPlans?: Readonly<Record<string, CheckPlan>>
+  /** Each finding command a Seat of this run made, by operation key, journaled before its record is appended. */
+  findingOps?: Readonly<Record<string, FindingJournalEntry>>
+  /** A later review round's package, by round number: pinned before its Seats open, handed to each in its order. */
+  reviewPackets?: Readonly<Record<string, ReviewPacketPin>>
+  /** Each closed round's release decision and every comment it posts, journaled before the first is sent. */
+  publication?: StoredPublication
+}
+
+/** What a later review round was handed, and the subject revisions it was pinned to. */
+export interface ReviewPacketPin {
+  readonly text: string
+  readonly pinned: readonly { readonly cwd: string; readonly at: string }[]
+  /** The same delta as `text`, as ids and revisions only — what a board card leads with, never the rendered prose. */
+  readonly leads: readonly RepairLead[]
 }
 
 /**
@@ -136,6 +159,16 @@ export interface FlowExecutionPort {
     where: { readonly cwd: string; readonly timeoutSec: number; readonly flowContext?: string; readonly signal?: AbortSignal },
     card: { readonly goal: string; readonly card: number; readonly name: string; readonly round: number },
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
+}
+
+/** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
+export interface RunDecisionOps {
+  authorizeExtraRound(round: number, reason: string): Promise<void>
+  recordExceptionDecision(findings: readonly FindingId[], admit: boolean): Promise<void>
+  recordOverride(override: FindingOverride): Promise<void>
+  recordDecisionStamp(stamp: string, key: string): Promise<void>
+  /** The person's Drop: the run stops. Its listeners (unsent postings skipped) are told once the step is done. */
+  stop(why: string): Promise<void>
 }
 
 // ------------------------------------------------------------------ one queue
@@ -235,7 +268,41 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   operations: run.operations,
   legacyRun: run.legacyRun,
   reason: run.reason,
+  ...(run.findings ? { findings: run.findings } : {}),
 })
+
+/** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
+export const startingFindings = (policy: FlowPolicy): FindingRunState => ({
+  version: 1,
+  budget: policy.budget ?? DEFAULT_FLOW_BUDGET,
+  closedRounds: [],
+  idleRounds: 0,
+  progress: [],
+  series: [],
+  stopped: null,
+  extraRound: null,
+  overrides: [],
+  lastDecision: null,
+})
+
+/** A run as the findings plane reads it at a round's close: its rounds, which of them review, and each review Seat's stable slot. */
+export interface FindingRunSnapshot {
+  readonly id: string
+  readonly goal: string
+  readonly state: FlowExecution['state']
+  /** Why the run itself is in that state — set when it stopped or settled; null while it is still live. */
+  readonly reason: string | null
+  readonly findings: FindingRunState | null
+  readonly rounds: readonly (FlowRoundState & { readonly reviews: boolean })[]
+  /** A review's Seat as its role, its place in the round and its Agent: the same slot however often it is seated. */
+  readonly slots: Readonly<Record<string, string>>
+  /** Finding commands a stop left part-way: no round closes over one. */
+  readonly pendingFindings: number
+  /** Each later review round's pinned subject revisions: a finding or verdict there judges exactly these. */
+  readonly pinned: Readonly<Record<string, readonly { readonly cwd: string; readonly at: string }[]>>
+  /** Each later review round's repair lead, by round: absent for a first review, which has no packet. */
+  readonly leads: Readonly<Record<string, readonly RepairLead[]>>
+}
 
 const policyOf = (run: StoredFlowExecution): FlowPolicy => {
   if (run.document.format !== 'agents') throw new Error('This run uses the old format and is run by the old engine.')
@@ -345,6 +412,16 @@ export class FlowExecutions {
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
   #corrupt: string | null = null
   #rearms = new Map<string, number[]>()
+  /** Told when a round of a run with findings bookkeeping closes: the findings plane's close processing. */
+  readonly #closeListeners = new Set<(run: string, round: number) => void | Promise<void>>()
+  /** Close processing a listener started, so `idle()` waits for it as it waits for the run queues. */
+  readonly #closing = new Set<Promise<void>>()
+  /** The closes being processed now, by run and round: never two of one close at once. */
+  readonly #processingCloses = new Set<string>()
+  /** What a ready rule also needs besides its guards: no open admitted blocker and no pending exception. */
+  #findingsGate: ((run: string) => Promise<FindingsGate | null>) | null = null
+  /** A later review round's package, read before its Seats open; throws when the delta cannot be read in full. */
+  #reviewPackets: ((run: string, round: number, role: string, subjects: readonly FlowSubject[]) => Promise<ReviewPacketPin | null>) | null = null
 
   constructor(files: ExecutionFiles, team: Team, port: FlowExecutionPort, options: FlowExecutionsOptions = {}) {
     this.#files = files
@@ -355,7 +432,366 @@ export class FlowExecutions {
   }
 
   async idle(): Promise<void> {
+    let guard = 0
+    do {
+      if (++guard > 10_000) throw new Error('FlowExecutions.idle() never quieted down.')
+      await this.#queue.idle()
+      await Promise.all([...this.#closing])
+    } while (this.#closing.size > 0)
     await this.#queue.idle()
+  }
+
+  // ------------------------------------------------------- round closing
+
+  /**
+   * Subscribes to round closes of runs with findings bookkeeping. The
+   * listener schedules its work and returns; the engine never awaits it
+   * inside a run's queue, and opens no round after a close until the close
+   * has been recorded (`recordRoundClose`).
+   */
+  onRoundClosed(listener: (run: string, round: number) => void | Promise<void>): () => void {
+    this.#closeListeners.add(listener)
+    return () => this.#closeListeners.delete(listener)
+  }
+
+  attachFindingsGate(gate: ((run: string) => Promise<FindingsGate | null>) | null): void {
+    this.#findingsGate = gate
+  }
+
+  attachReviewPackets(packets: ((run: string, round: number, role: string, subjects: readonly FlowSubject[]) => Promise<ReviewPacketPin | null>) | null): void {
+    this.#reviewPackets = packets
+  }
+
+  #emitClosed(run: string, round: number): void {
+    /* One processing of a close at a time: a person's decision advancing the
+       run while its close is still being read would otherwise start a second
+       one, and the two would race to record it. */
+    const key = `${run}\u0000${round}`
+    if (this.#processingCloses.has(key)) return
+    this.#processingCloses.add(key)
+    const settled: Promise<unknown>[] = []
+    for (const listener of this.#closeListeners) {
+      try {
+        const work = listener(run, round)
+        if (work) {
+          const tracked = Promise.resolve(work).catch(async (error: unknown) => {
+            const why = error instanceof Error ? error.message : String(error)
+            this.#port.log('a closed round could not be processed', { run, round, error: why })
+            // Never a silent wait: the run stops for a person, saying why, and nothing opens after the round.
+            await this.#queue.within(run, () => this.#stall(run, `Round ${round} could not be closed: ${why}`)).catch(() => undefined)
+          }).finally(() => this.#closing.delete(tracked))
+          this.#closing.add(tracked)
+          settled.push(tracked)
+        }
+      } catch (error) {
+        this.#port.log('a closed round could not be processed', { run, round, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+    void Promise.all(settled).finally(() => this.#processingCloses.delete(key))
+  }
+
+  /** A run as the findings plane reads it when one of its rounds closes. */
+  findingRun(id: string): FindingRunSnapshot | null {
+    const run = this.#runs.get(id)
+    if (!run || run.document.format !== 'agents') return null
+    const policy = run.document.flow
+    const slots: Record<string, string> = {}
+    const rounds = run.rounds.map((round) => {
+      const role = policy.roles.find((one) => one.id === round.role)
+      const bindings = role?.kind === 'agent' ? bindingsFor(run, role.id) : []
+      for (const [index, card] of round.cards.entries()) {
+        const seat = this.#seatForCard(run, card).seat
+        if (seat) slots[String(seat.id)] = `${round.role}:${index}:${bindings[index]?.agent.id ?? seat.seat.runtime}`
+      }
+      return { ...round, reviews: bindings.some((binding) => binding.agent.produces.includes('review')) }
+    })
+    const pendingFindings = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared').length
+    const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
+    // `?? []`: absent on a packet pinned before repair leads existed; that packet has no lead to show, not a crash reading it back.
+    const leads = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.leads ?? []]))
+    return { id: run.id, goal: run.goal, state: run.state, reason: run.reason, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned, leads }
+  }
+
+  /**
+   * Records a closed round's findings bookkeeping with its close operation
+   * finished, in one write, then advances the run from its own queue.
+   * Idempotent on the round. `close` is applied here, inside the run's
+   * queue, to the run's bookkeeping as it stands now — never to the copy the
+   * close read before its awaits — and only the fields a close owns are
+   * taken from it: the closed rounds, the idle count, the progress seen, the
+   * stop, and the review series (which `close` builds by applying its round's
+   * `closeSeries` to the current ones). Everything a person decided while the
+   * close was reading — an override, an exception, an extra round, a
+   * decision stamp — is kept. Null records nothing but the close itself.
+   */
+  recordRoundClose(id: string, round: number, close: ((current: FindingRunState) => FindingRunState) | null): Promise<void> {
+    return this.#queue.within(id, async () => {
+      const run = this.#runs.get(id)
+      if (!run?.findings) return
+      const key = `close:${round}`
+      const operation = run.operations.find((one) => one.key === key)
+      if (operation?.state === 'finished') return
+      const current = run.findings
+      let findings = current
+      if (close && !current.closedRounds.includes(round)) {
+        const closed = close(current)
+        findings = {
+          ...current,
+          closedRounds: closed.closedRounds,
+          idleRounds: closed.idleRounds,
+          progress: closed.progress,
+          series: closed.series,
+          stopped: closed.stopped,
+        }
+      }
+      await this.#put(this.#operation({ ...run, findings }, key, { kind: 'round', state: 'finished', card: null, seat: null }))
+      await this.#advance(id)
+    })
+  }
+
+  /**
+   * A person's "Another round": authorizes exactly one further round past a
+   * stop this run's findings recorded, then resumes dispatch. `after` is the
+   * round the stop named — the same one `#advance`'s stall check compares —
+   * so the very next transition it would otherwise block is let through once.
+   * Idempotent while that transition has not happened yet: a duplicate press,
+   * or a crash before the round actually opens, replays the same one round
+   * rather than spending a second.
+   */
+  async authorizeExtraRound(id: string, round: number, reason: string): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      await this.#authorizeExtraRound(id, round, reason)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  async #authorizeExtraRound(id: string, round: number, reason: string): Promise<void> {
+    let run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
+    if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
+    const already = run.findings.extraRound
+    // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
+    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason
+    if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
+      throw new Error('This run is not stopped at that round any more. Read its status again.')
+    }
+    if (!replay) {
+      // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized round runs.
+      run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason } } })
+    }
+    run = await this.#put({ ...run, state: 'running', reason: null })
+    await this.#advance(id)
+  }
+
+  /**
+   * A person admits a pending regression or security claim into a series's
+   * blocking set, or declines it out of consideration entirely. Only ids
+   * still actually pending are touched — a stale id (already decided, or a
+   * head that moved the series on) is silently left alone rather than
+   * refusing ids that were never a problem, which is what makes a duplicate
+   * press of the same decision harmless.
+   */
+  async recordExceptionDecision(id: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      await this.#recordExceptionDecision(id, findings, admit)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  async #recordExceptionDecision(id: string, findings: readonly FindingId[], admit: boolean): Promise<void> {
+    const run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    const names = new Set(findings)
+    const series: readonly FindingSeries[] = run.findings.series.map((one) => {
+      const applicable = one.pending.filter((pending) => names.has(pending))
+      if (applicable.length === 0) return one
+      return {
+        ...one,
+        pending: one.pending.filter((pending) => !names.has(pending)),
+        exceptions: admit ? [...one.exceptions, ...applicable] : one.exceptions,
+      }
+    })
+    await this.#put({ ...run, findings: { ...run.findings, series } })
+    await this.#advance(id)
+  }
+
+  /**
+   * Records the last `finding/decide` this run actually applied, so a
+   * resubmission of the same stamp can be told from a genuinely stale one:
+   * applying a decision is what moves the run's own read stamp, so without
+   * this a lost answer's retry would always look like a conflicting replay.
+   * Idempotent on an identical (stamp, key) pair.
+   */
+  async recordDecisionStamp(id: string, stamp: string, key: string): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      await this.#recordDecisionStamp(id, stamp, key)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  async #recordDecisionStamp(id: string, stamp: string, key: string): Promise<void> {
+    const run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    if (run.findings.lastDecision?.stamp !== stamp || run.findings.lastDecision.key !== key) {
+      await this.#put({ ...run, findings: { ...run.findings, lastDecision: { stamp, key } } })
+    }
+  }
+
+  /**
+   * A person's recorded disagreement: unresolved findings stay unresolved,
+   * and nothing here edits a check, CI or review to passing. It is never a
+   * merge by itself — the existing person merge action, with its own
+   * expected-head precondition, is what actually merges.
+   */
+  async recordOverride(id: string, override: FindingOverride): Promise<FlowExecution> {
+    return this.#queue.within(id, async () => {
+      await this.#recordOverride(id, override)
+      return projectExecution(this.#get(id))
+    })
+  }
+
+  async #recordOverride(id: string, override: FindingOverride): Promise<void> {
+    const run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to override.')
+    const exact = JSON.stringify(override)
+    if (!run.findings.overrides.some((one) => JSON.stringify(one) === exact)) {
+      await this.#put({ ...run, findings: { ...run.findings, overrides: [...run.findings.overrides, override] } })
+    }
+  }
+
+  /**
+   * One person decision on a run, whole, inside the run's own queue: the
+   * read it was made against is checked and the action applied as one step,
+   * so two submissions of the same read cannot both pass the check before
+   * either applies. `step` is handed this run's decision actions, each run
+   * in the queue already held — it must not ask for this run's queue again
+   * (host.ts, "Lock order").
+   */
+  withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
+    if (!this.#runs.has(id)) return Promise.reject(new Error(`There is no flow run ${id}.`))
+    return this.#queue.within(id, () => step({
+      authorizeExtraRound: (round, reason) => this.#authorizeExtraRound(id, round, reason),
+      recordExceptionDecision: (findings, admit) => this.#recordExceptionDecision(id, findings, admit),
+      recordOverride: (override) => this.#recordOverride(id, override),
+      recordDecisionStamp: (stamp, key) => this.#recordDecisionStamp(id, stamp, key),
+      stop: (why) => this.#stopForDecision(id, why),
+    }))
+  }
+
+  /**
+   * The person's Drop, decided: like "another round," the run's own ceiling
+   * stop is answered here — cleared, so nothing goes on saying a person is
+   * waited on for a round this same decision just settled. Nothing else
+   * about a Drop changes: the run itself stopping is `#finish`'s own job.
+   */
+  async #stopForDecision(id: string, why: string): Promise<void> {
+    const run = this.#get(id)
+    if (run.findings?.stopped) await this.#put({ ...run, findings: { ...run.findings, stopped: null } })
+    await this.#finish(id, 'stopped', why)
+  }
+
+  /**
+   * A close with no findings plane listening: the round is still counted and
+   * the budget still holds, so a desk without the ledger never runs past it.
+   */
+  async #closeUnwatched(id: string, round: number): Promise<void> {
+    const run = this.#get(id)
+    const state = run.findings!
+    if (state.closedRounds.includes(round)) return
+    const closed = state.closedRounds.length + 1
+    const limit = Math.max(state.budget.rounds, state.extraRound ? state.extraRound.after + 1 : 0)
+    const decision = decideLoop({
+      closed, limit, idle: state.idleRounds, idleLimit: state.budget.withoutProgress, newProgress: true,
+      unresolvedRepairs: [], unresolved: 0, reviewComplete: false, freshGuards: false, pendingException: false,
+    })
+    await this.#put(this.#operation({
+      ...run,
+      findings: { ...state, closedRounds: [...state.closedRounds, round], idleRounds: decision.idle, stopped: decision.next === 'person' ? { round, reason: decision.reason! } : null },
+    }, `close:${round}`, { kind: 'round', state: 'finished', card: null, seat: null }))
+  }
+
+  /**
+   * The open review rounds of a Goal whose several reviewers must not read
+   * each other until the round closes: each round's cards and the
+   * conversations holding them. Only runs with findings bookkeeping.
+   */
+  blindRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
+    const out: { run: string; round: number; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal || !run.findings || run.document.format !== 'agents' || (run.state !== 'running' && run.state !== 'stalled')) continue
+      for (const round of run.rounds) {
+        if (round.state === 'closed' || round.cards.length < 2) continue
+        const role = run.document.flow.roles.find((one) => one.id === round.role)
+        if (role?.kind !== 'agent' || !bindingsFor(run, role.id).some((binding) => binding.agent.produces.includes('review'))) continue
+        const holders = round.cards.flatMap((card) => {
+          const seat = this.#seatForCard(run, card).seat
+          return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []
+        })
+        out.push({ run: run.id, round: round.n, cards: round.cards, holders })
+      }
+    }
+    return out
+  }
+
+  /**
+   * Every review series this Goal has had, across every run — unioned by
+   * series id (`role@cwd`), never only the latest run's. A finding this Goal
+   * still owns can have been raised under an earlier run than the one open
+   * now, and "currently blocking" has to mean the same thing for both. Two
+   * runs that somehow share one series id are merged the conservative way:
+   * a finding either union ever admits or ever leaves pending stays that way.
+   */
+  seriesOfGoal(goal: string): readonly FindingSeries[] {
+    const merged = new Map<string, FindingSeries>()
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal || !run.findings) continue
+      for (const series of run.findings.series) {
+        const before = merged.get(series.id)
+        merged.set(series.id, before ? {
+          ...series,
+          reviewRounds: [...new Set([...before.reviewRounds, ...series.reviewRounds])].sort((a, b) => a - b),
+          initial: [...new Set([...before.initial, ...series.initial])],
+          exceptions: [...new Set([...before.exceptions, ...series.exceptions])],
+          pending: [...new Set([...before.pending, ...series.pending])],
+        } : series)
+      }
+    }
+    return [...merged.values()]
+  }
+
+  /** Every person override this Goal has recorded, across every run — what a wrap freezes into its receipt. */
+  overridesOfGoal(goal: string): readonly FindingOverride[] {
+    const out: FindingOverride[] = []
+    for (const run of this.#runs.values()) {
+      if (run.goal !== goal || !run.findings) continue
+      out.push(...run.findings.overrides)
+    }
+    return out
+  }
+
+  /** An unattended Seat's question went unanswered: its run stops for a person, with the reason. */
+  async stopForQuestion(runtime: string, sessionId: string, reason: string): Promise<boolean> {
+    for (const run of [...this.#runs.values()]) {
+      if (run.state !== 'running') continue
+      const seat = run.operations.find((one) => {
+        if (one.kind !== 'seat' || !one.seat) return false
+        const record = this.#port.seatOf(one.seat)
+        return record?.session.runtime === runtime && record.session.sessionId === sessionId
+      })
+      if (!seat) continue
+      await this.#queue.within(run.id, () => this.#stall(run.id, `Card #${seat.card ?? '?'}: its Seat ${reason}. Its answer so far is kept.`))
+      return true
+    }
+    return false
+  }
+
+  /** Whether a conversation is a Seat of a running run: nobody is watching for its questions. */
+  unattended(runtime: string, sessionId: string): boolean {
+    return [...this.#runs.values()].some((run) => run.state === 'running' && run.operations.some((one) => {
+      if (one.kind !== 'seat' || !one.seat) return false
+      const record = this.#port.seatOf(one.seat)
+      return record !== null && record.closed === null && record.session.runtime === runtime && record.session.sessionId === sessionId
+    }))
   }
 
   // ------------------------------------------------------------- reading
@@ -502,7 +938,9 @@ export class FlowExecutions {
   /** One rule's evidence guard, read fresh. */
   async #guard(run: StoredFlowExecution, round: FlowRoundState, rule: FlowPolicyRule): Promise<RuleEvidence> {
     if (!this.#facts) return { state: 'waiting' }
-    const result = evidenceGuard(rule.when?.evidence ?? [], await this.#evidenceContext(run, round, await this.#facts(run.goal)))
+    // A ready rule of a run with findings bookkeeping also waits on its open admitted blockers.
+    const findings = run.findings && this.#findingsGate ? await this.#findingsGate(run.id) : undefined
+    const result = readyGuard(rule.when?.evidence ?? [], await this.#evidenceContext(run, round, await this.#facts(run.goal)), findings)
     if (result.state === 'matched') return { state: 'matched', evidence: result.evidence }
     return result.reason ? { state: result.state, reason: result.reason } : { state: result.state }
   }
@@ -549,6 +987,130 @@ export class FlowExecutions {
     // a review judges its predecessors' revisions, never its own checkout.
     const closure = await this.#closure(run, deps)
     return { seat: String(seat.id), answers, round: round.n, subjects: closure.subjects, unsettled: closure.unsettled }
+  }
+
+  /**
+   * The card a finding command is bound to: the caller's own Seat, the one
+   * the run opened for this card, open, and whether the caller holds the card
+   * now, judges (its Agent produces reviews) or writes (it may change files
+   * and does not judge). Null for a card no run bound to this caller. Read
+   * from the run's journal and the board, never from anything the caller said.
+   */
+  findingBinding(goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string }): {
+    readonly run: string
+    readonly round: number
+    readonly role: string
+    readonly seat: string
+    readonly reviews: boolean
+    readonly writer: boolean
+    readonly held: boolean
+  } | null {
+    const run = this.#runOfCard(goal, card)
+    if (!run || run.document.format !== 'agents') return null
+    const round = run.rounds.find((one) => one.cards.includes(card))
+    if (!round) return null
+    const role = run.document.flow.roles.find((one) => one.id === round.role)
+    if (role?.kind !== 'agent') return null
+    const { seat } = this.#seatForCard(run, card)
+    if (!seat || seat.closed || seat.restored || seat.session.runtime !== caller.runtime || seat.session.sessionId !== caller.sessionId) return null
+    const binding = bindingsFor(run, role.id)[round.cards.indexOf(card)]
+    const intent = this.#team.stateFor(goal).intents.find((one) => one.id === card)
+    return {
+      run: run.id,
+      round: round.n,
+      role: round.role,
+      seat: String(seat.id),
+      reviews: binding?.agent.produces.includes('review') ?? false,
+      writer: this.#writer(run, card),
+      held: intent?.state === 'claimed' && intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId,
+    }
+  }
+
+  /**
+   * Runs one finding command inside its run's own queue, with the run's
+   * finding journal: every entry it writes is persisted to the run's file
+   * before `put` answers, by this class and nobody else, and read back from
+   * the run as it is when the step runs — never a copy taken when it queued.
+   */
+  withFindingJournal<T>(id: string, step: (journal: FindingJournal) => Promise<T>): Promise<T> {
+    return this.#queue.within(id, () => step({
+      entry: (operation) => this.#get(id).findingOps?.[operation] ?? null,
+      put: async (entry) => {
+        const run = this.#get(id)
+        await this.#put({ ...run, findingOps: { ...run.findingOps, [entry.operation]: entry } })
+      },
+    }))
+  }
+
+  /**
+   * Runs one publication step inside its run's own queue, with the run's
+   * publication journal: every entry it writes is persisted to the run's file
+   * before `put` answers, read back from the run as it is when the step runs.
+   */
+  withPublicationJournal<T>(id: string, step: (journal: PublicationJournal) => Promise<T>): Promise<T> {
+    return this.#queue.within(id, () => step({
+      round: (round) => this.#get(id).publication?.rounds[String(round)] ?? null,
+      entry: (key) => this.#get(id).publication?.ops[key] ?? null,
+      entries: () => Object.values(this.#get(id).publication?.ops ?? {}),
+      decide: async (round, entries) => {
+        const run = this.#get(id)
+        const now = run.publication ?? { rounds: {}, ops: {} }
+        if (now.rounds[String(round.round)]) return
+        const ops = { ...now.ops }
+        for (const entry of entries) {
+          if (ops[entry.key]) throw new Error('A publication of this round was already journaled under another decision.')
+          ops[entry.key] = entry
+        }
+        await this.#put({ ...run, publication: { rounds: { ...now.rounds, [String(round.round)]: round }, ops } })
+      },
+      put: async (entry) => {
+        const run = this.#get(id)
+        const now = run.publication
+        if (!now?.ops[entry.key]) throw new Error('Only a journaled publication is written again.')
+        await this.#put({ ...run, publication: { ...now, ops: { ...now.ops, [entry.key]: entry } } })
+      },
+      backfill: async (round, entries) => {
+        const run = this.#get(id)
+        const now = run.publication
+        const was = now?.rounds[String(round.round)]
+        if (!now || !was) throw new Error('Only a round this run closed is posted later.')
+        if (was.mode === 'batch' && was.backfilled) return
+        if (was.mode !== 'local' || round.mode !== 'batch') throw new Error('Only a round kept on the desk is posted later.')
+        const ops = { ...now.ops }
+        for (const entry of entries) {
+          if (ops[entry.key]) throw new Error('A publication of this round was already journaled under another decision.')
+          ops[entry.key] = entry
+        }
+        await this.#put({ ...run, publication: { rounds: { ...now.rounds, [String(round.round)]: round }, ops } })
+      },
+    }))
+  }
+
+  /** Every run with a publication journaled, and its Goal. */
+  publicationRuns(): readonly { readonly run: string; readonly goal: string }[] {
+    return [...this.#runs.values()].filter((run) => Object.keys(run.publication?.rounds ?? {}).length > 0).map((run) => ({ run: run.id, goal: run.goal }))
+  }
+
+  /** A run's publication journal as it stands: a snapshot read that takes no queue. */
+  publicationOf(id: string): StoredPublication | null {
+    return this.#runs.get(id)?.publication ?? null
+  }
+
+  /** A publication by its key, in whichever run journaled it: a snapshot read. */
+  publicationEntry(key: string): PublicationEntry | null {
+    for (const run of this.#runs.values()) {
+      const found = run.publication?.ops[key]
+      if (found) return found
+    }
+    return null
+  }
+
+  /** Every run with finding commands journaled but not settled — what a restart has to finish or give up with a reason. */
+  pendingFindings(): readonly { readonly run: string; readonly entries: readonly FindingJournalEntry[] }[] {
+    return [...this.#runs.values()].flatMap((run) => {
+      const entries = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared')
+      return entries.length > 0 ? [{ run: run.id, entries }] : []
+    })
   }
 
   standDown(goal: string, runtime: string, sessionId: string): string | null {
@@ -654,6 +1216,8 @@ export class FlowExecutions {
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
+      // Written before the first dispatch, and frozen for the life of the run.
+      findings: startingFindings(policy),
     }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
     const goal = await this.#port.createGoal({
       root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
@@ -802,6 +1366,23 @@ export class FlowExecutions {
     // claim one: the Goal a Seat claims through reads that write, not the
     // engine's memory, and a claim that raced it found no such card.
     await this.#team.flush()
+    /* A later review of a series gets its repair packet, read and pinned
+       before any of its Seats opens: a delta that cannot be read in full
+       stops the run here, with nothing seated. */
+    if (role.kind === 'agent' && run.findings && this.#reviewPackets && !this.#get(id).reviewPackets?.[String(round.n)] &&
+      bindings.some((binding) => binding.agent.produces.includes('review'))) {
+      let packet: ReviewPacketPin | null
+      try {
+        packet = await this.#reviewPackets(id, round.n, round.role, (await this.#closure(this.#get(id), dependsOn)).subjects)
+      } catch (error) {
+        await this.#stall(id, error instanceof Error ? error.message : String(error))
+        return this.#get(id).rounds.find((one) => one.n === round.n)!
+      }
+      if (packet) {
+        const current = this.#get(id)
+        run = await this.#put({ ...current, reviewPackets: { ...current.reviewPackets, [String(round.n)]: packet } })
+      }
+    }
     if (role.kind === 'agent') {
       const opened = await this.#seatRound(id, round, bindings, role.isolate, role.independentOf)
       if (!opened) return this.#get(id).rounds.find((one) => one.n === round.n)!
@@ -966,6 +1547,8 @@ export class FlowExecutions {
 
   #cardOrder(run: StoredFlowExecution, card: Intent | undefined, binding: FlowBinding): string {
     const answers = binding.agent.answers
+    const round = card ? run.rounds.find((one) => one.cards.includes(card.id)) : undefined
+    const packet = round ? run.reviewPackets?.[String(round.n)]?.text ?? null : null
     return [
       `Card #${card?.id ?? '?'} on this Goal is yours: ${card?.title ?? ''}`,
       card?.detail ?? null,
@@ -973,6 +1556,7 @@ export class FlowExecutions {
       answers.length > 0
         ? `When it is done, call complete_claim for #${card?.id} with an outcome of exactly one of: ${answers.join(', ')}.`
         : `When it is done, call complete_claim for #${card?.id}.`,
+      packet,
       `Flow run ${run.id}.`,
     ].filter((one): one is string => Boolean(one)).join('\n\n')
   }
@@ -1188,6 +1772,30 @@ export class FlowExecutions {
       return
     }
     if (last.state !== 'closed') run = await this.#put({ ...this.#round(run, { ...last, state: 'closed' }), reason: null })
+    if (run.findings) {
+      /* The close is journaled, then processed outside this queue, and no
+         round opens until its processing is recorded: a restart that finds
+         it started processes it again, keyed by the round, never twice. */
+      const key = `close:${last.n}`
+      const closing = run.operations.find((one) => one.key === key)
+      if (closing?.state !== 'finished') {
+        if (!closing) run = await this.#put(this.#operation(run, key, { kind: 'round', state: 'started', card: null, seat: null }))
+        if (this.#closeListeners.size === 0) {
+          await this.#closeUnwatched(id, last.n)
+          run = this.#get(id)
+        } else {
+          this.#emitClosed(id, last.n)
+          return
+        }
+      }
+      const stopped = run.findings?.stopped
+      // A person's "Another round" authorizes exactly this one transition past the stop; consumed here, not re-granted.
+      const authorized = run.findings?.extraRound?.after === last.n
+      if (stopped && stopped.round === last.n && found.decision.kind === 'fire' && !authorized) {
+        await this.#stall(id, stopped.reason)
+        return
+      }
+    }
     if (found.decision.kind === 'none') {
       const answered = this.#team.stateFor(run.goal).intents.filter((card) => last.cards.includes(card.id)).map((card) => card.outcome ?? 'nothing').join(', ')
       const why = (found.decision.passed ?? []).map((one) => `${one.rule} did not apply: ${one.reason}`).join('; ')
@@ -1355,6 +1963,8 @@ export class FlowExecutions {
         }
       }
       if (operation.kind === 'round' && operation.key === 'start') continue
+      // A round's close processing is idempotent on its round: resuming it again is safe, so it is never uncertain.
+      if (operation.kind === 'round' && operation.key.startsWith('close:')) continue
       // Anything else that started and did not say how it ended needs a person.
       run = await this.#put(this.#operation(run, operation.key, { ...operation, state: 'uncertain' }))
     }

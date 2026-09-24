@@ -458,6 +458,7 @@ rules:
   - { id: to-reviewer, on: verify, when: { every: [pass] }, then: { role: reviewer, title: "Review the fix" } }
 messaging: board-only
 wait: 240
+budget: { rounds: 3, without-progress: 2 }
 ```
 
 A role's own file no longer carries an Agent's brief, answers or ceiling —
@@ -502,6 +503,30 @@ added to it, and a card added just before is on the board the wrap reviews,
 so the wrap is refused rather than leave it out. Once a Goal is wrapped its
 document's dispositions are final; a card an earlier build let in after the
 wrap read the board is set aside, saying so, when that wrap finishes.
+
+**A run is bounded.** `budget: { rounds: 3, without-progress: 2 }` is how
+far a run may go before it stops for a person: closed rounds in all, and
+closed rounds in a row that brought no new evidence. Each is a whole number
+from 1 to 100; a file that names none gets those two numbers, frozen when a
+run starts, and a save writes them out. Every closed round counts — repair,
+check and person rounds too — and progress is what the desk observed that it
+had not seen before: a confirmed finding, a new diff, a changed check, CI or
+review result. Two repairs of one finding rejected in turn stop the run as a
+design problem. A run saved before budgets existed keeps running as it was.
+
+**Findings are a ledger.** A reviewer raises each finding with
+`raise_finding` against a candidate it was offered; the writer claims a
+repair with `repair_finding` at its committed head; only the Agent that
+raised it confirms or withdraws it, from a later review card. A claimed
+repair stays blocking until then. The first review of a subject freezes
+the blocking set; a later ordinary finding is advisory, and a later
+regression or security finding waits for a person. A ready rule also waits
+while an admitted blocker is unresolved. A review round with several
+reviewers is blind until it closes: no reviewer reads another's card,
+context, findings or messages through the desk. A later review is handed a
+packet — the findings still in question and the exact delta since the last
+review — pinned before its Seats open, and a delta that cannot be read in
+full stops the run instead.
 
 **Checks fan out.** A check with no explicit `cwd` opens one card, and
 records one fact, per predecessor subject — each competitor's own isolated
@@ -577,10 +602,96 @@ asks for one Agent and two explicit, isolated seats, substitutes them into
 the effective `comparison` catalogue entry's own designated Agent role (a
 plain `layout: { race: <role id> }` marker, never an engine-read execution
 type), and previews and starts that complete source exactly the way any
-other flow does. `packages/server/flows/` ships seven such starting points —
+other flow does. `packages/server/flows/` ships eight such starting points —
 `comparison`, `fan-out`, `independent-review`, `staged-relay`,
-`investigation`, `alignment`, `mechanical-contest` — as ordinary, editable
-files over the same three step kinds; no shape's id ever reaches the engine.
+`investigation`, `alignment`, `mechanical-contest`, `review-pr` — as ordinary,
+editable files over the same three step kinds; no shape's id ever reaches the
+engine.
+
+## Findings, budgets and blind rounds
+
+A round that reviews raises **findings** — attributed claims recorded once,
+never a second copy of the same thing. `raise_finding`, `repair_finding`,
+`decide_finding` and `list_findings` are the four verbs a Seat has for this;
+the desk resolves which Seat, which card and which revision from the calling
+conversation itself, never from anything the request names. A repair is a
+*claim* until a later review of the same finding confirms it — `repaired`
+without `confirmed` is never shown as "Verified" — and a confirmed finding
+never reopens; a regression is a new, linked finding instead.
+
+**A review round with more than one card is blind until it closes.** No
+sibling reads another sibling's findings, its review, or anything it posted,
+through any desk route — the board, `get_context`, `list_findings`, the
+channel — while the round is open, and neither can it post to a bound pull
+request: `pr_review`, `pr_comment` and `issue_comment` all refuse for an
+embargoed Seat and the conversation it delegated to. A reviewer's own
+verdicts and repairs recorded in the round are left out of a sibling's reads
+too, not only what it raised, and a reviewer in an open blind round adds no
+card to the board and takes no card but its own — a card is read by every
+member at once. Once every reviewer's
+card has durably completed, the round's whole batch — every finding, every
+review, one comment each — is decided and journaled together, then sent one
+comment at a time; a person watching mid-round sees how many reviewers have
+finished, never a claim that the others agree.
+
+**A later review of the same series is handed a delta, not a transcript**: the
+repairs claimed since its last review, what is still unresolved, and the exact
+two-tip diff between the revision it judged and the subject's committed head
+now — pinned before the reviewer is seated, so a verdict at a head that moved
+since is refused rather than judging the wrong thing.
+
+**`budget: { rounds: N, without-progress: M }`** bounds a review loop: `N`
+closed rounds in all, `M` in a row that brought no new evidence — a confirmed
+finding, an observed diff interval, a changed check or CI result, a review at
+a new revision. Absent, a new-format flow gets three rounds and two without
+progress; a run already saved keeps whatever it started with, even across a
+restart. Two rejected repairs of one finding stop the run early, at any round,
+because that is a design problem rather than a patch loop.
+
+Stopping is never silent, and never final. A run that hits its ceiling, its
+idle limit or a rejected repair loop stalls with the reason on the Goal's
+findings status, and a person chooses from there: **another round** (one
+transition past the stop, consumed once — a repair *and* a review may need two
+presses, not one), **merge anyway** (records the exact unresolved blocker IDs,
+the head, and the reason, `by: 'person'`, then hands off to the existing merge
+action with its own expected-head precondition — this never edits a check,
+CI, review or finding to passing, and never merges by itself), or **drop**
+(stops dispatch and keeps every partial answer, claim and lane; nothing here
+deletes the Goal). A stopped run's decision is bound to the exact stamp the
+person read it at, so a resubmission of that same stamp replays the outcome
+already reached rather than either double-spending a round or refusing a
+lost-answer retry outright; a different action under a stamp already used is a
+genuine conflict and refuses. The check and the action are one step in the
+run's own queue, so two submissions of one read never both apply. Merge anyway
+asks only for a bound pull request, not for posting to be on. A Goal that is
+wrapped, being wrapped or from a backup takes no decision at all; a person may
+also decide a single finding themselves from its history — withdraw it, or
+accept or reject a repair once one is claimed — with a reason, recorded as a
+person's verdict.
+
+Posting is on by default the moment a Goal is bound to a pull request — bound
+by host-observed evidence, never by a URL anyone typed — and off for a Goal
+with none, kept entirely on the desk. A person may turn it off for a bound
+Goal too. A posting that paused (the pull request moved, a comment was edited
+by hand, the pull request could not be read) or whose answer was lost waits on
+the Goal's Findings pane for a person: **post again** reads the pull request
+back first — one exact copy is recorded where it is and never sent again,
+several are left for the person to look at, and none, with the person having
+asked, is the one fresh attempt — and **skip** records, with the person's
+reason, a gap the receipt carries. Rounds kept on the desk before a pull
+request was bound are posted only when a person previews exactly what would
+go and confirms it. When a wrap finds a posting still unsettled after working it to its
+end, it refuses to finish until the person says `publicationGaps: 'record'`,
+which writes each one into the receipt as a gap rather than silently dropping
+it. A wrap's receipt freezes every finding the Goal owned and any override a
+person recorded, by id — a later Goal can carry an unresolved one forward by
+reference, same id, same original Seat, the source receipt untouched.
+
+`packages/server/flows/review-pr.yml` is the shipped shape this section
+describes: a fixer, two independent reviewers, a mechanical check, and a
+person referee gated on the pull request the review actually judged still
+being open. It is an ordinary file, edited like any other — nothing in the
+engine reads its name.
 
 ## Triggers
 
@@ -600,9 +711,13 @@ clock of its own.
 
 ## What lands on top of this
 
-- **Jury** — blind cross-agent review with findings normalised into consensus
-  and disagreement. A jury **is a flow**, not a second engine: a round of N
-  reviewer steps plus a view that de-duplicates their findings.
+- **Jury** — blind cross-agent review lands above, not instead of, the
+  findings ledger this section describes: raising, the blind round and its
+  budget are built; a jury's own idea, *normalising several findings into one
+  consensus or disagreement*, is not — this ledger deliberately makes no
+  semantic guess that two reviewers meant the same thing. A jury **is a
+  flow**, not a second engine: a round of N reviewer steps plus a view over
+  the same records.
 - **Landing Queue** — deciding the order several agents' branches land in.
   It needs exactly the dependency and outcome machinery here, and needs it
   sound.

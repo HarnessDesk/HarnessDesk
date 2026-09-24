@@ -1,13 +1,18 @@
 import type {
   CapabilityContribution,
+  DecideFindingInput,
   EditorEdit,
   EditorEvent,
   EvidenceRecord,
   ExtensionEvent,
+  FindingReadInput,
+  FindingView,
   HookInvocation,
   HookVerdict,
   PluginInstance,
   PluginSource,
+  RaiseFindingInput,
+  RepairFindingInput,
   ReviewCandidate,
   ReviewInput,
   ScopeQuery,
@@ -52,7 +57,14 @@ import type {
 // 6 adds the team plane's two review requests — `team/reviewCandidates` and
 // `team/recordReview` — the structured judgment a flow's evidence guard
 // reads, never a message or a claim's own outcome.
-export const EXTENSION_PROTOCOL_VERSION = 6
+// 7 adds the findings ledger's four requests — `team/raiseFinding`,
+// `team/repairFinding`, `team/decideFinding` and `team/listFindings` — each
+// `{ scope, input }`, the input refused whole by the host if it names a Seat,
+// a revision or an authority.
+// 8 adds `forge/publicationAllowed` — `{ scope }`, answered `{ ok: true }` or
+// `{ ok: false, reason }` — the embargo every forge mutation asks before it
+// writes, on the same trusted invocation as the other forge verbs.
+export const EXTENSION_PROTOCOL_VERSION = 8
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -268,6 +280,10 @@ export interface ChildToHostMethods {
     params: { readonly scope: TeamCallScope; readonly reference: ForgeReference }
     result: null
   }
+  'forge/publicationAllowed': {
+    params: { readonly scope: TeamCallScope }
+    result: { readonly ok: true } | { readonly ok: false; readonly reason: string }
+  }
   'team/board': { params: { readonly scope: TeamCallScope }; result: string }
   'team/addIntent': {
     params: {
@@ -369,6 +385,14 @@ export interface ChildToHostMethods {
     params: { readonly scope: TeamCallScope } & ReviewInput
     result: EvidenceRecord
   }
+  /** A finding raised against a candidate this conversation's card was offered. A refusal is a transport error. */
+  'team/raiseFinding': { params: { readonly scope: TeamCallScope; readonly input: RaiseFindingInput }; result: FindingView }
+  /** A repair claimed at this conversation's committed head. */
+  'team/repairFinding': { params: { readonly scope: TeamCallScope; readonly input: RepairFindingInput }; result: FindingView }
+  /** The raising Agent's verdict on its own finding, from a later review card. */
+  'team/decideFinding': { params: { readonly scope: TeamCallScope; readonly input: DecideFindingInput }; result: FindingView }
+  /** This conversation's Goal's findings, bounded, for the card it holds. */
+  'team/listFindings': { params: { readonly scope: TeamCallScope; readonly input: FindingReadInput }; result: readonly FindingView[] }
 }
 
 /**

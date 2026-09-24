@@ -14,6 +14,7 @@ import { Dialog, Input } from '../design'
 import { runtimeTint } from '../lib/accounts'
 import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
+import { shortSha } from '../lib/git-refs'
 import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
@@ -777,16 +778,40 @@ const IntentCard = ({
     : null
 
   /**
+   * A later review round's repair delta, read off the same frozen reference
+   * `finding/run` exposes — ids and revisions only, never a copy of a
+   * finding's own body into a second, mutable card field. `dispatch` is the
+   * host's own `<run>:<round>:<slot>` key for a card a flow opened; a card a
+   * person or an agent added carries none, and reads as no lead.
+   */
+  const repairLead = useMemo(() => {
+    const run = intent.dispatch?.split(':')[0]
+    const round = intent.dispatch?.split(':')[1]
+    const view = run ? snapshot.findingRuns.get(run) : undefined
+    if (!view?.repair || String(view.round) !== round) return null
+    return view.repair
+      .map((lead) => {
+        const claimed = lead.claimed.length > 0 ? lead.claimed.join(', ') : 'none'
+        const unresolved = lead.unresolved.length > 0 ? lead.unresolved.join(', ') : 'none'
+        return `Repair delta ${shortSha(lead.from)} → ${shortSha(lead.to)} — claims to close ${claimed}; still open ${unresolved}`
+      })
+      .join(' ')
+  }, [intent.dispatch, snapshot.findingRuns])
+
+  /**
    * The one line under the title, and the order is the order a reader needs it.
    *
    * Why it stopped outranks what it is: a card in Blocked that does not say
    * what blocked it sends the reader to the channel, which is the trip the
-   * board exists to save. A finished card's note is the completion note the
-   * next agent will read. Only when neither exists does the card fall back to
-   * its own description.
+   * board exists to save. A repair lead outranks the card's own detail and any
+   * completion note: what changed since the last review is what a reseated
+   * reviewer needs first, never a stale full transcript of the earlier round.
+   * Only when none of these exist does the card fall back to its own
+   * description.
    */
   const note =
     intent.blockedReason ??
+    repairLead ??
     (intent.state === 'done' || intent.state === 'abandoned' ? intent.note : null) ??
     intent.detail ??
     null

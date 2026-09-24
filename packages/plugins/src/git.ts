@@ -462,6 +462,22 @@ export const gitPlugin: HarnessPlugin = {
         return rendered === '' ? { line: null, template: chosen, why: 'empty' } : { line: rendered, template: chosen, why: null }
       }
 
+      /**
+       * The embargo, asked before any words reach the forge: a Seat reviewing
+       * in a blind round that has not closed posts nothing, whatever its
+       * ceiling. A desk that cannot answer refuses too — posting on a guess
+       * is the one thing this exists to prevent.
+       */
+      const publicationAllowed = async (scope: ScopeQuery): Promise<void> => {
+        let answer: { ok: true } | { ok: false; reason: string }
+        try {
+          answer = await ctx.forge.publicationAllowed(scope)
+        } catch (error) {
+          throw new Error(`Refused: the desk could not say whether this may be posted now (${error instanceof Error ? error.message : String(error)}), so nothing was posted.`)
+        }
+        if (!answer.ok) throw new Error(answer.reason)
+      }
+
       const viaOf = async (scope: ScopeQuery): Promise<ForgeReference['via']> => {
         try {
           return (await ctx.forge.identity(scope)).via
@@ -761,6 +777,7 @@ export const gitPlugin: HarnessPlugin = {
           if (flag === null) throw new Error('event must be approve, request_changes or comment.')
           const body = String(args.body ?? '').trim()
           if (body === '' && flag !== '--approve') throw new Error('A review that is not an approval needs a body.')
+          await publicationAllowed(scope)
           const pr = await pullRequestFor(args.number)
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
@@ -800,6 +817,7 @@ export const gitPlugin: HarnessPlugin = {
         execute: async (args: { number?: number; body: string }, scope) => {
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
+          await publicationAllowed(scope)
           const pr = await pullRequestFor(args.number)
           const posted = await gh(['pr', 'comment', String(pr.number), '--body', body])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
@@ -897,6 +915,8 @@ export const gitPlugin: HarnessPlugin = {
           if (selector === null) throw new Error('Which issue? Give its number.')
           const body = String(args.body ?? '').trim()
           if (body === '') throw new Error('A comment needs a body.')
+          // An issue number may be the bound pull request's own conversation: the embargo holds here too.
+          await publicationAllowed(scope)
           const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
           const posted = await gh(['issue', 'comment', String(issue.number), '--body', body])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url

@@ -4,14 +4,19 @@ import {
   runtimeId,
   sessionKey,
   type AgentEntry,
+  type CarryFindingsInput,
+  type FindingPublicationsView,
   type CeilingLevel,
   type CheckUnseen,
+  type FindingDetailPage,
+  type FindingView,
   type FlowEntry,
   type FlowExecution,
   type FlowPreview,
   type FlowSeat,
   type FlowUpdatePreview,
   type FlowUpdateResult,
+  type GoalView,
   type MachineSeating,
   type ProjectChecks,
   type ModelInfo,
@@ -28,6 +33,8 @@ import {
 } from '@harnessdesk/protocol'
 
 import { AppWindowMode } from '../components/AppWindow'
+import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findings-fixture'
+import type { FindingFilter } from '../lib/findings'
 import { Boundary } from './boundary'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -66,7 +73,7 @@ import {
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
-import { PREVIEW_GOALS } from './goal-fixture'
+import { PREVIEW_GOAL, PREVIEW_GOALS } from './goal-fixture'
 import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
@@ -1446,6 +1453,35 @@ class PreviewStore {
   setUsageTracked = (): void => {}
   loadHooks = async () => []
   acpRegistry = async () => ({ agents: [], fetchedAt: null })
+
+  /**
+   * The findings ledger. Only the preview Goal (`PREVIEW_GOAL`) has one; any
+   * other room reads as empty — never the fallback proxy's silent `undefined`,
+   * which would leave `GoalFindings` reading "Reading findings…" forever.
+   */
+  loadFindings = async (goal: string, filter: FindingFilter = 'all'): Promise<void> => {
+    const state = goal === PREVIEW_GOAL.goal.id ? findingsListState(filter) : EMPTY_FINDINGS_STATE
+    this.patch({ findings: new Map(this.#snapshot.findings).set(goal, state) })
+  }
+
+  readFinding = async (_goal: string, finding: string): Promise<FindingDetailPage> => findingDetail(finding)
+
+  carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
+
+  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> =>
+    ({ goal, run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+
+  publishFinding = async (input: { goal: string; run: string }): Promise<FindingPublicationsView> =>
+    ({ goal: input.goal, run: input.run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+
+  setFindingPublication = async (goal: string, revision: number, enabled: boolean): Promise<GoalView> => {
+    const current = this.#snapshot.goals.get(goal)
+    const next: GoalView = current
+      ? { ...current, goal: { ...current.goal, findingPublication: enabled, revision: revision + 1 } }
+      : PREVIEW_GOAL
+    this.patch({ goals: new Map(this.#snapshot.goals).set(goal, next) })
+    return next
+  }
 
   // --- the wire, method-aware ----------------------------------------------
   transport = {

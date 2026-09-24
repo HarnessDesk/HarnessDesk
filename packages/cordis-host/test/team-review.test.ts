@@ -49,6 +49,8 @@ const engine = (): TeamEngine & { readonly candidateCalls: unknown[]; readonly r
       }
       return record
     },
+    // Phase 7's finding verbs: present on every engine, unused here.
+    raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
   }
 }
 

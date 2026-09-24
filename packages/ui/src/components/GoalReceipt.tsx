@@ -2,8 +2,9 @@ import { useState } from 'react'
 
 import type { GoalCitation, GoalReceipt as GoalReceiptRecord } from '@harnessdesk/protocol'
 
-import { Chip, CodeText, Dialog, Note, Row, RowButton, Rows, SectionHead, Text } from '../design'
+import { Chip, CodeText, Dialog, MetaList, Note, Row, RowButton, Rows, SectionHead, Text } from '../design'
 import { shortSha } from '../lib/evidence'
+import { blockingWords, lifecycleTone, lifecycleWords } from '../lib/findings'
 import { InsightCost } from './InsightCost'
 import { MemoryCitation } from './MemoryCitation'
 
@@ -12,6 +13,8 @@ export interface GoalReceiptProps {
   readonly root: string
   /** Supplied by the receipt owner after an explicit Insight read; omitted by previews and isolated renderers. */
   readonly insight?: Omit<import('./InsightCost').InsightCostProps, 'onSeat' | 'onSession' | 'onMessage'>
+  /** Findings this receipt froze that a person may still carry forward — omitted once none are unresolved. */
+  readonly onOpenFinding?: (id: string) => void
 }
 
 /**
@@ -28,13 +31,46 @@ const nameOf = (members: GoalReceiptRecord['members'], seat: string): string | n
   return member.agent ? `${member.agent} · ${member.seatLabel}` : member.seatLabel
 }
 
-export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
+export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProps) => {
   const [opened, setOpened] = useState<GoalCitation | null>(null)
   return (
   <div>
     <Chip tone="neutral">As recorded when wrapped</Chip>
     <SectionHead name="What finished" />
     <Text as="p" role="value">{receipt.summary}</Text>
+    <SectionHead name="Findings" />
+    {!receipt.findings ? (
+      <Text as="p" role="muted">Findings were not recorded.</Text>
+    ) : receipt.findings.findings.length === 0 ? (
+      <Text as="p" role="muted">No findings recorded.</Text>
+    ) : (
+      <>
+        <Rows>
+          {receipt.findings.findings.map((finding) => {
+            const chip = <Chip tone={lifecycleTone(finding)}>{lifecycleWords(finding)}</Chip>
+            const title = <CodeText>{finding.id}</CodeText>
+            const desc = <MetaList>{finding.title || 'Untitled finding'} · {blockingWords(finding)}</MetaList>
+            return onOpenFinding
+              ? <RowButton key={finding.id} title={title} desc={desc} control={chip} onClick={() => onOpenFinding(finding.id)} />
+              : <Row key={finding.id} title={title} desc={desc} control={chip} />
+          })}
+        </Rows>
+        {receipt.findings.overrides.length > 0 ? (
+          <>
+            <SectionHead name="Person overrides" />
+            <Rows>
+              {receipt.findings.overrides.map((override, index) => (
+                <Row
+                  key={`${override.run}:${override.round}:${index}`}
+                  title={`Round ${override.round} · ${override.findings.length} unresolved`}
+                  desc={override.reason}
+                />
+              ))}
+            </Rows>
+          </>
+        ) : null}
+      </>
+    )}
     <SectionHead name="Work" />
     <Rows>
       {receipt.cards.map((card) => (

@@ -157,6 +157,11 @@ const remoteTeamEngine: TeamEngine = {
   send: (args, scope) => askHost('team/send', { scope, ...args }),
   reviewCandidates: (intent, scope) => askHost('team/reviewCandidates', { scope, intent }),
   recordReview: (input, scope) => askHost('team/recordReview', { scope, ...input }),
+  // The input crosses whole: the parent's engine is the one that refuses a key it may not carry.
+  raiseFinding: (input, scope) => askHost('team/raiseFinding', { scope, input }),
+  repairFinding: (input, scope) => askHost('team/repairFinding', { scope, input }),
+  decideFinding: (input, scope) => askHost('team/decideFinding', { scope, input }),
+  listFindings: (input, scope) => askHost('team/listFindings', { scope, input }),
 }
 
 setTeamEngine(remoteTeamEngine)
@@ -166,6 +171,7 @@ const remoteForgeEngine: ForgeEngine = {
   seat: (scope) => askHost('forge/seat', { scope }),
   identity: (scope) => askHost('forge/identity', { scope }),
   publish: async (reference, scope) => void (await askHost('forge/publish', { scope, reference })),
+  publicationAllowed: (scope) => askHost('forge/publicationAllowed', { scope }),
 }
 
 setForgeEngine(remoteForgeEngine)

@@ -20,8 +20,9 @@ import {
   type ToolResult,
 } from '@harnessdesk/protocol'
 
-import { GatedRegistry, refusalOf } from '../src/ceilings/gate.js'
-import { DESK_TOOLS, toolCeiling } from '../src/ceilings/tools.js'
+import { PERSON } from '../src/ceilings/cause.js'
+import { CeilingGate, GatedRegistry, refusalOf } from '../src/ceilings/gate.js'
+import { DESK_TOOLS, EMBARGOED_TOOLS, toolCeiling } from '../src/ceilings/tools.js'
 import { invokeForBridge } from '../src/tool-gateway.js'
 import { Host, StateStore } from '../src/index.js'
 import { FAKE_RUNTIME_ID, FakeRuntime } from './fixtures/fake-runtime.js'
@@ -332,4 +333,61 @@ test('through the host: a restarted runtime must freshly report a delegated chil
   assert.equal((await call('pr_create', { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok, true)
   assert.equal((await call('pr_merge', { runtime: FAKE_RUNTIME_ID, sessionId: child })).ok, true)
   assert.deepEqual(ran, ['pr_create', 'pr_merge'], 'a freshly reported child regains its rooted authority')
+})
+
+/*
+ * Phase 7, named addition: the blind-round embargo is a second check beside
+ * the ceiling, on every desk path that posts to a forge — the caller's own
+ * call and a call it delegated, whose root is the blind reviewer.
+ */
+test('a blind reviewer, or anything it delegated to, cannot post however high its ceiling', async (t) => {
+  const kernel = new ExtensionKernel()
+  t.after(() => kernel.dispose())
+  const ran: string[] = []
+  await kernel.load({
+    manifest: { id: 'git', name: 'Git' },
+    plugin: {
+      name: 'git', inject: ['tools'],
+      apply(ctx: { tools: { register(spec: unknown): void } }) {
+        for (const name of ['pr_view', 'pr_review', 'pr_comment', 'issue_comment']) {
+          ctx.tools.register({
+            name, description: name, inputSchema: { type: 'object', properties: {} },
+            execute: () => { ran.push(name); return `${name} ran` },
+          })
+        }
+      },
+    } as never,
+  })
+  await settle()
+  assert.deepEqual(EMBARGOED_TOOLS['git'], ['pr_review', 'pr_comment', 'issue_comment'])
+  const blind = new Set(['beta\u0000root'])
+  const said: string[] = []
+  const gate = new CeilingGate({
+    rootOf: (runtime, id) => (id === 'child' ? { runtime: 'beta', sessionId: 'root' } : { runtime, sessionId: id }),
+    ceilingOf: () => ({ level: 'merge', hold: 'held' }),
+    causeOf: () => PERSON,
+    nameOf: () => 'the reviewer',
+    say: (_runtime, _id, text) => { said.push(text) },
+    askPerson: async () => 'refused',
+    embargoOf: (runtime, id) => (blind.has(`${runtime}\u0000${id}`) ? 'Refused: this Seat is reviewing in a blind round that has not closed.' : null),
+  })
+  const gated = new GatedRegistry(kernel, () => gate)
+  const call = (name: string, id: string) => {
+    const tool = kernel.list('tool').find((one) => one.name === name)
+    assert.ok(tool, name)
+    return gated.invokeTool(tool.id, {}, { runtime: runtimeId('beta'), sessionId: sessionId(id) })
+  }
+  for (const name of ['pr_review', 'pr_comment', 'issue_comment']) {
+    for (const id of ['root', 'child']) {
+      const refused = await call(name, id)
+      assert.equal(refused.ok, false, `${name} from ${id}`)
+      assert.match(refused.ok ? '' : refused.error, /blind round/)
+    }
+  }
+  assert.deepEqual(ran, [], 'no posting tool ran')
+  assert.equal((await call('pr_view', 'child')).ok, true, 'reading is never embargoed')
+  blind.clear()
+  assert.equal((await call('pr_review', 'child')).ok, true, 'once the round closed, the same call goes through')
+  assert.deepEqual(ran, ['pr_view', 'pr_review'])
+  assert.ok(said.every((line) => /blind round/.test(line)))
 })

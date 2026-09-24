@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
-import type { Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
+import type { FindingReceipt, Goal, GoalReceipt, WrapChoices, WrapPreview } from '@harnessdesk/protocol'
 
 import { Serial } from './assignments.js'
 
@@ -22,6 +22,19 @@ export interface WrapInput {
   citations: GoalReceipt['citations']
   gaps: GoalReceipt['gaps']
   revisions: GoalReceipt['revisions']
+  /**
+   * The findings the Goal owns, frozen: their event ids and the views they
+   * fold to. Part of the stamp, so a finding raised, carried, posted or
+   * overridden after a preview makes the wrap stale. Absent on a desk that
+   * records none.
+   */
+  findings?: FindingReceipt
+  /**
+   * Publications of the Goal's findings that posting could not settle — an
+   * uncertain send, a paused one — each said as a sentence. A wrap records
+   * them as gaps only when the person says so (`WrapChoices.publicationGaps`).
+   */
+  publication?: readonly string[]
 }
 
 export type { WrapChoices } from '@harnessdesk/protocol'
@@ -53,6 +66,10 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       input.cards.some((card) => !resolutions.has(card.id))) {
     throw new Error('Review every card once before wrapping.')
   }
+  if ((input.publication?.length ?? 0) > 0 && choices.publicationGaps !== 'record') {
+    const count = input.publication!.length
+    throw new Error(`${count === 1 ? 'One posting' : `${count} postings`} of this Goal's findings could not be confirmed on the pull request. Look at the pull request, then wrap recording ${count === 1 ? 'it' : 'them'} as a gap.`)
+  }
   for (const card of input.cards) {
     const resolution = resolutions.get(card.id)!
     if ((resolution.resolution === 'dropped' || card.state !== 'done') && !resolution.reason?.trim()) {
@@ -76,6 +93,7 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       citations: input.citations,
       revisions: input.revisions,
       gaps: input.gaps,
+      ...(input.findings ? { findings: input.findings } : {}),
     }),
   }
 }

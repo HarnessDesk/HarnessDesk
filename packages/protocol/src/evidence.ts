@@ -1,4 +1,5 @@
 import type { AgentId, AgentOrigin, SeatCandidate } from './agent.js'
+import type { FindingDetail } from './findings.js'
 import type { FlowPermission, FlowSeat } from './flow.js'
 
 /**
@@ -231,6 +232,12 @@ export interface EvidenceRecord {
    * observes the same question again, and it never puts a card in *Ready*.
    */
   readonly restored?: Restored | null
+  /**
+   * Which event of which finding this is, on a `finding` fact the findings
+   * ledger wrote (`findings.ts`); absent or null on every other record, and on
+   * a bare finding fact that recorded no details.
+   */
+  readonly finding?: FindingDetail | null
 }
 // ----------------------------------------------------------- what is drawn
 

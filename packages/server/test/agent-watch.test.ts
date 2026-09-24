@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { test } from 'node:test'
 
-import { AgentWatch, type WatchFn } from '../src/agent-watch.js'
+import { AgentWatch, type Clock, type WatchFn } from '../src/agent-watch.js'
 import { Agents } from '../src/agents.js'
 import { builtinAgentRoot } from '../src/host.js'
 import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
@@ -127,6 +127,40 @@ const proveWatching = async (probe: ReturnType<typeof recording>, dir: string, w
 
 /** A watcher that reports nothing on its own: for a test that says by hand what a watch reported. */
 const quietWatcher = (): FSWatcher => Object.assign(new EventEmitter(), { close: () => {} }) as unknown as FSWatcher
+
+/**
+ * A clock a test moves by hand, for counting how many times a debounced
+ * timer fires without betting on real time. Nothing scheduled through it
+ * fires on its own — real filesystem events can land in whatever real burst
+ * or trickle a loaded machine makes of them, and the pending timer they reset
+ * just keeps sliding forward, since "now" never moves until `advance` says
+ * so. Only once the test is sure no more real events are coming does it move
+ * the clock forward in a single step, which fires whatever is due — once,
+ * deterministically, the same way regardless of how unevenly the real events
+ * that scheduled it arrived.
+ */
+const fakeClock = (): Clock & { readonly advance: (ms: number) => void } => {
+  let now = 0
+  const pending = new Set<{ readonly due: number; readonly callback: () => void; readonly unref: () => void }>()
+  return {
+    setTimeout: (callback, ms) => {
+      const timer = { due: now + ms, callback, unref: () => {} }
+      pending.add(timer)
+      return timer
+    },
+    clearTimeout: (timer) =>
+      void pending.delete(timer as { readonly due: number; readonly callback: () => void; readonly unref: () => void }),
+    advance: (ms) => {
+      now += ms
+      for (;;) {
+        const due = [...pending].filter((timer) => timer.due <= now).sort((a, b) => a.due - b.due)[0]
+        if (!due) return
+        pending.delete(due)
+        due.callback()
+      }
+    },
+  }
+}
 
 test('a change under a watched root is a notice, and a burst of them is fewer notices than changes', async (t) => {
   const root = tempDir('hd-agent-watch-')
@@ -1283,6 +1317,20 @@ test('(P3) a top-level link inside the Agents folder that reaches the project ro
  * anywhere beneath it. It now runs once per settled burst, on the same clock
  * `#poke`'s own notice already settles on — proved here by counting
  * `onRescan` across a burst of rapid changes, once the watch is proved live.
+ *
+ * A real settle timer used to gather that burst: fine when the 20 real
+ * writes below land close enough together in real time, but a loaded machine
+ * can space a plain sequential loop of them out past even a generous window,
+ * and once any real gap outlasts `settleMs` the timer fires mid-burst —
+ * several genuinely separate "settled" windows, not one. The debounce logic
+ * itself resets correctly on every event; only counting it against a real
+ * clock was the flake. A `fakeClock` fixes that: nothing it schedules fires
+ * until `advance` says so, so however unevenly the real events land while
+ * the test waits for them, the pending timer they keep resetting never gets
+ * the chance to expire early. Only once the test is done waiting for the
+ * real writes to be heard does it move the clock forward, in one step,
+ * settling the whole burst exactly once — deterministically, regardless of
+ * load.
  */
 test('(P3) the top-level link rescan runs once per settled burst, not once per file changed beneath the root', async (t) => {
   const root = tempDir('hd-agent-watch-')
@@ -1295,22 +1343,34 @@ test('(P3) the top-level link rescan runs once per settled burst, not once per f
   let rescans = 0
   const probe = recording()
   const { changed } = heard()
+  const clock = fakeClock()
   const watch = new AgentWatch({
     roots: [],
     changed,
     settleMs: 30,
     watchFn: probe.watchFn,
+    clock,
     onRescan: () => void rescans++,
   })
   t.after(() => watch.dispose())
   await watch.watchProjects([project])
   await proveWatching(probe, join(project, '.harnessdesk', 'agents'), "the Agents folder's own watch")
+  // Real time, not the fake clock: lets whatever the setup above scheduled —
+  // the initial follow's own rescan, and any settle timer the liveness probe
+  // above reset — actually be pending, so the advance right after can flush
+  // it before the count below starts from a clean zero.
   await settled()
+  clock.advance(1_000)
   rescans = 0
 
   for (let n = 0; n < 20; n++) await writeFile(join(project, '.harnessdesk', 'agents', 'scout', `f${n}.txt`), 'x')
+  // Real time again: gives the OS as long as `settled()` ever did to deliver
+  // every one of the 20 real events. None of them can expire the debounce
+  // timer early, however they are spaced, because the clock that timer runs
+  // on is frozen until the `advance` below moves it.
   await settled()
-  assert.ok(rescans <= 2, `20 rapid changes beneath the root caused ${rescans} rescans, not one settled burst`)
+  clock.advance(1_000)
+  assert.equal(rescans, 1, `20 rapid changes beneath the root caused ${rescans} rescans, not one settled burst`)
 })
 
 /*

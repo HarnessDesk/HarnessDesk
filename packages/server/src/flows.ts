@@ -5,6 +5,9 @@ import { isAbsolute, join } from 'node:path'
 import { sessionKey } from '@harnessdesk/protocol'
 import type {
   EvidenceRecord,
+  FindingId,
+  FindingOverride,
+  FindingSeries,
   Flow,
   FlowCheck,
   FlowExecution,
@@ -28,8 +31,10 @@ import type {
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
-import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type StoredFlowExecution } from './flow-execution.js'
+import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
+import type { FindingJournal } from './findings/journal.js'
+import type { PublicationJournal } from './findings/publication.js'
 import { executionOf, legacyCheckUncertain, legacyRunOf, legacySeatsMapped, recoveryOf } from './flow-recovery.js'
 import {
   cardVars,
@@ -359,9 +364,41 @@ export class Flows implements TeamFlows {
     return this.#executions.retryCheck(run, card)
   }
 
-  stopRun(id: string, why?: string): Promise<FlowExecution> {
+  /**
+   * A person's Stop. What the run had released but not yet sent is skipped by
+   * the listeners (`onRunStopped`); a comment already on its way is read
+   * back, never rolled back. The wrap barrier (`stopGoal`) is not a Stop: a
+   * wrap waits for its findings' posting instead.
+   */
+  async stopRun(id: string, why?: string): Promise<FlowExecution> {
     if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
-    return this.#executions.stop(id, why)
+    const stopped = await this.#executions.stop(id, why)
+    for (const listener of this.#runStopped) await listener(id)
+    return stopped
+  }
+
+  /**
+   * One person decision on a run inside its queue (`FlowExecutions.withDecision`).
+   * A Drop inside it stops the run there; the stop's listeners are told once
+   * the step has let the queue go, exactly as `stopRun` tells them.
+   */
+  async withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
+    let stopped = false
+    const result = await this.#executions.withDecision(id, (ops) => step({
+      ...ops,
+      stop: async (why) => { await ops.stop(why); stopped = true },
+    }))
+    if (stopped) for (const listener of this.#runStopped) await listener(id)
+    return result
+  }
+
+  readonly #runStopped = new Set<(run: string) => Promise<void>>()
+
+  /** Told after a person stops a run on a Goal, awaited before the Stop answers. */
+  onRunStopped(listener: (run: string) => Promise<void>): () => void {
+    this.#runStopped.add(listener)
+    return () => this.#runStopped.delete(listener)
   }
 
   /** The wrap barrier: every run on this Goal stops dispatching before the Goal's receipt is taken. */
@@ -396,6 +433,118 @@ export class Flows implements TeamFlows {
     goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string },
   ): ReturnType<FlowExecutions['reviewBinding']> {
     return this.#executions?.reviewBinding(goal, card, caller) ?? Promise.resolve(null)
+  }
+
+  /** The card a finding command is bound to, forwarded so the findings plane never reaches `FlowExecutions` around this. */
+  findingBinding(goal: string, card: number, caller: { readonly runtime: string; readonly sessionId: string }): ReturnType<FlowExecutions['findingBinding']> {
+    return this.#executions?.findingBinding(goal, card, caller) ?? null
+  }
+
+  /** One finding command inside its run's queue, with the run's own journal. */
+  withFindingJournal<T>(run: string, step: (journal: FindingJournal) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
+    return this.#executions.withFindingJournal(run, step)
+  }
+
+  /** One publication step inside its run's queue, with the run's own publication journal. */
+  withPublicationJournal<T>(run: string, step: (journal: PublicationJournal) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(run)) return Promise.reject(new Error(`There is no flow run ${run}.`))
+    return this.#executions.withPublicationJournal(run, step)
+  }
+
+  publicationRuns(): ReturnType<FlowExecutions['publicationRuns']> {
+    return this.#executions?.publicationRuns() ?? []
+  }
+
+  publicationOf(run: string): ReturnType<FlowExecutions['publicationOf']> {
+    return this.#executions?.publicationOf(run) ?? null
+  }
+
+  publicationEntry(key: string): ReturnType<FlowExecutions['publicationEntry']> {
+    return this.#executions?.publicationEntry(key) ?? null
+  }
+
+  /** Runs whose finding commands a restart has to settle. */
+  pendingFindings(): ReturnType<FlowExecutions['pendingFindings']> {
+    return this.#executions?.pendingFindings() ?? []
+  }
+
+  /**
+   * Subscribes to round closes (`FindingFlowHooks`): the listener schedules
+   * work and returns; no later round opens until the close is recorded
+   * through `recordRoundClose`. A desk with no flows on Goals never calls it.
+   */
+  onRoundClosed(listener: (run: string, round: number) => void | Promise<void>): () => void {
+    return this.#executions?.onRoundClosed(listener) ?? (() => {})
+  }
+
+  attachFindingsGate(gate: Parameters<FlowExecutions['attachFindingsGate']>[0]): void {
+    this.#executions?.attachFindingsGate(gate)
+  }
+
+  attachReviewPackets(packets: Parameters<FlowExecutions['attachReviewPackets']>[0]): void {
+    this.#executions?.attachReviewPackets(packets)
+  }
+
+  findingRun(run: string): ReturnType<FlowExecutions['findingRun']> {
+    return this.#executions?.findingRun(run) ?? null
+  }
+
+  recordRoundClose(run: string, round: number, next: Parameters<FlowExecutions['recordRoundClose']>[2]): Promise<void> {
+    return this.#executions?.recordRoundClose(run, round, next) ?? Promise.resolve()
+  }
+
+  /** A person's "Another round": one more transition past a recorded stop, never a budget reset. */
+  authorizeExtraRound(run: string, round: number, reason: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.authorizeExtraRound(run, round, reason)
+  }
+
+  /** A person admitting or declining a pending regression or security exception. */
+  recordExceptionDecision(run: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordExceptionDecision(run, findings, admit)
+  }
+
+  /** A person's recorded merge-anyway disagreement: never a merge by itself. */
+  recordOverride(run: string, override: FindingOverride): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordOverride(run, override)
+  }
+
+  /** The last `finding/decide` this run actually applied, so a resubmitted stamp replays rather than refuses. */
+  recordDecisionStamp(run: string, stamp: string, key: string): Promise<FlowExecution> {
+    if (!this.#executions?.stored(run)) throw new Error(`There is no flow run ${run}.`)
+    return this.#executions.recordDecisionStamp(run, stamp, key)
+  }
+
+  /** Every review series across every run this Goal has had, unioned by role and checkout: what "currently blocking" reads against. */
+  seriesOfGoal(goal: string): readonly FindingSeries[] {
+    return this.#executions?.seriesOfGoal(goal) ?? []
+  }
+
+  /** Every person override this Goal has recorded, across every run: what a wrap freezes into its receipt. */
+  overridesOfGoal(goal: string): readonly FindingOverride[] {
+    return this.#executions?.overridesOfGoal(goal) ?? []
+  }
+
+  /** The open blind review rounds on a Goal, for the board's reads and the channel's refusals. */
+  blindRounds(room: string): ReturnType<FlowExecutions['blindRounds']> {
+    return this.#executions?.blindRounds(room) ?? []
+  }
+
+  /** Whether nobody is watching this conversation's questions: it is a Seat of a running run. */
+  unattended(runtime: string, sessionId: string): boolean {
+    return this.#executions?.unattended(runtime, sessionId) ?? false
+  }
+
+  stopForQuestion(runtime: string, sessionId: string, reason: string): Promise<boolean> {
+    return this.#executions?.stopForQuestion(runtime, sessionId, reason) ?? Promise.resolve(false)
+  }
+
+  /** A candidate this process minted for this caller's card, still current. */
+  heldCandidate(candidate: string, intent: number, scope: TeamCallScope): ReturnType<FlowReview['held']> {
+    return this.#review?.held(candidate, intent, scope) ?? Promise.resolve(null)
   }
 
   /** Observed predecessor subjects this caller's own claimed card may judge. */

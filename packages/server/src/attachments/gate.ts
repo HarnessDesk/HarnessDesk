@@ -1,4 +1,4 @@
-import { runtimeId, sessionId, type AttachmentIdentity, type CeilingLevel, type SeatId } from '@harnessdesk/protocol'
+import { reaches, runtimeId, sessionId, type AttachmentIdentity, type CeilingLevel, type SeatId } from '@harnessdesk/protocol'
 
 import type { Admission, GatedCall } from '../ceilings/gate.js'
 
@@ -160,10 +160,15 @@ export class McpToolGateway {
     // Discovery alone is not authorization: a name filtered out of `list`
     // and a name never in the approved set at all are refused identically.
     if (!server) return { ok: false, reason: HIDDEN_TOOL_REFUSAL }
+    // A server that may publish is one the desk cannot prove keeps quiet: a
+    // blind review round's embargo holds it back exactly as it holds back the
+    // desk's own forge tools, or a reviewer could post (or tell a sibling)
+    // through it before the round closes. One held to edit or below cannot.
     const admission = await this.port.admit({
       tool: `${serverName}/${toolName}`,
       needs: server.ceiling,
       scope: { runtime: runtimeId(caller.runtime), sessionId: sessionId(caller.sessionId) },
+      publishes: reaches(server.ceiling, 'publish'),
     })
     if (!admission.admitted) return { ok: false, reason: admission.refusal }
     const result = await invoke(server)

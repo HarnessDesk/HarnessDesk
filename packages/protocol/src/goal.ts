@@ -1,4 +1,5 @@
 import type { CeilingLevel, EvidenceRecord, SeatId, SeatRecord, Sha } from './evidence.js'
+import type { FindingReceipt } from './findings.js'
 import type { FlowPermission, FlowSeat } from './flow.js'
 import type { Intent, TeamEntry, TeamState } from './team.js'
 
@@ -50,6 +51,12 @@ export interface Goal {
   readonly createdAt: number
   readonly updatedAt: number
   readonly receipt: string | null
+  /**
+   * Whether a closed review round's findings are posted to this Goal's bound
+   * pull request. Absent means the default: on for a bound pull request,
+   * local-only without one. A person's preference, never a Seat's.
+   */
+  readonly findingPublication?: boolean
 }
 
 export interface GoalCitation {
@@ -110,6 +117,8 @@ export interface GoalReceipt {
   }[]
   readonly citations: readonly GoalCitation[]
   readonly gaps: readonly string[]
+  /** The findings this Goal owned when it wrapped, frozen. Absent: the version that wrapped it did not record them. */
+  readonly findings?: FindingReceipt
 }
 
 /** The mutable board payload contains neither members nor a second Plan API. */
@@ -155,6 +164,12 @@ export interface GoalSeatRequest {
 export interface WrapChoices {
   summary: string
   cards: GoalReceipt['cards']
+  /**
+   * The person's disposition of findings posting could not confirm on the
+   * pull request: `record` wraps with each one written into the receipt as
+   * a gap. Required when there is any; absent otherwise.
+   */
+  publicationGaps?: 'record'
 }
 
 export interface WrapPreview {

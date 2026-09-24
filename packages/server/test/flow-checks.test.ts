@@ -104,6 +104,7 @@ rules:
   - { id: check, on: author, when: { every: [done] }, then: { role: gate, title: Verify } }
   - { id: pass, on: gate, when: { every: [pass] }, then: { role: person, title: Ship it } }
   - { id: fail, on: gate, when: { every: [fail] }, then: { role: author, title: Fix it } }
+budget: { rounds: 5, without-progress: 2 }
 `
   const rig = await goalRig(t)
   rig.checkOutcomes.set('pnpm verify', { exit: 1, timedOut: false, tail: 'still red' })

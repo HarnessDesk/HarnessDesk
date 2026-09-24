@@ -34,6 +34,17 @@ import type {
   GoalCitation, GoalCreateInput, GoalId, GoalReceipt, GoalSeatRequest, GoalView, Lane, WrapChoices, WrapPreview,
 } from './goal.js'
 import type {
+  CarryFindingsInput,
+  FindingDecisionAction,
+  FindingDetailPage,
+  FindingId,
+  FindingPage,
+  FindingRunView,
+  FindingPublicationsView,
+  FindingPublishAction,
+  FindingView,
+} from './findings.js'
+import type {
   Library,
   LibraryDefinition,
   LibraryKind,
@@ -685,6 +696,45 @@ export interface HostMethods {
    * citation that only looks like it belongs to the one open here.
    */
   'memory/read': { params: { root: string; citation: GoalCitation }; result: MemoryResolution }
+
+  /**
+   * The findings ledger, read by a person. `finding/list`/`finding/read`
+   * never expose a Seat's own read (`readForSeat` in the findings plane),
+   * which is scoped through the extension protocol instead.
+   */
+  'finding/list': {
+    params: { readonly goal: GoalId; readonly cursor?: string; readonly filter?: 'all' | 'open' | 'blocking' }
+    result: FindingPage
+  }
+  'finding/read': {
+    params: { readonly goal: GoalId; readonly finding: FindingId; readonly cursor?: string }
+    result: FindingDetailPage
+  }
+  'finding/carry': { params: CarryFindingsInput; result: readonly FindingView[] }
+  'finding/publication': {
+    params: { readonly goal: GoalId; readonly revision: number; readonly enabled: boolean }
+    result: GoalView
+  }
+  'finding/run': { params: { readonly goal: GoalId; readonly run: string }; result: FindingRunView }
+  'finding/decide': {
+    params: {
+      readonly goal: GoalId
+      readonly run: string
+      readonly round: number
+      readonly stamp: string
+      readonly action: FindingDecisionAction
+      readonly reason: string
+    }
+    result: FindingRunView
+  }
+  /** A run's postings a person has to look at, and the rounds kept on the desk a backfill would post now. */
+  'finding/publications': { params: { readonly goal: GoalId; readonly run: string }; result: FindingPublicationsView }
+  /** Post again, skip, or backfill: every one journaled, and nothing sent before the pull request is read back. */
+  'finding/publish': {
+    params: { readonly goal: GoalId; readonly run: string; readonly action: FindingPublishAction }
+    result: FindingPublicationsView
+  }
+
   'host/hello': {
     params: { readonly clientVersion: string }
     result: {
@@ -2394,6 +2444,8 @@ export type WireResponse =
 export type WireNotification =
   | { method: 'goal/changed'; params: { view: GoalView } }
   | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }
+  /** Invalidation only, never a claim's body: reload the affected Goal's findings. */
+  | { method: 'finding/changed'; params: { readonly goal: GoalId; readonly revision: number } }
   | {
       readonly method: 'provenance/changed'
       readonly params: {
