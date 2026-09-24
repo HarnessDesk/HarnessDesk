@@ -106,6 +106,12 @@ export interface GoalRig {
   readonly goalSerial: Serial
   /** Told when a run asks for a Seat, before the opening waits for the Goal queue. */
   seatAsked: (() => void) | null
+  /** Whether each opening asked for a held-only Seat, in order (phase 10). */
+  readonly strictAsks: boolean[]
+  /** False, a held-only opening is refused the way seating refuses a Seat that cannot hold (phase 10). */
+  holdsCeilings: boolean
+  /** An existing empty Goal's reservation, as the Goal plane decides it; throw to refuse (phase 10). */
+  reserve: ((input: { goal: string; revision: number; run: string; operation: string; root: string }) => Promise<void>) | null
   /** Asked of each opening before it happens; throw to refuse it. */
   beforeOpen: ((n: number, agent: string) => void) | null
   /** Asked after the conversation exists but before its card is claimed. */
@@ -177,7 +183,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     checkContexts: [] as (string | undefined)[],
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
-    goalSerial: new Serial(), seatAsked: null,
+    goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
     beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
@@ -204,6 +210,8 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
   }
   /* Inside the Goal queue, as `GoalPlane.seat` and `GoalPlane.release` run: the host's own order. */
   const openSeat = async (input: Parameters<FlowExecutionPort['openSeat']>[0]): Promise<SeatRecord> => {
+    rig.strictAsks.push(input.requireHeld === true)
+    if (input.requireHeld === true && !rig.holdsCeilings) throw new Error('This seat cannot hold the previewed ceiling. Choose a seat that can.')
     opened += 1
     const n = opened
     rig.beforeOpen?.(n, input.agent)
@@ -258,6 +266,13 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       if (input.origin?.kind === 'flow') rig.goals.set(room.id, input.origin.run)
       rig.events.push(`goal:${input.sentence}`)
       return { id: room.id }
+    },
+    reserveGoal: async (input) => {
+      if (!rig.reserve) throw new Error('This rig reserves no Goal.')
+      await rig.reserve(input)
+      rig.events.push(`reserve:${input.goal}:${input.run}`)
+      // Found again by `goalsOf`, the way the host's store answers for a reservation.
+      rig.goals.set(input.goal, input.run)
     },
     goalsOf: (run) => [...rig.goals.entries()].filter(([, owner]) => owner === run).map(([goal]) => goal),
     seatOf: (id) => rig.seats.get(id) ?? null,

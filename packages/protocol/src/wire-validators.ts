@@ -1,5 +1,5 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
-import { AUTHORING_AGENT_LIMIT, type AgentFieldEdit, type AuthoringTarget, type WritableAuthoringTarget } from './authoring.js'
+import { AUTHORING_AGENT_LIMIT, type AgentFieldEdit, type AuthoringTarget, type StartContext, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
 import type { FindingDecisionAction, FindingPublishAction } from './findings.js'
 import { lanePreferences } from './goal.js'
@@ -496,6 +496,39 @@ const authoringAgents: Validator<{ id: string; source: string }[]> = (value, pat
   if (agents.length > AUTHORING_AGENT_LIMIT) throw new ValidationError(path, `expected at most ${AUTHORING_AGENT_LIMIT} new Agents`)
   return agents
 }
+/**
+ * What a start is about, as inputs only: a branch name and a diff's two ends
+ * are single revision names (never an option, a range or a URL), a pull
+ * request is its positive number in the project, and every root is an
+ * absolute folder the host then confines. None of it is a fact the host
+ * trusts: each is resolved on the host before a preview is drawn.
+ */
+const startRevision: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (text.length === 0 || text.length > 200 || !/^[\w][\w./@{}~^-]*$/.test(text) || text.includes('..') || /\^[-@]/.test(text)) {
+    throw new ValidationError(path, 'expected one revision name, not an option or a range')
+  }
+  return text
+}
+const pullNumber: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isSafeInteger(number) || number < 1 || number > 1_000_000_000) throw new ValidationError(path, 'expected a pull request number')
+  return number
+}
+const startContext = taggedUnion<StartContext, 'kind'>('kind', {
+  project: goalShape({ kind: literalUnion('project'), root: triggerRoot }) as Validator<StartContext>,
+  branch: goalShape({ kind: literalUnion('branch'), root: triggerRoot, branch: startRevision }) as Validator<StartContext>,
+  'pull-request': goalShape({ kind: literalUnion('pull-request'), root: triggerRoot, number: pullNumber }) as Validator<StartContext>,
+  diff: goalShape({ kind: literalUnion('diff'), root: triggerRoot, from: startRevision, to: startRevision }) as Validator<StartContext>,
+  'working-diff': goalShape({ kind: literalUnion('working-diff'), root: triggerRoot }) as Validator<StartContext>,
+})
+const startVars: Validator<Record<string, string>> = (value, path = '') => {
+  const vars = recordOf(atMost(4096))(value, path)
+  if (Object.keys(vars).length > 64) throw new ValidationError(path, 'expected at most 64 inputs')
+  return vars
+}
+const startGoal = goalShape({ id: goalId, revision: goalInteger(0) })
+
 const authoringValidators = {
   'authoring/read': goalShape({ target: anyAuthoringTarget }),
   'authoring/agent/patch': goalShape({
@@ -517,6 +550,7 @@ const authoringValidators = {
   'authoring/save/pending': goalShape({}),
   'authoring/save/resume': goalShape({ id: goalHex([32]) }),
   'authoring/save/discard': goalShape({ id: goalHex([32]) }),
+  'authoring/start/preview': goalShape({ context: startContext, source: atMost(256 * 1024), vars: startVars, goal: optional(startGoal) }),
 }
 
 /**
@@ -915,6 +949,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     token: isFilled,
     sentence: isString,
     vars: optional(recordOf(isString)),
+    goal: optional(startGoal),
   }),
   'flow/execution': goalShape({ run: isFilled }),
   'flow/execution/source': goalShape({ run: isFilled }),

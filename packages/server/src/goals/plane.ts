@@ -15,7 +15,7 @@ import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
-import { recoverOperation, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
+import { recoverOperation, reserveEmpty, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
 
@@ -111,7 +111,7 @@ export interface GoalPlanePort extends GoalOperationPort {
    * Goal's own persisted origin — never from the request: a Goal a trigger
    * opened seats under the unattended ceiling policy.
    */
-  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean }): Promise<SeatRecord>
+  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean; readonly requireHeld?: true }): Promise<SeatRecord>
   /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
   /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
   intakeHeld?(goal: string): boolean | string
@@ -764,7 +764,8 @@ export class GoalPlane {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
-      const policy = { unattended: goal.origin.kind === 'trigger' }
+      // Unattended from the Goal's own origin; held-only from the run that asked, which read it from its own stored policy.
+      const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
       const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where, policy))
       if (input.card !== undefined) {
         try {
@@ -777,6 +778,45 @@ export class GoalPlane {
       await this.refresh(input.goal)
       return record
     })
+  }
+
+  /**
+   * An existing empty Goal, reserved for one front-door run inside this
+   * plane's queue — the one card and Seat changes take — against the
+   * revision the preview saw. The project is checked again here. The
+   * reservation and the revision it advances are one document write; two
+   * starts on one revision cannot both win, and a lost answer retried by the
+   * same run is answered as done.
+   */
+  async reserveEmptyFlowGoal(input: { goal: string; revision: number; run: string; operation: string; root: string }): Promise<GoalView> {
+    await reserveEmpty({
+      serial: (operation) => this.serial.run(operation),
+      read: async () => {
+        const document = this.store.read(input.goal)
+        if (document.goal.root !== input.root) throw new Error('This Goal belongs to another project. Start the shape from that project.')
+        const dispatch = this.canDispatch(input.goal)
+        return {
+          revision: document.goal.revision,
+          open: !document.restored && document.goal.state === 'open',
+          ready: dispatch.ok && document.operation === null,
+          // The board's one writer's copy and the stored one: a card in either is work.
+          cards: Math.max((this.port.cards?.(input.goal) ?? []).length, document.board.intents.length),
+          seats: this.port.seats.all().filter((seat) => seat.board === input.goal && !seat.closed && !seat.restored).length,
+          reservation: document.flowReservation ?? null,
+        }
+      },
+      commit: async ({ run, operation, revision }) => {
+        const document = this.store.read(input.goal)
+        await this.store.save({
+          ...document,
+          flowReservation: { run, operation },
+          goal: { ...document.goal, revision: revision + 1, updatedAt: this.now() },
+        }, revision)
+      },
+    }, { run: input.run, operation: input.operation, revision: input.revision })
+    const view = await this.view(input.goal)
+    this.#rememberAndPublish(view)
+    return view
   }
 
   openLegacySeat(input: Parameters<GoalPlanePort['openLegacySeat']>[0]): Promise<SeatRecord> {

@@ -67,6 +67,7 @@ const UNREACHED = {
   'authoring/save/pending': 'phase 10 Task 2 — the unfinished-save list reads it (Task 6)',
   'authoring/save/resume': 'phase 10 Task 2 — that list resumes an unfinished save (Task 6)',
   'authoring/save/discard': 'phase 10 Task 2 — that list discards an unfinished save’s record (Task 6)',
+  'authoring/start/preview': 'phase 10 Task 3 — the front door’s two-click start draws its dry run through it (Task 4)',
 }
 
 /**

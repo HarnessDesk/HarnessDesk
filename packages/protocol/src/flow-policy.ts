@@ -164,6 +164,13 @@ export interface FlowExecution {
   readonly findings?: FindingRunState
   /** Set only on a run a trigger started. */
   readonly intake?: FlowIntake
+  /**
+   * Set on a run started from a front-door preview: every Seat it ever opens,
+   * later and recovered rounds included, must hold its ceiling before it is
+   * given work. Frozen at the start; a record that should carry it and does
+   * not stops the run rather than seating under a weaker policy.
+   */
+  readonly requireHeld?: true
 }
 
 // ---------------------------------------------------------------- review
@@ -267,6 +274,8 @@ export interface FlowStartRequest {
   readonly token: string
   readonly sentence: string
   readonly vars?: Readonly<Record<string, string>>
+  /** The empty Goal a front-door start reuses, at the revision its preview saw; it must match the preview's own. */
+  readonly goal?: { readonly id: string; readonly revision: number }
 }
 
 /** Bounded, host-derived context a check command reads from `HARNESSDESK_FLOW_CONTEXT`. */

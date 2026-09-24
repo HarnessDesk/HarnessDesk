@@ -19,4 +19,11 @@ export const authoringMethods = {
   'authoring/save/pending': (ctx: HostContext) => ctx.authoring.pending(),
   'authoring/save/resume': (ctx: HostContext, params) => ctx.authoring.resume(params.id),
   'authoring/save/discard': (ctx: HostContext, params) => ctx.authoring.discard(params.id),
+  /** Spends nothing: the context is resolved on the host and the dry run is phase 6's, strict. Start is `flow/start-goal`. */
+  'authoring/start/preview': (ctx: HostContext, params) => ctx.frontDoor.preview({
+    context: params.context,
+    source: params.source,
+    vars: params.vars,
+    ...(params.goal ? { goal: params.goal } : {}),
+  }),
 } satisfies MethodsUnder<'authoring/'>

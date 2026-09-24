@@ -8,6 +8,8 @@ import type {
   AuthoringSavePreview,
   AuthoringSaveResult,
   AuthoringTarget,
+  FrontDoorPreview,
+  FrontDoorPreviewInput,
   WritableAuthoringTarget,
 } from './authoring.js'
 import type {
@@ -1849,6 +1851,12 @@ export interface HostMethods {
   'authoring/save/resume': { params: { readonly id: string }; result: AuthoringSavePreview }
   /** Drops the record of an unfinished save. Every file stays exactly as it is. */
   'authoring/save/discard': { params: { readonly id: string }; result: readonly AuthoringPending[] }
+  /**
+   * A front-door start's dry run: the context resolved by the host, the shape
+   * compiled, every Seat required to hold its ceiling. Spends nothing; its
+   * token is redeemed by `flow/start-goal`, bound to this target and Goal.
+   */
+  'authoring/start/preview': { params: FrontDoorPreviewInput; result: FrontDoorPreview }
 
   // -- agents: who does the work, as opposed to the runtime it runs on. Read
   // only: an Agent is a file, and writing one is editing that file.

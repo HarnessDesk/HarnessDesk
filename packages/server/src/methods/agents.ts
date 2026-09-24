@@ -24,6 +24,7 @@ import {
   type SeatPlan,
   type SeatGrant,
   type SeatId,
+  type SeatLeft,
   type SeatRecord,
   type SessionAttachmentReceipt,
   type SessionAttachments,
@@ -49,6 +50,7 @@ import {
   userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
+import { HeldRefusal, keepHeldSeat } from '../ceilings/held-seat.js'
 import { unattendedPolicy, unheldPolicy } from '../ceilings/policy.js'
 import {
   agentOrder,
@@ -446,6 +448,13 @@ export interface AgentSeatContext {
    * unheld-ceiling policy — refuse unless a person chose otherwise — applies.
    */
   unattended?: boolean
+  /**
+   * Set by the Goal plane from a front-door run's own stored policy, never by
+   * a wire caller: this Seat is kept only once its ceiling reads back held at
+   * exactly the level it was seated at; any other candidate is closed before
+   * its brief and passed over.
+   */
+  requireHeld?: true
 }
 
 /**
@@ -526,7 +535,10 @@ export async function seatAgent(
     context.grant?.kind === 'ceiling' ? context.grant.level : grantOf(requested),
   )
   const preferences = ctx.state.state.preferences
-  const need: CeilingNeed = { level, unheld: context.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences) }
+  const strict = context.requireHeld === true
+  const need: CeilingNeed = strict
+    ? { level, unheld: 'refuse', required: true }
+    : { level, unheld: context.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences) }
   // Its repository's identity on disk, not its path: computed once, the same
   // way `evidence/seen.ts` binds a command approval, so a repository deleted
   // and cloned again at the same path is a new incarnation and inherits
@@ -579,7 +591,7 @@ export async function seatAgent(
     }
 
     const held = await ctx.seats.hold(opened.runtime, opened.sessionId, level)
-    if (held.ceiling.hold !== 'held' && need.unheld === 'refuse') {
+    if (!strict && held.ceiling.hold !== 'held' && need.unheld === 'refuse') {
       const left = await ctx.seats.discard(opened.runtime, opened.sessionId)
       passed.push({ ...passedFor(selected, { kind: 'unheld', level, detail: held.why }), left })
       continue
@@ -594,8 +606,8 @@ export async function seatAgent(
       ceiling: held.ceiling,
       ceilingNote: held.how ?? held.why,
     }
-    let record: SeatRecord
-    try {
+    let record!: SeatRecord
+    const keep = async (): Promise<void> => {
       if (context.openingId !== undefined) {
         throw new Error('A fixed Goal opening must be staged by the Goal assignment journal.')
       }
@@ -612,11 +624,51 @@ export async function seatAgent(
         board: context.board,
         role: context.role,
       })
-    } catch (error) {
-      await ctx.seats.retire(opened.runtime, opened.sessionId)
-      throw new Error(
-        `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
-      )
+    }
+    const unrecorded = (error: unknown): Error => new Error(
+      `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
+    )
+    if (strict) {
+      /* Held-only admission: the candidate is provisional until its readback
+         says held at exactly this level, and its Seat is durable; anything
+         else closes it before a brief, a tool or a card reaches it, and the
+         next candidate is tried — never the same one at a weaker ceiling. */
+      let left: SeatLeft | null = null
+      let unkept: unknown = null
+      try {
+        await keepHeldSeat({
+          open: async () => opened,
+          ceiling: () => held.ceiling,
+          keep: async () => {
+            try { await keep() } catch (error) { unkept = error; throw error }
+          },
+          close: async (seat) => {
+            if (unkept !== null) await ctx.seats.retire(seat.runtime, seat.sessionId)
+            else left = await ctx.seats.discard(seat.runtime, seat.sessionId)
+          },
+        }, level)
+      } catch (error) {
+        if (error instanceof HeldRefusal) {
+          const detail = held.ceiling.hold === 'held' && held.ceiling.level !== level
+            ? `it reads back holding ${held.ceiling.level}, not ${level}`
+            : held.why
+          passed.push({ ...passedFor(selected, { kind: 'unheld', level, detail, required: true }), left })
+          continue
+        }
+        if (error instanceof AggregateError) {
+          throw Object.assign(new Error(`${definition.name} was refused on ${describeSeat(selected, words)}, and closing that conversation failed. Stop it from the Goal before retrying.`), {
+            session: { runtime: opened.runtime, sessionId: opened.sessionId },
+          })
+        }
+        throw unrecorded(error)
+      }
+    } else {
+      try {
+        await keep()
+      } catch (error) {
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw unrecorded(error)
+      }
     }
     if (ctx.attachments && prepared) {
       try {
@@ -1189,7 +1241,7 @@ export const previewAgent = async (
   agent: string,
   seats: readonly FlowSeat[],
   grant: CeilingLevel,
-  options: { readonly unattended?: boolean } = {},
+  options: { readonly unattended?: boolean; readonly requireHeld?: true } = {},
 ): Promise<SeatPlan> => {
   const project = await projectOf(ctx, root)
   const entry = await ctx.agents.read(agent, project)
@@ -1198,9 +1250,10 @@ export const previewAgent = async (
   const machine = await ctx.seating.read()
   // A trigger's arm previews its Seats exactly as its Goal will seat them: under the unattended policy.
   const preferences = ctx.state.state.preferences
-  const unheld = options.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences)
+  // A front-door start requires a held ceiling whatever this Mac's own preference says: a runtime that cannot hold is passed over here, before Start.
+  const unheld = options.requireHeld ? 'refuse' : options.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences)
   const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
-  const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld }
+  const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld, ...(options.requireHeld ? { required: true as const } : {}) }
   if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')
   const desk = await readDesk(ctx, [...list.seats, ...entry.definition.prefer])
   const words = wordsFor(ctx, desk.catalogues, desk.registryNames)

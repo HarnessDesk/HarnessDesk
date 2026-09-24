@@ -121,6 +121,10 @@ export interface HostContext {
    * share. Narrowed to the verbs the wire has.
    */
   readonly authoring: Pick<AuthoringPlane, 'read' | 'patch' | 'preview' | 'apply' | 'pending' | 'resume' | 'discard'>
+  /** A front-door start's dry run: its context resolved on the host, its token strict and bound to that target. */
+  readonly frontDoor: {
+    preview(input: import('@harnessdesk/protocol').FrontDoorPreviewInput): Promise<import('@harnessdesk/protocol').FrontDoorPreview>
+  }
   readonly goals: GoalPlane
   readonly lanes: import('../goals/lanes.js').LaneAllocator
   readonly laneSettings: {

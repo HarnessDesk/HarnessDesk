@@ -11,6 +11,7 @@ import {
   type FlowProblem,
   type FlowSeat,
   type SeatPlan,
+  type StartContext,
 } from '@harnessdesk/protocol'
 
 import { compileFlowPolicy, parseFlowPolicy } from './flow-policy.js'
@@ -38,8 +39,14 @@ export interface FlowPreviewPort {
   confine(root: string): Promise<void>
   /** The Agent roster this preview resolves against, project-first. */
   agents(root: string): Promise<readonly AgentEntry[]>
-  /** One Agent's seat plan for the exact seats and grant a role names. */
-  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean }): Promise<SeatPlan>
+  /** One Agent's seat plan for the exact seats and grant a role names; `requireHeld` passes over every seat that cannot hold. */
+  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true }): Promise<SeatPlan>
+  /**
+   * A front-door target read again from the host, as the canonical facts it
+   * was bound to — commits, a diff, a working tree's snapshot. Asked at
+   * redemption: a target that moved since the preview refuses the start.
+   */
+  resolveTarget?(context: StartContext): Promise<string>
   /** A retried check's own run: its saved source and inputs, read back for the equality check — never a new choice. */
   storedRun?(run: string): Promise<{ readonly source: string; readonly vars: Readonly<Record<string, string>> } | null>
   now(): number
@@ -58,7 +65,20 @@ interface HeldPreview {
   readonly expires: number
   /** Set only for a check-retry preview: the uncertain run/card this token is additionally bound to. */
   readonly retryOf?: { readonly run: string; readonly card: number }
+  /** Set only for a front-door preview: the policy and target the start is bound to, read from here and never from a request. */
+  readonly frontDoor?: FrontDoorBinding
   consumed: boolean
+}
+
+/**
+ * What a front-door token binds beyond the text: every Seat must hold its
+ * ceiling, the target's resolved facts, and the empty Goal it lands on at the
+ * revision its preview saw (or none).
+ */
+export interface FrontDoorBinding {
+  readonly requireHeld: true
+  readonly target: { readonly context: StartContext; readonly facts: string }
+  readonly goal: { readonly id: string; readonly revision: number } | null
 }
 
 /** The one comparable shape a token's fingerprint is taken of: the winning seat and its candidate, never the whole passed-over list. */
@@ -69,6 +89,7 @@ const fingerprint = (input: { compiled: CompiledFlow; seats: readonly FlowPrevie
     seats: input.seats.map((seat) => ({
       role: seat.role, index: seat.index, agent: seat.agent, isolate: seat.isolate,
       blocked: seat.plan.blocked, winner: seat.plan.winner === null ? null : seat.plan.candidates[seat.plan.winner] ?? null,
+      ceiling: seat.plan.ceiling,
     })),
   })
 
@@ -119,6 +140,7 @@ export class FlowPreviews {
     source: string,
     vars: Readonly<Record<string, string>> = {},
     retry?: { readonly run: string; readonly card: number },
+    frontDoor?: FrontDoorBinding,
   ): Promise<FlowPreview> {
     this.#sweep()
     await this.#port.confine(root)
@@ -133,7 +155,8 @@ export class FlowPreviews {
       actualSource = saved.source
       actualVars = saved.vars
     }
-    const built = await this.#build(root, actualSource)
+    if (retry && frontDoor) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
+    const built = await this.#build(root, actualSource, false, frontDoor !== undefined)
     const errors = built.problems.filter((one) => one.level === 'error')
     let token: string | null = null
     // An unparsed document is the empty legacy placeholder: never a token.
@@ -141,7 +164,7 @@ export class FlowPreviews {
       token = randomUUID()
       this.#tokens.set(token, {
         root, source: actualSource, vars: actualVars, compiled: built.compiled, seats: built.seats, commands: built.commands,
-        expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), consumed: false,
+        expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), ...(frontDoor ? { frontDoor } : {}), consumed: false,
       })
     }
     return { ...built, token }
@@ -164,7 +187,7 @@ export class FlowPreviews {
    * each role as a trigger's Goal would be seated — under this machine's
    * unattended ceiling policy — so what an arm shows is what will run.
    */
-  async #build(root: string, source: string, unattended = false): Promise<Omit<FlowPreview, 'token'>> {
+  async #build(root: string, source: string, unattended = false, requireHeld = false): Promise<Omit<FlowPreview, 'token'>> {
     const problems: FlowProblem[] = []
     const parsed = parseFlowPolicy(source)
     problems.push(...parsed.problems)
@@ -184,7 +207,10 @@ export class FlowPreviews {
         if (role.kind !== 'agent') continue
         const bindings = compiled.bindings.filter((one) => one.role === role.id).sort((a, b) => a.index - b.index)
         for (const binding of bindings) {
-          const plan = await this.#port.previewAgent(root, binding.agent.id, binding.seats, binding.grant, unattended ? { unattended: true } : undefined)
+          const plan = await this.#port.previewAgent(root, binding.agent.id, binding.seats, binding.grant, {
+            ...(unattended ? { unattended: true } : {}),
+            ...(requireHeld ? { requireHeld: true as const } : {}),
+          })
           seats.push({ role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate })
           if (plan.blocked) {
             problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
@@ -213,17 +239,30 @@ export class FlowPreviews {
    */
   async redeem(
     token: string, root: string, source: string, vars: Readonly<Record<string, string>>,
-  ): Promise<{ readonly compiled: CompiledFlow; readonly commands: FlowPreview['commands'] } | null> {
+  ): Promise<{ readonly compiled: CompiledFlow; readonly commands: FlowPreview['commands']; readonly frontDoor: FrontDoorBinding | null } | null> {
     this.#sweep()
     const held = this.#tokens.get(token)
     if (!held || held.consumed) return null
     held.consumed = true
     if (held.expires < this.#port.now()) return null
     if (held.root !== root || held.source !== source || JSON.stringify(held.vars) !== JSON.stringify(vars)) return null
-    const fresh = await this.preview(root, source, vars)
-    if (fresh.token === null) return null
+    // Re-read under the same policy it was minted under: a strict token is only ever compared with a strict dry run.
+    await this.#port.confine(root)
+    const fresh = await this.#build(root, source, false, held.frontDoor !== undefined)
+    if (fresh.problems.some((one) => one.level === 'error')) return null
     if (fingerprint({ compiled: fresh.compiled, seats: fresh.seats, commands: fresh.commands }) !== fingerprint(held)) return null
-    return { compiled: held.compiled, commands: held.commands }
+    if (held.frontDoor) {
+      // The target read again from the host, now: a branch that moved, a diff that changed, needs a new preview.
+      if (!this.#port.resolveTarget) return null
+      let facts: string
+      try {
+        facts = await this.#port.resolveTarget(held.frontDoor.target.context)
+      } catch {
+        return null
+      }
+      if (facts !== held.frontDoor.target.facts) return null
+    }
+    return { compiled: held.compiled, commands: held.commands, frontDoor: held.frontDoor ?? null }
   }
 
   /** The uncertain run/card a check-retry token is bound to, without consuming it — `flow/check/retry`'s own validation. */

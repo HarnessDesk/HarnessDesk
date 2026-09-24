@@ -175,3 +175,55 @@ test('trigger preview cannot reuse a person start token', async () => {
   // The person's token is still the person's: it redeems once for its own start.
   assert.ok(await intake.previews.redeem(person.token!, intake.world.project, flow, {}))
 })
+
+// Added in phase 10 (Task 3): a front-door token carries its held-seat policy, target and Goal; a Start cannot shed them.
+test('strict token cannot downgrade', async () => {
+  const { flowMethods } = await import('../src/methods/flows.js')
+  const state = rig()
+  const seen: { requireHeld?: boolean; unattended?: boolean }[] = []
+  const port: FlowPreviewPort = {
+    ...state.port,
+    previewAgent: async (root, agent, seats, grant, options) => {
+      seen.push({ ...(options?.requireHeld ? { requireHeld: true } : {}), ...(options?.unattended ? { unattended: true } : {}) })
+      return state.port.previewAgent(root, agent, seats, grant, options)
+    },
+    resolveTarget: async () => 'facts-1',
+  }
+  const previews = new FlowPreviews(port)
+  const started: { requireHeld?: true; goal?: unknown; authorization: { start?: string } }[] = []
+  const startedAt = (index: number) => started[index]!
+  const ctx = {
+    flowPreviews: previews,
+    flows: { startGoal: async (request: never) => { started.push(request); return { id: 'run' } } },
+  } as never
+  const binding = { requireHeld: true as const, target: { context: { kind: 'project' as const, root: '/repo' }, facts: 'facts-1' }, goal: { id: 'goal-1', revision: 4 } }
+  const strict = async () => (await previews.preview('/repo', FLOW, {}, undefined, binding)).token!
+  // The dry run itself was strict: every seat plan was asked for held Seats.
+  const first = await strict()
+  assert.deepEqual(seen.at(-1), { requireHeld: true })
+  // Omitting the Goal at Start refuses; so does naming another one, or another revision.
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: first, sentence: 'Go' }), new RegExp(CHANGED_PREVIEW.replace(/[.]/g, '\\.')))
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: await strict(), sentence: 'Go', goal: { id: 'goal-1', revision: 5 } }), /Review the dry run again/)
+  // Altering the source refuses, whatever else is sent.
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: `${FLOW}\n# edited`, token: await strict(), sentence: 'Go', goal: binding.goal }), /Review the dry run again/)
+  // Spent tokens stay spent: the first one cannot be retried the right way now.
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: first, sentence: 'Go', goal: binding.goal }), /Review the dry run again/)
+  assert.equal(started.length, 0)
+  // Exactly as previewed, the start is strict — decided by the token, which the request never names.
+  await flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: await strict(), sentence: 'Go', goal: binding.goal })
+  assert.equal(started.length, 1)
+  assert.equal(startedAt(0).requireHeld, true)
+  assert.deepEqual(startedAt(0).goal, binding.goal)
+  assert.equal(startedAt(0).authorization.start, 'front-door')
+  // A target that moved since the preview refuses at Start, too.
+  const moved = await strict()
+  port.resolveTarget = async () => 'facts-2'
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: moved, sentence: 'Go', goal: binding.goal }), /Review the dry run again/)
+  // An ordinary token stays ordinary: no held-seat policy, no Goal, and one cannot be asked for at Start.
+  const plain = (await previews.preview('/repo', FLOW, {})).token!
+  await assert.rejects(flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: plain, sentence: 'Go', goal: binding.goal }), /Review the dry run again/)
+  await flowMethods['flow/start-goal'](ctx, { root: '/repo', source: FLOW, token: (await previews.preview('/repo', FLOW, {})).token!, sentence: 'Go' })
+  assert.equal(started.length, 2)
+  assert.equal(startedAt(1).requireHeld, undefined)
+  assert.equal(startedAt(1).authorization.start, undefined)
+})

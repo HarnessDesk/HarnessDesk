@@ -173,6 +173,11 @@ export interface GoalSeatRequest {
   grant?: SeatGrant
   card?: number
   isolate?: boolean
+  /**
+   * Host-only: this Seat must hold its ceiling, read back, before it is kept.
+   * It only ever narrows seating; no wire request carries it.
+   */
+  requireHeld?: true
 }
 
 export interface WrapChoices {

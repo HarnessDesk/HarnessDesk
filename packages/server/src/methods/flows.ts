@@ -93,6 +93,11 @@ export const flowMethods = {
   'flow/start-goal': async (ctx, params) => {
     const redeemed = await ctx.flowPreviews.redeem(params.token, params.root, params.source, params.vars ?? {})
     if (!redeemed) throw new Error(CHANGED_PREVIEW)
+    /* The held-seat policy and the reused Goal are the token's, never the
+       request's: a front-door token started without its Goal, or with another,
+       is refused, and nothing here can turn it into an ordinary start. */
+    const bound = redeemed.frontDoor
+    if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw new Error(CHANGED_PREVIEW)
     return ctx.flows.startGoal({
       root: params.root,
       sentence: params.sentence,
@@ -100,10 +105,13 @@ export const flowMethods = {
       sourcePath: null,
       compiled: redeemed.compiled,
       ...(params.vars ? { vars: params.vars } : {}),
+      ...(bound ? { requireHeld: true as const } : {}),
+      ...(bound?.goal ? { goal: bound.goal } : {}),
       authorization: {
         sourceDigest: sourceDigest(params.source),
         commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),
         approvedAt: Date.now(),
+        ...(bound ? { start: 'front-door' as const } : {}),
       },
     })
   },

@@ -1,6 +1,6 @@
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
-import type { FlowFileEdit, FlowUpdateResult } from './flow-policy.js'
+import type { FlowFileEdit, FlowPreview, FlowUpdateResult } from './flow-policy.js'
 
 /**
  * Authoring: the files a person edits to start an Agent, a Goal or a team —
@@ -146,3 +146,46 @@ export interface AuthoringPending {
 
 /** The most new Agents one save may create beside its flow. */
 export const AUTHORING_AGENT_LIMIT = 16
+
+// -------------------------------------------------------------- front door
+
+/**
+ * A start from the front door: what it is about, the exact shape source, the
+ * inputs a person typed, and — to reuse one — the empty Goal it lands on at
+ * the revision the person saw. The host resolves the context itself.
+ */
+export interface FrontDoorPreviewInput {
+  readonly context: StartContext
+  readonly source: string
+  readonly vars: Readonly<Record<string, string>>
+  readonly goal?: { readonly id: string; readonly revision: number }
+}
+
+/**
+ * What a front-door start was bound to, as the host resolved it: the commits
+ * a review judges, or a working tree's snapshot — which is never a committed
+ * head (`head` is null and `dirty` true). `independence` is `unknown` unless
+ * the author is itself a role of this shape.
+ */
+export interface FrontDoorTarget {
+  readonly label: string
+  readonly base: string | null
+  readonly head: string | null
+  readonly dirty: boolean
+  readonly independence: 'known' | 'unknown'
+}
+
+/**
+ * The dry run a front door shows before Start: the phase-6 preview (whose
+ * token is strict — every Seat must hold its ceiling), the target it is bound
+ * to, the inputs the context filled, and the sentence the Goal is started
+ * with. Starting is still `flow/start-goal` with this token and source.
+ */
+export interface FrontDoorPreview {
+  readonly flow: FlowPreview
+  readonly target: FrontDoorTarget
+  readonly vars: Readonly<Record<string, string>>
+  readonly source: string
+  readonly sentence: string
+  readonly goal: { readonly id: string; readonly revision: number } | null
+}

@@ -96,6 +96,7 @@ import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
 import { FlowUpdates, TreeQueue } from './flow-update.js'
 import { AuthoringPlane } from './authoring/plane.js'
+import { factsKey, hostContextPort, previewStart, resolveContext, type ContextPort } from './authoring/start.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
@@ -127,7 +128,7 @@ import { ProvenancePlane } from './provenance/plane.js'
 import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
 import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
-import type { GhInCheckout } from './evidence/forge.js'
+import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
 import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
 import { SEEN_FILE } from './evidence/seen.js'
@@ -576,6 +577,8 @@ export class Host {
   /** The one queue of configuration writes per tree: flow updates and authoring saves take it alike. */
   readonly #configQueue = new TreeQueue()
   readonly #authoring: AuthoringPlane
+  /** Git and the forge as a front-door start reads them: argument vectors, bounded, in a confined project. */
+  readonly #frontDoorContext: ContextPort
   /**
    * The Agent roster: this machine's under the state directory, the built-in
    * ones beside this package, and a project's own under whichever open folder a
@@ -1074,8 +1077,11 @@ export class Host {
       release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
       canDispatch: (goal) => this.#goals.canDispatch(goal),
       createGoal: async (input) => (await this.#goals.create(input)).goal,
+      // A front-door run's empty Goal, reserved in the Goal queue against the revision its preview saw.
+      reserveGoal: async (input) => { await this.#goals.reserveEmptyFlowGoal(input) },
+      // A Goal this run made, or an existing one reserved for it: how an interrupted start is found rather than repeated.
       goalsOf: (run) => this.#goalStore.list()
-        .filter((document) => document.goal.origin.kind === 'flow' && document.goal.origin.run === run)
+        .filter((document) => (document.goal.origin.kind === 'flow' && document.goal.origin.run === run) || document.flowReservation?.run === run)
         .map((document) => document.goal.id),
       seatOf: (id) => this.#evidence.seats.byId(id as SeatId),
       seatsOn: (goal) => this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored),
@@ -1231,6 +1237,7 @@ export class Host {
         subjects: (goal, round) => this.#flows.subjectsOf(goal, round),
         recordClose: (run, round, next) => this.#flows.recordRoundClose(run, round, next),
         blindRounds: (goal) => this.#flows.blindRounds(goal),
+        embargoedRounds: (goal) => this.#flows.embargoedRounds(goal),
         facts: async (goal) => {
           const state = this.#goalState(goal)
           return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
@@ -1333,6 +1340,11 @@ export class Host {
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
       storedRun: async (run) => this.#flows.storedRun(run),
+      // A front-door token's target, read again from git and the forge at Start: never the facts the preview saw.
+      resolveTarget: async (context) => {
+        await this.#confineRoom(context.root)
+        return factsKey(await resolveContext(this.#frontDoorContext, context))
+      },
       now: () => Date.now(),
     })
     // The catalogue a trigger's closure resolves its flow through: the same layers and rules as a person's.
@@ -1350,6 +1362,9 @@ export class Host {
       }),
       queue: this.#configQueue,
     })
+    // The same `gh` the evidence plane reads pull requests with, so a rig's fake forge answers both.
+    const gh = options.evidence?.gh ?? ghInCheckout
+    this.#frontDoorContext = hostContextPort((args, cwd) => gh(args, cwd))
     /* This person's Agents and flows are `agents/` and `flows/` in the state
        folder — the same roots the roster and the catalogue above read — so a
        save lands exactly where the next listing looks. */
@@ -1478,6 +1493,7 @@ export class Host {
           role: null,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
           ...(policy.unattended ? { unattended: true } : {}),
+          ...(policy.requireHeld ? { requireHeld: true as const } : {}),
         })).record
       },
       openLegacySeat: async (input, goal) => {
@@ -2865,6 +2881,22 @@ export class Host {
       flowPreviews: this.#flowPreviews,
       flowUpdates: this.#flowUpdates,
       authoring: this.#authoring,
+      frontDoor: {
+        preview: (input) => previewStart({
+          confine: (root) => this.#confineRoom(root),
+          context: this.#frontDoorContext,
+          previews: this.#flowPreviews,
+          goal: (id) => this.#goals.view(id),
+          canDispatch: (id) => this.#goals.canDispatch(id),
+          reserved: (id) => {
+            try {
+              return this.#goalStore.read(id).flowReservation !== undefined
+            } catch {
+              return true
+            }
+          },
+        }, input),
+      },
       goals: this.#goals,
       lanes: this.#lanes,
       laneSettings: {
