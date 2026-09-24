@@ -1,6 +1,16 @@
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
 import type {
+  AgentFieldEdit,
+  AuthoringDocument,
+  AuthoringPending,
+  AuthoringSaveInput,
+  AuthoringSavePreview,
+  AuthoringSaveResult,
+  AuthoringTarget,
+  WritableAuthoringTarget,
+} from './authoring.js'
+import type {
   AgentAttachmentsView,
   AgentNotesView,
   AttachmentEditPreview,
@@ -1818,6 +1828,27 @@ export interface HostMethods {
   'flow/customize/preview': { params: { readonly root: string; readonly id: string }; result: FlowUpdatePreview }
   /** Applies a previously previewed customization. */
   'flow/customize/apply': { params: { readonly root: string; readonly id: string; readonly token: string }; result: FlowUpdateResult }
+
+  // -- authoring: an Agent, a flow or a project's triggers, read and saved as
+  // the files they are. Every save is previewed whole and written in one
+  // journaled transaction; nothing here writes on selection or on a start.
+  /** A file exactly as it is on disk, with what is in the way of using it. */
+  'authoring/read': { params: { readonly target: AuthoringTarget }; result: AuthoringDocument }
+  /** One field of an Agent, changed in place and previewed; the host encodes the value. */
+  'authoring/agent/patch': {
+    params: { readonly target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>; readonly expected: string; readonly edit: AgentFieldEdit }
+    result: AuthoringSavePreview
+  }
+  /** What saving this source (and any new Agents it names) would write, before anything is. */
+  'authoring/save/preview': { params: AuthoringSaveInput; result: AuthoringSavePreview }
+  /** Writes exactly what one preview showed. A token applied already answers its saved result again. */
+  'authoring/save/apply': { params: { readonly token: string }; result: AuthoringSaveResult }
+  /** Saves that began and did not finish, each with what is known to have landed. */
+  'authoring/save/pending': { params: Record<string, never>; result: readonly AuthoringPending[] }
+  /** A recorded, unfinished save, previewed again from what is on disk now, to be finished with `authoring/save/apply`. */
+  'authoring/save/resume': { params: { readonly id: string }; result: AuthoringSavePreview }
+  /** Drops the record of an unfinished save. Every file stays exactly as it is. */
+  'authoring/save/discard': { params: { readonly id: string }; result: readonly AuthoringPending[] }
 
   // -- agents: who does the work, as opposed to the runtime it runs on. Read
   // only: an Agent is a file, and writing one is editing that file.

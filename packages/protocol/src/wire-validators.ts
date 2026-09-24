@@ -1,4 +1,5 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
+import { AUTHORING_AGENT_LIMIT, type AgentFieldEdit, type AuthoringTarget, type WritableAuthoringTarget } from './authoring.js'
 import type { ApprovalDecision } from './approval.js'
 import type { FindingDecisionAction, FindingPublishAction } from './findings.js'
 import { lanePreferences } from './goal.js'
@@ -453,6 +454,72 @@ const triggerValidators = {
 }
 
 /**
+ * Authoring. A target is a kind, an origin and a slug id — never a path, an
+ * environment or a grant, and `goalShape` refuses any other key. A save names
+ * a project's or this person's file only: a built-in one is refused here,
+ * before anything reaches the host. A digest is the 64 hex characters a read
+ * answered, and a field edit carries a value the host encodes itself.
+ */
+const authoringAgentId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^[a-z0-9][a-z0-9-]{0,47}$/.test(text)) throw new ValidationError(path, 'expected an Agent id: 1 to 48 lowercase letters, digits or -')
+  return text
+}
+const authoringFlowId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(text)) throw new ValidationError(path, 'expected a flow id: 1 to 64 lowercase letters, digits, - or _')
+  return text
+}
+const authoringDigest = goalHex([64])
+const authoringTarget = (origins: readonly ('project' | 'user' | 'builtin')[]) => taggedUnion<AuthoringTarget, 'kind'>('kind', {
+  agent: goalShape({ kind: literalUnion('agent'), origin: literalUnion(...origins), id: authoringAgentId, root: optional(triggerRoot) }) as Validator<AuthoringTarget>,
+  flow: goalShape({ kind: literalUnion('flow'), origin: literalUnion(...origins), id: authoringFlowId, root: triggerRoot }) as Validator<AuthoringTarget>,
+  triggers: goalShape({ kind: literalUnion('triggers'), origin: literalUnion('project'), root: triggerRoot }) as Validator<AuthoringTarget>,
+})
+const anyAuthoringTarget = authoringTarget(['project', 'user', 'builtin'])
+const writableAuthoringTarget = authoringTarget(['project', 'user']) as Validator<WritableAuthoringTarget>
+const authoringWords: Validator<string[]> = (value, path = '') => {
+  const words = arrayOf(atMost(200))(value, path)
+  if (words.length > 64) throw new ValidationError(path, 'expected at most 64 entries')
+  return words
+}
+const agentFieldEdit = taggedUnion<AgentFieldEdit, 'key'>('key', {
+  name: goalShape({ key: literalUnion('name'), value: atMost(AGENT_NAME_LIMIT) }) as Validator<AgentFieldEdit>,
+  description: goalShape({ key: literalUnion('description'), value: atMost(AGENT_DESCRIPTION_LIMIT) }) as Validator<AgentFieldEdit>,
+  ceiling: goalShape({ key: literalUnion('ceiling'), value: ceilingValidator }) as Validator<AgentFieldEdit>,
+  answers: goalShape({ key: literalUnion('answers'), value: authoringWords }) as Validator<AgentFieldEdit>,
+  produces: goalShape({ key: literalUnion('produces'), value: authoringWords }) as Validator<AgentFieldEdit>,
+  prefer: goalShape({ key: literalUnion('prefer'), value: seatListValidator }) as Validator<AgentFieldEdit>,
+})
+const authoringAgents: Validator<{ id: string; source: string }[]> = (value, path = '') => {
+  const agents = arrayOf(goalShape({ id: authoringAgentId, source: atMost(256 * 1024) }))(value, path)
+  if (agents.length > AUTHORING_AGENT_LIMIT) throw new ValidationError(path, `expected at most ${AUTHORING_AGENT_LIMIT} new Agents`)
+  return agents
+}
+const authoringValidators = {
+  'authoring/read': goalShape({ target: anyAuthoringTarget }),
+  'authoring/agent/patch': goalShape({
+    target: ((value: unknown, path = '') => {
+      const target = writableAuthoringTarget(value, path)
+      if (target.kind !== 'agent') throw new ValidationError(`${path}.kind`, 'expected an Agent')
+      return target
+    }) as Validator<Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>>,
+    expected: authoringDigest,
+    edit: agentFieldEdit,
+  }),
+  'authoring/save/preview': goalShape({
+    target: writableAuthoringTarget,
+    expected: ((value: unknown, path = '') => (value === null ? null : authoringDigest(value, path))) as Validator<string | null>,
+    source: atMost(256 * 1024),
+    agents: optional(authoringAgents),
+  }),
+  'authoring/save/apply': goalShape({ token: triggerOpaque }),
+  'authoring/save/pending': goalShape({}),
+  'authoring/save/resume': goalShape({ id: goalHex([32]) }),
+  'authoring/save/discard': goalShape({ id: goalHex([32]) }),
+}
+
+/**
  * A window's own preferences. Intake's machine state — its arms, its pause
  * and its cap — is never one of them: it has its own person-only methods,
  * so a key that could be mistaken for it is refused here.
@@ -559,6 +626,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'memory/read': goalShape({ root: atMost(4096, isFilled), citation: goalCitation }),
   ...findingValidators,
   ...triggerValidators,
+  ...authoringValidators,
   ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
 

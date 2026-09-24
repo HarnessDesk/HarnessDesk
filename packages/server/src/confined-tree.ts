@@ -389,6 +389,32 @@ export class ConfinedTree {
     await this.#syncDirectory(parent)
   }
 
+  /**
+   * Creates one file whole, never over anything: a synced sibling is written
+   * first, the name is looked at once more, and only while nothing is there
+   * is the sibling renamed into place and the folder synced. A crash leaves
+   * nothing at `rel` or the whole file, never a torn one; anything already at
+   * the name — a file, a folder, a link — refuses with `EEXIST`.
+   */
+  async createAtomic(rel: string, text: string, mode = 0o644): Promise<void> {
+    this.#mayWrite()
+    const parts = partsOf(rel)
+    const parent = parts.slice(0, -1)
+    await this.#checkRoot()
+    await this.#directory(parent)
+    const temporary = [...parent, `.${parts.at(-1)!}.${randomUUID()}.tmp`]
+    await this.#writeNew(temporary, text, mode)
+    let moved = false
+    try {
+      if (await this.#exists(parts)) throw coded(`"${rel}" already exists, so nothing was written there.`, 'EEXIST')
+      await rename(join(this.root, ...temporary), join(this.root, ...parts))
+      moved = true
+      await this.#syncDirectory(parent)
+    } finally {
+      if (!moved) await unlink(join(this.root, ...temporary)).catch(() => {})
+    }
+  }
+
   /** Writes host-owned state whole: a synced sibling renamed over `rel`, so a reader never sees a torn file. */
   async put(rel: string, text: string, mode = 0o600): Promise<void> {
     this.#mayWrite()

@@ -94,7 +94,8 @@ import { FlowCatalog } from './flow-catalog.js'
 import { ExecutionFiles, FlowExecutions } from './flow-execution.js'
 import { FlowReview } from './flow-evidence.js'
 import { FlowPreviews } from './flow-preview.js'
-import { FlowUpdates } from './flow-update.js'
+import { FlowUpdates, TreeQueue } from './flow-update.js'
+import { AuthoringPlane } from './authoring/plane.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
 import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
@@ -572,6 +573,9 @@ export class Host {
   readonly #flows: Flows
   readonly #flowPreviews: FlowPreviews
   readonly #flowUpdates: FlowUpdates
+  /** The one queue of configuration writes per tree: flow updates and authoring saves take it alike. */
+  readonly #configQueue = new TreeQueue()
+  readonly #authoring: AuthoringPlane
   /**
    * The Agent roster: this machine's under the state directory, the built-in
    * ones beside this package, and a project's own under whichever open folder a
@@ -1202,6 +1206,12 @@ export class Host {
      * findings ledger, and the MCP gateway's admission reads the blind-round
      * embargo as a snapshot (`embargoOf`), taking no queue.
      *
+     * Configuration writes take one more leaf: the tree queue (`TreeQueue`,
+     * one per canonical project or the desk's own folder), shared by flow
+     * updates and authoring saves. A save holds it across its journal and
+     * its confined writes and asks for nothing else; nothing that holds a
+     * run, Team, Goal or Intake queue ever waits on it.
+     *
      * A run seating a card holds run → Goal; a wrap preview holds Goal and
      * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
      * and `goal-wrap.test.ts` hold both sides at once.
@@ -1338,6 +1348,23 @@ export class Host {
         builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
         confine: (root) => this.#confineRoom(root),
       }),
+      queue: this.#configQueue,
+    })
+    /* This person's Agents and flows are `agents/` and `flows/` in the state
+       folder — the same roots the roster and the catalogue above read — so a
+       save lands exactly where the next listing looks. */
+    this.#authoring = new AuthoringPlane({
+      home: this.#state.directory,
+      journal: join(this.#state.directory, 'authoring'),
+      builtinAgents: options.builtinAgents ?? builtinAgentRoot(),
+      builtinFlows: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
+      agents: (root) => this.#agents.list(root),
+      queue: this.#configQueue,
+      // A save is told to every window directly; nothing waits for a file watch to notice it.
+      changed: (change) => {
+        if (change.agents) this.#push({ method: 'agent/changed', params: { project: change.scope === 'project' ? change.root : null } })
+      },
     })
     const goalPort = {
       seats: {
@@ -2040,6 +2067,8 @@ export class Host {
     this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
+    // No save preview survives the host: an apply from here on refuses, and one in flight finishes on its queue.
+    this.#authoring.close()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
        meter read from here on; what is in flight is abandoned with its cursor
        kept, and awaited below before the runs and the Goals are flushed. */
@@ -2835,6 +2864,7 @@ export class Host {
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
       flowUpdates: this.#flowUpdates,
+      authoring: this.#authoring,
       goals: this.#goals,
       lanes: this.#lanes,
       laneSettings: {

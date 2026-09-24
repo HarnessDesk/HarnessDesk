@@ -1,5 +1,6 @@
 import type { CeilingLevel } from './evidence.js'
 import type { FlowSeat } from './flow.js'
+import type { FlowFileEdit, FlowUpdateResult } from './flow-policy.js'
 
 /**
  * Authoring: the files a person edits to start an Agent, a Goal or a team —
@@ -90,3 +91,58 @@ export interface ShapeLayout {
 /** The most bindings or positions a layout may name, and how far a position may sit from the origin. */
 export const SHAPE_LAYOUT_LIMIT = 128
 export const SHAPE_POSITION_LIMIT = 10000
+
+// ------------------------------------------------------------------- saving
+
+/**
+ * A save, shown before it happens: every file it would create or replace,
+ * each with its exact bytes before and after, in the order they would be
+ * written — new Agents first, then the file that names them. `token` is null
+ * when something is in the way; `issues` says what and how to fix it.
+ * `resuming` marks the recorded save an interrupted one is finished from.
+ */
+export interface AuthoringSavePreview {
+  readonly token: string | null
+  readonly edits: readonly FlowFileEdit[]
+  readonly issues: readonly AuthoringIssue[]
+  readonly resuming: boolean
+}
+
+export type AuthoringSaveResult = FlowUpdateResult
+
+/**
+ * What a save asks for. `expected` is the digest the file was read at, or
+ * null to create it — never to overwrite one. `agents` are new, complete
+ * Agents the saved flow names, created first in the same place; an existing
+ * folder is copied with `agent/copy` instead, so its other files come too.
+ */
+export interface AuthoringSaveInput {
+  readonly target: WritableAuthoringTarget
+  readonly expected: string | null
+  readonly source: string
+  readonly agents?: readonly { readonly id: string; readonly source: string }[]
+}
+
+/** A target a save may write: a project's or this person's, never a built-in one. */
+export type WritableAuthoringTarget =
+  | { readonly kind: 'agent'; readonly origin: 'project' | 'user'; readonly id: string; readonly root?: string }
+  | { readonly kind: 'flow'; readonly origin: 'project' | 'user'; readonly id: string; readonly root: string }
+  | { readonly kind: 'triggers'; readonly origin: 'project'; readonly root: string }
+
+/**
+ * A save that began and did not finish: the files it meant to write, the ones
+ * it knows landed, and what a person can do — resume it, which checks each
+ * file on disk before writing what is missing, or discard the record, which
+ * leaves every file as it is.
+ */
+export interface AuthoringPending {
+  readonly id: string
+  readonly scope: 'project' | 'user'
+  readonly root: string | null
+  readonly files: readonly string[]
+  readonly written: readonly string[]
+  readonly message: string
+}
+
+/** The most new Agents one save may create beside its flow. */
+export const AUTHORING_AGENT_LIMIT = 16
