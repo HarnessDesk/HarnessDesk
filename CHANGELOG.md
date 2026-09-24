@@ -17,10 +17,15 @@ move is real work and is not news to a person weighing an upgrade.
   unapproved bundle is refused rather than substituting a different runtime
   or silently skipping it. An external MCP server is classified `merge` by
   default and reached only through the desk's own gateway, never a direct
-  unmediated connection. Codex and the ACP runtimes both honor a scoped
-  filter; a runtime that cannot prove it stays on its own native default.
+  unmediated connection, and runs only when a Seat that may merge lists or
+  calls its tools. The bundled Claude Code bridge, and any ACP peer that
+  negotiates the extension, honor a scoped filter; Codex reports it
+  unsupported. The host stages exactly what was approved and hands a runtime
+  that copy, and a Seat's filter is re-applied when its conversation is
+  resumed or its agent restarts (forking such a conversation is refused).
   `NOTES.md` beside an Agent's file is private working context the Agent page
-  reads and clears, never system instructions.
+  reads and clears, never system instructions, and is not loaded onto a Seat
+  in this release.
 - **A Seat's name card and the Library show what actually loaded** — an
   Agent's page, its name card and a project's Library page each show
   declared skills and servers next to what a Seat's runtime build actually

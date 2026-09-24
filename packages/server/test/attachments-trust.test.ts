@@ -318,7 +318,7 @@ test('a server’s review shows exactly what will run — command, arguments and
     transport: 'stdio' as const,
     command: '/usr/local/bin/node',
     args: ['server.mjs', '--port', '0'],
-    env: { NODE_OPTIONS: '--max-old-space-size=512', GITHUB_TOKEN: 'ghp_not_a_real_token' },
+    env: { NODE_OPTIONS: '--max-old-space-size=512', GITHUB_TOKEN: 'placeholder-not-a-token' }, // hd-secrets-ok: a stand-in the review must hide
   }
   const id = identity({ kind: 'mcp', name: 'reviewer-tools', digest: 'e'.repeat(64), source: 'library' })
   const review = await trust.preview(subject({ ceiling: 'merge' }), [{ identity: id, files: [], server }], { runtimeName: 'Pretty Agent' })
@@ -328,7 +328,7 @@ test('a server’s review shows exactly what will run — command, arguments and
   assert.match(shown.text, /"server\.mjs", "--port", "0"/)
   assert.match(shown.text, /NODE_OPTIONS=--max-old-space-size=512/, 'an environment value that changes what runs is shown, not hidden')
   assert.match(shown.text, /GITHUB_TOKEN=/, 'a secret’s name is shown')
-  assert.doesNotMatch(shown.text, /ghp_not_a_real_token/, 'a secret’s value is not')
+  assert.doesNotMatch(shown.text, /placeholder-not-a-token/, 'a secret’s value is not')
   assert.match(shown.text, /e{64}/, 'and the exact identity the approval is bound to')
 
   assert.match(review.consequence, /Pretty Agent/, 'the runtime is named by its presentation, never its id')
