@@ -72,6 +72,8 @@ test('all three sources use one bounded shape', () => {
   assert.deepEqual(issues, {
     id: 'issues', on: { kind: 'issue', events: ['labelled', 'closed', 'commented'] }, opens: { flow: 'triage' },
     goal: ['issue'], again: null, dedupe: ['issue', 'event'], concurrency: 1, forks: 'never', budget,
+    // It reads comments, so it says whose count: only the arming account's, unless the file chooses otherwise.
+    from: 'me',
   })
   assert.deepEqual(nightly, {
     id: 'nightly', on: { kind: 'schedule', events: ['tick'], everyMinutes: 1440 }, opens: { agent: 'gardener' },
@@ -335,4 +337,35 @@ test('a labelled trigger fires only on an exact, bounded label', () => {
   const plain = parseTriggers('- { id: a, on: issue, opens: { flow: r } }\n').definitions[0]!
   assert.equal(acceptsFact(plain, fact()), true)
   assert.equal(acceptsFact(plain, fact(undefined, 'closed')), true)
+})
+
+test('whose comments fire an issue trigger is one of three words, and only its own account unless the file says otherwise', () => {
+  const read = (extra: string, events = '[commented]') => parseTriggers(`- id: talk
+  on: issue
+  events: ${events}
+  opens: { flow: triage }
+${extra}`)
+  assert.equal(read('').definitions[0]?.from, 'me', 'the default is the armed account alone')
+  for (const from of ['me', 'collaborators', 'anyone'] as const) {
+    assert.equal(read(`  from: ${from}\n`).definitions[0]?.from, from)
+  }
+  // Refused, never repaired: another word, a name, a list, and a trigger that reads no comment.
+  for (const [extra, events, why] of [
+    ['  from: everyone\n', '[commented]', /from is me, collaborators or anyone/],
+    ['  from: jane-doe\n', '[commented]', /from is me, collaborators or anyone/],
+    ['  from: [me]\n', '[commented]', /from is me, collaborators or anyone/],
+    ['  from: anyone\n', '[labelled]', /Only an issue trigger that reads comments/],
+  ] as const) {
+    const document = read(extra, events)
+    assert.equal(runnable(document), 0, extra)
+    assert.match(texts(document), why)
+    assert.ok(document.problems.every((one) => one.fix.length > 0))
+  }
+  assert.equal(read('', '[labelled, closed]').definitions[0]?.from, undefined, 'no comments read, nothing to say')
+  const pr = parseTriggers(`- id: prs
+  on: pull-request
+  from: me
+  opens: { flow: review-pr }
+`)
+  assert.match(texts(pr), /\[0\]\.from: Only an issue trigger that reads comments/)
 })

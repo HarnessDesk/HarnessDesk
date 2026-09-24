@@ -694,6 +694,12 @@ export interface HostMethods {
   'trigger/preview': { params: { readonly root: string; readonly id: string }; result: TriggerArmPreview }
   'trigger/arm': { params: { readonly root: string; readonly id: string; readonly token: string }; result: TriggerView }
   'trigger/disarm': { params: { readonly root: string; readonly id: string }; result: TriggerView }
+  /**
+   * A person resumes a trigger's source that stopped at a gap: it watches
+   * from now, and what changed in the gap is skipped, never replayed.
+   * Refused unless that source stopped at a gap.
+   */
+  'trigger/rebaseline': { params: { readonly root: string; readonly id: string }; result: TriggerView }
   'trigger/preferences': { params: Record<string, never>; result: TriggerPreferences }
   'trigger/preferences/set': {
     params: { readonly revision: number; readonly paused: boolean; readonly dailyUsd: number }

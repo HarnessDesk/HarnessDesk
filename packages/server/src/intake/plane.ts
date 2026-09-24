@@ -105,6 +105,8 @@ export interface IntakeHostPort {
   interrupt(goal: string): Promise<void>
   /** Whether the plan the Goal's Seats spend from has allowance left, as the usage service last read it. */
   lane(goal: string): 'available' | 'spent' | 'unknown'
+  /** Drives a trigger Goal's postings again: what a pause or the cap held is sent once it lifts, never twice (`Publications.settleForWrap`). */
+  republish?(goal: string): Promise<void>
   /** Asks the usage service again for the runtimes on these Goals, so `lane` reads a fresh figure. */
   refreshLanes?(goals: readonly string[]): Promise<void>
   /** Every usage sample recorded for a project in a window, and whether the read covered everything. */
@@ -498,6 +500,26 @@ export class IntakePlane {
     }
   }
 
+  /** After a pause or the cap lifted: every live trigger Goal's postings that waited are driven again, outside admission's queue. */
+  async #republish(): Promise<void> {
+    for (const goal of this.#budgets.live()) {
+      if (this.#closed) return
+      await this.#port.republish?.(goal).catch((error: unknown) => {
+        this.#port.log('a trigger Goal’s held postings could not be sent', { goal, error: error instanceof Error ? error.message : String(error) })
+      })
+    }
+  }
+
+  /**
+   * The intake gate by Goal, for a dispatch outside a run's own queue — a
+   * closed round's review, a finding's post. Ok for a Goal no trigger opened.
+   */
+  async beforeDispatch(goal: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly detail: string }> {
+    if (this.#port.goals.origin(goal)?.kind !== 'trigger') return { ok: true }
+    if (this.#closed) return { ok: false, reason: 'needs a person', detail: 'The desk is closing, so nothing more is sent.' }
+    return this.#budgets.beforeDispatch(goal)
+  }
+
   /**
    * Firings applied and not yet let go — waiting on a seat, a pause or the
    * cap — and runs a pause or the cap held are offered their release again:
@@ -587,6 +609,27 @@ export class IntakePlane {
     return view
   }
 
+  /**
+   * A person resumes a trigger's source that stopped at a gap: it is read
+   * again from now, and what changed in the gap is skipped, never replayed.
+   * Refused for a trigger that is not armed here, or a source not at a gap.
+   */
+  async rebaseline(root: string, id: string): Promise<TriggerView> {
+    this.#refuseWhenOff()
+    const project = await this.#project(root)
+    const arm = (await this.#consent.armed()).find((one) => one.project === project && one.id === id)
+    if (!arm) throw coded('This trigger is not armed on this machine, so there is nothing to watch from now.', 'HD_TRIGGER_REFUSED')
+    const kind = arm.definition.on.kind
+    if (this.#monitor.status(project, kind)?.state !== 'gap') {
+      throw coded('Its source is not stopped at a gap, so it keeps reading from where it was.', 'HD_TRIGGER_REFUSED')
+    }
+    await this.#monitor.rebaseline(project, kind)
+    this.#changed(project)
+    const view = (await this.list(root)).triggers.find((one) => one.id === id)
+    if (!view) throw coded(`There is no committed trigger called "${id}".`, 'HD_TRIGGER_REFUSED')
+    return view
+  }
+
   /** The canonical project a root a person opened belongs to: what arms and firings are keyed by. */
   async #project(root: string): Promise<string> {
     return projectOf(await this.#port.confine(root))
@@ -619,10 +662,12 @@ export class IntakePlane {
     const paused = view.state === 'armed' && this.#prefs.paused
     // A firing of this project that has not landed holds its new events: said on every armed trigger it holds.
     const fault = view.state === 'armed' && !paused ? this.#admission.fault(project) : null
+    const source = view.armed && view.definition ? this.#monitor.status(project, view.definition.on.kind) : null
     return {
       ...view,
       ...(paused ? { state: 'paused' as const, reason: 'Triggers are paused on this machine.', fix: 'Resume triggers in Settings.' } : {}),
       ...(fault ? { reason: fault, fix: null } : {}),
+      source,
       last: latest ? this.#row(latest[0], latest[1], view.definition?.on.kind ?? null, snapshot.operations) : null,
       openGoals,
     }
@@ -742,12 +787,18 @@ export class IntakePlane {
       await this.#watch.tick()
     } else if (!paused && before.paused) {
       // What the pause held continues, and what waited to be released is let go; then watching resumes.
-      if (this.#problem === null && this.#dispatchReady) await this.#admission.recover().catch(() => {})
+      if (this.#problem === null && this.#dispatchReady) {
+        await this.#admission.recover().catch(() => {})
+        await this.#republish()
+      }
       await this.#startWatching()
     } else if (!paused && dailyUsd !== before.dailyUsd) {
       // Lowered: work past it holds. Raised: what it held continues.
       await this.#watch.tick()
-      if (this.#problem === null && this.#dispatchReady) await this.#admission.recover().catch(() => {})
+      if (this.#problem === null && this.#dispatchReady) {
+        await this.#admission.recover().catch(() => {})
+        await this.#republish()
+      }
     }
     this.#port.push({ method: 'trigger/changed', params: { project: '', revision: this.#prefs.revision } })
     this.#schedule()

@@ -4,10 +4,12 @@ import {
   TRIGGER_DEFAULTS,
   TRIGGER_LABEL_CHARS,
   TRIGGER_LABEL_LIMIT,
+  TRIGGER_COMMENT_FROM,
   TRIGGER_SOURCES,
   type FlowBudget,
   type FlowThen,
   type TriggerBudget,
+  type TriggerCommentFrom,
   type TriggerDefinition,
   type TriggerDocument,
   type TriggerFact,
@@ -49,7 +51,7 @@ const HOURS_MAX = 168
 /** An id, a flow, an Agent or a role: an ASCII slug a path or a shell could never read as anything else. */
 export const TRIGGER_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
-const ENTRY_KEYS = new Set(['id', 'on', 'events', 'label', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every'])
+const ENTRY_KEYS = new Set(['id', 'on', 'events', 'label', 'from', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every'])
 const BUDGET_KEYS = new Set(['usd', 'rounds', 'hours', 'without-progress'])
 const AGAIN_KEYS = new Set(['role'])
 
@@ -373,9 +375,22 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
     else problems.push({ at: `${at}.forks`, text: 'forks is never or allow.', fix: 'Write forks: never or forks: allow.' })
   }
 
+  // Whose comments fire it: only a trigger that reads comments says, and it is `me` unless the file chooses otherwise.
+  const comments = on?.kind === 'issue' && (on.events as readonly string[]).includes('commented')
+  let from: TriggerCommentFrom | undefined = comments ? 'me' : undefined
+  if (raw['from'] !== undefined) {
+    if (!comments) {
+      problems.push({ at: `${at}.from`, text: 'Only an issue trigger that reads comments says whose comments fire it.', fix: 'Remove from, or add commented to this issue trigger’s events.' })
+    } else if (typeof raw['from'] === 'string' && (TRIGGER_COMMENT_FROM as readonly string[]).includes(raw['from'])) {
+      from = raw['from'] as TriggerCommentFrom
+    } else {
+      problems.push({ at: `${at}.from`, text: 'from is me, collaborators or anyone.', fix: 'Write from: me (your own comments), from: collaborators, or from: anyone.' })
+    }
+  }
+
   const budget = readBudget(raw['budget'], `${at}.budget`, problems)
   if (problems.length > before || !id || !on || !opens || !goal || !dedupe || concurrency === null || !budget) return null
-  return { id, on, opens, goal, again, dedupe, concurrency, forks, budget, ...(label ? { label } : {}) }
+  return { id, on, opens, goal, again, dedupe, concurrency, forks, budget, ...(label ? { label } : {}), ...(from ? { from } : {}) }
 }
 
 /**

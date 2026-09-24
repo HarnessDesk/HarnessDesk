@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
+import { TRIGGER_COMMENT_FROM, TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
 
 import { syncDirectory } from '../goals/store.js'
 import type { ArmBinding } from './consent.js'
@@ -188,6 +188,7 @@ export const definitionOf = (value: unknown): TriggerDefinition | null => {
     !(Number.isSafeInteger(budget['withoutProgress']) && (budget['withoutProgress'] as number) >= 1 && (budget['withoutProgress'] as number) <= 100)) return null
   const label = value['label']
   if (label !== undefined && !(Array.isArray(label) && label.length >= 1 && label.length <= 5 && label.every((one) => labelName(one) === one))) return null
+  if (value['from'] !== undefined && !TRIGGER_COMMENT_FROM.includes(value['from'] as never)) return null
   return value as unknown as TriggerDefinition
 }
 
@@ -201,6 +202,9 @@ export const factOf = (value: unknown): TriggerFact | null => {
   if (!text(value['title'], 4096 * 4) || !text(value['body'], 16384 * 4 + 64) || !(value['url'] === null || text(value['url']))) return null
   if (!(value['trigger'] === null || slug(value['trigger']))) return null
   if (value['label'] !== undefined && labelName(value['label']) === null) return null
+  if (!(value['author'] === undefined || value['author'] === null || HEX.test(String(value['author'])))) return null
+  if (!(value['authorWrites'] === undefined || value['authorWrites'] === null || typeof value['authorWrites'] === 'boolean')) return null
+  if (!(value['desk'] === undefined || typeof value['desk'] === 'boolean')) return null
   return value as unknown as TriggerFact
 }
 

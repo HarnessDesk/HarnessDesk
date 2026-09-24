@@ -27,7 +27,7 @@ interface Rig {
   restart(): Promise<void>
 }
 
-const rig = async (t: { after(fn: () => Promise<void>): void }, options: { summary?: boolean } = {}): Promise<Rig> => {
+const rig = async (t: { after(fn: () => Promise<void>): void }, options: { summary?: boolean; gate?: { value: string | null } } = {}): Promise<Rig> => {
   const f = await findingsRig(t, { reviewers: REVIEWERS })
   const forge = new FakeFindingForge(SHA1)
   const make = (): Publications => new Publications({
@@ -50,6 +50,10 @@ const rig = async (t: { after(fn: () => Promise<void>): void }, options: { summa
     forge,
     // The host answers this from the run: a trigger's run posts one review a round.
     summary: () => options.summary ?? true,
+    // The intake gate by Goal, as the host answers it: a paused machine posts nothing.
+    ...(options.gate ? {
+      beforeDispatch: async () => options.gate!.value === null ? { ok: true as const } : { ok: false as const, reason: 'needs a person' as const, detail: options.gate!.value },
+    } : {}),
     now: () => 1_000,
     log: () => {},
   })
@@ -225,4 +229,27 @@ test('a run that is not a trigger’s still posts comment by comment', async (t)
   await r.pub.idle()
   assert.equal(r.forge.summaries.length, 0)
   assert.equal(r.forge.sends.length, 4, 'one finding and three answers, as phase 7 posts them')
+})
+
+test('a paused machine posts no closed round’s review, and posts it once when it resumes', async (t) => {
+  const gate = { value: 'Every trigger is paused. Resume triggers to continue.' as string | null }
+  const r = await rig(t, { gate })
+  const [one, two, three] = await toReview(r)
+  await answer(r.f, one!, 'request-changes', [{ title: 'Unbounded read' }])
+  await answer(r.f, two!, 'approve', [])
+  await answer(r.f, three!, 'approve', [])
+  await r.pub.idle()
+  assert.equal(r.forge.summaries.length, 0, 'nothing reaches the forge while paused')
+  assert.deepEqual(r.forge.calls, [], 'not even a read')
+  const [waiting] = r.entries()
+  assert.equal(waiting!.state, 'prepared')
+  assert.equal(waiting!.reason, null, 'held, not paused for a person: the resume posts it on its own')
+
+  gate.value = null
+  await r.pub.settleForWrap(r.f.goal)
+  await r.pub.idle()
+  assert.equal(r.forge.summaries.length, 1, 'posted once the machine resumes')
+  assert.equal(r.entries()[0]!.state, 'posted')
+  await r.pub.settleForWrap(r.f.goal)
+  assert.equal(r.forge.summaries.length, 1, 'and never twice')
 })

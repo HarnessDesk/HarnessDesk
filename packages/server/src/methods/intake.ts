@@ -14,6 +14,7 @@ export const intakeMethods = {
   'trigger/preview': (ctx, params) => ctx.intake.preview(params.root, params.id),
   'trigger/arm': (ctx, params) => ctx.intake.arm(params.root, params.id, params.token),
   'trigger/disarm': (ctx, params) => ctx.intake.disarm(params.root, params.id),
+  'trigger/rebaseline': (ctx, params) => ctx.intake.rebaseline(params.root, params.id),
   'trigger/preferences': (ctx) => ctx.intake.preferences(),
   'trigger/preferences/set': (ctx, params) => ctx.intake.setPreferences(params.revision, params.paused, params.dailyUsd),
   'trigger/history': (ctx, params) => ctx.intake.history(params.root, params.id, params.cursor),

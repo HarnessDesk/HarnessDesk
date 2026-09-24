@@ -1206,6 +1206,8 @@ export class Host {
       forge: options.findingForge ?? new GhFindingForge(),
       // A trigger's run posts each closed round as one review; every other run, comment by comment.
       summary: (run) => this.#flows.executionOf(run)?.intake !== undefined,
+      // Posting is dispatch too: a paused machine, or a cap below what is committed, sends nothing new for a trigger's Goal.
+      beforeDispatch: (goal) => this.#intake.beforeDispatch(goal),
       now: () => Date.now(),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
@@ -1526,6 +1528,7 @@ export class Host {
       interrupt: (goal) => this.#interruptGoal(goal),
       lane: (goal) => this.#allowanceOf(goal),
       refreshLanes: (goals) => this.#refreshAllowances(goals),
+      republish: (goal) => this.#publications.settleForWrap(goal),
       usage: options.intake?.usage ?? ((project, from, to) => this.#usageOf(project, from, to)),
       waits: (goal) => this.#triggerWaits(goal),
       push: (notification) => this.#push(notification),
@@ -1847,12 +1850,19 @@ export class Host {
        answers "Cursor is not running" for every seat of every flow. */
     /* Held firings are released through their gates, and only then is any
        source read: a trigger's run never dispatches before its runtime is up. */
-    if (!this.#disposed) {
-      void this.#intake.ready().catch((error: unknown) => {
-        this.#logger.warn('triggers could not start watching', { error: error instanceof Error ? error.message : String(error) })
-      })
-    }
-    void this.#flows.resume()
+    /* In the documented order: held firings released through their gates
+       first, then flows resume — a trigger's run never advances on a resume
+       that overtook its firing's release. Not awaited by start itself. */
+    void (async () => {
+      if (!this.#disposed) {
+        await this.#intake.ready().catch((error: unknown) => {
+          this.#logger.warn('triggers could not start watching', { error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+      await this.#flows.resume()
+    })().catch((error: unknown) => {
+      this.#logger.warn('flows could not resume', { error: error instanceof Error ? error.message : String(error) })
+    })
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
   }
 

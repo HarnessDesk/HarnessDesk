@@ -431,6 +431,7 @@ const triggerValidators = {
   'trigger/preview': goalShape({ root: triggerRoot, id: triggerId }),
   'trigger/arm': goalShape({ root: triggerRoot, id: triggerId, token: triggerOpaque }),
   'trigger/disarm': goalShape({ root: triggerRoot, id: triggerId }),
+  'trigger/rebaseline': goalShape({ root: triggerRoot, id: triggerId }),
   'trigger/preferences': goalShape({}),
   'trigger/preferences/set': goalShape({ revision: goalInteger(0), paused: isBoolean, dailyUsd: triggerUsd }),
   'trigger/history': goalShape({ root: triggerRoot, id: triggerId, cursor: optional(triggerOpaque) }),

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import type { TriggerDefinition, TriggerFact } from '@harnessdesk/protocol'
 
-import { ForgeSource, readPullFact, type SourceCursor } from '../src/intake/forge.js'
+import { accountDigest, ForgeSource, readPullFact, type SourceCursor } from '../src/intake/forge.js'
 import { dedupeKey, groupKey } from '../src/intake/keys.js'
 import { FakeForge, iso, REPO, sha } from './fixtures/intake-forge.js'
 
@@ -202,4 +202,60 @@ test('a labelled event carries only a validated label name', async () => {
   const again = await poll(forge, baseline, ARMED + 4 * MINUTE)
   assert.deepEqual(again.facts.map((fact) => [fact.event, fact.label]), batch.facts.map((fact) => [fact.event, fact.label]))
   assert.ok(batch.facts.every((fact) => !('label' in fact) || fact.action === 'labelled'))
+})
+
+test('a comment carries its author by stable id, a desk post is known only by its exact marker, and a permission is read only when asked', async () => {
+  const forge = new FakeForge()
+  const baseline = await source(forge).inventory(PROJECT, 'issue', REPO, never)
+  const marker = `<!-- harnessdesk:finding-op pub-${'a'.repeat(48)} -->`
+  const at = ARMED + MINUTE
+  const comment = (id: number, body: string, user?: { id: number; login: string } | null) =>
+    ({ id, body, created: at, updated: at, ...(user !== undefined ? { user } : {}) })
+  forge.issues.push({
+    number: 5, state: 'open', created: at, updated: at, events: [], comments: [
+      comment(1, 'Please look at this.'),
+      comment(2, 'Me too.', { id: 99, login: 'someone-else' }),
+      comment(3, 'Who am I?', null),
+      comment(4, `${marker}\n**Review round 1**`),
+      comment(5, `${marker.replace('pub-', 'pub-').replace(' -->', ':finding-1 -->')}\ninline`),
+      comment(6, `> ${marker}\nquoting the desk`),
+      comment(7, `Looks like the desk said:\n${marker}`),
+      comment(8, marker.replace('<!--', '&lt;!--')),
+      comment(9, `${marker.replace('pub-', 'pub-X')}`),
+      comment(10, `${marker} and then some words`),
+    ],
+  })
+  const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never)
+  const byId = new Map(read.facts.map((fact) => [fact.url?.split('-').at(-1), fact]))
+  assert.equal(byId.get('1')?.author, accountDigest(7), 'the signed-in account, by the same digest an arm binds')
+  assert.equal(byId.get('2')?.author, accountDigest(99))
+  assert.equal(byId.get('3')?.author, null, 'no readable author')
+  assert.deepEqual([4, 5, 6, 7, 8, 9, 10].map((id) => byId.get(String(id))?.desk), [true, true, false, false, false, false, false],
+    'only a first line that is exactly a marker the desk writes')
+  assert.ok(read.facts.every((fact) => fact.authorWrites === null), 'nobody was asked about permissions')
+  assert.equal(forge.calls.filter((path) => path.includes('/collaborators/')).length, 0)
+
+  // Asked: once per comment with a readable author and no desk marker, checked against the author's own id.
+  forge.permissions.set('jane-doe', { id: 7, permission: 'admin' })
+  forge.permissions.set('someone-else', { id: 42, permission: 'write' })
+  const asked = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
+  const answers = new Map(asked.facts.map((fact) => [fact.url?.split('-').at(-1), fact.authorWrites]))
+  assert.equal(answers.get('1'), true)
+  assert.equal(answers.get('2'), null, 'an answer about another account id is no answer')
+  assert.equal(answers.get('3'), null, 'nobody to ask about')
+  assert.equal(answers.get('4'), null, 'a desk post is never asked about')
+  const reads = forge.calls.filter((path) => path.includes('/collaborators/'))
+  assert.deepEqual(reads, [
+    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/someone-else/permission',
+    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
+    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
+    'repos/acme/widgets/collaborators/jane-doe/permission',
+  ], 'one bounded read per comment, by a validated login')
+  forge.permissions.set('someone-else', { id: 99, permission: 'read' })
+  const reader = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
+  assert.equal(reader.facts.find((fact) => fact.url?.endsWith('-2'))?.authorWrites, false, 'can read, cannot write')
+  forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'HTTP 502' } : null
+  const failing = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
+  assert.ok(failing.complete, 'a permission that cannot be read does not stop the source')
+  assert.ok(failing.facts.every((fact) => fact.authorWrites === null), 'it is unknown, never yes')
 })

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import type { TriggerAction, TriggerFact, TriggerSource } from '@harnessdesk/protocol'
 
 import { spawnGh, type GhApiRunner } from '../findings/forge.js'
+import { isDeskPost } from '../findings/publication.js'
 import { labelName } from './definition.js'
 import { eventKey } from './keys.js'
 
@@ -76,6 +77,16 @@ const ISSUE_LIMIT = 100
 const SUBJECT_LIMIT = 5000
 const CLIPPED = '\n[clipped by HarnessDesk]'
 const REPO = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+/** A forge login as the permission read may spell it into a path: letters, digits and single dashes, or an app's `name[bot]`. */
+const LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}(?:\[bot\])?$/
+const WRITES = new Set(['admin', 'maintain', 'write'])
+
+/**
+ * An opaque digest of the forge and a numeric account id: what an arm binds
+ * for the signed-in account, and what a comment's author is compared by —
+ * never a login, an address or a display name.
+ */
+export const accountDigest = (id: number): string => createHash('sha256').update(JSON.stringify(['github.com', id])).digest('hex')
 const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/
 
 const isMap = (value: unknown): value is Record<string, unknown> =>
@@ -260,7 +271,7 @@ export class ForgeSource {
     }
     const id = isMap(answer) ? answer['id'] : null
     if (!Number.isSafeInteger(id) || (id as number) < 1) return refused
-    return { account: createHash('sha256').update(JSON.stringify(['github.com', id])).digest('hex') }
+    return { account: accountDigest(id as number) }
   }
 
   /** One read, bounded in time and bytes; a failure by kind. */
@@ -359,10 +370,34 @@ export class ForgeSource {
     await this.#page(project, `repos/${repository}/${list}&sort=updated&direction=desc&per_page=${PER_PAGE}&page=1`, Date.now() + this.#timeoutMs, signal)
   }
 
-  async poll(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<PollBatch> {
+  /**
+   * `permissions`: a trigger on this source lets collaborators' comments
+   * fire it, so each new comment's author is asked about once — one bounded
+   * read per comment, never for a desk post or an unreadable author.
+   */
+  async poll(project: string, cursor: SourceCursor, signal: AbortSignal, options: { readonly permissions?: boolean } = {}): Promise<PollBatch> {
     if (cursor.source === 'pull-request') return this.#pulls(project, cursor, signal)
-    if (cursor.source === 'issue') return this.#issues(project, cursor, signal)
+    if (cursor.source === 'issue') return this.#issues(project, cursor, signal, options.permissions === true)
     throw unreadable()
+  }
+
+  /**
+   * Whether the forge says an account can write to a repository: its
+   * permission there read by login, and the answer's own account id checked
+   * against the author's. Null when it cannot be read or does not match —
+   * which never fires anything.
+   */
+  async #writes(project: string, repository: string, login: string, id: number, deadline: number, signal: AbortSignal): Promise<boolean | null> {
+    if (!LOGIN.test(login)) return null
+    let answer: unknown
+    try {
+      answer = await this.#get(project, `repos/${repository}/collaborators/${login}/permission`, deadline, signal)
+    } catch (error) {
+      if (signal.aborted) throw error
+      return null
+    }
+    if (!isMap(answer) || !isMap(answer['user']) || answer['user']['id'] !== id || typeof answer['permission'] !== 'string') return null
+    return WRITES.has(answer['permission']) || (typeof answer['role_name'] === 'string' && WRITES.has(answer['role_name']))
   }
 
   /** A read that could not cover the whole window: nothing offered, the watermark kept, the reason said. */
@@ -446,7 +481,7 @@ export class ForgeSource {
     return null
   }
 
-  async #issues(project: string, cursor: SourceCursor, signal: AbortSignal): Promise<PollBatch> {
+  async #issues(project: string, cursor: SourceCursor, signal: AbortSignal, permissions: boolean): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
@@ -465,6 +500,9 @@ export class ForgeSource {
         through = Math.max(through, updated)
         // The issue list also lists pull requests; they are the other source's, never read as issues.
         if ('pull_request' in raw) continue
+        // Not touched since this source began watching: it can carry no fact, so it neither counts nor is read (a
+        // source resumed after a gap is not stopped again by the very burst it skipped).
+        if (updated <= cursor.baseline) continue
         changed.push(this.#issue(raw, repository))
       }
       if (answer.length < PER_PAGE) complete = true
@@ -504,10 +542,18 @@ export class ForgeSource {
         const id = positive(raw['id'])
         const created = time(raw['created_at'])
         if (fresh(id, created, known?.c ?? 0)) {
+          // Who wrote it, by stable id only; whether the desk itself posted it, by its exact marker.
+          const user = isMap(raw['user']) ? raw['user'] : null
+          const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
+          const desk = typeof raw['body'] === 'string' && isDeskPost(raw['body'])
+          const login = user && typeof user['login'] === 'string' ? user['login'] : null
+          const writes = permissions && !desk && authorId !== null && login !== null
+            ? await this.#writes(project, repository, login, authorId, deadline, signal) : null
           facts.push({
             source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'commented', id]), action: 'commented',
             at: created, head: null, fork: false, title: issue.title, body: prose(raw['body']),
             url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
+            author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
           })
         }
         comments = Math.max(comments, id)

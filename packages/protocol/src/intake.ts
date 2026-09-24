@@ -34,6 +34,19 @@ export type PullRequestEvent = 'opened' | 'pushed'
 export type IssueEvent = 'labelled' | 'closed' | 'commented'
 
 /**
+ * Whose comments fire a trigger that reads `commented` issue events,
+ * compared by the forge's stable account id, never a display name:
+ * - `me` (the default): only the forge account the trigger is armed with.
+ * - `collaborators`: that account, and anyone the forge says can write to
+ *   the bound repository — one bounded read per comment; a read that fails
+ *   skips the comment.
+ * - `anyone`: anyone who can comment on the repository.
+ * A comment the desk itself posted never fires, whichever this is.
+ */
+export type TriggerCommentFrom = 'me' | 'collaborators' | 'anyone'
+export const TRIGGER_COMMENT_FROM: readonly TriggerCommentFrom[] = ['me', 'collaborators', 'anyone']
+
+/**
  * What one Goal a trigger opens may spend before it stops for a person.
  * `usd` is an observed stop threshold, never an invoice.
  */
@@ -87,6 +100,11 @@ export interface TriggerDefinition {
    * `[labelled]` may name labels, at most five of them.
    */
   readonly label?: readonly string[]
+  /**
+   * Whose comments fire it: present exactly when the trigger reads
+   * `commented` issue events, `me` unless the file says otherwise.
+   */
+  readonly from?: TriggerCommentFrom
 }
 
 /** At most this many labels on one trigger, each at most this many characters: the forge's own name limit. */
@@ -219,6 +237,8 @@ export interface TriggerArmPreview {
   readonly problems: readonly TriggerProblem[]
   /** Money is an observed stop threshold: a turn in flight may spend past it before it stops. */
   readonly moneyPolicy: 'observed-stop'
+  /** The forge repository an arm binds, `owner/name`, when the trigger reads the forge and it was read. */
+  readonly repository?: string | null
 }
 
 /** One declared trigger on this machine: whether it is armed, and if it cannot run, why and what fixes it. */
@@ -231,6 +251,12 @@ export interface TriggerView {
   readonly fix: string | null
   readonly last: TriggerFiring | null
   readonly openGoals: number
+  /**
+   * How the source it watches stands on this machine, once it has been read:
+   * a gap is the one state a person resumes (`trigger/rebaseline`). Absent
+   * until then, and for a trigger that is not armed.
+   */
+  readonly source?: TriggerSourceStatus | null
 }
 
 /** A project's triggers file and every trigger it declares, as this machine stands on each. */
@@ -283,6 +309,21 @@ export interface TriggerFact {
    * whose name could not be read — which then matches no label filter.
    */
   readonly label?: string
+  /**
+   * Who wrote a comment (`commented` only): an opaque digest of the forge
+   * and the author's numeric account id — the same digest an arm binds for
+   * the signed-in account — or null when it could not be read.
+   */
+  readonly author?: string | null
+  /**
+   * Whether the forge says the comment's author can write to the bound
+   * repository: asked only for a trigger that lets collaborators fire it,
+   * with the answer's account id checked against the author's; null when it
+   * was not asked or could not be read.
+   */
+  readonly authorWrites?: boolean | null
+  /** The comment opens with a marker the desk writes on what it posts itself (matched exactly): never a firing. */
+  readonly desk?: boolean
 }
 
 /** How one watched source stands, in sentences a surface can show. */

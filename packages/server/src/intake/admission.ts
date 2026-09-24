@@ -178,6 +178,28 @@ export interface OfferAnswer {
 export const SKIP_FORK = 'This pull request comes from another repository, and this trigger does not allow forks.'
 export const SKIP_CHANGED = 'The trigger or what it runs changed since it was armed, so this did not fire. Arm it again to watch from now.'
 export const SKIP_MISMATCH = 'This trigger does not read this kind of fact.'
+export const SKIP_DESK = 'This comment was posted by this desk, so it does not fire a trigger.'
+export const SKIP_AUTHOR_UNREAD = 'Who wrote this comment could not be read, so it did not fire.'
+export const SKIP_NOT_ME = 'Only comments by the forge account this trigger was armed with fire it, and someone else wrote this one.'
+export const SKIP_WRITES_UNREAD = 'Whether this comment’s author can write to the repository could not be read, so it did not fire.'
+export const SKIP_NOT_COLLABORATOR = 'Only comments by people who can write to the repository fire this trigger, and this one’s author cannot.'
+
+/**
+ * Whether a comment may fire this trigger, by its `from` and stable account
+ * ids alone: never a desk post, never an author that could not be read or
+ * vouched for. Null lets it fire; anything else is why it is skipped.
+ */
+export const commentRefusal = (definition: TriggerDefinition, fact: TriggerFact, account: string): string | null => {
+  if (fact.source !== 'issue' || fact.action !== 'commented') return null
+  if (fact.desk === true) return SKIP_DESK
+  const from = definition.from ?? 'me'
+  if (from === 'anyone') return null
+  if (typeof fact.author !== 'string') return SKIP_AUTHOR_UNREAD
+  if (fact.author === account) return null
+  if (from === 'me') return SKIP_NOT_ME
+  if (fact.authorWrites === true) return null
+  return fact.authorWrites === false ? SKIP_NOT_COLLABORATOR : SKIP_WRITES_UNREAD
+}
 export const skipConcurrency = (limit: number): string =>
   `This trigger already has ${limit} open ${limit === 1 ? 'Goal' : 'Goals'}, its limit, so this did not fire. Wrap one to make room; this is not replayed.`
 export const PAUSED = 'Triggers are paused on this machine, so nothing is admitted until they resume.'
@@ -288,6 +310,9 @@ export class Admission {
       // Throws when the arm cannot be read now: no answer, so the fact is kept and offered again.
       const binding = await (options.binding ? options.binding() : this.#port.binding(arm))
       if (!binding || !consentMatches(arm.binding, binding)) return this.#skip(arm, key, SKIP_CHANGED, fact)
+      // Whose comment it is, against the account this arm is bound to — and never one the desk posted.
+      const comment = commentRefusal(definition, fact, binding.account)
+      if (comment !== null) return this.#skip(arm, key, comment, fact)
 
       // Read again after the awaits above: only this queue writes the journal, and what is decided is what is on disk now.
       let snapshot = this.#store.read()

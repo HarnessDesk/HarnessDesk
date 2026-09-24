@@ -80,7 +80,10 @@ export const intakeSources = (forge: ForgeSource): IntakeSources => ({
     if (group.source !== 'schedule') await forge.probe(group.project, cursor, signal)
   },
   poll: async (group, cursor, signal, now) =>
-    group.source === 'schedule' ? dueSlots(group.project, group.arms, cursor, now) : forge.poll(group.project, cursor, signal),
+    group.source === 'schedule' ? dueSlots(group.project, group.arms, cursor, now) : forge.poll(group.project, cursor, signal, {
+      // Asked only when an arm on this source lets collaborators' comments fire it.
+      permissions: group.arms.some((arm) => arm.definition.from === 'collaborators'),
+    }),
 })
 
 const isMap = (value: unknown): value is Record<string, unknown> =>
@@ -446,6 +449,12 @@ export class IntakeMonitor {
       }
       return this.#options.wall()
     }))
+  }
+
+  /** How one project's source stands, once it has been read; null before. */
+  status(project: string, source: TriggerSource): TriggerSourceStatus | null {
+    for (const state of this.#groups.values()) if (state.project === project && state.source === source) return this.#statusOf(state)
+    return null
   }
 
   /** A person resumes a source that stopped at a gap: it watches from now, and the gap is skipped, not replayed. */

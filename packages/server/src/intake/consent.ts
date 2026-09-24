@@ -324,6 +324,8 @@ interface Current {
   readonly binding: ArmBinding | null
   /** The fix for the first problem that stopped a binding, when it is the forge's. */
   readonly fix: string | null
+  /** The forge repository it would bind, once read: what the arming review names. */
+  readonly repository?: string | null
 }
 
 export class TriggerConsent {
@@ -438,8 +440,9 @@ export class TriggerConsent {
       const empty: TriggerSourceFile = { project: canonical, incarnation: '', revision: null, sourceDigest: null, text: null, workingCopyChanged: false }
       return { file: empty, problems: [{ at: 'file', text: (error as Error).message, fix: 'Commit .harnessdesk/triggers.yml as a regular text file in a real folder.' }], definition: null, closure: null, binding: null, fix: null }
     }
+    let repository: string | null = null
     const refuse = (problems: readonly TriggerProblem[], definition: TriggerDefinition | null = null, closure: TriggerClosure | null = null): Current =>
-      ({ file, problems, definition, closure, binding: null, fix: problems[0]?.fix ?? null })
+      ({ file, problems, definition, closure, binding: null, fix: problems[0]?.fix ?? null, repository })
     if (file.text === null || file.sourceDigest === null) {
       return refuse([{ at: 'file', text: 'There is no committed trigger file in this project.', fix: 'Commit .harnessdesk/triggers.yml.' }])
     }
@@ -457,7 +460,6 @@ export class TriggerConsent {
     }
     const problems: TriggerProblem[] = [...closure.problems, ...(mode === 'preview' ? closure.availability : [])]
     let account = 'none'
-    let repository: string | null = null
     if (definition.on.kind !== 'schedule') {
       const signedIn = await this.#port.account(file.project)
       if ('refused' in signedIn) {
@@ -473,7 +475,7 @@ export class TriggerConsent {
     // Answering a fact compares content alone: a problem the same content always has was refused at arming.
     if (problems.length > 0 && mode !== 'offer') return refuse(problems, definition, closure)
     return {
-      file, problems: [], definition, closure, fix: null,
+      file, problems: [], definition, closure, fix: null, repository,
       binding: { project: file.project, incarnation: file.incarnation, source: file.sourceDigest, closure: closure.digest, account, repository },
     }
   }
@@ -496,6 +498,7 @@ export class TriggerConsent {
     return {
       id, token, expiresAt, sourcePath: TRIGGERS_PATH, workingCopyChanged: current.file.workingCopyChanged,
       definition: current.definition, flow: current.closure?.preview ?? null, problems: current.problems, moneyPolicy: 'observed-stop',
+      repository: current.repository ?? null,
     }
   }
 

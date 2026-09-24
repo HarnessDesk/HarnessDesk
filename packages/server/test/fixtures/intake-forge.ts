@@ -39,7 +39,8 @@ export interface FakeIssue {
   pullRequest?: boolean
   /** `label` is the name a labelled event carries, as the forge nests it; any value, so a malformed one can be staged. */
   events: { id: number; event: string; created: number; label?: unknown }[]
-  comments: { id: number; body: string; created: number; updated: number }[]
+  /** `user` is who the forge says wrote it: the signed-in account when absent, nobody readable when null. */
+  comments: { id: number; body: string; created: number; updated: number; user?: { id: number; login: string } | null }[]
 }
 
 export type Failure = { exitCode: number; stderr: string } | 'timeout' | 'overflow' | 'malformed'
@@ -95,11 +96,15 @@ export class FakeForge {
     if (failure === 'malformed') return { stdout: '{"not": "a list"', stderr: '', exitCode: 0, timedOut: false, overflow: false }
     if (failure) return { stdout: '', stderr: failure.stderr, exitCode: failure.exitCode, timedOut: false, overflow: false }
     if (path === 'user' && !this.user) return { stdout: '', stderr: 'gh: HTTP 401: Bad credentials', exitCode: 1, timedOut: false, overflow: false }
+    const permission = /^repos\/[^/]+\/[^/]+\/collaborators\/([^/]+)\/permission$/.exec(path)
+    if (permission && !this.permissions.has(permission[1]!)) return { stdout: '', stderr: 'gh: Not Found (HTTP 404)', exitCode: 1, timedOut: false, overflow: false }
     return { stdout: JSON.stringify(this.#answer(path)), stderr: '', exitCode: 0, timedOut: false, overflow: false }
   }
 
   /** Who `gh api user` says is signed in; null answers as signed out. */
   user: { id: number; login: string } | null = { id: 7, login: 'jane-doe' }
+  /** What `repos/{repo}/collaborators/{login}/permission` answers, by login; a login not here answers 404. */
+  permissions = new Map<string, { id: number; permission: string }>()
 
   #answer(path: string): unknown {
     if (path === 'user') {
@@ -131,11 +136,16 @@ export class FakeForge {
         id: one.id, event: one.event, created_at: iso(one.created), ...(one.label !== undefined ? { label: { name: one.label } } : {}),
       }))
     }
+    if (parts[3] === 'collaborators' && parts[5] === 'permission') {
+      const one = this.permissions.get(parts[4]!)!
+      return { permission: one.permission, role_name: one.permission, user: { id: one.id, login: parts[4] } }
+    }
     if (parts[3] === 'issues' && parts[5] === 'comments') {
       const since = Date.parse(url.searchParams.get('since') ?? iso(0))
       const issue = this.issues.find((one) => one.number === Number(parts[4]))
       return slice((issue?.comments ?? []).filter((one) => one.updated >= since)).map((one) => ({
         id: one.id, body: one.body, created_at: iso(one.created), updated_at: iso(one.updated),
+        ...(one.user === null ? {} : { user: one.user ?? this.user }),
         html_url: `https://github.com/${this.repo}/issues/${parts[4]}#issuecomment-${one.id}`,
       }))
     }

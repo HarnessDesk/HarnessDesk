@@ -31,6 +31,7 @@ test('arm changes only after matching one-use preview', async () => {
   assert.equal(preview.expiresAt, r.world.now + 5 * 60_000)
   assert.equal(preview.moneyPolicy, 'observed-stop')
   assert.equal(preview.sourcePath, '.harnessdesk/triggers.yml')
+  assert.equal(preview.repository, 'acme/widgets', 'the review names the forge repository it binds')
   assert.deepEqual(preview.flow?.commands.map((one) => one.run), ['pnpm test'])
   assert.equal(preview.flow?.token, null, 'the flow part of an arm preview never carries a person start token')
   // Nothing is written by a preview.
@@ -290,4 +291,30 @@ test('changing a trigger’s label takes its arm away', async () => {
   assert.notEqual(await closure('agent-ready'), await closure('ready-for-agents'))
   r.world.text = labelled('agent-ready')
   assert.deepEqual(await r.consent.binding(r.world.project, 'ready'), before)
+})
+
+test('changing whose comments fire a trigger takes its arm away', async () => {
+  const r = rig()
+  const talk = (from: string): string => `${TRIGGERS}- id: talk
+  on: issue
+  events: [commented]
+  from: ${from}
+  opens: { flow: review-pr }
+`
+  r.world.text = talk('me')
+  await armed(r, 'talk')
+  const before = await r.consent.binding(r.world.project, 'talk')
+  assert.ok(before)
+  assert.equal((await r.consent.preview(r.world.project, 'talk')).definition?.from, 'me', 'arming shows it')
+  r.world.text = talk('anyone')
+  assert.equal(await r.consent.binding(r.world.project, 'talk'), null)
+  assert.equal((await r.consent.list(r.world.project)).triggers.find((one) => one.id === 'talk')?.state, 'changed')
+  // Its closure moves with it too, so it cannot ride under another file's digest.
+  const closure = async (from: string) => {
+    const definition = (await import('../src/intake/definition.js')).parseTriggers(talk(from)).definitions.find((one) => one.id === 'talk')!
+    return (await r.port.closure.freeze(r.world.project, definition)).digest
+  }
+  assert.notEqual(await closure('me'), await closure('collaborators'))
+  r.world.text = talk('me')
+  assert.deepEqual(await r.consent.binding(r.world.project, 'talk'), before)
 })

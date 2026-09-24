@@ -315,6 +315,14 @@ export const SUMMARY_BODY_BYTES = 60_000
 
 export const MARKER_PREFIX = '<!-- harnessdesk:finding-op '
 export const markerOf = (key: string): string => `${MARKER_PREFIX}${key} -->`
+/** Exactly the markers the desk writes: an operation key, or a review's inline comment's (`markerOf`, `summaryCommentMarker`). */
+const DESK_MARKER = /^<!-- harnessdesk:finding-op pub-[0-9a-f]{48}(?::[A-Za-z0-9-]{1,128})? -->$/
+/**
+ * Whether a body is one the desk posted, read exactly as reconciliation
+ * reads its own: its first line is, character for character, a marker the
+ * desk writes. A marker quoted, escaped, indented or on a later line is not.
+ */
+export const isDeskPost = (body: string): boolean => DESK_MARKER.test(body.split('\n')[0] ?? '')
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
 
 /** An operation key: the run, its round, the entry's kind and the evidence it posts. The same close always makes the same keys. */
@@ -708,6 +716,14 @@ export interface PublicationsPort {
   readonly forge: FindingForgePort
   /** Whether a run posts each closed round as one review — a trigger's run — rather than comment by comment. */
   summary?(run: string): boolean
+  /**
+   * The intake gate by Goal (`TriggerBudgets.beforeDispatch`): a trigger
+   * Goal's posting is dispatch too, so a paused machine, a cap below what is
+   * committed or a stopped budget sends nothing new. A refused send is left
+   * as it was — decided, not sent, no person needed — and the resume drives
+   * it again. Absent, or ok for a Goal no trigger opened.
+   */
+  beforeDispatch?(goal: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly detail: string }>
   now(): number
   log(message: string, details?: Readonly<Record<string, unknown>>): void
 }
@@ -1183,6 +1199,7 @@ export class Publications implements FindingPublisher {
     if (first.state !== 'prepared' && !this.#port.goal(snapshot.goal)?.open) return
     let ready: Extract<Ready, { kind: 'go' }> | null = null
     if (first.state === 'prepared') {
+      if (!(await this.#port.beforeDispatch?.(snapshot.goal) ?? { ok: true }).ok) return
       const decided = await this.#ready(first, snapshot.goal)
       if (decided.kind !== 'go') {
         await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, state: decided.kind === 'skip' ? 'skipped' : 'prepared', reason: decided.reason }))
@@ -1294,6 +1311,8 @@ export class Publications implements FindingPublisher {
     }
     let sent: SummaryPayload | null = null
     if (first.state === 'prepared') {
+      // Held by the intake gate: nothing is read or sent, and nothing is recorded that a person must clear.
+      if (!(await this.#port.beforeDispatch?.(snapshot.goal) ?? { ok: true }).ok) return
       const decided = await this.#readySummary(first, snapshot.goal)
       if ('reason' in decided) {
         await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, state: decided.kind === 'skip' ? 'skipped' : 'prepared', reason: decided.reason }))
