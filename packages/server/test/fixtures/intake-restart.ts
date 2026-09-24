@@ -84,8 +84,8 @@ export interface DeskOptions {
   readonly now?: () => number
   /** Held before admission reads the arm again: where a race is staged. */
   readonly beforeBinding?: () => Promise<void>
-  /** Held before a firing's round is opened. */
-  readonly beforeRound?: () => Promise<void>
+  /** Held before a firing's round is opened, with the project it opens in: throw to fail that effect. */
+  readonly beforeRound?: (project: string) => Promise<void>
   /** Held when a wrap stops the Goal's runs. */
   readonly beforeStop?: () => Promise<void>
   /** The release gate in place of the budget's: null lets a firing's round go. */
@@ -325,20 +325,30 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
     evidence: { observeTrigger: async (firing, goal, fact) => { const ids = await evidence.observeTrigger(firing, goal, fact); crash('evidence'); return ids } },
     flows: {
       startTriggered: async (request) => {
-        await options.beforeRound?.()
+        await options.beforeRound?.(request.root)
         const run = await flows.startTriggered(request)
         log(`start:${request.id}`)
         crash('round')
         return run
       },
       againTriggered: async (run, key, facts) => {
-        await options.beforeRound?.()
+        await options.beforeRound?.(flows.executionOf(run)?.goal ? goalStore.read(flows.executionOf(run)!.goal).goal.root : PROJECT)
         const round = await flows.againTriggered(run, key, facts)
         log(`again:${run}:${round.n}`)
         crash('round')
         return round
       },
       resumeTriggered: async (run) => { log(`release:${run}`); await flows.resumeTriggered(run) },
+    },
+    // As the plane does it: a run a pause or the cap held, with no firing of its own pending, is let go once its gate allows it.
+    releaseHeld: async () => {
+      const pending = new Set(store.read().operations.map((one) => one.goal))
+      for (const goal of budgets.live()) {
+        const run = flows.executionsFor(goal).find((one) => one.intake)
+        if (!run || run.state !== 'running' || !run.intake?.heldFor || pending.has(goal) || !budgets.check(run).ok) continue
+        log(`resume:${run.id}`)
+        await flows.resumeTriggered(run.id)
+      }
     },
     gate: async (operation) => {
       if (options.gate) return options.gate()
@@ -361,8 +371,15 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
   const watch = new BudgetWatch(budgets, (goal) => flows.executionsFor(goal).find((run) => run.intake) ?? null, {
     interrupt: async (goal) => { log(`interrupt:${goal}`) },
     stopRun: async (goal, reason) => {
+      log(`stop:${goal}`)
       const run = flows.executionsFor(goal).find((one) => one.intake)
       if (run) await flows.stopRun(run.id, reason)
+    },
+    hold: async (goal, reason) => {
+      log(`hold:${goal}`)
+      const run = flows.executionsFor(goal).find((one) => one.intake)
+      if (run) await flows.holdTriggered(run.id, reason)
+      log(`interrupt:${goal}`)
     },
   })
   admission = new Admission(store, {
@@ -380,6 +397,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
       log(`${step}:${operation.key.slice(0, 8)}:${operation.mode}`)
       crash(step)
     },
+    onFault: (fault) => { log('cleared' in fault ? `fault-cleared:${fault.project}` : `fault:${fault.project}:${fault.final ? 'aside' : 'retry'}`) },
   })
   const settle = async (): Promise<void> => {
     await flows.flush()

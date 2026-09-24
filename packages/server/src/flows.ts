@@ -367,6 +367,17 @@ export class Flows implements TeamFlows {
     return this.#executions.supersedeTriggered(run, why, next)
   }
 
+  /** Phase 8, host-only: a pause or the daily cap holds a trigger's run. See `FlowExecutions.holdTriggered`. */
+  holdTriggered(run: string, why: string): Promise<void> {
+    if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
+    return this.#executions.holdTriggered(run, why)
+  }
+
+  /** Stops every check running on a Goal now, each left uncertain for a person. See `FlowExecutions.interruptChecks`. */
+  interruptChecks(goal: string): void {
+    this.#executions?.interruptChecks(goal)
+  }
+
   /** Every run on this Goal, as execution state. */
   executionsFor(goal: string): FlowExecution[] {
     return this.#executions?.runs(goal) ?? []

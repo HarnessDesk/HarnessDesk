@@ -16,7 +16,7 @@ import type { GhApiRunner } from '../findings/forge.js'
 import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { UsageSample } from '../ledger/insight.js'
-import { Admission, AGAIN_MISSING, SKIP_CHANGED, type GoalLifecycle, type OfferAnswer } from './admission.js'
+import { Admission, AGAIN_MISSING, SKIP_CHANGED, type AdmissionOptions, type GoalLifecycle, type OfferAnswer } from './admission.js'
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay } from './budget.js'
@@ -91,8 +91,12 @@ export interface IntakeHostPort {
     /** Every run on a Goal. */
     runs(goal: string): readonly FlowExecution[]
     execution(run: string): FlowExecution | null
-    /** Stops a run with the reason; its cards, answers and findings are kept. */
+    /** Stops a run with the reason; its cards, answers and findings are kept, and every Seat it lets go is interrupted. */
     stopRun(run: string, why: string): Promise<void>
+    /** Holds a run for a pause or the cap: nothing recorded as a stop; `resumeTriggered` lets it go. */
+    holdTriggered(run: string, why: string): Promise<void>
+    /** Stops every check running on the Goal now, without waiting for the run's queue; each is left for a person. */
+    interruptChecks?(goal: string): void
   }
   readonly evidence: IntakeObservationPort
   /** The Seat book. */
@@ -212,8 +216,17 @@ export class IntakePlane {
     this.#watch = new BudgetWatch(this.#budgets, (goal) => this.#runOf(goal), {
       interrupt: (goal) => port.interrupt(goal),
       stopRun: async (goal, reason) => {
+        // A running check holds the run's queue: it is stopped first, so the stop never waits on it.
+        port.flows.interruptChecks?.(goal)
         const run = this.#runOf(goal)
         if (run) await port.flows.stopRun(run.id, reason)
+        this.#schedule()
+      },
+      hold: async (goal, reason) => {
+        port.flows.interruptChecks?.(goal)
+        const run = this.#runOf(goal)
+        if (run) await port.flows.holdTriggered(run.id, reason)
+        await port.interrupt(goal)
         this.#schedule()
       },
       timers: this.#timers,
@@ -238,8 +251,10 @@ export class IntakePlane {
         return this.#seatsNow(operation)
       },
       supersede: (operation) => this.#supersede(operation),
+      releaseHeld: () => this.#releaseHeld(),
     }), {
       onStep: () => this.#schedule(),
+      onFault: (fault) => { void this.#track(this.#faulted(fault)).catch(() => {}) },
     })
     this.#attention = new AttentionOutbox(port.home, {
       announce: (attention) => port.push({ method: 'trigger/attention', params: { attention } }),
@@ -403,6 +418,36 @@ export class IntakePlane {
     return read
   }
 
+  /**
+   * A firing whose effects failed is named, never silent: while it is tried
+   * again its project's new events wait, and the wait is on the desk; once
+   * set aside it is the person's, until they arm or disarm that trigger.
+   * Other projects are untouched either way.
+   */
+  async #faulted(fault: Parameters<NonNullable<AdmissionOptions['onFault']>>[0]): Promise<void> {
+    if ('cleared' in fault) {
+      await this.#attention.sync(`fault:${fault.project}`, [])
+      this.#changed(fault.project)
+      return
+    }
+    const wait: AttentionInput = {
+      key: `fault:${fault.project}:${fault.key}:${fault.final ? 'aside' : 'retry'}`,
+      goal: null, trigger: fault.trigger, kind: 'source',
+      waitingOn: fault.final ? { kind: 'person', label: 'You' } : { kind: 'service', label: 'This desk' },
+      sentence: `Trigger ${fault.trigger}: ${fault.reason}`, action: 'open-trigger',
+    }
+    await this.#attention.sync(`fault:${fault.project}`, fault.final ? [] : [wait])
+    /* Set aside: the person's. When its Goal exists the Goal names it — its
+       firing's tombstone carries why, until the Goal is wrapped; when none
+       was made, the trigger does, until they arm or disarm it again. */
+    const lifecycle = this.#port.goals.lifecycle(fault.goal)
+    if (fault.final && (lifecycle === 'missing' || lifecycle === 'wrapped')) {
+      await this.#attention.sync(`aside:${fault.project}:${fault.trigger}:${fault.key}`, [wait])
+    }
+    this.#changed(fault.project)
+    this.#schedule()
+  }
+
   /** A new head reached an open Goal: its old work stops, through the host's own interrupt. */
   async #supersede(operation: IntakeOperation): Promise<void> {
     const run = this.#port.flows.execution(operation.run)
@@ -432,16 +477,38 @@ export class IntakePlane {
     return `No seat can be opened for ${seat ? `“${seat.agent}”` : 'its Agent'} right now, so this firing waits. It starts on its own once one can.`
   }
 
+  /** The runs a pause or the cap holds now, and whether any firing is still waiting for its release. */
+  #heldRuns(): readonly FlowExecution[] {
+    return this.#budgets.live().map((goal) => this.#runOf(goal))
+      .filter((run): run is FlowExecution => run !== null && run.state === 'running' && (run.intake?.heldFor ?? null) !== null)
+  }
+
+  /**
+   * Lets go of every run a pause or the cap held whose gate now allows it,
+   * unless a firing of its own is still pending — that firing's release lets
+   * it go. Inside admission's queue (`Admission.recover`), which is to the
+   * run queue's left.
+   */
+  async #releaseHeld(): Promise<void> {
+    if (this.#closed || !this.#dispatchReady) return
+    const pending = new Set(this.#store.read().operations.map((one) => one.goal))
+    for (const run of this.#heldRuns()) {
+      if (pending.has(run.goal) || !this.#budgets.check(run).ok) continue
+      await this.#port.flows.resumeTriggered(run.id)
+    }
+  }
+
   /**
    * Firings applied and not yet let go — waiting on a seat, a pause or the
-   * cap — are offered their release again: what a pass of the timers does,
-   * so a runtime coming back or a raised cap needs nobody to press anything.
+   * cap — and runs a pause or the cap held are offered their release again:
+   * what a pass of the timers does, so a runtime coming back or a raised cap
+   * needs nobody to press anything.
    */
   async #retryHeld(): Promise<void> {
     if (this.#closed || this.#prefs.paused || !this.#dispatchReady || this.#problem !== null) return
     let waiting: boolean
     try {
-      waiting = this.#store.read().operations.length > 0
+      waiting = this.#store.read().operations.length > 0 || this.#heldRuns().length > 0
     } catch {
       return
     }
@@ -499,6 +566,8 @@ export class IntakePlane {
     await this.#monitor.refresh()
     await this.#syncTimers()
     const project = await this.#project(root)
+    // A firing set aside for the person was theirs until they acted on its trigger: arming it again is that act.
+    await this.#attention.resolveScopes(`aside:${project}:${id}:`)
     const view = this.#decorate(project, armed)
     await this.#armWait(project, view)
     this.#changed(project)
@@ -511,6 +580,7 @@ export class IntakePlane {
     await this.#monitor.refresh()
     await this.#syncTimers()
     const project = await this.#project(root)
+    await this.#attention.resolveScopes(`aside:${project}:${id}:`)
     const view = this.#decorate(project, off)
     await this.#armWait(project, view)
     this.#changed(project)
@@ -547,9 +617,12 @@ export class IntakePlane {
       .filter((group) => group.project === project && group.trigger === view.id && group.open && this.#port.goals.lifecycle(group.goal) !== 'wrapped' && this.#port.goals.lifecycle(group.goal) !== 'missing')
       .map((group) => group.goal)).size
     const paused = view.state === 'armed' && this.#prefs.paused
+    // A firing of this project that has not landed holds its new events: said on every armed trigger it holds.
+    const fault = view.state === 'armed' && !paused ? this.#admission.fault(project) : null
     return {
       ...view,
       ...(paused ? { state: 'paused' as const, reason: 'Triggers are paused on this machine.', fix: 'Resume triggers in Settings.' } : {}),
+      ...(fault ? { reason: fault, fix: null } : {}),
       last: latest ? this.#row(latest[0], latest[1], view.definition?.on.kind ?? null, snapshot.operations) : null,
       openGoals,
     }
@@ -644,10 +717,11 @@ export class IntakePlane {
 
   /**
    * A person's pause and daily cap, compared on the revision they read and
-   * saved before anything acts on them. Pausing stops watching and every
-   * live trigger run — recorded, interrupted, stopped with why, its work
-   * kept; resuming watches again and releases what waited, replaying no
-   * uncertain effect.
+   * saved before anything acts on them. Pausing stops watching and holds
+   * every live trigger run — its turns and checks interrupted, its work
+   * kept, nothing recorded as a stop; resuming watches again and continues
+   * what the pause held, replaying no uncertain effect. A cap lowered below
+   * what is committed holds work the same way, and raising it continues it.
    */
   async setPreferences(revision: number, paused: boolean, dailyUsd: number): Promise<TriggerPreferences> {
     if (this.#closed) throw coded('The desk is closing, so triggers are not changed now.', 'HD_TRIGGER_REFUSED')
@@ -664,13 +738,16 @@ export class IntakePlane {
     })
     if (paused && !before.paused) {
       await this.#stopWatching()
-      // Every live run is stopped now, with why — never left dispatching while paused.
+      // Every live run is held now, its turns and checks interrupted — never left dispatching while paused, never stopped for good.
       await this.#watch.tick()
     } else if (!paused && before.paused) {
+      // What the pause held continues, and what waited to be released is let go; then watching resumes.
       if (this.#problem === null && this.#dispatchReady) await this.#admission.recover().catch(() => {})
       await this.#startWatching()
-    } else if (dailyUsd < before.dailyUsd) {
+    } else if (!paused && dailyUsd !== before.dailyUsd) {
+      // Lowered: work past it holds. Raised: what it held continues.
       await this.#watch.tick()
+      if (this.#problem === null && this.#dispatchReady) await this.#admission.recover().catch(() => {})
     }
     this.#port.push({ method: 'trigger/changed', params: { project: '', revision: this.#prefs.revision } })
     this.#schedule()
@@ -893,7 +970,7 @@ export class IntakePlane {
       const run = this.#runOf(goal)
       await this.#attention.sync(`goal:${goal}`, goalWaits({
         goal, trigger, host,
-        run: run ? { id: run.id, state: run.state, reason: run.reason } : null,
+        run: run ? { id: run.id, state: run.state, reason: run.reason, held: run.intake?.heldFor ?? null } : null,
         stop: snapshot.budgets[goal]?.stop ?? null,
         firings,
       }))

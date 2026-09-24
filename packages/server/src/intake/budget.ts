@@ -42,7 +42,13 @@ export interface BudgetCheck {
   lane: 'available' | 'spent' | 'unknown'; paused: boolean
 }
 
+/** A pause holds work — never a recorded stop — and resuming continues it: the sentence says exactly that. */
 export const PAUSED_STOP = 'Every trigger is paused. Resume triggers to continue.'
+/** The daily cap lowered below what is committed holds work the same way; raising it continues it. */
+export const CAP_HOLD = 'Today’s trigger spend cap is lower than what is already committed, so this Goal waits. Raising the cap continues it.'
+
+/** What the dispatch gate answers: a refusal that lifts on its own (`transient`) holds work; any other stops it. */
+export type BudgetVerdict = { readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: true }
 
 /** The fail-closed decision: the first bound that stops the next dispatch, or null. Unknown spend stops too. */
 export function budgetRefusal(input: BudgetCheck): string | null {
@@ -155,7 +161,7 @@ export class TriggerBudgets {
    * allowance, unknown or spent money, and a cap lowered below what is
    * already committed — each refuses, with the sentence the run stops on.
    */
-  check(run: FlowExecution): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
+  check(run: FlowExecution): BudgetVerdict {
     let snapshot: IntakeSnapshot
     try {
       snapshot = this.#read()
@@ -174,10 +180,10 @@ export class TriggerBudgets {
       idleRounds: findings?.idleRounds ?? 0, idleLimit: Math.min(budget.withoutProgress, findings?.budget.withoutProgress ?? budget.withoutProgress),
       spentMicros: spend.spentMicros, limitMicros: budget.usdMicros, lane: this.#port.lane(run.goal), paused: this.#port.paused(),
     })
+    // A pause lifts on its own: it holds work, and a resume continues it — never a stop a resume would have to undo.
+    if (refused === PAUSED_STOP) return { ok: false, reason: refused, transient: true }
     if (refused) return { ok: false, reason: spend.spentMicros === null && refused.startsWith('Spend is unknown') && spend.why ? `${refused} ${spend.why}` : refused }
-    if (committedToday(snapshot, utcDay(now)) > this.#port.capMicros()) {
-      return { ok: false, reason: 'Today’s trigger spend cap is lower than what is already committed, so this Goal waits. Raise the cap or stop some work.' }
-    }
+    if (committedToday(snapshot, utcDay(now)) > this.#port.capMicros()) return { ok: false, reason: CAP_HOLD, transient: true }
     return { ok: true }
   }
 
@@ -340,16 +346,30 @@ export class TriggerBudgets {
 export interface BudgetWatchPort {
   /** Interrupts every active turn and check on the Goal, keeping what each already produced. */
   interrupt(goal: string): Promise<void>
-  /** Stops the Goal's trigger run with the reason: its cards, answers and findings are kept, and nothing is merged or wrapped. */
+  /**
+   * Stops the Goal's trigger run with the reason: its cards, answers and
+   * findings are kept, nothing is merged or wrapped, and every Seat it lets
+   * go is interrupted as it goes.
+   */
   stopRun(goal: string, reason: string): Promise<void>
+  /**
+   * Holds the Goal's trigger run for a gate that lifts on its own — a pause,
+   * the cap: its turns and checks interrupted, nothing recorded as a stop,
+   * released through admission's recovery once the gate allows it again.
+   */
+  hold(goal: string, reason: string): Promise<void>
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
 }
 
 /**
- * Watches every live budget at least once a second: a Goal past its time,
- * rounds, progress or money — or whose spend became unknown, or while the
- * machine is paused — is stopped. Recorded first, so no queue dispatches
- * anything more; then interrupted; then its run stops with the reason.
+ * Watches every live budget at least once a second. A Goal past its time,
+ * rounds, progress or money — or whose spend became unknown — is stopped:
+ * recorded first, so no queue dispatches anything more; then its run stops
+ * with the reason, letting go of and interrupting every Seat as it goes —
+ * after the stop, so an interrupted turn's end finds nothing to re-arm; then
+ * whatever else on the Goal still runs is interrupted. A pause or a cap
+ * below what is committed only holds the work: no stop is recorded, and a
+ * resume or a raised cap releases it (review #898).
  */
 export class BudgetWatch {
   readonly #budgets: TriggerBudgets
@@ -387,9 +407,14 @@ export class BudgetWatch {
       if (!run || run.state !== 'running') continue
       const verdict = this.#budgets.check(run)
       if (verdict.ok) continue
+      if (verdict.transient) {
+        if (run.intake?.heldFor === verdict.reason) continue
+        await this.#port.hold(goal, verdict.reason)
+        continue
+      }
       if (!await this.#budgets.stop(goal, stopReasonOf(verdict.reason), verdict.reason)) continue
-      await this.#port.interrupt(goal)
       await this.#port.stopRun(goal, verdict.reason)
+      await this.#port.interrupt(goal)
     }
   }
 }

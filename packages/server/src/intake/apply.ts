@@ -70,6 +70,12 @@ export interface IntakeTargets {
    * new. Absent, nothing is stopped.
    */
   supersede?(operation: IntakeOperation): Promise<void>
+  /**
+   * Runs held by a gate that lifts on its own — a pause, the daily cap — and
+   * no firing still pending: each is let go once the gate allows it again.
+   * Absent, nothing is held that way.
+   */
+  releaseHeld?(): Promise<void>
 }
 
 /** Whether a firing brought an open Goal a head its running work was not started for. */
@@ -128,6 +134,10 @@ export class IntakeEffects implements AdmissionEffects {
       throw error
     }
     return operation.attention
+  }
+
+  async releaseHeld(): Promise<void> {
+    await this.#targets.releaseHeld?.()
   }
 
   async release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string }> {

@@ -183,6 +183,19 @@ export class AttentionOutbox {
     })
   }
 
+  /** Resolves every open wait in every scope that starts with `prefix`, announcing each once. */
+  resolveScopes(prefix: string): Promise<void> {
+    return this.#serial.run(async () => {
+      if (!this.#loaded) return
+      const now = this.#port.now()
+      const ended = new Set(this.#entries.filter((one) => one.resolvedAt === null && one.scope.startsWith(prefix)).map((one) => one.id))
+      if (ended.size === 0) return
+      const next = this.#entries.map((one) => ended.has(one.id) ? { ...one, resolvedAt: now } : one)
+      await this.#save(next)
+      for (const one of next) if (ended.has(one.id)) this.#port.announce(publicOf(one))
+    })
+  }
+
   /**
    * A notice that asks nothing of anyone — a skipped firing — recorded
    * resolved and announced once. The same key within `windowMs` of the last

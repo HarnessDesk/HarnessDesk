@@ -82,6 +82,10 @@ export interface IntakeOperation {
   /** What its round's own opening said, kept apart from a gate's passing refusal so a release restores it. */
   readonly roundAttention?: string | null
   readonly preparedAt: number
+  /** How many times its effects failed for a reason that is not a refusal; bounded before it goes to the person. */
+  readonly attempts?: number
+  /** The last such failure, in its own words. */
+  readonly failure?: string | null
 }
 
 export interface IntakeGroup {
@@ -287,7 +291,9 @@ export const snapshotOf = (value: unknown): IntakeSnapshot => {
       !['start', 'again', 'record'].includes(operation['mode'] as string) || !['prepared', 'applied'].includes(operation['state'] as string) ||
       typeof operation['dispatched'] !== 'boolean' || !(Number.isSafeInteger(operation['generation']) && (operation['generation'] as number) >= 1) ||
       !(operation['attention'] === null || text(operation['attention'])) || !time(operation['preparedAt']) ||
-      !(operation['roundAttention'] === undefined || operation['roundAttention'] === null || text(operation['roundAttention']))) bad('an operation')
+      !(operation['roundAttention'] === undefined || operation['roundAttention'] === null || text(operation['roundAttention'])) ||
+      !(operation['attempts'] === undefined || (Number.isSafeInteger(operation['attempts']) && (operation['attempts'] as number) >= 0)) ||
+      !(operation['failure'] === undefined || operation['failure'] === null || text(operation['failure']))) bad('an operation')
     const op = operation as Record<string, unknown>
     let payload: IntakePayload | null
     try {

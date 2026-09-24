@@ -77,6 +77,8 @@ export interface GoalRig {
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
+  /** Checks run until their signal aborts, as a long command a pause or a stop kills; told when one starts. */
+  checksRunUntilStopped: (() => void) | null
   /** Checkouts whose check evidence append fails, one check at a time: how one card of a fan-out is left uncertain. */
   readonly failEvidenceIn: Set<string>
   /** Every check's own `cwd`, in call order — how a fan-out's distinct checkouts are told apart. */
@@ -132,8 +134,8 @@ export interface GoalRig {
    * arm would freeze it; `changed` makes the re-read closure differ.
    */
   startTriggered(source: string, agents: readonly AgentEntry[], options?: { readonly again?: string; readonly changed?: boolean; readonly key?: string; readonly budget?: TriggerDefinition['budget'] }): Promise<FlowExecution>
-  /** The dispatch gate a trigger's run passes; null lets it go. */
-  triggerGate: ((run: FlowExecution) => string | null) | null
+  /** The dispatch gate a trigger's run passes; null lets it go. A `transient` refusal (a pause, the cap) holds rather than stops. */
+  triggerGate: ((run: FlowExecution) => string | { readonly reason: string; readonly transient: true } | null) | null
   /** Each trigger Goal's persisted origin, as the Goal store would answer it. */
   readonly origins: Map<string, GoalOrigin>
   /** A fresh engine over the same folder, board and Goal plane: a restart. */
@@ -163,6 +165,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     heads: new Map<string, { at: string | null; dirty: boolean }>(),
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
+    checksRunUntilStopped: null,
     failEvidenceIn: new Set<string>(),
     checkCwds: [] as string[],
     checkContexts: [] as (string | undefined)[],
@@ -263,6 +266,10 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       rig.onOrder?.(seat)
     },
     busy: (seat) => rig.busySeats.has(String(seat.id)),
+    interrupt: async (seat) => {
+      rig.events.push(`interrupt:${seat.id}`)
+      rig.busySeats.delete(String(seat.id))
+    },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     reseat: async (seat) => rig.comesBackAs ?? seat.seatLabel,
     changed: () => {},
@@ -270,6 +277,14 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
+      if (rig.checksRunUntilStopped) {
+        const started = rig.checksRunUntilStopped
+        const stopped = new Promise<void>((resolve) => where.signal?.addEventListener('abort', () => resolve(), { once: true }))
+        started()
+        await stopped
+        rig.events.push(`check-stopped:${command}`)
+        return { result: { exit: null, timedOut: false, tail: 'stopped' }, evidence: null, problem: null }
+      }
       rig.checkCwds.push(where.cwd)
       rig.checkContexts.push(where.flowContext)
       const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
@@ -348,8 +363,9 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
         },
         originOf: (goal) => rig.origins.get(goal) ?? null,
         gate: async (run) => {
-          const reason = rig.triggerGate?.(run) ?? null
-          return reason === null ? { ok: true as const } : { ok: false as const, reason }
+          const verdict = rig.triggerGate?.(run) ?? null
+          if (verdict === null) return { ok: true as const }
+          return typeof verdict === 'string' ? { ok: false as const, reason: verdict } : { ok: false as const, reason: verdict.reason, transient: true as const }
         },
       },
     })

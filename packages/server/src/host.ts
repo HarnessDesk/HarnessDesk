@@ -1017,6 +1017,11 @@ export class Host {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
         return record ? this.#queueBusy(record) : false
       },
+      // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
+      interrupt: async (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        if (record?.live && record.running.size > 0) await record.live.interrupt()
+      },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
       reseat: async (seat) => {
         const live = await this.#teamLive(seat.session.runtime as RuntimeId, seat.session.sessionId)
@@ -1513,6 +1518,8 @@ export class Host {
         runs: (goal) => this.#flows.executionsFor(goal),
         execution: (run) => this.#flows.executionOf(run),
         stopRun: async (run, why) => { await this.#flows.stopRun(run, why) },
+        holdTriggered: (run, why) => this.#flows.holdTriggered(run, why),
+        interruptChecks: (goal) => this.#flows.interruptChecks(goal),
       },
       evidence: { observeTrigger: (firing, goal, fact) => this.#evidence.observeTrigger(firing, goal, fact) },
       seats: () => this.#evidence.seats.all(),

@@ -128,6 +128,15 @@ export interface FlowIntake {
   readonly closureDigest: string
   readonly dispatchHeld: boolean
   readonly again: FlowThen | null
+  /**
+   * Why a gate that lifts on its own — the machine paused, the daily cap
+   * below what is committed — holds this run's dispatch; null or absent when
+   * nothing like that does. Such a hold records no stop: the run stays
+   * running, and its release continues it.
+   */
+  readonly heldFor?: string | null
+  /** The Seats whose turn ended while that hold stood: each is handed its card again once it lifts. */
+  readonly rearm?: readonly string[]
 }
 
 /**

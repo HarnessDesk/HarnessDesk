@@ -255,7 +255,7 @@ test('a trigger Goal’s approval and question are named waits the moment they a
   assert.ok(d.pushed.filter((one) => one.method === 'trigger/attention').length > announced, 'the resolution is announced')
 })
 
-test('pausing stops watching and every live trigger run; resuming watches again', E2E, async (t) => {
+test('pausing stops watching and holds every live trigger run; resuming continues it', E2E, async (t) => {
   const repo = await makeRepo('hd-intake-pause-')
   await commitTriggers(repo, `- id: triage
   on: issue
@@ -274,17 +274,23 @@ test('pausing stops watching and every live trigger run; resuming watches again'
   await d.host.intakePlane.tick()
   const [view] = await until(async () => { const found = await triggerGoals(d); return found.length === 1 ? found : null }, 'the trigger Goal')
   const goal = view!.goal.id
-  await until(async () => (await claimedCards(d, goal)).length === 1 && running(d).length === 1 ? true : null, 'its Seat at work')
+  const [card] = await until(async () => { const cards = await claimedCards(d, goal); return cards.length === 1 && running(d).length === 1 ? cards : null }, 'its Seat at work')
   const run = await runOn(d, root, 'triage', goal)
+  const turns = () => d.host.registry.all().find((record) => String(record.session.id) === card!.session)!.session.turns.length
 
   const prefs = await d.host.call('trigger/preferences', {})
   assert.deepEqual([prefs.paused, prefs.dailyUsd, prefs.reservedUsd], [false, 20, 5], 'one Goal holds its $5 against the $20 cap')
   await assert.rejects(d.host.call('trigger/preferences/set', { revision: prefs.revision + 1, paused: true, dailyUsd: 20 }), /changed/, 'a stale revision is refused')
   const paused = await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: 20 })
   assert.equal(paused.paused, true)
-  const stopped = await until(async () => { const one = await execution(d, run.id); return one.state === 'stopped' ? one : null }, 'the run stopped by the pause')
-  assert.match(stopped.reason ?? '', /^Every trigger is paused/)
+  // Held, not stopped (review #898): nothing recorded that a resume would have to undo.
+  const held = await until(async () => { const one = await execution(d, run.id); return one.intake?.heldFor ? one : null }, 'the run held by the pause')
+  assert.equal(held.state, 'running')
+  assert.match(held.intake?.heldFor ?? '', /^Every trigger is paused/)
   await until(() => running(d).length === 0 ? true : null, 'its turn interrupted')
+  const during = await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus
+  assert.equal(during.budget?.stop, null, 'no stop is recorded')
+  await until(async () => ((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => /^This Goal waits: Every trigger is paused/.test(one.sentence)) ? true : null), 'the hold named as a wait')
   assert.equal(d.timers.live.size, 0, 'nothing watches while paused')
   const reads = d.forge.calls.length
   d.forge.issues[0]!.events.push({ id: 9, event: 'labeled', created: d.clocks.wall + 1000, label: 'ready' })
@@ -294,9 +300,16 @@ test('pausing stops watching and every live trigger run; resuming watches again'
   assert.equal(d.forge.calls.length, reads, 'a paused machine reads no source')
   const listed = await d.host.call('trigger/list', { root }) as TriggerProjectView
   assert.equal(listed.triggers[0]!.state, 'paused')
+  const before = turns()
 
   const resumed = await d.host.call('trigger/preferences/set', { revision: paused.revision, paused: false, dailyUsd: 20 })
   assert.equal(resumed.paused, false)
   assert.ok(d.timers.live.size > 0, 'watching again')
-  assert.equal((await execution(d, run.id)).state, 'stopped', 'resuming replays nothing: the stopped run waits for its person')
+  // Resuming continues the work: the Seat the pause interrupted is handed its card again.
+  await until(() => running(d).includes(card!.session) && turns() > before ? true : null, 'the held Seat back at work')
+  const after = await execution(d, run.id)
+  assert.deepEqual([after.state, after.intake?.dispatchHeld, after.intake?.heldFor ?? null], ['running', false, null])
+  assert.equal((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).budget?.stop, null)
+  assert.equal((await d.host.call('trigger/preferences', {})).reservedUsd, 5, 'one reservation, still held for the open Goal')
+  await until(async () => ((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => /Every trigger is paused/.test(one.sentence)) ? null : true), 'the pause’s wait resolved')
 })

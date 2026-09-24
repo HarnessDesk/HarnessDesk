@@ -38,7 +38,8 @@ export interface GoalWaitInput {
   readonly goal: string
   readonly trigger: string
   readonly host: HostWaits
-  readonly run: { readonly id: string; readonly state: string; readonly reason: string | null } | null
+  /** `held`: why a pause or the cap holds the run now — a wait on the person, never a stop. */
+  readonly run: { readonly id: string; readonly state: string; readonly reason: string | null; readonly held?: string | null } | null
   readonly stop: { readonly reason: TriggerStopReason; readonly detail: string; readonly at: number } | null
   /** Why a firing on this Goal needed a person: its round refused, its release held, a head it opens no round for. */
   readonly firings: readonly { readonly key: string; readonly attention: string }[]
@@ -107,6 +108,12 @@ export function goalWaits(input: GoalWaitInput): AttentionInput[] {
       ...base, key: `run:${run.id}:${short(run.reason)}`, kind: question ? 'question' : money ? 'budget' : 'person-step',
       waitingOn: YOU, action: money ? 'open-usage' : 'open-goal',
       sentence: `This Goal's work ${run.state === 'stopped' ? 'stopped' : 'waits for you'}: ${run.reason}`,
+    })
+  }
+  if (run && run.state === 'running' && run.held) {
+    out.push({
+      ...base, key: `held:${run.id}:${short(run.held)}`, kind: 'budget', waitingOn: YOU, action: 'open-usage',
+      sentence: `This Goal waits: ${run.held} Its cards, answers and findings are kept.`,
     })
   }
   for (const firing of input.firings) {

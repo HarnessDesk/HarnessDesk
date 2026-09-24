@@ -248,3 +248,52 @@ test('the pure reducer keys, groups and limits one trigger', () => {
   assert.equal(prepareAdmission(b.state, { ...base, key: 'k5', group: 'pr2', head: 'x' }).operation, null, 'the limit')
   void definition
 })
+
+test('a firing whose effects keep failing holds only its own project, then goes to the person', async () => {
+  const home = tempDir('hd-intake-fault-')
+  const OTHER = '/work/other'
+  let moved = true
+  const d = await desk(home, {
+    definition: definition({ concurrency: 5 }),
+    // The other project's folder moved between the firing and its round: not a refusal, a failure.
+    beforeRound: async (project) => { if (moved && project === OTHER) throw new Error('The project folder moved.') },
+  })
+  const other = { ...d.arm, project: OTHER, binding: { ...d.arm.binding, project: OTHER } }
+
+  const failing = await d.admission.offer(other, prFact(1, sha('a'), 'opened', { project: OTHER }))
+  assert.equal(failing.outcome, 'fired', 'the firing is answered: durable, its effects to follow')
+  assert.equal(d.store.read().operations.find((one) => one.key === failing.firing)?.attempts, 1)
+  assert.match(d.admission.fault(OTHER) ?? '', /could not be finished \(The project folder moved\)\. It is tried again on its own/)
+  assert.equal(d.admission.problem, null, 'intake as a whole is not stopped')
+
+  // Every other project keeps running.
+  const fine = await d.admission.offer(d.arm, prFact(2, sha('b'), 'opened'))
+  await d.settle()
+  assert.equal(fine.outcome, 'fired')
+  assert.equal(d.admission.fault(d.arm.project), null)
+  assert.equal(opens((await onDisk(home)).events).length, 1, 'this project’s round seated')
+  // Its own project's new events wait behind it, their cursor kept: an offer is no answer.
+  await assert.rejects(d.admission.offer(other, prFact(3, sha('c'), 'opened', { project: OTHER })), /could not be finished/)
+  assert.equal(d.store.read().firings[prFact(3, sha('c'), 'opened', { project: OTHER }).event], undefined)
+
+  // Recovery tries it again, a bounded number of times, then sets it aside for the person.
+  await d.admission.recover()
+  assert.equal(d.store.read().operations.find((one) => one.key === failing.firing)?.attempts, 2)
+  await d.admission.recover()
+  assert.equal(d.store.read().operations.some((one) => one.key === failing.firing), false, 'set aside: never retried again')
+  const tombstone = d.store.read().firings[failing.firing]
+  assert.ok(tombstone, 'its tombstone is kept')
+  assert.match(tombstone.attention ?? '', /after 3 tries \(The project folder moved\), so it was set aside for you/)
+  assert.equal(d.admission.fault(OTHER), null, 'its project admits again')
+  const events = (await onDisk(home)).events
+  assert.deepEqual(events.filter((one) => one.startsWith(`fault:${OTHER}`)), [`fault:${OTHER}:retry`, `fault:${OTHER}:retry`, `fault:${OTHER}:aside`], 'each failure is said')
+  // A redelivery is still a duplicate: set aside is not forgotten.
+  assert.equal((await d.admission.offer(other, prFact(1, sha('a'), 'opened', { project: OTHER }))).outcome, 'duplicate')
+
+  // Once the folder is back, the project's next fact fires and lands.
+  moved = false
+  const next = await d.admission.offer(other, prFact(4, sha('d'), 'opened', { project: OTHER }))
+  await d.settle()
+  assert.equal(next.outcome, 'fired')
+  assert.deepEqual(d.store.read().operations, [])
+})

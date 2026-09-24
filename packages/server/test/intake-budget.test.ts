@@ -122,9 +122,8 @@ test('midnight and restart keep outstanding reservations', async () => {
 
 test('stopping preserves partial answers and prevents queued work', async () => {
   const stops: readonly [string, (d: Awaited<ReturnType<typeof desk>>, clock: Clock, paused: { value: boolean }, cap: { value: number }) => void, RegExp, string][] = [
+    // A pause and a lowered cap are not stops (review #898): they hold, in the test below.
     ['time', (_d, clock) => { clock.at += 5 * HOUR }, /^Timed out/, 'timed out'],
-    ['pause', (_d, _clock, paused) => { paused.value = true }, new RegExp(`^${PAUSED_STOP}`), 'needs a person'],
-    ['a lowered cap', (_d, _clock, _paused, cap) => { cap.value = usdMicros(1) }, /spend cap is lower than what is already committed/, 'needs a person'],
     ['unknown spend', (d) => { void d }, /^Spend is unknown/, 'needs a person'],
   ]
   for (const [what, stop, reason, kind] of stops) {
@@ -152,6 +151,7 @@ test('stopping preserves partial answers and prevents queued work', async () => 
     const events = (await onDisk(home)).events
     const interrupted = events.indexOf(`interrupt:${goal}`)
     assert.ok(interrupted >= 0, `${what}: active work was interrupted`)
+    assert.ok(events.indexOf(`stop:${goal}`) >= 0 && events.indexOf(`stop:${goal}`) < interrupted, `${what}: the run stops before the rest is interrupted, so an interrupted turn finds nothing to re-arm`)
     const stopped = d.flows.executionsFor(goal).find((one) => one.id === run.id)!
     assert.equal(stopped.state, 'stopped', what)
     assert.match(stopped.reason ?? '', reason, what)
@@ -169,6 +169,63 @@ test('stopping preserves partial answers and prevents queued work', async () => 
     await d.watch.tick()
     assert.equal(d.budgets.state(goal)?.stop?.at, state.stop?.at)
     void PROJECT
+  }
+})
+
+test('a pause or a lowered cap holds work without a recorded stop, and lifting it continues the work', async () => {
+  const holds: readonly [string, (paused: { value: boolean }, cap: { value: number }) => void, (paused: { value: boolean }, cap: { value: number }) => void, RegExp][] = [
+    ['pause', (paused) => { paused.value = true }, (paused) => { paused.value = false }, new RegExp(`^${PAUSED_STOP}`)],
+    ['a lowered cap', (_paused, cap) => { cap.value = usdMicros(1) }, (_paused, cap) => { cap.value = usdMicros(20) }, /spend cap is lower than what is already committed, so this Goal waits\. Raising the cap continues it\./],
+  ]
+  for (const [what, hold, lift, reason] of holds) {
+    const home = tempDir('hd-intake-hold-')
+    const paused = { value: false }
+    const cap = { value: usdMicros(20) }
+    const d = await desk(home, { definition: definition({ again: { role: 'reviewer', title: 'Continue this work', detail: null } }), paused: () => paused.value, capMicros: () => cap.value })
+    const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+    await d.settle()
+    const goal = opened.goal!
+    const run = d.flows.executionsFor(goal)[0]!
+    const reserved = d.store.read().budgets[goal]!.reservedMicros
+
+    hold(paused, cap)
+    await d.watch.tick()
+    await d.settle()
+    const held = d.flows.executionsFor(goal)[0]!
+    assert.equal(d.budgets.state(goal)?.stop, null, `${what}: nothing is recorded as a stop`)
+    assert.equal(held.state, 'running', `${what}: the run is held, not stopped or stalled`)
+    assert.match(held.intake?.heldFor ?? '', reason, what)
+    const events = (await onDisk(home)).events
+    assert.ok(events.includes(`hold:${goal}`) && events.includes(`interrupt:${goal}`), `${what}: held, and its turns interrupted`)
+    assert.ok(!events.includes(`stop:${goal}`), `${what}: never stopped`)
+    // A second sweep does nothing more.
+    await d.watch.tick()
+    assert.equal((await onDisk(home)).events.filter((one) => one === `hold:${goal}`).length, 1, `${what}: held once`)
+    // A later head while the cap holds waits too, with the same reason, and is not lost. (A paused machine reads no source.)
+    if (what === 'a lowered cap') {
+      const later = await d.admission.offer(d.arm, prFact(1, sha('b'), 'pushed'))
+      await d.settle()
+      assert.equal(later.goal, goal)
+      assert.match(d.store.read().operations.find((one) => one.key === later.firing)?.attention ?? '', reason, `${what}: the new head waits with why`)
+    }
+
+    lift(paused, cap)
+    await d.admission.recover()
+    await d.settle()
+    if (what === 'pause') {
+      // What arrived while paused is read once it resumes, and its round opens: nothing was stopped for good.
+      await d.admission.offer(d.arm, prFact(1, sha('b'), 'pushed'))
+      await d.settle()
+    }
+    const continued = d.flows.executionsFor(goal).find((one) => one.id === run.id)!
+    assert.equal(continued.state, 'running', `${what}: continued`)
+    assert.equal(continued.intake?.dispatchHeld, false, `${what}: let go`)
+    assert.equal(continued.intake?.heldFor ?? null, null)
+    assert.equal(continued.rounds.length, 2, `${what}: the head that waited opened its round`)
+    assert.deepEqual(d.store.read().operations, [], `${what}: nothing is left pending`)
+    assert.equal(d.store.read().budgets[goal]!.reservedMicros, reserved, `${what}: one reservation, still held for the open Goal`)
+    assert.equal(committedToday(d.store.read(), utcDay(Date.now())), reserved, `${what}: nothing reserved twice`)
+    assert.equal(opens((await onDisk(home)).events).length, 2, `${what}: the new round seated`)
   }
 })
 

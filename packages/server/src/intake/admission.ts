@@ -39,9 +39,15 @@ import { fullness, GROUP_LIMIT, type IntakeFiring, type IntakeGroup, type Intake
  *   decided under the Goal plane's own queue, which a wrap takes too: the
  *   firing lands first and the wrap waits, or the wrap has begun and the
  *   firing opens a new generation — never both.
- * - **A fault stops intake.** An effect that fails leaves its operation
- *   prepared, and no later fact is admitted until it is finished: a newer
- *   head never overtakes an older one that has not landed.
+ * - **A fault is scoped to its project.** An effect that fails for a reason
+ *   that is not a refusal — a project folder that moved, a run that would
+ *   not start — leaves its operation where it was and holds that project
+ *   alone: its later firings wait behind it, and its new facts are not
+ *   answered (their cursor kept), so a newer head never overtakes an older
+ *   one that has not landed. Every other project keeps running. After a
+ *   bounded number of attempts (`FAULT_ATTEMPTS`) the operation goes to the
+ *   person: set aside with its tombstone and why, never retried or replayed,
+ *   and its project admits again (review #898).
  *
  * Lock order: this queue is taken after an intake source's queue and before
  * everything its effects reach — publication, run, Team, Goal, project.
@@ -142,6 +148,8 @@ export interface AdmissionEffects {
   ensureRound(operation: IntakeOperation, evidence: readonly string[]): Promise<string | null>
   /** Releases an applied operation's dispatch when every gate allows it; the reason it waits otherwise. */
   release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string }>
+  /** Lets go of runs a pause or the cap held, once their gate allows it again (`IntakeTargets.releaseHeld`). */
+  releaseHeld?(): Promise<void>
 }
 
 export type AdmissionStep = 'prepared' | 'applied' | 'dispatched'
@@ -149,6 +157,13 @@ export type AdmissionStep = 'prepared' | 'applied' | 'dispatched'
 export interface AdmissionOptions {
   /** Told after each journaled step is durable: for the host's log, and for crash tests to stop the process there. */
   readonly onStep?: (step: AdmissionStep, operation: IntakeOperation) => void
+  /**
+   * Told when a firing's effects failed (`final` false: it is tried again,
+   * and its project waits) and when they were set aside for the person after
+   * the last attempt (`final` true), and with null when its project admits
+   * again: what the plane names as a wait.
+   */
+  readonly onFault?: (fault: { readonly project: string; readonly trigger: string; readonly key: string; readonly goal: string; readonly reason: string; readonly final: boolean } | { readonly project: string; readonly cleared: true }) => void
   /** Reserved ids; random by default. */
   readonly mint?: () => string
 }
@@ -167,6 +182,12 @@ export const skipConcurrency = (limit: number): string =>
   `This trigger already has ${limit} open ${limit === 1 ? 'Goal' : 'Goals'}, its limit, so this did not fire. Wrap one to make room; this is not replayed.`
 export const PAUSED = 'Triggers are paused on this machine, so nothing is admitted until they resume.'
 export const AGAIN_MISSING = 'New work arrived for this Goal, and this trigger opens no further round. It was recorded; decide what to do with it.'
+/** How many times a firing's effects are tried before they go to the person. */
+export const FAULT_ATTEMPTS = 3
+export const faultWaiting = (reason: string): string =>
+  `A firing could not be finished (${reason}). It is tried again on its own; until it lands, this project’s new events wait. Other projects keep running.`
+export const faultSetAside = (reason: string): string =>
+  `A firing could not be finished after ${FAULT_ATTEMPTS} tries (${reason}), so it was set aside for you and will not run on its own. Nothing else of this project waits on it.`
 
 /** The token `again` compares: a pull request's head, an issue event's own immutable id, nothing for a schedule. */
 const comparison = (fact: TriggerFact): string | null =>
@@ -195,8 +216,8 @@ export class Admission {
   readonly #effects: AdmissionEffects
   readonly #options: AdmissionOptions
   readonly #serial = new Serial()
-  /** Why no new fact is admitted until recovery finishes, or null. */
-  #fault: string | null = null
+  /** Projects whose oldest unfinished firing failed and is being tried again: their new facts wait, every other project's do not. */
+  readonly #faults = new Map<string, string>()
   /** Goals a firing claimed under the Goal plane's queue and has not yet journaled. */
   readonly #claiming = new Set<string>()
 
@@ -207,8 +228,13 @@ export class Admission {
     this.#options = options
   }
 
-  /** Why intake admits nothing now: an unreadable journal, or an effect that has not finished. Null when it admits. */
-  get problem(): string | null { return this.#store.problem ?? this.#fault }
+  /** Why intake admits nothing now, anywhere: an unreadable journal. Null when it admits. */
+  get problem(): string | null { return this.#store.problem }
+
+  /** Why a project's facts wait now — a firing of it that has not landed and is tried again — or null. */
+  fault(project: string): string | null {
+    return this.#faults.get(project) ?? null
+  }
 
   /** How full the journal is, as a sentence, or null. */
   get warning(): string | null {
@@ -242,8 +268,10 @@ export class Admission {
   offer(arm: ArmedTrigger, fact: TriggerFact, options: { readonly binding?: () => Promise<ArmBinding | null> } = {}): Promise<OfferAnswer> {
     return this.#serial.run(async () => {
       if (this.#store.problem) throw new Error(this.#store.problem)
-      if (this.#fault) await this.#recover()
       if (this.#port.paused()) throw new Error(PAUSED)
+      // A firing of this project has not landed: this fact waits behind it, its cursor kept. Other projects do not.
+      const fault = this.#faults.get(arm.project)
+      if (fault !== undefined) throw new Error(fault)
       const definition = arm.definition
       const key = dedupeKey(arm.binding.incarnation, definition, fact)
       const group = groupKey(arm.binding.incarnation, definition, fact)
@@ -350,14 +378,27 @@ export class Admission {
 
   async #recover(): Promise<void> {
     if (this.#store.problem) throw new Error(this.#store.problem)
-    this.#fault = null
-    await this.#finish()
+    // Recovery is what tries a failed firing again; an offer never does.
+    await this.#finish(true)
+    // Then what a pause or the cap held, with no firing of its own still pending: a resume continues it.
+    await this.#effects.releaseHeld?.()
   }
 
-  /** Applies prepared operations and releases applied ones, oldest first; the first failure stops the rest and is the fault. */
-  async #finish(): Promise<void> {
+  /**
+   * Applies prepared operations and releases applied ones, oldest first.
+   * A failure holds its own project only: that project's later operations
+   * wait, every other project's go on. `retry` — recovery, never an offer —
+   * tries a failed one again, and sets it aside for the person once it has
+   * failed `FAULT_ATTEMPTS` times.
+   */
+  async #finish(retry = false): Promise<void> {
+    const held = new Set<string>()
     for (const pending of this.#store.read().operations) {
-      if (pending.dispatched) continue
+      if (pending.dispatched || held.has(pending.project)) continue
+      if (!retry && this.#faults.has(pending.project)) {
+        held.add(pending.project)
+        continue
+      }
       try {
         await applyAdmission(pending, {
           ensureGoal: (operation) => this.#effects.ensureGoal(operation),
@@ -381,9 +422,11 @@ export class Admission {
             }
           },
         })
+        if (this.#faults.delete(pending.project)) this.#options.onFault?.({ project: pending.project, cleared: true })
       } catch (error) {
-        this.#fault = `A trigger firing could not be finished: ${error instanceof Error ? error.message : String(error)}. Nothing more fires until it is.`
-        throw new Error(this.#fault)
+        const reason = (error instanceof Error ? error.message : String(error)).replace(/\.$/, '')
+        held.add(pending.project)
+        await this.#failed(pending.key, reason)
       }
     }
     // Released operations keep only their tombstone: the firing record — with why it needed a person, if it did — and the group.
@@ -396,6 +439,36 @@ export class Admission {
       }
       await this.#store.commit({ ...snapshot, firings, operations: snapshot.operations.filter((one) => !one.dispatched) })
     }
+  }
+
+  /**
+   * One failed attempt at a firing's effects, recorded. Under the bound its
+   * project waits for the next recovery; at it, the operation is set aside
+   * for the person — its firing's tombstone kept with why, its Goal and
+   * whatever it already made left for them, nothing of it retried — and its
+   * project admits again.
+   */
+  async #failed(key: string, reason: string): Promise<void> {
+    const snapshot = this.#store.read()
+    const operation = snapshot.operations.find((one) => one.key === key)
+    if (!operation) return
+    const attempts = (operation.attempts ?? 0) + 1
+    if (attempts < FAULT_ATTEMPTS) {
+      const waiting = faultWaiting(reason)
+      await this.#update(key, (one) => ({ ...one, attempts, failure: reason }))
+      this.#faults.set(operation.project, waiting)
+      this.#options.onFault?.({ project: operation.project, trigger: operation.trigger, key, goal: operation.goal, reason: waiting, final: false })
+      return
+    }
+    const aside = faultSetAside(reason)
+    const firing = snapshot.firings[key]
+    await this.#store.commit({
+      ...snapshot,
+      operations: snapshot.operations.filter((one) => one.key !== key),
+      firings: firing ? { ...snapshot.firings, [key]: { ...firing, attention: aside } } : snapshot.firings,
+    })
+    this.#faults.delete(operation.project)
+    this.#options.onFault?.({ project: operation.project, trigger: operation.trigger, key, goal: operation.goal, reason: aside, final: true })
   }
 
   async #update(key: string, change: (operation: IntakeOperation) => IntakeOperation): Promise<IntakeOperation> {
