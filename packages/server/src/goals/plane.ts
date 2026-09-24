@@ -204,6 +204,24 @@ export class GoalPlane {
     }
   }
 
+  /**
+   * Folds every already-saved Goal document's citation index back into the
+   * memory plane after a restart. `MemoryPlane.resolve` answers only from
+   * the in-memory registry `register` builds — it never scans the archive
+   * folder itself — so without this, a citation made and wrapped in one
+   * process would read back "The original source was not retained" in the
+   * very next one, even though nothing about it was actually lost. A
+   * document's own `restored` marker (backup-imported history, never this
+   * desk's own prior run) is what `register` is told: a Goal this desk
+   * wrote and is simply reloading is not "restored" just because the
+   * process that wrote it has since exited.
+   */
+  async hydrateMemory(): Promise<void> {
+    for (const document of this.store.list()) {
+      if (document.memory) this.memory.register(document.memory, document.restored !== undefined)
+    }
+  }
+
   async create(input: GoalCreateInput): Promise<GoalView> {
     return this.serial.run(async () => {
       const ready = this.port.ready()

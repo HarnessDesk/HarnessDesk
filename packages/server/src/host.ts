@@ -1377,6 +1377,12 @@ export class Host {
     // in-memory comparison point only after they have settled, so the first
     // later change can cross the notification boundary normally.
     await this.#goals.hydrateActivity()
+    // Every already-saved Goal's citations, back into the memory plane this
+    // launch just constructed fresh — otherwise a citation retained before
+    // the last restart reads back as never retained at all (#886-adjacent:
+    // found proving phase 12's own CDP walkthrough step, "a citation
+    // resolves after the Goal that made it ends").
+    await this.#goals.hydrateMemory()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
