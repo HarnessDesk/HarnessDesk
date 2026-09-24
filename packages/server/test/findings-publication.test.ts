@@ -502,3 +502,35 @@ test('a wrap preview holding the Goal queue never waits on a run that is seating
   assert.equal(stepped, 'seated', 'the run seated its cards once the preview let the Goal queue go')
   assert.equal(f.cards('reviewer').filter((one) => one.state === 'claimed').length, 2)
 })
+
+test('a second event of one finding in the same batch waits for the first rather than reading its own landing as a person’s edit', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  forge.anchorOk = false
+  const { first } = await review(r, { second: false })
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const root = (await f.view(first.id)).posted[0]!
+  assert.equal(root.kind, 'issue-comment')
+  // The fixer claims the repair twice in one round; the first append lands and its answer is lost.
+  f.rig.heads.set('/repo', { at: SHA2, dirty: false })
+  forge.head = SHA2
+  r.bindPullRequest(SHA2)
+  const [, fixCard] = f.cards('fixer')
+  await f.plane.repair({ intent: fixCard!.id, finding: first.id, request: 'fix-1', expected: (await f.view(first.id)).sequence, note: 'First try.' }, f.scope('seat-4'))
+  await f.plane.repair({ intent: fixCard!.id, finding: first.id, request: 'fix-2', expected: (await f.view(first.id)).sequence, note: 'Second try.' }, f.scope('seat-4'))
+  let n = 0
+  forge.onSend = () => (++n === 1 ? 'lose' : 'ok')
+  await f.finishFixer()
+  await r.pub.idle()
+  const repairs = r.entries().filter((entry) => entry.round === 3)
+  assert.equal(repairs.length, 2)
+  const [one, two] = f.rig.executions.stored(f.run)!.publication!.rounds['3']!.keys.map((key) => repairs.find((entry) => entry.key === key)!)
+  assert.equal(one!.state, 'uncertain', 'the first append’s answer was lost')
+  assert.equal(two!.state, 'prepared')
+  assert.match(two!.reason ?? '', /An earlier posting of this finding has not settled/)
+  assert.doesNotMatch(two!.reason ?? '', /Someone changed/, 'the desk’s own landing is never taken for a person’s edit')
+  assert.equal(forge.sends.filter((send) => send.key === two!.key).length, 0, 'nothing was sent for the second')
+  const comment = forge.comments.find((c) => c.id === root.comment)!
+  assert.doesNotMatch(comment.body, /Second try/)
+})

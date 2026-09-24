@@ -800,9 +800,18 @@ export class Publications implements FindingPublisher {
       }
       return inline ? { kind: 'go', body, anchor: view.anchor, placement: 'inline', parent: null, expected: null, wrote: null } : general
     }
-    // A later event goes to its finding's thread, which an earlier posting of it may still be settling.
-    const waiting = await this.#port.journal(entry.run, async (journal) => journal.entries().some((one) =>
-      one.key !== entry.key && isFindingPublication(one) && one.finding === entry.finding && one.round < entry.round && UNSETTLED.has(one.state)))
+    /* A later event goes to its finding's thread, which an earlier posting of
+       it may still be settling — in an earlier round, or earlier in this same
+       batch. Sent anyway, it would start a second thread, or append against
+       a comment whose last write the desk cannot see yet and take its own
+       landing for a person's edit. */
+    const waiting = await this.#port.journal(entry.run, async (journal) => {
+      const order = journal.round(entry.round)?.keys ?? []
+      const earlier = (one: PublicationEntry): boolean => one.round < entry.round ||
+        (one.round === entry.round && order.indexOf(one.key) >= 0 && order.indexOf(one.key) < order.indexOf(entry.key))
+      return journal.entries().some((one) =>
+        one.key !== entry.key && isFindingPublication(one) && one.finding === entry.finding && earlier(one) && UNSETTLED.has(one.state))
+    })
     if (waiting) return pause('An earlier posting of this finding has not settled, so this waits for a person rather than starting a second thread.')
     const root = rootOf(view)
     if (!root || root.repo !== entry.repo || root.pr !== entry.pr) return general
