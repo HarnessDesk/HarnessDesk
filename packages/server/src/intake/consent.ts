@@ -187,8 +187,8 @@ export interface TriggerConsentPort {
   /** The admitted root's triggers file, as committed. Throws a sentence when the file is refused. */
   source(root: string): Promise<TriggerSourceFile>
   readonly closure: TriggerPreviewPort
-  /** The signed-in forge identity as an opaque digest, or why there is none. */
-  account(): Promise<{ readonly account: string } | { readonly refused: string; readonly fix: string }>
+  /** The signed-in forge identity as an opaque digest, or why there is none; read from the project's own folder. */
+  account(project: string): Promise<{ readonly account: string } | { readonly refused: string; readonly fix: string }>
   /** The forge repository this project is observed on, or why none can be. */
   repository(project: string): Promise<{ readonly repository: string } | { readonly refused: string; readonly fix: string }>
   /**
@@ -413,7 +413,7 @@ export class TriggerConsent {
     let account = 'none'
     let repository: string | null = null
     if (definition.on.kind !== 'schedule') {
-      const signedIn = await this.#port.account()
+      const signedIn = await this.#port.account(file.project)
       if ('refused' in signedIn) problems.push({ at: 'account', text: signedIn.refused, fix: signedIn.fix })
       else account = signedIn.account
       const repo = await this.#port.repository(file.project)

@@ -239,6 +239,53 @@ export class TriggerBudgets {
     })
   }
 
+  /**
+   * One read of a Goal's usage, folded in one save with the turn it was read
+   * for: every sample attributed to exactly one of the Goal's Seats, then —
+   * when the read covered everything — each Seat the desk can vouch for is
+   * witnessed as read at `read.at`, then the turn's start or end is
+   * recorded. A turn's end is only ever recorded with the read made after
+   * it, so a finished turn is metered in the same save that says it ended;
+   * a read with gaps witnesses nothing, and the turn then reads as not yet
+   * metered — unknown, never zero.
+   *
+   * A Seat is witnessed only when the desk has read it before, or it is a
+   * session the desk opened at zero: an older session found with nothing
+   * says nothing about what it spent.
+   */
+  read(
+    goal: string, samples: readonly UsageSample[], seats: readonly SeatRecord[],
+    read: { readonly at: number; readonly complete: boolean },
+    turn?: { readonly seat: string; readonly started?: number; readonly ended?: number },
+  ): Promise<void> {
+    const windows = seats.map(seatWindowOf)
+    return this.#transact((snapshot) => {
+      const budget = snapshot.budgets[goal]
+      if (!budget) return { next: null, value: undefined }
+      const meters: Record<string, SessionMeter> = { ...budget.meters }
+      for (const sample of samples) {
+        const id = attributeSample(sample, windows)
+        const seat = id === null ? null : seats.find((one) => one.id === id) ?? null
+        if (!seat || seat.board !== goal) continue
+        const meter = meters[seat.id] ?? openMeter({
+          seat: seat.id, runtime: seat.session.runtime, sessionId: seat.session.sessionId, project: seat.checkout.project,
+          openedAt: seat.openedAt, fresh: false, delegation: 'unknown',
+        })
+        meters[seat.id] = meterSample(meter, sample)
+      }
+      if (read.complete) {
+        for (const [id, meter] of Object.entries(meters)) {
+          if (meter.unknown !== null || !(meter.observedAt !== null || meter.fresh)) continue
+          meters[id] = { ...meter, observedAt: Math.max(meter.observedAt ?? 0, read.at) }
+        }
+      }
+      if (turn && meters[turn.seat]) meters[turn.seat] = meterTurn(meters[turn.seat]!, turn)
+      if (JSON.stringify(meters) === JSON.stringify(budget.meters)) return { next: null, value: undefined }
+      const clock = Math.max(snapshot.clock, this.#port.now())
+      return { next: { ...snapshot, clock, budgets: { ...snapshot.budgets, [goal]: { ...budget, meters } } }, value: undefined }
+    })
+  }
+
   /** Records a stop — the first one stands — which refuses every later dispatch. */
   stop(goal: string, reason: TriggerStopReason, detail: string): Promise<boolean> {
     return this.#transact((snapshot) => {

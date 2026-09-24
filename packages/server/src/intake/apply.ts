@@ -2,7 +2,7 @@ import type { FlowExecution, FlowRoundState, GoalView, TriggerFact } from '@harn
 
 import { TriggerRefusal, type TriggerStartRequest } from '../flow-execution.js'
 import type { TriggerGoalRequest } from '../goals/plane.js'
-import type { AdmissionEffects } from './admission.js'
+import { AGAIN_MISSING, type AdmissionEffects } from './admission.js'
 import type { IntakeOperation } from './store.js'
 
 /**
@@ -61,7 +61,20 @@ export interface IntakeTargets {
    * pause, the arm still standing, budgets, named waits. Null when it may go.
    */
   gate(operation: IntakeOperation): Promise<string | null>
+  /**
+   * A later firing brought a new head to an open Goal: work still running
+   * for the old one is stopped before anything else of this firing happens —
+   * the run's dispatch held (when a new round follows) or the run stopped for
+   * a person (when none does), then every live turn on the Goal interrupted,
+   * its answer so far kept. Idempotent: a replay holds and interrupts nothing
+   * new. Absent, nothing is stopped.
+   */
+  supersede?(operation: IntakeOperation): Promise<void>
 }
+
+/** Whether a firing brought an open Goal a head its running work was not started for. */
+export const supersedes = (operation: IntakeOperation): boolean =>
+  operation.mode === 'again' || (operation.mode === 'record' && operation.attention === AGAIN_MISSING)
 
 /**
  * A firing's effects over the real Goal plane, flow engine and evidence
@@ -98,6 +111,8 @@ export class IntakeEffects implements AdmissionEffects {
 
   async ensureRound(operation: IntakeOperation, evidence: readonly string[]): Promise<string | null> {
     const payload = this.#payload(operation)
+    // The old head's work stops first: nothing of it is handed a card again once this round exists.
+    if (supersedes(operation)) await this.#targets.supersede?.(operation)
     try {
       if (operation.mode === 'start') {
         const run = await this.#targets.flows.startTriggered({

@@ -1423,6 +1423,25 @@ export class FlowExecutions {
     })
   }
 
+  /**
+   * A later firing brought a new head (phase 8): work on the old one stops.
+   * With a round to follow, dispatch is held — the old round's cards are
+   * never handed out again, and the new round waits for its release; with
+   * none, the run waits for a person with the reason. Idempotent, and it
+   * never discards a card, an answer or a finding.
+   */
+  supersedeTriggered(id: string, why: string, next: 'round' | 'person'): Promise<void> {
+    return this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      if (next === 'round') {
+        if (!run.intake.dispatchHeld) await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true } })
+        return
+      }
+      if (run.state === 'running' && run.reason !== why) await this.#stall(id, why)
+    })
+  }
+
   /** Whether a trigger's run may dispatch now: not held, and its gate allows it. Stalls it with the gate's reason when not. */
   async #mayDispatch(id: string): Promise<boolean> {
     const run = this.#get(id)

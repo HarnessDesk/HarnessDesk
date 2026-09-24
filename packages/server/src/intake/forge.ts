@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type { TriggerAction, TriggerFact, TriggerSource } from '@harnessdesk/protocol'
 
 import { spawnGh, type GhApiRunner } from '../findings/forge.js'
@@ -239,6 +241,26 @@ export class ForgeSource {
     const name = answer['nameWithOwner']
     if (!validRepo(name) || confined(answer['url'], `/${name}`) === null) return none
     return { repository: name }
+  }
+
+  /**
+   * Who the forge is signed in as, as an opaque digest of the forge and its
+   * numeric account id — never a login, an address or a token. An arm binds
+   * it, so signing in as someone else lists the trigger as changed.
+   */
+  async account(project: string): Promise<{ readonly account: string } | { readonly refused: string; readonly fix: string }> {
+    const refused = { refused: 'The forge is not signed in, so no trigger can read it.', fix: 'Sign in with gh auth login, then preview again.' }
+    let answer: unknown
+    try {
+      answer = await this.#get(project, 'user', Date.now() + this.#timeoutMs, new AbortController().signal)
+    } catch (error) {
+      return error instanceof ForgeReadError && error.kind !== 'signed-out'
+        ? { refused: 'The forge could not be asked who is signed in.', fix: 'Check the connection, then preview again.' }
+        : refused
+    }
+    const id = isMap(answer) ? answer['id'] : null
+    if (!Number.isSafeInteger(id) || (id as number) < 1) return refused
+    return { account: createHash('sha256').update(JSON.stringify(['github.com', id])).digest('hex') }
   }
 
   /** One read, bounded in time and bytes; a failure by kind. */

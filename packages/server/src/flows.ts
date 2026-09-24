@@ -361,6 +361,12 @@ export class Flows implements TeamFlows {
     return this.#executions.resumeTriggered(run)
   }
 
+  /** Phase 8, host-only: a new head stops the old one's work. See `FlowExecutions.supersedeTriggered`. */
+  supersedeTriggered(run: string, why: string, next: 'round' | 'person'): Promise<void> {
+    if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
+    return this.#executions.supersedeTriggered(run, why, next)
+  }
+
   /** Every run on this Goal, as execution state. */
   executionsFor(goal: string): FlowExecution[] {
     return this.#executions?.runs(goal) ?? []

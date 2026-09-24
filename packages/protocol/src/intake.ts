@@ -112,18 +112,92 @@ export interface TriggerDocument {
 
 // ------------------------------------------------------------------ arming
 
+/** A trigger id as a project declares it: an ASCII slug of 1–64 characters. */
+export const TRIGGER_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/
+
 /**
- * One firing, as history shows it: which trigger, when, and what became of
- * it. A public row, never raw event bytes. Admission (phase 8, task 4) and
- * the history surface complete it; until then no row is ever produced.
+ * One firing, as history shows it: which trigger, what it was about, when,
+ * and what became of it. A public row, never raw event bytes: `subject` is
+ * the pull request or issue number, or the slot's instant, and `head` a
+ * pull request's commit id. `pending` is a firing whose effects are still
+ * being applied; `recorded` one that joined an open Goal without a round.
  */
 export interface TriggerFiring {
   readonly id: string
   readonly trigger: string
+  readonly source: TriggerSource
+  readonly subject: string
   readonly at: number
-  readonly outcome: 'fired' | 'skipped' | 'duplicate'
-  readonly goal: string | null
+  readonly outcome: 'fired' | 'recorded' | 'skipped' | 'duplicate' | 'pending'
   readonly reason: string | null
+  readonly goal: string | null
+  readonly run: string | null
+  readonly round: number | null
+  readonly head: string | null
+}
+
+/** One page of a trigger's history, newest first; `next` is opaque. */
+export interface TriggerHistoryPage {
+  readonly items: readonly TriggerFiring[]
+  readonly next: string | null
+}
+
+/** At most this many rows a history page carries. */
+export const TRIGGER_HISTORY_PAGE = 50
+
+/**
+ * This machine's trigger controls: a person's, never a trigger's. `revision`
+ * only grows; a write names the revision it read. Money is in USD: the cap is
+ * what every trigger may reserve today (UTC), `chargedUsd` what settled
+ * today — null when it cannot be vouched for — and `reservedUsd` what open
+ * Goals still hold against it.
+ */
+export interface TriggerPreferences {
+  readonly revision: number
+  readonly paused: boolean
+  readonly dailyUsd: number
+  readonly day: string
+  readonly chargedUsd: number | null
+  readonly reservedUsd: number
+}
+
+/** The most a daily cap may be set to. */
+export const TRIGGER_DAILY_USD_MAX = 10_000
+
+export type TriggerAttentionKind =
+  | 'message' | 'approval' | 'question' | 'person-step' | 'member' | 'budget' | 'source' | 'publication' | 'skipped'
+
+/**
+ * One named wait on unattended work: who it waits on, in a sentence, and
+ * what opens it. One id per underlying request or reason, persisted before
+ * it is announced, so a reconnect or a restart replays it and never makes
+ * a second one. `notification` says whether the person was told outside the
+ * app — never claimed when they were not.
+ */
+export interface TriggerAttention {
+  readonly id: string
+  readonly goal: string | null
+  readonly trigger: string
+  readonly kind: TriggerAttentionKind
+  readonly waitingOn: { readonly kind: 'person' | 'member' | 'service'; readonly label: string }
+  readonly sentence: string
+  readonly action: 'open-goal' | 'open-trigger' | 'open-permissions' | 'open-usage'
+  readonly createdAt: number
+  readonly resolvedAt: number | null
+  readonly notification: 'pending' | 'delivered' | 'unavailable'
+}
+
+/** A trigger Goal as its surfaces show it: where it came from, its budget, and every wait on it. */
+export interface TriggerGoalStatus {
+  readonly goal: string
+  readonly trigger: string
+  readonly source: TriggerSource
+  /** Host-made: "from PR #12", "from issue #7", "from a schedule" — never a title from outside. */
+  readonly label: string
+  /** The bound forge's own address for the subject, or null. */
+  readonly url: string | null
+  readonly budget: TriggerBudgetState | null
+  readonly waits: readonly TriggerAttention[]
 }
 
 /**

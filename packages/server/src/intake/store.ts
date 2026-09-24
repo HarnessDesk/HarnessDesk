@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerStopReason } from '@harnessdesk/protocol'
+import { TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerSource, type TriggerStopReason } from '@harnessdesk/protocol'
 
 import { syncDirectory } from '../goals/store.js'
 import type { ArmBinding } from './consent.js'
@@ -79,6 +79,8 @@ export interface IntakeOperation {
   readonly payload: IntakePayload | null
   /** Why its round did not open or its dispatch waits, for a person: null when neither. */
   readonly attention: string | null
+  /** What its round's own opening said, kept apart from a gate's passing refusal so a release restores it. */
+  readonly roundAttention?: string | null
   readonly preparedAt: number
 }
 
@@ -99,6 +101,20 @@ export interface IntakeFiring {
   readonly outcome: 'fired' | 'skipped'
   readonly goal: string | null
   readonly reason: string | null
+  /**
+   * What history shows of the fact, from validated scalars only: its source,
+   * its subject (a number, or a slot's instant), a pull request's head, the
+   * repository the arm bound, the run and the round intent it took. Absent
+   * on a journal written before history read them.
+   */
+  readonly source?: TriggerSource
+  readonly subject?: string
+  readonly head?: string | null
+  readonly repository?: string | null
+  readonly run?: string | null
+  readonly mode?: 'start' | 'again' | 'record' | null
+  /** Why its round did not open or its dispatch waited, kept once the operation itself is released. */
+  readonly attention?: string | null
 }
 
 /** One trigger Goal generation's money and time: made with its first firing, never reset by a later one. */
@@ -222,6 +238,18 @@ const budgetOf = (value: unknown): boolean => {
   return isMap(meters) && Object.keys(meters).length <= 256 && Object.entries(meters).every(([seat, meter]) => meterOf(meter) && (meter as { seat: string }).seat === seat)
 }
 
+/** A firing's history fields, each optional and each held to what the monitor and admission write. */
+const historyFits = (firing: Record<string, unknown>): boolean => {
+  const absentOr = (key: string, check: (value: unknown) => boolean): boolean => firing[key] === undefined || check(firing[key])
+  return absentOr('source', (value) => TRIGGER_SOURCES.includes(value as never)) &&
+    absentOr('subject', (value) => typeof value === 'string' && /^[1-9][0-9]{0,15}$/.test(value)) &&
+    absentOr('head', (value) => value === null || SHA.test(String(value))) &&
+    absentOr('repository', (value) => value === null || (text(value, 200) && REPO.test(value as string))) &&
+    absentOr('run', (value) => value === null || RUN_ID.test(String(value))) &&
+    absentOr('mode', (value) => value === null || ['start', 'again', 'record'].includes(value as string)) &&
+    absentOr('attention', (value) => value === null || text(value))
+}
+
 /** The whole snapshot, read strictly: any part it cannot read refuses all of it. */
 export const snapshotOf = (value: unknown): IntakeSnapshot => {
   const bad = (why: string): never => { throw new Error(`The intake journal cannot be read (${why}). Its original bytes were kept.`) }
@@ -241,7 +269,8 @@ export const snapshotOf = (value: unknown): IntakeSnapshot => {
   for (const [key, firing] of Object.entries(firings)) {
     if (!HEX.test(key) || !isMap(firing) || !slug(firing['trigger']) || !filled(firing['project']) || !time(firing['at']) ||
       (firing['outcome'] !== 'fired' && firing['outcome'] !== 'skipped') ||
-      !(firing['goal'] === null || GOAL_ID.test(String(firing['goal']))) || !(firing['reason'] === null || text(firing['reason']))) bad('a firing')
+      !(firing['goal'] === null || GOAL_ID.test(String(firing['goal']))) || !(firing['reason'] === null || text(firing['reason'])) ||
+      !historyFits(firing)) bad('a firing')
   }
   const groups = value['groups'] as Record<string, unknown>
   if (Object.keys(groups).length > GROUP_LIMIT) bad('too many groups')
@@ -257,7 +286,8 @@ export const snapshotOf = (value: unknown): IntakeSnapshot => {
       !(operation['head'] === null || text(operation['head'], 128)) || !filled(operation['roundKey'], 256) ||
       !['start', 'again', 'record'].includes(operation['mode'] as string) || !['prepared', 'applied'].includes(operation['state'] as string) ||
       typeof operation['dispatched'] !== 'boolean' || !(Number.isSafeInteger(operation['generation']) && (operation['generation'] as number) >= 1) ||
-      !(operation['attention'] === null || text(operation['attention'])) || !time(operation['preparedAt'])) bad('an operation')
+      !(operation['attention'] === null || text(operation['attention'])) || !time(operation['preparedAt']) ||
+      !(operation['roundAttention'] === undefined || operation['roundAttention'] === null || text(operation['roundAttention']))) bad('an operation')
     const op = operation as Record<string, unknown>
     let payload: IntakePayload | null
     try {
@@ -353,6 +383,18 @@ export class IntakeStore {
     } finally {
       await handle.close()
     }
+  }
+
+  /** Whether any trigger Goal has a budget here, or any firing is still being applied: a read that copies nothing. */
+  get busy(): boolean {
+    return this.#problem === null && (this.#snapshot.operations.length > 0 || Object.keys(this.#snapshot.budgets).length > 0)
+  }
+
+  /** Whether a Goal has a budget, and — given one — whether that Seat has a meter on it: reads that copy nothing. */
+  metered(goal: string, seat?: string): boolean {
+    if (this.#problem !== null) return false
+    const budget = this.#snapshot.budgets[goal]
+    return budget !== undefined && (seat === undefined || budget.meters[seat] !== undefined)
   }
 
   /** The snapshot as it stands on the disk: a copy, so a caller's edits never change it. */

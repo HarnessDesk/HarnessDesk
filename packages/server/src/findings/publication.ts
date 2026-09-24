@@ -54,11 +54,36 @@ export interface FindingPublication {
 /** A review's own summary — a zero-findings review is posted too — keyed by its review evidence id. */
 export type ReviewPublication = Omit<FindingPublication, 'finding' | 'parent'> & { readonly review: string }
 
+/** What one closed round's single review would carry, as it was sent: fixed on disk before the send. */
+export interface SummaryPayload {
+  readonly body: string
+  readonly comments: readonly { readonly finding: string; readonly path: string; readonly line: number; readonly side: 'LEFT' | 'RIGHT'; readonly body: string }[]
+}
+
+/**
+ * A closed round's one pull request review (phase 8): every review answer of
+ * the round and every finding it raised, posted as a single `COMMENT` review
+ * pinned to the head the round reviewed. Keyed by run, round, head and kind,
+ * so the same close always makes the same key and a round never gets two.
+ */
+export type SummaryPublication = Omit<FindingPublication, 'finding' | 'parent'> & {
+  readonly summary: {
+    /** The round's review records, in the order they were recorded. */
+    readonly reviews: readonly string[]
+    /** The raise records of the findings it posts, in the order they were raised. */
+    readonly findings: readonly string[]
+  }
+  /** What was sent — the body and its inline comments — written with `started`, before the send. */
+  readonly sent: SummaryPayload | null
+  /** Where it landed: the review and each inline comment, as the forge answered or was read back. */
+  readonly posted: SummaryReviewLocation | null
+}
+
 /** Where an operation goes, decided just before it starts. */
 export type Placement = 'inline' | 'reply' | 'general' | 'append'
 
-/** A journaled operation: either kind, with what was decided around its send. */
-export type PublicationEntry = (FindingPublication | ReviewPublication) & {
+/** A journaled operation: any kind, with what was decided around its send. */
+export type PublicationEntry = (FindingPublication | ReviewPublication | SummaryPublication) & {
   readonly placement: Placement | null
   /** For an append: the comment's content chain as the desk last wrote it, compared before the update. */
   readonly expected: string | null
@@ -108,6 +133,9 @@ export interface PublicationJournal {
 export const isFindingPublication = (entry: PublicationEntry): entry is FindingPublication & PublicationEntry =>
   Object.hasOwn(entry, 'finding')
 
+export const isSummaryPublication = (entry: PublicationEntry): entry is SummaryPublication & PublicationEntry =>
+  Object.hasOwn(entry, 'summary')
+
 const STATES = new Set(['prepared', 'started', 'posted', 'uncertain', 'skipped'])
 const PLACEMENTS = new Set(['inline', 'reply', 'general', 'append'])
 const MODES = new Set(['batch', 'local', 'refused'])
@@ -117,6 +145,21 @@ const orNull = (value: unknown, check: (value: unknown) => boolean): boolean => 
 const positive = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) > 0
 const isPost = (value: unknown): boolean => object(value) && text(value['repo']) && positive(value['pr']) && positive(value['comment']) &&
   (value['kind'] === 'review-comment' || value['kind'] === 'issue-comment') && text(value['url']) && text(value['operation'])
+
+const isLocation = (value: unknown): boolean => object(value) && text(value['id']) && text(value['url']) && Array.isArray(value['comments']) &&
+  (value['comments'] as unknown[]).length <= SUMMARY_COMMENTS &&
+  (value['comments'] as unknown[]).every((one) => object(one) && text(one['finding']) && text(one['id']) && text(one['url']))
+const isPayload = (value: unknown): boolean => object(value) && typeof value['body'] === 'string' &&
+  Buffer.byteLength(value['body'], 'utf8') <= SUMMARY_BODY_BYTES && Array.isArray(value['comments']) &&
+  (value['comments'] as unknown[]).length <= SUMMARY_COMMENTS &&
+  (value['comments'] as unknown[]).every((one) => object(one) && text(one['finding']) && text(one['path']) && positive(one['line']) &&
+    (one['side'] === 'LEFT' || one['side'] === 'RIGHT') && text(one['body']))
+const summaryFits = (entry: Record<string, unknown>): boolean => {
+  const summary = entry['summary']
+  return object(summary) && Array.isArray(summary['reviews']) && (summary['reviews'] as unknown[]).every(text) &&
+    Array.isArray(summary['findings']) && (summary['findings'] as unknown[]).every(text) &&
+    orNull(entry['sent'], isPayload) && orNull(entry['posted'], isLocation) && !Object.hasOwn(entry, 'finding')
+}
 
 /** A run file's publications, checked whole; throws with what is wrong. */
 export const publicationOf = (value: unknown): StoredPublication => {
@@ -132,10 +175,13 @@ export const publicationOf = (value: unknown): StoredPublication => {
       !(entry['evidence'] as unknown[]).every(text) || !text(entry['actor']) || !text(entry['marker']) || !text(entry['digest']) ||
       !STATES.has(String(entry['state'])) || !orNull(entry['location'], isPost) || !orNull(entry['reason'], text) ||
       !orNull(entry['placement'], (one) => PLACEMENTS.has(String(one))) || !orNull(entry['expected'], text) || !orNull(entry['wrote'], text) ||
-      (Object.hasOwn(entry, 'finding') ? !text(entry['finding']) || !orNull(entry['parent'], isPost) : !text(entry['review']))) {
+      (Object.hasOwn(entry, 'summary') ? !summaryFits(entry)
+        : Object.hasOwn(entry, 'finding') ? !text(entry['finding']) || !orNull(entry['parent'], isPost) : !text(entry['review']))) {
       throw new Error('has a publication it cannot describe')
     }
-    if (entry['state'] === 'posted' && entry['location'] === null) throw new Error('has a publication marked posted with no location')
+    if (entry['state'] === 'posted' && entry['location'] === null && !(Object.hasOwn(entry, 'summary') && entry['posted'] !== null)) {
+      throw new Error('has a publication marked posted with no location')
+    }
     const person = entry['person']
     if (person !== undefined && (!object(person) || (person['action'] !== 'post-again' && person['action'] !== 'skip') ||
       !orNull(person['reason'], text) || !Number.isSafeInteger(person['at']))) throw new Error('has a person’s publication decision it cannot describe')
@@ -192,13 +238,45 @@ export interface ObservedTarget {
  * plugin, never an agent's tool. Every read is bounded; a read that could not
  * finish throws, and throwing is never "not found".
  */
-export interface FindingForgePort {
+export interface FindingForgePort extends Partial<FindingSummaryForgePort> {
   observeTarget(project: string, pr: number): Promise<ObservedTarget>
   /** Whether an anchor is a line this pull request's change touches, on that side, at its current head. */
   anchorable(operation: PublicationEntry, anchor: FindingAnchor): Promise<boolean>
   /** Every exact copy of this operation the forge holds: marker, body and target, with validated locations. */
   find(operation: PublicationEntry): Promise<readonly FindingPost[]>
   send(operation: PublicationEntry, body: string, anchor: FindingAnchor | null): Promise<FindingPost>
+}
+
+/** A closed round's one review, as the host sends it: built from closed host records only, never from a client. */
+export interface SummaryReviewInput {
+  readonly key: string
+  readonly run: string
+  readonly round: number
+  readonly goal: string
+  /** The canonical project the target was observed from: where `gh` runs. */
+  readonly project: string
+  readonly repo: string
+  readonly pr: number
+  readonly head: string
+  readonly body: string
+  readonly comments: SummaryPayload['comments']
+}
+
+/** Where a review landed: its id and address, and each inline comment's, confined to the pull request. */
+export interface SummaryReviewLocation {
+  readonly id: string
+  readonly url: string
+  readonly comments: readonly { readonly finding: string; readonly id: string; readonly url: string }[]
+}
+
+/**
+ * The host-only half of the forge that posts one closed round as one review.
+ * `reconcileSummary` answers every exact copy — marker, body, head and target
+ * — and throws when it cannot read them all: throwing is never "not there".
+ */
+export interface FindingSummaryForgePort {
+  publishSummary(input: SummaryReviewInput): Promise<SummaryReviewLocation>
+  reconcileSummary(input: SummaryReviewInput): Promise<readonly SummaryReviewLocation[]>
 }
 
 /** Thrown by an append that found the comment edited since the desk wrote it: nothing was sent. */
@@ -231,13 +309,16 @@ export interface FindingPublisher {
 /** One body at most, and one batch at most: more refuses before any send. */
 export const BODY_LIMIT = 32 * 1024
 export const BATCH_LIMIT = 200
+/** One closed round's single review: at most this many inline comments, and this many UTF-8 bytes of body. */
+export const SUMMARY_COMMENTS = 100
+export const SUMMARY_BODY_BYTES = 60_000
 
 export const MARKER_PREFIX = '<!-- harnessdesk:finding-op '
 export const markerOf = (key: string): string => `${MARKER_PREFIX}${key} -->`
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
 
 /** An operation key: the run, its round, the entry's kind and the evidence it posts. The same close always makes the same keys. */
-export const publicationKey = (run: string, round: number, kind: 'finding' | 'review', id: string): string =>
+export const publicationKey = (run: string, round: number, kind: 'finding' | 'review' | 'summary-review', id: string): string =>
   `pub-${sha256([run, String(round), kind, id].join('\u0000')).slice(0, 48)}`
 
 /** Agent text, as data: it can never forge a desk marker, a signature mark, or a segment of a desk comment. */
@@ -350,6 +431,96 @@ export const renderBody = (entry: Pick<PublicationEntry, 'key' | 'evidence'> & {
   }
 }
 
+// ----------------------------------------------------------- one review
+
+/** One finding a closed round's review carries: its id, its anchor, and its text. */
+interface SummaryFinding { readonly finding: string; readonly anchor: FindingAnchor | null; readonly text: string }
+
+/**
+ * A closed round's single review, read back from the immutable records it
+ * names; null when any cannot be read, which refuses rather than posting
+ * something else. Each answer carries its own Seat's signature and words,
+ * from the Seat record — never from what an agent wrote about itself.
+ */
+const summaryParts = (entry: Pick<SummaryPublication, 'key' | 'round' | 'at' | 'summary'>, sources: BodySources): {
+  readonly opening: readonly string[]; readonly answers: readonly string[]; readonly findings: readonly SummaryFinding[]
+} | null => {
+  const raised: { readonly record: EvidenceRecord; readonly event: Extract<NonNullable<EvidenceRecord['finding']>['event'], { kind: 'raise' }> }[] = []
+  for (const id of entry.summary.findings) {
+    const record = sources.records.get(id)
+    const event = record?.finding?.event
+    if (!record || record.fact.kind !== 'finding' || event?.kind !== 'raise') return null
+    raised.push({ record, event })
+  }
+  const answers: string[] = []
+  for (const id of entry.summary.reviews) {
+    const record = sources.records.get(id)
+    if (!record || record.fact.kind !== 'review' || record.fact.at !== entry.at) return null
+    const seat = record.seat ? sources.seat(record.seat) : null
+    const signature = seat && sources.template.trim() !== '' ? renderSignature(sources.template, forgeSeatOf(seat)) : ''
+    const count = raised.filter((one) => one.record.seat === record.seat).length
+    answers.push([
+      ...(signature !== '' ? [signature] : []),
+      `${whoOf(seat)} · ${inert(record.fact.verdict)} · raised ${count === 0 ? 'no findings' : count === 1 ? 'one finding' : `${count} findings`}`,
+    ].join('\n'))
+  }
+  const findings = raised.map(({ record, event }): SummaryFinding => {
+    const seat = record.seat ? sources.seat(record.seat) : null
+    const id = record.fact.kind === 'finding' ? record.fact.id : ''
+    return {
+      finding: id,
+      anchor: event.anchor,
+      text: [
+        `**${inert(event.title)}** · ${event.category} · ${event.blocking ? 'blocking' : 'advisory'}`,
+        ...(event.body.trim() !== '' ? ['', inert(event.body)] : []),
+        '',
+        `Raised by ${whoOf(seat)} at ${short(entry.at)} · round ${entry.round} · ${id}`,
+      ].join('\n'),
+    }
+  })
+  const n = entry.summary.reviews.length
+  return {
+    opening: [markerOf(entry.key), `**Review round ${entry.round}** · ${n === 1 ? 'one independent review' : `${n} independent reviews`} of ${short(entry.at)} · no verdict is claimed for the pull request`],
+    answers, findings,
+  }
+}
+
+/** The inline comment marker of one finding in one review: its operation key and the finding it carries. */
+export const summaryCommentMarker = (key: string, finding: string): string => markerOf(`${key}:${finding}`)
+
+/**
+ * What a closed round's review sends, given which findings sit inline on the
+ * change: the body — every answer, then every finding not placed inline, with
+ * where it points — and one comment per inline finding. The same records and
+ * the same placement always make the same payload.
+ */
+export const summaryPayload = (entry: Pick<SummaryPublication, 'key' | 'round' | 'at' | 'summary'>, sources: BodySources, inline: ReadonlySet<string>): SummaryPayload | null => {
+  const parts = summaryParts(entry, sources)
+  if (!parts) return null
+  const body = parts.findings.filter((one) => !inline.has(one.finding))
+  const lines = [...parts.opening, '', ...parts.answers.flatMap((one) => [one, ''])]
+  if (body.length > 0) {
+    lines.push(inline.size > 0 ? '**Findings not on a changed line**' : '**Findings**', '')
+    for (const one of body) {
+      lines.push(one.text)
+      if (one.anchor) lines.push(`\`${inert(one.anchor.path)}\` line ${one.anchor.line}, ${one.anchor.side === 'LEFT' ? 'before' : 'after'} the change`)
+      lines.push('')
+    }
+  }
+  const comments = parts.findings.filter((one) => inline.has(one.finding) && one.anchor).map((one) => ({
+    finding: one.finding, path: one.anchor!.path, line: one.anchor!.line, side: one.anchor!.side,
+    body: `${summaryCommentMarker(entry.key, one.finding)}\n${one.text}`,
+  }))
+  return { body: lines.join('\n').trimEnd(), comments }
+}
+
+/** The fixed content a review is checked against before it is sent: everything, nothing placed yet. */
+export const summaryDigest = (entry: Pick<SummaryPublication, 'key' | 'round' | 'at' | 'summary'>, sources: BodySources): string | null => {
+  const parts = summaryParts(entry, sources)
+  const payload = summaryPayload(entry, sources, new Set())
+  return parts && payload ? sha256(JSON.stringify([payload.body, parts.findings.map((one) => one.anchor)])) : null
+}
+
 // ------------------------------------------------------------------- binding
 
 /** The pull request a Goal is bound to: host-observed `pr` evidence, never text anyone typed. */
@@ -398,6 +569,12 @@ export interface RoundPlanInput {
   readonly preference: boolean | undefined
   readonly sources: BodySources
   readonly now: number
+  /**
+   * The round is posted as one review (phase 8, a trigger's run): its answers
+   * and the findings it raised go out together, pinned to the head it
+   * reviewed; later events of earlier findings still answer in their threads.
+   */
+  readonly summary?: boolean
 }
 
 /**
@@ -422,9 +599,40 @@ export const planRound = (input: RoundPlanInput): { readonly round: PublicationR
     actor: String(record.seat ?? ''), marker: markerOf(key), state: 'prepared' as const, location: null, reason: null,
     placement: null, expected: null, wrote: null,
   })
+  if (input.summary) {
+    const raised = events.filter((record) => record.finding?.event.kind === 'raise' && record.seat)
+    const answered = reviews.filter((record) => record.fact.kind === 'review' && record.seat)
+    if (raised.length > 0 || answered.length > 0) {
+      const heads = new Set(answered.map((record) => record.fact.kind === 'review' ? record.fact.at : ''))
+      const raisedAt = raised.map((record) => record.fact.kind === 'finding' ? record.fact.at : '')
+      if (heads.size !== 1 || raisedAt.some((at) => !heads.has(at))) {
+        return { round: decided('refused', 'This round’s answers name more than one head, so it is not posted as one review. It stays on the desk.', bound), entries: [] }
+      }
+      const [head] = [...heads] as [string]
+      const key = publicationKey(input.run, input.round, 'summary-review', head)
+      const draft = { key, round: input.round, at: head, summary: { reviews: answered.map((one) => one.id), findings: raised.map((one) => one.id) } }
+      const digest = summaryDigest(draft, input.sources)
+      const whole = summaryPayload(draft, input.sources, new Set())
+      if (digest === null || whole === null) return { round: decided('refused', 'A review or finding of this round could not be read back, so nothing of it is posted.', bound), entries: [] }
+      if (raised.filter((one) => one.finding?.event.kind === 'raise' && one.finding.event.anchor).length > SUMMARY_COMMENTS) {
+        return { round: decided('refused', `This round placed more than ${SUMMARY_COMMENTS} findings on lines, more than one review may carry. It stays on the desk; post it from here in smaller parts.`, bound), entries: [] }
+      }
+      if (Buffer.byteLength(whole.body, 'utf8') > SUMMARY_BODY_BYTES) {
+        return { round: decided('refused', `This round’s review would be over ${SUMMARY_BODY_BYTES / 1000} KB, more than one review may carry. It stays on the desk; nothing was split.`, bound), entries: [] }
+      }
+      entries.push({
+        key, run: input.run, round: input.round, project: input.project, repo: bound.repo, pr: bound.pr, at: head,
+        evidence: [...draft.summary.reviews, ...draft.summary.findings], actor: String(answered[0]?.seat ?? raised[0]?.seat ?? ''),
+        marker: markerOf(key), digest, state: 'prepared', location: null, reason: null, placement: null, expected: null, wrote: null,
+        summary: draft.summary, sent: null, posted: null,
+      })
+    }
+  }
   for (const record of events) {
     const fact = record.fact
     if (fact.kind !== 'finding' || !record.seat) continue
+    // One review carries a round's raised findings; only later events of earlier ones answer in their threads.
+    if (input.summary && record.finding?.event.kind === 'raise') continue
     const key = publicationKey(input.run, input.round, 'finding', record.id)
     const raise = input.findings.find((one) => one.fact.kind === 'finding' && one.fact.id === fact.id && one.finding?.event.kind === 'raise')
     const evidence = raise && raise.id !== record.id ? [record.id, raise.id] : [record.id]
@@ -432,7 +640,7 @@ export const planRound = (input: RoundPlanInput): { readonly round: PublicationR
     if (body === null) return { round: decided('refused', `A finding event of this round (${fact.id}) could not be read back, so nothing of it is posted.`, bound), entries: [] }
     entries.push({ ...base(key, record, fact.at), finding: fact.id, evidence, parent: null, digest: sha256(body) })
   }
-  for (const record of reviews) {
+  for (const record of input.summary ? [] : reviews) {
     if (record.fact.kind !== 'review' || !record.seat) continue
     const key = publicationKey(input.run, input.round, 'review', record.id)
     const raised = events.filter((one) => one.card?.id === record.card?.id && one.finding?.event.kind === 'raise').map((one) => one.id)
@@ -446,6 +654,7 @@ export const planRound = (input: RoundPlanInput): { readonly round: PublicationR
     return { round: decided('refused', `This round has ${findings} findings to post, more than the ${BATCH_LIMIT} one batch may carry. Split the work into smaller reviews.`, bound), entries: [] }
   }
   for (const entry of entries) {
+    if (isSummaryPublication(entry)) continue
     const body = renderBody(entry as never, input.sources)!
     if (Buffer.byteLength(body, 'utf8') > BODY_LIMIT) {
       return { round: decided('refused', `One comment of this round would be over ${BODY_LIMIT / 1024} KiB. Split the finding into smaller ones.`, bound), entries: [] }
@@ -497,6 +706,8 @@ export interface PublicationsPort {
   /** The ledger's post event: idempotent by the operation key. */
   appendPost(input: { readonly goal: string; readonly finding: string; readonly operation: string; readonly location: FindingPost }): Promise<void>
   readonly forge: FindingForgePort
+  /** Whether a run posts each closed round as one review — a trigger's run — rather than comment by comment. */
+  summary?(run: string): boolean
   now(): number
   log(message: string, details?: Readonly<Record<string, unknown>>): void
 }
@@ -520,7 +731,7 @@ const UNSETTLED = new Set(['prepared', 'started', 'uncertain'])
 
 /** What a person reads about an operation that did not end posted or skipped. */
 export const gapOf = (entry: PublicationEntry): string => {
-  const what = isFindingPublication(entry) ? `finding ${entry.finding}` : 'a review summary'
+  const what = isFindingPublication(entry) ? `finding ${entry.finding}` : isSummaryPublication(entry) ? `the review of round ${entry.round}` : 'a review summary'
   const state = entry.state === 'uncertain' ? 'uncertain' : entry.state === 'started' ? 'unconfirmed' : 'not posted'
   return `Posting ${what} to pull request #${entry.pr} is ${state}${entry.reason ? `: ${entry.reason}` : '.'}`
 }
@@ -587,6 +798,7 @@ export class Publications implements FindingPublisher {
       const plan = planRound({
         run, round, goal: now.goal, project, cards: closing.cards, findings: ledger.records, facts,
         preference: goal?.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
+        summary: this.#port.summary?.(run) ?? false,
       })
       await journal.decide(plan.round, plan.entries)
       return plan.round
@@ -683,6 +895,10 @@ export class Publications implements FindingPublisher {
       if (!entry) return
       const at = this.#port.now()
       const person = { action: 'post-again' as const, reason: null, at }
+      if (isSummaryPublication(entry)) {
+        await this.#summaryPerson(run, entry, person)
+        return
+      }
       if (entry.state !== 'prepared' || entry.placement !== null) {
         const found = await this.#readBack(run, entry)
         if (found.length === 1) {
@@ -716,6 +932,10 @@ export class Publications implements FindingPublisher {
       const entry = await this.#personal(run, key)
       if (!entry) return
       const person = { action: 'skip' as const, reason: why, at: this.#port.now() }
+      if (isSummaryPublication(entry)) {
+        await this.#summaryPerson(run, entry, person)
+        return
+      }
       let unknown = false
       if (entry.state !== 'prepared' || entry.placement !== null) {
         let found: readonly FindingPost[] = []
@@ -779,6 +999,60 @@ export class Publications implements FindingPublisher {
     return entry
   }
 
+  /**
+   * A person's decision on a round's review. One that may have reached the
+   * pull request is read back first: one exact copy is recorded where it is;
+   * several are refused for the person to look at. Otherwise a skip records
+   * it skipped, and a post-again starts it over from its checks — the one
+   * fresh attempt a person asked for.
+   */
+  async #summaryPerson(run: string, entry: SummaryPublication & PublicationEntry, person: NonNullable<PublicationEntry['person']>): Promise<void> {
+    const snapshot = this.#port.run(run)
+    if (!snapshot) throw new Error(`There is no flow run ${run}.`)
+    let unknown = false
+    if (entry.state !== 'prepared' && entry.sent && this.#port.forge.reconcileSummary) {
+      let found: readonly SummaryReviewLocation[] = []
+      try {
+        found = await this.#port.forge.reconcileSummary(this.#summaryInput(entry, snapshot.goal))
+      } catch (error) {
+        if (person.action === 'post-again') {
+          const reason = `The desk could not read the pull request back to see whether this round’s review was posted (${error instanceof Error ? error.message : String(error)}).`
+          await this.#transition(run, entry.key, ['started', 'uncertain'], (one) => ({ ...one, state: 'uncertain', reason, person }))
+          throw new Error(reason)
+        }
+        unknown = true
+      }
+      if (found.length === 1) {
+        const location = found[0]!
+        for (const comment of location.comments) {
+          await this.#port.appendPost({
+            goal: snapshot.goal, finding: comment.finding, operation: entry.key,
+            location: { repo: entry.repo, pr: entry.pr, comment: Number(comment.id), kind: 'review-comment', url: comment.url, operation: entry.key },
+          })
+        }
+        await this.#transition(run, entry.key, ['started', 'uncertain'], (one) => ({ ...one, state: 'posted', posted: location, reason: null, person }))
+        return
+      }
+      if (found.length > 1) {
+        const reason = `The pull request shows ${found.length} copies of this round’s review. Look at them before deciding which one stands.`
+        if (person.action === 'post-again') {
+          await this.#transition(run, entry.key, ['started', 'uncertain'], (one) => ({ ...one, state: 'uncertain', reason, person }))
+          throw new Error(reason)
+        }
+        unknown = true
+      }
+    }
+    if (person.action === 'skip') {
+      await this.#transition(run, entry.key, ['prepared', 'started', 'uncertain'], (one) => ({
+        ...one, state: 'skipped', person,
+        reason: `A person skipped this: ${person.reason ?? ''}${unknown || entry.state !== 'prepared' ? ' It may or may not be on the pull request.' : ''}`,
+      }))
+      return
+    }
+    await this.#transition(run, entry.key, ['prepared', 'started', 'uncertain'], (one) => ({ ...one, state: 'prepared', reason: null, sent: null, person }))
+    await this.#one(run, entry.round, entry.key)
+  }
+
   /** Every exact copy of an operation the pull request holds; a read that could not finish is left uncertain, with why. */
   async #readBack(run: string, entry: PublicationEntry): Promise<readonly FindingPost[]> {
     try {
@@ -821,6 +1095,7 @@ export class Publications implements FindingPublisher {
       const plan = planRound({
         run, round: kept.round, goal: snapshot.goal, project, cards: closing.cards, findings: ledger.records, facts,
         preference: goal.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
+        summary: this.#port.summary?.(run) ?? false,
       })
       if (plan.round.mode !== 'batch') return { refusal: plan.round.reason ?? 'These rounds cannot be posted now.' }
       if (plan.entries.length === 0) continue
@@ -896,6 +1171,10 @@ export class Publications implements FindingPublisher {
   async #one(run: string, round: number, key: string): Promise<void> {
     const first = await this.#read(run, key)
     if (!first || first.state === 'posted' || first.state === 'skipped') return
+    if (isSummaryPublication(first)) {
+      await this.#summaryOne(run, round, first)
+      return
+    }
     // Paused for a person — a moved head, an edited comment, an unreadable target: never resumed on its own.
     if (first.state === 'prepared' && first.reason !== null) return
     const snapshot = this.#port.run(run)
@@ -983,6 +1262,157 @@ export class Publications implements FindingPublisher {
       // The comment is on the forge, and recording where failed: the next reconcile reads it back and records it once.
       this.#failed(run, new Error(`a posted comment could not be recorded yet (${why}); it will be read back`))
     }
+  }
+
+  /** The review a summary operation sends, from its journaled payload: the one thing a send and a read-back both use. */
+  #summaryInput(entry: SummaryPublication & PublicationEntry, goal: string): SummaryReviewInput {
+    if (!entry.sent) throw new Error('This review was never fixed before its send, so nothing was sent.')
+    return {
+      key: entry.key, run: entry.run, round: entry.round, goal, project: entry.project, repo: entry.repo, pr: entry.pr,
+      head: entry.at, body: entry.sent.body, comments: entry.sent.comments,
+    }
+  }
+
+  /**
+   * A closed round's one review, once: checked — the round closed, the Goal
+   * open, the content unchanged, the target and head still what the round
+   * reviewed — then fixed on disk as `started` with its exact payload, then
+   * sent. A started one is only ever read back: one exact copy is posted and
+   * its inline comments become their findings' threads; none, several, or a
+   * read that cannot finish is the person's, never sent again.
+   */
+  async #summaryOne(run: string, round: number, first: SummaryPublication & PublicationEntry): Promise<void> {
+    const key = first.key
+    if (first.state === 'prepared' && first.reason !== null) return
+    const snapshot = this.#port.run(run)
+    if (!snapshot) return
+    if (first.state !== 'prepared' && !this.#port.goal(snapshot.goal)?.open) return
+    const forge = this.#port.forge
+    if (!forge.publishSummary || !forge.reconcileSummary) {
+      await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, reason: 'This desk cannot post a round as one review, so it stays on the desk.' }))
+      return
+    }
+    let sent: SummaryPayload | null = null
+    if (first.state === 'prepared') {
+      const decided = await this.#readySummary(first, snapshot.goal)
+      if ('reason' in decided) {
+        await this.#transition(run, key, ['prepared'], (entry) => ({ ...entry, state: decided.kind === 'skip' ? 'skipped' : 'prepared', reason: decided.reason }))
+        return
+      }
+      sent = decided.sent
+    }
+    const current = async (): Promise<SummaryPublication & PublicationEntry> => {
+      const entry = await this.#read(run, key)
+      if (!entry || !isSummaryPublication(entry)) throw new NotStarted()
+      return entry
+    }
+    let stage: 'find' | 'send' | 'finish' | null = null
+    let found: readonly SummaryReviewLocation[] = []
+    let landed: SummaryReviewLocation | null = null
+    try {
+      const result = await publishOnce({
+        closed: async () => this.#port.roundClosed(run, round),
+        phase: async () => {
+          const entry = await current()
+          return entry.state === 'posted' ? 'posted' : entry.state === 'prepared' ? 'new' : 'started'
+        },
+        start: async () => {
+          if (!sent) throw new NotStarted()
+          const payload = sent
+          // The exact payload is on disk before the send: a read-back matches it and nothing else.
+          const started = await this.#transition(run, key, ['prepared'], (entry) => entry.reason !== null || !isSummaryPublication(entry)
+            ? entry : { ...entry, state: 'started', reason: null, sent: payload })
+          const now = await current()
+          if (!started || now.state !== 'started') throw new NotStarted()
+        },
+        find: async () => {
+          stage = 'find'
+          found = await forge.reconcileSummary!(this.#summaryInput(await current(), snapshot.goal))
+          return found.map((_, index) => index)
+        },
+        send: async () => {
+          stage = 'send'
+          landed = await forge.publishSummary!(this.#summaryInput(await current(), snapshot.goal))
+          return -1
+        },
+        finish: async (which) => {
+          stage = 'finish'
+          const entry = await current()
+          const location = which === -1 ? landed : found[which] ?? null
+          if (!location) throw new Error('The posted review could not be matched to what the forge answered.')
+          // Each inline comment is its finding's thread: later events reply there, and no first send of it follows.
+          for (const comment of location.comments) {
+            const id = Number(comment.id)
+            if (!Number.isSafeInteger(id) || id < 1) throw new Error('The forge answered with a comment id the desk cannot record.')
+            await this.#port.appendPost({
+              goal: snapshot.goal, finding: comment.finding, operation: entry.key,
+              location: { repo: entry.repo, pr: entry.pr, comment: id, kind: 'review-comment', url: comment.url, operation: entry.key },
+            })
+          }
+          await this.#transition(run, key, ['started', 'uncertain'], (one) => ({ ...one, state: 'posted', posted: location, reason: null }))
+        },
+      })
+      if (result === 'uncertain') {
+        const reason = found.length === 0
+          ? 'The desk may have posted this round’s review before it was interrupted, and the pull request shows no copy of it. Look at the pull request before posting it again.'
+          : `The pull request shows ${found.length} copies of this round’s review. Look at them before deciding which one stands.`
+        await this.#transition(run, key, ['started', 'uncertain'], (entry) => ({ ...entry, state: 'uncertain', reason }))
+      }
+    } catch (error) {
+      if (error instanceof NotStarted) return
+      const why = error instanceof Error ? error.message : String(error)
+      if (stage === 'send' || stage === 'find') {
+        const reason = stage === 'send'
+          ? `Posting this round’s review may or may not have reached the pull request (${why}). Look at the pull request before posting it again.`
+          : `The desk could not read the pull request back to see whether this round’s review was posted (${why}).`
+        await this.#transition(run, key, ['started', 'uncertain'], (entry) => ({ ...entry, state: 'uncertain', reason }))
+          .catch((stuck: unknown) => this.#failed(run, stuck))
+        return
+      }
+      this.#failed(run, new Error(`a posted review could not be recorded yet (${why}); it will be read back`))
+    }
+  }
+
+  /** Everything a round's review needs checked just before it starts, and the exact payload it would send. */
+  async #readySummary(entry: SummaryPublication & PublicationEntry, goal: string): Promise<{ readonly kind: 'go'; readonly sent: SummaryPayload } | { readonly kind: 'skip' | 'pause'; readonly reason: string }> {
+    const pause = (reason: string) => ({ kind: 'pause' as const, reason })
+    const skip = (reason: string) => ({ kind: 'skip' as const, reason })
+    const state = this.#port.goal(goal)
+    if (!state?.open) return skip('The Goal was wrapped before this round’s review was posted, so it stays on the desk.')
+    if (state.preference === false) return skip('Posting was turned off for this Goal before this review was sent.')
+    const ledger = await this.#port.ledger(entry.project)
+    const facts = await this.#port.facts(goal)
+    const sources = this.#sources(ledger.records, facts)
+    if (summaryDigest(entry, sources) !== entry.digest) {
+      return pause('What this round’s review would post changed since the round closed, so it was not sent. A person has to post it again.')
+    }
+    let target: ObservedTarget
+    try {
+      target = await this.#port.forge.observeTarget(entry.project, entry.pr)
+    } catch (error) {
+      return pause(`The pull request could not be read, so this round’s review was not sent (${error instanceof Error ? error.message : String(error)}).`)
+    }
+    if (target.repo !== entry.repo || target.number !== entry.pr) return pause('The forge answered with another pull request than the one this Goal is bound to, so nothing was sent.')
+    if (target.state !== 'open') return skip(`Pull request #${entry.pr} is ${target.state}, so this round’s review stays on the desk.`)
+    if (target.head !== entry.at) {
+      return pause(`Pull request #${entry.pr} moved from ${short(entry.at)} to ${short(target.head)} since this round reviewed it, so its review was kept on the desk. A person has to look at it at the new head.`)
+    }
+    const inline = new Set<string>()
+    for (const id of entry.summary.findings) {
+      const view = ledger.views.find((one) => one.id === (sources.records.get(id)?.fact as { id?: string } | undefined)?.id)
+      if (!view?.anchor) continue
+      try {
+        if (await this.#port.forge.anchorable(entry, view.anchor)) inline.add(view.id)
+      } catch (error) {
+        return pause(`The pull request's change could not be read to place this round’s findings, so nothing was sent (${error instanceof Error ? error.message : String(error)}).`)
+      }
+    }
+    const sent = summaryPayload(entry, sources, inline)
+    if (!sent) return pause('A review or finding of this round could not be read back, so nothing was sent.')
+    if (sent.comments.length > SUMMARY_COMMENTS || Buffer.byteLength(sent.body, 'utf8') > SUMMARY_BODY_BYTES) {
+      return pause(`This round’s review is over what one review may carry (${SUMMARY_COMMENTS} comments, ${SUMMARY_BODY_BYTES / 1000} KB), so it stays on the desk; nothing was split.`)
+    }
+    return { kind: 'go', sent }
   }
 
   /** Everything an operation needs checked before it starts, read now; nothing here writes to the forge. */

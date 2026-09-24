@@ -7,7 +7,7 @@ import { consentMatches, type ArmBinding, type ArmedTrigger } from './consent.js
 import { applyAdmission } from './apply.js'
 import { acceptsFact } from './definition.js'
 import { dedupeKey, groupKey } from './keys.js'
-import { fullness, GROUP_LIMIT, type IntakeGroup, type IntakeOperation, type IntakePayload, type IntakeSnapshot, type IntakeStore } from './store.js'
+import { fullness, GROUP_LIMIT, type IntakeFiring, type IntakeGroup, type IntakeOperation, type IntakePayload, type IntakeSnapshot, type IntakeStore } from './store.js'
 
 /**
  * Admission: the one step that turns a fact into a firing.
@@ -168,6 +168,11 @@ export const AGAIN_MISSING = 'New work arrived for this Goal, and this trigger o
 const comparison = (fact: TriggerFact): string | null =>
   fact.source === 'pull-request' ? fact.head : fact.source === 'issue' ? fact.event : null
 
+/** What a firing's history row keeps of its fact: validated scalars, never prose. */
+const historyOf = (fact: TriggerFact): Pick<IntakeFiring, 'source' | 'subject' | 'head' | 'repository'> => ({
+  source: fact.source, subject: fact.subject, head: fact.head, repository: fact.repository,
+})
+
 /** The Goal's sentence, from validated scalars only: no title, body or comment from outside. */
 const sentenceOf = (definition: TriggerDefinition, fact: TriggerFact): string => {
   switch (fact.source) {
@@ -245,11 +250,11 @@ export class Admission {
         return { outcome: 'duplicate', firing: key, goal: known.goal, reason: known.reason }
       }
       if (!acceptsFact(definition, fact) || (fact.trigger !== null && fact.trigger !== definition.id) || fact.project !== arm.project) {
-        return this.#skip(arm, key, SKIP_MISMATCH)
+        return this.#skip(arm, key, SKIP_MISMATCH, fact)
       }
-      if (fact.fork && definition.forks !== 'allow') return this.#skip(arm, key, SKIP_FORK)
+      if (fact.fork && definition.forks !== 'allow') return this.#skip(arm, key, SKIP_FORK, fact)
       const binding = await this.#port.binding(arm)
-      if (!binding || !consentMatches(arm.binding, binding)) return this.#skip(arm, key, SKIP_CHANGED)
+      if (!binding || !consentMatches(arm.binding, binding)) return this.#skip(arm, key, SKIP_CHANGED, fact)
 
       // Read again after the awaits above: only this queue writes the journal, and what is decided is what is on disk now.
       let snapshot = this.#store.read()
@@ -276,7 +281,7 @@ export class Admission {
             newGoal: `goal-${this.#mint()}`, newRun: `flow-trigger-${this.#mint()}`, maxOpen: definition.concurrency,
           },
         )
-        if (!decided.operation) return await this.#skip(arm, key, skipConcurrency(definition.concurrency))
+        if (!decided.operation) return await this.#skip(arm, key, skipConcurrency(definition.concurrency), fact)
         const prepared = decided.operation
         const payload: IntakePayload = { definition, fact, binding: arm.binding, sentence: sentenceOf(definition, fact) }
         const generation = prepared.mode === 'start' ? (current?.generation ?? 0) + 1 : current!.generation
@@ -293,11 +298,11 @@ export class Admission {
             ...groups,
             [group]: { trigger: definition.id, project: arm.project, goal: operation.goal, run: operation.run, open: true, head: prepared.head, generation },
           }, group),
-          firings: { ...snapshot.firings, [key]: { trigger: definition.id, project: arm.project, at: this.#port.now(), outcome: 'fired', goal: operation.goal, reason: null } },
+          firings: { ...snapshot.firings, [key]: { ...historyOf(fact), trigger: definition.id, project: arm.project, at: this.#port.now(), outcome: 'fired', goal: operation.goal, reason: null, run: operation.run, mode: operation.mode, attention: operation.attention } },
         }
         if (operation.mode === 'start' && this.#port.reserve) {
           const reserved = this.#port.reserve(next, operation, definition)
-          if ('refused' in reserved) return await this.#skip(arm, key, reserved.refused)
+          if ('refused' in reserved) return await this.#skip(arm, key, reserved.refused, fact)
           next = reserved.snapshot
         }
         await this.#store.commit(next)
@@ -354,7 +359,7 @@ export class Admission {
           observe: (operation) => this.#effects.observe(operation),
           ensureRound: (operation, evidence) => this.#effects.ensureRound(operation, evidence),
           applied: async (operation, attention) => {
-            const applied = await this.#update(operation.key, (one) => ({ ...one, state: 'applied', attention }))
+            const applied = await this.#update(operation.key, (one) => ({ ...one, state: 'applied', attention, roundAttention: attention }))
             this.#options.onStep?.('applied', applied)
           },
           enableDispatch: async (operation) => {
@@ -363,7 +368,8 @@ export class Admission {
             if (this.#port.paused()) return
             const released = await this.#effects.release(current)
             if (released.released) {
-              const dispatched = await this.#update(current.key, (one) => ({ ...one, dispatched: true, payload: null }))
+              // A gate's refusal passed: what stays is what the round's own opening said.
+              const dispatched = await this.#update(current.key, (one) => ({ ...one, dispatched: true, payload: null, attention: one.roundAttention !== undefined ? one.roundAttention : one.attention }))
               this.#options.onStep?.('dispatched', dispatched)
             } else if (current.attention !== released.reason) {
               await this.#update(current.key, (one) => ({ ...one, attention: released.reason }))
@@ -375,10 +381,15 @@ export class Admission {
         throw new Error(this.#fault)
       }
     }
-    // Released operations keep only their tombstone: the firing record and the group.
+    // Released operations keep only their tombstone: the firing record — with why it needed a person, if it did — and the group.
     const snapshot = this.#store.read()
     if (snapshot.operations.some((one) => one.dispatched)) {
-      await this.#store.commit({ ...snapshot, operations: snapshot.operations.filter((one) => !one.dispatched) })
+      const firings = { ...snapshot.firings }
+      for (const one of snapshot.operations) {
+        const firing = firings[one.key]
+        if (one.dispatched && firing && (firing.attention ?? null) !== one.attention) firings[one.key] = { ...firing, attention: one.attention }
+      }
+      await this.#store.commit({ ...snapshot, firings, operations: snapshot.operations.filter((one) => !one.dispatched) })
     }
   }
 
@@ -391,12 +402,12 @@ export class Admission {
     return changed
   }
 
-  async #skip(arm: ArmedTrigger, key: string, reason: string): Promise<OfferAnswer> {
+  async #skip(arm: ArmedTrigger, key: string, reason: string, fact: TriggerFact): Promise<OfferAnswer> {
     const snapshot = this.#store.read()
     await this.#store.commit({
       ...snapshot,
       clock: Math.max(snapshot.clock, this.#port.now()),
-      firings: { ...snapshot.firings, [key]: { trigger: arm.id, project: arm.project, at: this.#port.now(), outcome: 'skipped', goal: null, reason } },
+      firings: { ...snapshot.firings, [key]: { ...historyOf(fact), trigger: arm.id, project: arm.project, at: this.#port.now(), outcome: 'skipped', goal: null, reason } },
     })
     return { outcome: 'skipped', firing: key, goal: null, reason }
   }

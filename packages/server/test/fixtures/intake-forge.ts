@@ -94,10 +94,18 @@ export class FakeForge {
     if (failure === 'overflow') return { stdout: '', stderr: '', exitCode: null, timedOut: false, overflow: true }
     if (failure === 'malformed') return { stdout: '{"not": "a list"', stderr: '', exitCode: 0, timedOut: false, overflow: false }
     if (failure) return { stdout: '', stderr: failure.stderr, exitCode: failure.exitCode, timedOut: false, overflow: false }
+    if (path === 'user' && !this.user) return { stdout: '', stderr: 'gh: HTTP 401: Bad credentials', exitCode: 1, timedOut: false, overflow: false }
     return { stdout: JSON.stringify(this.#answer(path)), stderr: '', exitCode: 0, timedOut: false, overflow: false }
   }
 
+  /** Who `gh api user` says is signed in; null answers as signed out. */
+  user: { id: number; login: string } | null = { id: 7, login: 'jane-doe' }
+
   #answer(path: string): unknown {
+    if (path === 'user') {
+      if (!this.user) throw Object.assign(new Error('HTTP 401: Bad credentials'), { signedOut: true })
+      return this.user
+    }
     const url = new URL(`https://api.invalid/${path}`)
     const page = Number(url.searchParams.get('page') ?? '1')
     const per = Number(url.searchParams.get('per_page') ?? '30')

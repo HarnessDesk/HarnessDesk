@@ -14,6 +14,7 @@ import { respondToCrash } from './crash-policy.mjs'
 import { MARK, drawTrayMeter } from './meter.mjs'
 import { attachAppUpdates } from './app-updates.mjs'
 import { decide, relevant } from './notifications.mjs'
+import { createIntakeNotifier } from './intake-notifications.mjs'
 import { createDockIconSetter, defaultIconPath } from './dock-icon.mjs'
 
 import { readWindowState, writeWindowState } from './window-state.mjs'
@@ -735,6 +736,32 @@ const start = async () => {
       }
     })()
   })
+
+  // Named waits on unattended work reach the person whether or not a window
+  // is open: subscribed to the host itself, tried once per wait, and the host
+  // told whether the OS showed it — never claimed when it did not.
+  const notifyIntake = createIntakeNotifier({
+    prefs: async () => (await host.call('app/state/get', {}))['systemNotifications'],
+    supported: () => Notification.isSupported(),
+    show: async ({ title, body, goal }) => {
+      const note = new Notification({ title, body })
+      note.on('click', () => {
+        void showMainWindow().then(() => {
+          if (goal && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('harnessdesk:open-goal', { goal: String(goal) })
+        })
+      })
+      note.show()
+    },
+    report: (id, status) => host.intakeNotified(id, status),
+  })
+  host.addBroadcaster((notification) => {
+    if (notification?.method !== 'trigger/attention') return
+    void notifyIntake(notification).catch((error) => {
+      logger?.debug('a trigger notification was not shown', { error: String(error) })
+    })
+  })
+  // Waits that were raised before this subscription — at start, before the shell listened — are replayed by id.
+  host.replayIntakeAttention()
 
   buildMenu()
   createTray()

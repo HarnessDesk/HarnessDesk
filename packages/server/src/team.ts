@@ -296,6 +296,15 @@ export interface TeamPort {
     allowed?: () => { ok: true } | { ok: false; reason: string },
     from?: TeamSender | null,
   ): Promise<void>
+  /**
+   * Whether this room is a Goal a trigger opened (phase 8). Nobody watches
+   * it, so a member with no inbound setting of its own accepts messages from
+   * the room's other members rather than holding them for a person who is
+   * not there. Only inside that room, only while its messaging is on — a
+   * board-only flow stays board-only — and never over a conversation's own
+   * explicit setting.
+   */
+  unattendedInbound?(room: string): boolean
   /** Current kept Seats and imported labels for a durable Goal. */
   goalMembers?(goal: string): {
     readonly seats: readonly SeatRecord[]
@@ -2764,7 +2773,8 @@ export class Team {
       return 'Held: you were denied an approval this turn, so this message waits for the user to release it. Permission does not travel through a teammate.'
     }
 
-    const inbound = this.inboundFor(peer.runtime, peer.sessionId)
+    const inbound = this.#inbound.get(keyOf(peer.runtime, peer.sessionId)) ??
+      (this.#port.unattendedInbound?.(board.id) ? 'accept' : this.#settings.inboundDefault)
     if (inbound === 'refuse') {
       audit('refused-inbound')
       record('refused', 'That conversation refuses inter-agent messages.')
