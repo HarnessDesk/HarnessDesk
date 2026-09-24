@@ -161,7 +161,6 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
               <RowButton
                 key={row.id}
                 onClick={() => setOpened(row.id)}
-                mark={<Chip tone={lifecycleTone(row)}>{lifecycleWords(row)}</Chip>}
                 title={
                   <span className="flex min-w-0 items-baseline gap-2">
                     <CodeText size="inherit" className="shrink-0 select-all">{row.id}</CodeText>
@@ -174,6 +173,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                     {blockingWords(row) === 'Blocking' ? ' · Blocking' : ' · Advisory'}
                   </MetaList>
                 }
+                control={<Chip tone={lifecycleTone(row)}>{lifecycleWords(row)}</Chip>}
               />
             ))}
           </Rows>

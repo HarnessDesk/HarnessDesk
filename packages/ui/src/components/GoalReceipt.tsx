@@ -42,12 +42,12 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
       <>
         <Rows>
           {receipt.findings.findings.map((finding) => {
-            const mark = <Chip tone={lifecycleTone(finding)}>{lifecycleWords(finding)}</Chip>
+            const chip = <Chip tone={lifecycleTone(finding)}>{lifecycleWords(finding)}</Chip>
             const title = <CodeText>{finding.id}</CodeText>
             const desc = <MetaList>{finding.title || 'Untitled finding'} · {blockingWords(finding)}</MetaList>
             return onOpenFinding
-              ? <RowButton key={finding.id} mark={mark} title={title} desc={desc} onClick={() => onOpenFinding(finding.id)} />
-              : <Row key={finding.id} mark={mark} title={title} desc={desc} />
+              ? <RowButton key={finding.id} title={title} desc={desc} control={chip} onClick={() => onOpenFinding(finding.id)} />
+              : <Row key={finding.id} title={title} desc={desc} control={chip} />
           })}
         </Rows>
         {receipt.findings.overrides.length > 0 ? (

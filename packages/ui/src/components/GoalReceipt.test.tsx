@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import type { GoalReceipt as Receipt } from '@harnessdesk/protocol'
+import stylesSettings from '../design/patterns/Settings.module.css'
 import { GoalReceipt } from './GoalReceipt'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -62,6 +63,23 @@ it('a populated receipt shows a repair claim honestly and a person override with
   const button = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-0001'))!
   act(() => button.click())
   expect(opened).toEqual(['finding-0001'])
+})
+
+it('keeps a long lifecycle chip off the finding row\'s fixed icon mark, on the label\'s own line instead', () => {
+  const finding = {
+    id: 'finding-0001', origin: { goal: 'g1', run: 'run-1', round: 2, card: 1, seat: 'seat-1', at: 'a'.repeat(40) },
+    ownerGoal: 'g1', title: 'Off-by-one', body: '', category: 'ordinary', blocking: true, related: null, anchor: null,
+    lifecycle: { state: 'repaired', confirmed: false, repairs: ['a'.repeat(40)] }, sequence: 2, evidence: ['ev-1'], posted: [],
+    restored: false, problem: null,
+  }
+  const receipt = { ...baseReceipt, findings: { version: 1, evidence: ['ev-1'], findings: [finding], overrides: [] } } as unknown as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  const rows = [...container.getElementsByClassName(stylesSettings.row!)]
+  const target = rows.find((one) => one.textContent?.includes('finding-0001'))!
+  const chip = target.querySelector('[data-slot="chip-words"]')
+  expect(chip?.textContent).toBe('Repair claimed · awaiting review')
+  const mark = target.getElementsByClassName(stylesSettings.rowMark!)[0] ?? null
+  expect(mark === null || mark.querySelector('[data-slot="chip-words"]') === null).toBe(true)
 })
 
 /*

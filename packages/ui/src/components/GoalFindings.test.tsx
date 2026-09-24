@@ -7,6 +7,7 @@ import type { FindingView, GoalView } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { FindingsListState } from '../lib/findings'
+import stylesSettings from '../design/patterns/Settings.module.css'
 import { GoalFindings } from './GoalFindings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -268,6 +269,26 @@ it('a dropped run\'s refreshed view greys Decide this run with the drop\'s own r
   const decide = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Decide this run')! as HTMLButtonElement
   expect(decide.disabled).toBe(true)
   expect(container.textContent).toContain(undecidable)
+})
+
+it('keeps a long lifecycle chip off the row\'s fixed icon mark, on the label\'s own line instead', async () => {
+  const state: FindingsListState = {
+    filter: 'all',
+    rows: [row('finding-claim-1', { lifecycle: { state: 'repaired', confirmed: false, repairs: [A] } })],
+    next: null, totals: { all: 1, open: 0, blocking: 1 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const { store } = rig(state)
+  await render(store)
+  const rows = [...container.getElementsByClassName(stylesSettings.row!)]
+  const target = rows.find((one) => one.textContent?.includes('finding-claim-1'))!
+  // The chip renders somewhere on the row...
+  const chip = target.querySelector('[data-slot="chip-words"]')
+  expect(chip?.textContent).toBe('Repair claimed · awaiting review')
+  // ...but never inside the row's fixed 34×34 icon tile, which a multi-word
+  // state sentence overflows and overlaps the finding's own name with.
+  const mark = target.getElementsByClassName(stylesSettings.rowMark!)[0] ?? null
+  expect(mark === null || mark.querySelector('[data-slot="chip-words"]') === null).toBe(true)
 })
 
 it('opening a row reads its history explicitly, and closing returns focus to the row', async () => {

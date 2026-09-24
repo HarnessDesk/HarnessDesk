@@ -74,12 +74,12 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
           {view.items.map((item) => (
             <Row
               key={item.key}
-              mark={<Chip tone={item.state === 'prepared' ? 'warning' : 'danger'}>{STATE_WORDS[item.state]}</Chip>}
               title={item.finding ? <CodeText>{item.finding}</CodeText> : `Review summary, round ${item.round}`}
               desc={item.reason ?? undefined}
               wrapDesc
               control={
-                <span className="flex gap-2">
+                <span className="flex items-center gap-2">
+                  <Chip tone={item.state === 'prepared' ? 'warning' : 'danger'}>{STATE_WORDS[item.state]}</Chip>
                   <Button size="sm" variant="outline" disabled={pending !== null} onClick={() => void act(item.key, { kind: 'post-again', key: item.key })}>
                     {pending === item.key ? 'Working…' : 'Post again'}
                   </Button>

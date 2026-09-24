@@ -5,6 +5,7 @@ import type { FindingPublicationsView } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
+import stylesSettings from '../design/patterns/Settings.module.css'
 import { FindingPublications } from './FindingPublications'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -78,6 +79,17 @@ it('Skip asks why before anything is recorded, then records exactly that', async
   await act(async () => { button('Skip it').click() })
   expect(publish).toHaveBeenCalledWith({ goal: 'g1', run: 'run-1', action: { kind: 'skip', key: KEY, reason: 'nobody needs this on the pull request' } })
   expect(container.textContent).toContain('Nothing here needs you.')
+})
+
+it('keeps the posting-state chip off the row\'s fixed icon mark, on the label\'s own line instead', async () => {
+  const store = rig(async () => view(), async () => view())
+  await render(store)
+  const rows = [...container.getElementsByClassName(stylesSettings.row!)]
+  const target = rows.find((one) => one.textContent?.includes('finding-0001'))!
+  const chip = target.querySelector('[data-slot="chip-words"]')
+  expect(chip?.textContent).toBe('Uncertain')
+  const mark = target.getElementsByClassName(stylesSettings.rowMark!)[0] ?? null
+  expect(mark === null || mark.querySelector('[data-slot="chip-words"]') === null).toBe(true)
 })
 
 it('a round kept on the desk is posted only after its preview is confirmed, with the previewed stamp', async () => {
