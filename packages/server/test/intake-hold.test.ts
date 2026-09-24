@@ -102,3 +102,27 @@ test('lowering the daily cap below what is committed holds the work; raising it 
   assert.equal((await d.host.call('trigger/preferences', {})).reservedUsd, 5)
   await until(async () => (await status(d, goal)).waits.some((one) => /spend cap/.test(one.sentence)) ? null : true, 'the cap’s wait resolved')
 })
+
+test('a firing parked at the cap names what blocks a wrap, and stopping its run while paused sets it aside at once', E2E, async (t) => {
+  const d = await intakeDesk()
+  t.after(() => d.stop())
+  const { goal, run } = await working(d)
+  const prefs = await d.host.call('trigger/preferences', {})
+  const lowered = await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: false, dailyUsd: 1 })
+  await until(async () => (await execution(d, run)).intake?.heldFor ? true : null, 'held by the cap')
+  // A new head arrives, and waits at the cap.
+  d.forge.pulls[0] = { ...d.forge.pulls[0]!, head: sha('b'), updated: d.clocks.wall + 1000 }
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const blocked = d.host.intakePlane.held(goal)
+  assert.equal(typeof blocked, 'string')
+  assert.match(blocked as string, /is waiting \(Today’s trigger spend cap is lower than what is already committed.*Stop this Goal's run to set that work aside/)
+  // Paused too: nothing is tried again. Stopping the run is the person's act, and it clears the block by itself.
+  await d.host.call('trigger/preferences/set', { revision: lowered.revision, paused: true, dailyUsd: 1 })
+  // The person stops the run (a finding's Drop does exactly this), while triggers are paused.
+  await d.host.flowsPlane.stopRun(run, 'the person stopped this flow')
+  await until(() => d.host.intakePlane.journal.read().operations.length === 0 ? true : null, 'the parked firing set aside while paused')
+  assert.equal(d.host.intakePlane.held(goal), false)
+  const history = await d.host.call('trigger/history', { root: d.repo.dir, id: 'review' }) as TriggerHistoryPage
+  assert.equal(history.items.find((one) => one.head === sha('b'))?.outcome, 'set-aside')
+})

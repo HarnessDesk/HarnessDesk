@@ -759,8 +759,23 @@ export const gitPlugin: HarnessPlugin = {
           if (method !== 'squash' && method !== 'merge' && method !== 'rebase') {
             throw new Error('method must be squash, merge or rebase.')
           }
-          // A squash or merge commit takes the description as its message: given here without the desk's markers.
-          const body = method === 'rebase' ? null : unmarked((await viewPullRequest(selector)).body ?? '').trim()
+          /* The commit message is the repository's to choose. Only when its
+             setting for this method uses the pull request's description is the
+             description given — without the desk's markers, which must never
+             reach history; otherwise, or when the setting cannot be read, no
+             body is passed and the repository's own message stands. */
+          let body: string | null = null
+          if (method !== 'rebase') {
+            const current = await viewPullRequest(selector)
+            let setting: unknown = null
+            try {
+              const answer = JSON.parse(await gh(['api', `repos/${repoOf(current.url)}`, '--jq', '{squash: .squash_merge_commit_message, merge: .merge_commit_message}'])) as Record<string, unknown>
+              setting = method === 'squash' ? answer['squash'] ?? answer['squash_merge_commit_message'] : answer['merge'] ?? answer['merge_commit_message']
+            } catch {
+              setting = null
+            }
+            if (setting === 'PR_BODY') body = unmarked(current.body ?? '').trim()
+          }
           await gh(['pr', 'merge', selector, `--${method}`, '--match-head-commit', head, ...(body !== null ? ['--body', body] : [])])
           const pr = await viewPullRequest(selector)
           const note = await publish(referenceOf(pr, { kind: 'pullRequest', via: await viaOf(scope) }), scope)

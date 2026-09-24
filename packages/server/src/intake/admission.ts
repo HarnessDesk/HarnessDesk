@@ -212,6 +212,8 @@ export const skipConcurrency = (limit: number): string =>
   `This trigger already has ${limit} open ${limit === 1 ? 'Goal' : 'Goals'}, its limit, so this did not fire. Wrap one to make room; this is not replayed.`
 export const PAUSED = 'Triggers are paused on this machine, so nothing is admitted until they resume.'
 export const AGAIN_MISSING = 'New work arrived for this Goal, and this trigger opens no further round. It was recorded; decide what to do with it.'
+export const heldForWrap = (why: string): string =>
+  `A trigger's new work for this Goal is waiting (${why.replace(/\.$/, '')}), so it cannot wrap yet. Stop this Goal's run to set that work aside, or resume triggers or raise the cap so it can land.`
 export const RUN_ENDED = 'Its run was stopped before this firing was let go, so it was set aside for you and will not run on its own.'
 /** How many times a firing's effects are tried before they go to the person. */
 export const FAULT_ATTEMPTS = 3
@@ -281,14 +283,31 @@ export class Admission {
    * the Goal plane's queue, or journaled and not yet released. A wrap waits
    * for it (`GoalPlanePort.intakeHeld`).
    */
-  held(goal: string): boolean {
+  held(goal: string): boolean | string {
     if (this.#claiming.has(goal)) return true
     try {
       // Prepared or applied, until its dispatch is released: a wrap now would stop work this firing is still bringing.
-      return this.#store.read().operations.some((operation) => operation.goal === goal && !operation.dispatched)
+      const waiting = this.#store.read().operations.find((operation) => operation.goal === goal && !operation.dispatched)
+      if (!waiting) return false
+      // Parked at a gate — a pause, the cap, a seat — it says which, and what clears it.
+      return waiting.state === 'applied' && waiting.attention ? heldForWrap(waiting.attention) : true
     } catch {
       return false
     }
+  }
+
+  /**
+   * Sets aside every firing parked at a gate whose run has ended — stopped by
+   * the person or a budget — whatever the machine's pause says: stopping the
+   * run is what clears a wrap's block, and it must, even while paused.
+   */
+  settleEnded(): Promise<void> {
+    return this.#serial.run(async () => {
+      if (this.#store.problem) return
+      for (const pending of this.#store.read().operations) {
+        if (pending.state === 'applied' && !pending.dispatched && this.#effects.ended?.(pending)) await this.#setAside(pending, RUN_ENDED, false)
+      }
+    })
   }
 
   /**

@@ -113,7 +113,8 @@ export interface GoalPlanePort extends GoalOperationPort {
    */
   seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean }): Promise<SeatRecord>
   /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
-  intakeHeld?(goal: string): boolean
+  /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
+  intakeHeld?(goal: string): boolean | string
   /** This Goal's frozen trigger-origin projection for its receipt, read fresh at wrap time. Absent or null: not a trigger Goal. */
   intakeReceipt?(goal: string): Promise<NonNullable<GoalReceipt['intake']> | null>
   openLegacySeat(input: {
@@ -535,7 +536,8 @@ export class GoalPlane {
        plane's queue, so a firing either landed first (and this wrap waits for
        it) or finds the Goal closing and opens a new generation — never both. */
     await this.serial.run(async () => {
-      if (this.port.intakeHeld?.(goal)) throw new Error(INTAKE_LANDING)
+      const landing = this.port.intakeHeld?.(goal)
+      if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
       /* Checked again here, under the barrier, before anything is stopped:
          the check above and the citations' I/O leave a window in which a
          firing may have landed and revived this Goal's run. A run live now
@@ -928,7 +930,8 @@ export class GoalPlane {
   async #stageWrap(goal: string, receipt: GoalReceipt, stamp: string): Promise<void> {
     const document = this.store.read(goal)
     this.#editable(document)
-    if (this.port.intakeHeld?.(goal)) throw new Error(INTAKE_LANDING)
+    const landing = this.port.intakeHeld?.(goal)
+    if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
     const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt } as const
     await this.store.save({
       ...document,

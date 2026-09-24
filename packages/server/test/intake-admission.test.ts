@@ -161,7 +161,8 @@ test('wrap and next fact choose exactly one generation', async () => {
     await d.settle()
     const landing = d.admission.offer(d.arm, prFact(1, sha('b'), 'pushed'))
     await atRound.opened
-    await assert.rejects(wrap(d, opened.goal!), (error: Error) => error.message === INTAKE_LANDING)
+    // Landing: this push, and the opening before it still held at the test's gate, which the refusal now names.
+    await assert.rejects(wrap(d, opened.goal!), (error: Error) => error.message === INTAKE_LANDING || /A trigger's new work for this Goal is waiting \(held for this test\)/.test(error.message))
     round.open()
     const joined = await landing
     assert.equal(joined.goal, opened.goal, 'the one open Goal')
@@ -389,7 +390,7 @@ test('a firing that lands while a wrap retains its citations is never stopped by
     captured.open()
     const outcome = await wrapping
     assert.notEqual(outcome, 'wrapped', `${held ? 'held' : 'dispatched'}: the wrap does not go through`)
-    assert.match(outcome, held ? /A trigger is adding new work to this Goal/ : /changed while you reviewed/)
+    assert.match(outcome, held ? /A trigger's new work for this Goal is waiting \(Every trigger is paused/ : /changed while you reviewed/)
     const after = d.flows.executionsFor(goal)[0]!
     assert.equal(after.state, 'running', `${held ? 'held' : 'dispatched'}: the revived run is never stopped by the refused wrap`)
     assert.equal(after.rounds.length, 2)
@@ -405,7 +406,8 @@ test('a firing held at its gate is landing work a wrap waits for — until its r
   const goal = opened.goal!
   const choices = { summary: 'Reviewed', cards: d.goalStore.read(goal).board.intents.map((one) => ({ id: one.id, resolution: 'dropped' as const, reason: 'Not needed' })) }
   const preview = await d.goals.preview(goal, choices)
-  await assert.rejects(d.goals.wrap(goal, preview.stamp, choices), (error: Error) => error.message === INTAKE_LANDING, 'held, not yet let go: still landing')
+  // Held, not yet let go: still landing — and the refusal says which gate holds it and what clears it.
+  await assert.rejects(d.goals.wrap(goal, preview.stamp, choices), /A trigger's new work for this Goal is waiting \(Every trigger is paused\. Resume triggers to continue\), so it cannot wrap yet\. Stop this Goal's run to set that work aside, or resume triggers/)
   // The person stops the run: nothing will let this firing go now, so it is set aside, and the Goal can wrap.
   const run = d.flows.executionsFor(goal)[0]!
   await d.flows.stopRun(run.id, 'the person stopped this flow')

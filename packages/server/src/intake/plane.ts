@@ -659,8 +659,8 @@ export class IntakePlane {
     return this.#budgets.check(run)
   }
 
-  /** Whether a firing is being recorded into this Goal now: a wrap waits for it. */
-  held(goal: string): boolean {
+  /** Whether a firing is being recorded into this Goal now — or the sentence of why it waits: a wrap waits for it. */
+  held(goal: string): boolean | string {
     return this.#admission.held(goal)
   }
 
@@ -1057,7 +1057,11 @@ export class IntakePlane {
         if (notification.params.view.goal.origin.kind === 'trigger') this.#schedule()
         return
       case 'flow/execution-changed':
-        if (notification.params.execution.intake) this.#schedule()
+        if (notification.params.execution.intake) {
+          // A trigger run that ended lets go of any firing parked on it — paused or not — so a wrap is not blocked by it.
+          if (notification.params.execution.state === 'stopped') void this.#track(this.#admission.settleEnded()).catch(() => {})
+          this.#schedule()
+        }
         return
       case 'team/changed':
         if (this.#hasBudget(notification.params.state.id)) this.#schedule()

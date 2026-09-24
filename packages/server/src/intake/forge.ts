@@ -539,7 +539,6 @@ export class ForgeSource {
     if (!complete || changed.length > ISSUE_LIMIT) return this.#gap(cursor, burst)
     const subjects: Record<string, { head: string | null; event: string }> = { ...cursor.subjects }
     const facts: TriggerFact[] = []
-    const since = new Date(Math.max(0, floor)).toISOString()
     // One permission answer per author within one read.
     const writers = new Map<string, boolean | null>()
     const ordered = [...changed].sort((a, b) => a.updated - b.updated || a.number - b.number)
@@ -571,6 +570,11 @@ export class ForgeSource {
           }
           events = Math.max(events, id)
         }
+        /* Comments since this issue's own last read (less the overlap), or since
+           the source began watching for one never read — never the window's
+           floor, which a read that ran short moved past comments on issues it
+           did not reach (review #898). */
+        const since = new Date(Math.max(0, known !== null ? known.u - OVERLAP_MS : cursor.baseline)).toISOString()
         const replies = await this.#all(project, `repos/${repository}/issues/${issue.number}/comments?since=${since}`, deadline, signal)
         if (replies === null) return this.#gap(cursor, 'An issue has more comments than one read can cover.')
         for (const raw of replies) {

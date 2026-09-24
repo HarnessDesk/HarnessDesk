@@ -301,3 +301,31 @@ test('a busy issue window always makes progress: a read that runs out of time ke
   assert.equal(gap.complete, false)
   assert.match(gap.problem ?? '', /More issues changed than one read can cover/)
 })
+
+test('a read that ran short never loses a comment or an event on an issue it did not reach', async () => {
+  // The reviewer's scenario (review #898, final): issue #99 was commented on early and updated late; ten issues
+  // updated between them fill the first read's budget, so it stops part-way.
+  const forge = new FakeForge()
+  const base = ARMED
+  forge.issues.push({
+    number: 99, state: 'open', created: base - MINUTE, updated: base + 20 * MINUTE,
+    events: [{ id: 900, event: 'labeled', created: base + 2 * MINUTE, label: 'ready' }],
+    comments: [{ id: 500, body: 'please fire', created: base + MINUTE, updated: base + MINUTE }],
+  })
+  for (let n = 1; n <= 10; n += 1) forge.issues.push({ number: n, state: 'open', created: base - MINUTE, updated: base + (6 + n) * MINUTE, events: [], comments: [] })
+  let delay = 50
+  const run: typeof forge.runner = async (...args) => { await new Promise((resolve) => setTimeout(resolve, delay)); return forge.runner(...args) }
+  const reader = new ForgeSource({ run, now: () => base, timeoutMs: 400 })
+  let cursor: SourceCursor = { version: 1, source: 'issue', repository: REPO, baseline: base - 1, observedThrough: base, continuation: null, subjects: {} }
+  const seen: string[] = []
+  for (let read = 0; read < 4; read += 1) {
+    const batch = await reader.poll(PROJECT, cursor, never)
+    seen.push(...batch.facts.map((fact) => `#${fact.subject}:${fact.action}`))
+    cursor = batch.next
+    delay = 0
+  }
+  assert.ok(seen.includes('#99:commented'), 'the early comment on the late issue is offered')
+  assert.ok(seen.includes('#99:labelled'), 'and its early event')
+  assert.equal(seen.filter((one) => one === '#99:commented').length, 1, 'once')
+  assert.equal(seen.filter((one) => one === '#99:labelled').length, 1, 'once')
+})

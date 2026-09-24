@@ -3772,6 +3772,11 @@ export class Host {
     return this.#intake
   }
 
+  /** The flow engine, for tests that stop a run the way a person's Drop does. */
+  get flowsPlane(): Flows {
+    return this.#flows
+  }
+
   get forgePlane(): ForgePlane {
     return this.#forge
   }

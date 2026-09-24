@@ -57,6 +57,13 @@ if (verb === 'pr view') { process.stdout.write(JSON.stringify(pr())); process.ex
 if (verb === 'pr checks') { process.stdout.write(JSON.stringify([{ name: 'build', state: 'SUCCESS', bucket: 'pass', link: 'https://ci/1', workflow: 'CI' }, { name: 'lint', state: 'FAILURE', bucket: 'fail', link: 'https://ci/2' }, { name: 'deploy', state: 'PENDING', bucket: 'pending' }])); process.exit(8) }
 if (verb === 'issue view') { process.stdout.write(JSON.stringify({ number: 42, title: 'Widgets wobble', state: 'OPEN', url: 'https://github.com/acme/widgets/issues/42', author: { login: 'octocat' }, body: 'They wobble.', labels: [{ name: 'bug' }], comments: [{ author: { login: 'hubot' }, body: 'Confirmed.', createdAt: '2026-09-10T00:00:00Z' }] })); process.exit(0) }
 if (verb === 'issue comment') { process.stdout.write('https://github.com/acme/widgets/issues/42#issuecomment-2\n'); process.exit(0) }
+if (verb.startsWith('api') && /^repos\/[^/]+\/[^/]+$/.test(args[1] ?? '')) {
+  // The repository's own merge-commit settings, as GitHub answers them; a test writes repo.json to change them.
+  const file = path.join(home, 'repo.json')
+  if (fs.existsSync(path.join(home, 'repo-fails'))) { process.stderr.write('gh: HTTP 502\n'); process.exit(1) }
+  process.stdout.write(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : JSON.stringify({ squash_merge_commit_message: 'PR_BODY', merge_commit_message: 'PR_TITLE' }))
+  process.exit(0)
+}
 if (verb.startsWith('api')) { process.stdout.write('https://github.com/acme/widgets/pull/7#pullrequestreview-9\n'); process.exit(0) }
 process.stderr.write('fake gh: unknown ' + verb + '\n'); process.exit(1)
 `
@@ -262,15 +269,32 @@ test('pr_merge merges only at the commit that was reviewed, squashes unless told
   const merge = forge.calls().find((args) => args[0] === 'pr' && args[1] === 'merge')!
   assert.deepEqual(merge.slice(0, 6), ['pr', 'merge', '7', '--squash', '--match-head-commit', head])
   const message = merge[merge.indexOf('--body') + 1] ?? ''
-  assert.ok(merge.includes('--body'), 'the commit message body is the desk’s to give')
+  assert.ok(merge.includes('--body'), 'the repository squashes with the description: it is given, without the desk’s marker')
   assert.ok(!message.includes('harnessdesk:'), 'and carries no desk marker')
   assert.match(message, /^Widgets, as discussed\./)
+
+  // A repository whose merge commits do not use the description keeps its own message: no body is passed.
+  for (const setting of [{ squash_merge_commit_message: 'COMMIT_MESSAGES', merge_commit_message: 'PR_TITLE' }, { squash_merge_commit_message: 'BLANK', merge_commit_message: 'BLANK' }]) {
+    writeFileSync(join(forge.home, 'repo.json'), JSON.stringify(setting))
+    await forge.run('pr_merge', { number: 7, head })
+    const again = forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').at(-1)!
+    assert.equal(again.includes('--body'), false, `${setting.squash_merge_commit_message}: the repository's own message stands`)
+  }
+  // A merge commit uses the description when the repository says so for merges.
+  writeFileSync(join(forge.home, 'repo.json'), JSON.stringify({ squash_merge_commit_message: 'BLANK', merge_commit_message: 'PR_BODY' }))
+  await forge.run('pr_merge', { number: 7, head, method: 'merge' })
+  const merged = forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').at(-1)!
+  assert.match(merged[merged.indexOf('--body') + 1] ?? '', /^Widgets, as discussed\./)
+  // A setting that cannot be read overrides nothing.
+  writeFileSync(join(forge.home, 'repo-fails'), '')
+  await forge.run('pr_merge', { number: 7, head })
+  assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').at(-1)!.includes('--body'), false)
   assert.equal(forge.published.at(-1)?.kind, 'pullRequest')
   assert.equal(forge.published.at(-1)?.state, 'merged')
 
   const invalid = await forge.run('pr_merge', { number: 7, head: 'short' })
   assert.match(invalid, /whole commit/)
-  assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 1)
+  assert.equal(forge.calls().filter((args) => args[0] === 'pr' && args[1] === 'merge').length, 5)
 })
 
 test('pr_review opens with the review line; pr_comment is unsigned', async (t) => {
