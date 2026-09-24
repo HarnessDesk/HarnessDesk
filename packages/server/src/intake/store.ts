@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { open, rename, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import { TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact } from '@harnessdesk/protocol'
+import { TRIGGER_SOURCES, type TriggerDefinition, type TriggerFact, type TriggerStopReason } from '@harnessdesk/protocol'
 
 import { syncDirectory } from '../goals/store.js'
 import type { ArmBinding } from './consent.js'
 import { AGAIN_TITLE, labelName, TRIGGER_SLUG } from './definition.js'
+import type { SessionMeter } from './spend.js'
 
 /**
  * The admission journal: `intake.json` in the desk's state folder, one
@@ -24,6 +25,10 @@ import { AGAIN_TITLE, labelName, TRIGGER_SLUG } from './definition.js'
  *   round or Seat exists, and `applied` once all of them do.
  * - **Which Goal a fact belongs to.** Per trigger, each group key's current
  *   Goal and run, whether it is open, and the last head it saw.
+ * - **What each Goal may spend.** One budget per trigger Goal generation —
+ *   its deadline, its USD limit and reservation, each Seat's spend meter,
+ *   and why it stopped — the daily buckets of settled spend by UTC day, and
+ *   a clock watermark that only moves forward.
  *
  * Every save is a complete synced temporary renamed over the file, then the
  * folder synced; a failed save refuses the admission that asked for it, and
@@ -96,15 +101,41 @@ export interface IntakeFiring {
   readonly reason: string | null
 }
 
+/** One trigger Goal generation's money and time: made with its first firing, never reset by a later one. */
+export interface IntakeBudget {
+  readonly trigger: string
+  readonly project: string
+  readonly startedAt: number
+  /** Wall-clock deadline: start plus the budget's hours, read against the journal's forward-only clock. */
+  readonly deadline: number
+  /** The Goal's USD limit in micros, and the rounds and progress limits it was armed with. */
+  readonly usdMicros: number
+  readonly rounds: number
+  readonly withoutProgress: number
+  /** What this Goal holds against the daily cap until its final spend settles; 0 once settled. */
+  readonly reservedMicros: number
+  /** The UTC day the reservation was made. */
+  readonly day: string
+  readonly settled: boolean
+  /** Each Seat's meter, by Seat id. */
+  readonly meters: Readonly<Record<string, SessionMeter>>
+  readonly stop: { readonly reason: TriggerStopReason; readonly detail: string; readonly at: number } | null
+}
+
 export interface IntakeSnapshot {
   readonly version: 1
   readonly revision: number
+  /** The latest wall-clock instant the journal has seen: never moves back, so a clock rolled back extends nothing. */
+  readonly clock: number
   readonly operations: readonly IntakeOperation[]
   readonly groups: Readonly<Record<string, IntakeGroup>>
   readonly firings: Readonly<Record<string, IntakeFiring>>
+  readonly budgets: Readonly<Record<string, IntakeBudget>>
+  /** Settled spend, in micros, by UTC day (`YYYY-MM-DD`). */
+  readonly days: Readonly<Record<string, number>>
 }
 
-export const emptySnapshot = (): IntakeSnapshot => ({ version: 1, revision: 0, operations: [], groups: {}, firings: {} })
+export const emptySnapshot = (): IntakeSnapshot => ({ version: 1, revision: 0, clock: 0, operations: [], groups: {}, firings: {}, budgets: {}, days: {} })
 
 // ------------------------------------------------------------ validation
 
@@ -167,11 +198,44 @@ const payloadOf = (value: unknown): IntakePayload | null => {
   return value as unknown as IntakePayload
 }
 
+const STOPS = ['answered', 'crashed', 'timed out', 'lease expired', 'cancelled', 'out of budget', 'asked a question nobody can answer', 'needs a person']
+
+const meterOf = (value: unknown): boolean => {
+  if (!isMap(value)) return false
+  const nullableTime = (one: unknown): boolean => one === null || time(one)
+  return filled(value['seat'], 200) && filled(value['runtime'], 200) && filled(value['sessionId'], 4096) && filled(value['project']) &&
+    time(value['openedAt']) && typeof value['fresh'] === 'boolean' && ['none', 'some', 'unknown'].includes(value['delegation'] as string) &&
+    [null, 'call', 'session'].includes(value['scope'] as string | null) && [null, 'vendorMetered', 'listPrice'].includes(value['provenance'] as string | null) &&
+    (value['model'] === null || text(value['model'], 200)) && nullableTime(value['baselineMicros']) && nullableTime(value['lastMicros']) &&
+    time(value['callMicros']) && Array.isArray(value['calls']) && (value['calls'] as unknown[]).length <= 10_000 &&
+    (value['calls'] as unknown[]).every((one) => text(one, 512)) && nullableTime(value['observedAt']) &&
+    nullableTime(value['turnStartedAt']) && nullableTime(value['turnEndedAt']) && (value['unknown'] === null || text(value['unknown']))
+}
+
+const budgetOf = (value: unknown): boolean => {
+  if (!isMap(value) || !slug(value['trigger']) || !filled(value['project']) || !time(value['startedAt']) || !time(value['deadline'])) return false
+  if (!time(value['usdMicros']) || !time(value['reservedMicros']) || !/^\d{4}-\d{2}-\d{2}$/.test(String(value['day'])) || typeof value['settled'] !== 'boolean') return false
+  if (!(Number.isSafeInteger(value['rounds']) && (value['rounds'] as number) >= 1) || !(Number.isSafeInteger(value['withoutProgress']) && (value['withoutProgress'] as number) >= 1)) return false
+  const stop = value['stop']
+  if (!(stop === null || (isMap(stop) && STOPS.includes(stop['reason'] as string) && text(stop['detail']) && time(stop['at'])))) return false
+  const meters = value['meters']
+  return isMap(meters) && Object.keys(meters).length <= 256 && Object.entries(meters).every(([seat, meter]) => meterOf(meter) && (meter as { seat: string }).seat === seat)
+}
+
 /** The whole snapshot, read strictly: any part it cannot read refuses all of it. */
 export const snapshotOf = (value: unknown): IntakeSnapshot => {
   const bad = (why: string): never => { throw new Error(`The intake journal cannot be read (${why}). Its original bytes were kept.`) }
   if (!isMap(value) || value['version'] !== 1) return bad('unknown version')
-  if (!time(value['revision']) || !Array.isArray(value['operations']) || !isMap(value['groups']) || !isMap(value['firings'])) return bad('shape')
+  if (!time(value['revision']) || !time(value['clock']) || !Array.isArray(value['operations']) || !isMap(value['groups']) ||
+    !isMap(value['firings']) || !isMap(value['budgets']) || !isMap(value['days'])) return bad('shape')
+  for (const [day, spent] of Object.entries(value['days'] as Record<string, unknown>)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !time(spent)) bad('a day')
+  }
+  const budgets = value['budgets'] as Record<string, unknown>
+  if (Object.keys(budgets).length > GROUP_LIMIT) bad('too many budgets')
+  for (const [goal, budget] of Object.entries(budgets)) {
+    if (!GOAL_ID.test(goal) || !budgetOf(budget)) bad('a budget')
+  }
   const firings = value['firings'] as Record<string, unknown>
   if (Object.keys(firings).length > FIRING_LIMIT) bad('too many firings')
   for (const [key, firing] of Object.entries(firings)) {

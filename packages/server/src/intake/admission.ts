@@ -287,6 +287,7 @@ export class Admission {
         }
         let next: IntakeSnapshot = {
           ...snapshot,
+          clock: Math.max(snapshot.clock, this.#port.now()),
           operations: [...snapshot.operations, operation],
           groups: prune({
             ...groups,
@@ -309,6 +310,21 @@ export class Admission {
       await this.#finish()
       const fired = this.#store.read().firings[key]!
       return { outcome: 'fired', firing: key, goal: fired.goal, reason: null }
+    })
+  }
+
+  /**
+   * One change to the journal that is not a firing — a budget's meter, a
+   * stop, a settlement — under the same queue every firing takes, so the
+   * journal keeps one writer. `change` is handed the snapshot as it stands
+   * inside the queue and answers the next one (or null to write nothing)
+   * with a value; it must not await, so nothing it read goes stale.
+   */
+  transact<T>(change: (snapshot: IntakeSnapshot) => { readonly next: IntakeSnapshot | null; readonly value: T }): Promise<T> {
+    return this.#serial.run(async () => {
+      const decided = change(this.#store.read())
+      if (decided.next) await this.#store.commit(decided.next)
+      return decided.value
     })
   }
 
@@ -379,6 +395,7 @@ export class Admission {
     const snapshot = this.#store.read()
     await this.#store.commit({
       ...snapshot,
+      clock: Math.max(snapshot.clock, this.#port.now()),
       firings: { ...snapshot.firings, [key]: { trigger: arm.id, project: arm.project, at: this.#port.now(), outcome: 'skipped', goal: null, reason } },
     })
     return { outcome: 'skipped', firing: key, goal: null, reason }

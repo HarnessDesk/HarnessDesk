@@ -19,6 +19,7 @@ import { GoalPlane, type GoalPlanePort } from '../../src/goals/plane.js'
 import { GoalStore } from '../../src/goals/store.js'
 import { Admission, type AdmissionStep, type OfferAnswer } from '../../src/intake/admission.js'
 import { IntakeEffects, type IntakeTargets } from '../../src/intake/apply.js'
+import { BudgetWatch, DEFAULT_DAILY_MICROS, TriggerBudgets } from '../../src/intake/budget.js'
 import { TriggerClosures, type ArmBinding, type ArmedTrigger } from '../../src/intake/consent.js'
 import { eventKey } from '../../src/intake/keys.js'
 import { IntakeStore } from '../../src/intake/store.js'
@@ -87,8 +88,12 @@ export interface DeskOptions {
   readonly beforeRound?: () => Promise<void>
   /** Held when a wrap stops the Goal's runs. */
   readonly beforeStop?: () => Promise<void>
-  /** The dispatch gate: null lets a firing's round go. */
+  /** The release gate in place of the budget's: null lets a firing's round go. */
   readonly gate?: () => Promise<string | null>
+  /** The daily cap, in micros. */
+  readonly capMicros?: () => number
+  readonly lane?: () => 'available' | 'spent' | 'unknown'
+  readonly paused?: () => boolean
 }
 
 /** The flow engine's legacy half: this desk runs no old flows. */
@@ -243,6 +248,10 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
       seats.set(record.id, record)
       keepSeats()
       log(`open:${record.id}:${input.goal}`)
+      // Once durable, and never awaited from inside the run's queue: the meter takes admission's queue.
+      void budgets.seated(input.goal, {
+        seat: record.id, runtime, sessionId: `s${opened}`, project: PROJECT, openedAt: opened, fresh: true, delegation: 'none',
+      })
       if (input.card !== undefined) {
         const state = team.stateFor(input.goal)
         team.installProjection({
@@ -295,6 +304,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
           return null
         }
       },
+      gate: async (run) => budgets.check(run),
     },
   })
   const flows = new Flows(join(home, 'flows'), team, legacy, undefined, executions)
@@ -330,19 +340,41 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
       },
       resumeTriggered: async (run) => { log(`release:${run}`); await flows.resumeTriggered(run) },
     },
-    gate: async () => (await options.gate?.()) ?? null,
+    gate: async (operation) => {
+      if (options.gate) return options.gate()
+      const run = flows.executionOf(operation.run)
+      if (!run) return 'This firing’s run is missing.'
+      const verdict = budgets.check(run)
+      return verdict.ok ? null : verdict.reason
+    },
   }
   const store = new IntakeStore(home)
   await store.load()
-  admission = new Admission(store, {
-    binding: async () => {
-      await options.beforeBinding?.()
-      return options.consent?.() ?? true ? binding : null
+  const now = options.now ?? Date.now
+  const paused = options.paused ?? (() => false)
+  const budgets: TriggerBudgets = new TriggerBudgets(() => store.read(), (change) => admission!.transact(change), {
+    paused, now,
+    capMicros: options.capMicros ?? (() => DEFAULT_DAILY_MICROS),
+    lane: options.lane ?? (() => 'available'),
+    run: (goal) => flows.executionsFor(goal).find((run) => run.intake) ?? null,
+  })
+  const watch = new BudgetWatch(budgets, (goal) => flows.executionsFor(goal).find((run) => run.intake) ?? null, {
+    interrupt: async (goal) => { log(`interrupt:${goal}`) },
+    stopRun: async (goal, reason) => {
+      const run = flows.executionsFor(goal).find((one) => one.intake)
+      if (run) await flows.stopRun(run.id, reason)
     },
-    paused: () => false,
-    now: options.now ?? Date.now,
+  })
+  admission = new Admission(store, {
+    binding: async (armed) => {
+      await options.beforeBinding?.()
+      return options.consent?.() ?? true ? armed.binding : null
+    },
+    paused,
+    now,
     lifecycle: (goal) => goals.lifecycle(goal),
     claim: (goal, claim) => goals.intakeClaim(goal, claim),
+    reserve: (snapshot, operation, one) => budgets.reserve(snapshot, operation, one),
   }, new IntakeEffects(targets), {
     onStep: (step, operation) => {
       log(`${step}:${operation.key.slice(0, 8)}:${operation.mode}`)
@@ -353,8 +385,10 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
     await flows.flush()
     await team.flush()
     await evidence.store.flush()
+    // A barrier through admission's queue: every meter write a Seat's opening queued has landed.
+    await admission!.transact(() => ({ next: null, value: undefined }))
   }
-  return { home, arm, binding, trigger, goals, goalStore, goalSerial, team, flows, executions, evidence, store, admission, events, settle, seats }
+  return { home, arm, binding, trigger, goals, goalStore, goalSerial, team, flows, executions, evidence, store, admission, budgets, watch, events, settle, seats, closures }
 }
 
 export type Desk = Awaited<ReturnType<typeof desk>>

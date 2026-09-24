@@ -1,3 +1,4 @@
+import type { SessionPointer } from './evidence.js'
 import type { FlowThen } from './flow.js'
 import type { FlowPreview } from './flow-policy.js'
 
@@ -220,4 +221,54 @@ export interface TriggerSourceStatus {
   readonly lastPolledAt: number | null
   /** Facts the last poll saw and recorded as skipped: a stranger's head, a missed slot. */
   readonly skipped: number
+}
+
+// ------------------------------------------------------------------ budgets
+
+/** Why unattended work on a trigger's Goal stopped: a completed turn is `answered`, never an approval. */
+export type TriggerStopReason =
+  | 'answered'
+  | 'crashed'
+  | 'timed out'
+  | 'lease expired'
+  | 'cancelled'
+  | 'out of budget'
+  | 'asked a question nobody can answer'
+  | 'needs a person'
+
+/** Where a money figure came from: the vendor's own metered cost, public list prices for exact tokens, or neither. */
+export type IntakeSpendProvenance = 'vendorMetered' | 'listPrice' | 'unknown'
+
+/** The daily cap on what every trigger on this machine may reserve, in USD, by UTC day. */
+export const DEFAULT_TRIGGER_DAILY_USD = 20
+
+/**
+ * One Seat's spend as the desk attributed it: cumulative for its session,
+ * never a runtime-wide total divided between Goals. `totalMicros` is null
+ * whenever it cannot be vouched for — no cost reported, a partial total, a
+ * price that is missing, delegated work it cannot separate, a total that
+ * went down — and null is never read as zero.
+ */
+export interface IntakeSpend {
+  readonly seat: string
+  readonly session: SessionPointer
+  readonly turn: string | null
+  readonly observedAt: number
+  readonly totalMicros: number | null
+  readonly provenance: IntakeSpendProvenance
+  readonly complete: boolean
+}
+
+/** A trigger Goal's budget as it stands: one per Goal generation, never reset by a later firing. */
+export interface TriggerBudgetState {
+  readonly goal: string
+  readonly startedAt: number
+  readonly deadline: number
+  readonly budget: TriggerBudget
+  readonly spentMicros: number | null
+  readonly reservedMicros: number
+  readonly provenance: 'vendorMetered' | 'listPrice' | 'mixed' | 'unknown'
+  readonly closedRounds: readonly number[]
+  readonly idleRounds: number
+  readonly stop: { readonly reason: TriggerStopReason; readonly detail: string; readonly at: number } | null
 }

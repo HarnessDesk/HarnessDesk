@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 
-import { runtimeId, SeatRefusedError, type ConfigOption, type OptionValue, type SeatPlan, type Session } from '@harnessdesk/protocol'
+import { runtimeId, SeatRefusedError, type ConfigOption, type OptionValue, type SeatPlan, type SeatRecord, type Session } from '@harnessdesk/protocol'
 
 import { holdCeiling } from '../src/ceilings/hold.js'
 import { unheldPolicy } from '../src/ceilings/policy.js'
@@ -146,4 +146,71 @@ test('through the host: a Mac that refuses unheld ceilings passes over every run
   const [opened] = holds.held
   assert.ok(opened)
   assert.equal(host.registry.get(runtimeId('holdfake'), opened.id), undefined)
+})
+
+test('unattended refuses before and after seating when not held', async (t) => {
+  const { migrateDesk } = await import('../src/goals/migration.js')
+  const { GoalStore } = await import('../src/goals/store.js')
+  const { goal: goalOf } = await import('./fixtures/goals.js')
+  const { unattendedPolicy } = await import('../src/ceilings/policy.js')
+  // The unattended policy is its own setting and defaults to refuse; the watched setting never answers for it.
+  assert.equal(unattendedPolicy({}), 'refuse')
+  assert.equal(unattendedPolicy({ unheldCeilings: { watched: 'seat' } }), 'refuse')
+  assert.equal(unattendedPolicy({ unheldCeilings: { unattended: 'seat' } }), 'seat')
+  for (const stored of [null, 'seat', [], { unattended: 'always' }, { unattended: true }]) {
+    assert.equal(unattendedPolicy({ unheldCeilings: stored }), 'refuse', JSON.stringify(stored))
+  }
+
+  // A trigger's Goal, as its persisted origin says — nothing a request can claim.
+  const stateDir = tempDir('hd-hold-state-')
+  const work = tempDir('hd-hold-work-')
+  await migrateDesk(stateDir, async () => {})
+  const store = new GoalStore(stateDir)
+  await store.load()
+  const triggerGoal = 'goal-00000000-0000-4000-8000-00000000000a'
+  await store.save({
+    version: 1, goal: goalOf(triggerGoal, { root: work, cwd: work, origin: { kind: 'trigger', trigger: 'review', event: 'a'.repeat(64) } }),
+    board: { nextIntent: 1, messaging: true, intents: [], channel: [] }, citations: [], receipt: null, operation: null,
+  }, null)
+  const host = new Host({
+    logger: silent, state: new StateStore(join(stateDir, 'state.json')), builtinAgents: tempDir('hd-hold-builtins-'), catalogRefreshMs: 0,
+  })
+  const holds = new HoldFake()
+  const plain = new FakeRuntime()
+  host.register(holds)
+  host.register(plain)
+  await host.start()
+  t.after(() => host.dispose())
+  await host.call('workspace/open', { path: work })
+  const agentFile = async (prefer: string): Promise<void> => {
+    await mkdir(join(stateDir, 'agents', 'reviewer'), { recursive: true })
+    await writeFile(join(stateDir, 'agents', 'reviewer', 'AGENT.md'), `---\nname: Reviewer\nceiling: read\nprefer: [${prefer}]\n---\nRead the diff.\n`, 'utf8')
+  }
+  const seat = () => host.call('goal/seat', { goal: triggerGoal, agent: 'reviewer' })
+
+  // Absent preference: a runtime that cannot hold read is passed over before anything opens.
+  await agentFile('fake')
+  await assert.rejects(seat(), /cannot hold read.*this Mac refuses a seat whose ceiling is only asked/)
+  assert.equal(plain.sessions.size, 0, 'no conversation was opened, so no turn was sent')
+  // The watched setting says seat: an unattended Goal still refuses.
+  await host.call('app/state/set', { patch: { unheldCeilings: { watched: 'seat' } } })
+  await assert.rejects(seat(), /this Mac refuses a seat whose ceiling is only asked/)
+  assert.equal(plain.sessions.size, 0)
+  // A control that reads back as something else: opened, found unheld, and discarded before any turn.
+  await agentFile('holdfake')
+  holds.habit = 'settlesElsewhere'
+  await assert.rejects(seat(), /this Mac refuses a seat whose ceiling is only asked/)
+  assert.equal(holds.held.length, 1)
+  assert.equal(host.registry.get(runtimeId('holdfake'), holds.held[0]!.id), undefined, 'the unheld conversation was not kept')
+
+  // A person's own Goal on the same Mac still seats and says so: the watched policy is unchanged.
+  await agentFile('fake')
+  const personal = (await host.call('goal/create', { root: work, sentence: 'A person’s Goal' })) as { goal: { id: string } }
+  const watched = (await host.call('goal/seat', { goal: personal.goal.id, agent: 'reviewer' })) as SeatRecord
+  assert.deepEqual(watched.ceiling, { level: 'read', hold: 'asked' })
+
+  // Only the person's explicit unattended choice seats an unattended Goal on an asked ceiling, and it says asked.
+  await host.call('app/state/set', { patch: { unheldCeilings: { watched: 'seat', unattended: 'seat' } } })
+  const asked = (await seat()) as SeatRecord
+  assert.deepEqual(asked.ceiling, { level: 'read', hold: 'asked' })
 })

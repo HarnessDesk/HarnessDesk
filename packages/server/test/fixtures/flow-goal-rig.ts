@@ -131,7 +131,7 @@ export interface GoalRig {
    * The closure is frozen from `source` and `agents` exactly as a trigger's
    * arm would freeze it; `changed` makes the re-read closure differ.
    */
-  startTriggered(source: string, agents: readonly AgentEntry[], options?: { readonly again?: string; readonly changed?: boolean; readonly key?: string }): Promise<FlowExecution>
+  startTriggered(source: string, agents: readonly AgentEntry[], options?: { readonly again?: string; readonly changed?: boolean; readonly key?: string; readonly budget?: TriggerDefinition['budget'] }): Promise<FlowExecution>
   /** The dispatch gate a trigger's run passes; null lets it go. */
   triggerGate: ((run: FlowExecution) => string | null) | null
   /** Each trigger Goal's persisted origin, as the Goal store would answer it. */
@@ -377,7 +377,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     const definition: TriggerDefinition = {
       id: 'review', on: { kind: 'pull-request', events: ['opened', 'pushed'] }, opens: { flow: 'review-pr' }, goal: ['pr'],
       again: options.again ? { role: options.again, title: 'Continue this work', detail: null } : null,
-      dedupe: ['pr', 'head', 'event'], concurrency: 1, forks: 'never', budget: DEFAULT_TRIGGER_BUDGET,
+      dedupe: ['pr', 'head', 'event'], concurrency: 1, forks: 'never', budget: options.budget ?? DEFAULT_TRIGGER_BUDGET,
     }
     triggerSource = { source, agents, changed: false }
     const digest = sourceDigest(source)
