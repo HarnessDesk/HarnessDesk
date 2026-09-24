@@ -22,4 +22,7 @@ export const findingMethods = {
   },
 
   'finding/decide': (ctx, params) => ctx.findings.decide(params),
+
+  'finding/publications': (ctx, params) => ctx.findings.publications(params),
+  'finding/publish': (ctx, params) => ctx.findings.publish(params),
 } satisfies MethodsUnder<'finding/'>

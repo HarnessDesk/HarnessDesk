@@ -13,6 +13,8 @@ import type {
   FindingId,
   FindingPage,
   FindingRunView,
+  FindingPublicationsView,
+  FindingPublishAction,
   FindingView,
   FlowSeat,
   GoalId,
@@ -147,6 +149,10 @@ export interface HostContext {
       readonly action: FindingDecisionAction
       readonly reason: string
     }): Promise<FindingRunView>
+    /** A run's postings a person has to look at, and what a backfill would post now. */
+    publications(input: { readonly goal: GoalId; readonly run: string }): Promise<FindingPublicationsView>
+    /** Post again, skip or backfill, on a run of this Goal. */
+    publish(input: { readonly goal: GoalId; readonly run: string; readonly action: FindingPublishAction }): Promise<FindingPublicationsView>
   }
   readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane

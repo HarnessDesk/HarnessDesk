@@ -307,7 +307,7 @@ test('a wrap preview and a run step seating a card never wait on each other', as
   const journaled: StoredPublication = { rounds: {}, ops: {} }
   const publications = new Publications({
     journal: (run: string, step: (journal: PublicationJournal) => Promise<unknown>) => runQueue.within(run, () => step({
-      round: () => null, entry: () => null, entries: () => [], decide: async () => {}, put: async () => {},
+      round: () => null, entry: () => null, entries: () => [], decide: async () => {}, put: async () => {}, backfill: async () => {},
     })),
     runs: () => [{ run: 'r1', goal: 'g1' }],
     snapshot: () => journaled,

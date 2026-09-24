@@ -1,6 +1,6 @@
 import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
-import type { FindingDecisionAction } from './findings.js'
+import type { FindingDecisionAction, FindingPublishAction } from './findings.js'
 import { lanePreferences } from './goal.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import type {
@@ -356,6 +356,17 @@ const findingDecisionAction = taggedUnion<FindingDecisionAction, 'kind'>('kind',
   }),
 })
 
+const publicationKey: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!/^pub-[0-9a-f]{48}$/.test(text)) throw new ValidationError(path, 'expected a posting operation key')
+  return text
+}
+const findingPublishAction = taggedUnion<FindingPublishAction, 'kind'>('kind', {
+  'post-again': goalShape({ kind: literalUnion('post-again'), key: publicationKey }),
+  skip: goalShape({ kind: literalUnion('skip'), key: publicationKey, reason: findingReason }),
+  backfill: goalShape({ kind: literalUnion('backfill'), stamp: goalHex([64]) }),
+})
+
 const findingValidators = {
   'finding/list': goalShape({
     goal: goalId, cursor: optional(findingCursor), filter: optional(literalUnion('all', 'open', 'blocking')),
@@ -371,6 +382,8 @@ const findingValidators = {
     goal: goalId, run: findingRun, round: goalInteger(1), stamp: goalHex([64]),
     action: findingDecisionAction, reason: findingReason,
   }),
+  'finding/publications': goalShape({ goal: goalId, run: findingRun }),
+  'finding/publish': goalShape({ goal: goalId, run: findingRun, action: findingPublishAction }),
 }
 
 /** Read-only Insight accepts selectors, never values the host is responsible for measuring. */

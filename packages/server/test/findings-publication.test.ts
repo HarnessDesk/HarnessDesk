@@ -534,3 +534,164 @@ test('a second event of one finding in the same batch waits for the first rather
   const comment = forge.comments.find((c) => c.id === root.comment)!
   assert.doesNotMatch(comment.body, /Second try/)
 })
+
+// ------------------------------------------------ a person on a stuck posting
+
+const entryOf = (r: Rig, key: string): PublicationEntry => r.entries().find((entry) => entry.key === key)!
+
+test('post again reads back first: a lost answer is recorded from the pull request, never sent again', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  let n = 0
+  forge.onSend = () => (++n === 1 ? 'lose' : 'ok')
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const lost = forge.sends[0]!.key
+  assert.equal(entryOf(r, lost).state, 'uncertain')
+  const listed = await r.pub.needs(f.run)
+  assert.deepEqual(listed.items.map((item) => item.key), [lost], 'the person is shown exactly the posting that needs them')
+  await r.pub.postAgain(f.run, lost)
+  assert.equal(entryOf(r, lost).state, 'posted')
+  assert.equal(forge.sends.filter((send) => send.key === lost).length, 1, 'found on the pull request, so never sent again')
+  assert.equal(forge.comments.filter((one) => one.body.startsWith(entryOf(r, lost).marker)).length, 1)
+  assert.deepEqual(entryOf(r, lost).person?.action, 'post-again', 'the person’s action is journaled on the operation')
+  assert.deepEqual((await r.pub.needs(f.run)).items, [])
+})
+
+test('post again, with no copy on the pull request, sends it once more — only because a person asked — and a second press sends nothing', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  let n = 0
+  forge.onSend = () => (++n === 1 ? 'fail' : 'ok')
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const failed = forge.sends[0]!.key
+  assert.equal(entryOf(r, failed).state, 'uncertain')
+  await r.pub.reconcile(f.run, r.round)
+  assert.equal(forge.sends.filter((send) => send.key === failed).length, 1, 'no copy found is not a reason to send again on its own')
+  await r.pub.postAgain(f.run, failed)
+  assert.equal(entryOf(r, failed).state, 'posted')
+  await r.pub.postAgain(f.run, failed)
+  assert.equal(forge.sends.filter((send) => send.key === failed).length, 2, 'the person’s one fresh attempt, and no more')
+  assert.equal(forge.comments.filter((one) => one.body.startsWith(entryOf(r, failed).marker)).length, 1, 'one copy on the pull request')
+})
+
+test('post again never picks between several copies', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  let n = 0
+  forge.onSend = () => (++n === 1 ? 'duplicate' : 'ok')
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const twice = forge.sends[0]!.key
+  await assert.rejects(r.pub.postAgain(f.run, twice), /shows 2 copies/)
+  assert.equal(entryOf(r, twice).state, 'uncertain')
+  assert.equal(forge.sends.filter((send) => send.key === twice).length, 1)
+})
+
+test('post again on a paused posting checks it again: still moved, it stays paused; back at the reviewed head, it posts', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  forge.head = '6'.repeat(40)
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const paused = r.entries().filter((entry) => entry.state === 'prepared' && /moved from/.test(entry.reason ?? ''))
+  assert.ok(paused.length > 0)
+  const key = paused[0]!.key
+  await r.pub.postAgain(f.run, key)
+  assert.equal(entryOf(r, key).state, 'prepared')
+  assert.match(entryOf(r, key).reason ?? '', /moved from/, 'nothing is relabelled at the new head')
+  assert.equal(forge.sends.length, 0)
+  forge.head = SHA1
+  await r.pub.postAgain(f.run, key)
+  assert.equal(entryOf(r, key).state, 'posted')
+  assert.equal(forge.sends.filter((send) => send.key === key).length, 1)
+})
+
+test('skip records a gap the wrap carries without asking again, and a posting that did land is recorded instead', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  let n = 0
+  forge.onSend = () => (++n === 1 ? 'lose' : 'ok')
+  forge.onSend = ((original) => (operation: PublicationEntry, body: string) => {
+    const outcome = original(operation, body)
+    forge.head = '7'.repeat(40)
+    return outcome
+  })(forge.onSend)
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const lost = forge.sends[0]!.key
+  const paused = r.entries().find((entry) => entry.state === 'prepared')!.key
+  const unsettled = (await r.pub.gaps(f.goal)).length
+  await r.pub.skip(f.run, paused, 'the pull request moved on; nobody needs this now')
+  assert.equal(entryOf(r, paused).state, 'skipped')
+  assert.deepEqual(entryOf(r, paused).person?.action, 'skip')
+  assert.equal((await r.pub.gaps(f.goal)).length, unsettled - 1, 'no longer unsettled: the wrap does not ask about it again')
+  const recorded = r.pub.recordedGaps(f.goal)
+  assert.equal(recorded.length, 1)
+  assert.match(recorded[0]!, /was skipped\. A person skipped this: the pull request moved on/)
+  // Skipping one whose answer was lost: its copy is on the pull request, so where it landed is recorded, never dropped.
+  await r.pub.skip(f.run, lost, 'not needed')
+  assert.equal(entryOf(r, lost).state, 'posted')
+  assert.equal(forge.sends.filter((send) => send.key === lost).length, 1)
+  // Journaled: a restart reads the person's actions back.
+  await r.restart()
+  assert.equal(entryOf(r, paused).state, 'skipped')
+  assert.equal(entryOf(r, paused).person?.reason, 'the pull request moved on; nobody needs this now')
+})
+
+test('a round kept on the desk is posted later only after a person previews it, and only once', async (t) => {
+  const r = await publicationRig(t, { bind: false })
+  const { f, forge } = r
+  await review(r)
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const none = await r.pub.needs(f.run)
+  assert.equal(none.backfill, null)
+  assert.match(none.backfillRefusal ?? '', /No open pull request is bound/)
+  r.bindPullRequest()
+  r.goal.preference = false
+  assert.match((await r.pub.needs(f.run)).backfillRefusal ?? '', /Posting is off/)
+  r.goal.preference = undefined
+  const preview = await r.pub.needs(f.run)
+  assert.deepEqual(preview.backfill?.rounds, [{ round: r.round, findings: 2, reviews: 2 }])
+  assert.equal(preview.backfill?.pr, 7)
+  assert.deepEqual(forge.calls, [], 'previewing sends nothing')
+  await assert.rejects(r.pub.backfill(f.run, '0'.repeat(64)), /changed since you previewed/)
+  await r.pub.backfill(f.run, preview.backfill!.stamp)
+  await r.pub.idle()
+  assert.equal(forge.sends.length, 4)
+  assert.ok(r.entries().every((entry) => entry.state === 'posted'))
+  const round = f.rig.executions.stored(f.run)!.publication!.rounds[String(r.round)]!
+  assert.equal(round.mode, 'batch')
+  assert.match(round.backfilled?.from ?? '', /No open pull request is bound/, 'the journal keeps what it was before')
+  await r.pub.backfill(f.run, preview.backfill!.stamp).catch(() => {})
+  await r.pub.idle()
+  assert.equal(forge.sends.length, 4, 'a second press posts nothing more')
+  assert.equal((await r.pub.needs(f.run)).backfill, null)
+})
+
+test('a person’s posting actions are confined to the run’s own Goal, and refused once that Goal is no longer open', async (t) => {
+  const r = await publicationRig(t)
+  const { f, forge } = r
+  await review(r)
+  forge.onSend = () => 'lose'
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  const view = await f.plane.publications({ goal: f.goal, run: f.run })
+  assert.ok(view.items.length > 0)
+  await assert.rejects(f.plane.publications({ goal: 'goal-elsewhere', run: f.run }), /does not belong to this Goal/)
+  await assert.rejects(f.plane.publish({ goal: 'goal-elsewhere', run: f.run, action: { kind: 'post-again', key: view.items[0]!.key } }), /does not belong to this Goal/)
+  f.goalClosed = 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  await assert.rejects(f.plane.publish({ goal: f.goal, run: f.run, action: { kind: 'post-again', key: view.items[0]!.key } }), /This Goal is wrapped/)
+  const sends = forge.sends.length
+  f.goalClosed = null
+  const after = await f.plane.publish({ goal: f.goal, run: f.run, action: { kind: 'post-again', key: view.items[0]!.key } })
+  assert.equal(forge.sends.length, sends, 'read back and recorded, never sent again')
+  assert.equal(after.items.some((item) => item.key === view.items[0]!.key), false)
+})

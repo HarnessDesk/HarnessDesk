@@ -32,6 +32,8 @@ import type {
   FindingId,
   FindingPage,
   FindingRunView,
+  FindingPublicationsView,
+  FindingPublishAction,
   FindingView,
 } from './findings.js'
 import type {
@@ -669,6 +671,13 @@ export interface HostMethods {
       readonly reason: string
     }
     result: FindingRunView
+  }
+  /** A run's postings a person has to look at, and the rounds kept on the desk a backfill would post now. */
+  'finding/publications': { params: { readonly goal: GoalId; readonly run: string }; result: FindingPublicationsView }
+  /** Post again, skip, or backfill: every one journaled, and nothing sent before the pull request is read back. */
+  'finding/publish': {
+    params: { readonly goal: GoalId; readonly run: string; readonly action: FindingPublishAction }
+    result: FindingPublicationsView
   }
 
   'host/hello': {

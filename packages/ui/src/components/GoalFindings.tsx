@@ -26,6 +26,7 @@ import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWo
 import { useSnapshot, useStore } from '../state/context'
 import { FindingDecision } from './FindingDecision'
 import { FindingDetail } from './FindingDetail'
+import { FindingPublications } from './FindingPublications'
 import { FindingRoundStatus } from './FindingRoundStatus'
 
 /**
@@ -124,6 +125,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
               </Button>
             )}
             {runView.undecidable && <Note>{runView.undecidable}</Note>}
+            {!runView.undecidable && <FindingPublications goal={goal} run={runView.run} stamp={runView.stamp} />}
           </>
         )}
         {boundPr ? (

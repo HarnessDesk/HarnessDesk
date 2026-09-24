@@ -69,6 +69,7 @@ import {
   type CeilingLevel,
   type FindingDetailPage,
   type FindingRunView,
+  type FindingPublicationsView,
   type FindingView,
   type FlowRun,
   type FlowSeat,
@@ -3929,6 +3930,20 @@ export class AppStore {
     findingRuns.set(input.run, view)
     this.#patch({ findingRuns })
     return view
+  }
+
+  /** A run's postings that need a person, and the rounds kept on the desk. Not cached: the panel owns its request. */
+  async readFindingPublications(goal: GoalId, run: string): Promise<FindingPublicationsView> {
+    return this.transport.request('finding/publications', { goal, run })
+  }
+
+  /** Post again, skip or backfill; the run's own view is read again after, since its publication state moved. */
+  async publishFinding(input: HostParams<'finding/publish'>): Promise<FindingPublicationsView> {
+    try {
+      return await this.transport.request('finding/publish', input)
+    } finally {
+      void this.loadFindingRun(input.goal, input.run).catch(() => {})
+    }
   }
 
   // ------------------------------------------------------------------- flows

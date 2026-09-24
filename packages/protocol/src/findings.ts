@@ -377,3 +377,37 @@ export interface FindingRunView {
   /** Why no decision can be made on this run now — its Goal is wrapped, closing or from a backup; null while one can. */
   readonly undecidable: string | null
 }
+
+/** One closed-round posting a person has to look at: paused, started and never confirmed, or uncertain. */
+export interface FindingPublicationItem {
+  /** The operation's journal key: what "post again" and "skip" name. */
+  readonly key: string
+  readonly round: number
+  /** The finding it posts; null for a review's own summary. */
+  readonly finding: FindingId | null
+  readonly pr: number
+  readonly state: 'prepared' | 'started' | 'uncertain'
+  /** Why it needs a person, in the desk's words. */
+  readonly reason: string | null
+}
+
+/** A run's postings as a person decides them, and the rounds kept on the desk a backfill would post now. */
+export interface FindingPublicationsView {
+  readonly goal: string
+  readonly run: string
+  readonly items: readonly FindingPublicationItem[]
+  /** What posting the rounds kept on the desk would release, stamped: a backfill posts exactly this. Null when none may. */
+  readonly backfill: {
+    readonly pr: number
+    readonly rounds: readonly { readonly round: number; readonly findings: number; readonly reviews: number }[]
+    readonly stamp: string
+  } | null
+  /** Why there is nothing to backfill, when there is not. */
+  readonly backfillRefusal: string | null
+}
+
+/** A person's action on a run's postings. Nothing here sends without reading the pull request back first. */
+export type FindingPublishAction =
+  | { readonly kind: 'post-again'; readonly key: string }
+  | { readonly kind: 'skip'; readonly key: string; readonly reason: string }
+  | { readonly kind: 'backfill'; readonly stamp: string }

@@ -62,6 +62,7 @@ const rig = (findings: FindingsListState | undefined, overrides: Partial<AppSnap
       finding: row('f-open'), records: [], seat: null, next: null, problem: null,
     }),
     setFindingPublication: vi.fn().mockResolvedValue(goalView(false)),
+    readFindingPublications: vi.fn().mockResolvedValue({ goal: 'g1', run: 'run-1', items: [], backfill: null, backfillRefusal: null }),
   } as unknown as AppStore
   return { store }
 }

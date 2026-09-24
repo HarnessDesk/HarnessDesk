@@ -1327,10 +1327,15 @@ export class Host {
       holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
-      findings: async (goal: string) => ({
-        ...await this.#findings.receiptWithGaps(goal),
-        publication: await this.#publications.gaps(goal),
-      }),
+      findings: async (goal: string) => {
+        const { receipt, gaps } = await this.#findings.receiptWithGaps(goal)
+        return {
+          receipt,
+          // What a person skipped is recorded as it is; what is still unsettled asks the person at the wrap.
+          gaps: [...gaps, ...this.#publications.recordedGaps(goal)],
+          publication: await this.#publications.gaps(goal),
+        }
+      },
     } satisfies GoalPlanePort
     this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
     this.#goals.attachFindings((records) => this.#findings.appendCarry(records))
@@ -2462,6 +2467,8 @@ export class Host {
         setPublication: (goal, revision, enabled) => this.#goals.update(goal, revision, { findingPublication: enabled }),
         run: (input) => this.#findings.runView(input.run),
         decide: (input) => this.#findings.decideRun(input),
+        publications: (input) => this.#findings.publications(input),
+        publish: (input) => this.#findings.publish(input),
       },
       provenance: {
         read: (root, shas) => this.#provenance.read(root, shas),

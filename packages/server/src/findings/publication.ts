@@ -64,6 +64,8 @@ export type PublicationEntry = (FindingPublication | ReviewPublication) & {
   readonly expected: string | null
   /** The comment's content chain once this write lands: the next append's `expected`. Null for a review comment. */
   readonly wrote: string | null
+  /** The last thing a person decided about this operation — post it again, or skip it — and why. Absent until one does. */
+  readonly person?: { readonly action: 'post-again' | 'skip'; readonly reason: string | null; readonly at: number }
 }
 
 /** A closed round's release decision: posted as one batch, kept on the desk, or refused before any send. */
@@ -76,6 +78,8 @@ export interface PublicationRound {
   /** Every operation of the batch, keyed before the first remote call, in posting order. */
   readonly keys: readonly string[]
   readonly decidedAt: number
+  /** A round first kept on the desk, posted later because a person previewed it and asked: when, and why it was kept. */
+  readonly backfilled?: { readonly at: number; readonly from: string | null }
 }
 
 /** A run's publications, in its own file. */
@@ -93,6 +97,12 @@ export interface PublicationJournal {
   decide(round: PublicationRound, entries: readonly PublicationEntry[]): Promise<void>
   /** Persists one operation; resolves only once the run's file is synced. */
   put(entry: PublicationEntry): Promise<void>
+  /**
+   * Replaces a round kept on the desk with the batch a person previewed and
+   * asked for, its operations journaled with it; a round already posted
+   * that way changes nothing, and any other round refuses.
+   */
+  backfill(round: PublicationRound, entries: readonly PublicationEntry[]): Promise<void>
 }
 
 export const isFindingPublication = (entry: PublicationEntry): entry is FindingPublication & PublicationEntry =>
@@ -126,6 +136,9 @@ export const publicationOf = (value: unknown): StoredPublication => {
       throw new Error('has a publication it cannot describe')
     }
     if (entry['state'] === 'posted' && entry['location'] === null) throw new Error('has a publication marked posted with no location')
+    const person = entry['person']
+    if (person !== undefined && (!object(person) || (person['action'] !== 'post-again' && person['action'] !== 'skip') ||
+      !orNull(person['reason'], text) || !Number.isSafeInteger(person['at']))) throw new Error('has a person’s publication decision it cannot describe')
   }
   return value as unknown as StoredPublication
 }
@@ -194,6 +207,17 @@ export class PublicationConflict extends Error {
     super(message)
     this.name = 'PublicationConflict'
   }
+}
+
+/** One posting a person has to look at: paused, started and never confirmed, or uncertain. */
+export interface PersonItem {
+  readonly key: string
+  readonly round: number
+  /** The finding it posts; null for a review's own summary. */
+  readonly finding: FindingId | null
+  readonly pr: number
+  readonly state: 'prepared' | 'started' | 'uncertain'
+  readonly reason: string | null
 }
 
 export interface FindingPublisher {
@@ -604,6 +628,208 @@ export class Publications implements FindingPublisher {
         if (entry.state === 'prepared') await journal.put({ ...entry, state: 'skipped', reason })
       }
     })
+  }
+
+  // ------------------------------------------------------------ a person
+
+  /**
+   * What a person has to look at on this run's postings — each one paused,
+   * started and never confirmed, or uncertain, with the desk's reason — and
+   * what posting the rounds this run kept on the desk would release now,
+   * keyed and stamped so a backfill posts exactly what was previewed.
+   * Nothing here writes, and the postings are a snapshot read.
+   */
+  async needs(run: string): Promise<{
+    readonly items: readonly PersonItem[]
+    readonly backfill: { readonly pr: number; readonly rounds: readonly { readonly round: number; readonly findings: number; readonly reviews: number }[]; readonly stamp: string } | null
+    readonly backfillRefusal: string | null
+  }> {
+    const stored = this.#port.snapshot(run)
+    const items = Object.values(stored?.ops ?? {})
+      .filter((entry) => entry.state === 'started' || entry.state === 'uncertain' || (entry.state === 'prepared' && entry.reason !== null))
+      .sort((a, b) => a.round - b.round || (stored!.rounds[String(a.round)]?.keys.indexOf(a.key) ?? 0) - (stored!.rounds[String(b.round)]?.keys.indexOf(b.key) ?? 0))
+      .map((entry): PersonItem => ({
+        key: entry.key, round: entry.round, finding: isFindingPublication(entry) ? entry.finding : null,
+        pr: entry.pr, state: entry.state as PersonItem['state'], reason: entry.reason,
+      }))
+    const plan = await this.#backfillPlan(run)
+    if ('refusal' in plan) return { items, backfill: null, backfillRefusal: plan.refusal }
+    return {
+      items,
+      backfill: {
+        pr: plan.pr,
+        rounds: plan.rounds.map((one) => ({
+          round: one.round.round,
+          findings: one.entries.filter(isFindingPublication).length,
+          reviews: one.entries.filter((entry) => !isFindingPublication(entry)).length,
+        })),
+        stamp: plan.stamp,
+      },
+      backfillRefusal: null,
+    }
+  }
+
+  /**
+   * A person's "Post again". One that may have reached the pull request is
+   * read back first: one exact copy is recorded where it is and never sent
+   * again, several are refused for the person to look at, and none — with a
+   * person having asked — is the one fresh attempt. One paused before any
+   * send is checked again from the start and sent only if it now may be.
+   * Journaled on the operation, in the publication queue.
+   */
+  postAgain(run: string, key: string): Promise<void> {
+    return this.#enqueue(async () => {
+      const entry = await this.#personal(run, key)
+      if (!entry) return
+      const at = this.#port.now()
+      const person = { action: 'post-again' as const, reason: null, at }
+      if (entry.state !== 'prepared' || entry.placement !== null) {
+        const found = await this.#readBack(run, entry)
+        if (found.length === 1) {
+          await this.#land(run, entry, found[0]!, person)
+          return
+        }
+        if (found.length > 1) {
+          const reason = `The pull request shows ${found.length} copies of this. Look at them before deciding which one stands.`
+          await this.#transition(run, key, ['prepared', 'started', 'uncertain'], (one) => ({ ...one, state: one.state === 'prepared' ? 'prepared' : 'uncertain', reason, person }))
+          throw new Error(reason)
+        }
+      }
+      // Never sent, or read back and not there: the person asked, so it starts again from its checks.
+      await this.#transition(run, key, ['prepared', 'started', 'uncertain'], (one) => ({
+        ...one, state: 'prepared', reason: null, placement: null, expected: null, wrote: null,
+        ...(isFindingPublication(one) ? { parent: null } : {}), person,
+      }))
+      await this.#one(run, entry.round, key)
+    })
+  }
+
+  /**
+   * A person's "Skip": the operation is not posted, and the Goal's receipt
+   * says so (`recordedGaps`). One that may have reached the pull request is
+   * read back first — a copy there is recorded where it is, never dropped.
+   */
+  skip(run: string, key: string, reason: string): Promise<void> {
+    const why = reason.trim()
+    if (why === '' || why.length > 4096) return Promise.reject(new Error('Say why, in 1 to 4096 characters.'))
+    return this.#enqueue(async () => {
+      const entry = await this.#personal(run, key)
+      if (!entry) return
+      const person = { action: 'skip' as const, reason: why, at: this.#port.now() }
+      let unknown = false
+      if (entry.state !== 'prepared' || entry.placement !== null) {
+        let found: readonly FindingPost[] = []
+        try {
+          found = await this.#readBack(run, entry)
+        } catch {
+          unknown = true
+        }
+        if (found.length === 1) {
+          await this.#land(run, entry, found[0]!, person)
+          return
+        }
+        if (found.length > 1 || entry.state !== 'prepared') unknown = true
+      }
+      await this.#transition(run, key, ['prepared', 'started', 'uncertain'], (one) => ({
+        ...one, state: 'skipped', person,
+        reason: `A person skipped this: ${why}${unknown ? ' It may or may not be on the pull request.' : ''}`,
+      }))
+    })
+  }
+
+  /**
+   * Posts the rounds this run kept on the desk, exactly as a person
+   * previewed them (`needs`): refused if anything that preview read has
+   * changed since. Journaled before the first send; sent like any batch.
+   */
+  async backfill(run: string, stamp: string): Promise<void> {
+    const plan = await this.#backfillPlan(run)
+    if ('refusal' in plan) throw new Error(plan.refusal)
+    if (plan.stamp !== stamp) throw new Error('What these rounds would post changed since you previewed them. Preview them again.')
+    await this.#port.journal(run, async (journal) => {
+      for (const one of plan.rounds) await journal.backfill(one.round, one.entries)
+    })
+    for (const one of plan.rounds) void this.#enqueue(() => this.#drain(run, one.round.round)).catch((error: unknown) => this.#failed(run, error))
+  }
+
+  /**
+   * What a wrap records without asking again: every operation on this Goal a
+   * person skipped, said as a sentence. A snapshot read, like `gaps`.
+   */
+  recordedGaps(goal: string): readonly string[] {
+    const out: string[] = []
+    for (const { run } of this.#port.runs().filter((one) => one.goal === goal)) {
+      for (const entry of Object.values(this.#port.snapshot(run)?.ops ?? {})) {
+        if (entry.state !== 'skipped' || entry.person?.action !== 'skip') continue
+        const what = isFindingPublication(entry) ? `finding ${entry.finding}` : 'a review summary'
+        out.push(`Posting ${what} to pull request #${entry.pr} was skipped. ${entry.reason ?? ''}`.trim())
+      }
+    }
+    return out
+  }
+
+  /** The operation a person acts on, on a Goal still open; null when it is already posted or skipped. */
+  async #personal(run: string, key: string): Promise<PublicationEntry | null> {
+    const entry = await this.#read(run, key)
+    if (!entry) throw new Error('There is no such posting on this run.')
+    if (entry.state === 'posted' || entry.state === 'skipped') return null
+    const snapshot = this.#port.run(run)
+    if (!snapshot) throw new Error(`There is no flow run ${run}.`)
+    if (!this.#port.goal(snapshot.goal)?.open) throw new Error('This Goal is wrapped. Its receipt froze what was posted; nothing more is sent for it.')
+    return entry
+  }
+
+  /** Every exact copy of an operation the pull request holds; a read that could not finish is left uncertain, with why. */
+  async #readBack(run: string, entry: PublicationEntry): Promise<readonly FindingPost[]> {
+    try {
+      return await this.#port.forge.find(entry)
+    } catch (error) {
+      const reason = `The desk could not read the pull request back to see whether this was posted (${error instanceof Error ? error.message : String(error)}).`
+      if (entry.state !== 'prepared') await this.#transition(run, entry.key, ['started', 'uncertain'], (one) => ({ ...one, state: 'uncertain', reason }))
+      throw new Error(reason)
+    }
+  }
+
+  /** A copy found on the pull request: its post event first, then the operation posted where it is. */
+  async #land(run: string, entry: PublicationEntry, location: FindingPost, person: NonNullable<PublicationEntry['person']>): Promise<void> {
+    const snapshot = this.#port.run(run)
+    if (snapshot && isFindingPublication(entry)) {
+      await this.#port.appendPost({ goal: snapshot.goal, finding: entry.finding, operation: entry.key, location })
+    }
+    await this.#transition(run, entry.key, ['prepared', 'started', 'uncertain'], (one) => ({ ...one, state: 'posted', location, reason: null, person }))
+  }
+
+  /** The batch each round this run kept on the desk would post now, keyed and stamped; or why none may. */
+  async #backfillPlan(run: string): Promise<
+    | { readonly pr: number; readonly rounds: readonly { readonly round: PublicationRound; readonly entries: readonly PublicationEntry[] }[]; readonly stamp: string }
+    | { readonly refusal: string }
+  > {
+    const snapshot = this.#port.run(run)
+    if (!snapshot) return { refusal: `There is no flow run ${run}.` }
+    const stored = this.#port.snapshot(run)
+    const local = Object.values(stored?.rounds ?? {}).filter((one) => one.mode === 'local').sort((a, b) => a.round - b.round)
+    if (local.length === 0) return { refusal: 'Every closed round of this run was posted or refused when it closed; none is kept on the desk.' }
+    const goal = this.#port.goal(snapshot.goal)
+    if (!goal?.open) return { refusal: 'This Goal is wrapped. Its receipt froze what was posted; nothing more is sent for it.' }
+    const project = await this.#port.projectOf(snapshot.goal)
+    const ledger = await this.#port.ledger(project)
+    const facts = await this.#port.facts(snapshot.goal)
+    const rounds: { round: PublicationRound; entries: readonly PublicationEntry[] }[] = []
+    for (const kept of local) {
+      const closing = snapshot.rounds.find((one) => one.n === kept.round)
+      if (!closing) continue
+      const plan = planRound({
+        run, round: kept.round, goal: snapshot.goal, project, cards: closing.cards, findings: ledger.records, facts,
+        preference: goal.preference, sources: this.#sources(ledger.records, facts), now: this.#port.now(),
+      })
+      if (plan.round.mode !== 'batch') return { refusal: plan.round.reason ?? 'These rounds cannot be posted now.' }
+      if (plan.entries.length === 0) continue
+      rounds.push({ round: { ...plan.round, backfilled: { at: plan.round.decidedAt, from: kept.reason } }, entries: plan.entries })
+    }
+    if (rounds.length === 0) return { refusal: 'The rounds kept on the desk have nothing to post.' }
+    const pr = rounds[0]!.round.pr!
+    const stamp = sha256(JSON.stringify(rounds.map((one) => [one.round.round, one.round.repo, one.round.pr, one.entries.map((entry) => [entry.key, entry.digest])])))
+    return { pr, rounds, stamp }
   }
 
   /** After a restart: every round with work left is queued again — a started send is read back, never repeated. */

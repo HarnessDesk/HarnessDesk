@@ -5,6 +5,7 @@ import {
   sessionKey,
   type AgentEntry,
   type CarryFindingsInput,
+  type FindingPublicationsView,
   type CeilingLevel,
   type CheckUnseen,
   type FindingDetailPage,
@@ -1465,6 +1466,12 @@ class PreviewStore {
   readFinding = async (_goal: string, finding: string): Promise<FindingDetailPage> => findingDetail(finding)
 
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
+
+  readFindingPublications = async (goal: string, run: string): Promise<FindingPublicationsView> =>
+    ({ goal, run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
+
+  publishFinding = async (input: { goal: string; run: string }): Promise<FindingPublicationsView> =>
+    ({ goal: input.goal, run: input.run, items: [], backfill: null, backfillRefusal: 'The preview desk posts nothing.' })
 
   setFindingPublication = async (goal: string, revision: number, enabled: boolean): Promise<GoalView> => {
     const current = this.#snapshot.goals.get(goal)

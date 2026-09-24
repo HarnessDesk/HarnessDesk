@@ -72,3 +72,20 @@ test('a request cannot forge the stamp finding/run and finding/decide read back'
     assert.throws(() => request('finding/decide', { ...decide, [field]: 'x' }), ValidationError)
   }
 })
+
+test('a person’s posting actions name one journaled operation or one previewed backfill, and nothing a request may not carry', () => {
+  const KEY = `pub-${'a'.repeat(48)}`
+  assert.doesNotThrow(() => request('finding/publications', { goal: 'g1', run: 'run-1' }))
+  assert.throws(() => request('finding/publications', { goal: 'g1' }), ValidationError)
+  const publish = (action: unknown) => request('finding/publish', { goal: 'g1', run: 'run-1', action })
+  assert.doesNotThrow(() => publish({ kind: 'post-again', key: KEY }))
+  assert.doesNotThrow(() => publish({ kind: 'skip', key: KEY, reason: 'nobody needs it now' }))
+  assert.doesNotThrow(() => publish({ kind: 'backfill', stamp: STAMP }))
+  assert.throws(() => publish({ kind: 'post-again', key: 'pub-short' }), ValidationError)
+  assert.throws(() => publish({ kind: 'post-again', key: KEY, force: true }), ValidationError)
+  assert.throws(() => publish({ kind: 'skip', key: KEY, reason: '' }), ValidationError)
+  assert.throws(() => publish({ kind: 'skip', key: KEY }), ValidationError)
+  assert.throws(() => publish({ kind: 'backfill', stamp: 'x' }), ValidationError)
+  assert.throws(() => publish({ kind: 'send-anyway', key: KEY }), ValidationError)
+  assert.throws(() => request('finding/publish', { goal: 'g1', run: 'run-1', action: { kind: 'post-again', key: KEY }, url: 'https://example.com' }), ValidationError)
+})

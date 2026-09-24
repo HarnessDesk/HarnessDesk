@@ -11,6 +11,8 @@ import type {
   FindingOverride,
   FindingPage,
   FindingPost,
+  FindingPublicationsView,
+  FindingPublishAction,
   FindingRecord,
   FindingRunState,
   FindingRunView,
@@ -1227,6 +1229,47 @@ export class FindingsPlane {
         finding: { version: 1, sequence: view.sequence + 1, operation, origin: view.origin, event: { kind: 'verdict', state, note: reason, by: 'person' } },
       })
     })
+  }
+
+  // ------------------------------------------------------------- postings
+
+  /**
+   * A run's postings as a person decides them: each one paused, started and
+   * never confirmed, or uncertain, and what posting the rounds this run kept
+   * on the desk would release now (`Publications.needs`).
+   */
+  async publications(input: { readonly goal: string; readonly run: string }): Promise<FindingPublicationsView> {
+    const snapshot = this.#port.flows.run?.(input.run)
+    if (!snapshot || snapshot.goal !== input.goal) throw new Error('That run does not belong to this Goal.')
+    if (!this.#publisher) return { goal: input.goal, run: input.run, items: [], backfill: null, backfillRefusal: 'This desk posts nothing to a pull request.' }
+    return { goal: input.goal, run: input.run, ...await this.#publisher.needs(input.run) }
+  }
+
+  /** A person's "Post again", "Skip" or backfill, on a run of an open Goal; answered with the postings as they stand after. */
+  async publish(input: { readonly goal: string; readonly run: string; readonly action: FindingPublishAction }): Promise<FindingPublicationsView> {
+    const snapshot = this.#port.flows.run?.(input.run)
+    if (!snapshot || snapshot.goal !== input.goal) throw new Error('That run does not belong to this Goal.')
+    const closed = this.#port.goalClosed?.(input.goal) ?? null
+    if (closed) throw new Error(closed)
+    const publisher = this.#publisher
+    if (!publisher) throw new Error('This desk posts nothing to a pull request.')
+    try {
+      switch (input.action.kind) {
+        case 'post-again':
+          await publisher.postAgain(input.run, input.action.key)
+          break
+        case 'skip':
+          await publisher.skip(input.run, input.action.key, input.action.reason)
+          break
+        case 'backfill':
+          await publisher.backfill(input.run, input.action.stamp)
+          break
+      }
+    } finally {
+      this.#invalidateList(input.goal)
+      this.#port.changed?.(input.goal)
+    }
+    return this.publications(input)
   }
 
   // ----------------------------------------------------------------- restart

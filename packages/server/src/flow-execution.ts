@@ -1055,6 +1055,20 @@ export class FlowExecutions {
         if (!now?.ops[entry.key]) throw new Error('Only a journaled publication is written again.')
         await this.#put({ ...run, publication: { ...now, ops: { ...now.ops, [entry.key]: entry } } })
       },
+      backfill: async (round, entries) => {
+        const run = this.#get(id)
+        const now = run.publication
+        const was = now?.rounds[String(round.round)]
+        if (!now || !was) throw new Error('Only a round this run closed is posted later.')
+        if (was.mode === 'batch' && was.backfilled) return
+        if (was.mode !== 'local' || round.mode !== 'batch') throw new Error('Only a round kept on the desk is posted later.')
+        const ops = { ...now.ops }
+        for (const entry of entries) {
+          if (ops[entry.key]) throw new Error('A publication of this round was already journaled under another decision.')
+          ops[entry.key] = entry
+        }
+        await this.#put({ ...run, publication: { rounds: { ...now.rounds, [String(round.round)]: round }, ops } })
+      },
     }))
   }
 
