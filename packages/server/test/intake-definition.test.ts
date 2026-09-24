@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { DEFAULT_FLOW_BUDGET, type TriggerDocument } from '@harnessdesk/protocol'
 
-import { agentFlowSource, effectiveBudget, parseTriggers, usdMicros } from '../src/intake/definition.js'
+import { acceptsFact, agentFlowSource, effectiveBudget, labelName, parseTriggers, usdMicros } from '../src/intake/definition.js'
 import { parseFlowPolicy } from '../src/flow-policy.js'
 
 /*
@@ -155,8 +155,7 @@ test('unknown authority and keys refuse the document', () => {
 `],
     ['label', `
 - id: a
-  on: issue
-  events: [labelled]
+  on: pull-request
   label: agent-ready
   opens: { flow: review }
 `],
@@ -269,4 +268,71 @@ test('budget and identity keys cannot erase a bound', () => {
   assert.match(texts(parseTriggers('id: a\non: issue\n')), /^file: /)
   assert.deepEqual(parseTriggers(''), { definitions: [], problems: [] })
   assert.deepEqual(parseTriggers('# nothing yet\n'), { definitions: [], problems: [] })
+})
+
+test('a labelled trigger fires only on an exact, bounded label', () => {
+  // The design's own example: an issue stream that fires when one label is added.
+  const document = parseTriggers(`
+- id: agent-ready-issues
+  on: issue
+  events: [labelled]
+  label: agent-ready
+  opens: { flow: implement-and-review }
+  goal: [issue]
+  concurrency: 5
+  dedupe: [issue, event]
+- id: either
+  on: issue
+  events: [labelled]
+  label: [needs-review, "good first issue"]
+  opens: { flow: triage }
+`)
+  assert.equal(texts(document), '')
+  const [ready, either] = document.definitions
+  assert.deepEqual(ready?.label, ['agent-ready'])
+  assert.deepEqual(either?.label, ['needs-review', 'good first issue'])
+  assert.equal(ready?.concurrency, 5)
+  // An unlabelled trigger carries no label key at all: its shape is unchanged.
+  assert.equal('label' in parseTriggers('- { id: a, on: issue, opens: { flow: r } }\n').definitions[0]!, false)
+
+  // Every way a label could stop being one exact, bounded name refuses the file.
+  const entry = (label: string, extra = '  events: [labelled]\n', on = 'issue'): string =>
+    `- id: a\n  on: ${on}\n${extra}  label: ${label}\n  opens: { flow: r }\n`
+  const refused: readonly [string, string][] = [
+    ['no events', entry('agent-ready', '')],
+    ['other events too', entry('agent-ready', '  events: [labelled, closed]\n')],
+    ['closed only', entry('agent-ready', '  events: [closed]\n')],
+    ['a schedule', `- id: a\n  on: schedule\n  every: 60\n  label: x\n  opens: { flow: r }\n`],
+    ['empty list', entry('[]')],
+    ['six labels', entry('[a, b, c, d, e, f]')],
+    ['a duplicate', entry('[a, a]')],
+    ['51 characters', entry('x'.repeat(51))],
+    ['a number', entry('7')],
+    ['a map', entry('{ name: x }')],
+    ['leading space', entry('" padded"')],
+    ['a line break', entry('"two\\nlines"')],
+    ['empty', entry('""')],
+  ]
+  for (const [what, source] of refused) {
+    const refusal = parseTriggers(source)
+    assert.equal(runnable(refusal), 0, what)
+    assert.ok(refusal.problems.some((one) => one.at === '[0].label'), `${what}: ${texts(refusal)}`)
+  }
+  assert.equal(labelName('x'.repeat(50)), 'x'.repeat(50))
+  assert.equal(labelName('é'.repeat(50)), 'é'.repeat(50), 'bounded by characters, as the forge counts them')
+  assert.equal(labelName('é'.repeat(51)), null)
+
+  // Matching is exact: case, spacing and prefixes never match, and a fact without a readable label matches nothing.
+  const fact = (label?: string, action: 'labelled' | 'closed' = 'labelled') => ({
+    source: 'issue' as const, project: '/p', repository: 'acme/widgets', subject: '5', event: 'e', action, at: 1,
+    head: null, fork: false, title: '', body: '', url: null, trigger: null, ...(label === undefined ? {} : { label }),
+  })
+  assert.equal(acceptsFact(ready!, fact('agent-ready')), true)
+  for (const other of ['Agent-Ready', 'agent-ready ', 'agent', 'agent-ready-later']) assert.equal(acceptsFact(ready!, fact(other)), false, other)
+  assert.equal(acceptsFact(ready!, fact()), false)
+  assert.equal(acceptsFact(either!, fact('good first issue')), true)
+  // Without a label filter, every declared event is read as before.
+  const plain = parseTriggers('- { id: a, on: issue, opens: { flow: r } }\n').definitions[0]!
+  assert.equal(acceptsFact(plain, fact()), true)
+  assert.equal(acceptsFact(plain, fact(undefined, 'closed')), true)
 })

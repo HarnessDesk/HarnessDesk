@@ -80,7 +80,17 @@ export interface TriggerDefinition {
   /** Whether a pull request from another repository may open work. Only a pull-request trigger may say `allow`. */
   readonly forks: 'never' | 'allow'
   readonly budget: TriggerBudget
+  /**
+   * Which labels a labelled issue fires on, matched exactly; absent when the
+   * trigger names none. Only an issue trigger whose events are exactly
+   * `[labelled]` may name labels, at most five of them.
+   */
+  readonly label?: readonly string[]
 }
+
+/** At most this many labels on one trigger, each at most this many characters: the forge's own name limit. */
+export const TRIGGER_LABEL_LIMIT = 5
+export const TRIGGER_LABEL_CHARS = 50
 
 /** One thing wrong with a triggers file, where, and what fixes it. */
 export interface TriggerProblem {
@@ -192,6 +202,12 @@ export interface TriggerFact {
   readonly url: string | null
   /** The one trigger a schedule slot belongs to; null for a forge fact, which every matching arm is offered. */
   readonly trigger: string | null
+  /**
+   * The label a labelled issue event added, as the forge named it and the
+   * desk validated it; absent on every other fact, and on a labelled event
+   * whose name could not be read — which then matches no label filter.
+   */
+  readonly label?: string
 }
 
 /** How one watched source stands, in sentences a surface can show. */

@@ -211,3 +211,36 @@ test('copied or corrupt consent is not authority', async () => {
   assert.equal(unsigned?.fix, 'Sign in to the forge.')
   assert.equal(await r.consent.binding(r.world.project, 'review'), null)
 })
+
+test('changing a trigger’s label takes its arm away', async () => {
+  const r = rig()
+  const labelled = (label: string): string => `${TRIGGERS}- id: ready
+  on: issue
+  events: [labelled]
+  label: ${label}
+  opens: { flow: review-pr }
+`
+  r.world.text = labelled('agent-ready')
+  await armed(r, 'ready')
+  const before = await r.consent.binding(r.world.project, 'ready')
+  assert.ok(before)
+  const preview = await r.consent.preview(r.world.project, 'ready')
+  assert.deepEqual(preview.definition?.label, ['agent-ready'], 'arming shows the label it consents to')
+
+  // Only the label changes: the arm no longer stands, and says the file changed.
+  r.world.text = labelled('ready-for-agents')
+  assert.equal(await r.consent.binding(r.world.project, 'ready'), null)
+  const view = (await r.consent.list(r.world.project)).triggers.find((one) => one.id === 'ready')
+  assert.equal(view?.state, 'changed')
+  assert.match(view?.reason ?? '', /triggers file changed/)
+
+  // The closure a label is part of changes too, so it cannot be carried under another file's digest.
+  const closure = async (label: string) => {
+    const text = labelled(label)
+    const definition = (await import('../src/intake/definition.js')).parseTriggers(text).definitions.find((one) => one.id === 'ready')!
+    return (await r.port.closure.freeze(r.world.project, definition)).digest
+  }
+  assert.notEqual(await closure('agent-ready'), await closure('ready-for-agents'))
+  r.world.text = labelled('agent-ready')
+  assert.deepEqual(await r.consent.binding(r.world.project, 'ready'), before)
+})

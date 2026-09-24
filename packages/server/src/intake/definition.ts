@@ -2,12 +2,15 @@ import {
   DEFAULT_FLOW_BUDGET,
   DEFAULT_TRIGGER_BUDGET,
   TRIGGER_DEFAULTS,
+  TRIGGER_LABEL_CHARS,
+  TRIGGER_LABEL_LIMIT,
   TRIGGER_SOURCES,
   type FlowBudget,
   type FlowThen,
   type TriggerBudget,
   type TriggerDefinition,
   type TriggerDocument,
+  type TriggerFact,
   type TriggerField,
   type TriggerOn,
   type TriggerProblem,
@@ -46,7 +49,7 @@ const HOURS_MAX = 168
 /** An id, a flow, an Agent or a role: an ASCII slug a path or a shell could never read as anything else. */
 export const TRIGGER_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
-const ENTRY_KEYS = new Set(['id', 'on', 'events', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every'])
+const ENTRY_KEYS = new Set(['id', 'on', 'events', 'label', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'every'])
 const BUDGET_KEYS = new Set(['usd', 'rounds', 'hours', 'without-progress'])
 const AGAIN_KEYS = new Set(['role'])
 
@@ -184,6 +187,42 @@ const fieldList = <T extends string>(
   return out
 }
 
+/**
+ * A label name as a trigger or the forge may spell it: 1–50 characters, no
+ * control character, no space at either end — exactly what the forge itself
+ * keeps — or null. Compared exactly, never as a pattern.
+ */
+export function labelName(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const length = [...value].length
+  if (length < 1 || length > TRIGGER_LABEL_CHARS || value.trim() !== value || /[\u0000-\u001f\u007f]/.test(value)) return null
+  return value
+}
+
+/** `label:` as one name or a short list of distinct names. */
+const readLabel = (value: unknown, at: string, problems: TriggerProblem[]): readonly string[] | null => {
+  const fix = `Write label: agent-ready, or a list of at most ${TRIGGER_LABEL_LIMIT} label names.`
+  const list = typeof value === 'string' ? [value] : value
+  if (!Array.isArray(list) || list.length === 0 || list.length > TRIGGER_LABEL_LIMIT) {
+    problems.push({ at, text: `label is one label name or a list of one to ${TRIGGER_LABEL_LIMIT}.`, fix })
+    return null
+  }
+  const out: string[] = []
+  for (const item of list) {
+    const name = labelName(item)
+    if (name === null) {
+      problems.push({ at, text: `A label name is 1–${TRIGGER_LABEL_CHARS} characters of text with no line breaks or spaces at either end.`, fix })
+      return null
+    }
+    if (out.includes(name)) {
+      problems.push({ at, text: `"${name}" is listed twice.`, fix })
+      return null
+    }
+    out.push(name)
+  }
+  return out
+}
+
 const integer = (value: unknown, at: string, min: number, max: number, problems: TriggerProblem[], what: string): number | null => {
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= min && value <= max) return value
   problems.push({ at, text: `${what} must be a whole number from ${min} to ${max}.`, fix: `Write a whole number from ${min} to ${max}.` })
@@ -248,6 +287,18 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
   let events: readonly string[] | null = defaults.events
   if (raw['events'] !== undefined) {
     events = fieldList(raw['events'], `${at}.events`, defaults.events as readonly string[], problems, 'events')
+  }
+
+  let label: readonly string[] | undefined
+  if (raw['label'] !== undefined) {
+    const labelled = raw['events'] !== undefined && events?.length === 1 && events[0] === 'labelled'
+    if (source !== 'issue') {
+      problems.push({ at: `${at}.label`, text: 'Only an issue trigger reads label.', fix: 'Remove label, or make this trigger on: issue.' })
+    } else if (!labelled) {
+      problems.push({ at: `${at}.label`, text: 'label chooses which labelled issues fire, so this trigger must say events: [labelled].', fix: 'Add events: [labelled], or remove label.' })
+    } else {
+      label = readLabel(raw['label'], `${at}.label`, problems) ?? undefined
+    }
   }
 
   let on: TriggerOn | null = null
@@ -324,7 +375,18 @@ const readEntry = (raw: unknown, at: string, problems: TriggerProblem[]): Trigge
 
   const budget = readBudget(raw['budget'], `${at}.budget`, problems)
   if (problems.length > before || !id || !on || !opens || !goal || !dedupe || concurrency === null || !budget) return null
-  return { id, on, opens, goal, again, dedupe, concurrency, forks, budget }
+  return { id, on, opens, goal, again, dedupe, concurrency, forks, budget, ...(label ? { label } : {}) }
+}
+
+/**
+ * Whether a definition reads a fact at all: its source, one of its events,
+ * and — when it names labels — a labelled event whose label is exactly one of
+ * them. A fact with no readable label matches no label filter.
+ */
+export function acceptsFact(definition: TriggerDefinition, fact: TriggerFact): boolean {
+  if (definition.on.kind !== fact.source || !(definition.on.events as readonly string[]).includes(fact.action)) return false
+  if (definition.label === undefined) return true
+  return fact.action === 'labelled' && typeof fact.label === 'string' && definition.label.includes(fact.label)
 }
 
 /**

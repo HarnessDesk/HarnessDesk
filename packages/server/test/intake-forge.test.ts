@@ -180,3 +180,26 @@ test('issue actions use event identity and exclude pull requests', async () => {
   assert.ok(forge.calls.filter((path) => path.includes('/comments')).every((path) => /^repos\/acme\/widgets\/issues\/5\/comments\?since=\d{4}-\d\d-\d\dT[\d:.]+Z&per_page=100&page=\d+$/.test(path)))
   void iso
 })
+
+test('a labelled event carries only a validated label name', async () => {
+  const forge = new FakeForge()
+  forge.issues.push({ number: 8, state: 'open', created: ARMED - MINUTE, updated: ARMED - MINUTE, events: [], comments: [] })
+  const baseline = await source(forge).inventory(PROJECT, 'issue', REPO, never)
+  const eight = forge.issues[0]!
+  eight.events.push(
+    { id: 401, event: 'labeled', created: ARMED + MINUTE, label: 'agent-ready' },
+    { id: 402, event: 'labeled', created: ARMED + MINUTE, label: 'x'.repeat(51) },
+    { id: 403, event: 'labeled', created: ARMED + MINUTE, label: { name: 'agent-ready' } },
+    { id: 404, event: 'labeled', created: ARMED + MINUTE, label: 'line\nbreak' },
+    { id: 405, event: 'closed', created: ARMED + 2 * MINUTE, label: 'agent-ready' },
+  )
+  eight.updated = ARMED + 2 * MINUTE
+  const batch = await poll(forge, baseline, ARMED + 3 * MINUTE)
+  // Facts at one instant are ordered by identity, so compare them as a set.
+  const said = (facts: readonly TriggerFact[]) => facts.map((fact) => `${fact.action}:${fact.label ?? '-'}`).sort()
+  assert.deepEqual(said(batch.facts), ['closed:-', 'labelled:-', 'labelled:-', 'labelled:-', 'labelled:agent-ready'])
+  // The label is not part of the identity: the immutable event id already is, and it reads the same again.
+  const again = await poll(forge, baseline, ARMED + 4 * MINUTE)
+  assert.deepEqual(again.facts.map((fact) => [fact.event, fact.label]), batch.facts.map((fact) => [fact.event, fact.label]))
+  assert.ok(batch.facts.every((fact) => !('label' in fact) || fact.action === 'labelled'))
+})

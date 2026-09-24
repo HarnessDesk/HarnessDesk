@@ -37,7 +37,8 @@ export interface FakeIssue {
   title?: string
   body?: string | null
   pullRequest?: boolean
-  events: { id: number; event: string; created: number }[]
+  /** `label` is the name a labelled event carries, as the forge nests it; any value, so a malformed one can be staged. */
+  events: { id: number; event: string; created: number; label?: unknown }[]
   comments: { id: number; body: string; created: number; updated: number }[]
 }
 
@@ -118,7 +119,9 @@ export class FakeForge {
     }
     if (parts[3] === 'issues' && parts[5] === 'events') {
       const issue = this.issues.find((one) => one.number === Number(parts[4]))
-      return slice(issue?.events ?? []).map((one) => ({ id: one.id, event: one.event, created_at: iso(one.created) }))
+      return slice(issue?.events ?? []).map((one) => ({
+        id: one.id, event: one.event, created_at: iso(one.created), ...(one.label !== undefined ? { label: { name: one.label } } : {}),
+      }))
     }
     if (parts[3] === 'issues' && parts[5] === 'comments') {
       const since = Date.parse(url.searchParams.get('since') ?? iso(0))
@@ -175,16 +178,16 @@ export class FakeTimers {
 export const ARMED_AT = Date.UTC(2026, 8, 1, 10)
 
 /** A verified arm, as `TriggerConsent.armed()` answers, for one trigger on one source. */
-export const armOf = (id: string, options: { project?: string; source?: TriggerSource; baseline?: number; every?: number } = {}): ArmedTrigger => {
+export const armOf = (id: string, options: { project?: string; source?: TriggerSource; baseline?: number; every?: number; label?: readonly string[] } = {}): ArmedTrigger => {
   const source = options.source ?? 'pull-request'
   const project = options.project ?? '/work/project'
   const on: TriggerDefinition['on'] = source === 'pull-request' ? { kind: 'pull-request', events: ['opened', 'pushed'] }
-    : source === 'issue' ? { kind: 'issue', events: ['labelled', 'closed', 'commented'] }
+    : source === 'issue' ? { kind: 'issue', events: options.label ? ['labelled'] : ['labelled', 'closed', 'commented'] }
       : { kind: 'schedule', events: ['tick'], everyMinutes: options.every ?? 60 }
   const field = source === 'pull-request' ? 'pr' : source === 'issue' ? 'issue' : 'slot'
   return {
     project, id, baseline: options.baseline ?? ARMED_AT, armedAt: options.baseline ?? ARMED_AT,
-    definition: { id, on, opens: { flow: 'review-pr' }, goal: [field], again: null, dedupe: source === 'pull-request' ? ['pr', 'head', 'event'] : source === 'issue' ? ['issue', 'event'] : ['slot'], concurrency: 1, forks: 'never', budget: DEFAULT_TRIGGER_BUDGET },
+    definition: { id, on, opens: { flow: 'review-pr' }, goal: [field], again: null, dedupe: source === 'pull-request' ? ['pr', 'head', 'event'] : source === 'issue' ? ['issue', 'event'] : ['slot'], concurrency: 1, forks: 'never', budget: DEFAULT_TRIGGER_BUDGET, ...(options.label ? { label: options.label } : {}) },
     binding: { project, incarnation: 'clone-1', source: 's', closure: 'c', account: source === 'schedule' ? 'none' : 'a', repository: source === 'schedule' ? null : REPO },
   }
 }

@@ -1,6 +1,7 @@
 import type { TriggerAction, TriggerFact, TriggerSource } from '@harnessdesk/protocol'
 
 import { spawnGh, type GhApiRunner } from '../findings/forge.js'
+import { labelName } from './definition.js'
 import { eventKey } from './keys.js'
 
 /**
@@ -464,9 +465,12 @@ export class ForgeSource {
         const created = time(raw['created_at'])
         const kind = raw['event'] === 'labeled' ? 'labelled' : raw['event'] === 'closed' ? 'closed' : null
         if (kind && fresh(id, created, known?.e ?? 0)) {
+          // The label a labelled event added, only as a validated name; its immutable event id already makes the fact one.
+          const label = kind === 'labelled' && isMap(raw['label']) ? labelName(raw['label']['name']) : null
           facts.push({
             source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, kind, id]), action: kind,
             at: created, head: null, fork: false, title: issue.title, body: issue.body, url: issue.url, trigger: null,
+            ...(label !== null ? { label } : {}),
           })
         }
         events = Math.max(events, id)

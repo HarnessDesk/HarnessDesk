@@ -6,6 +6,7 @@ import type { TriggerFact, TriggerSource, TriggerSourceStatus } from '@harnessde
 import { Serial } from '../goals/assignments.js'
 import { atomicJson } from '../goals/store.js'
 import type { ArmedTrigger } from './consent.js'
+import { acceptsFact } from './definition.js'
 import { ForgeReadError, type ForgeSource, type PollBatch, type SourceCursor } from './forge.js'
 import { dueSlots, scheduleInventory } from './schedule.js'
 
@@ -206,10 +207,9 @@ const realTimers = {
   clear: (handle: unknown): void => clearInterval(handle as NodeJS.Timeout),
 }
 
-/** Whether an arm reads a fact: its source, its events, its own slot, and nothing from before it was armed. */
+/** Whether an arm reads a fact: its source, its events and labels, its own slot, and nothing from before it was armed. */
 const accepts = (arm: ArmedTrigger, fact: TriggerFact): boolean =>
-  arm.definition.on.kind === fact.source && (fact.trigger === null || fact.trigger === arm.id) &&
-  (arm.definition.on.events as readonly string[]).includes(fact.action) && fact.at >= arm.baseline
+  acceptsFact(arm.definition, fact) && (fact.trigger === null || fact.trigger === arm.id) && fact.at >= arm.baseline
 
 export class IntakeMonitor {
   readonly #options: IntakeMonitorOptions

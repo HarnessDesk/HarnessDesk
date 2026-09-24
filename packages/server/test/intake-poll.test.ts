@@ -312,3 +312,22 @@ test('pause and errors retain a truthful source status', async () => {
   assert.deepEqual(held.offers, [['review', 'opened', '21']])
   assert.equal(await cursorFile(held.home), before)
 })
+
+test('a label filter offers only the labelled issues it names', async () => {
+  const r = rig()
+  r.arms = [armOf('ready', { source: 'issue', label: ['agent-ready'] }), armOf('everything', { source: 'issue' })]
+  await r.monitor.baseline(r.arms[0]!)
+  r.forge.issues.push({
+    number: 9, state: 'open', created: ARMED + MINUTE, updated: ARMED + 2 * MINUTE, comments: [],
+    events: [
+      { id: 501, event: 'labeled', created: ARMED + MINUTE, label: 'bug' },
+      { id: 502, event: 'labeled', created: ARMED + MINUTE, label: 'agent-ready' },
+      { id: 503, event: 'closed', created: ARMED + 2 * MINUTE },
+    ],
+  })
+  r.clocks.advance(3 * MINUTE)
+  await r.monitor.tick(r.clocks.wall)
+  assert.deepEqual(r.offers.filter(([id]) => id === 'ready'), [['ready', 'labelled', '9']], 'one labelled issue, the one it names')
+  assert.equal(r.offers.filter(([id]) => id === 'everything').length, 3, 'a trigger with no label reads every event it declares')
+  await r.monitor.close()
+})

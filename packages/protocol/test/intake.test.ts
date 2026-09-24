@@ -47,7 +47,8 @@ test('the source union, its events and its default keys are exactly the three th
 })
 
 test('a definition carries no command, environment, ceiling or free-form template field', () => {
-  const keys = ['id', 'on', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget'] as const
+  // `label` is an exact-match filter over validated names (owner decision, phase 8 task 4), never a template.
+  const keys = ['id', 'on', 'opens', 'goal', 'again', 'dedupe', 'concurrency', 'forks', 'budget', 'label'] as const
   type Missing = Exclude<keyof TriggerDefinition, (typeof keys)[number]>
   const nothingElse: [Missing] extends [never] ? true : false = true
   const noCommand: 'command' extends keyof TriggerDefinition ? true : false = false
