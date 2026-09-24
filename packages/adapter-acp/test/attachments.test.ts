@@ -141,3 +141,34 @@ test('a plain conversation with no attachments never asks for a receipt at all',
   t.after(() => session.close())
   await assert.rejects(runtime.attachmentReceipt(session.id), /never given attachments/)
 })
+
+/**
+ * A real Library MCP identity, not a made-up one: SHA-256 over
+ * `canonicalMcp` of `{name: 'reviewer-tools', transport: 'stdio', command:
+ * 'node', args: ['server.mjs']}` — pinned against the catalog's own
+ * `mcpIdentityDigest` by `packages/server/test/attachments-catalog.test.ts`
+ * (`PINNED_MCP_DIGEST`), which this package cannot import.
+ */
+const LIBRARY_MCP_DIGEST = 'f0dc54b9c1cc6b3f5258181220f07a45af1ab746d32d63338a8c4cee47cdf40d'
+
+test('a receipt naming a real Library MCP identity is accepted, and a 16-hex display digest never is', async (t) => {
+  const runtime = make({ FAKE_ACP_ATTACHMENTS: '1' })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const input = attachments({
+    skills: null,
+    mcp: [{ name: 'reviewer-tools', digest: LIBRARY_MCP_DIGEST, endpoint: `mcp:reviewer-tools:${LIBRARY_MCP_DIGEST}` }],
+  })
+  const session = await runtime.createSession({ cwd: process.cwd(), attachments: input })
+  t.after(() => session.close())
+  const receipt = await runtime.attachmentReceipt(session.id)
+  assert.deepEqual(receipt.loaded, [{ kind: 'mcp', name: 'reviewer-tools', digest: LIBRARY_MCP_DIGEST }])
+
+  const short = make({ FAKE_ACP_ATTACHMENTS: '1' })
+  t.after(() => short.dispose())
+  await short.start()
+  const shortInput = attachments({ skills: null, mcp: [{ name: 'reviewer-tools', digest: LIBRARY_MCP_DIGEST.slice(0, 16), endpoint: 'mcp:x' }] })
+  const s2 = await short.createSession({ cwd: process.cwd(), attachments: shortInput })
+  t.after(() => s2.close())
+  await assert.rejects(short.attachmentReceipt(s2.id), /this desk will not trust/, 'a truncated digest gates nothing')
+})

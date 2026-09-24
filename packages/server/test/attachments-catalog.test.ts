@@ -6,7 +6,7 @@ import { test } from 'node:test'
 
 import type { AgentEntry } from '@harnessdesk/protocol'
 
-import { resolveAttachmentDeclarations, resolveAttachments } from '../src/attachments/catalog.js'
+import { mcpIdentityDigest, resolveAttachmentDeclarations, resolveAttachments } from '../src/attachments/catalog.js'
 import { tempDir } from './scratch.js'
 
 /**
@@ -215,4 +215,54 @@ test('ambiguous Library copy is not chosen', async () => {
   assert.equal(solo.resolved.length, 1)
   assert.equal(solo.declarations[0]!.problem, null)
   assert.equal(solo.declarations[0]!.identity?.source, 'library')
+})
+
+/**
+ * The digest `adapter-acp/test/attachments.test.ts` pins as a real Library
+ * MCP identity: SHA-256 over `canonicalMcp` of this exact spec. Pinned here,
+ * against the catalog's own function, so the two tests cannot drift apart —
+ * the adapter package has no dependency that could compute it itself.
+ */
+export const PINNED_MCP_SPEC = { name: 'reviewer-tools', transport: 'stdio', command: 'node', args: ['server.mjs'] } as const
+export const PINNED_MCP_DIGEST = 'f0dc54b9c1cc6b3f5258181220f07a45af1ab746d32d63338a8c4cee47cdf40d'
+
+test('an MCP server’s identity is a full SHA-256 over its canonical spec, from the one read that also yields the spec', async () => {
+  const { root, agentDir } = await projectWithAgent('hd-attach-mcp-id-', 'scout')
+  const home = tempDir('hd-attach-mcp-id-home-')
+  await writeFile(
+    join(root, '.mcp.json'),
+    JSON.stringify({ mcpServers: { 'reviewer-tools': { command: 'node', args: ['server.mjs'] } } }),
+  )
+  const entry = scout({ id: 'scout', origin: 'project', path: join(agentDir, 'AGENT.md'), mcp: ['reviewer-tools'] })
+  const { declarations, resolved } = await resolveAttachmentDeclarations(entry, root, [{ id: 'fake', brand: 'claudecode' } as never], home)
+
+  assert.equal(declarations.length, 1)
+  assert.equal(declarations[0]!.problem, null)
+  const identity = declarations[0]!.identity!
+  assert.match(identity.digest, /^[0-9a-f]{64}$/, 'a trust decision is gated on a full SHA-256, never a 16-hex display digest')
+  assert.equal(identity.digest, mcpIdentityDigest(PINNED_MCP_SPEC))
+  assert.equal(identity.digest, PINNED_MCP_DIGEST)
+  assert.equal(resolved.length, 1)
+  assert.equal(resolved[0]!.server?.command, 'node', 'the spec the gateway will run comes from the same read the digest was taken over')
+  assert.equal(mcpIdentityDigest(resolved[0]!.server!), identity.digest)
+
+  // One changed argument is a different server, and a different identity.
+  await writeFile(
+    join(root, '.mcp.json'),
+    JSON.stringify({ mcpServers: { 'reviewer-tools': { command: 'node', args: ['server.mjs', '--evil'] } } }),
+  )
+  const changed = await resolveAttachmentDeclarations(entry, root, [{ id: 'fake', brand: 'claudecode' } as never], home)
+  assert.notEqual(changed.declarations[0]!.identity?.digest, identity.digest)
+})
+
+test('an MCP server whose spec cannot be decoded has no identity to approve', async () => {
+  const { root, agentDir } = await projectWithAgent('hd-attach-mcp-undecodable-', 'scout')
+  const home = tempDir('hd-attach-mcp-undecodable-home-')
+  await writeFile(join(root, '.mcp.json'), JSON.stringify({ mcpServers: { 'reviewer-tools': { note: 'no command and no url' } } }))
+  const entry = scout({ id: 'scout', origin: 'project', path: join(agentDir, 'AGENT.md'), mcp: ['reviewer-tools'] })
+  // The scanner lists the server by name, but nothing here can say what would run: no identity, so nothing to approve.
+  const { declarations, resolved } = await resolveAttachmentDeclarations(entry, root, [{ id: 'fake', brand: 'claudecode' } as never], home)
+  assert.equal(resolved.length, 0)
+  assert.equal(declarations[0]!.identity, null)
+  assert.match(declarations[0]!.problem ?? '', /cannot be read as a server/)
 })

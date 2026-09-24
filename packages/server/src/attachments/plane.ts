@@ -5,6 +5,7 @@ import {
   type AgentOrigin,
   type AttachmentDeclaration,
   type AttachmentIdentity,
+  type AttachmentLoadResult,
   type AttachmentSupport,
   type CeilingLevel,
   type SeatAttachmentsRecord,
@@ -202,17 +203,17 @@ export class AttachmentsPlane {
     }
     await this.#receipts.append(record)
     if (prepared.input.mcp) {
-      this.#live.set(
-        seat.id,
-        {
-          servers: prepared.input.mcp
-            .filter((one) => loadResults.find((r) => r.identity.name === one.name)?.status === 'loaded')
-            .map((one) => ({
-              identity: prepared.declarations.find((d) => d.identity?.name === one.name)!.identity!,
-              endpoint: one.endpoint,
-            })),
-        },
-      )
+      // Matched on kind *and* name, never name alone: a skill and a server
+      // may share a name, and a skill that loaded must never make a server
+      // of the same name live (nor lend it the skill's identity).
+      const loadedServer = (name: string): AttachmentLoadResult | undefined =>
+        loadResults.find((r) => r.identity.kind === 'mcp' && r.identity.name === name && r.status === 'loaded')
+      this.#live.set(seat.id, {
+        servers: prepared.input.mcp.flatMap((one) => {
+          const result = loadedServer(one.name)
+          return result && result.identity.digest === one.digest ? [{ identity: result.identity, endpoint: one.endpoint }] : []
+        }),
+      })
     }
     return record
   }

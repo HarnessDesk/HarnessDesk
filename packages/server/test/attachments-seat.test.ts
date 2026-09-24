@@ -187,3 +187,46 @@ test('plain start is unchanged', async () => {
   assert.deepEqual(prepared.input, { key: prepared.input.key, skills: null, mcp: null, notes: null })
   assert.equal(await plane.read('never-called-record' as never), null, 'no sidecar exists when record was never called')
 })
+
+test('a skill and a server that share a name are matched by kind, never by name alone', async () => {
+  const skillId = identity({ kind: 'skill', name: 'foo', digest: 'a'.repeat(64), source: 'agent' })
+  const mcpId = identity({ kind: 'mcp', name: 'foo', digest: 'b'.repeat(64), source: 'library' })
+  const declarations = [
+    declaration({ kind: 'skill', name: 'foo', identity: skillId }),
+    declaration({ kind: 'mcp', name: 'foo', identity: mcpId }),
+  ]
+  const resolved = [
+    { identity: skillId, endpoint: null },
+    { identity: mcpId, endpoint: `mcp:foo:${'b'.repeat(64)}` },
+  ]
+
+  // Only the skill loaded; the server did not. The server must not ride in on the skill's name.
+  const onlySkill = portFor({ scout: declarations }, { scout: resolved })
+  permit(onlySkill, subject(), skillId)
+  permit(onlySkill, subject(), mcpId)
+  const plane = new AttachmentsPlane(tempDir('hd-attach-seat-kind-'), onlySkill)
+  const prepared = await plane.prepare(subject())
+  const record = await plane.record(seat('seat-kind'), prepared, {
+    key: prepared.input.key,
+    loaded: [{ kind: 'skill', name: 'foo', digest: 'a'.repeat(64) }],
+    refused: [{ kind: 'mcp', name: 'foo', reason: 'gateway down' }],
+  })
+  assert.deepEqual(
+    record.results.map((one) => `${one.identity.kind}:${one.status}`),
+    ['skill:loaded', 'mcp:not-loaded'],
+  )
+  assert.deepEqual(plane.liveServersFor('seat-kind' as never) ?? [], [], 'a server the runtime refused is never live because a skill of the same name loaded')
+
+  // And the other way round: the server loaded, and its live identity is the server's, never the skill's.
+  const plane2 = new AttachmentsPlane(tempDir('hd-attach-seat-kind2-'), onlySkill)
+  const prepared2 = await plane2.prepare(subject())
+  await plane2.record(seat('seat-kind2'), prepared2, {
+    key: prepared2.input.key,
+    loaded: [{ kind: 'mcp', name: 'foo', digest: 'b'.repeat(64) }],
+    refused: [{ kind: 'skill', name: 'foo', reason: 'not reported' }],
+  })
+  const live = plane2.liveServersFor('seat-kind2' as never) ?? []
+  assert.equal(live.length, 1)
+  assert.equal(live[0]!.identity.kind, 'mcp')
+  assert.equal(live[0]!.identity.digest, 'b'.repeat(64))
+})

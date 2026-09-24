@@ -5,6 +5,8 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, sep } from 'node:path'
 
 import {
+  canonicalMcp,
+  digestOf,
   dialectFor,
   decodeMcpEntry,
   isSafePathSegment,
@@ -217,6 +219,16 @@ export function bundleDigest(files: readonly BundleFile[]): string {
   return hash.digest('hex')
 }
 
+/**
+ * An MCP server's one identity: full SHA-256 over `canonicalMcp(spec)` — the
+ * exact command, arguments, environment, URL and headers that would run,
+ * however a dialect happened to spell them. The Library's own 16-hex
+ * `digestOf` is a display/comparison digest and gates nothing; this is the
+ * value a person's approval, a Seat's staging, a runtime's receipt and the
+ * gateway's admission all compare against.
+ */
+export const mcpIdentityDigest = (spec: McpServerSpec): string => createHash('sha256').update(canonicalMcp(spec)).digest('hex')
+
 // ————————————————————————————————————————— resolving one Agent's declarations
 
 export interface AttachmentSubject {
@@ -314,37 +326,67 @@ const libraryCopy = async (
   return { path: join(canonicalAncestor, basename(copy.path)), digest: copy.digest! }
 }
 
+/** The most a Library server's configuration file may hold before it is not read at all: `~/.claude.json` carries history too. */
+const MAX_MCP_CONFIG_BYTES = 8 * 1024 * 1024
+
 /**
- * Best-effort MCP decoding from a Library copy's own file. The per-brand
- * file format and table key live in `agent-inventory`'s internal location
- * table, which this package does not export; format is inferred from the
- * extension (`.toml` is Codex's, everything measured elsewhere is JSON) and
- * both key spellings measured across agents (`mcpServers`, `mcp_servers`)
- * are tried. A spec that cannot be decoded this way still gets a reviewable
- * identity — `server` is simply `null`, never a guess.
+ * One read of a Library copy's own configuration file, decoded into the spec
+ * that would actually run. The per-brand file format and table key live in
+ * `agent-inventory`'s internal location table, which this package does not
+ * export; format is inferred from the extension (`.toml` is Codex's,
+ * everything measured elsewhere is JSON) and both key spellings measured
+ * across agents (`mcpServers`, `mcp_servers`) are tried.
+ *
+ * The identity (`mcpIdentityDigest`) is taken over the spec decoded from
+ * *this* read and nothing else, and the spec returned is that same one: the
+ * digest a person approves and the command the gateway later runs can never
+ * come from two different reads of a file that changed in between. The
+ * scanner's own 16-hex digest for the copy is checked against this read, so
+ * a file that changed between the Library scan and this read is refused
+ * rather than silently resolved to the newer server.
  */
-const decodeLibraryServer = async (path: string, name: string, runtimes: readonly InventoryAgent[]): Promise<McpServerSpec | null> => {
+const readLibraryServer = async (
+  path: string,
+  name: string,
+  runtimes: readonly InventoryAgent[],
+  scanned: string,
+): Promise<{ readonly spec: McpServerSpec; readonly digest: string } | { readonly problem: string }> => {
   const format: 'json' | 'toml' = path.endsWith('.toml') ? 'toml' : 'json'
   let text: string
   try {
-    const handle = await open(path, constants.O_RDONLY)
+    const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK)
     try {
-      text = await handle.readFile('utf8')
+      const info = await handle.stat()
+      if (!info.isFile()) return { problem: `${shortPath(path, homedir())} is not a regular file.` }
+      if (info.size > MAX_MCP_CONFIG_BYTES) return { problem: `${shortPath(path, homedir())} is larger than ${MAX_MCP_CONFIG_BYTES / 1024 / 1024} MiB.` }
+      const buffer = Buffer.allocUnsafe(MAX_MCP_CONFIG_BYTES + 1)
+      let filled = 0
+      for (;;) {
+        const { bytesRead } = await handle.read(buffer, filled, buffer.length - filled, filled)
+        if (bytesRead === 0) break
+        filled += bytesRead
+        if (filled > MAX_MCP_CONFIG_BYTES) return { problem: `${shortPath(path, homedir())} is larger than ${MAX_MCP_CONFIG_BYTES / 1024 / 1024} MiB.` }
+      }
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, filled))
     } finally {
       await handle.close()
     }
   } catch {
-    return null
+    return { problem: `“${name}”’s configuration could not be read.` }
   }
   for (const brand of new Set(runtimes.map((one) => one.brand))) {
     const dialect = dialectFor(brand)
     if (!dialect) continue
     for (const key of ['mcpServers', 'mcp_servers']) {
-      const decoded = decodeMcpEntry(text, format, key, name, dialect)
-      if (decoded) return decoded
+      const spec = decodeMcpEntry(text, format, key, name, dialect)
+      if (!spec) continue
+      if (digestOf(canonicalMcp(spec)) !== scanned) {
+        return { problem: `“${name}” changed while it was being read; open this page again to review what is there now.` }
+      }
+      return { spec, digest: mcpIdentityDigest(spec) }
     }
   }
-  return null
+  return { problem: `“${name}” cannot be read as a server this desk can show you, so there is nothing exact to approve.` }
 }
 
 /**
@@ -427,10 +469,14 @@ export async function resolveAttachmentDeclarations(
       declarations.push({ kind, name, identity: null, problem: found.problem })
       continue
     }
-    const identity: AttachmentIdentity = { kind, name, digest: found.digest, source: 'library', pathLabel: label(found.path) }
-    const server = await decodeLibraryServer(found.path, name, runtimes)
+    const server = await readLibraryServer(found.path, name, runtimes, found.digest)
+    if ('problem' in server) {
+      declarations.push({ kind, name, identity: null, problem: server.problem })
+      continue
+    }
+    const identity: AttachmentIdentity = { kind, name, digest: server.digest, source: 'library', pathLabel: label(found.path) }
     declarations.push({ kind, name, identity, problem: null })
-    resolved.push({ identity, files: [], server })
+    resolved.push({ identity, files: [], server: server.spec })
   }
 
   return { declarations, resolved }
