@@ -1,28 +1,43 @@
 import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react'
 
-import type {
-  AgentEntry,
-  AgentFieldEdit,
-  AuthoringDocument,
-  AuthoringSavePreview,
-  WritableAuthoringTarget,
+import {
+  CEILING_LEVELS,
+  SEAT_PREFERENCE_LIMIT,
+  type AgentEntry,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringSavePreview,
+  type CeilingLevel,
+  type FlowSeat,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
-import { wordList } from '../lib/agents'
-import { Banner, Button, CodeText, Dialog, Field, Input, Note, Row, Rows, SectionHead, Textarea } from '../design'
-import { useStore } from '../state/context'
+import { agentName, ceilingMeaning, ceilingWords, wordList } from '../lib/agents'
+import { Banner, Button, CodeText, Dialog, Field, Input, NativeSelect, Note, Row, RowChoice, Rows, SectionHead, Textarea } from '../design'
+import { useSnapshot, useStore } from '../state/context'
+import { CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
 import { DiffView } from './Diff'
 
 /**
- * The Agent page's editable metadata — name, description, and what it
- * answers and produces — each a row that opens its own small dialog: type,
- * see the exact line this would write, then Save.
+ * The Agent page's editable metadata — name, description, ceiling, what it
+ * answers and produces, and the ordered seats it prefers — each a row (or,
+ * for ceiling and prefer, the page's own existing row) that opens a small
+ * dialog: type or choose, see the exact line this would write, then Save.
  *
- * Ceiling stays where phase 3 already put it (its own section, guarded by
- * the legacy `permission:` Update this page already offers) and `prefer`
- * stays read-only here (Seats, below) — both out of this file's scope. A
- * built-in Agent shows the same rows with no *Edit…*: `entry.origin` decides,
- * exactly like *Customize…* and *Remove…* already do above.
+ * Ceiling and prefer are edited through this same `authoring/*` preview/save
+ * path, but their dialogs (`FieldEditDialog` with `fieldKey="ceiling"`, and
+ * `PreferFieldDialog`) are exported for `AgentPage` to open directly,
+ * alongside the rows that already exist there — the legacy `permission:`
+ * Update action (`CeilingUpdate`) and the Seats section — rather than
+ * duplicated here: `AgentPage` already holds `agentDocument`'s digest, and a
+ * second "Ceiling" row in this file would either race that one or repeat it.
+ * The server's own gate is the only judge of whether a ceiling edit is
+ * legacy-blocked (`editAgentSource`'s `ceilingFrom === 'permission'` check) —
+ * this file never re-checks that itself; a refused preview just shows the
+ * host's own words, which already say to use the existing Update action.
+ *
+ * A built-in Agent shows the same rows with no *Edit…*: `entry.origin`
+ * decides, exactly like *Customize…* and *Remove…* already do above.
  */
 export interface AgentFieldsProps {
   readonly document: AuthoringDocument
@@ -33,13 +48,14 @@ export interface AgentFieldsProps {
   readonly onOpenFile: () => void
 }
 
-type FieldKey = 'name' | 'description' | 'answers' | 'produces'
+type FieldKey = 'name' | 'description' | 'answers' | 'produces' | 'ceiling'
 
 const LABEL: Readonly<Record<FieldKey, string>> = {
   name: 'Name',
   description: 'Description',
   answers: 'Answers',
   produces: 'Produces',
+  ceiling: 'Ceiling',
 }
 
 export const AgentFields = ({ document, entry, busy, onEdit, onOpenFile }: AgentFieldsProps) => {
@@ -93,11 +109,12 @@ export const AgentFields = ({ document, entry, busy, onEdit, onOpenFile }: Agent
   )
 }
 
-/** One field's value, as `AgentFieldEdit` writes it — a string for the single-line rows, an ordered list for the two word lists. */
-const buildEdit = (key: FieldKey, text: string): AgentFieldEdit =>
-  key === 'answers' || key === 'produces'
-    ? { key, value: text.split('\n').map((line) => line.trim()).filter(Boolean) }
-    : { key, value: text }
+/** One field's value, as `AgentFieldEdit` writes it — a string for the single-line rows, an ordered list for the two word lists, one of the four words for ceiling. */
+const buildEdit = (key: FieldKey, text: string): AgentFieldEdit => {
+  if (key === 'answers' || key === 'produces') return { key, value: text.split('\n').map((line) => line.trim()).filter(Boolean) }
+  if (key === 'ceiling') return { key, value: text as CeilingLevel }
+  return { key, value: text }
+}
 
 const multiline = (key: FieldKey): boolean => key === 'answers' || key === 'produces'
 
@@ -142,7 +159,7 @@ const lineDiff = (path: string, before: string, after: string): string => {
  * same way and offers *Open file* instead — the same host refusal covers
  * both, so this dialog does not have to know which is which beforehand.
  */
-const FieldEditDialog = ({
+export const FieldEditDialog = ({
   fieldKey,
   target,
   digest,
@@ -245,18 +262,242 @@ const FieldEditDialog = ({
         </>
       }
     >
-      <Field
-        label={LABEL[fieldKey]}
-        {...(multiline(fieldKey) ? { hint: 'One per line, in the order they should be written.' } : {})}
-      >
-        {(control): ReactNode =>
-          multiline(fieldKey) ? (
-            <Textarea {...control} rows={5} disabled={busy} value={text} onChange={(event) => setText(event.target.value)} />
-          ) : (
-            <Input {...control} disabled={busy} value={text} onChange={(event) => setText(event.target.value)} />
-          )
-        }
-      </Field>
+      {fieldKey === 'ceiling' ? (
+        <Rows role="radiogroup" aria-label="Ceiling">
+          {CEILING_LEVELS.map((level) => (
+            <RowChoice
+              key={level}
+              title={ceilingWords(level)}
+              desc={<span className="whitespace-normal">{ceilingMeaning(level)}</span>}
+              selected={text === level}
+              disabled={busy}
+              onClick={() => setText(level)}
+            />
+          ))}
+        </Rows>
+      ) : (
+        <Field
+          label={LABEL[fieldKey]}
+          {...(multiline(fieldKey) ? { hint: 'One per line, in the order they should be written.' } : {})}
+        >
+          {(control): ReactNode =>
+            multiline(fieldKey) ? (
+              <Textarea {...control} rows={5} disabled={busy} value={text} onChange={(event) => setText(event.target.value)} />
+            ) : (
+              <Input {...control} disabled={busy} value={text} onChange={(event) => setText(event.target.value)} />
+            )
+          }
+        </Field>
+      )}
+      {problem && <Banner tone="danger" title="This could not be saved">{problem}</Banner>}
+      {issue && (
+        <Banner tone={offersReload ? 'warning' : 'danger'} title={issue.text}>
+          <span className="flex flex-col items-start gap-(--hd-space-2)">
+            {issue.fix}
+            {offersOpenFile && (
+              <Button size="sm" variant="outline" onClick={onOpenFile}>
+                Open file
+              </Button>
+            )}
+            {offersReload && (
+              <Button size="sm" variant="outline" disabled={reloading} onClick={() => void reload()}>
+                {reloading ? 'Reloading…' : 'Reload'}
+              </Button>
+            )}
+          </span>
+        </Banner>
+      )}
+      {edit && !issue && (
+        <div className="space-y-2">
+          <CodeText>{edit.path}</CodeText>
+          <Note>The exact line this would write:</Note>
+          <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
+        </div>
+      )}
+    </Dialog>
+  )
+}
+
+/** A seat's own presentation name — never a raw runtime id in the row a person reads. */
+const seatRuntimeName = (
+  seat: FlowSeat,
+  runtimes: readonly { readonly id: string; readonly presentation: { readonly name: string } }[],
+): string => runtimes.find((one) => one.id === seat.runtime)?.presentation.name ?? seat.runtime
+
+/**
+ * `prefer`, edited as the ordered list it is — through the same
+ * `authoring/*` preview/save path as every other field here, previewed on
+ * every change and written only by the explicit *Save* below.
+ *
+ * Adding a seat here names a runtime only, matching decision 15's project
+ * portability rule (an exact model stays out of a saved preference) — the
+ * existing *On this Mac* editor (`AddSeatDialog`, above, on this Mac's own
+ * seating) is still where an exact model, effort or thinking mode is chosen;
+ * this list is what travels with the Agent. An existing entry that already
+ * names one, from the file, is kept exactly as it reads until it is removed.
+ */
+export const PreferFieldDialog = ({
+  entry,
+  target,
+  digest,
+  initial,
+  onOpenFile,
+  onClose,
+  onSaved,
+}: {
+  readonly entry: AgentEntry
+  readonly target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>
+  readonly digest: string
+  readonly initial: readonly FlowSeat[]
+  readonly onOpenFile: () => void
+  readonly onClose: () => void
+  readonly onSaved: (edit: AgentFieldEdit) => void
+}) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [seats, setSeats] = useState<readonly FlowSeat[]>(initial)
+  const [expected, setExpected] = useState(digest)
+  const [preview, setPreview] = useState<AuthoringSavePreview | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [reloading, setReloading] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [addRuntime, setAddRuntime] = useState(snapshot.runtimes[0]?.id ?? '')
+  const sequence = useRef(0)
+  const applying = useRef(false)
+
+  useEffect(() => {
+    const mine = ++sequence.current
+    setPreview(null)
+    setProblem(null)
+    store.previewAgentEdit(target, expected, { key: 'prefer', value: seats }).then(
+      (next) => {
+        if (mine === sequence.current) setPreview(next)
+      },
+      (error: unknown) => {
+        if (mine === sequence.current) setProblem(error instanceof Error ? error.message : String(error))
+      },
+    )
+  }, [target, expected, seats, store])
+
+  const issue = preview?.issues[0] ?? null
+  const offersOpenFile = issue?.fix.toLowerCase().includes('open the file') ?? false
+  const offersReload = issue?.fix.toLowerCase().includes('reload') ?? false
+
+  const reload = async (): Promise<void> => {
+    setReloading(true)
+    setProblem(null)
+    try {
+      const fresh = await store.readAuthoring(target)
+      setExpected(fresh.digest)
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setReloading(false)
+    }
+  }
+
+  const save = async (): Promise<void> => {
+    if (!preview?.token || applying.current) return
+    applying.current = true
+    setBusy(true)
+    setProblem(null)
+    try {
+      const result = await store.applyAuthoringSave(preview.token)
+      if (result.state !== 'applied') {
+        applying.current = false
+        setBusy(false)
+        setProblem(result.message)
+        return
+      }
+      onSaved({ key: 'prefer', value: seats })
+    } catch (error) {
+      applying.current = false
+      setBusy(false)
+      setProblem(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const move = (index: number, delta: number): void => {
+    const to = index + delta
+    if (to < 0 || to >= seats.length) return
+    const next = [...seats]
+    ;[next[index], next[to]] = [next[to]!, next[index]!]
+    setSeats(next)
+  }
+  const removeAt = (index: number): void => setSeats(seats.filter((_, one) => one !== index))
+  const addSeat = (): void => {
+    if (!addRuntime || seats.length >= SEAT_PREFERENCE_LIMIT) return
+    setSeats([...seats, { runtime: addRuntime }])
+    setAdding(false)
+  }
+
+  const edit = preview?.edits[0] ?? null
+
+  return (
+    <Dialog
+      title={`Edit Seats for ${agentName(entry)}`}
+      size="lg"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+        </>
+      }
+    >
+      <Note>In the order it asks for them. The first this Mac can offer is the one it takes.</Note>
+      <Rows aria-label="Preferred seats">
+        {seats.length === 0 && <Row title="It prefers no seat yet" />}
+        {seats.map((seat, index) => (
+          <Row
+            key={`${seat.runtime}-${index}`}
+            title={seatRuntimeName(seat, snapshot.runtimes)}
+            desc={[seat.model, seat.effort, seat.thinking ? 'thinking' : null].filter(Boolean).join(' · ') || undefined}
+            control={
+              <span className="flex gap-1">
+                <Button size="sm" variant="outline" disabled={busy || index === 0} aria-label={`Move ${seatRuntimeName(seat, snapshot.runtimes)} up`} onClick={() => move(index, -1)}>
+                  <MoveUpIcon size={14} />
+                </Button>
+                <Button size="sm" variant="outline" disabled={busy || index === seats.length - 1} aria-label={`Move ${seatRuntimeName(seat, snapshot.runtimes)} down`} onClick={() => move(index, 1)}>
+                  <MoveDownIcon size={14} />
+                </Button>
+                <Button size="sm" variant="outline" disabled={busy} aria-label={`Remove ${seatRuntimeName(seat, snapshot.runtimes)}`} onClick={() => removeAt(index)}>
+                  <CrossIcon size={14} />
+                </Button>
+              </span>
+            }
+          />
+        ))}
+      </Rows>
+      {adding ? (
+        <Field label="Runtime">
+          {(control) => (
+            <span className="flex items-center gap-2">
+              <NativeSelect {...control} value={addRuntime} disabled={busy} onChange={(event) => setAddRuntime(event.target.value)}>
+                {snapshot.runtimes.map((one) => (
+                  <option key={one.id} value={one.id}>{one.presentation.name}</option>
+                ))}
+              </NativeSelect>
+              <Button size="sm" variant="default" disabled={busy || !addRuntime} onClick={addSeat}>Add</Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setAdding(false)}>Cancel</Button>
+            </span>
+          )}
+        </Field>
+      ) : (
+        <Button size="sm" variant="outline" disabled={busy || seats.length >= SEAT_PREFERENCE_LIMIT} onClick={() => setAdding(true)}>
+          <PlusIcon size={14} />
+          Add a seat
+        </Button>
+      )}
+      <Note>
+        Adding here names a runtime only, so this list stays portable. An exact model, effort or thinking mode is
+        chosen on this Mac&rsquo;s own seating, above, or by editing the file directly.
+      </Note>
       {problem && <Banner tone="danger" title="This could not be saved">{problem}</Banner>}
       {issue && (
         <Banner tone={offersReload ? 'warning' : 'danger'} title={issue.text}>

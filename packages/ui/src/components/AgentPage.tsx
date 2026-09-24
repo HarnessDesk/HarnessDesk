@@ -11,6 +11,7 @@ import {
   type RuntimeId,
   type SeatCandidate,
   type SeatFix,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
 import {
@@ -59,7 +60,7 @@ import {
 } from '../design'
 import styles from './AgentPage.module.css'
 import { AgentAttachments } from './AgentAttachments'
-import { AgentFields, AgentPageSections } from './AgentFields'
+import { AgentFields, AgentPageSections, FieldEditDialog, PreferFieldDialog } from './AgentFields'
 import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
 
@@ -104,6 +105,8 @@ export const AgentPage = ({
   const [removing, setRemoving] = useState(false)
   const [adding, setAdding] = useState(false)
   const [updatingCeiling, setUpdatingCeiling] = useState(false)
+  const [editingCeiling, setEditingCeiling] = useState(false)
+  const [editingPrefer, setEditingPrefer] = useState(false)
   const [seatingBusy, setSeatingBusy] = useState(false)
   const [seatingProblem, setSeatingProblem] = useState<string | null>(null)
   const seatingInFlight = useRef(false)
@@ -121,8 +124,12 @@ export const AgentPage = ({
   const plan = snapshot.agentPlans.get(entry.id)
   const ceilingFlag = definition ? flagWords(definition) : null
   const canUpdateCeiling = ceilingFlag !== null && (entry.origin === 'user' || entry.origin === 'project')
+  /** Builtins are read-only until Customize copies them, exactly like the fields below. */
+  const editable = entry.origin !== 'builtin'
   useEffect(() => {
     setUpdatingCeiling(false)
+    setEditingCeiling(false)
+    setEditingPrefer(false)
   }, [entry.id, entry.origin, entry.path, snapshot.agentsProject])
 
   useEffect(() => {
@@ -295,14 +302,30 @@ export const AgentPage = ({
               <Row
                 title={ceilingWords(definition.ceiling)}
                 desc={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
-                {...(canUpdateCeiling ? {
-                  control: <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>,
+                {...(editable ? {
+                  control: (
+                    <span className="flex gap-(--hd-space-2)">
+                      {canUpdateCeiling && (
+                        <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
+                      )}
+                      {/* Same `authoring/*` preview/save path as name, description, answers and
+                          produces below — disabled until that document is read, since it needs
+                          the digest to preview against. A legacy `permission:` Agent still needs
+                          Update first: the preview itself refuses and says so, in the host's own
+                          words, rather than this row re-deciding that beforehand. */}
+                      <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
+                    </span>
+                  ),
                 } : {})}
               />
             </Rows>
           </section>
 
-          <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />
+          <OwnSeats
+            entry={entry}
+            onEditSeats={() => setAdding(true)}
+            {...(agentDocument ? { onEditPrefer: () => setEditingPrefer(true) } : {})}
+          />
           <MachineSeats
             entry={entry}
             busy={seatingBusy}
@@ -376,6 +399,36 @@ export const AgentPage = ({
         <CeilingUpdate entry={entry} onClose={() => setUpdatingCeiling(false)} />
       )}
 
+      {editingCeiling && definition && agentDocument && (
+        <FieldEditDialog
+          fieldKey="ceiling"
+          target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
+          digest={agentDocument.digest}
+          initial={definition.ceiling}
+          onOpenFile={openFile}
+          onClose={() => setEditingCeiling(false)}
+          onSaved={(edit) => {
+            setEditingCeiling(false)
+            onFieldEdited(edit)
+          }}
+        />
+      )}
+
+      {editingPrefer && definition && agentDocument && (
+        <PreferFieldDialog
+          entry={entry}
+          target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
+          digest={agentDocument.digest}
+          initial={definition.prefer}
+          onOpenFile={openFile}
+          onClose={() => setEditingPrefer(false)}
+          onSaved={(edit) => {
+            setEditingPrefer(false)
+            onFieldEdited(edit)
+          }}
+        />
+      )}
+
       {removing && folder && entry.origin !== 'builtin' && (
         <RemoveDialog
           entry={entry}
@@ -397,19 +450,26 @@ export const AgentPage = ({
 const OwnSeats = ({
   entry,
   onEditSeats,
+  onEditPrefer,
 }: {
   readonly entry: AgentEntry
   /** Where a seat the Agent asks for that this Mac cannot give is fixed — this Mac's own seats. */
   readonly onEditSeats?: () => void
+  /** Edits the list itself, through the same `authoring/*` path as the rest of this page — absent while it is not yet known which file to save. */
+  readonly onEditPrefer?: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const plan = snapshot.agentPlans.get(entry.id)
   const replaced = plan?.from === 'machine'
   const seats = replaced ? (plan.own ?? []) : (plan?.candidates ?? [])
+  const editable = entry.origin !== 'builtin'
   return (
     <section aria-label="Seats">
-      <SectionHead name="Seats" />
+      <SectionHead
+        name="Seats"
+        {...(editable && onEditPrefer ? { action: <Button size="sm" variant="outline" onClick={onEditPrefer}>Edit…</Button> } : {})}
+      />
       <Note>
         {replaced
           ? 'Not used on this Mac: its seats here replace this list. Every other machine seats it in this order.'

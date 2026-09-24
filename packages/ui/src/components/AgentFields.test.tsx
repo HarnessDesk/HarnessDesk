@@ -2,18 +2,21 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, AuthoringDocument, AuthoringSavePreview } from '@harnessdesk/protocol'
+import type { AgentEntry, AuthoringDocument, AuthoringSavePreview, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
-import type { AppStore } from '../state/store'
-import { AgentFields } from './AgentFields'
+import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AgentFields, FieldEditDialog, PreferFieldDialog } from './AgentFields'
 
 /**
  * Task 5's editable Agent metadata: one field, previewed then saved, never
- * more than the row a person touched. Ceiling and `prefer` stay out of this
- * file's own scope (their existing sections and the legacy-permission
- * `Update…` flow are untouched); this covers name, description, answers and
- * produces.
+ * more than the row a person touched. This covers name, description,
+ * answers and produces, drawn from `AgentFields` itself, and — through the
+ * same `FieldEditDialog` and the new `PreferFieldDialog`, exported for
+ * `AgentPage` to open beside its own existing Ceiling row and Seats section
+ * rather than a second copy here — ceiling and `prefer`. The legacy-
+ * permission gate itself is never re-implemented in either: a refusal is
+ * whatever `previewAgentEdit` (the host's `editAgentSource`) says it is.
  */
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -213,4 +216,168 @@ it('a built-in Agent shows the same rows with no Edit…', () => {
   })
   expect(container.textContent).toContain('Reviewer')
   expect([...container.querySelectorAll('button')].some((one) => one.textContent?.includes('Edit…'))).toBe(false)
+})
+
+const AGENT_TARGET = { kind: 'agent', origin: 'user', id: 'reviewer' } as const
+
+it('ceiling edits through the same authoring path as every other field: choosing a level previews it, then an explicit Save writes it', async () => {
+  const preview: AuthoringSavePreview = {
+    token: 'ceiling-tok',
+    edits: [{ path: 'agents/reviewer/AGENT.md', before: '---\nceiling: read\n---\n', after: '---\nceiling: edit\n---\n' }],
+    issues: [],
+    resuming: false,
+  }
+  const previewAgentEdit = vi.fn(async () => preview)
+  const store = storeFor({ previewAgentEdit })
+  const onSaved = vi.fn()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <FieldEditDialog
+          fieldKey="ceiling"
+          target={AGENT_TARGET}
+          digest="digest-1"
+          initial="read"
+          onOpenFile={() => {}}
+          onClose={() => {}}
+          onSaved={onSaved}
+        />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+
+  const edit = [...document.body.querySelectorAll('[role="radio"], button')].find((one) => one.textContent?.startsWith('Edit'))
+  if (!edit) throw new Error('no “Edit” ceiling choice')
+  act(() => (edit as HTMLElement).click())
+  await settle()
+
+  expect(previewAgentEdit).toHaveBeenLastCalledWith(AGENT_TARGET, 'digest-1', { key: 'ceiling', value: 'edit' })
+  expect(dialogButton('Save').hasAttribute('disabled')).toBe(false)
+
+  act(() => dialogButton('Save').click())
+  await settle()
+  expect(store.applyAuthoringSave).toHaveBeenCalledWith('ceiling-tok')
+  expect(onSaved).toHaveBeenCalledWith({ key: 'ceiling', value: 'edit' })
+})
+
+it('a legacy-permission Agent’s ceiling refuses through the same field editor, in the host’s own words, rather than reinterpreting permission: as a ceiling', async () => {
+  const previewAgentEdit = vi.fn(async () => ({
+    token: null,
+    edits: [],
+    issues: [{
+      at: 'ceiling',
+      text: 'This Agent still says permission:, which is read differently from a ceiling.',
+      fix: 'Update it to a ceiling from the Agent page first, then change it here.',
+    }],
+    resuming: false,
+  }))
+  const store = storeFor({ previewAgentEdit })
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <FieldEditDialog
+          fieldKey="ceiling"
+          target={AGENT_TARGET}
+          digest="digest-1"
+          initial="read"
+          onOpenFile={() => {}}
+          onClose={() => {}}
+          onSaved={() => {}}
+        />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+
+  expect(document.body.textContent).toContain('still says permission:')
+  expect(document.body.textContent).toContain('Update it to a ceiling from the Agent page first')
+  expect(dialogButton('Save').hasAttribute('disabled')).toBe(true)
+  // Neither of the other two known fixes applies here — this dialog shows
+  // exactly what the host said, and nothing invents an Update button of its
+  // own: that action already exists, on the page this dialog was opened from.
+  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Open file')).toBe(false)
+  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Reload')).toBe(false)
+})
+
+const RUNTIMES = [
+  { id: 'codex', presentation: { name: 'Codex' } },
+  { id: 'claude-code', presentation: { name: 'Claude Code' } },
+] as unknown as readonly RuntimeInfo[]
+
+const preferStoreFor = (overrides: Record<string, unknown> = {}): AppStore => {
+  const snapshot = { ...emptySnapshot(), runtimes: RUNTIMES } as AppSnapshot
+  return {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    previewAgentEdit: vi.fn(async (): Promise<AuthoringSavePreview> => ({ token: null, edits: [], issues: [], resuming: false })),
+    applyAuthoringSave: vi.fn(async () => ({ state: 'applied', written: ['agents/reviewer/AGENT.md'], message: 'Saved.' })),
+    readAuthoring: vi.fn(async () => DOCUMENT),
+    ...overrides,
+  } as unknown as AppStore
+}
+
+it('prefer edits as the ordered list it is: adding a seat previews it, and Save writes only what is shown', async () => {
+  const preview: AuthoringSavePreview = {
+    token: 'prefer-tok',
+    edits: [{ path: 'agents/reviewer/AGENT.md', before: 'prefer: []', after: 'prefer: [codex]' }],
+    issues: [],
+    resuming: false,
+  }
+  const previewAgentEdit = vi.fn(async () => preview)
+  const store = preferStoreFor({ previewAgentEdit })
+  const onSaved = vi.fn()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PreferFieldDialog
+          entry={ENTRY}
+          target={AGENT_TARGET}
+          digest="digest-1"
+          initial={[]}
+          onOpenFile={() => {}}
+          onClose={() => {}}
+          onSaved={onSaved}
+        />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+
+  expect(document.body.textContent).toContain('It prefers no seat yet')
+  act(() => dialogButton('Add a seat').click())
+  await settle()
+  act(() => dialogButton('Add').click())
+  await settle()
+
+  expect(previewAgentEdit).toHaveBeenLastCalledWith(AGENT_TARGET, 'digest-1', { key: 'prefer', value: [{ runtime: 'codex' }] })
+  expect(document.body.textContent).toContain('Codex')
+
+  act(() => dialogButton('Save').click())
+  await settle()
+  expect(store.applyAuthoringSave).toHaveBeenCalledWith('prefer-tok')
+  expect(onSaved).toHaveBeenCalledWith({ key: 'prefer', value: [{ runtime: 'codex' }] })
+})
+
+it('prefer keeps an existing seat’s own model exactly as the file has it, until it is removed', async () => {
+  const store = preferStoreFor()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PreferFieldDialog
+          entry={ENTRY}
+          target={AGENT_TARGET}
+          digest="digest-1"
+          initial={[{ runtime: 'claude-code', model: 'opus', effort: 'high' }]}
+          onOpenFile={() => {}}
+          onClose={() => {}}
+          onSaved={() => {}}
+        />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  expect(document.body.textContent).toContain('Claude Code')
+  expect(document.body.textContent).toContain('opus')
+  expect(document.body.textContent).toContain('high')
 })

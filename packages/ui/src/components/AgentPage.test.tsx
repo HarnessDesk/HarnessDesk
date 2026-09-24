@@ -782,3 +782,81 @@ it('a successful update removes the flag, and project navigation closes an old p
   }))
   expect(store.writeCeiling).toHaveBeenCalledTimes(1)
 })
+
+it('a migrated Agent’s ceiling offers Edit… beside the legacy Update…, through the same authoring path as its other fields', async () => {
+  const migrated = agent('explicit', 'Explicit', 'user', {
+    definition: { ...agent('explicit', 'Explicit', 'user').definition!, ceilingFrom: 'ceiling', ceiling: 'read' },
+  })
+  const snapshot = { ...snapshotFor(SEATING), agents: [migrated], agentPlans: new Map() } as AppSnapshot
+  const previewAgentEdit = vi.fn(async () => ({
+    token: 'ceiling-tok',
+    edits: [{ path: migrated.path, before: 'ceiling: read', after: 'ceiling: edit' }],
+    issues: [],
+    resuming: false,
+  }))
+  const applyAuthoringSave = vi.fn(async () => ({ state: 'applied', written: [migrated.path], message: 'Saved.' }))
+  const store = storeFor(snapshot, { previewAgentEdit, applyAuthoringSave })
+  act(() => root.render(<StoreProvider store={store}><AgentPage entry={migrated} onBack={() => {}} onLeave={() => {}} /></StoreProvider>))
+
+  // Nothing to update: this Agent already reads `ceiling:`.
+  expect(section('Ceiling')).not.toContain('Update…')
+  const edit = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Ceiling"] button')].find((one) => one.textContent?.trim() === 'Edit…')
+  if (!edit) throw new Error('no Edit… on the Ceiling row')
+  // Disabled until its document is read — the digest an edit previews against.
+  await vi.waitFor(() => expect(edit.hasAttribute('disabled')).toBe(false))
+  act(() => edit.click())
+  await settle()
+
+  const ceilingDialog = document.body.querySelector('[role="dialog"]')!
+  expect(ceilingDialog.textContent).toContain('Edit Ceiling')
+  const editChoice = [...ceilingDialog.querySelectorAll<HTMLElement>('button, [role="radio"]')].find((one) => one.textContent?.startsWith('Edit'))!
+  act(() => editChoice.click())
+  await settle()
+  expect(previewAgentEdit).toHaveBeenCalledWith(
+    { kind: 'agent', origin: 'user', id: 'explicit' },
+    'digest-explicit',
+    { key: 'ceiling', value: 'edit' },
+  )
+
+  act(() => {
+    const save = [...ceilingDialog.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Save')!
+    save.click()
+  })
+  await settle()
+  expect(applyAuthoringSave).toHaveBeenCalledWith('ceiling-tok')
+})
+
+it('Seats’ own Edit… opens the same authoring path for prefer, and a legacy-permission Agent’s ceiling still refuses there rather than being silently reinterpreted', async () => {
+  // The default `agent()` fixture is `ceilingFrom: 'permission'` — this
+  // proves prefer editing on a legacy Agent works read/writes seats without
+  // ever touching its ceiling, and that a *ceiling* edit attempted through
+  // the same document still comes back refused in the host's own words.
+  const previewAgentEdit = vi.fn(async (_target: unknown, _digest: string, edit: { readonly key: string }) =>
+    edit.key === 'prefer'
+      ? { token: 'prefer-tok', edits: [{ path: ROSTER[0]!.path, before: 'prefer: []', after: 'prefer: [claude-code]' }], issues: [], resuming: false }
+      : { token: null, edits: [], issues: [{ at: 'ceiling', text: 'This Agent still says permission:, which is read differently from a ceiling.', fix: 'Update it to a ceiling from the Agent page first, then change it here.' }], resuming: false })
+  const store = storeFor(snapshotFor(SEATING), { previewAgentEdit })
+  act(() => root.render(<StoreProvider store={store}><AgentsRosterSection focus="code-reviewer" /></StoreProvider>))
+
+  const editSeats = await vi.waitFor(() => {
+    const found = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Seats"] button')].find((one) => one.textContent?.trim() === 'Edit…')
+    if (!found) throw new Error('no Edit… on Seats yet')
+    return found
+  })
+  act(() => editSeats.click())
+  await settle()
+  const dialog = document.body.querySelector('[role="dialog"]')
+  expect(dialog?.textContent).toContain('Edit Seats for Code reviewer')
+  expect(dialog?.querySelector('button[aria-label="Remove Claude"]')).not.toBeNull()
+
+  act(() => {
+    const remove = dialog!.querySelector('button[aria-label="Remove Claude"]') as HTMLButtonElement
+    remove.click()
+  })
+  await settle()
+  expect(previewAgentEdit).toHaveBeenLastCalledWith(
+    { kind: 'agent', origin: 'project', id: 'code-reviewer', root: '/w/storefront' },
+    'digest-code-reviewer',
+    { key: 'prefer', value: [] },
+  )
+})
