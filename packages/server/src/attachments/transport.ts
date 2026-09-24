@@ -32,8 +32,41 @@ const MAX_FRAME_BYTES = 64 * 1024
 const MAX_LISTED_TOOLS = 256
 /** Combined `inputSchema` JSON size across everything one listing returns. */
 const MAX_TOTAL_SCHEMA_BYTES = 128 * 1024
+/** The most `tools/list` pages one listing follows — a cursor that never ends is a refusal, not a loop. */
+const MAX_LIST_PAGES = 16
+/** One deadline for a whole listing, every page included — never one per page. */
+const LIST_DEADLINE_MS = 30_000
+/** How much of a server's stderr is kept to explain a failure: the tail, never all of it. */
+const MAX_STDERR_CHARS = 8 * 1024
+/** How long a server has to exit after SIGTERM before it is killed outright. */
+const KILL_GRACE_MS = 2_000
 
 export class McpTransportError extends Error {}
+
+/**
+ * The last `limit` characters of a stream and nothing more: a server that
+ * floods stderr costs this desk a fixed amount of memory, however much it
+ * writes, and the tail is what explains a crash.
+ */
+export class BoundedTail {
+  #text = ''
+  constructor(readonly limit: number) {}
+  push(chunk: string): void {
+    this.#text = (this.#text + chunk.slice(-this.limit)).slice(-this.limit)
+  }
+  text(): string {
+    return this.#text
+  }
+}
+
+export interface ExchangeOptions {
+  /** Aborts the exchange and ends the server — SIGTERM, then SIGKILL after a grace period. */
+  readonly signal?: AbortSignal
+  /** The folder the server runs in: a host-owned one, never a repository a Seat happens to be working in. */
+  readonly cwd?: string
+  /** A listing's one overall deadline, in milliseconds. */
+  readonly deadlineMs?: number
+}
 
 /** One real tool a live listing described, shape-checked before anything downstream trusts it. */
 export interface ListedMcpTool {
@@ -62,14 +95,17 @@ type Requester = (method: string, params: unknown, timeoutMs: number) => Promise
 async function withStdioMcpServer<T>(
   spec: McpServerSpec,
   exchange: (request: Requester) => Promise<T>,
-  options: { readonly signal?: AbortSignal } = {},
+  options: ExchangeOptions = {},
 ): Promise<T> {
   if (spec.transport !== 'stdio' || !spec.command) {
     throw new McpTransportError(`${spec.name} is not a stdio server this gateway can reach yet.`)
   }
+  // An exchange asked for after the desk began to quit starts nothing at all.
+  if (options.signal?.aborted) throw new McpTransportError(`${spec.name} was aborted.`)
   const child = spawn(spec.command, [...(spec.args ?? [])], {
     env: { ...process.env, ...(spec.env ?? {}) },
     stdio: ['pipe', 'pipe', 'pipe'],
+    ...(options.cwd ? { cwd: options.cwd } : {}),
     // No shell: argument arrays reach the executable exactly as given, the
     // same rule every other process this desk starts already follows.
   })
@@ -78,14 +114,23 @@ async function withStdioMcpServer<T>(
   let nextId = 1
   let buffer = ''
   let closed = false
-  let stderr = ''
+  const stderr = new BoundedTail(MAX_STDERR_CHARS)
+  const running = (): boolean => child.exitCode === null && child.signalCode === null
 
   const cleanup = (): void => {
     if (closed) return
     closed = true
     child.stdout.removeAllListeners('data')
     child.stderr.removeAllListeners('data')
-    if (!child.killed) child.kill('SIGTERM')
+    child.stdin.destroy()
+    if (!running()) return
+    child.kill('SIGTERM')
+    // A server that shrugs off SIGTERM is killed outright: an exchange never
+    // leaves a process behind it, however the server was written.
+    const escalate = setTimeout(() => {
+      if (running()) child.kill('SIGKILL')
+    }, KILL_GRACE_MS)
+    child.once('exit', () => clearTimeout(escalate))
   }
 
   const failAll = (error: Error): void => {
@@ -99,9 +144,9 @@ async function withStdioMcpServer<T>(
       failAll(new McpTransportError(`${spec.name} exited (code ${code ?? 'null'}) before answering.`))
     }
   })
-  child.stderr.on('data', (chunk: Buffer) => {
-    stderr += chunk.toString('utf8').slice(0, MAX_FRAME_BYTES)
-  })
+  // A server that exits early closes its pipe; its exit is what gets reported.
+  child.stdin.on('error', () => {})
+  child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk.toString('utf8')))
   child.stdout.on('data', (chunk: Buffer) => {
     buffer += chunk.toString('utf8')
     if (Buffer.byteLength(buffer, 'utf8') > MAX_FRAME_BYTES) {
@@ -140,12 +185,16 @@ async function withStdioMcpServer<T>(
     if (Buffer.byteLength(frame, 'utf8') > MAX_FRAME_BYTES) {
       throw new McpTransportError(`This call to ${spec.name} is larger than ${MAX_FRAME_BYTES / 1024} KiB.`)
     }
-    child.stdin.write(frame)
+    if (!closed) child.stdin.write(frame)
   }
 
   const request: Requester = (method, params, timeoutMs) => {
     const id = nextId++
     return new Promise((resolve, reject) => {
+      if (closed) {
+        reject(new McpTransportError(`${spec.name} was aborted.`))
+        return
+      }
       const timer = setTimeout(() => {
         pending.delete(id)
         reject(new McpTransportError(`${spec.name} did not answer ${method} within ${timeoutMs}ms.`))
@@ -161,7 +210,13 @@ async function withStdioMcpServer<T>(
           reject(error)
         },
       })
-      send(method, params, id)
+      try {
+        send(method, params, id)
+      } catch (error) {
+        pending.delete(id)
+        clearTimeout(timer)
+        reject(error)
+      }
     })
   }
 
@@ -170,8 +225,9 @@ async function withStdioMcpServer<T>(
     send('notifications/initialized', {})
     return await exchange(request)
   } catch (error) {
-    if (error instanceof McpTransportError && stderr.trim()) {
-      throw new McpTransportError(`${error.message} (stderr: ${stderr.trim().slice(0, 500)})`)
+    const tail = stderr.text().trim().slice(-500)
+    if (error instanceof McpTransportError && tail) {
+      throw new McpTransportError(`${error.message} (stderr: ${tail})`)
     }
     throw error
   } finally {
@@ -184,7 +240,7 @@ export async function callStdioMcpServer(
   spec: McpServerSpec,
   toolName: string,
   args: unknown,
-  options: { readonly signal?: AbortSignal } = {},
+  options: ExchangeOptions = {},
 ): Promise<unknown> {
   return withStdioMcpServer(spec, (request) => request('tools/call', { name: toolName, arguments: args }, CALL_TIMEOUT_MS), options)
 }
@@ -214,16 +270,29 @@ const parseListedTool = (serverName: string, raw: unknown): ListedMcpTool => {
  */
 export async function listStdioMcpServerTools(
   spec: McpServerSpec,
-  options: { readonly signal?: AbortSignal } = {},
+  options: ExchangeOptions = {},
 ): Promise<readonly ListedMcpTool[]> {
+  const deadlineMs = options.deadlineMs ?? LIST_DEADLINE_MS
+  const deadline = Date.now() + deadlineMs
+  const late = (): McpTransportError => new McpTransportError(`${spec.name} did not finish listing its tools within ${deadlineMs}ms.`)
   return withStdioMcpServer(
     spec,
     async (request) => {
       const tools: ListedMcpTool[] = []
       let totalSchemaBytes = 0
       let cursor: string | undefined
-      for (;;) {
-        const page = await request('tools/list', cursor !== undefined ? { cursor } : {}, CONNECT_TIMEOUT_MS)
+      const seen = new Set<string>()
+      for (let pages = 1; ; pages += 1) {
+        if (pages > MAX_LIST_PAGES) throw new McpTransportError(`${spec.name} listed its tools over more than ${MAX_LIST_PAGES} pages.`)
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) throw late()
+        let page: unknown
+        try {
+          page = await request('tools/list', cursor !== undefined ? { cursor } : {}, remaining)
+        } catch (error) {
+          if (Date.now() >= deadline) throw late()
+          throw error
+        }
         const rawTools = isRecord(page) && Array.isArray(page['tools']) ? page['tools'] : []
         for (const raw of rawTools) {
           const tool = parseListedTool(spec.name, raw)
@@ -239,6 +308,9 @@ export async function listStdioMcpServerTools(
         const next = isRecord(page) ? page['nextCursor'] : undefined
         cursor = typeof next === 'string' ? next : undefined
         if (cursor === undefined) break
+        // A cursor handed back twice is a loop, never progress.
+        if (seen.has(cursor)) throw new McpTransportError(`${spec.name} repeated a page of its tool list.`)
+        seen.add(cursor)
       }
       return tools
     },

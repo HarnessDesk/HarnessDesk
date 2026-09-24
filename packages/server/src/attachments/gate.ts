@@ -132,6 +132,17 @@ export class McpToolGateway {
     const servers = this.port.serversFor(caller.seat) ?? []
     const lists = await Promise.all(
       servers.map(async (one): Promise<readonly GatewayTool[]> => {
+        // Listing starts the server, so it answers to the very gate a call
+        // does — the Seat's ceiling and a blind round's embargo — quietly: a
+        // server this Seat could not call is neither started nor shown.
+        const admission = await this.port.admit({
+          tool: `${one.identity.name}/tools/list`,
+          needs: one.ceiling,
+          scope: { runtime: runtimeId(caller.runtime), sessionId: sessionId(caller.sessionId) },
+          publishes: reaches(one.ceiling, 'publish'),
+          quiet: true,
+        })
+        if (!admission.admitted) return []
         try {
           const tools = await listTools(one)
           return tools.map((tool) => ({ name: tool.name, server: one.identity.name, description: tool.description, inputSchema: tool.inputSchema }))

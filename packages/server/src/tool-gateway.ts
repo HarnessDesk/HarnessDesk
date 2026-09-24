@@ -121,16 +121,23 @@ export class ToolGateway {
     })
   }
 
+  /** Every bridge connected right now — ended by `stop`, which must not wait on an agent that has not hung up. */
+  readonly #sockets = new Set<Socket>()
+
   async stop(): Promise<void> {
     await new Promise<void>((resolve) => {
       if (!this.#server) return resolve()
       this.#server.close(() => resolve())
+      for (const socket of this.#sockets) socket.destroy()
+      this.#sockets.clear()
     })
     rmSync(this.socketPath, { force: true })
     this.#server = null
   }
 
   #serve(socket: Socket): void {
+    this.#sockets.add(socket)
+    socket.once('close', () => this.#sockets.delete(socket))
     let buffer = ''
     socket.on('data', (chunk) => {
       buffer += chunk.toString()

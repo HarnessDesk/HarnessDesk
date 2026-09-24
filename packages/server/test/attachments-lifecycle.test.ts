@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { mkdir, realpath, writeFile } from 'node:fs/promises'
+import { execFileSync, spawn } from 'node:child_process'
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import type { AttachmentReview, Session } from '@harnessdesk/protocol'
 
+import { attachmentGateway } from '../src/attachments/wiring.js'
+import { ToolGateway } from '../src/tool-gateway.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, halt, start, stop, type Harness } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
@@ -242,4 +244,115 @@ test('bytes that change after approval are never loaded under the approved diges
   const record = await recordOf(desk, tampered)
   assert.equal(record.results[0]!.status, 'not-loaded')
   assert.match(record.results[0]!.reason ?? '', /different content/)
+})
+
+const BRIDGE = fileURLToPath(new URL('../../../mcp-tools/dist/src/main.js', import.meta.url))
+
+/** The desk's real tool bridge process, spoken to over MCP stdio exactly as an agent would. */
+const bridgeFor = (socket: string, caller: string) => {
+  const child = spawn(process.execPath, [BRIDGE], { env: { ...process.env, HD_TOOLS_SOCKET: socket, HD_TOOLS_CALLER: caller }, stdio: ['pipe', 'pipe', 'pipe'] })
+  let buffer = ''
+  const waiting = new Map<number, (message: { result?: unknown; error?: { message?: string } }) => void>()
+  child.stdout.on('data', (chunk: Buffer) => {
+    buffer += chunk.toString('utf8')
+    for (let newline = buffer.indexOf('\n'); newline !== -1; newline = buffer.indexOf('\n')) {
+      const message = JSON.parse(buffer.slice(0, newline)) as { id?: number; result?: unknown; error?: { message?: string } }
+      buffer = buffer.slice(newline + 1)
+      if (typeof message.id === 'number') waiting.get(message.id)?.(message)
+    }
+  })
+  let next = 0
+  const ask = (method: string, params: unknown = {}) =>
+    new Promise<{ result?: unknown; error?: { message?: string } }>((resolve, reject) => {
+      const id = ++next
+      waiting.set(id, resolve)
+      child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`)
+      setTimeout(() => reject(new Error(`${method} was not answered`)), 10_000).unref()
+    })
+  return { ask, close: () => child.kill('SIGKILL') }
+}
+
+test('an approved server is listed and callable through the desk’s real bridge and gateway — and not once the desk quits', async (t) => {
+  const markerDir = tempDir('hd-attach-life-marker-')
+  const marker = join(markerDir, 'calls.ndjson')
+  const desk = await deskWithMergeAgent(t)
+  await writeFile(
+    join(desk.work, '.mcp.json'),
+    JSON.stringify({ mcpServers: { 'reviewer-tools': { command: process.execPath, args: [FIXTURE], env: { FAKE_MCP_MARKER: marker, FAKE_MCP_CWD_FILE: join(markerDir, 'cwd') } } } }),
+  )
+  await reviewAndApprove(desk)
+  const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' })) as Session
+
+  // The socket `bootstrap.ts` serves, with `bootstrap.ts`'s own wiring behind it.
+  const socket = join(tempDir('hd-sock-'), 't.sock')
+  const callers = new Map([['caller-token', { runtime: 'fake', sessionId: String(session.id) }]])
+  const gateway = new ToolGateway(socket, {
+    listTools: () => [],
+    invokeByName: async () => ({ ok: false, error: 'no plugin tools here' }),
+    ...attachmentGateway(() => desk.harness.host, (token) => callers.get(token)),
+  })
+  gateway.start()
+  const bridge = bridgeFor(socket, 'caller-token')
+  t.after(async () => {
+    bridge.close()
+    await gateway.stop()
+  })
+
+  await bridge.ask('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '0' } })
+  const listed = (await bridge.ask('tools/list')).result as { tools: { name: string }[] }
+  assert.deepEqual(listed.tools.map((one) => one.name), ['flag_issue'], 'the approved server’s real tool, fetched from the running server')
+  const called = (await bridge.ask('tools/call', { name: 'flag_issue', arguments: { line: 7 } })).result as { content: { text: string }[]; isError?: boolean }
+  assert.equal(called.isError, false)
+  assert.equal(called.content[0]!.text, 'flagged')
+  assert.equal((await readFile(marker, 'utf8')).trim(), JSON.stringify({ line: 7 }), 'the server itself ran the call')
+  // It ran in a folder this desk owns, never the repository the Seat works in:
+  // a cloned repository's own config (an `.npmrc`, say) cannot steer what an
+  // approved command resolves to.
+  assert.equal(
+    await realpath(await readFile(join(markerDir, 'cwd'), 'utf8')),
+    await realpath(join(desk.harness.stateDir, 'attachments', 'run')),
+  )
+
+  // The desk quits: every live grant is revoked, so the same bridge reaches nothing.
+  await desk.halt()
+  const after = (await bridge.ask('tools/list')).result as { tools: { name: string }[] }
+  assert.deepEqual(after.tools, [])
+  assert.equal(desk.harness.host.attachmentsPlane.liveServersFor(desk.harness.host.registry.attachmentSeatOf(session.runtime, session.id)!), null)
+})
+
+test('dispose aborts an exchange in flight and closes what the wiring registered', async (t) => {
+  const markerDir = tempDir('hd-attach-life-hang-')
+  const pidFile = join(markerDir, 'pid')
+  const desk = await deskWithMergeAgent(t)
+  await writeFile(
+    join(desk.work, '.mcp.json'),
+    JSON.stringify({ mcpServers: { 'reviewer-tools': { command: process.execPath, args: [FIXTURE], env: { FAKE_MCP_HANG_CALL: '1', FAKE_MCP_PID_FILE: pidFile } } } }),
+  )
+  await reviewAndApprove(desk)
+  const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' })) as Session
+  let closed = false
+  desk.harness.host.onDispose(() => {
+    closed = true
+  })
+  const backend = attachmentGateway(() => desk.harness.host, () => ({ runtime: 'fake', sessionId: String(session.id) }))
+  const inFlight = backend.mcpCall('token', 'reviewer-tools', 'flag_issue', {}).then(
+    () => 'answered',
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  )
+  for (let tries = 0; tries < 100 && !(await readFile(pidFile, 'utf8').catch(() => '')); tries += 1) await new Promise((resolve) => setTimeout(resolve, 20))
+  const pid = Number(await readFile(pidFile, 'utf8'))
+  const quit = Date.now()
+  await desk.halt()
+  assert.match(await inFlight, /aborted/, 'the hung call ends with the desk, not after its own 45-second deadline')
+  assert.ok(Date.now() - quit < 10_000)
+  assert.equal(closed, true, 'what the wiring registered (the gateway socket) was closed')
+  for (let tries = 0; tries < 50; tries += 1) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  assert.throws(() => process.kill(pid, 0), 'no server outlives the desk')
 })

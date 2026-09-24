@@ -276,3 +276,25 @@ test('server/info carries the backend’s instruction, told who is asking, and a
     { id: 1, result: { instructions: '' } },
   )
 })
+
+test('stop closes the socket even while a bridge is still connected — a quit never waits on an agent that has not hung up', async () => {
+  const dir = await mkdtemp(join(socketHome(), 'hd-gateway-'))
+  const socketPath = join(dir, 'tools.sock')
+  const gateway = new ToolGateway(socketPath, { listTools: () => [], invokeByName: async () => ({ ok: true, content: [] }) as never })
+  gateway.start()
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  const bridge = connect(socketPath)
+  await new Promise<void>((resolve, reject) => {
+    bridge.once('connect', () => resolve())
+    bridge.once('error', reject)
+  })
+  const ended = new Promise<void>((resolve) => bridge.once('close', () => resolve()))
+  const stopped = await Promise.race([
+    gateway.stop().then(() => 'stopped'),
+    new Promise((resolve) => setTimeout(() => resolve('still waiting'), 2000)),
+  ])
+  assert.equal(stopped, 'stopped')
+  await ended
+  bridge.destroy()
+  await rm(dir, { recursive: true, force: true })
+})

@@ -1,3 +1,5 @@
+import { mkdir } from 'node:fs/promises'
+
 import type { McpServerSpec } from '@harnessdesk/agent-inventory'
 import { runtimeId, sessionId, type RuntimeId, type SeatId, type SessionId } from '@harnessdesk/protocol'
 
@@ -27,6 +29,13 @@ export interface AttachmentGatewayHost {
   readonly registry: { attachmentSeatOf(runtime: RuntimeId, id: SessionId): SeatId | null }
   readonly ceilingGate: { admit(call: GatedCall): Promise<Admission> }
   readonly attachmentSignal: AbortSignal
+  /**
+   * The folder every server a Seat reaches runs in: host-owned and empty,
+   * under machine state. Not the Seat's checkout — a cloned repository's own
+   * configuration there (an `.npmrc`, a `.tool-versions`) could change what an
+   * approved command resolves to, which the approval never covered.
+   */
+  readonly attachmentRunDirectory: string
 }
 
 export const NO_LONGER_REACHABLE = 'This server is no longer reachable from this Seat; start a new one to apply its attachments.'
@@ -48,6 +57,9 @@ export const attachmentGateway = (
     },
     get signal() {
       return hostOf().attachmentSignal
+    },
+    get cwd() {
+      return hostOf().attachmentRunDirectory
     },
   }
   const gateway = new McpToolGateway({
@@ -78,10 +90,23 @@ export const attachmentGateway = (
     return spec
   }
 
+  /** Created on first use, owner-only; the spec is checked before anything starts. */
+  const where = async (server: GatewayServer): Promise<{ readonly spec: McpServerSpec; readonly options: { signal: AbortSignal; cwd: string } }> => {
+    const spec = specOf(server)
+    await mkdir(host.cwd, { recursive: true, mode: 0o700 })
+    return { spec, options: { signal: host.signal, cwd: host.cwd } }
+  }
+
   return {
     mcpList: (caller) =>
-      gateway.list(caller ?? '', (server) => listStdioMcpServerTools(specOf(server), { signal: host.signal })),
+      gateway.list(caller ?? '', async (server) => {
+        const { spec, options } = await where(server)
+        return listStdioMcpServerTools(spec, options)
+      }),
     mcpCall: (caller, server, tool, args) =>
-      gateway.call(caller ?? '', server, tool, (one) => callStdioMcpServer(specOf(one), tool, args, { signal: host.signal })),
+      gateway.call(caller ?? '', server, tool, async (one) => {
+        const { spec, options } = await where(one)
+        return callStdioMcpServer(spec, tool, args, options)
+      }),
   }
 }

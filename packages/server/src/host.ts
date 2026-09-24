@@ -3504,6 +3504,11 @@ export class Host {
     return this.#attachmentAbort.signal
   }
 
+  /** Where every server a Seat reaches runs: host-owned, under machine state — see `AttachmentGatewayHost`. */
+  get attachmentRunDirectory(): string {
+    return join(this.#state.directory, 'attachments', 'run')
+  }
+
   /** Registers teardown that must run when this desk quits — before anything it depends on is gone. */
   onDispose(disposer: () => Promise<void> | void): void {
     this.#disposers.push(disposer)

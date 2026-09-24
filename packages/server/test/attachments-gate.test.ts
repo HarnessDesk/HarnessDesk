@@ -109,6 +109,10 @@ test('hidden tool cannot be called by name', async () => {
   assert.deepEqual(listed, [
     { name: 'do_the_real_thing', server: 'approved-server', description: 'A real tool this server actually offers.', inputSchema: { type: 'object' } },
   ])
+  // Listing answers to the gate too (once, for the one approved server); the
+  // count below is about the direct call to a hidden name, so it starts here.
+  assert.equal(admitCalls, 1)
+  admitCalls = 0
 
   let invoked = false
   const result = await gateway.call('token', 'hidden-server', 'do_something', async () => {
@@ -225,4 +229,28 @@ test('a blind round embargoes an external server that may publish, but not one h
     assert.equal(invoked, admitted, ceiling)
     if (!result.ok) assert.equal(result.reason, embargo, ceiling)
   }
+})
+
+test('listing answers to the same ceiling and blind-round embargo as a call — quietly, and never dialling a server it would refuse', async () => {
+  const embargo = 'Your review round is blind until every reviewer has finished.'
+  const listed = async (level: 'read' | 'edit' | 'publish' | 'merge', blind: boolean) => {
+    const port = new FakePort() as FakePort & { embargoOf(runtime: string, session: string): string | null }
+    port.embargoOf = () => (blind ? embargo : null)
+    port.ceilings.set('claude:one', { level, hold: 'held' })
+    const gate = new CeilingGate(port)
+    let dialled = 0
+    const gateway = new McpToolGateway({
+      serversFor: () => [server()],
+      callerOf: () => ({ seat: 'seat-1', runtime: 'claude', sessionId: 'one' }),
+      admit: (call) => gate.admit(call),
+    })
+    const tools = await gateway.list('token', async () => {
+      dialled += 1
+      return [{ name: 'post_comment', description: '', inputSchema: {} }]
+    })
+    return { tools: tools.map((one) => one.name), dialled, said: port.said }
+  }
+  assert.deepEqual(await listed('merge', false), { tools: ['post_comment'], dialled: 1, said: [] })
+  assert.deepEqual(await listed('edit', false), { tools: [], dialled: 0, said: [] }, 'a Seat below the server’s ceiling is not even shown its tools, and nothing is said into its conversation')
+  assert.deepEqual(await listed('merge', true), { tools: [], dialled: 0, said: [] }, 'a blind round hides a server that may publish, without starting it')
 })
