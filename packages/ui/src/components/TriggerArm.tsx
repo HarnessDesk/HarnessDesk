@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { AgentEntry, TriggerArmPreview, TriggerDefinition, TriggerView } from '@harnessdesk/protocol'
 
-import { Banner, Button, ConfirmDialog, KeyValue, KeyValueRow, Note, NoteList } from '../design'
+import { Banner, Button, ConfirmDialog, KeyValue, KeyValueRow, Note, NoteList, Row, Rows } from '../design'
 import {
   triggerAgainLabel, triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerProblemPlace, triggerSentence,
 } from '../lib/intake'
@@ -90,6 +90,9 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
       title="Arm this trigger"
       confirmLabel={busy ? 'Arming…' : 'Arm'}
       cancelLabel="Cancel"
+      // Arming consents to unattended work; it destroys nothing, so it never
+      // wears the destructive tone's trash icon or red confirm button.
+      tone="default"
       busy={busy}
       pending={!armable}
       onConfirm={() => void arm()}
@@ -140,23 +143,43 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
             <KeyValueRow label="Declares">{triggerSentence(preview.definition)}</KeyValueRow>
             {preview.repository && <KeyValueRow label="Repository">{preview.repository}</KeyValueRow>}
             <KeyValueRow label="Goals">{triggerGroupingWords(preview.definition.goal)}</KeyValueRow>
-            {againLabel && <KeyValueRow label={againLabel}>{AGAIN_WORDS(preview.definition)}</KeyValueRow>}
-            {preview.definition.from && (
-              <KeyValueRow label="Comments that fire it">
-                {triggerCommentWords(preview.definition.from)} Posts this desk makes never fire it.
-              </KeyValueRow>
-            )}
+          </KeyValue>
+          {/*
+           * A row's value column is for a short fact — a path, "acme/widgets",
+           * "One Goal per issue" — never a sentence: a sentence right-aligned
+           * in a narrow column reads as a ragged, unreadable list. These four
+           * facts are full sentences, so they use the same wrapped-description
+           * row this dialog's own `FlowPreviewReport` already renders below,
+           * rather than `KeyValueRow`'s value slot.
+           */}
+          {(againLabel || preview.definition.from) && (
+            <Rows>
+              {againLabel && <Row title={againLabel} wrapDesc desc={AGAIN_WORDS(preview.definition)} />}
+              {preview.definition.from && (
+                <Row
+                  title="Comments that fire it"
+                  wrapDesc
+                  desc={`${triggerCommentWords(preview.definition.from)} Posts this desk makes never fire it.`}
+                />
+              )}
+            </Rows>
+          )}
+          <KeyValue>
             {preview.definition.on.kind === 'pull-request' && (
               <KeyValueRow label="Forks">{FORK_WORDS(preview.definition)}</KeyValueRow>
             )}
             <KeyValueRow label="Concurrency">
               {preview.definition.concurrency === 1 ? 'One open Goal at a time' : `Up to ${preview.definition.concurrency} open Goals at once`}
             </KeyValueRow>
-            <KeyValueRow label="Budget">{triggerBudgetWords(preview.definition.budget)}</KeyValueRow>
-            <KeyValueRow label="Daily cap">
-              Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac.
-            </KeyValueRow>
           </KeyValue>
+          <Rows>
+            <Row title="Budget" wrapDesc desc={triggerBudgetWords(preview.definition.budget)} />
+            <Row
+              title="Daily cap"
+              wrapDesc
+              desc="Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac."
+            />
+          </Rows>
           {preview.definition.from === 'anyone' && (
             <Note tone="warn">Anyone who can comment on this repository will start unattended work.</Note>
           )}

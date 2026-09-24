@@ -181,3 +181,31 @@ it('an expired preview says so in a banner with a way to read it again, never a 
   await act(async () => button('Review again')!.click())
   expect(previewTrigger).toHaveBeenCalledTimes(2)
 })
+
+it('never reads as a deletion: arming authorises unattended work, it destroys nothing', async () => {
+  await rig(triggerArmPreview({ token: 'good-token' }))
+  const surface = document.querySelector('[role="alertdialog"]')!
+  // The destructive tone's glyph — never shown for a consent that runs work, not one that deletes it.
+  expect(surface.querySelector('.lucide-trash-2')).toBeNull()
+  const armButton = button('Arm')!
+  expect(armButton.getAttribute('data-variant')).not.toBe('destructive')
+})
+
+it('keeps each sentence-length explanation in its wrapped description, never squeezed into the value column', async () => {
+  await rig(triggerArmPreview({
+    definition: issueDefinition({ on: { kind: 'issue', events: ['commented'] }, label: undefined, from: 'anyone' }),
+  }))
+  const sentences = [
+    'Records the fact and needs a person — no new round opens on its own.',
+    'Anyone who can comment on the repository. Posts this desk makes never fire it.',
+    'Up to $5, 3 rounds, 4 hours; stops after 2 rounds with no progress.',
+    'Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac.',
+  ]
+  // `data-wrap` is what the stylesheet keys on to let a sentence run to a
+  // second line instead of being ellipsised — see Row's `wrapDesc`.
+  const wrapped = [...document.querySelectorAll('[data-wrap]')].map((el) => el.textContent)
+  for (const sentence of sentences) expect(wrapped).toContain(sentence)
+  // None of them are sitting in a KeyValueRow's right-aligned value slot.
+  const values = [...document.querySelectorAll('dd')].map((el) => el.textContent)
+  for (const sentence of sentences) expect(values).not.toContain(sentence)
+})
