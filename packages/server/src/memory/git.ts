@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
-import { lstat, realpath } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { constants } from 'node:fs'
+import { lstat, open, realpath } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 const exec = promisify(execFile)
@@ -58,6 +59,52 @@ export async function readMemoryBlob(root: string, at: string, path: string): Pr
   throw new Error('Memory file is unavailable.')
 }
 
+/** The most a `.git` pointer file, a `commondir` or a `gitdir` back-pointer may hold: one path. */
+const MAX_POINTER_BYTES = 4096
+
+/** One of Git's own one-line pointer files, read without following a link and bounded — or a refusal. */
+const readPointer = async (path: string, what: string): Promise<string> => {
+  let handle
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+  } catch {
+    throw new Error(`This linked worktree’s ${what} is missing or is a link, so memory cannot be read from it.`)
+  }
+  try {
+    const info = await handle.stat()
+    if (!info.isFile() || info.size > MAX_POINTER_BYTES) {
+      throw new Error(`This linked worktree’s ${what} is not an ordinary small file, so memory cannot be read from it.`)
+    }
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(await handle.readFile())
+    const line = text.replace(/\r?\n$/, '')
+    if (line === '' || line.includes('\n') || line.includes('\0')) {
+      throw new Error(`This linked worktree’s ${what} is not one path, so memory cannot be read from it.`)
+    }
+    return line
+  } finally {
+    await handle.close()
+  }
+}
+
+/** A path that exists and reaches its target through no link at all — every component is what it says. */
+const unlinked = async (path: string, what: string): Promise<string> => {
+  const real = await realpath(path).catch(() => null)
+  if (real === null) throw new Error(`This linked worktree’s ${what} is not there, so memory cannot be read from it.`)
+  if (real !== path) throw new Error(`This linked worktree’s ${what} goes through a link, so memory cannot be read from it.`)
+  const info = await lstat(real)
+  if (!info.isDirectory()) throw new Error(`This linked worktree’s ${what} is not a folder, so memory cannot be read from it.`)
+  return real
+}
+
+const refuseAlternates = async (objectsOf: string): Promise<void> => {
+  for (const name of ['alternates', 'http-alternates']) {
+    const exists = await lstat(join(objectsOf, 'objects', 'info', name)).catch(() => null)
+    if (exists) {
+      throw new Error('This repository declares external object alternates, so memory cannot be read safely from it.')
+    }
+  }
+}
+
 /**
  * Root admission — a separate, required boundary check `readMemoryBlob`
  * itself does not make. `citation.project` already comes from a Goal's own
@@ -66,31 +113,46 @@ export async function readMemoryBlob(root: string, at: string, path: string): Pr
  * open workspaces; it is admitting the repository's own metadata before any
  * `git` subprocess is pointed at it.
  *
- * Phase 9's own admission code (`provenance/git.ts`) is deliberately not
- * reused here — it is internal to that module, and extracting it would touch
- * files outside this task. This reader instead restricts itself to the
- * simpler, independently verifiable case the decision allows: an ordinary
- * checkout whose `.git` is a real, unlinked directory declaring no external
- * object alternates. A linked worktree is refused outright rather than
- * partially admitted.
+ * Two shapes are admitted. An ordinary checkout, whose `.git` is a real,
+ * unlinked directory declaring no external object alternates. And a linked
+ * worktree — the shape every Agent lane has — verified hop by hop the way
+ * Git itself resolves it, with nothing taken on the pointer's word:
+ *
+ *   `.git` (an ordinary file, no link) → `gitdir: <path>` → that folder,
+ *   reached through no link → its `commondir` → the common directory,
+ *   reached through no link.
+ *
+ * The gitdir must be `<common directory>/worktrees/<name>` — a worktree this
+ * repository registered, never a folder anywhere else — and its own
+ * `gitdir` back-pointer must name this very checkout's `.git`. Anything that
+ * points outside the repository's own common directory, goes through a
+ * link, or declares external object alternates is refused.
  */
 export async function admitMemoryRoot(root: string): Promise<string> {
   if (!isAbsolute(root)) throw new Error('Choose an absolute project root.')
   const real = await realpath(root)
   const dotGit = join(real, '.git')
   const info = await lstat(dotGit).catch(() => null)
-  if (!info) throw new Error('This project has no .git — memory can only be read from an ordinary Git repository.')
+  if (!info) throw new Error('This project has no .git — memory can only be read from a Git repository.')
   if (info.isSymbolicLink()) throw new Error('This project’s .git is a link, so memory cannot be read from it.')
-  if (!info.isDirectory()) {
-    throw new Error('This project is a linked worktree; memory can only be read from its own ordinary checkout.')
+  if (info.isDirectory()) {
+    await refuseAlternates(dotGit)
+    return real
   }
-  for (const name of ['alternates', 'http-alternates']) {
-    const path = join(dotGit, 'objects', 'info', name)
-    const exists = await lstat(path).catch(() => null)
-    if (exists) {
-      throw new Error('This repository declares external object alternates, so memory cannot be read safely from it.')
-    }
+  if (!info.isFile()) throw new Error('This project’s .git is neither a folder nor a linked worktree’s pointer.')
+
+  const pointer = /^gitdir: (.+)$/.exec(await readPointer(dotGit, '.git file'))
+  if (!pointer) throw new Error('This project’s .git file does not name a linked worktree’s metadata.')
+  const gitdir = await unlinked(resolve(real, pointer[1]!), 'metadata folder')
+  const common = await unlinked(resolve(gitdir, await readPointer(join(gitdir, 'commondir'), 'commondir')), 'repository')
+  if (dirname(gitdir) !== join(common, 'worktrees')) {
+    throw new Error('This linked worktree’s metadata points outside its repository’s own common directory, so memory cannot be read from it.')
   }
+  const back = resolve(gitdir, await readPointer(join(gitdir, 'gitdir'), 'registration'))
+  if (back !== dotGit) {
+    throw new Error('This linked worktree is not the one its repository registered, so memory cannot be read from it.')
+  }
+  await refuseAlternates(common)
   return real
 }
 

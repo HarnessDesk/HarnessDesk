@@ -65,21 +65,30 @@ previews the exact `skills:`/`mcp:` diff before writing it, and **Review &
 Approve…** shows a person the exact bytes an Agent-local `skills/` bundle
 contains — hashed whole, including every script and resource it references —
 before it is trusted to load for a given repository, runtime build and
-ceiling; any of those changing means review again. An external MCP server is
-treated conservatively (`merge`) unless a trusted, desk-owned manifest already
-says otherwise, and is only ever reached through the desk's own gateway. A
-runtime that cannot be stopped from auto-loading unapproved repository
-content on its own refuses the whole seating rather than opening unscoped.
+ceiling; any of those changing means review again. The review is for the
+runtime the Agent will actually be seated on, at the Agent's own ceiling, and
+covers any Seat at or below it. For an MCP server it shows the command,
+arguments and environment that will run — a credential's value only as set.
+An external MCP server is treated conservatively (`merge`) unless a trusted,
+desk-owned manifest already says otherwise, is only ever reached through the
+desk's own gateway, and runs only when a Seat that may merge lists or calls
+its tools — so seating a merge-ceiling Agent the default way (`edit`) loads
+its skills and says why its servers were not. A runtime that cannot be
+stopped from auto-loading unapproved repository content on its own refuses
+the whole seating rather than opening unscoped.
 
 A Seat freezes exactly what it decided to load at open; nothing it loaded
-changes afterward, whatever the Agent's file does next. What actually loaded
+changes afterward, whatever the Agent's file does next. Reopening its
+conversation — after a restart, or when its agent restarts — re-applies that
+same filter; forking it is refused. What actually loaded
 — versus what was declared but refused, and why — is on the Seat's own name
 card and in the Library's Agent filter, read by the Seat's immutable id, not
 by the Agent's current name.
 
 `NOTES.md`, beside the Agent's own file, is that Agent's private working
 notes — read and cleared from its page, never treated as an instruction or as
-evidence of anything. A project Agent's notes are visible in its checkout's
+evidence of anything. This release does not load them onto a Seat: that would
+need an approval of their own, which notes do not have yet. A project Agent's notes are visible in its checkout's
 Git history like the rest of the file; nothing here is secret.
 
 ## Three places, one roster

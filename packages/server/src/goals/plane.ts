@@ -10,13 +10,14 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { SeatOpening } from '../evidence/records.js'
+import { memoryPath } from '../memory/git.js'
 import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
 import { recoverOperation, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
-import { previewWrap, Wraps, type WrapInput } from './wrap.js'
+import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
 
 /**
  * What `GoalPlane` needs from memory beyond the citation/resolution pair
@@ -35,6 +36,16 @@ export interface GoalMemorySupport extends GoalMemoryPort {
   writeSnapshot(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string>
   /** Task 6's own backup import: whether this exact tuple is already registered under this exact archive key. */
   isRegistered(citation: GoalCitation, archive: string): boolean
+}
+
+/** Whether a cited path is a project memory file — the only kind a citation retains. */
+const isMemoryPath = (path: string): boolean => {
+  try {
+    memoryPath(path)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export interface GoalPlanePort extends GoalOperationPort {
@@ -425,7 +436,8 @@ export class GoalPlane {
     const document = this.store.read(goal)
     if (document.restored || document.goal.state !== 'open') return
     const known = new Set((document.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
-    const missing = document.citations.filter((one) => !known.has(JSON.stringify(one)))
+    // Only memory files are ever retained; any other cited document stays phase 5's.
+    const missing = document.citations.filter((one) => isMemoryPath(one.path) && !known.has(JSON.stringify(one)))
     if (missing.length === 0) return
     const captured: { citation: GoalCitation; archive: string }[] = []
     for (const citation of missing) {
@@ -521,7 +533,14 @@ export class GoalPlane {
       // also this method's one race window: another change can land on
       // `goal` while it is pending, which the re-read and re-check right
       // after it exist to catch.
-      const archive = await this.memory.capture(citation)
+      //
+      // Only a project memory file (`.harnessdesk/memory/<slug>.md`) is
+      // retained — phase 12's decision 1. Any other committed document is
+      // cited exactly as phase 5 cited it: checked at its revision, never
+      // retained, so its edge waits on its source like any other.
+      const archive = isMemoryPath(citation.path)
+        ? await this.memory.capture(citation)
+        : (await citationBlob(target.goal.root, citation.path, citation.at), null)
       target = this.store.read(goal)
       this.#editable(target)
       const currentSource = this.store.read(citation.goal)
@@ -532,23 +551,25 @@ export class GoalPlane {
       const dependsOn = checkedDependencies(target.goal,
         target.goal.dependsOn.includes(citation.goal) ? target.goal.dependsOn : [...target.goal.dependsOn, citation.goal],
         this.store.list().map((one) => one.goal))
-      const memory: GoalMemoryIndex = {
-        citations: [...(target.memory?.citations ?? []), { citation: structuredClone(citation), archive }],
-        satisfiedCitationSources: [
-          ...(target.memory?.satisfiedCitationSources ?? []).filter((one) => one.goal !== citation.goal),
-          { goal: citation.goal, receipt: citation.receipt },
-        ],
-      }
+      const memory: GoalMemoryIndex | undefined = archive === null
+        ? target.memory
+        : {
+            citations: [...(target.memory?.citations ?? []), { citation: structuredClone(citation), archive }],
+            satisfiedCitationSources: [
+              ...(target.memory?.satisfiedCitationSources ?? []).filter((one) => one.goal !== citation.goal),
+              { goal: citation.goal, receipt: citation.receipt },
+            ],
+          }
       await this.store.save({
         ...target,
         citations: [...target.citations, structuredClone(citation)],
-        memory,
+        ...(memory ? { memory } : {}),
         goal: { ...target.goal, dependsOn, revision: target.goal.revision + 1, updatedAt: this.now() },
       }, target.goal.revision)
       // Registered only now, after the durable Goal mutation committed: a
       // failed compare-and-swap above must never make this citation look
       // resolvable when no Goal document actually references it.
-      this.memory.register(memory)
+      if (archive !== null && memory) this.memory.register(memory)
     })
   }
 

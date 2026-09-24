@@ -192,9 +192,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   to a runtime. A Seat's attachments are decided once, at open (`prepare`),
   and durably frozen from what the runtime's own readback reported
   (`record`, append-only per Seat under `attachments/seats/`) — never
-  re-derived on reconnect or widened by a later approval. External MCP
-  servers are reached only through the existing gateway, at a conservative
-  default classification (`merge`) no repository or server can lower.
+  re-derived on reconnect or widened by a later approval. What was approved
+  is staged by the host (`attachments/staged/`) and a runtime is handed that
+  copy; each Seat's decided filter is kept in `attachments/frozen/` and
+  re-applied, revalidated, on a resume, a load or a reconnect. External MCP
+  servers are reached only through the existing gateway
+  (`attachments/wiring.ts`), at a conservative default classification (`merge`) no
+  repository or server can lower, run in `attachments/run/`, and are torn
+  down with the desk.
 - **Project memory** (`goals/memory-archive/`) — content-addressed, durable
   snapshots of a committed `.harnessdesk/memory/*.md` file a person cited
   into a Goal: the exact bytes, the source Goal's wrapped receipt and the

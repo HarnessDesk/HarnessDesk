@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, symlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
@@ -112,7 +112,7 @@ test('memoryPath refuses everything outside the one shape memory files may have'
   }
 })
 
-test('admitMemoryRoot refuses a symlinked .git, a linked worktree, and external alternates', async () => {
+test('admitMemoryRoot refuses a symlinked .git, an unregistered worktree pointer, and external alternates', async () => {
   const ordinary = await repo('hd-memory-admit-ordinary-')
   assert.equal(await admitMemoryRoot(ordinary), await import('node:fs/promises').then((m) => m.realpath(ordinary)))
 
@@ -121,6 +121,7 @@ test('admitMemoryRoot refuses a symlinked .git, a linked worktree, and external 
   await symlink(elsewhere, join(linkedDotGit, '.git'))
   await assert.rejects(admitMemoryRoot(linkedDotGit), /link/)
 
+  // A `.git` file naming a worktree the repository never registered.
   const worktree = tempDir('hd-memory-admit-worktree-')
   await writeFile(join(worktree, '.git'), `gitdir: ${ordinary}/.git/worktrees/fake\n`)
   await assert.rejects(admitMemoryRoot(worktree), /linked worktree/)
@@ -144,4 +145,75 @@ test('listMemoryFiles enumerates only the flat memory folder, bounded, never rea
   assert.equal(byPath.get('.harnessdesk/memory/a.md')?.problem, null)
   assert.match(byPath.get('.harnessdesk/memory/BAD NAME.md')?.problem ?? '', /Markdown file directly inside/)
   assert.equal(byPath.has('.harnessdesk/memory/nested'), false, 'a nested directory is not itself a listed file')
+})
+
+/** A real linked worktree of a real repository, the way an Agent lane is made. */
+const laneOf = async (prefix: string): Promise<{ readonly main: string; readonly lane: string }> => {
+  const main = await repo(prefix)
+  await mkdir(join(main, '.harnessdesk', 'memory'), { recursive: true })
+  await writeFile(join(main, '.harnessdesk', 'memory', 'decisions.md'), 'We chose the flat file.\n')
+  await commit(main, 'memory')
+  const lane = join(tempDir(`${prefix}lanes-`), 'lane')
+  await git(main, ['worktree', 'add', '-q', lane])
+  return { main, lane }
+}
+
+test('a linked worktree — an Agent lane — is admitted, and its citations read the shared history', async () => {
+  const { main, lane } = await laneOf('hd-memory-admit-lane-')
+  const admitted = await admitMemoryRoot(lane)
+  assert.equal(admitted, await realpath(lane))
+  const at = (await git(lane, ['rev-parse', 'HEAD'])).stdout.trim()
+  assert.equal(await readMemoryBlob(admitted, at, '.harnessdesk/memory/decisions.md'), 'We chose the flat file.\n')
+  assert.deepEqual((await listMemoryFiles(admitted, at)).map((one) => one.path), ['.harnessdesk/memory/decisions.md'])
+  void main
+})
+
+test('a linked worktree is refused when any hop points outside its repository’s own common directory, or goes through a link', async () => {
+  // gitdir → a directory that is not under the common directory's worktrees/.
+  {
+    const { main, lane } = await laneOf('hd-memory-admit-outside-')
+    const elsewhere = await repo('hd-memory-admit-outside-other-')
+    const gitdir = (await git(lane, ['rev-parse', '--git-dir'])).stdout.trim()
+    const stray = join(elsewhere, '.git', 'worktrees', 'stray')
+    await mkdir(stray, { recursive: true })
+    await writeFile(join(stray, 'commondir'), '../..\n')
+    await writeFile(join(stray, 'gitdir'), `${await realpath(lane)}/.git\n`)
+    await writeFile(join(stray, 'HEAD'), (await readFile(join(gitdir, 'HEAD'), 'utf8')))
+    await writeFile(join(lane, '.git'), `gitdir: ${await realpath(stray)}\n`)
+    // Registered in *another* repository: admitted only as that one's lane, never
+    // as this one — so a commondir that points back at a third repository fails.
+    await writeFile(join(stray, 'commondir'), `${await realpath(main)}/.git\n`)
+    await assert.rejects(admitMemoryRoot(lane), /outside|linked worktree/)
+  }
+  // The gitdir path goes through a link.
+  {
+    const { main, lane } = await laneOf('hd-memory-admit-viaLink-')
+    const gitdir = (await git(lane, ['rev-parse', '--git-dir'])).stdout.trim()
+    const linkRoot = tempDir('hd-memory-admit-link-')
+    await symlink(join(await realpath(main), '.git'), join(linkRoot, 'git'))
+    await writeFile(join(lane, '.git'), `gitdir: ${join(await realpath(linkRoot), 'git', 'worktrees', basename(gitdir))}\n`)
+    await assert.rejects(admitMemoryRoot(lane), /link/)
+  }
+  // commondir points at another repository's metadata.
+  {
+    const { lane } = await laneOf('hd-memory-admit-common-')
+    const other = await repo('hd-memory-admit-common-other-')
+    const gitdir = await realpath((await git(lane, ['rev-parse', '--git-dir'])).stdout.trim())
+    await writeFile(join(gitdir, 'commondir'), `${await realpath(other)}/.git\n`)
+    await assert.rejects(admitMemoryRoot(lane), /outside/)
+  }
+  // The worktree's back-pointer names a different checkout: not this one's registration.
+  {
+    const { lane } = await laneOf('hd-memory-admit-back-')
+    const gitdir = await realpath((await git(lane, ['rev-parse', '--git-dir'])).stdout.trim())
+    await writeFile(join(gitdir, 'gitdir'), '/somewhere/else/.git\n')
+    await assert.rejects(admitMemoryRoot(lane), /linked worktree/)
+  }
+  // The shared object store declares alternates.
+  {
+    const { main, lane } = await laneOf('hd-memory-admit-lane-alternates-')
+    await mkdir(join(main, '.git', 'objects', 'info'), { recursive: true })
+    await writeFile(join(main, '.git', 'objects', 'info', 'alternates'), '/tmp/somewhere-else\n')
+    await assert.rejects(admitMemoryRoot(lane), /external object alternates/)
+  }
 })

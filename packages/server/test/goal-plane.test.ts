@@ -389,3 +389,35 @@ test('a wrap reviews the cards as the board’s one writer has them, not an olde
   const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
   await assert.rejects(proof.plane.preview('g1', choices), /Review every card once/)
 })
+
+test('goal/cite keeps phase 5’s reach: any committed document may be cited, and only a memory file is retained', async () => {
+  const root = tempDir('hd-goal-plane-cite-any-')
+  await exec('git', ['init', '-q'], { cwd: root })
+  await mkdir(`${root}/docs`, { recursive: true })
+  await writeFile(`${root}/docs/receipt.md`, 'reviewed\n')
+  await exec('git', ['add', '.'], { cwd: root })
+  await exec('git', ['-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-qm', 'receipt'], { cwd: root })
+  const at = (await exec('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout.trim()
+  const proof = await rig(root)
+  const receipt = {
+    version: 1 as const, id: 'receipt-source', goal: 'source', sentence: 'Wrapped source', wrappedAt: 2,
+    summary: 'Reviewed.', cards: [], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [],
+  }
+  await proof.store.save({
+    version: 1, goal: goal('source', { root, cwd: root, sentence: 'Wrapped source', state: 'wrapped', receipt: receipt.id }),
+    board: { nextIntent: 1, messaging: true, intents: [], channel: [] }, citations: [], receipt, operation: null,
+  }, null)
+
+  const citation = { goal: 'source', receipt: 'receipt-source', project: root, path: 'docs/receipt.md', at }
+  await proof.plane.cite('g1', citation)
+  assert.deepEqual(proof.store.read('g1').citations, [citation], 'a committed document outside the memory folder is still citable, as in phase 5')
+  assert.deepEqual(proof.store.read('g1').goal.dependsOn, ['source'])
+  assert.deepEqual(proof.store.read('g1').memory?.citations ?? [], [], 'but it is not retained: retention is for project memory files')
+  assert.deepEqual(proof.store.read('g1').memory?.satisfiedCitationSources ?? [], [], 'so a deleted source never satisfies its edge through an archive that does not exist')
+
+  await assert.rejects(
+    proof.plane.cite('g1', { ...citation, path: 'docs/missing.md' }),
+    /not available at the recorded revision/,
+    'phase 5’s own check still refuses a document that is not there',
+  )
+})
