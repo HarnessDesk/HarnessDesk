@@ -3382,8 +3382,10 @@ test("through the host: this Mac's seats are set and cleared by one verb, and ev
   assert.deepEqual(cleared.entries, [])
   assert.deepEqual(JSON.parse(await readFile(set.path, 'utf8')), { $revision: 2 })
   assert.equal(machineNotices(client), 2, 'the clear told every window once more')
+  // The machine's own notices only: writing the project's reviewer above is
+  // a `project: work` notice of the watch's own, landing whenever it settles.
   assert.deepEqual(
-    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed'),
+    client.notifications.filter((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === null),
     [
       { method: 'agent/changed', params: { project: null, revision: 1 } },
       { method: 'agent/changed', params: { project: null, revision: 2 } },
