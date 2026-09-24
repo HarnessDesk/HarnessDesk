@@ -355,6 +355,7 @@ interface Caller {
   readonly sessionId: string
   readonly goal: string
 }
+const IN_ROUND = 'This finding is being decided in a review round that is still open. Record this once that round closes.'
 const STALE = (now: number) => `This finding changed since you read it; it is at sequence ${now}. Read it again before recording this.`
 
 /** The most rows or event records a person's page reads at once. */
@@ -459,9 +460,11 @@ export class FindingsPlane {
   async #command(input: {
     readonly run: string
     readonly goal: string
+    readonly caller: Caller
     readonly operation: string
     readonly kind: FindingJournalEntry['kind']
     readonly meaning: string
+    /** Handed the ledger as the caller may read it (`#unblinded`): every check it makes answers the same whatever an open blind round holds. */
     readonly prepare: (ledger: Ledger, journaled: EvidenceRecord | null) => Promise<EvidenceRecord>
   }): Promise<FindingView> {
     const project = await this.#port.projectOf(input.goal)
@@ -470,15 +473,27 @@ export class FindingsPlane {
       const entry = journal.entry(input.operation)
       if (entry && entry.hash !== hash) throw new Error('This request was already used for different content. Use a new request token for a new claim.')
       const ledger = await this.#ledger(project)
+      // What the caller may read: every answer below is folded from this, never from what an open blind round holds.
+      const seen = this.#unblinded(ledger, input.goal, input.caller)
       const durable = ledger.records.find((record) => record.finding?.operation === input.operation)
       if (durable) {
         // The same request, already on the disk: the same event, whatever has happened since.
         if (hashOf(meaningOf(durable)) !== hash) throw new Error('This request was already used for different content. Use a new request token for a new claim.')
         if (entry && entry.state !== 'finished') await journal.put({ ...entry, state: 'finished', reason: null })
-        return this.#viewOf(ledger.records, durable)
+        return this.#viewOf(seen.records, durable)
       }
-      const record = await input.prepare(ledger, entry?.record ?? null)
+      const record = await input.prepare(seen, entry?.record ?? null)
       if (hashOf(meaningOf(record)) !== hash) throw new Error('This request could not be recorded as it was asked.')
+      /* A finding with events the caller may not read yet — recorded in an
+         open blind round by another holder — takes nothing from the caller
+         until that round closes; said the same way whatever those events
+         were, and never with the sequence they reached. */
+      if (record.finding?.event.kind !== 'raise' && record.fact.kind === 'finding') {
+        const id = record.fact.id
+        const full = ledger.views.find((one) => one.id === id)
+        const mine = seen.views.find((one) => one.id === id)
+        if (full && mine && full.sequence !== mine.sequence) throw new Error(IN_ROUND)
+      }
       if (!entry || entry.state !== 'prepared') {
         await journal.put({ operation: input.operation, kind: input.kind, hash, record, state: 'prepared', reason: null })
       }
@@ -494,7 +509,7 @@ export class FindingsPlane {
         throw error
       }
       await journal.put({ operation: input.operation, kind: input.kind, hash, record: appended, state: 'finished', reason: null })
-      return this.#viewOf([...ledger.records, appended], appended)
+      return this.#viewOf([...seen.records, appended], appended)
     }))
     this.#invalidateList(input.goal)
     this.#port.changed?.(input.goal)
@@ -543,7 +558,7 @@ export class FindingsPlane {
       related: input.related ?? null, anchor: input.anchor ?? null,
     })
     return this.#command({
-      run: bound.run, goal: caller.goal, operation, kind: 'raise', meaning,
+      run: bound.run, goal: caller.goal, caller, operation, kind: 'raise', meaning,
       prepare: async (ledger, journaled) => {
         const held = await this.#port.flows.candidate(input.candidate, input.intent, scope)
         if (!held || held.goal !== caller.goal || held.seat !== String(caller.seat.id)) {
@@ -586,7 +601,7 @@ export class FindingsPlane {
     if (!bound.writer) throw new Error(`Card #${input.intent} does not change files, so it cannot record a repair.`)
     const operation = operationKey('repair', String(caller.seat.id), input.intent, input.request)
     return this.#command({
-      run: bound.run, goal: caller.goal, operation, kind: 'repair',
+      run: bound.run, goal: caller.goal, caller, operation, kind: 'repair',
       meaning: canonical({ kind: 'repair', finding: input.finding, note: input.note }),
       prepare: async (ledger, journaled) => {
         const view = this.#owned(ledger, input.finding, caller.goal)
@@ -614,17 +629,23 @@ export class FindingsPlane {
     if (!bound.reviews) throw new Error(`Card #${input.intent} is not a review card. Only a later review of the raising Agent decides a finding.`)
     const operation = operationKey('verdict', String(caller.seat.id), input.intent, input.request)
     return this.#command({
-      run: bound.run, goal: caller.goal, operation, kind: 'verdict',
+      run: bound.run, goal: caller.goal, caller, operation, kind: 'verdict',
       meaning: canonical({ kind: 'verdict', finding: input.finding, state: input.state, note: input.note, by: 'seat' }),
       prepare: async (ledger, journaled) => {
-        const view = this.#owned(ledger, input.finding, caller.goal)
-        const raiser = this.#port.seats.byId(view.origin.seat)
+        /* Who may decide it is read from the finding's origin, which no later
+           event changes, and is checked before anything about its state: a
+           refusal a sibling can reach says the same thing whatever the round
+           has recorded since. */
+        const found = ledger.views.find((one) => one.id === input.finding && one.ownerGoal === caller.goal)
+        if (!found) throw new Error('There is no such finding on this Goal.')
+        const raiser = this.#port.seats.byId(found.origin.seat)
         if (!raiser?.agent) throw new Error('This finding was raised by a Seat with no Agent, so no later Seat can speak for it. A person decides it.')
         if (caller.seat.agent?.id !== raiser.agent.id) throw new Error('Only the Agent that raised this finding may decide it, from a later review.')
-        if (String(caller.seat.id) === view.origin.seat || (view.origin.run === bound.run && bound.round <= view.origin.round)) {
+        if (String(caller.seat.id) === found.origin.seat || (found.origin.run === bound.run && bound.round <= found.origin.round)) {
           throw new Error('Decide a finding from a later review card, not the one that raised it.')
         }
-        if (view.origin.run !== bound.run && view.origin.goal === caller.goal) throw new Error('This finding belongs to another run on this Goal.')
+        if (found.origin.run !== bound.run && found.origin.goal === caller.goal) throw new Error('This finding belongs to another run on this Goal.')
+        const view = this.#owned(ledger, input.finding, caller.goal)
         if (view.sequence !== input.expected && !journaled) throw new Error(STALE(view.sequence))
         const held = await this.#port.flows.candidate(input.candidate, input.intent, scope)
         if (!held || held.goal !== caller.goal || held.seat !== String(caller.seat.id)) {

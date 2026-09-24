@@ -166,3 +166,30 @@ test('a blind-round holder cannot open a channel through add_intent, other work,
   assert.match(refused, /belongs to another Seat of this flow/)
   assert.equal(refused.includes('SECRET-BLOCK'), false)
 })
+
+test('a refused verdict answers a sibling the same before and after the raiser’s blind verdict', async (t) => {
+  const { f, raised, mine, sibling, mySeat, siblingSeat } = await toBlindReReview(t)
+  const probe = async (label: string): Promise<string> => {
+    const offered = await f.candidate(sibling.id, siblingSeat)
+    return f.plane.decide({ intent: sibling.id, candidate: offered.id, finding: raised.id, request: `probe-${label}`, expected: 2, state: 'open', note: 'n' }, f.scope(siblingSeat))
+      .then(() => 'recorded', (error: Error) => error.message)
+  }
+  const before = await probe('before')
+  await f.plane.decide({ intent: mine.id, candidate: (await f.candidate(mine.id, mySeat)).id, finding: raised.id, request: 'd1', expected: 2, state: 'withdrawn', note: 'SECRET' }, f.scope(mySeat))
+  assert.ok(f.rig.flows.blindRounds(f.goal).length > 0, 'round 4 is still blind')
+  const after = await probe('after')
+  assert.match(before, /Only the Agent that raised this finding/)
+  assert.equal(after, before, 'the refusal says nothing about what the raiser recorded in the round')
+})
+
+test('a finding a sibling raised in the open blind round cannot be found by naming it as related', async (t) => {
+  const { f, mine, sibling, mySeat, siblingSeat } = await toBlindReReview(t)
+  const theirs = await f.plane.raise(raise(sibling.id, (await f.candidate(sibling.id, siblingSeat)).id, 'Hidden one'), f.scope(siblingSeat))
+  const offered = await f.candidate(mine.id, mySeat)
+  const relate = (related: string, token: string) => f.plane.raise({ ...raise(mine.id, offered.id, `Link ${token}`), request: `link-${token}`, related }, f.scope(mySeat))
+    .then(() => 'recorded', (error: Error) => error.message)
+  const unknown = await relate(`finding-${'f'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}`, 'unknown')
+  const hidden = await relate(theirs.id, 'hidden')
+  assert.match(unknown, /The related finding is not one on this Goal/)
+  assert.equal(hidden, unknown, 'a sibling’s unreleased finding reads exactly as one that does not exist')
+})
