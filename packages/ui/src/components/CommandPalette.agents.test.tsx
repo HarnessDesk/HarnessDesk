@@ -76,11 +76,12 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-const mount = async (): Promise<{
+const mount = async (over: Partial<AppSnapshot> = {}): Promise<{
   selectRuntime: ReturnType<typeof vi.fn>
   newDraft: ReturnType<typeof vi.fn>
   store: AppStore
   openAgents: ReturnType<typeof vi.fn>
+  openFrontDoor: ReturnType<typeof vi.fn>
 }> => {
   const selectRuntime = vi.fn(async () => {})
   const newDraft = vi.fn()
@@ -91,6 +92,7 @@ const mount = async (): Promise<{
     activeRuntime: CODEX,
     agents: [reviewer('code-reviewer', 'Code reviewer')],
     agentPlans: PLANS,
+    ...over,
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -102,7 +104,8 @@ const mount = async (): Promise<{
     startAsAgent: vi.fn(async () => null),
   } as unknown as AppStore
   const openAgents = vi.fn()
-  const host = { close: () => {}, chooseFolder: () => {}, openSettings: () => {}, openUsage: () => {}, openAgents }
+  const openFrontDoor = vi.fn()
+  const host = { close: () => {}, chooseFolder: () => {}, openSettings: () => {}, openUsage: () => {}, openAgents, openFrontDoor }
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
@@ -110,7 +113,7 @@ const mount = async (): Promise<{
       </StoreProvider>,
     )
   })
-  return { selectRuntime, newDraft, store, openAgents }
+  return { selectRuntime, newDraft, store, openAgents, openFrontDoor }
 }
 
 const type = (value: string): void => {
@@ -169,4 +172,17 @@ it('Open <Agent> opens the Agents window on it, never Settings', async () => {
   type('open code reviewer')
   act(() => row('Open Code reviewer').click())
   expect(openAgents).toHaveBeenCalledWith('code-reviewer')
+})
+
+it('Start with a team opens one front door through the host, closing the palette first', async () => {
+  const { openFrontDoor } = await mount({ workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 } } as Partial<AppSnapshot>)
+  type('start with a team')
+  act(() => row('Start with a team').click())
+  expect(openFrontDoor).toHaveBeenCalledWith('/repo')
+})
+
+it('offers no team command with no project open — a context the front door has nothing to read', async () => {
+  await mount()
+  type('start with a team')
+  expect(container.querySelector('[role="option"]')).toBeNull()
 })

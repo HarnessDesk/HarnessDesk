@@ -29,8 +29,32 @@ export interface FrontDoorProps {
 
 type Chosen = { readonly id: string; readonly origin: FlowEntry['origin']; readonly name: string }
 
+/**
+ * A shape whose own `layout.frontDoor.contexts` names starts and excludes
+ * this one refuses it the moment it is chosen (`previewStart`'s own check) —
+ * so it is left off a context-specific list rather than shown only to error
+ * out. A shape that names no `contexts` at all, or has none declared,
+ * accepts every start; absence is never read as a refusal. `project` (the
+ * plain "Start with a team" chooser) is a context like any other here.
+ */
+const acceptsContext = (entry: FlowEntry, kind: StartContext['kind']): boolean =>
+  !entry.frontDoor?.contexts || entry.frontDoor.contexts.includes(kind)
+
+/**
+ * Order first, when a shape's own layout names one — the validated ordering
+ * this front door offers as its only editorial control — then name/id, the
+ * same stable tie-break for everything else. A shape with no declared order
+ * has no opinion about its place, so it sorts after every shape that does;
+ * unordered shapes and equal orders both fall back to name/id together.
+ */
 const sortShapes = (entries: readonly FlowEntry[]): readonly FlowEntry[] =>
-  [...entries].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+  [...entries].sort((a, b) => {
+    const orderA = a.frontDoor?.order ?? null
+    const orderB = b.frontDoor?.order ?? null
+    if (orderA !== null && orderB !== null && orderA !== orderB) return orderA - orderB
+    if ((orderA === null) !== (orderB === null)) return orderA === null ? 1 : -1
+    return a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+  })
 
 export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontDoorProps) => {
   const store = useStore()
@@ -150,6 +174,8 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     [runPreview, source, vars],
   )
 
+  const eligible = entries === null ? [] : sortShapes(entries.filter((entry) => acceptsContext(entry, context.kind)))
+
   const preview = snapshot.frontDoor?.preview ?? null
   const flow = preview?.flow ?? null
   const compiled = flow?.compiled.document ?? null
@@ -208,10 +234,16 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
           code it governs.
         </Note>
       )}
+      {entries !== null && entries.length > 0 && eligible.length === 0 && (
+        <Note>
+          None of this project’s shapes start from {context.kind === 'project' ? 'a plain project' : 'this'}. Choose
+          a start one of them names, or edit a shape’s <code>layout.frontDoor.contexts</code>.
+        </Note>
+      )}
 
-      {!chosen && entries !== null && entries.length > 0 && (
+      {!chosen && eligible.length > 0 && (
         <Rows>
-          {sortShapes(entries).map((entry) => (
+          {eligible.map((entry) => (
             <RowButton
               key={`${entry.origin}-${entry.id}`}
               title={entry.problem ? `${entry.name} — will not run` : entry.name}

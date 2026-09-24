@@ -6,6 +6,7 @@ import {
   sessionKey,
   type BoardEvidence,
   type FindingRunView,
+  type GoalView,
   type RuntimeInfo,
   type Session,
   type TeamState,
@@ -86,7 +87,7 @@ const state = (intents: readonly unknown[], extra: Partial<TeamState> = {}): Tea
 /* `extra` carries the parts of the board state a test needs to vary — the
    nicknames, so far, because who holds a card is a property of the board and
    there is no other way to write that case. */
-const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, evidence?: BoardEvidence) => {
+const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, evidence?: BoardEvidence, goal?: GoalView) => {
   /* `turns` and `itemsLoaded` are not decoration: every real session carries
      them, and anything reading a transcript — `isBusy`, `currentTurn` — reads
      `turns` without asking. A fixture that leaves them out passes until the
@@ -114,6 +115,7 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
     sessions: new Map([[sessionKey('codex', 'c1'), held]]),
     teams: new Map([[ROOM, state(intents, extra)]]),
     boardEvidence: new Map(evidence ? [[ROOM, evidence]] : []),
+    goals: new Map(goal ? [[ROOM, goal]] : []),
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -133,6 +135,13 @@ const rig = (intents: readonly unknown[], extra: Partial<TeamState> = {}, eviden
     loadFlowRuns: vi.fn().mockResolvedValue(undefined),
     loadBoardEvidence: vi.fn().mockResolvedValue(undefined),
     runCheck: vi.fn().mockResolvedValue({ kind: 'started' }),
+    // The front door an empty Goal's board offers: an empty catalogue is
+    // enough to mount it and read what root/goal it was opened with.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn().mockResolvedValue([]),
+    agentsIn: vi.fn().mockResolvedValue([]),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   return { store, snapshot }
 }
@@ -412,6 +421,32 @@ it('offers the same long form from an empty board', async () => {
   act(() => door.click())
   await act(async () => {})
   expect(document.body.textContent).toContain('Files it will own')
+})
+
+it('an empty Goal’s empty board also offers to start a team, reusing that Goal rather than a new one', async () => {
+  const empty = { goal: { id: ROOM, root: '/repo', revision: 3 }, members: [] } as unknown as GoalView
+  const { store } = rig([], {}, undefined, empty)
+  await render(store)
+
+  act(() => button('Start with a team').click())
+  await act(async () => {})
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, { id: ROOM, revision: 3 })
+})
+
+it('an empty board with no Goal behind it offers no team action — there is no root or revision to reuse', async () => {
+  const { store } = rig([])
+  await render(store)
+  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
+})
+
+it('a Goal that already has a Seat is not an empty Goal to reuse, so its board offers no team action', async () => {
+  // Offering the front door here would silently create a second, unrelated
+  // run beside the one this Goal is already carrying.
+  const seated = { goal: { id: ROOM, root: '/repo', revision: 1 }, members: [{ session: { runtime: 'codex', sessionId: 'c1' }, closed: null }] } as unknown as GoalView
+  const { store } = rig([], {}, undefined, seated)
+  await render(store)
+  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
 })
 
 /**

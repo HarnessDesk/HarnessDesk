@@ -19,6 +19,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { AddWork } from './AddWork'
 import { EvidenceChips } from './EvidenceChips'
 import { RunCheck } from './RunCheck'
+import { FrontDoor } from './FrontDoor'
 import { HandOut } from './HandOut'
 import { GoalAssign } from './GoalAssign'
 import { SessionHoverCard } from './AgentCards'
@@ -31,6 +32,7 @@ import {
   MoreIcon,
   PlanIcon,
   PlusIcon,
+  TeamIcon,
 } from './Icons'
 import {
   Board,
@@ -230,6 +232,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const [stopping, setStopping] = useState<Intent | null>(null)
   const [asking, setAsking] = useState<{ readonly card: number; readonly unseen: CheckUnseen } | null>(null)
   const [starting, setStarting] = useState(false)
+  const [startingTeam, setStartingTeam] = useState(false)
 
   /* Boards are keyed by room, so a room that has gone — deleted, or named by
      a layout written before it existed — simply has no entry, which is the
@@ -238,6 +241,11 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const goal = snapshot.goals.get(room)
   const intents = board?.intents ?? []
   const openCards = intents.filter((one) => one.state === 'open' && !one.claim).length
+  /* The front door's own reusable-empty-Goal rule: no Seats yet. A Goal
+     already carrying one is a live effort, not a blank slate — reusing it
+     from here would start a second, unrelated run beside it rather than
+     the fresh one this button promises. */
+  const emptyGoal = goal !== undefined && goal.members.length === 0 ? goal : null
 
   /* Membership changes when a conversation opens or closes, and when somebody
      is added to or taken out of the room — that last one takes neither a new
@@ -546,6 +554,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               <PlusIcon />
               Add the first job
             </Button>
+            {emptyGoal && (
+              <Button size="sm" variant="secondary" className="self-center" onClick={() => setStartingTeam(true)}>
+                <TeamIcon />
+                Start with a team
+              </Button>
+            )}
           </EmptyState>
         ) : (
           <Board wrap derived>
@@ -620,6 +634,18 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           peers={peers ?? []}
           onClose={() => setDetailed(false)}
           onTrouble={setTrouble}
+        />
+      )}
+      {startingTeam && emptyGoal && (
+        <FrontDoor
+          context={{ kind: 'project', root: emptyGoal.goal.root }}
+          goal={{ id: emptyGoal.goal.id, revision: emptyGoal.goal.revision }}
+          onClose={() => setStartingTeam(false)}
+          onStarted={() => {
+            // The same Goal, mid-start already — nothing here to navigate to
+            // that this pane is not already showing.
+            setStartingTeam(false)
+          }}
         />
       )}
     </ToolPane>

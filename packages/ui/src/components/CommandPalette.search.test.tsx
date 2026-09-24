@@ -72,6 +72,7 @@ const mount = async (): Promise<{ request: ReturnType<typeof vi.fn> }> => {
     openSettings: () => {},
     openUsage: () => {},
     openAgents: () => {},
+    openFrontDoor: () => {},
   }
   await act(async () => {
     root.render(

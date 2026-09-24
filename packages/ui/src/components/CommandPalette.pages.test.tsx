@@ -51,7 +51,7 @@ const mount = async (
   } as unknown as AppStore
   const openSettings = vi.fn()
   const openAgents = vi.fn()
-  const host = { close: () => {}, chooseFolder: () => {}, openSettings, openUsage: () => {}, openAgents }
+  const host = { close: () => {}, chooseFolder: () => {}, openSettings, openUsage: () => {}, openAgents, openFrontDoor: () => {} }
   await act(async () => {
     root.render(
       <StoreProvider store={store}>

@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
+import type { StartContext } from './authoring.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FindingRunState } from './findings.js'
 import type { Flow, FlowCheck, FlowInput, FlowProblem, FlowRun, FlowSeat, FlowThen } from './flow.js'
@@ -209,6 +210,17 @@ export interface FlowEntry {
   readonly format: 'legacy' | 'agents' | null
   readonly problem: string | null
   readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]
+  /**
+   * What this entry's own `layout.frontDoor` says, read once when the
+   * catalogue is listed rather than by a second bulk call: `order` positions
+   * it among the others, `contexts` names which starts it accepts. Absent or
+   * `null` for a legacy-format, broken, or unlisted-layout flow — every
+   * caller must read a missing value the same way it reads `null`. A present
+   * `contexts` that omits a start means this shape refuses it; a `null` or
+   * missing `contexts` means every start is accepted — absence is never a
+   * refusal.
+   */
+  readonly frontDoor?: { readonly order: number | null; readonly contexts: readonly StartContext['kind'][] | null } | null
 }
 
 // ----------------------------------------------------------------- update

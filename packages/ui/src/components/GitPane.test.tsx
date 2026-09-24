@@ -169,6 +169,15 @@ const mount = async (script: Script) => {
     revealWorkspace: vi.fn(async () => {}),
     newSession,
     send,
+    // The front door this pane's BranchMenu opens: an empty catalogue is
+    // enough to mount it and read what it was opened with, without also
+    // scripting `authoring/start/preview` for a test that is not about the
+    // dry run itself — `FrontDoor.test.tsx` owns that.
+    openFrontDoor: vi.fn(),
+    closeFrontDoor: vi.fn(),
+    flowCatalog: vi.fn(async () => []),
+    agentsIn: vi.fn(async () => []),
+    openGoal: vi.fn(),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -515,6 +524,24 @@ it('a branch row answers with the SourceTree menu, and delete asks in red first'
   expect(request).not.toHaveBeenCalledWith('git/deleteBranch', expect.anything())
   await act(async () => button('Delete').click())
   expect(request).toHaveBeenCalledWith('git/deleteBranch', { root: '/repo/app', name: 'feat/graph' })
+})
+
+it('a branch’s Review… opens the front door bound to that branch, without checking it out', async () => {
+  const { store, request } = await mount({ log: [commit('aaaa1111111', 'tip')] })
+  const row = [...document.body.querySelectorAll('button')].find((node) => node.title.startsWith('feat/graph —'))!
+  await rightClick(row)
+
+  const menu = document.querySelector('[role="menu"]')!
+  expect(menu.textContent).toContain('Review…')
+
+  await act(async () => button('Review…').click())
+
+  expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'branch', root: '/repo/app', branch: 'feat/graph' }, undefined)
+  // No checkout, and no history/provenance fetch — a branch shortcut supplies
+  // a context to resolve, never authority to act on the working tree.
+  expect(request).not.toHaveBeenCalledWith('git/checkout', expect.anything())
+  // The dry-run dialog itself mounted, reading the (empty) catalogue.
+  expect(document.body.textContent).toContain('No shapes here yet')
 })
 
 it('the commit menu offers the git verbs, and cherry-pick refuses a merge', async () => {

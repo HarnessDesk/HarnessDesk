@@ -58,13 +58,13 @@ const EXECUTION: FlowExecution = {
   rounds: [], operations: [], legacyRun: null, reason: null,
 }
 
-const render = (store: AppStore) => {
+const render = (store: AppStore, context: import('@harnessdesk/protocol').StartContext = { kind: 'project', root: '/repo' }) => {
   const onClose = vi.fn()
   const onStarted = vi.fn()
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <FrontDoor context={{ kind: 'project', root: '/repo' }} onClose={onClose} onStarted={onStarted} />
+        <FrontDoor context={context} onClose={onClose} onStarted={onStarted} />
       </StoreProvider>,
     )
   })
@@ -136,6 +136,49 @@ it('the rendered list follows the catalogue, never a hardcoded set of shapes', a
   expect(document.body.textContent).toContain('Ship the thing')
   expect(document.body.textContent).toContain('Bug hunt')
   expect(document.body.textContent).toContain('Finds what broke')
+})
+
+it('a context shortcut shows only what its own metadata accepts, never a silently chosen unrelated file', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [
+      ENTRY('review', 'Review a branch', { frontDoor: { order: null, contexts: ['branch'] } }),
+      ENTRY('release', 'Cut a release', { frontDoor: { order: null, contexts: ['pull-request'] } }),
+      ENTRY('anything', 'Anything, anywhere'),
+    ],
+    'agent/list': () => [],
+  })
+
+  render(store, { kind: 'branch', root: '/repo', branch: 'feature' })
+  await settle()
+
+  // Declares `branch` — shown. Declares only `pull-request` — hidden, not an
+  // error thrown at Start; a shape with no `contexts` at all still shows,
+  // since absence is never read as a refusal.
+  expect(document.body.textContent).toContain('Review a branch')
+  expect(document.body.textContent).toContain('Anything, anywhere')
+  expect(document.body.textContent).not.toContain('Cut a release')
+})
+
+it('validated order sorts shapes first; an unordered shape falls back to name', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [
+      ENTRY('zzz-unordered', 'Zzz unordered'),
+      ENTRY('second', 'Second', { frontDoor: { order: 2, contexts: null } }),
+      ENTRY('aaa-unordered', 'Aaa unordered'),
+      ENTRY('first', 'First', { frontDoor: { order: 1, contexts: null } }),
+    ],
+    'agent/list': () => [],
+  })
+
+  render(store)
+  await settle()
+
+  const names = [...document.body.querySelectorAll('button')]
+    .map((one) => one.textContent?.trim())
+    .filter((text): text is string => text === 'First' || text === 'Second' || text === 'Aaa unordered' || text === 'Zzz unordered')
+  expect(names).toEqual(['First', 'Second', 'Aaa unordered', 'Zzz unordered'])
 })
 
 it('an asked candidate stays visible with its reason and fix; Start is disabled until it holds', async () => {
