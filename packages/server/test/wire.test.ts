@@ -2337,8 +2337,21 @@ seed: { role: worker, title: "Do it" }
   })
 
   await t.test('the folder opened here still lists and reads its flows', async () => {
-    // A folder in no repository, which only the folder rule admits.
-    assert.deepEqual(await list(opened), { listed: [['.harnessdesk/flows/here.yml', 'Here']] })
+    // A folder in no repository, which only the folder rule admits. The
+    // catalogue also carries the flows HarnessDesk ships, sorted by id
+    // alongside the project's own.
+    assert.deepEqual(await list(opened), {
+      listed: [
+        ['alignment.yml', 'Alignment'],
+        ['comparison.yml', 'Comparison'],
+        ['fan-out.yml', 'Fan-out review'],
+        ['.harnessdesk/flows/here.yml', 'Here'],
+        ['independent-review.yml', 'Independent review'],
+        ['investigation.yml', 'Investigation'],
+        ['mechanical-contest.yml', 'Mechanical contest'],
+        ['staged-relay.yml', 'Staged relay'],
+      ],
+    })
     assert.deepEqual(await read(opened, '.harnessdesk/flows/here.yml'), { read: flowFile('Here') })
   })
 
@@ -2352,7 +2365,18 @@ seed: { role: worker, title: "Do it" }
     const linked = join(scratch, 'linked')
     await gitIn(main, 'worktree', 'add', '-q', '-b', 'linked', linked)
     await client.call('workspace/open', { path: linked })
-    assert.deepEqual(await list(main), { listed: [['.harnessdesk/flows/main.yml', 'In the main checkout']] })
+    assert.deepEqual(await list(main), {
+      listed: [
+        ['alignment.yml', 'Alignment'],
+        ['comparison.yml', 'Comparison'],
+        ['fan-out.yml', 'Fan-out review'],
+        ['independent-review.yml', 'Independent review'],
+        ['investigation.yml', 'Investigation'],
+        ['.harnessdesk/flows/main.yml', 'In the main checkout'],
+        ['mechanical-contest.yml', 'Mechanical contest'],
+        ['staged-relay.yml', 'Staged relay'],
+      ],
+    })
     assert.deepEqual(await read(main, '.harnessdesk/flows/main.yml'), { read: flowFile('In the main checkout') })
   })
 })
@@ -2499,10 +2523,7 @@ test('create-and-switch refuses whole on a dirty tree', async (t) => {
 
 test('git/status does not crash when persisted workspaces contain malformed records missing path (#428)', async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-malformed-workspace-'))
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
-
   const repo = await mkdtemp(join(tmpdir(), 'hd-git-repo-'))
-  t.after(() => rm(repo, { recursive: true, force: true }))
   await gitIn(repo, 'init', '-q', '-b', 'main')
   await writeFile(join(repo, 'a.txt'), 'hello\n')
   await gitIn(repo, 'add', '.')
@@ -2528,13 +2549,20 @@ test('git/status does not crash when persisted workspaces contain malformed reco
   })
   await host.start()
   const server = await serve({ host, logger: silent, port: 0 })
+  const client = await Client.connect(server)
+  // One hook, in order: close the server, dispose the host — which flushes
+  // everything it owns — and only then remove the folders. Removing first
+  // races the still-live host's writes, fails with ENOTEMPTY, and (on
+  // current Node) skips every hook registered after it, so the host is
+  // never disposed and the process idles forever (#868). The retries are
+  // the belt to that brace, the same as `stop()` in fixtures/harness.ts.
   t.after(async () => {
+    await client.close()
     await server.close()
     await host.dispose()
+    await rm(stateDir, { force: true, recursive: true, maxRetries: 3 })
+    await rm(repo, { force: true, recursive: true, maxRetries: 3 })
   })
-
-  const client = await Client.connect(server)
-  t.after(() => client.close())
 
   // Calling git/status must not throw ERR_INVALID_ARG_TYPE
   const status = (await client.call('git/status', { root: repo })) as { root: string }

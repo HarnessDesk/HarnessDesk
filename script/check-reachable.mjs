@@ -65,6 +65,8 @@ const UNREACHED = {
     "phase 12 Task 6's own read-only front door onto Task 2's retention (docs/superpowers/plans/2026-09-19-agents-memory.md); its UI consumer (MemoryCitation.tsx) has not landed in this pass — proven directly by memory-methods.test.ts and by wire calls in the CDP walkthrough. Remove this line in the task that adds the first UI caller",
   'memory/read':
     'likewise — the same MemoryCitation.tsx consumer would call this one too',
+  'goal/cite':
+    'a gap, not a design: citing a wrapped Goal\'s receipt into an open one is built on the host and has no surface yet — pinned when spreads were first followed, so the gate could see it at all. Same MemoryCitation.tsx consumer named above would call this one too (its "Cite in this Goal" confirmation) — remove this line alongside the other two once that lands.',
 }
 
 /**
@@ -86,7 +88,40 @@ export const methodsIn = (source) => {
   const rest = source.slice(from)
   const end = rest.search(/^\}/m)
   const table = end === -1 ? rest : rest.slice(0, end)
-  return [...new Set([...table.matchAll(/^ {2}'([a-z][\w]*\/[\w/]*)':/gim)].map((one) => one[1]))]
+  /* Hyphens count as name characters: `\w` alone stopped `'flow/start-goal'`
+     at the `-`, so the key failed to match at all and the method was neither
+     counted nor flagged — a gate that could not see it. */
+  return [...new Set(keysOf(table, source, new Set()))]
+}
+
+/**
+ * The keys of one table, following its spreads.
+ *
+ * The table is assembled, not only written: `...goalValidators,` pulls a whole
+ * domain in from a literal declared above it. Reading only the table's own
+ * lines left every such group — `goal/*`, `insight/*`, `finding/*` — out of the
+ * list, so none of them could fail however unreachable they were. A spread is
+ * resolved to its own column-0 declaration and read with the same key pattern,
+ * which keeps an unrelated literal elsewhere in the file out; one that names
+ * nothing declared here throws, since skipping it is how the gap opened.
+ */
+const keysOf = (table, source, seen) => {
+  const keys = []
+  for (const line of table.matchAll(/^ {2}(?:'([a-z][\w-]*\/[\w/-]*)':|\.\.\.([A-Za-z_$][\w$]*),?\s*$)/gim)) {
+    if (line[1]) {
+      keys.push(line[1])
+      continue
+    }
+    const name = line[2]
+    if (seen.has(name)) continue
+    seen.add(name)
+    const declared = source.match(new RegExp(`^(?:export\\s+)?const\\s+${name.replace(/\$/g, '\\$')}\\b[^=\\n]*=\\s*\\{`, 'm'))
+    if (!declared) throw new Error(`paramsValidators spreads \`...${name}\`, and no \`const ${name} = {\` is declared in the file.`)
+    const body = source.slice(declared.index + declared[0].length)
+    const close = body.search(/^\}/m)
+    keys.push(...keysOf(close === -1 ? body : body.slice(0, close), source, seen))
+  }
+  return keys
 }
 
 /** Every file a call could be written in. */

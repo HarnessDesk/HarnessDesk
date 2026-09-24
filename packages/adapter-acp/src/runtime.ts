@@ -255,6 +255,15 @@ export interface AcpAgentConfig {
    */
   readonly resolveIdentity?: () => Account | null
   /**
+   * Which vendor's models the agent's sessions reach, from the agent's own
+   * configuration, for a session in `cwd` when one is named — or null when
+   * anything the person set could point it elsewhere. Supplied by the host,
+   * which knows where each agent keeps that configuration; absent, the
+   * provider is unknown, whatever the agent is called. See
+   * `RuntimeInfo.provider`.
+   */
+  readonly resolveProvider?: (cwd?: string) => Promise<string | null>
+  /**
    * Where an agent that puts no usage on the wire writes it down.
    * Antigravity's server counts every model call in its own conversation
    * store and sends none of it over ACP. Asked when a turn opens, for a mark
@@ -604,6 +613,9 @@ const acpCategory = (id: string, category: string | null | undefined): OptionCat
 
 export class AcpRuntime implements AgentRuntime {
   readonly #config: AcpAgentConfig
+  /** Read on construction and again on each start, unknown until then; see `RuntimeInfo.provider`. */
+  #provider: string | null = null
+  #providerRead: Promise<void> = Promise.resolve()
   /** Set when the agent answered that it cannot take an MCP tool server. */
   #toolServerRefused = false
   /** The agent's bridge declared that it carries the desk's standing instruction. */
@@ -680,6 +692,7 @@ export class AcpRuntime implements AgentRuntime {
 
   constructor(config: AcpAgentConfig) {
     this.#config = config
+    this.#providerRead = this.#refreshProvider()
     this.#account = config.account
       ? new CliAccount(
           config.account,
@@ -747,6 +760,7 @@ export class AcpRuntime implements AgentRuntime {
       ...(this.#initialized
         ? { attachments: toAttachmentSupport(this.#attachmentCapability, this.#config.id, effectiveVersion ?? '') }
         : {}),
+      provider: this.#provider,
       presentation: {
         name: this.#config.name,
         // What an ACP agent declares are commands; some of them are skills
@@ -828,7 +842,27 @@ export class AcpRuntime implements AgentRuntime {
     // agent behind this adapter.
   }
 
+  async #readProvider(cwd?: string): Promise<string | null> {
+    try {
+      return (await this.#config.resolveProvider?.(cwd)) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  #refreshProvider(): Promise<void> {
+    return this.#readProvider().then((provider) => { this.#provider = provider })
+  }
+
+  /** `AgentRuntime.providerAt`: an agent that reads a project's own settings can be pointed elsewhere there. */
+  async providerAt(cwd: string): Promise<string | null> {
+    await this.#providerRead
+    return this.#provider === null ? null : this.#readProvider(cwd)
+  }
+
   async start(): Promise<void> {
+    // Read beside the start, never ahead of it; `providerAt` waits for it.
+    this.#providerRead = this.#refreshProvider()
     // A start that never begins. Not the guard that holds the invariant —
     // that one is welded to the spawn in `#spawnBridge` — but the two lines
     // below each shell out to a subprocess of their own, the host's launch

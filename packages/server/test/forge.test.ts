@@ -191,9 +191,12 @@ test('a publication survives a restart and a read the backend answers with as mu
 
   const second = await start({ state: new StateStore(join(first.stateDir, 'state.json')) })
   t.after(() => stop(second))
-  t.after(() => rm(first.stateDir, { recursive: true, force: true }))
   const again = await Client.connect(second.server)
+  // Removed last: `second` writes into `first.stateDir` (the shared state
+  // file) right up until `stop(second)` disposes it, and removing first
+  // races that write and can leave `again.close()` unrun (#868).
   t.after(() => again.close())
+  t.after(() => rm(first.stateDir, { recursive: true, force: true }))
   // The backend's own account: the two items it streamed and one it stored
   // besides — as many as the host held, and no publication among them.
   second.runtime.stored.set(sessionId(session.id), [

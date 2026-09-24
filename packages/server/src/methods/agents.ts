@@ -1155,3 +1155,39 @@ const catalogueOf = async (runtime: AgentRuntime, deadline: number): Promise<rea
   const read = await within(() => (runtime.knownModels ? runtime.knownModels() : runtime.listModels()), deadline)
   return read.settled === 'value' ? (read.value ?? null) : null
 }
+
+/**
+ * One Agent's seat plan, for a flow's dry run: the same reads and the same
+ * chooser `agent/seat/dry` uses for the whole roster, narrowed to one Agent
+ * and the exact seats and grant a flow role names — a role's own `seats:`
+ * when it lists any, its machine entry or `prefer` otherwise, held to the
+ * narrower of the Agent's ceiling and the role's `grant:`.
+ *
+ * A new phase-6 extraction: `agent/seat/dry`'s own batched loop is
+ * unchanged, kept for the many-Agents-at-once read it was built for; this is
+ * the same primitives (`candidatesFor`, `planSeats`, `readDesk`, `wordsFor`)
+ * called once per role, which is what a dry run's own bounded roster costs.
+ */
+export const previewAgent = async (
+  ctx: HostContext,
+  root: string,
+  agent: string,
+  seats: readonly FlowSeat[],
+  grant: CeilingLevel,
+): Promise<SeatPlan> => {
+  const project = await projectOf(ctx, root)
+  const entry = await ctx.agents.read(agent, project)
+  if (!entry) return blockedPlan(agent, `No Agent called “${agent}”.`)
+  if (!entry.definition || entry.digest === null) return blockedPlan(agent, unusable(entry))
+  const machine = await ctx.seating.read()
+  const unheld = unheldPolicy(ctx.state.state.preferences)
+  const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
+  const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld }
+  if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')
+  const desk = await readDesk(ctx, [...list.seats, ...entry.definition.prefer])
+  const words = wordsFor(ctx, desk.catalogues, desk.registryNames)
+  // A role's own explicit `seats:` reads like `prefer` here: `SeatPlan.from` tells
+  // a person "the machine" or "the Agent" chose this list, and a role's own list is
+  // the flow author's choice, presented the way an Agent's own `prefer` is.
+  return planSeats(agent, list.seats, desk.offers, words, list.from === 'seats' ? 'prefer' : list.from, need)
+}

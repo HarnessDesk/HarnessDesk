@@ -33,7 +33,8 @@ export interface CodexProfileEntry {
   readonly error?: string
 }
 
-const rootOf = (home: string | null): string =>
+/** Codex's own home: the one given, else `CODEX_HOME`, else `~/.codex`. */
+export const rootOf = (home: string | null): string =>
   home ?? process.env['CODEX_HOME'] ?? join(homedir(), '.codex')
 
 const filenameOf = (id: string): string => {

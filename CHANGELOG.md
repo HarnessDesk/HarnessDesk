@@ -7,6 +7,58 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A reviewer's finished card no longer goes back to "claimed".** If
+  another Seat opened on the same Goal while a reviewer was completing its
+  card, the reviewer was told the card was done, but the board kept it
+  claimed. The flow then sent the reviewer the same card again, or waited on
+  it indefinitely. A completion is now saved. A completion whose card was
+  released or reassigned while its review was being checked is now refused.
+- **Assigning a card just after adding it no longer leaves the Goal stuck.**
+  If the card's save was still queued, the assignment used to be refused and
+  stayed half-done, so the Goal then refused every later save. Relaunching
+  didn't help, because the desk failed to start while it tried to finish the
+  assignment. An assignment or release that can't finish is now set aside:
+  the Seat it opened is closed, and the Goal says what happened. A patch
+  applied with `git am`, or a cherry-pick committed after a conflict, now
+  counts as a step's own work. A wrap receipt lists any card that recovery
+  set aside, with the reason. A change refused because its save failed no
+  longer leaves its line in the Goal's channel.
+- **A project's Flows are visible, previewable and updatable** — a project
+  page now lists the flows it can start, layered from the project's own
+  files down to the ones that ship, with what a nearer file shadows called
+  out rather than hidden. Starting one previews the honest dry run first:
+  every round, seat and evidence guard it would open, before anything runs.
+  *Update…* converts an old project flow file to the current format as one
+  reviewable diff, covering every Agent file it would also write, resumable
+  if interrupted partway. Starting a flow from a new session now offers a
+  single Goal the same way an ordinary conversation does.
+- **`/race` is now an ordinary flow, not a second execution path** — racing
+  two seats substitutes them into a shipped flow's own designated role and
+  runs it exactly like any other flow, so its progress, checks and evidence
+  show up the same way. A run's status is visible on its Goal, including a
+  failed check's retry.
+- **Evidence guards are satisfied by the facts the desk records** — a check,
+  a structured review, an observed diff, CI or pull request now speaks for
+  the revision it names wherever in the run's dependency chain it was filed,
+  and every new fact re-reads a waiting rule, so a guarded step no longer
+  waits forever. A diff counts what a step committed since it began, straight
+  onto the default branch included, and a run waiting on evidence says what
+  for. The comparison flow's merge card names the exact revision the judge
+  picked.
+- **An independent step is judged on the vendor an agent really calls** —
+  each runtime now reports which vendor's models it reaches, read from the
+  agent's own configuration, and says it cannot tell whenever a provider or
+  base URL is overridden or the account pays through a gateway. A step that
+  must be independent of an earlier one is refused rather than seated on a
+  runtime whose vendor is unknown, whatever that runtime is called.
+- **A check without an explicit checkout now runs once per predecessor
+  subject** — each competitor's own isolated work is checked on its own,
+  rather than one command picking a single subject to stand in for all of
+  them. Naming a checkout explicitly keeps the old single-command behaviour.
+- Fix the whole app quitting on the first line it logged after the terminal
+  or script that started it had gone away — usually a refused Wrap, Seat or
+  check run. The refusal is now shown, and the host log says its console went
+  away.
 - Add source-qualified, read-only Insight transport for historical usage,
   receipt cost summaries, project usage, and local Agent-seat ordering review.
 

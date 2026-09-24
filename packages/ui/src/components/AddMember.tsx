@@ -86,6 +86,9 @@ export const AddMember = ({
                 const taken = seatTaken(plan)
                 const reason = plan && !taken ? firstReason(plan) : null
                 const name = agentName(entry)
+                // Stable per Agent, not `useId()`: this runs inside `.map`,
+                // where a hook cannot be called at all.
+                const reasonId = reason ? `add-member-reason-${entry.id}` : undefined
                 return (
                   <ListRow
                     key={entry.id}
@@ -95,12 +98,20 @@ export const AddMember = ({
                     {...(reason ? { 'data-refused': '' } : {})}
                     lead={(
                       <>
-                        <RadioGroupItem value={entry.id} aria-label={name} />
+                        <RadioGroupItem
+                          value={entry.id}
+                          aria-label={name}
+                          {...(reasonId ? { 'aria-describedby': reasonId } : {})}
+                        />
                         {taken ? <RuntimeMark runtime={markFor(taken, snapshot.runtimes)} size={14} /> : <BriefIcon size={14} />}
                       </>
                     )}
                     title={<Text role="value" truncate>{name}</Text>}
-                    trail={<Text role="meta" className={reason ? 'text-(--hd-warning-ink)' : undefined}>{taken ? taken.label : reason ? `Can't seat here · ${reason}` : 'Checking…'}</Text>}
+                    {...(reason ? {
+                      subtitle: <Text id={reasonId} role="meta" tone="warning">{`Can't seat here · ${reason}`}</Text>,
+                      wrapSubtitle: true,
+                    } : {})}
+                    trail={taken ? <Text role="meta">{taken.label}</Text> : reason ? undefined : <Text role="meta">Checking…</Text>}
                   />
                 )
               })}

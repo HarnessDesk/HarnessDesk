@@ -2,11 +2,14 @@ import type {
   CapabilityContribution,
   EditorEdit,
   EditorEvent,
+  EvidenceRecord,
   ExtensionEvent,
   HookInvocation,
   HookVerdict,
   PluginInstance,
   PluginSource,
+  ReviewCandidate,
+  ReviewInput,
   ScopeQuery,
   ToolResult,
   UiDecoration,
@@ -46,7 +49,10 @@ import type {
 // 5 adds the forge plane's `forge/*` child requests — the calling
 // conversation's seat, the desk's forge identity, and the record of a
 // publication.
-export const EXTENSION_PROTOCOL_VERSION = 5
+// 6 adds the team plane's two review requests — `team/reviewCandidates` and
+// `team/recordReview` — the structured judgment a flow's evidence guard
+// reads, never a message or a claim's own outcome.
+export const EXTENSION_PROTOCOL_VERSION = 6
 
 /** What `plugin/inspect` reports, for the consent dialog; nothing is imported. */
 export interface InspectedPlugin {
@@ -343,6 +349,25 @@ export interface ChildToHostMethods {
       readonly wake?: boolean
     }
     result: string
+  }
+  /**
+   * Observed predecessor subjects this conversation's own claimed card may
+   * judge. Structured data, not prose — the plugin words it for the calling
+   * model — and empty rather than an error when the card holds no such
+   * binding.
+   */
+  'team/reviewCandidates': {
+    params: { readonly scope: TeamCallScope; readonly intent: number }
+    result: readonly ReviewCandidate[]
+  }
+  /**
+   * Records one structured verdict against an observed candidate this
+   * process minted. A refusal is a transport error — there is no evidence
+   * record to hand back for a call the host would not honour.
+   */
+  'team/recordReview': {
+    params: { readonly scope: TeamCallScope } & ReviewInput
+    result: EvidenceRecord
   }
 }
 

@@ -1,0 +1,41 @@
+version: 2
+name: "Mechanical contest"
+description: "Two attempts, and a script decides between them by its exit status alone — never an agent's own prose."
+inputs:
+  task:
+    label: "Task"
+roles:
+  competitor:
+    kind: agent
+    uses: [implementer]
+    count: 2
+    isolate: true
+    grant: edit
+    independentOf: []
+  decide:
+    kind: check
+    run: "script/flow-contest.sh"
+    cwd: "."
+    exits:
+      "0": first
+      "1": second
+    otherwise: no-contest
+    timeout: 300
+  referee:
+    kind: person
+    outcomes: [merged]
+seed: { role: competitor, title: "{{task}}" }
+rules:
+  - id: to-decide
+    on: competitor
+    then: { role: decide, title: "Decide between the two attempts" }
+  - id: first-wins
+    on: decide
+    when: { every: [first] }
+    then: { role: referee, title: "Merge the first attempt" }
+  - id: second-wins
+    on: decide
+    when: { every: [second] }
+    then: { role: referee, title: "Merge the second attempt" }
+messaging: board-only
+wait: 240

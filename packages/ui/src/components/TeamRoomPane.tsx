@@ -43,6 +43,7 @@ import { GoalHeader } from './GoalHeader'
 import { GoalWrap } from './GoalWrap'
 import { GoalReceipt } from './GoalReceipt'
 import { GoalReceiptCost } from './GoalReceiptCost'
+import { FlowRunStatus } from './FlowRunStatus'
 import { WindowControls } from './WindowControls'
 import {
   Button,
@@ -151,6 +152,18 @@ export const TeamRoomPane = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room)
+  /** This Goal's own v2 flow run, if a flow is what opened it — at most one, per phase 6 decision 4. */
+  const flowExecution = useMemo(
+    () => [...snapshot.flowExecutions.values()].find((one) => one.goal === room) ?? null,
+    [snapshot.flowExecutions, room],
+  )
+  // A reopened room whose run predates this window's own pushes has nothing
+  // cached yet: read it once, the same pull `flow/execution-changed` is the
+  // push half of.
+  useEffect(() => {
+    if (flowExecution || goal?.goal.origin.kind !== 'flow') return
+    void store.readFlowExecution(goal.goal.origin.run).catch(() => {})
+  }, [flowExecution, goal, store])
   const mount = useMount()
   /**
    * The roster, and the room it belongs to.
@@ -642,6 +655,7 @@ export const TeamRoomPane = ({
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
+      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
       {goal?.receipt ? <><GoalReceipt receipt={goal.receipt} root={goal.goal.root} /><GoalReceiptCost receipt={goal.receipt} /></> : null}
 
       {/*

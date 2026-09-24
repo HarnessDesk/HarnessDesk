@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, ProjectChecks, WorkspaceEntry } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowEntry, ProjectChecks, WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
@@ -76,6 +76,10 @@ const CHECKS = (path: string): ProjectChecks => ({
   problems: [],
 })
 
+const FLOWS: Readonly<Record<string, readonly FlowEntry[]>> = {
+  [STOREFRONT.path]: [{ id: 'fix', origin: 'project', path: '.harnessdesk/flows/fix.yml', name: 'Fix', description: null, format: 'agents', problem: null, shadows: [] }],
+}
+
 const mount = (node: React.ReactNode) => {
   const snapshot = {
     ...emptySnapshot(),
@@ -91,6 +95,7 @@ const mount = (node: React.ReactNode) => {
     loadLanePreferences: vi.fn(async () => {}),
     agentsIn: vi.fn(async (path: string) => AGENTS[path] ?? []),
     projectChecks: vi.fn(async (path: string) => CHECKS(path)),
+    flowCatalog: vi.fn(async (path: string) => FLOWS[path] ?? []),
     loadCaptureHealth: vi.fn(async () => {}),
     setCapture: vi.fn(async () => ({ project: STOREFRONT.path, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 })),
     retryCapture: vi.fn(async () => ({ project: STOREFRONT.path, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 })),
@@ -194,7 +199,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Checks', 'Provenance'])
+  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Provenance'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())
@@ -202,4 +207,14 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={DOCS.path} />)
   await settle()
   expect(container.querySelector('section[aria-label="Checks"]')).toBeNull()
+})
+
+it('the project’s flows are read lazily, only once its page is open, and never on the plain Workspaces list', async () => {
+  const { store } = mount(<WorkspacesSection />)
+  expect(store.flowCatalog).not.toHaveBeenCalled()
+  act(() => rowFor('storefront').click())
+  await settle()
+  expect(store.flowCatalog).toHaveBeenCalledWith(STOREFRONT.path)
+  const text = container.querySelector('section[aria-label="Flows"]')?.textContent ?? ''
+  expect(text).toContain('Fix')
 })

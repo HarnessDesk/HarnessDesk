@@ -452,6 +452,17 @@ export interface RuntimeInfo {
    */
   readonly attachments?: AttachmentSupport
   /**
+   * Which vendor's models this runtime's sessions reach, as its adapter
+   * resolved it from the agent's own configuration. Null when the adapter
+   * cannot tell — and always null when anything the person configured (an
+   * environment variable, a settings file, a gateway) could point the agent
+   * at another provider or base URL: a runtime built by one vendor can be
+   * calling another's models. Absent reads as null. Never a guess from the
+   * runtime's name; a step that must be independent of another refuses an
+   * unknown provider rather than assume one.
+   */
+  readonly provider?: string | null
+  /**
    * `registry` when this runtime exists because the user's agent registry
    * names it — which is what makes it removable from the interface. Attached
    * by the host; absent for built-in discovery (Codex) and account slots,
@@ -889,6 +900,16 @@ export interface AgentRuntime {
    * until someone adds a second account.
    */
   readonly sessionStore?: string | null
+
+  /**
+   * `info.provider` for a session working in `cwd`, for an agent that also
+   * reads configuration kept in the project itself — which can point that
+   * folder's sessions somewhere else. Absent: `info.provider` holds for
+   * every folder. The project's files arrived with a clone, so they are read
+   * bounded, without blocking and refusing links; anything that cannot be
+   * read that way is unknown.
+   */
+  providerAt?(cwd: string): Promise<string | null>
 
   /** Bring the runtime up. Safe to call more than once. */
   start(): Promise<void>

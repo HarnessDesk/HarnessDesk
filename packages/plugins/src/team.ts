@@ -5,7 +5,7 @@ import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
  *
  * The state and every decision live in the host's team plane — claiming is a
  * transaction there, message routing applies one set of guards there — and
- * this plugin is the doorway: eleven tools, delivered to Codex as dynamic
+ * this plugin is the doorway: thirteen tools, delivered to Codex as dynamic
  * tools and to every ACP agent over the MCP bridge, exactly like any other
  * plugin tool. The projection layer is what makes coordination cross-vendor
  * without asking any vendor for anything.
@@ -18,6 +18,12 @@ import type { HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
  * Every execute passes its `scope` through: which conversation is calling is
  * the substance of a claim and the safety of a message, and the host refuses
  * unscoped writes rather than guessing.
+ *
+ * `review_candidates` and `record_review` are the one narrow way a judgment
+ * becomes evidence (phase 6): the candidate is always one this process
+ * minted and handed back, never a revision the caller names on its own, and
+ * the verdict is a fact a flow's evidence guard reads — never text scraped
+ * from a message or a `complete_claim` outcome.
  */
 
 const text = { type: 'string' } as const
@@ -349,6 +355,57 @@ export const teamPlugin: HarnessPlugin = {
             },
             scope,
           ),
+      })
+
+      ctx.tools.register({
+        name: 'review_candidates',
+        description:
+          'Observed predecessor revisions you may judge for this card — each an id, its exact revision, and what has already been observed of it. This is the only source of a revision to review: never pick one out of the conversation, a message, or a branch name someone mentioned. Ask again if the list looks stale; a candidate goes out of date if the checkout it names moves on.',
+        inputSchema: {
+          type: 'object',
+          properties: { intent: { type: 'number', description: 'The card you hold — the one your review is for.' } },
+          required: ['intent'],
+        },
+        execute: async (args: { intent: number }, scope) => {
+          const candidates = await ctx.team.reviewCandidates(Number(args.intent), scope)
+          if (candidates.length === 0) return 'There is nothing to review for this card yet.'
+          return candidates
+            .map((one) => `${one.id} — at ${one.at.slice(0, 12)}${one.branch ? ` on ${one.branch}` : ''}${one.evidence.length ? `, evidence: ${one.evidence.join(', ')}` : ', no other evidence observed yet'}`)
+            .join('\n')
+        },
+      })
+
+      ctx.tools.register({
+        name: 'record_review',
+        description:
+          'Record your structured judgment of one candidate from `review_candidates` — the verdict a rule branches on, never inferred from prose. `candidate` must be an id `review_candidates` just gave you; `verdict` must be one of your card\'s own accepted answers. This is what a merge or advance step actually reads — completing the card with an outcome is not enough where a review is required.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            intent: { type: 'number', description: 'The card you hold.' },
+            candidate: { type: 'string', description: 'A candidate id from review_candidates.' },
+            verdict: { type: 'string', description: 'Your verdict, one of your card\'s accepted answers.' },
+            against: {
+              type: 'array',
+              items: text,
+              description: 'Revisions this verdict was judged against, if any — a requirement, a base.',
+            },
+          },
+          required: ['intent', 'candidate', 'verdict'],
+        },
+        execute: async (args: { intent: number; candidate: string; verdict: string; against?: readonly string[] }, scope) => {
+          const record = await ctx.team.recordReview(
+            {
+              intent: Number(args.intent),
+              candidate: String(args.candidate),
+              verdict: String(args.verdict),
+              ...(Array.isArray(args.against) ? { against: args.against.map(String) } : {}),
+            },
+            scope,
+          )
+          const at = record.fact.kind === 'review' ? record.fact.at.slice(0, 12) : ''
+          return `Recorded: ${args.verdict} on ${at}.`
+        },
       })
 
       // The board as a composer chip: attached when the person wants an agent

@@ -285,13 +285,13 @@ test('search finds real matches in a real directory', async (t) => {
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await mkdir(join(dir, 'src'), { recursive: true })
   await writeFile(join(dir, 'src', 'target.ts'), 'export const NEEDLE_TOKEN = 1\n')
   await writeFile(join(dir, 'src', 'other.md'), 'NEEDLE_TOKEN in markdown\n')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(searchPlugin)
   await settle()
@@ -333,11 +333,11 @@ test('search_text shows a file past its twentieth match, up to the result limit'
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-many-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'many.txt'), Array.from({ length: 30 }, (_, n) => `retry ${n}`).join('\n') + '\n')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(searchPlugin)
   await settle()
@@ -353,11 +353,11 @@ test('a file with more matches than the result can show still says so', async (t
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-full-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'full.txt'), Array.from({ length: 100 }, (_, n) => `retry ${n}`).join('\n') + '\n')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(searchPlugin)
   await settle()
@@ -375,11 +375,11 @@ test('a result limit set as a fraction is a whole one, not a search ripgrep refu
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-fraction-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'five.txt'), Array.from({ length: 5 }, (_, n) => `retry ${n}`).join('\n') + '\n')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load({ ...searchPlugin, config: { maxResults: 2.5 } })
   await settle()
@@ -431,11 +431,11 @@ test('find_files says when ripgrep refused the glob, rather than that nothing ma
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-find-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'a.txt'), 'a\n')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(searchPlugin)
   await settle()
@@ -776,12 +776,12 @@ test('git contributes chips that stay out of every turn and resolve on demand', 
   const { join } = await import('node:path')
   const { execFileSync } = await import('node:child_process')
   const dir = mkdtempSync(join(tmpdir(), 'hd-git-chip-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir })
   writeFileSync(join(dir, 'a.txt'), 'hello\n')
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await kernel.load(gitPlugin)
   await settle()
   kernel.setWorkspace({ root: dir, branch: 'main' })
@@ -860,13 +860,13 @@ test('git_log takes a limit that is not a number as no limit, and never asks git
   const { join } = await import('node:path')
   const { execFileSync } = await import('node:child_process')
   const dir = mkdtempSync(join(tmpdir(), 'hd-git-log-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir })
   git('init', '-q', '-b', 'main')
   for (const n of [1, 2, 3]) git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', `c${n}`)
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await kernel.load(gitPlugin)
   await settle()
   kernel.setWorkspace({ root: dir, branch: 'main' })
@@ -895,7 +895,6 @@ test('git_log falls back through the setting as it does through the argument', a
   const { join } = await import('node:path')
   const { execFileSync } = await import('node:child_process')
   const dir = mkdtempSync(join(tmpdir(), 'hd-git-log-config-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir })
   git('init', '-q', '-b', 'main')
   for (const n of [1, 2, 3]) git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '--allow-empty', '-m', `c${n}`)
@@ -916,6 +915,9 @@ test('git_log falls back through the setting as it does through the argument', a
   const two = await configured({ logLimit: 2 })
   assert.equal(await two({}), 2, 'a number setting is the default')
   assert.equal(await two({ limit: 1 }), 1, 'and the asked limit still wins')
+  // Removed once every `configured()` kernel above has registered its own
+  // dispose, not from inside the factory itself (#868).
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
 })
 
 test('git_diff names files a/ and b/, whatever the repository is configured to show (#171)', async (t) => {
@@ -929,7 +931,6 @@ test('git_diff names files a/ and b/, whatever the repository is configured to s
   const { join } = await import('node:path')
   const { execFileSync } = await import('node:child_process')
   const dir = mkdtempSync(join(tmpdir(), 'hd-git-diff-prefix-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   const git = (...args: string[]): string => String(execFileSync('git', args, { cwd: dir }))
   git('init', '-q', '-b', 'main')
   writeFileSync(join(dir, 'f.txt'), 'one\n')
@@ -939,6 +940,7 @@ test('git_diff names files a/ and b/, whatever the repository is configured to s
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await kernel.load(gitPlugin)
   await settle()
   kernel.setWorkspace({ root: dir, branch: 'main' })
@@ -959,7 +961,6 @@ test('the last test run becomes a chip: nothing before a run, the verdict after'
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'hd-tests-chip-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   writeFileSync(
     join(dir, 'package.json'),
     JSON.stringify({ name: 'x', scripts: { test: 'node -e "console.log(\'1 passing\')"' } }),
@@ -967,6 +968,7 @@ test('the last test run becomes a chip: nothing before a run, the verdict after'
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await kernel.load(testsPlugin)
   await settle()
   kernel.setWorkspace({ root: dir, branch: null })
@@ -991,7 +993,6 @@ test('the verdict reads the run without its escape codes, tail and all (review o
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'hd-tests-colour-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   // A runner forcing colour: a hidden cursor, a red FAIL, a file link, and a failed run's exit code.
   writeFileSync(
     join(dir, 'fail.js'),
@@ -1005,6 +1006,7 @@ test('the verdict reads the run without its escape codes, tail and all (review o
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await kernel.load(testsPlugin)
   await settle()
   kernel.setWorkspace({ root: dir, branch: null })
@@ -1128,7 +1130,6 @@ test('read_file stops at the byte limit it is named for, and never cuts a charac
   const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-bytes-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   const bom = String.fromCharCode(0xfeff)
   const files: Record<string, string> = {
     'prices.txt': '€'.repeat(500),
@@ -1143,6 +1144,7 @@ test('read_file stops at the byte limit it is named for, and never cuts a charac
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load({ ...filesPlugin, config: { maxBytes: 1000.5 } })
   await settle()
@@ -1171,10 +1173,10 @@ test('read_file cuts at 64,000 bytes when nothing is configured', async (t) => {
   const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-default-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'big.txt'), 'a'.repeat(70_000))
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(filesPlugin)
   await settle()
@@ -1186,7 +1188,6 @@ test('read_file keeps its floor of 1,000 bytes, and a limit that is not a number
   const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
   const { tmpdir } = await import('node:os')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-files-floor-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await writeFile(join(dir, 'long.txt'), 'a'.repeat(2_000))
   await writeFile(join(dir, 'short.txt'), 'twenty-five bytes of text')
   const readWith = async (config: unknown, path: string) => {
@@ -1202,6 +1203,9 @@ test('read_file keeps its floor of 1,000 bytes, and a limit that is not a number
   for (const maxBytes of ['abc', {}]) {
     assert.equal(await readWith({ maxBytes }, 'short.txt'), 'twenty-five bytes of text', JSON.stringify(maxBytes))
   }
+  // Removed once every `readWith()` kernel above has registered its own
+  // dispose, not from inside the factory itself (#868).
+  t.after(() => rm(dir, { recursive: true, force: true }))
 })
 
 /**
@@ -1240,9 +1244,9 @@ const searchWith = async (t: TestContext, config: Record<string, unknown> = {}) 
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-fake-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load({ ...searchPlugin, config })
   await settle()
@@ -1306,11 +1310,11 @@ test('ripgrep cuts a long line itself, so minified files do not fill the output 
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-search-wide-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   const line = `retry ${'x'.repeat(200_000)}\n`
   await Promise.all(Array.from({ length: 100 }, (_, n) => writeFile(join(dir, `bundle-${n}.js`), line)))
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(searchPlugin)
   await settle()
@@ -1346,12 +1350,12 @@ test('a test run the shell cut short says it did not finish, not that it exited 
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = mkdtempSync(join(tmpdir(), 'hd-tests-flood-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
   // More than the shell keeps, 16 MB, so the run is cut off rather than finished.
   writeFileSync(join(dir, 'flood.js'), "process.stdout.write('x\\n'.repeat(9_000_000))")
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'x', scripts: { test: 'node flood.js' } }))
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
   await kernel.load(testsPlugin)
   await settle()
   kernel.setWorkspace({ root: dir, branch: null })
@@ -1368,13 +1372,13 @@ test('hasRipgrep probes `rg --version` rather than `which rg` (#459)', async (t)
   const { tmpdir } = await import('node:os')
   const { join } = await import('node:path')
   const dir = await mkdtemp(join(tmpdir(), 'hd-search-probe-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
 
   let ranWhich = false
   let ranRgVersion = false
 
   const mockKernel = new ExtensionKernel()
   t.after(() => mockKernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   mockKernel.setWorkspace({ root: dir, branch: null })
 
   // We can load searchPlugin with a mock or spy on shell service

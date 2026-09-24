@@ -21,6 +21,7 @@ import { EvidencePlane } from '../src/evidence/plane.js'
 import { canonical } from '../src/evidence/revision.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { evidenceDesk, makeRepo, until, writeAgent } from './fixtures/evidence-desk.js'
+import { seat } from './fixtures/goals.js'
 import { tempDir } from './scratch.js'
 
 /*
@@ -151,6 +152,39 @@ test('settling a board surfaces an observation write failure instead of previewi
   plane.observer.observe = async () => { throw new Error('observation write failed') }
   plane.settled('g1', card)
   await assert.rejects(plane.settledFor('g1'), /observation write failed/)
+})
+
+/*
+ * A wrap's `members` only names the Seats it held (the same `!seat.restored`
+ * filter `seats` itself uses), so evidence a restored Seat produced has
+ * nowhere else to learn a name from once a receipt is read back — the raw
+ * id `factIdsOfGoal` returned was all `GoalReceipt.tsx`'s `nameOf` had to
+ * fall back to. `byId` can still resolve a restored Seat's own record, so
+ * `factIdsOfGoal` now carries its `seatLabel` directly, restored or not.
+ */
+test("evidence a restored Seat produced carries that Seat's own label, not just its id", async () => {
+  const root = tempDir('hd-evidence-restored-seat-')
+  // A key for "which project", not a real folder the store resolves —
+  // matching goal-seatbook.test.ts's own '/work/repo'; the plane's `dir`
+  // above is the real temp folder its own storage lives under.
+  const project = '/work/repo'
+  const plane = new EvidencePlane(
+    { dir: join(root, 'evidence'), seenFile: join(root, 'seen.json') },
+    { board: () => null, cwdOf: () => null, push: () => {}, log: () => {} },
+  )
+  const { closed: _closed, ...opening } = seat('restored-seat', {
+    board: 'g1', restored: { at: 1 }, agent: { id: 'a1', name: 'Scout', origin: 'project' }, seatLabel: 'Claude · Opus',
+  })
+  await plane.seats.importOpening(project, opening)
+  await plane.store.append(project, 'evidence', [{
+    type: 'evidence',
+    record: {
+      id: 'fact-restored', seat: 'restored-seat', observedAt: 1,
+      fact: { kind: 'check', name: 'verify', run: 'pnpm verify', exit: 0, timedOut: false, at: 'a'.repeat(40), dirty: false, tail: '' },
+    },
+  }])
+  const refs = await plane.factIdsOfGoal('g1', project)
+  assert.deepEqual(refs, [{ id: 'fact-restored', seat: 'restored-seat', seatLabel: 'Claude · Opus' }])
 })
 
 test("through the host: a room's evidence is read from its project's store, with the checks the project names", async (t) => {
@@ -297,6 +331,33 @@ test("a message between agents is never evidence: an agent telling another the t
   const checkFacts = board.cards.flatMap((card) => card.facts.filter((fact) => fact.record.fact.kind === 'check'))
   assert.deepEqual(checkFacts, [], 'the agent said so; the desk observed no check run, so there is no check evidence to draw')
   assert.deepEqual(board.cards.flatMap((card) => card.running), [], 'speech starts no check run')
+})
+
+test('all reviewer Seats remain distinct: three producers at the same revision draw as three observations', async () => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const at = await repo.git('rev-parse', 'HEAD')
+  const review = (seat: string, verdict: string, observedAt: number): EvidenceRecord => ({
+    id: `review-${seat}`,
+    fact: { kind: 'review', verdict, by: seat, at },
+    card: { board: 'room-1', id: 4 },
+    checkout: { cwd: repo.dir, branch: 'main' },
+    seat,
+    round: 2,
+    observedAt,
+    posted: null,
+  })
+  const records = [review('seat-r1', 'approve', 1), review('seat-r2', 'approve', 2), review('seat-r3', 'request-changes', 3)]
+  const read = await boardEvidence({
+    room: 'room-1', stamp: 1, project, records, checks: [], refused: [], unreadable: null, running: [],
+    seatWords: (id) => ({ agent: 'Reviewer', seat: String(id) }),
+  })
+  const card = read.cards.find((one) => one.card === 4)
+  assert.equal(card?.facts.length, 3, 'one entry per reviewing Seat, not one overwritten display entry')
+  assert.deepEqual(
+    card?.facts.map((view) => (view.record.fact.kind === 'review' ? [view.record.fact.by, view.record.fact.verdict] : null)).sort(),
+    [['seat-r1', 'approve'], ['seat-r2', 'approve'], ['seat-r3', 'request-changes']].sort(),
+  )
 })
 
 test('the wire refuses a board read that names no room', () => {

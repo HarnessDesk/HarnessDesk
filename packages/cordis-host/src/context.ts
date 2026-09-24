@@ -5,7 +5,7 @@ import type {
   ToolSpec,
   UiSpec,
 } from './services.js'
-import type { EditorEdit, EditorEvent, ScopeQuery, UiDecoration,
+import type { EditorEdit, EditorEvent, EvidenceRecord, ReviewCandidate, ReviewInput, ScopeQuery, UiDecoration,
   ForgeReference,
 } from '@harnessdesk/protocol'
 
@@ -219,6 +219,16 @@ export interface HarnessContext {
       args: { readonly to: string; readonly text: string; readonly wake?: boolean },
       scope?: ScopeQuery,
     ): Promise<string>
+    /**
+     * Observed predecessor subjects this conversation's own claimed card may
+     * judge — structured, never prose; empty when it holds no such card.
+     */
+    reviewCandidates(intent: number, scope?: ScopeQuery): Promise<readonly ReviewCandidate[]>
+    /**
+     * Records one structured verdict against an observed candidate. Throws
+     * the refusal rather than returning a sentence; the caller words it.
+     */
+    recordReview(input: ReviewInput, scope?: ScopeQuery): Promise<EvidenceRecord>
   }
   /** The iOS Simulator, via simctl. Requires the `ios` permission. */
   readonly ios: {

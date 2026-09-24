@@ -4,7 +4,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import { test } from 'node:test'
 
-import type { BoardEvidence, GoalCitation, SeatRecord } from '@harnessdesk/protocol'
+import type { BoardEvidence, FlowExecution, GoalCitation, SeatRecord } from '@harnessdesk/protocol'
 
 import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../src/goals/plane.js'
 import { UNOBSERVED_LOADING_REFUSAL } from '../src/goals/assignments.js'
@@ -48,7 +48,7 @@ const rig = async (
         updatedAt: document.goal.updatedAt, members: [] }
     },
     evidence: async () => { if (readError) throw new Error('evidence unavailable'); return facts },
-    evidenceIds: async () => facts.cards.flatMap((card) => card.facts.map((fact) => fact.record.id)),
+    evidenceIds: async () => facts.cards.flatMap((card) => card.facts.map((fact) => ({ id: fact.record.id, seat: fact.record.seat ?? null }))),
     flow: () => undefined,
     busy: () => false,
     waits: () => false,
@@ -266,4 +266,123 @@ test('a port with nothing to say about attachments keeps letting a claimable car
   // missing-port-method case as a refusal.
   const proof = await rig()
   await assert.rejects(proof.plane.assign('g1', 1, { runtime: 'fake', sessionId: 's1' }), /must not seat or close/)
+})
+
+test('a wrap refused for a stale stamp never stops a flow run first', async () => {
+  const proof = await rig()
+  let stopFlowsCalls = 0
+  proof.port.stopFlows = async () => { stopFlowsCalls += 1 }
+  proof.port.flowLive = () => false
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  // The Goal changed after the preview was taken (its sentence, say) — the
+  // stamp taken above no longer matches, so the wrap must be refused. It must
+  // be refused *before* anything stops the run this test's flag would catch.
+  await proof.plane.update('g1', 0, { sentence: 'Finish something else' })
+  await assert.rejects(
+    proof.plane.wrap('g1', preview.stamp, choices),
+    /changed while you reviewed/,
+  )
+  assert.equal(stopFlowsCalls, 0, 'a refused wrap must not have stopped the run first')
+})
+
+test('a wrap that will proceed does stop flow dispatch, exactly once, before it commits', async () => {
+  const proof = await rig()
+  let stopFlowsCalls = 0
+  proof.port.stopFlows = async () => { stopFlowsCalls += 1 }
+  proof.port.flowLive = () => false
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  proof.port.closeId = async () => {}
+  proof.port.releaseClaim = async () => {}
+  proof.port.refuseMail = async () => {}
+  proof.port.retainLane = async () => {}
+  proof.port.finishWrap = async () => {}
+  const receipt = await proof.plane.wrap('g1', preview.stamp, choices)
+  assert.equal(receipt.summary, 'Done')
+  assert.equal(stopFlowsCalls, 1, 'a wrap that goes on to commit still stops dispatch, once, as its barrier')
+})
+
+/*
+ * A receipt names its Seats once, while they are still full — read later,
+ * `GoalView.members` answers `[]` for a wrapped Goal (see `membersOf`), so
+ * this is the only chance to capture a name at all. An Agent's name is
+ * trimmed to `null` rather than kept as an empty or blank string: a receipt
+ * that carries `''` reads as "this Seat's Agent is named nothing" rather
+ * than "no Agent held it", and `nameOf` in `GoalReceipt.tsx` falls back to
+ * `seatLabel` only on `null`.
+ */
+test('a wrap names each Seat once — an Agent’s name, or its bare seatLabel when blank or absent', async () => {
+  const proof = await rig()
+  proof.seats.push(
+    seat('seat-named', { agent: { id: 'a1', name: '  Reviewer  ', origin: 'project' }, seatLabel: 'Claude · Opus' }),
+    seat('seat-blank', { agent: { id: 'a2', name: '   ', origin: 'project' }, seatLabel: 'Codex · gpt-5.6' }),
+    seat('seat-none', { agent: null, seatLabel: 'Fake · default' }),
+  )
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  assert.deepEqual([...preview.receipt.members ?? []].sort((left, right) => left.seat.localeCompare(right.seat)), [
+    { seat: 'seat-blank', agent: null, seatLabel: 'Codex · gpt-5.6' },
+    { seat: 'seat-named', agent: 'Reviewer', seatLabel: 'Claude · Opus' },
+    { seat: 'seat-none', agent: null, seatLabel: 'Fake · default' },
+  ].sort((left, right) => left.seat.localeCompare(right.seat)))
+})
+
+/*
+ * A person step a run on this Goal opened is the person's to answer: the
+ * Goal itself says it needs them, the same as the board draws the card.
+ */
+test('a person step of a run on the Goal makes the Goal need its person', async () => {
+  const proof = await rig()
+  const document = proof.store.read('g1')
+  await proof.store.save({
+    ...document,
+    board: { ...document.board, nextIntent: 3, intents: [intent(1, { state: 'done' }), intent(2, { state: 'open', role: 'close' })] },
+    goal: { ...document.goal, revision: 1 },
+  }, 0)
+  proof.facts({
+    room: 'g1', stamp: 2, checks: ['verify'], refused: [], unreadable: null,
+    cards: [{ card: 1, running: [], facts: [{
+      record: { id: 'fact', card: { board: 'g1', id: 1 }, observedAt: 2,
+        fact: { kind: 'check', name: 'verify', run: 'node --test', exit: 0, timedOut: false, at: 'a'.repeat(40), dirty: false, tail: '' } },
+      freshness: { state: 'fresh' }, by: null,
+    }] }],
+  })
+  const execution = {
+    version: 2, id: 'flow-1', goal: 'g1', state: 'running', reason: null, operations: [], legacyRun: null,
+    document: { format: 'agents', flow: { roles: [{ id: 'close', kind: 'person', outcomes: ['closed'] }] } },
+    rounds: [{ n: 2, role: 'close', cards: [2], seats: [], evidence: [], state: 'running', cause: 'after:1:to-close' }],
+  } as unknown as FlowExecution
+  assert.notEqual((await proof.plane.view('g1')).activity, 'needs-you', 'an open card no run addressed to a person is not the person’s')
+  proof.port.executions = () => [execution]
+  assert.equal((await proof.plane.view('g1')).activity, 'needs-you')
+})
+
+test('a wrap holds the board before it reads it, and lets it go once it is done', async () => {
+  const proof = await rig()
+  const events: string[] = []
+  proof.port.holdBoard = (goal, reason) => { events.push(`hold ${goal}: ${reason}`); return () => { events.push('release') } }
+  const read = proof.port.evidence
+  proof.port.evidence = async (goal) => { events.push('read'); return read(goal) }
+  proof.port.flowLive = () => false
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  const preview = await proof.plane.preview('g1', choices)
+  events.length = 0
+  proof.port.closeId = async () => {}
+  proof.port.releaseClaim = async () => {}
+  proof.port.refuseMail = async () => {}
+  proof.port.retainLane = async () => {}
+  proof.port.finishWrap = async () => { events.push('finish') }
+  await proof.plane.wrap('g1', preview.stamp, choices)
+  const held = events.findIndex((one) => one.startsWith('hold g1: This Goal is wrapping'))
+  assert.ok(held >= 0, JSON.stringify(events))
+  assert.ok(held < events.lastIndexOf('read'), 'held before the read the receipt is built from')
+  assert.deepEqual(events.slice(-2), ['finish', 'release'])
+})
+
+test('a wrap reviews the cards as the board’s one writer has them, not an older document', async () => {
+  const proof = await rig()
+  proof.port.cards = () => [intent(1, { state: 'done' }), intent(2, { state: 'open' })]
+  const choices = { summary: 'Done', cards: [{ id: 1, resolution: 'finished' as const, reason: null }] }
+  await assert.rejects(proof.plane.preview('g1', choices), /Review every card once/)
 })

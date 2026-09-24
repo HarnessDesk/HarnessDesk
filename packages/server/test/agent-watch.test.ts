@@ -583,7 +583,6 @@ test('(F8) through the host: a folder inside a linked worktree gets the worktree
 
 test('(F1, host) an older #watchProjects call finishing late does not re-add a project a newer one dropped', async (t) => {
   const fakeGitDir = await mkdtemp(join(tmpdir(), 'hd-agent-watch-fakegit-'))
-  t.after(() => rm(fakeGitDir, { recursive: true, force: true }))
   const fakeGit = join(fakeGitDir, 'git')
   await writeFile(fakeGit, '#!/bin/sh\nsleep 3\nexit 1\n')
   await chmod(fakeGit, 0o755)
@@ -596,6 +595,9 @@ test('(F1, host) an older #watchProjects call finishing late does not re-add a p
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
   t.after(() => client.close())
+  // Removing this after the host is stopped, not before: a slow #watchProjects
+  // call still spawning `fakeGit` out of it could otherwise race the removal (#868).
+  t.after(() => rm(fakeGitDir, { recursive: true, force: true }))
 
   const p = tempDir('hd-agent-watch-project-')
   await mkdir(join(p, '.harnessdesk', 'agents', 'scout'), { recursive: true })

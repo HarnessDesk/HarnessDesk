@@ -38,6 +38,12 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
     get_context: 'read',
     get_team_status: 'read',
     agent_message: 'read',
+    /* A judgment, not a publication: reading and recording a structured
+       review is read-level even at a ceiling of `read`, exactly like
+       `complete_claim` — the evidence guard that acts on it is a later,
+       separately-ceilinged step (a merge role's own `grant: merge`). */
+    review_candidates: 'read',
+    record_review: 'read',
   },
   checkpoint: { create_checkpoint: 'edit', list_checkpoints: 'read' },
   web: { fetch_url: 'read' },

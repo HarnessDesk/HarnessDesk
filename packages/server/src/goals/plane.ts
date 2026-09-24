@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import {
-  activityOf, checkedDependencies, flowRoleOf, placeCard,
-  type BoardEvidence, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalReceipt, type GoalSeatRequest, type GoalView,
-  type SeatId, type SeatRecord, type SessionPointer, type TeamState,
+  activityOf, checkedDependencies, flowStepOf, placeCard,
+  type BoardEvidence, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
+  type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
@@ -14,7 +14,7 @@ import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
-import { recoverOperation, type GoalOperationPort } from './operations.js'
+import { recoverOperation, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { previewWrap, Wraps, type WrapInput } from './wrap.js'
 
@@ -50,7 +50,8 @@ export interface GoalPlanePort extends GoalOperationPort {
   opening(goal: string, session: SessionPointer, id: SeatId): Promise<SeatOpening>
   board(goal: string): TeamState
   evidence(goal: string): Promise<BoardEvidence>
-  evidenceIds(goal: string, project: string): Promise<readonly string[]>
+  /** Every fact attributable to this Goal, by id — and the Seat that produced each, for `GoalReceipt['evidenceSeats']`. */
+  evidenceIds(goal: string, project: string): Promise<readonly GoalReceiptEvidenceSeat[]>
   flow(goal: string): FlowRun | undefined
   busy(session: SessionPointer): boolean
   waits(session: SessionPointer): boolean
@@ -62,9 +63,25 @@ export interface GoalPlanePort extends GoalOperationPort {
     readonly gaps: readonly string[]
   }>
   revision(cwd: string): Promise<{ readonly head: string | null; readonly dirty: boolean | null }>
-  changed(view: GoalView): void
+  /**
+   * A Goal's view moved. `install: false` when the caller only wants windows
+   * told — a flow run's own state changed and the Goal store did not — so a
+   * view read before the board's own pending write lands is never installed
+   * over the newer board the desk holds in memory.
+   */
+  changed(view: GoalView, options?: { readonly install: boolean }): void
   activity(goal: string, previous: NonNullable<GoalView['activity']>, activity: NonNullable<GoalView['activity']>, sentence: string): void
   ready(): { ok: true } | { ok: false; reason: string }
+  /** Stops every flow run dispatching on this Goal, inside each run's own queue, before a wrap is taken. */
+  stopFlows?(goal: string): Promise<void>
+  /** Whether a run on this Goal (not only an old room's run) is still running or stalled. */
+  flowLive?(goal: string): boolean
+  /** The runs on this Goal, as the flow engine keeps them: which of its cards are a person's steps. */
+  executions?(goal: string): readonly FlowExecution[]
+  /** The Goal's cards as they stand — the board's one writer's copy — which a wrap reviews. Absent, the document's. */
+  cards?(goal: string): readonly Intent[]
+  /** Refuses every change to the Goal's board, with `reason`, until the answer is called. */
+  holdBoard?(goal: string, reason: string): () => void
   seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
   openLegacySeat(input: {
     goal: string
@@ -76,6 +93,9 @@ export interface GoalPlanePort extends GoalOperationPort {
     lane?: string
   }, goal: Goal): Promise<SeatRecord>
 }
+
+/** Why a Goal's board takes no change while it wraps. */
+export const WRAPPING = 'This Goal is wrapping, so its board takes no new work. Start another Goal for it.'
 
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
@@ -114,6 +134,7 @@ export class GoalPlane {
       ...(port.attachmentsObserved ? { attachmentsObserved: (session: SessionPointer) => port.attachmentsObserved!(session) } : {}),
     }, serial)
     this.#wraps = new Wraps({
+      hold: (goal) => this.port.holdBoard?.(goal, WRAPPING) ?? (() => {}),
       read: (goal) => this.#wrapInput(goal),
       stage: (goal, receipt, stamp) => this.#stageWrap(goal, receipt, stamp),
       closeSeats: (goal, ids) => this.#closeWrapSeats(goal, ids),
@@ -149,12 +170,13 @@ export class GoalPlane {
       problem = error instanceof Error ? error.message : String(error)
     }
     const run = this.port.flow(id)
+    const executions = this.port.executions?.(id) ?? []
     const placements = board.intents.map((intent) => placeCard({
       intent,
       evidence: evidence?.cards.find((card) => card.card === intent.id),
       stranded: this.port.stranded(id, intent.id),
       holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
-      forPerson: flowRoleOf(intent, run)?.kind === 'person',
+      forPerson: flowStepOf(intent, run, executions)?.kind === 'person',
     }))
     const dependencies = this.store.list().map((one) => one.goal)
     const activity = document.restored ? null : activityOf(document.goal, {
@@ -163,7 +185,7 @@ export class GoalPlane {
       busy: problem !== null || members.some((seat) => this.port.busy(seat.session)) ||
         placements.some((one) => one.column === 'review') ||
         (evidence?.cards.some((card) => card.running.length > 0) ?? false),
-      liveFlow: run?.state === 'running' || run?.state === 'stalled',
+      liveFlow: run?.state === 'running' || run?.state === 'stalled' || (this.port.flowLive?.(id) ?? false),
       cards: board.intents,
       dependencies,
     })
@@ -179,12 +201,12 @@ export class GoalPlane {
     }
   }
 
-  async refresh(id: string): Promise<void> {
+  async refresh(id: string, options: { readonly install: boolean } = { install: true }): Promise<void> {
     const view = await this.view(id)
     const previous = this.#activity.get(id)
     if (view.activity === null) this.#activity.delete(id)
     else this.#activity.set(id, view.activity)
-    this.port.changed(view)
+    this.port.changed(view, options)
     if (previous !== undefined && view.activity !== null && previous !== view.activity) {
       this.port.activity(id, previous, view.activity, view.goal.sentence)
     }
@@ -312,7 +334,7 @@ export class GoalPlane {
       seat.session.runtime === session.runtime && seat.session.sessionId === session.sessionId).map((seat) => seat.id)
     const operation = { kind: 'assignment', id: randomUUID(), goal, card, opening, close } as const
     await this.#stage(document, operation)
-    await recoverOperation(operation, this.port)
+    await this.#complete(operation)
     const kept = this.port.seats.byId(opening.id)
     if (!kept) throw new Error('The assigned Seat could not be read back. Finish recovery before starting work.')
     await this.refresh(goal)
@@ -329,7 +351,7 @@ export class GoalPlane {
       if (this.port.busy(record.session)) throw new Error("Stop this Seat's current turn before releasing it")
       const operation = { kind: 'release', id: randomUUID(), goal, seat: id, reason: 'released' } as const
       await this.#stage(document, operation)
-      await recoverOperation(operation, this.port)
+      await this.#complete(operation)
       await this.refresh(goal)
     })
   }
@@ -341,7 +363,23 @@ export class GoalPlane {
 
   async wrap(goal: string, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
     await this.port.settledFor(goal)
+    /*
+     * Validate before touching anything a refusal must leave alone. A stamp
+     * from `preview` can only ever have been taken while flow dispatch read
+     * as not live — `previewWrap` itself refuses otherwise — so checking as
+     * if it were already stopped is exactly what redoing the same preview
+     * would show once it is: every other input still has to match untouched.
+     * A wrap stale for any other reason — the sentence changed, a card
+     * moved — is refused right here, and this run was never stopped for it.
+     */
+    const approved = structuredClone(choices)
+    const input = await this.#wrapInput(goal)
+    const ready = previewWrap({ ...input, flow: false }, approved)
+    if (ready.stamp !== stamp) throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
     await this.#resolveCitationsBeforeWrap(goal)
+    // Only now, with the wrap otherwise certain to proceed: the barrier — no
+    // round opens and no Seat is sent work once wrapping has begun.
+    await this.port.stopFlows?.(goal)
     return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
   }
 
@@ -483,13 +521,73 @@ export class GoalPlane {
           await recoverOperation(document.operation, this.port)
           this.#recoveryProblems.delete(document.goal.id)
         } catch (error) {
-          if (document.operation.kind !== 'wrap') throw error
-          this.#recoveryProblems.set(document.goal.id,
-            `Wrapping could not finish: ${error instanceof Error ? error.message : String(error)}. Restart to retry recovery.`)
+          const reason = error instanceof Error ? error.message : String(error)
+          if (document.operation.kind === 'wrap') {
+            this.#recoveryProblems.set(document.goal.id, `Wrapping could not finish: ${reason}. Restart to retry recovery.`)
+            continue
+          }
+          /* An assignment or a release that cannot finish is set aside rather
+             than retried on every launch, where a refusal that will never
+             change — a card the Goal does not hold — failed the desk's start
+             each time. Either way the Goal says what happened. */
+          this.#recoveryProblems.set(document.goal.id, (await this.#setAside(document.operation, reason)).sentence)
         }
       }
       if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
     })
+  }
+
+  /**
+   * Runs a staged assignment or release to its end, or sets it aside: an
+   * operation left staged refuses every later save of its Goal, so a refusal
+   * must never leave one behind. Rethrows the refusal once set aside.
+   */
+  async #complete(operation: Exclude<GoalOperation, { kind: 'wrap' }>): Promise<void> {
+    try {
+      await recoverOperation(operation, this.port)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      const aside = await this.#setAside(operation, reason)
+      // Set aside, the refusal says it all; stuck, the Goal says so until a launch clears it.
+      if (!aside.settled) this.#recoveryProblems.set(operation.goal, aside.sentence)
+      await this.refresh(operation.goal).catch(() => {})
+      throw error
+    }
+    // The Goal took an assignment or a release: a note about an earlier one set aside no longer applies.
+    this.#recoveryProblems.delete(operation.goal)
+  }
+
+  /**
+   * Sets aside an assignment or a release that could not finish, and answers
+   * the sentence the Goal shows for it. An assignment is undone: the Seat it
+   * opened is closed and any claim it took released, so the card can be
+   * assigned again. A release is closed out as far as it got. Should even
+   * that fail, the operation stays (`settled: false`), the Goal refuses new
+   * work saying so, and the next launch tries again — the desk still starts.
+   */
+  async #setAside(operation: Exclude<GoalOperation, { kind: 'wrap' }>, reason: string): Promise<{ settled: boolean; sentence: string }> {
+    const what = operation.kind === 'assignment'
+      ? `Assigning ${operation.card === null ? 'a Seat' : `card ${operation.card}`}`
+      : 'Releasing a Seat'
+    try {
+      if (operation.kind === 'assignment') {
+        const seat = this.port.seats.byId(operation.opening.id)
+        if (seat && !seat.closed && !seat.restored) await this.port.closeId(seat.id, 'released')
+        if (seat) await this.port.releaseClaim(operation.goal, seat.id)
+      }
+      await this.port.finish(operation.goal, operation.id)
+    } catch (error) {
+      return {
+        settled: false,
+        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). Restart to retry recovery.`,
+      }
+    }
+    return {
+      settled: true,
+      sentence: operation.kind === 'assignment'
+        ? `${what} could not finish: ${reason}. The Seat it opened was closed; assign the card again.`
+        : `${what} could not finish: ${reason}. It was set aside; release the Seat again if it is still kept.`,
+    }
   }
 
   async #wrapInput(id: string): Promise<WrapInput> {
@@ -504,24 +602,31 @@ export class GoalPlane {
     const folders = [...new Set([document.goal.cwd, ...seats.map((seat) => seat.checkout.cwd), ...lanes.map((lane) => lane.cwd)].filter(Boolean))].sort()
     const revisions = await Promise.all(folders.map(async (cwd) => ({ cwd, ...await this.port.revision(cwd) })))
     const revisionByCwd = new Map(revisions.map((revision) => [revision.cwd, revision]))
-    const evidenceIds = [...await this.port.evidenceIds(id, document.goal.root)].sort()
+    const evidenceRefs = [...await this.port.evidenceIds(id, document.goal.root)]
+      .sort((left, right) => left.id.localeCompare(right.id))
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
-      ...(evidenceIds.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
+      ...(evidenceRefs.length === 0 ? ['No evidence was recorded for this Goal.'] : []),
       ...revisions.filter((revision) => revision.head === null || revision.dirty === null)
         .map((revision) => `Revision state was unavailable for ${revision.cwd}.`),
     ]
     return structuredClone({
       goal: document.goal,
-      cards: document.board.intents.map((card) => ({ id: card.id, state: card.state })),
+      cards: (this.port.cards?.(id) ?? document.board.intents).map((card) => ({ id: card.id, state: card.state })),
       dependencies: this.store.list().map((one) => ({ id: one.goal.id, state: one.goal.state })),
       busy: goalMembers(document, this.port.seats.all()).some((seat) => this.port.busy(seat.session)) ||
         evidence.cards.some((card) => card.running.length > 0),
-      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? ''),
+      flow: ['running', 'stalled'].includes(this.port.flow(id)?.state ?? '') || (this.port.flowLive?.(id) ?? false),
       pending: document.board.channel.some((entry) => entry.kind === 'message' && ['queued', 'held'].includes(entry.state)) ||
         goalMembers(document, this.port.seats.all()).some((seat) => this.port.waits(seat.session)),
       seats: seats.map((seat) => seat.id),
-      evidence: evidenceIds,
+      // Named here, once, while the Seat is still full — not derived later
+      // from `GoalView.members`, which answers `[]` the moment this Goal
+      // wraps (see `membersOf`). A receipt read after that has nowhere else
+      // to learn a Seat's name from.
+      members: seats.map((seat) => ({ seat: seat.id, agent: seat.agent?.name.trim() || null, seatLabel: seat.seatLabel })),
+      evidence: evidenceRefs.map((ref) => ref.id),
+      evidenceSeats: evidenceRefs,
       answers: answersRead.flatMap((read) => read.answer ? [read.answer] : []),
       lanes: lanes.map((lane) => ({
         lane: lane.id,

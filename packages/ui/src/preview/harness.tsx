@@ -6,7 +6,12 @@ import {
   type AgentEntry,
   type CeilingLevel,
   type CheckUnseen,
+  type FlowEntry,
+  type FlowExecution,
+  type FlowPreview,
   type FlowSeat,
+  type FlowUpdatePreview,
+  type FlowUpdateResult,
   type MachineSeating,
   type ProjectChecks,
   type ModelInfo,
@@ -62,6 +67,7 @@ import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixtu
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
 import { PREVIEW_GOALS } from './goal-fixture'
+import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -1119,6 +1125,22 @@ class PreviewStore {
   seatRecord = async (runtime: string, sessionId: string): Promise<SeatRecord | null> =>
     sessionKey(runtime, sessionId) === PREVIEW_SESSION_KEY ? PREVIEW_SEAT : null
   projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
+
+  // --- flows -----------------------------------------------------------
+  flowGeneration = (): number => 0
+  flowCatalog = async (): Promise<readonly FlowEntry[]> => PREVIEW_FLOWS
+  flowSource = async (_root: string, id: string): Promise<string> => PREVIEW_FLOW_SOURCE[id] ?? PREVIEW_FLOW_SOURCE['fix']!
+  previewFlow = async (_root: string, source: string): Promise<FlowPreview> => previewFlowPreviewFor(source)
+  startFlowGoal = async (): Promise<FlowExecution> => {
+    console.info('[preview] startFlowGoal')
+    throw new Error('Starting a flow is not wired up in the preview harness.')
+  }
+  previewFlowUpdate = async (_root: string, _id: string, mode: 'update' | 'customize'): Promise<FlowUpdatePreview> =>
+    mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
+  applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
+  readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
+  previewFlowRetry = async (): Promise<FlowPreview> => ({ ...FIX_PREVIEW, token: null, problems: [{ level: 'error', at: 'run', text: 'This flow or its seating changed. Review the dry run again before starting.' }] })
+  retryFlowCheck = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow run to retry here') }
 
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })

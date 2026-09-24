@@ -124,6 +124,59 @@ it('lists project Agents with their seat result and seats the selected Agent dur
   expect(onClose).toHaveBeenCalled()
 })
 
+it('marks a refused row so it reads as refused, not just annotated (#871)', async () => {
+  const store = rig()
+  await render(store)
+  const row = document.querySelector<HTMLElement>('[data-refused]')
+  expect(row).not.toBeNull()
+  // Greyed like a refused control everywhere else — scoped (on the row's
+  // own class list, via `[&_[data-slot=…]]`) to the lead and the name,
+  // never the reason, which has to clear body-text contrast to be read at
+  // all.
+  expect(row?.className).not.toContain('data-[refused]:opacity-45')
+  expect(row?.className).toContain('[&_[data-slot=list-row-lead]]:opacity-45')
+  expect(row?.className).toContain('[&_[data-slot=list-row-title]]:opacity-45')
+  // The reason is a wrapped description (a subtitle), not squeezed into the
+  // trailing figure, and carries none of that fade.
+  const subtitle = row?.querySelector<HTMLElement>('[data-wrap-subtitle]')
+  expect(subtitle?.textContent).toContain("Can't seat here")
+  expect(subtitle?.textContent).toContain('signed out')
+  expect(subtitle?.className).not.toContain('opacity-45')
+
+  // The seatable row (Reviewer) is a real, different row — not merely one
+  // this test found by the absence of an attribute it was filtering for.
+  // `data-[refused]:…` only ever takes effect where `data-refused` is set —
+  // the class string itself is the same on every row — so the attribute
+  // this row lacks, plus its own distinct content, is what a jsdom test can
+  // actually tell apart; the rule's effect is `list-row.test.tsx`'s job.
+  const seatable = [...document.querySelectorAll<HTMLElement>('[data-slot="list-row"]')].find((one) => !one.hasAttribute('data-refused'))
+  expect(seatable?.textContent).toContain('Reviewer')
+  expect(seatable?.textContent).toContain('Primary seat')
+  expect(seatable?.querySelector('[data-wrap-subtitle]')).toBeNull()
+})
+
+/*
+ * A screen reader moving to the refused row's radio has to hear why: the
+ * fade is invisible to it, and `data-refused` carries no ARIA semantics of
+ * its own. `aria-describedby` on the radio, pointing at the reason's own
+ * id, is what makes it heard alongside the row's name.
+ */
+it('describes a refused row’s radio with its reason, for a screen reader', async () => {
+  const store = rig()
+  await render(store)
+  const judge = document.querySelector<HTMLElement>('[aria-label="Judge"]')
+  expect(judge).not.toBeNull()
+  const describedBy = judge?.getAttribute('aria-describedby')
+  expect(describedBy).toBeTruthy()
+  const reason = describedBy ? document.getElementById(describedBy) : null
+  expect(reason?.textContent).toContain("Can't seat here")
+  expect(reason?.textContent).toContain('signed out')
+
+  // A seatable radio has no reason to point at.
+  const reviewer = document.querySelector<HTMLElement>('[aria-label="Reviewer"]')
+  expect(reviewer?.hasAttribute('aria-describedby')).toBe(false)
+})
+
 it('keeps the dialog open and shows the host refusal', async () => {
   const store = rig()
   ;(store.seatGoal as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('That Agent became unavailable.'))

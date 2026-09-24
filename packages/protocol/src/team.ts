@@ -74,6 +74,18 @@ export interface IntentClaim {
    * claim on it the moment this ships.
    */
   readonly leaseUntil?: number
+  /**
+   * The commit its holder's checkout was at when it took the card: where the
+   * card's own work began, which a diff on a shared branch is measured from.
+   * Null when there was no commit; absent on a claim written before this was.
+   */
+  readonly head?: string | null
+  /**
+   * Where the remote's copy of the holder's branch stood when it took the
+   * card: what a diff sets aside when the checkout keeps no record of which
+   * commits were made in it. Null when there was none.
+   */
+  readonly upstream?: string | null
 }
 
 /**
@@ -142,6 +154,12 @@ export interface Intent {
   readonly note?: string | null
   /** The goal this belongs to, when it came from one. */
   readonly plan?: number | null
+  /**
+   * The host's key for a card a flow run opened — run, round and slot — so
+   * inserting it again after a crash finds this card instead of adding a
+   * second. Absent on every card a person or an agent added.
+   */
+  readonly dispatch?: string | null
   readonly createdAt: number
   readonly updatedAt: number
 }

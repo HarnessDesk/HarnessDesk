@@ -106,10 +106,34 @@ export class EvidenceStore {
   #queue: Promise<void> = Promise.resolve()
   /** The first write that failed since the last `flush()`. */
   #failure: unknown = null
+  readonly #durable = new Set<(project: string, file: StoreFile, lines: readonly StoredLine[]) => void>()
 
   constructor(dir: string, log: (message: string, details: Readonly<Record<string, unknown>>) => void = () => {}) {
     this.#dir = dir
     this.#log = log
+  }
+
+  /**
+   * Told of every line once it is synced — after each append and each merge,
+   * and of a failed batch's synced prefix — and never of a line that is not
+   * on the disk. How whatever reads facts learns there is a new one to read,
+   * without a second path that could miss a writer. A listener that throws is
+   * not the store's failure.
+   */
+  onDurable(listener: (project: string, file: StoreFile, lines: readonly StoredLine[]) => void): () => void {
+    this.#durable.add(listener)
+    return () => this.#durable.delete(listener)
+  }
+
+  #tell(project: string, file: StoreFile, lines: readonly StoredLine[]): void {
+    if (lines.length === 0) return
+    for (const listener of this.#durable) {
+      try {
+        listener(project, file, lines)
+      } catch (error) {
+        this.#log('a listener for new evidence records failed', { project, file, error: error instanceof Error ? error.message : String(error) })
+      }
+    }
   }
 
   /** The folder a project's records live in: its name and the first ten hex characters of its path's hash. */
@@ -243,6 +267,7 @@ export class EvidenceStore {
           }
           await handle.sync()
           durable = written
+          this.#tell(project, file, lines)
         } catch (error) {
           // A later line can fail after a whole prefix was appended. Sync that
           // prefix before reporting it as restored. A failure of the batch's
@@ -251,6 +276,7 @@ export class EvidenceStore {
             try {
               await handle.sync()
               durable = written
+              this.#tell(project, file, lines.slice(0, durable))
             } catch {
               // The prefix did not reach the durability boundary either.
             }

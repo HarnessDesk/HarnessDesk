@@ -80,7 +80,6 @@ test('a turn beginning in one conversation does not clear another′s counters',
 
 test('the last test run is the one this conversation started', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-tests-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   // A workspace the detector recognises, whose suite fails fast and cheaply.
   await writeFile(
     join(dir, 'package.json'),
@@ -90,6 +89,7 @@ test('the last test run is the one this conversation started', async (t) => {
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(testsPlugin)
   await settle()
@@ -117,7 +117,6 @@ test('the last test run is the one this conversation started', async (t) => {
 
 test('checkpoints are listed to the conversation that took them', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-ckpt-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await run('git', ['init', '-q'], { cwd: dir })
   await run('git', ['config', 'user.email', 't@example.com'], { cwd: dir })
   await run('git', ['config', 'user.name', 'T'], { cwd: dir })
@@ -127,6 +126,7 @@ test('checkpoints are listed to the conversation that took them', async (t) => {
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(checkpointPlugin)
   await settle()
@@ -178,7 +178,6 @@ test('a scope with no session is one entry, not a new one each time', () => {
 
 test('the automatic pre-write checkpoint is taken per conversation', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-auto-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
   await run('git', ['init', '-q'], { cwd: dir })
   await run('git', ['config', 'user.email', 't@example.com'], { cwd: dir })
   await run('git', ['config', 'user.name', 'T'], { cwd: dir })
@@ -188,6 +187,7 @@ test('the automatic pre-write checkpoint is taken per conversation', async (t) =
 
   const kernel = new ExtensionKernel()
   t.after(() => kernel.dispose())
+  t.after(() => rm(dir, { recursive: true, force: true }))
   kernel.setWorkspace({ root: dir, branch: null })
   await kernel.load(checkpointPlugin)
   await settle()

@@ -155,6 +155,8 @@ const remoteTeamEngine: TeamEngine = {
   handoff: (intent, scope) => askHost('team/handoff', { scope, intent }),
   status: (scope) => askHost('team/status', { scope }),
   send: (args, scope) => askHost('team/send', { scope, ...args }),
+  reviewCandidates: (intent, scope) => askHost('team/reviewCandidates', { scope, intent }),
+  recordReview: (input, scope) => askHost('team/recordReview', { scope, ...input }),
 }
 
 setTeamEngine(remoteTeamEngine)
