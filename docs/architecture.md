@@ -196,6 +196,29 @@ host-minted reviewed stamp and checks the seating file in its write queue.
 - **Credentials** — the broker (`credentials.json`); values are encrypted with
   the OS keystore by the Electron shell and never reach the renderer.
 - **The tool gateway** (`tool-gateway.ts`) — see the extension plane.
+- **Agent attachments** (`attachments/`) — an Agent's declared skills and MCP
+  servers, resolved against a bounded catalog reader and a person-reviewed
+  local trust store (`attachment-trust.json`) before any of it is ever passed
+  to a runtime. A Seat's attachments are decided once, at open (`prepare`),
+  and durably frozen from what the runtime's own readback reported
+  (`record`, append-only per Seat under `attachments/seats/`) — never
+  re-derived on reconnect or widened by a later approval. What was approved
+  is staged by the host (`attachments/staged/`) and a runtime is handed that
+  copy; each Seat's decided filter is kept in `attachments/frozen/` and
+  re-applied, revalidated, on a resume, a load or a reconnect. External MCP
+  servers are reached only through the existing gateway
+  (`attachments/wiring.ts`), at a conservative default classification (`merge`) no
+  repository or server can lower, run in `attachments/run/`, and are torn
+  down with the desk.
+- **Project memory** (`goals/memory-archive/`) — content-addressed, durable
+  snapshots of a committed `.harnessdesk/memory/*.md` file a person cited
+  into a Goal: the exact bytes, the source Goal's wrapped receipt and the
+  Seats that were there, retained before the citing Goal's own index ever
+  references the object. A citation still resolves once its source Goal, its
+  Git history, or the desk that made it, is gone — labeled honestly rather
+  than guessed at. `memory/list` and `memory/read` are the only reads; the
+  host never writes memory itself, and no citation, live or backup-restored,
+  authorizes anything beyond satisfying the one dependency edge it created.
 
 The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
@@ -221,7 +244,10 @@ State lives in `~/.harnessdesk/` (overridable by `HARNESSDESK_HOME`):
 and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
 `transcripts/`, `plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
 `audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
-`names.json`, `team/`, `acp-registry.json`, and `downloads/`.
+`names.json`, `team/`, `acp-registry.json`, `downloads/`,
+`attachment-trust.json` and `attachments/seats/` (a person's local approvals
+and every Seat's frozen attachment history), and `goals/memory-archive/`
+(retained citation snapshots, beside `goals/` itself).
 
 ## The extension plane
 

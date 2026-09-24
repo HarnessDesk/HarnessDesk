@@ -46,6 +46,13 @@ export interface GatedCall {
   readonly scope: ScopeQuery
   /** True for a desk tool that posts to a forge: a blind round's embargo holds it back, for the caller and its root. */
   readonly publishes?: boolean
+  /**
+   * Discovery, not a call: the same ceiling and embargo are applied, but
+   * nothing is said into the conversation and no person is asked — a
+   * listing a person would have to be asked about is simply not shown, and
+   * the call itself asks if it is ever made.
+   */
+  readonly quiet?: boolean
 }
 
 export type Admission = { readonly admitted: true } | { readonly admitted: false; readonly refusal: string }
@@ -88,14 +95,14 @@ export class CeilingGate {
       // A delegated call is held to its root's embargo too: a blind reviewer cannot publish through a helper.
       const embargo = this.port.embargoOf?.(String(runtime), String(sessionId)) ?? this.port.embargoOf?.(root.runtime, root.sessionId) ?? null
       if (embargo) {
-        this.port.say(root.runtime, root.sessionId, embargo)
+        if (!call.quiet) this.port.say(root.runtime, root.sessionId, embargo)
         return { admitted: false, refusal: embargo }
       }
     }
     const ceiling = this.port.ceilingOf(root.runtime, root.sessionId)
     if (ceiling && !reaches(ceiling.level, call.needs)) {
       const refusal = refusalOf(call.tool, call.needs, ceiling.level)
-      this.port.say(root.runtime, root.sessionId, refusal)
+      if (!call.quiet) this.port.say(root.runtime, root.sessionId, refusal)
       return { admitted: false, refusal }
     }
     if (!reaches(call.needs, 'publish')) return { admitted: true }
@@ -104,6 +111,7 @@ export class CeilingGate {
     const cause = this.port.causeOf(root.runtime, root.sessionId, turnId)
     if (cause.kind !== 'message' || !cause.ceiling || reaches(cause.ceiling.level, call.needs)) return { admitted: true }
     const words = heldWords(call.tool, call.needs, { name: cause.from.name, level: cause.ceiling.level }, this.port.nameOf(root.runtime, root.sessionId))
+    if (call.quiet) return { admitted: false, refusal: words.waiting }
     this.port.say(root.runtime, root.sessionId, words.waiting)
     const answer = await this.port.askPerson(root.runtime, root.sessionId, words.question)
     if (answer === 'allowed') {

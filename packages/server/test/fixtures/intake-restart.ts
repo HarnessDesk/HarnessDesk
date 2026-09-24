@@ -55,7 +55,7 @@ rules: []
 export const agentEntry = (id: string): AgentEntry => ({
   id, origin: 'project', path: `.harnessdesk/agents/${id}/AGENT.md`, digest: `${id}-digest`, shadows: [], problems: [],
   definition: {
-    id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: ['approve', 'request-changes'], produces: [], skills: [],
+    id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: ['approve', 'request-changes'], produces: [], skills: [], mcp: [],
     prefer: [{ runtime: 'alpha' }], brief: `${id} brief`,
   },
 })

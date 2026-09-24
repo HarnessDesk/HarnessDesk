@@ -291,7 +291,7 @@ test('a field an Agent does not have is named in a warning — a misspelt ceilin
     {
       level: 'warning',
       at: 'permissions',
-      text: '"permissions" is not read — an Agent\'s fields are name, description, ceiling, permission, answers, produces, skills and prefer',
+      text: '"permissions" is not read — an Agent\'s fields are name, description, ceiling, permission, answers, produces, skills, mcp and prefer',
     },
   ])
   // Every field it does have is read, and so warns about nothing.
@@ -383,4 +383,51 @@ test('a ceiling that is no word on the ladder, or empty, is an error — never a
   const edit = parseAgentDefinition('---\nname: Old\npermission: edit\n---\nx\n', 'old')
   assert.equal(edit.agent, null)
   assert.equal(edit.problems[0]?.at, 'permission')
+})
+
+// ------------------------------------------------------------- mcp (phase 12)
+
+test('parses mcp without changing legacy empty skills', () => {
+  /* An Agent written before mcp: existed, with no skills: at all, keeps
+     reading exactly as it always did once mcp: is added beside it — the new
+     field neither disturbs the old ceiling provenance nor invents a skill. */
+  const { agent, problems } = parseAgentDefinition(
+    '---\nname: Old\npermission: publish\nmcp: [docs]\n---\nWork.\n',
+    'old',
+  )
+  assert.deepEqual(problems, [])
+  assert.deepEqual(agent?.skills, [])
+  assert.deepEqual(agent?.mcp, ['docs'])
+  assert.equal(agent?.ceiling, 'publish')
+  assert.equal(agent?.ceilingFrom, 'permission')
+  // The compact-scalar convenience skills has always had is not mcp's: still one word, still one name.
+  const scalar = parseAgentDefinition('---\nname: One\nmcp: docs\n---\nWork.\n', 'one')
+  assert.deepEqual(scalar.problems, [])
+  assert.deepEqual(scalar.agent?.mcp, ['docs'])
+})
+
+test('rejects executable mcp declarations', () => {
+  /* mcp: names an existing Library server; it never defines one. An object, a
+     URL or a path in this field is exactly the shape of a command or a
+     credential a repository must never get to hand a runtime, so each is
+     refused on its own line rather than silently dropped — unlike skills'
+     forgiving drop of a non-scalar list entry, which this field does not
+     inherit. */
+  for (const bad of [
+    '---\nname: Bad\nmcp:\n  - command: rm\n---\nx\n',
+    '---\nname: Bad\nmcp: ["https://evil.example/mcp"]\n---\nx\n',
+    '---\nname: Bad\nmcp: ["../outside"]\n---\nx\n',
+  ]) {
+    const { agent, problems } = parseAgentDefinition(bad, 'bad')
+    assert.equal(agent, null, bad)
+    assert.equal(problems.length, 1, bad)
+    assert.equal(problems[0]?.at, 'mcp', bad)
+  }
+  // 65 distinct, otherwise-valid names still refuse the whole field, whole — never the first 64.
+  const names = Array.from({ length: 65 }, (_, index) => `s${index}`).join(', ')
+  const { agent, problems } = parseAgentDefinition(`---\nname: Many\nmcp: [${names}]\n---\nx\n`, 'many')
+  assert.equal(agent, null)
+  assert.equal(problems.length, 1)
+  assert.equal(problems[0]?.at, 'mcp')
+  assert.match(problems[0]?.text ?? '', /at most 64/)
 })

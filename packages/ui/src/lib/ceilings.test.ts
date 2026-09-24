@@ -13,6 +13,7 @@ const definition = (over: Partial<AgentDefinition>): AgentDefinition => ({
   answers: [],
   produces: [],
   skills: [],
+  mcp: [],
   prefer: [],
   brief: 'Read.',
   ...over,

@@ -1216,6 +1216,13 @@ rl.on('line', (line) => {
     appendFileSync(process.env['FAKE_CODEX_FOLDERS'], `${JSON.stringify({ method, cwd: params?.cwd ?? null })}\n`)
   }
 
+  // FAKE_CODEX_CALLS=<file> records every method name asked of this fake, one
+  // per line — for a test proving a *negative*: that some flow never asks
+  // for something, which "the round trip still works" cannot show on its own.
+  if (process.env['FAKE_CODEX_CALLS']) {
+    appendFileSync(process.env['FAKE_CODEX_CALLS'], `${method}\n`)
+  }
+
   switch (method) {
     case 'initialize':
       send({

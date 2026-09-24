@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 
-import type { AgentEntry } from '@harnessdesk/protocol'
+import type { AgentEntry, GoalId, GoalView } from '@harnessdesk/protocol'
 
 import { agentName, ceilingWords, projectName } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
 import { FolderIcon } from './Icons'
+import { MemoryCitation } from './MemoryCitation'
 import { ProjectChecks } from './ProjectChecks'
 import { ProjectFlows } from './ProjectFlows'
 import { ProjectProvenance } from './ProjectProvenance'
@@ -17,6 +18,7 @@ import {
   Chip,
   DetailHead,
   DetailMark,
+  NativeSelect,
   Note,
   Row,
   RowButton,
@@ -42,6 +44,12 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
   const snapshot = useSnapshot()
   const [agents, setAgents] = useState<readonly AgentEntry[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  // Explicit page use, never a startup read: nothing here is fetched until a
+  // person presses "Project memory" — the plain path (a project nobody has
+  // ever cited into) never pays for a host round trip it never asked for.
+  const [memoryOpen, setMemoryOpen] = useState(false)
+  const [openGoals, setOpenGoals] = useState<readonly GoalView[] | null>(null)
+  const [citeInto, setCiteInto] = useState('')
   const listed = snapshot.workspaces.find((one) => one.path === root) ?? null
   const current = snapshot.workspace?.path === root
   const name = listed ? (projectName(listed) ?? listed.name) : (root.split('/').filter(Boolean).at(-1) ?? root)
@@ -62,6 +70,16 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
     }
     // The roster moving under any of its roots (`agent/changed`) is a reason to read again.
   }, [store, root, snapshot.agents])
+
+  useEffect(() => {
+    if (!memoryOpen) return
+    let live = true
+    store.transport.request('goal/list', { root }).then(
+      (views: readonly GoalView[]) => { if (live) setOpenGoals(views.filter((one) => one.goal.state === 'open')) },
+      () => { if (live) setOpenGoals([]) },
+    )
+    return () => { live = false }
+  }, [store, root, memoryOpen])
 
   // Where the host reads them: the top of the checkout, which the first one found names exactly.
   const folder = agents?.[0]
@@ -154,6 +172,30 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
       <ProjectChecks root={root} />
       <ProjectTriggers root={root} />
       <ProjectProvenance root={root} />
+      {memoryOpen ? (
+        <section aria-label="Memory">
+          <SectionHead name="Memory" />
+          {openGoals && openGoals.length > 0 && (
+            <NativeSelect
+              aria-label="Cite into"
+              value={citeInto}
+              onChange={(event) => setCiteInto(event.target.value)}
+            >
+              <option value="">Browse only — choose a Goal to cite into</option>
+              {openGoals.map((one) => <option key={one.goal.id} value={one.goal.id}>{`Cite into: ${one.goal.sentence}`}</option>)}
+            </NativeSelect>
+          )}
+          <MemoryCitation root={root} goal={(citeInto || null) as GoalId | null} />
+        </section>
+      ) : (
+        <Rows>
+          <RowButton
+            title="Project memory"
+            desc="Committed notes a Goal can cite."
+            onClick={() => setMemoryOpen(true)}
+          />
+        </Rows>
+      )}
     </>
   )
 }

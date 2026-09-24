@@ -25,10 +25,16 @@ import {
   type SeatGrant,
   type SeatId,
   type SeatRecord,
+  type SessionAttachmentReceipt,
+  type SessionAttachments,
   type UsageReport,
+  runtimeId,
+  sessionId as makeSessionId,
 } from '@harnessdesk/protocol'
+import { receiptFrom, type AttachmentSubject, type PreparedAttachments } from '../attachments/plane.js'
 
 import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
+import { incarnationOf } from '../evidence/seen.js'
 import type { SeatedAs } from '../registry.js'
 import {
   agentIdOf,
@@ -442,6 +448,65 @@ export interface AgentSeatContext {
   unattended?: boolean
 }
 
+/**
+ * Resolves, checks trust and ceiling, and builds the isolated input a
+ * candidate's runtime session is created with — called before that session
+ * exists, so `SessionOptions.attachments` can actually carry what this
+ * function decides rather than describe a session already running unscoped.
+ *
+ * A refusal here (an unsuppressed unapproved default, most notably) is never
+ * caught and retried against the next candidate: decision "refuse, never
+ * substitute" means a runtime that cannot honor this Seat's declarations
+ * fails the whole seating, in this candidate's own words, rather than
+ * silently seating on a different runtime nobody announced.
+ */
+async function prepareAttachments(
+  attachments: NonNullable<HostContext['attachments']>,
+  subject: AttachmentSubject,
+): Promise<PreparedAttachments> {
+  return attachments.prepare(subject)
+}
+
+/**
+ * Reads back what the runtime actually loaded and durably freezes it — or
+ * writes nothing at all. An Agent with no `skills:`/`mcp:` declared resolves
+ * to zero declarations, and this is never called for it: the plain path
+ * stays plain, with no sidecar file and no input ever computed for it.
+ *
+ * The receipt comes from the runtime's own `attachmentReceipt`, read back
+ * after the session exists — never assumed from what was requested. A
+ * runtime with no such method, one that throws, or one that answers a key
+ * that does not match what this Seat was actually prepared with, is treated
+ * exactly like a runtime that loaded nothing: honest, never optimistic.
+ */
+async function finishAttachments(
+  attachments: NonNullable<HostContext['attachments']>,
+  runtime: AgentRuntime | undefined,
+  sessionId: string,
+  prepared: PreparedAttachments,
+  record: SeatRecord,
+): Promise<void> {
+  if (prepared.declarations.length === 0) return
+  // A readback that failed, or answered for another key, is "not loaded", never "loaded".
+  await attachments.record(record, prepared, await receiptFrom(runtime, makeSessionId(sessionId), prepared.input.key))
+}
+
+/**
+ * The runtime `seatAgent` would seat this Agent on by default — the same
+ * candidate list, the same desk read and the same `chooseSeat` at the same
+ * default ceiling — without opening anything. `attachment/review` asks this
+ * so a person approves loading for the runtime (and build) the Seat will
+ * actually check the approval against, never merely the first runtime that
+ * happens to support attachments at all. `null` when no candidate would seat.
+ */
+export async function defaultSeatRuntime(ctx: HostContext, definition: AgentDefinition): Promise<string | null> {
+  const list = candidatesFor(definition, await ctx.seating.read())
+  if ('refused' in list) return null
+  const desk = await readDesk(ctx, list.seats)
+  const need: CeilingNeed = { level: ceilingWithin(definition.ceiling, grantOf(undefined)), unheld: unheldPolicy(ctx.state.state.preferences) }
+  return chooseSeat(list.seats, desk.offers, need).seat?.runtime ?? null
+}
+
 /** The one seating operation used by a plain Agent and by Goal staffing. */
 export async function seatAgent(
   ctx: HostContext,
@@ -449,7 +514,8 @@ export async function seatAgent(
   context: AgentSeatContext,
 ): Promise<{ session: HostMethods['agent/seat']['result']; record: SeatRecord }> {
   if (!isAbsolute(params.cwd)) throw new Error(`${params.cwd} is not an absolute path.`)
-  const entry = await ctx.agents.read(params.id, await projectOf(ctx, params.project))
+  const project = await projectOf(ctx, params.project)
+  const entry = await ctx.agents.read(params.id, project)
   if (!entry) throw new Error(`No Agent called “${params.id}”.`)
   const { definition, digest } = entry
   if (!definition || digest === null) throw new Error(unusable(entry))
@@ -461,6 +527,12 @@ export async function seatAgent(
   )
   const preferences = ctx.state.state.preferences
   const need: CeilingNeed = { level, unheld: context.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences) }
+  // Its repository's identity on disk, not its path: computed once, the same
+  // way `evidence/seen.ts` binds a command approval, so a repository deleted
+  // and cloned again at the same path is a new incarnation and inherits
+  // nothing. Only when this build is wired for attachments at all — an
+  // unwired host has no trust store for the identity to matter to.
+  const incarnation = ctx.attachments ? await incarnationOf(project ?? params.cwd) : ''
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
@@ -475,8 +547,31 @@ export async function seatAgent(
     if (!chosen.seat) throw new SeatRefusedError(explainRefusal(passed), { candidates: said(passed) })
     const selected = chosen.seat
     rest = rest.slice(chosen.passed.length + 1)
+    // Prepared before this candidate's session exists — never after — so a
+    // capable runtime is actually handed the isolated filter at
+    // `createSession`, instead of a native, unscoped session being asked
+    // after the fact to account for attachments it was never given. A thrown
+    // refusal here (an unsuppressed unapproved default) is deliberately not
+    // caught: it fails the whole seating on this candidate's own runtime,
+    // never falling through to try another one it never announced.
+    const prepared: PreparedAttachments | undefined = ctx.attachments
+      ? await prepareAttachments(ctx.attachments, {
+          project: project ?? params.cwd,
+          incarnation,
+          agent: definition.id,
+          origin: entry.origin,
+          agentDigest: digest,
+          runtime: selected.runtime,
+          build: ctx.runtimes.get(selected.runtime)?.info.version ?? '',
+          ceiling: level,
+        })
+      : undefined
+    const attachmentsInput: SessionAttachments | undefined =
+      prepared && prepared.declarations.length > 0 ? prepared.input : undefined
     const opened = await openAsAsked(ctx, selected, {
-      cwd: params.cwd, title: definition.name, ...(context.environment ? { environment: context.environment } : {}),
+      cwd: params.cwd, title: definition.name,
+      ...(context.environment ? { environment: context.environment } : {}),
+      ...(attachmentsInput ? { attachments: attachmentsInput } : {}),
     })
     if ('reason' in opened) {
       passed.push(opened)
@@ -523,6 +618,21 @@ export async function seatAgent(
         `${definition.name} was seated on ${describeSeat(selected, words)}, and its Seat record could not be written, so the conversation was closed: ${messageOf(error)}`,
       )
     }
+    if (ctx.attachments && prepared) {
+      try {
+        await finishAttachments(ctx.attachments, ctx.runtimes.get(opened.runtime), opened.sessionId, prepared, record)
+        // Beside the session, the same way `seatedAs` is: the tool gateway
+        // resolves a live caller token to this Seat through the registry,
+        // never by re-deriving it, so a re-announced session cannot forget it.
+        ctx.registry.recordAttachmentSeat(runtimeId(opened.runtime), makeSessionId(opened.sessionId), record.id)
+      } catch (error) {
+        await ctx.evidence.seats.closeId?.(record.id, 'deleted').catch(() => {})
+        await ctx.seats.retire(opened.runtime, opened.sessionId)
+        throw new Error(
+          `${definition.name} was seated on ${describeSeat(selected, words)}, and its attachment record could not be written, so the conversation was closed: ${messageOf(error)}`,
+        )
+      }
+    }
     try {
       await ctx.seats.order(opened.runtime, opened.sessionId, agentOrder(definition.brief, level, params.cwd))
     } catch (error) {
@@ -560,7 +670,7 @@ export async function seatAgent(
  * A folder inside a checkout is read as that checkout's top (`topLevel`),
  * because that is where a project keeps its Agents.
  */
-const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
+export const projectOf = async (ctx: HostContext, project: string | undefined): Promise<string | undefined> => {
   if (project === undefined) return undefined
   if (!isAbsolute(project)) throw new Error(`${project} is not an absolute path.`)
   const confined = await ctx.workspaces.confineGitRoot(project)
@@ -574,7 +684,7 @@ const projectOf = async (ctx: HostContext, project: string | undefined): Promise
 }
 
 /** Why an entry cannot be seated: its first error, where it is, in the file's own terms. */
-const unusable = (entry: AgentEntry): string => {
+export const unusable = (entry: AgentEntry): string => {
   const problem = entry.problems.find((one) => one.level === 'error')
   return `${entry.path} cannot be used: ${problem ? `${problem.at} — ${problem.text}` : 'it could not be read'}`
 }
@@ -623,7 +733,7 @@ const RANK: Readonly<Record<AgentOrigin, number>> = { project: 0, user: 1, built
 
 const exactSeat = (seat: FlowSeat): boolean => Boolean(seat.model || seat.effort || seat.thinking)
 
-const originAgent = (origin: AgentOrigin): string =>
+export const originAgent = (origin: AgentOrigin): string =>
   origin === 'builtin' ? 'built-in' : origin === 'user' ? 'personal' : 'project'
 
 const originCopy = (origin: AgentOrigin): string =>
@@ -638,7 +748,7 @@ const shadowedText = (to: 'user' | 'project', winner: AgentOrigin, id: string): 
 const copyAt = (entry: AgentEntry, origin: AgentOrigin): string | null =>
   entry.origin === origin ? entry.path : (entry.shadows.find((one) => one.origin === origin)?.path ?? null)
 
-type ListedAgentPath =
+export type ListedAgentPath =
   | { readonly at: 'found'; readonly path: string }
   | { readonly at: 'missing' }
   | { readonly at: 'invalid' }
@@ -649,7 +759,7 @@ type ListedAgentPath =
  * other path. Neither becomes a copy, Trash target or reveal merely because it
  * appeared in the roster.
  */
-const listedAgentPath = (
+export const listedAgentPath = (
   ctx: HostContext,
   entry: AgentEntry,
   origin: AgentOrigin,
@@ -670,7 +780,7 @@ const listedAgentPath = (
   return { at: 'found', path }
 }
 
-const updatable = async (
+export const updatable = async (
   ctx: HostContext,
   params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string },
 ): Promise<{ readonly path: string; readonly folder: string; readonly project: string | undefined }> => {
@@ -797,7 +907,12 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 const openAsAsked = async (
   ctx: HostContext,
   seat: FlowSeat,
-  where: { readonly cwd: string; readonly title: string; readonly environment?: Readonly<Record<string, string>> },
+  where: {
+    readonly cwd: string
+    readonly title: string
+    readonly environment?: Readonly<Record<string, string>>
+    readonly attachments?: SessionAttachments
+  },
 ): Promise<OpenedSeat | PassedOver> => {
   let opened: OpenedSeat
   try {

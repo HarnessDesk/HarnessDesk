@@ -39,6 +39,7 @@ const entry = (ceilingFrom: 'permission' | 'none' = 'permission'): AgentEntry =>
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [],
     brief: 'Review.',
   },

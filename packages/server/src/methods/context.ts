@@ -1,8 +1,10 @@
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
+  AgentEntry,
   AgentRuntime,
   AgentSession,
   ApprovalDecision,
+  AttachmentReview,
   CeilingLevel,
   ArchiveFilter,
   BackupFile,
@@ -28,9 +30,14 @@ import type {
   RuntimeFiles,
   RuntimeId,
   RuntimeInfo,
+  SeatAttachmentsRecord,
+  SeatId,
   SeatLeft,
+  SeatRecord,
   SecretReload,
   Session,
+  SessionAttachmentReceipt,
+  SessionAttachments,
   SessionBusyError,
   SessionId,
   SessionSummary,
@@ -69,6 +76,8 @@ import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
 import type { IntakePlane } from '../intake/plane.js'
+import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
+import type { AttachmentResolution, ResolvedAttachment } from '../attachments/catalog.js'
 
 /**
  * What a wire method may reach.
@@ -130,6 +139,40 @@ export interface HostContext {
    * the usage ledger (`ledger()`).
    */
   readonly evidence: EvidencePlane
+  /**
+   * Phase 12's attachment freeze — optional so a build that has not wired it
+   * yet keeps today's behavior exactly: `seatAgent` skips every attachment
+   * step entirely when this is absent, the same as it does when an Agent
+   * declares nothing. When present, `prepare` must be called before a
+   * runtime session is created and `record` once (and only once) after it
+   * answers back; neither is ever called for an Agent with no declarations.
+   */
+  readonly attachments?: {
+    prepare(subject: AttachmentSubject): Promise<PreparedAttachments>
+    record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
+    /** Task 5's own two person-facing verbs on Task 1's trust store — a preview names exact bytes, an approval names exactly the token that preview minted. */
+    readonly trust: {
+      preview(subject: AttachmentSubject, entries: readonly ResolvedAttachment[], options?: { readonly runtimeName?: string }): Promise<AttachmentReview>
+      approve(token: string): Promise<void>
+    }
+    /** A Seat's frozen attachment history, by immutable Seat id — Task 3's own durable receipts, read back for the Agent page and the Library. */
+    seatRecord(seat: SeatId): Promise<SeatAttachmentsRecord | null>
+    /**
+     * Task 1's catalog for one Agent, against this desk's own Library home —
+     * the one read every attachment surface shares, so the Agent page, a
+     * review and a Seat's preparation never resolve a name two ways.
+     */
+    declarations(entry: AgentEntry, root: string): Promise<AttachmentResolution>
+    /**
+     * Whether this conversation's Seat carries — or should carry — a filter
+     * (a frozen one, one that was lost, or an Agent that now declares
+     * attachments): such a conversation is reopened only through the host's
+     * shared reopen (`sessions.live`), which applies it or refuses.
+     */
+    carriesFilter(runtime: RuntimeId, sessionId: SessionId): Promise<boolean>
+    /** Why forking this conversation is refused — a fork would run with no filter — or null. */
+    forkRefusal(runtime: RuntimeId, sessionId: SessionId): Promise<string | null>
+  }
   /**
    * The findings ledger, read and decided by a person. Narrower than the
    * findings plane itself: a Seat's own scoped read and its raise/repair/
@@ -250,6 +293,8 @@ export interface HostContext {
         readonly cwd: string
         readonly title: string
         readonly environment?: Readonly<Record<string, string>>
+        /** Phase 12's frozen, isolated skill/server filter, prepared before this call — never computed from the session it opens. */
+        readonly attachments?: SessionAttachments
       },
     ): Promise<OpenedSeat>
     /** Hands a seated conversation its standing order: one message, one turn. */

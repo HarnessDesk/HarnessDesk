@@ -196,6 +196,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
 | `--hd-composer-radius` | `28px` |
+| `--hd-dialog-max-height` | `calc(100dvh - 2 * 24px)` |
 | `--hd-scrollbar-width` | `8px` |
 | `--hd-scrollbar-inset` | `2px` |
 | `--hd-scrollbar-inset-hover` | `1px` |

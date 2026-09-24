@@ -318,3 +318,18 @@ test('changing whose comments fire a trigger takes its arm away', async () => {
   r.world.text = talk('me')
   assert.deepEqual(await r.consent.binding(r.world.project, 'talk'), before)
 })
+
+test('what an Agent attaches is part of what an arm consents to: a skill whose content changed takes the arm away', async () => {
+  const r = rig()
+  r.world.attachments = { reviewer: ['skill:lint-rules:aaaa:agent', 'mcp:issues:bbbb:library'] }
+  await armed(r)
+  const before = await r.consent.binding(r.world.project, 'review')
+  assert.ok(before)
+  // The same names, one bundle's bytes changed: a different Seat would load, so the arm no longer stands.
+  r.world.attachments = { reviewer: ['skill:lint-rules:cccc:agent', 'mcp:issues:bbbb:library'] }
+  assert.equal(await r.consent.binding(r.world.project, 'review'), null)
+  assert.match((await r.consent.list(r.world.project)).triggers.find((one) => one.id === 'review')?.reason ?? '', /flow, an Agent/)
+  // Order is not content.
+  r.world.attachments = { reviewer: ['mcp:issues:bbbb:library', 'skill:lint-rules:aaaa:agent'] }
+  assert.deepEqual(await r.consent.binding(r.world.project, 'review'), before)
+})

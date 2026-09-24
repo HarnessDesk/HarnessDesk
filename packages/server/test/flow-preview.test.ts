@@ -13,7 +13,7 @@ import { rig as consentRig } from './fixtures/intake-consent.js'
 
 const AGENT = (id: string, digest = `${id}-digest`): AgentEntry => ({
   id, origin: 'project', path: `.harnessdesk/agents/${id}/AGENT.md`, digest, shadows: [], problems: [],
-  definition: { id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: ['done'], produces: [], skills: [], prefer: [{ runtime: 'alpha' }], brief: `${id} brief` },
+  definition: { id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: ['done'], produces: [], skills: [], mcp: [], prefer: [{ runtime: 'alpha' }], brief: `${id} brief` },
 })
 
 const FLOW = `

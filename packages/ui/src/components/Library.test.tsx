@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId } from '@harnessdesk/protocol'
-import type { Library, LibraryEntry, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
+import type { AgentAttachmentsView, AgentEntry, Library, LibraryEntry, LibraryUsage, ReachState, RuntimeInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -141,6 +141,9 @@ const mount = async (
     getSnapshot: () => snapshot,
     transport: { request },
     setSkillEnabled: options.setSkillEnabled ?? (async () => {}),
+    // The Agent filter's own roster read — these fixtures never populate
+    // `snapshot.agents`, so this stays a no-op and the filter offers nothing.
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -297,6 +300,7 @@ it('reports a failed scan instead of an empty library', async () => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request },
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
   await act(async () => {
     root.render(
@@ -1580,4 +1584,168 @@ it('determines winning copy under Windows-style scan roots (#664)', async () => 
   )
   await showMatrix()
   expect(document.body.textContent).toContain('alpha')
+})
+
+/**
+ * Phase 12 Task 6: the Agent filter is a declaration filter, never a second
+ * reach measurement. A skill two different Agents both declare stays one row
+ * whichever of them is chosen; the row's own measured reach — which runtime
+ * actually loads it — is untouched by that choice; and a declared name with
+ * nothing behind it (unresolved) never causes the Agent's *other*, real rows
+ * to disappear.
+ */
+it('Agent filter preserves measured reach: same skill declared by two origins but loaded by one runtime; distinguish declarations and reach, retain unresolved rows', async () => {
+  const value = library([
+    entry('shared-skill', ['reaches', 'absent']), // reaches "one" only — declared by both agents below
+    entry('orphan-skill', ['reaches', 'reaches']), // declared by neither agent
+  ])
+  const agentA: AgentEntry = {
+    id: 'agent-a', origin: 'user', path: '/home/u/.harnessdesk/agents/agent-a/AGENT.md', digest: 'da', shadows: [], problems: [],
+    definition: { id: 'agent-a', name: 'Agent A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const agentB: AgentEntry = {
+    id: 'agent-b', origin: 'project', path: '/repo/.harnessdesk/agents/agent-b/AGENT.md', digest: 'db', shadows: [], problems: [],
+    definition: { id: 'agent-b', name: 'Agent B', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const viewFor: Record<string, AgentAttachmentsView> = {
+    'agent-a': {
+      agent: 'agent-a', origin: 'user', agentDigest: 'da', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'x'.repeat(64), source: 'agent', pathLabel: 'p' }, problem: null },
+        // Declared, but nothing in the catalogue resolves it — must never
+        // suppress this Agent's other, real declaration below.
+        { kind: 'skill', name: 'ghost-name', identity: null, problem: 'Could not resolve this name.' },
+      ],
+    },
+    'agent-b': {
+      agent: 'agent-b', origin: 'project', agentDigest: 'db', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'y'.repeat(64), source: 'agent', pathLabel: 'q' }, problem: null },
+      ],
+    },
+  }
+  const request = vi.fn(async (method: string) =>
+    method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
+    : method === 'library/plan' ? { plannedAt: 1, ops: [] }
+    : value,
+  )
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
+    agents: [agentA, agentB],
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request },
+    loadAgents: vi.fn(async () => {}),
+    readAgentAttachments: vi.fn(async (id: string) => viewFor[id]),
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+  })
+  // Settle the roster's own declaration read — a microtask past mount.
+  await act(async () => {})
+
+  // Unfiltered: both catalogue rows are on screen.
+  expect(document.body.textContent).toContain('shared-skill')
+  expect(document.body.textContent).toContain('orphan-skill')
+
+  const select = document.body.querySelector('select[aria-label="Agent"]') as HTMLSelectElement
+  expect(select, 'the Agent filter should be offered once a roster exists').toBeTruthy()
+
+  const chooseAgent = async (value: string) => {
+    await act(async () => {
+      select.value = value
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+  }
+
+  await chooseAgent('user:agent-a')
+  expect(document.body.textContent).toContain('shared-skill')
+  expect(document.body.textContent).not.toContain('orphan-skill')
+
+  await chooseAgent('project:agent-b')
+  expect(document.body.textContent).toContain('shared-skill')
+  expect(document.body.textContent).not.toContain('orphan-skill')
+
+  // Reach is untouched by the Agent filter: switch to the matrix and confirm
+  // "shared-skill" still shows its own measured reach, not a loaded-by-Seat
+  // fiction. `showMatrix()` looks for a button by its accessible name, which
+  // survives the filter narrowing the rows above it.
+  await showMatrix()
+  const names = cellNames()
+  expect(names).toContain('shared-skill — First Agent: Reaches')
+  expect(names).toContain('shared-skill — Second Agent: Not installed')
+})
+
+/**
+ * PR #893's CI (`e2e/ui-system/provenance.spec.ts`) caught a page-wide crash:
+ * `store.readAgentAttachments` resolved `undefined` for one Agent in the
+ * roster — exactly what a store that does not honor its own
+ * `Promise<AgentAttachmentsView>` contract can produce, which is what the
+ * preview harness fixture (missing an implementation) actually did — and
+ * this effect read `result.view.declarations` with no guard, throwing
+ * `Cannot read properties of undefined (reading 'declarations')` before
+ * `setDeclaredBy` ever ran. One unreadable Agent must never blank out every
+ * other Agent's declarations.
+ */
+it('an Agent whose attachments view could not be read is treated as nothing declared, not a crash (#893)', async () => {
+  const value = library([entry('shared-skill', ['reaches', 'absent'])])
+  const agentA: AgentEntry = {
+    id: 'agent-a', origin: 'user', path: '/home/u/.harnessdesk/agents/agent-a/AGENT.md', digest: 'da', shadows: [], problems: [],
+    definition: { id: 'agent-a', name: 'Agent A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const agentB: AgentEntry = {
+    id: 'agent-b', origin: 'project', path: '/repo/.harnessdesk/agents/agent-b/AGENT.md', digest: 'db', shadows: [], problems: [],
+    definition: { id: 'agent-b', name: 'Agent B', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const viewFor: Record<string, AgentAttachmentsView | undefined> = {
+    'agent-a': {
+      agent: 'agent-a', origin: 'user', agentDigest: 'da', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'x'.repeat(64), source: 'agent', pathLabel: 'p' }, problem: null },
+      ],
+    },
+    // agent-b's read never resolves a real view — never thrown, never
+    // rejected, just missing, exactly like the unimplemented preview-harness
+    // stub CI actually hit.
+    'agent-b': undefined,
+  }
+  const request = vi.fn(async (method: string) =>
+    method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
+    : method === 'library/plan' ? { plannedAt: 1, ops: [] }
+    : value,
+  )
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
+    agents: [agentA, agentB],
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request },
+    loadAgents: vi.fn(async () => {}),
+    readAgentAttachments: vi.fn(async (id: string) => viewFor[id]),
+  } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+  })
+  // Settle the roster's own declaration read — a microtask past mount, same
+  // as the sibling test above.
+  await act(async () => {})
+
+  const select = document.body.querySelector('select[aria-label="Agent"]') as HTMLSelectElement
+  expect(select, 'the Agent filter should be offered once a roster exists').toBeTruthy()
+  await act(async () => {
+    select.value = 'user:agent-a'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  // Agent A's own, real declaration must survive Agent B's unreadable one —
+  // never blanked out by a sibling that could not be read.
+  expect(document.body.textContent).toContain('shared-skill')
 })

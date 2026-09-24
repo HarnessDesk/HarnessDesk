@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../ui/alert-dialog'
+import { cn } from '../../lib/utils'
 import styles from './ConfirmDialog.module.css'
 
 /**
@@ -83,9 +84,15 @@ export const ConfirmDialog = ({
    * the one that deletes.
    */
   <AlertDialog open onOpenChange={(next) => { if (!next) onCancel() }}>
-    <AlertDialogContent className={styles.content} initialFocus={false}>
+    <AlertDialogContent
+      /* The column and its bound are said as utilities too: the primitive's
+         own `grid` is a utility, and a module rule can lose to it depending on
+         which stylesheet a build happens to load last. `cn` settles it here. */
+      className={cn(styles.content, 'flex max-h-(--hd-dialog-max-height) flex-col overflow-hidden')}
+      initialFocus={false}
+    >
       <AlertDialogHeader
-        className={styles.header}
+        className={cn(styles.header, 'shrink-0 flex-row items-center')}
         data-tone={tone === 'destructive' ? 'destructive' : undefined}
       >
         <span className={styles.icon}>
@@ -98,7 +105,10 @@ export const ConfirmDialog = ({
           and a `p` wrapping those is invalid nesting: React warns, and the
           browser closes the paragraph early, which strands the rest of the body
           outside the element `aria-describedby` points at. */}
-      <AlertDialogDescription render={<div />} className={styles.body}>
+      {/* The body is the only part that scrolls: a confirm can be asked to
+          hold what it confirms — a whole skill, a server's command line — and
+          the question and both answers stay on screen however long that is. */}
+      <AlertDialogDescription render={<div />} className={cn(styles.body, 'min-h-0 flex-1 overflow-y-auto')} data-slot="confirm-body">
         {children}
       </AlertDialogDescription>
       {/* The proceeding action is written first. The footer is `row-reverse`,
@@ -109,7 +119,7 @@ export const ConfirmDialog = ({
           and a Return keep things as they are. Written the other way round,
           every confirm in the app put the verb for leaving things alone where
           the pointer goes to proceed, and a Tab and a Return confirmed. */}
-      <AlertDialogFooter className={styles.footer}>
+      <AlertDialogFooter className={cn(styles.footer, 'shrink-0')}>
         <Button
           variant={tone === 'destructive' ? 'destructive' : 'default'}
           onClick={onConfirm}

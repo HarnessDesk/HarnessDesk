@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import {
   runtimeId,
   sessionKey,
+  type AgentAttachmentsView,
   type AgentEntry,
   type CarryFindingsInput,
   type FindingPublicationsView,
@@ -653,6 +654,7 @@ const agentEntry = (
     answers: ceiling === 'read' ? ['approve', 'request-changes'] : [],
     produces: ['review'],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude' }, { runtime: 'codex' }, { runtime: 'cursor' }],
     brief: `You review a change somebody else wrote.\n\n## How to report\n\nEvery finding, then a verdict.\n\n## What you never do\n\nNever push.`,
   },
@@ -1131,6 +1133,25 @@ class PreviewStore {
   })
   seatRecord = async (runtime: string, sessionId: string): Promise<SeatRecord | null> =>
     sessionKey(runtime, sessionId) === PREVIEW_SESSION_KEY ? PREVIEW_SEAT : null
+  // Mirrors the real `attachment/agent` handler's own contract: a full view
+  // (even an empty one) for a readable Agent, never `undefined` — a
+  // resolved-but-missing view is exactly what crashed the Library roster
+  // read in #893, because nothing downstream expects that shape.
+  readAgentAttachments = async (id: string, origin: AgentEntry['origin']): Promise<AgentAttachmentsView> => {
+    const found = PREVIEW_AGENTS.find((one) => one.id === id && one.origin === origin)
+    if (!found?.definition || found.digest === null) {
+      throw new Error(`${found?.path ?? id} cannot be read as an Agent, so its attachments cannot be shown.`)
+    }
+    return {
+      agent: found.id,
+      origin: found.origin,
+      agentDigest: found.digest,
+      skillsMode: 'runtime-defaults',
+      mcpMode: 'runtime-defaults',
+      declarations: [],
+      support: [],
+    }
+  }
   projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
 
   // --- intake ------------------------------------------------------------

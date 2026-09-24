@@ -84,6 +84,7 @@ const entry = (id: string, over: Partial<AgentEntry> = {}): AgentEntry => ({
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'First.\n\nSecond.',
   },

@@ -117,6 +117,13 @@ export interface TriggerClosureReads {
   flowSource(root: string, id: string): Promise<{ readonly source: string; readonly origin: FlowOrigin; readonly path: string }>
   /** `FlowPreviews.freeze`: the dry run with no start token. */
   preview(root: string, source: string): Promise<FlowPreview>
+  /**
+   * What one Agent attaches, as it resolves now: each skill's and MCP
+   * server's identity — kind, name, content digest, source — so an arm
+   * consents to the bytes a Seat would load, not only to their names.
+   * Throws when it cannot be read now. Absent: nothing attaches.
+   */
+  attachments?(root: string, agent: string): Promise<readonly string[]>
 }
 
 /**
@@ -160,9 +167,11 @@ export class TriggerClosures implements TriggerPreviewPort {
     let executable = Buffer.byteLength(text, 'utf8')
     for (const binding of compiled.bindings) {
       executable += Buffer.byteLength(binding.agent.brief, 'utf8')
+      // What the Agent attaches is part of what it runs: a bundle whose bytes changed is a changed Agent.
+      const attached = [...(await this.#port.attachments?.(root, binding.agent.id) ?? [])].sort()
       bindings.push({
         kind: 'agent', id: `${binding.role}[${binding.index}]`,
-        digest: sha256(JSON.stringify([binding.agent.id, binding.origin, binding.digest, binding.grant, binding.seats])),
+        digest: sha256(JSON.stringify([binding.agent.id, binding.origin, binding.digest, binding.grant, binding.seats, ...(attached.length > 0 ? [attached] : [])])),
       })
     }
     for (const command of preview.commands) {

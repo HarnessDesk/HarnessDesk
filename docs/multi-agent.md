@@ -877,6 +877,13 @@ around.
   focused sub-teams outperform broad, scattered groups.
 - **One board per workspace**: boards are scoped to a workspace root; separate
   workspaces maintain separate boards.
+- **No automatic cross-Goal memory**: a Goal cannot read another Goal's
+  committed project memory just by existing beside it. A person explicitly
+  selects a wrapped source Goal and one of its committed files, at one exact
+  revision, and confirms "Cite in this Goal" before the retained text is
+  reachable there — the channel's own attribution and quarantine rules are
+  unaffected, and a citation is never a second message bus: it moves no
+  evidence column and grants no tool by itself.
 
 ### What it does not do yet
 

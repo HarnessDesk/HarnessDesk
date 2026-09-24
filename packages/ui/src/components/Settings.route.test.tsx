@@ -103,6 +103,8 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     saveUnheldCeilings: vi.fn(async () => {}),
     loadUnattendedCeilings: vi.fn(async () => 'refuse'),
     setUnattendedCeilings: vi.fn(async () => {}),
+    // The Library page's own Agent filter roster read.
+    loadAgents: vi.fn(async () => {}),
   } as unknown as AppStore
 }
 

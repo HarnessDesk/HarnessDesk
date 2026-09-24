@@ -18,7 +18,7 @@ export const sha = (text: string): string => createHash('sha256').update(text).d
 
 export const agent = (id: string, digest = `${id}-digest`): AgentEntry => ({
   id, origin: 'project', path: `.harnessdesk/agents/${id}/AGENT.md`, digest, shadows: [], problems: [],
-  definition: { id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: ['approve', 'request-changes'], produces: [], skills: [], prefer: [{ runtime: 'alpha' }], brief: `${id} brief` },
+  definition: { id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: ['approve', 'request-changes'], produces: [], skills: [], mcp: [], prefer: [{ runtime: 'alpha' }], brief: `${id} brief` },
 })
 
 export const reviewFlow = (timeout = 60): string => `
@@ -66,6 +66,8 @@ export interface World {
   previewFails: boolean
   /** The unattended flag every seat plan was asked with, in order. */
   unattended: boolean[]
+  /** Each Agent's resolved attachments, as their identities: kind, name, content digest, source. */
+  attachments: Record<string, string[]>
 }
 
 export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) => {
@@ -86,6 +88,7 @@ export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) 
     available: true,
     previewFails: false,
     unattended: [],
+    attachments: {},
   }
   const previews = new FlowPreviews({
     confine: async () => {},
@@ -123,6 +126,7 @@ export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) 
       },
       // As the host wires it: a trigger's closure is always read as unattended work would be seated.
       preview: (root, source) => previews.freeze(root, source, { unattended: true }),
+      attachments: async (_root, agent) => world.attachments[agent] ?? [],
     }),
     account: async () => world.account ? { account: world.account } : { refused: 'The forge is not signed in.', fix: 'Sign in to the forge.' },
     repository: async () => world.repository ? { repository: world.repository } : { refused: 'No forge repository.', fix: 'Add a GitHub remote.' },

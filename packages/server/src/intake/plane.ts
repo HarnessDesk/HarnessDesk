@@ -85,6 +85,8 @@ export interface IntakeHostPort {
   flowSource(root: string, id: string): Promise<{ readonly source: string; readonly origin: FlowOrigin; readonly path: string }>
   /** `FlowPreviews.freeze`. */
   preview(root: string, source: string): Promise<FlowPreview>
+  /** Each attachment one Agent resolves to now, as its identity (`TriggerClosureReads.attachments`). */
+  attachments?(root: string, agent: string): Promise<readonly string[]>
   readonly goals: TriggerGoalPort & {
     lifecycle(goal: string): GoalLifecycle
     claim(goal: string, claim: () => void): Promise<boolean>
@@ -196,7 +198,11 @@ export class IntakePlane {
     this.#timers = port.timers ?? realTimers
     this.#store = new IntakeStore(port.home)
     this.#forge = new ForgeSource({ ...(port.gh ? { run: port.gh } : {}), now: () => port.now() })
-    const closures = this.#closures = new TriggerClosures({ flowSource: (root, id) => port.flowSource(root, id), preview: (root, source) => port.preview(root, source) })
+    const closures = this.#closures = new TriggerClosures({
+      flowSource: (root, id) => port.flowSource(root, id),
+      preview: (root, source) => port.preview(root, source),
+      ...(port.attachments ? { attachments: (root: string, agent: string) => port.attachments!(root, agent) } : {}),
+    })
     this.#consent = new TriggerConsent(port.home, port.cipher, {
       confine: (root) => port.confine(root),
       source: (root) => port.source ? port.source(root) : readTriggerSource(root),

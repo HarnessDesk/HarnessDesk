@@ -49,7 +49,7 @@ const page = (over: Partial<FindingDetailPage> = {}): FindingDetailPage => ({
 const rig = (resolved: FindingDetailPage): { store: AppStore; readFinding: ReturnType<typeof vi.fn> } => {
   const readFinding = vi.fn().mockResolvedValue(resolved)
   const snapshot = emptySnapshot()
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readFinding } as unknown as AppStore
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readFinding, readSeatAttachments: vi.fn(async () => null) } as unknown as AppStore
   return { store, readFinding }
 }
 

@@ -29,6 +29,7 @@ import {
   sessionId as makeSessionId,
   sessionKey,
   splitSessionKey,
+  type AgentEntry,
   type AgentEvent,
   type AgentRuntime,
   type ArchiveFilter,
@@ -75,6 +76,10 @@ import {
   type SeatArchived,
   type SeatLeft,
   type PublicationItem,
+  type SessionAttachments,
+  type SessionAttachmentReceipt,
+  type SeatAttachmentsRecord,
+  type AttachmentSupport,
   runtimeId,
   sessionModel,
 } from '@harnessdesk/protocol'
@@ -118,6 +123,9 @@ import { FindingsPlane } from './findings/plane.js'
 import { gapOf, Publications, type FindingForgePort } from './findings/publication.js'
 import { QuestionDeadline } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
+import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
+import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
+import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
@@ -133,6 +141,7 @@ import { Flows, runCheck } from './flows.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { exportMemory, importMemory, type MemoryBackupPort } from './memory/backup.js'
 import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
   environmentForCheckout,
@@ -406,6 +415,12 @@ export interface HostOptions {
    */
   readonly accounts?: AccountFactory
   /**
+   * The home folder the Library is scanned under when an Agent's `skills:`
+   * and `mcp:` names are resolved — this person's own, unless a test points
+   * it at a fixture so a suite never reads the machine it runs on.
+   */
+  readonly libraryHome?: string
+  /**
    * The writable agent registry — how the interface adds and removes ACP
    * agents. Supplied by the wiring, which is the only place that knows how a
    * registry entry becomes a runtime; without one, `acp/register` says so.
@@ -577,6 +592,24 @@ export class Host {
    * append-only store per project under `evidence/` in the state directory.
    */
   readonly #evidence: EvidencePlane
+  /**
+   * Phase 12's local approval store: a person's own answer to "may this be
+   * loaded", sealed with an HMAC key that lives beside it in the state
+   * directory — host-owned, never a project tree or a transcript, and never
+   * carried by a backup (see `AttachmentTrust`'s own doc comment).
+   */
+  readonly #attachmentTrust: AttachmentTrust
+  /** Phase 12's frozen Seat attachments: prepare/open/read, and the live gateway server list each open Seat may reach. */
+  readonly #attachments: AttachmentsPlane
+  /**
+   * Aborted when the desk quits: every MCP exchange the gateway has in
+   * flight for a Seat is torn down with it (`attachments/transport.ts`
+   * escalates to SIGKILL), rather than left running past the process that
+   * started it.
+   */
+  readonly #attachmentAbort = new AbortController()
+  /** Teardown a wiring registered with `onDispose` — the tool gateway's socket, most of all. */
+  readonly #disposers: (() => Promise<void> | void)[] = []
   readonly #provenance: ProvenancePlane
   /** Startup stays off the interactive launch path, but quit still owns it. */
   #provenanceStart: Promise<void> = Promise.resolve()
@@ -793,6 +826,35 @@ export class Host {
     )
     // A conversation seen for the first time wears the Agent its Seat record names.
     this.registry.restoreSeatedAs((runtime, id) => this.#evidence.seatedAs(runtime, id))
+    // Phase 12's local approval store — beside `state.json` and sealed with
+    // its own HMAC key, exactly the way `evidence/seen.ts`'s `commands-seen.key`
+    // is: host-owned, owner-only permissions, never a project tree, and never
+    // carried by a backup. A missing or corrupt key fails closed on its own
+    // (`AttachmentTrust#permits`); this wiring adds nothing that could widen that.
+    this.#attachmentTrust = new AttachmentTrust(join(this.#state.directory, ATTACHMENT_TRUST_FILE), {
+      cipher: options.credentialCipher ?? plainCipher,
+    })
+    // Receipts, the frozen filter each Seat re-applies on a reopen, and the
+    // staged copies of exactly what was approved — all machine state, none of
+    // it in a project tree, and none of it carried by a backup except the
+    // receipts, which come back as history only.
+    this.#attachments = new AttachmentsPlane(
+      join(this.#state.directory, 'attachments', 'seats'),
+      {
+        resolve: async (subject) => {
+          const entry = await this.#agents.read(subject.agent, subject.project)
+          if (!entry) return { declarations: [], resolved: [] }
+          return this.#attachmentDeclarations(entry, subject.project)
+        },
+        permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
+        support: (subject) => this.#attachmentSupport(subject),
+        suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
+      },
+      {
+        staging: join(this.#state.directory, 'attachments', 'staged'),
+        frozen: join(this.#state.directory, 'attachments', 'frozen'),
+      },
+    )
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1124,6 +1186,21 @@ export class Host {
      * - a trigger's run posts each closed round as one review through the
      *   publication queue, exactly as phase 7 posts a finding: journaled in
      *   the run's queue, sent from the publication queue holding none.
+ *
+     * Phase 12's queues are leaves beside project, each taken only by the
+     * Goal queue or by nothing at all, and each asking for nothing:
+     *
+     *   Goal  →  memory archive  (`CitationArchive`'s write chain)
+     *   Goal  →  attachment receipts / trust  (`AttachmentReceipts`,
+     *            `AttachmentTrust`'s write chains)
+     *
+     * A citation (`GoalPlane.cite`, and the pre-wrap capture) retains its
+     * bytes in the archive while holding the Goal queue; the archive's
+     * reference callback is a no-op, so it never waits on a Goal. A Seat's
+     * attachments are prepared and recorded inside its seating, which may
+     * already hold run → Goal. Neither reaches publication, a run, Team or the
+     * findings ledger, and the MCP gateway's admission reads the blind-round
+     * embargo as a snapshot (`embargoOf`), taking no queue.
      *
      * A run seating a card holds run → Goal; a wrap preview holds Goal and
      * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
@@ -1279,18 +1356,31 @@ export class Host {
         if (!agent) return null
         const id = makeSessionId(session)
         const record = this.registry.get(runtime as RuntimeId, id)
-        const held = record?.live ? record.session : await agent.readSession(id).catch(() => null)
+        const held = record?.live ? record.session : await this.#hostRead(agent, id).catch(() => null)
         if (!held) return null
         const project = await this.#boardRootOf(held.cwd)
         return project ? { project, busy: isBusy(held) } : null
       },
       claimable: (goal: string, card: number, session) => this.#goalClaimable(goal, card, session.runtime, session.sessionId),
+      // A truly plain conversation (never kept as any Agent's Seat) has
+      // nothing to adopt falsely — `opening` below hands it `agent: null`
+      // either way, so it is not "loose" in the sense this check exists for.
+      // Only a session that already claims an Agent identity, yet whose
+      // *this-process* attachment loading was never recorded for it (a fresh
+      // registry record after a restart, never reconnected through
+      // `seatAgent`), is refused: its native load set is opaque and could
+      // silently stand in for what that Agent's declarations would approve.
+      attachmentsObserved: async (session): Promise<boolean> => {
+        const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
+        if (!previous || previous.agent === null) return true
+        return this.registry.attachmentSeatOf(session.runtime as RuntimeId, makeSessionId(session.sessionId)) !== null
+      },
       opening: async (goal: string, session, id: SeatId): Promise<SeatOpening> => {
         const previous = this.#evidence.seats.latestKeptOf(session.runtime, session.sessionId)
         const runtime = this.#runtimes.get(session.runtime)
         const held = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
         const known = held?.live ? held.session :
-          await runtime?.readSession(makeSessionId(session.sessionId)).catch(() => null)
+          runtime ? await this.#hostRead(runtime, makeSessionId(session.sessionId)).catch(() => null) : null
         if (!known) throw new Error('Choose a conversation its runtime can still open.')
         const revision = await revisionOf(known.cwd)
         const document = this.#goalStore.read(goal)
@@ -1402,6 +1492,7 @@ export class Host {
       },
       closeId: async (id: SeatId, reason: string) => {
         const record = await this.#evidence.seats.closeId(id, reason)
+        await this.#attachments.revokeLive(id)
         this.#membershipChanged(record.session.runtime as RuntimeId, record.session.sessionId)
       },
       claim: async (goal: string, card: number, opening: SeatOpening) => {
@@ -1502,6 +1593,13 @@ export class Host {
       flowSource: (root, id) => intakeCatalog.resolve(root, id),
       // A trigger's closure is read as its Goal will be seated: unattended.
       preview: (root, source) => this.#flowPreviews.freeze(root, source, { unattended: true }),
+      // And what each Agent attaches, by content: an arm consents to the bytes a Seat would load.
+      attachments: async (root, agent) => {
+        const entry = await this.#agents.read(agent, root)
+        if (!entry?.definition) return []
+        return (await this.#attachmentDeclarations(entry, root)).resolved
+          .map((one) => JSON.stringify([one.identity.kind, one.identity.name, one.identity.digest, one.identity.source]))
+      },
       goals: {
         ensureTriggerGoal: (request) => this.#goals.ensureTriggerGoal(request),
         lifecycle: (goal) => this.#goals.lifecycle(goal),
@@ -1815,6 +1913,12 @@ export class Host {
     // in-memory comparison point only after they have settled, so the first
     // later change can cross the notification boundary normally.
     await this.#goals.hydrateActivity()
+    // Every already-saved Goal's citations, back into the memory plane this
+    // launch just constructed fresh — otherwise a citation retained before
+    // the last restart reads back as never retained at all (#886-adjacent:
+    // found proving phase 12's own CDP walkthrough step, "a citation
+    // resolves after the Goal that made it ends").
+    await this.#goals.hydrateMemory()
     // Read before anything can be listed: `nameOf` answers synchronously, so
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
@@ -1929,6 +2033,11 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    // No Seat reaches a server past this point: every live grant is revoked,
+    // every exchange in flight is aborted, and the gateway's socket is closed.
+    // (Synchronous: nothing here may yield before every runtime is told, below.)
+    this.#attachments.revokeAll()
+    this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
     /* Triggers stop first: no new admission, no poll, no budget sweep and no
@@ -1971,6 +2080,11 @@ export class Host {
         }),
       ),
     )
+    for (const disposer of this.#disposers.splice(0)) {
+      await Promise.resolve()
+        .then(disposer)
+        .catch((error: unknown) => this.#logger.warn('a teardown did not finish cleanly', { error: String(error) }))
+    }
     for (const unsubscribe of this.#subscriptions) unsubscribe()
     this.#subscriptions.length = 0
     for (const list of this.#runtimeSubscriptions.values()) for (const off of list) off()
@@ -2748,6 +2862,21 @@ export class Host {
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
+      attachments: {
+        prepare: (subject) => this.#attachments.prepare(subject),
+        record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
+        trust: {
+          preview: (subject, entries, options) => this.#attachmentTrust.preview(subject, entries, options),
+          approve: (token) => this.#attachmentTrust.approve(token),
+        },
+        seatRecord: (seat) => this.#attachments.read(seat),
+        declarations: (entry, root) => this.#attachmentDeclarations(entry, root),
+        carriesFilter: async (runtime, id) => {
+          const seat = this.#evidence.seats.latestKeptOf(runtime, id)
+          return seat !== null && (await this.#carriesFilter(seat))
+        },
+        forkRefusal: (runtime, id) => this.#forkRefusal(runtime, id),
+      },
       findings: {
         list: (input) => this.#findings.list(input),
         read: (input) => this.#findings.read(input),
@@ -3081,6 +3210,25 @@ export class Host {
   }
 
   /**
+   * Task 6's own backup sidecar port: the two otherwise-separate subsystems
+   * `MemoryBackup` spans, `GoalPlane`'s own `MemoryPlane` and the top-level
+   * `AttachmentsPlane`, behind the one small interface `memory/backup.ts`
+   * actually needs. Never a trust file, a staging directory, a gateway token
+   * or a server process — none of those are reachable through it.
+   */
+  #memoryBackupPort(): MemoryBackupPort {
+    return {
+      documents: () => this.#goals.memoryDocuments(),
+      readObject: (key) => this.#goals.readMemoryObject(key),
+      writeObject: (snapshot) => this.#goals.writeMemoryObject(snapshot),
+      registerRestoredMemory: (goal, index) => this.#goals.registerRestoredMemory(goal, index),
+      isRegistered: (citation, archive) => this.#goals.memoryRegistered(citation, archive),
+      attachmentHistory: () => this.#attachments.attachmentHistory(),
+      appendAttachment: (record) => this.#attachments.appendRestored(record),
+    }
+  }
+
+  /**
    * The backup file: everything HarnessDesk keeps for itself. Credentials are
    * deliberately absent — they live in the OS keystore, would not decrypt on
    * another machine, and a restore is followed by signing in again.
@@ -3109,6 +3257,7 @@ export class Host {
         // authority yet, so its portable Goal history has no lanes to export.
         lanes: this.#laneStore.loaded ? this.#lanes.list() : [],
       },
+      memory: await exportMemory(this.#memoryBackupPort()),
     }
   }
 
@@ -3297,8 +3446,9 @@ export class Host {
         } else goals.lanesConflict += 1
       }
     }
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, goals })
-    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, ...(goals ? { goals } : {}) }
+    const memory = await importMemory(this.#memoryBackupPort(), file.memory)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, goals, memory })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, memory, ...(goals ? { goals } : {}) }
   }
 
   /**
@@ -3631,6 +3781,171 @@ export class Host {
     return this.#ceilingGate
   }
 
+  /**
+   * Phase 12's local approval store. Exposed the same way `ceilingGate` is —
+   * a real, host-owned service a caller outside `HostContext` (the tool
+   * gateway's own wiring, a future approval wire method) reaches directly,
+   * rather than a second copy of its logic.
+   */
+  get attachmentTrust(): AttachmentTrust {
+    return this.#attachmentTrust
+  }
+
+  /** Phase 12's frozen Seat attachments, for the same reason `attachmentTrust` is exposed. */
+  get attachmentsPlane(): AttachmentsPlane {
+    return this.#attachments
+  }
+
+  /** Task 1's catalog for one Agent, over this desk's runtimes and Library home — the one resolution every attachment surface shares. */
+  #attachmentDeclarations(entry: AgentEntry, root: string): ReturnType<typeof resolveAttachmentDeclarations> {
+    return resolveAttachmentDeclarations(entry, root, this.#inventoryAgents(), this.options.libraryHome ?? homedir())
+  }
+
+  /** What this runtime build can do with a Seat's attachments — unsupported until it is actually measured. */
+  #attachmentSupport(subject: PlaneAttachmentSubject): AttachmentSupport {
+    const runtime = this.#runtimes.get(subject.runtime as RuntimeId)
+    return (
+      runtime?.info.attachments ?? {
+        runtime: subject.runtime,
+        build: subject.build,
+        skills: 'unsupported',
+        mcp: 'unsupported',
+        suppressUnapproved: false,
+        reason: `${runtime?.info.presentation.name ?? 'This agent'} has not been measured against phase 12’s attachment contract.`,
+      }
+    )
+  }
+
+  /** Aborted at quit: the gateway hands it to every MCP exchange it starts for a Seat. */
+  get attachmentSignal(): AbortSignal {
+    return this.#attachmentAbort.signal
+  }
+
+  /** Where every server a Seat reaches runs: host-owned, under machine state — see `AttachmentGatewayHost`. */
+  get attachmentRunDirectory(): string {
+    return join(this.#state.directory, 'attachments', 'run')
+  }
+
+  /** Registers teardown that must run when this desk quits — before anything it depends on is gone. */
+  onDispose(disposer: () => Promise<void> | void): void {
+    this.#disposers.push(disposer)
+  }
+
+  /**
+   * A reopen of a conversation whose latest kept Seat froze attachments: the
+   * frozen filter, revalidated for this runtime build (`AttachmentsPlane
+   * .reapply`). `null` for a plain conversation, one seated before phase 12,
+   * or a restored Seat — none of which has a filter to re-apply.
+   */
+  async #reopenAttachments(runtime: AgentRuntime, id: SessionId): Promise<ReopenedSeat | null> {
+    const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
+    if (!seat) return null
+    const prepared = await this.#attachments.reapply(seat, { build: runtime.info.version ?? '' })
+    if (prepared) return { seat, prepared }
+    const refusal = await this.#unreadableFilter(seat)
+    if (refusal) throw new Error(refusal)
+    return null
+  }
+
+  /**
+   * Why a Seat with no readable frozen filter may not be reopened or forked,
+   * or null when it simply never carried one. That is the plain path — a Seat
+   * that never declared anything — only when nothing says otherwise: a frozen
+   * file there but unreadable, or receipts with no filter beside them, mean a
+   * damaged record; no record at all while its Agent now declares skills or
+   * servers means the conversation predates attachments. Either way it fails
+   * closed rather than open on the agent's own defaults.
+   */
+  async #unreadableFilter(seat: SeatRecord): Promise<string | null> {
+    if (await this.#attachments.lostFilter(seat.id)) {
+      return 'This conversation’s record of its Agent’s approved attachments is missing or damaged, so it is not reopened or forked on the agent’s own defaults. Seat the Agent again to carry them.'
+    }
+    if (await this.#agentDeclaresAttachments(seat)) {
+      return 'This conversation was seated before Agents carried attachments, and its Agent now declares skills or servers this conversation never loaded — so it is not reopened or forked on the agent’s own defaults. Seat the Agent afresh to carry them.'
+    }
+    return null
+  }
+
+  /** Whether the Agent a Seat was seated as declares any skill or server today. */
+  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean> {
+    if (!seat.agent) return false
+    const entry = await this.#agents.read(seat.agent.id, seat.checkout.project ?? undefined).catch(() => null)
+    const definition = entry?.definition
+    return Boolean(definition && (definition.skills.length > 0 || definition.mcp.length > 0))
+  }
+
+  /**
+   * Reads what the reopened conversation actually loaded, appends it as the
+   * Seat's next epoch, and records the Seat beside the session again. A
+   * failure closes the reopened handle rather than leave it running on a
+   * filter nobody could record.
+   */
+  async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void> {
+    try {
+      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key)
+      await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
+      this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
+    } catch (error) {
+      await this.#letGo(runtime.info.id, live.id, live)
+      throw new Error(
+        `This conversation's approved attachments could not be re-applied, so it was closed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  /**
+   * A read of a conversation whose Seat carries — or should carry — a filter,
+   * when it is not live here: never a bare `readSession`, which over ACP is a
+   * `session/load` with no filter, and an agent may start its ambient and
+   * project servers the moment a session opens, turn or no turn.
+   *
+   * Served from the transcript this host kept (rule 3: the host keeps its
+   * own). When it kept none, the conversation is opened the one way it may
+   * be — on its frozen, revalidated filter, through the same reopen a resume
+   * takes, refused exactly as that reopen refuses. `null` for a conversation
+   * that is live here already (it opened on its filter), or whose Seat never
+   * carried one: the ordinary read serves those.
+   */
+  async #scopedRead(runtime: AgentRuntime, id: SessionId): Promise<Session | null> {
+    if (this.registry.get(runtime.info.id, id)?.live) return null
+    // Being reopened right now, on its filter: the reopen's own read of what
+    // it just opened is an ordinary one (the runtime holds it live, filtered).
+    if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
+    const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
+    if (!seat) return null
+    if (!(await this.#carriesFilter(seat))) return null
+    const kept = await this.#transcripts.recover(runtime.info.id, id)
+    if (kept) return kept
+    const live = await this.#liveFor(runtime.info.id, id)
+    return this.#transcripts.enrich(await runtime.readSession(live.id))
+  }
+
+  /** Whether a Seat carries — or should carry — a filter: a frozen one, a lost one, or an Agent that now declares attachments. */
+  async #carriesFilter(seat: SeatRecord): Promise<boolean> {
+    return (
+      (await this.#attachments.frozen(seat.id)) ||
+      (await this.#attachments.lostFilter(seat.id)) ||
+      (await this.#agentDeclaresAttachments(seat))
+    )
+  }
+
+  /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
+  async #hostRead(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+    return (await this.#scopedRead(runtime, id)) ?? runtime.readSession(id)
+  }
+
+  /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
+  async #forkRefusal(runtime: RuntimeId, id: SessionId): Promise<string | null> {
+    const seat = this.#evidence.seats.latestKeptOf(runtime, id)
+    if (!seat) return null
+    if (await this.#attachments.frozen(seat.id)) {
+      return 'This conversation carries an Agent’s approved attachments, and a fork of it would run without them. Seat the Agent again instead.'
+    }
+    // The same checks a reopen makes: a record that cannot be read back is
+    // no licence to run a copy of the conversation unfiltered.
+    return this.#unreadableFilter(seat)
+  }
+
   readonly #ceilingGate = new CeilingGate({
     rootOf: (runtime, sessionId) => this.#rootOf(runtime, sessionId),
     ceilingOf: (runtime, sessionId) => this.#ceilingOf(runtime, sessionId),
@@ -3869,7 +4184,16 @@ export class Host {
     // Two calls arriving together — a send and the option write beside it —
     // must resume once between them, not once each.
     const already = this.#reattaching.get(key)
-    if (already) return already
+    if (already) {
+      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+      try {
+        return await already
+      } finally {
+        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+        if (left > 0) this.#reopenWaiters.set(key, left)
+        else this.#reopenWaiters.delete(key)
+      }
+    }
     const attempt = this.#reattach(this.#runtime({ runtime }), id)
     this.#reattaching.set(key, attempt)
     try {
@@ -3881,6 +4205,18 @@ export class Host {
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
   readonly #reattaching = new Map<string, Promise<AgentSession>>()
+  /** How many callers are waiting on a reopen already in flight, per conversation. */
+  readonly #reopenWaiters = new Map<string, number>()
+
+  /**
+   * How many callers are waiting on a reopen of this conversation that is
+   * already in flight — the observable sign that a second caller joined the
+   * one reopen rather than starting another. For a test's gate and for
+   * diagnostics; it decides nothing.
+   */
+  reopenWaiters(runtime: string, sessionId: string): number {
+    return this.#reopenWaiters.get(`${runtime}\u0000${sessionId}`) ?? 0
+  }
 
   /**
    * The team plane's handle for a member — reopened when the agent restarted
@@ -4072,9 +4408,16 @@ export class Host {
       )
     }
     let live: AgentSession
+    // A Seat that froze attachments reopens on that same filter, revalidated
+    // — never on the runtime's own defaults, which would load every ambient
+    // skill and server its approval was there to keep out.
+    const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
-      live = await runtime.resumeSession(id, environment ? { environment } : {})
+      live = await runtime.resumeSession(id, {
+        ...(environment ? { environment } : {}),
+        ...(reopened ? { attachments: reopened.prepared.input } : {}),
+      })
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // The sentence is the same either way; what differs is whether asking
@@ -4092,6 +4435,7 @@ export class Host {
     const transcript = await this.#read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     const record = this.registry.upsert(session, live)
+    if (reopened) await this.#finishReopen(runtime, live, reopened)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),
@@ -4130,6 +4474,8 @@ export class Host {
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
+    const scoped = await this.#scopedRead(runtime, id)
+    if (scoped) return scoped
     try {
       return await this.#transcripts.enrich(await runtime.readSession(id))
     } catch (error) {
@@ -4359,6 +4705,7 @@ export class Host {
       readonly cwd: string
       readonly title: string
       readonly environment?: Readonly<Record<string, string>>
+      readonly attachments?: SessionAttachments
     },
   ): Promise<OpenedSeat> {
     const runtime = this.#runtime({ runtime: seat.runtime })
@@ -4381,6 +4728,7 @@ export class Host {
         cwd: where.cwd,
         ...(environment ? { environment } : {}),
         ...(seat.model ? { model: seat.model } : {}),
+        ...(where.attachments ? { attachments: where.attachments } : {}),
         options: {
           ...(seat.effort ? { effort: seat.effort } : {}),
           ...(seat.thinking !== undefined ? { thinking: seat.thinking } : {}),

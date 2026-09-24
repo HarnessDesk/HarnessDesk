@@ -30,10 +30,13 @@ export interface Harness {
 /**
  * A host on a state directory of its own, or on `at`: the one a halted host
  * left, for a test of what survives a relaunch.
+ *
+ * `runtime` lets a suite register a fake configured for what it needs —
+ * phase 12's attachment negotiation, most notably — rather than every caller
+ * of this shared harness gaining that surface by default.
  */
-export const start = async (options: Partial<HostOptions> = {}, at?: string): Promise<Harness> => {
+export const start = async (options: Partial<HostOptions> = {}, at?: string, runtime: FakeRuntime = new FakeRuntime()): Promise<Harness> => {
   const stateDir = at ?? (await mkdtemp(join(tmpdir(), 'harnessdesk-test-')))
-  const runtime = new FakeRuntime()
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),

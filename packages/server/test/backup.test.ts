@@ -9,6 +9,7 @@ import { test, type TestContext } from 'node:test'
 import { SEAT_PREFERENCE_LIMIT, type BackupReport, type EvidenceRecord, type GoalView, type Lane, type MachineSeating, type RuntimeId, type WrapPreview } from '@harnessdesk/protocol'
 
 import { exportAgentFolders } from '../src/agent-files.js'
+import { ATTACHMENT_TRUST_FILE } from '../src/attachments/trust.js'
 import { AgentDirectory, AgentRegistryStore } from '../src/agent-registry.js'
 import { MachineSeatingFile } from '../src/agent-seating-file.js'
 import { AGENT_FILE_LIMIT, AGENT_TEMP_PREFIX } from '../src/agents.js'
@@ -164,9 +165,10 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   // Nothing credential-shaped travels: the file has exactly the stores a backup owns.
   assert.deepEqual(
     Object.keys(backup).sort(),
-    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'goals', 'hostVersion', 'kind', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
+    ['agentFolders', 'agents', 'evidence', 'exportedAt', 'goals', 'hostVersion', 'kind', 'memory', 'preferences', 'provenance', 'seating', 'transcripts', 'version'],
   )
   assert.deepEqual(backup.goals, { version: 1, documents: [], lanes: [] })
+  assert.deepEqual(backup.memory, { version: 1, objects: [], indexes: [], attachments: [] })
   assert.deepEqual(backup.agentFolders, [])
   assert.equal(backup.seating, null)
 
@@ -178,6 +180,7 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   assert.deepEqual(report.transcripts, { restored: 1, skipped: 0 })
   assert.deepEqual(report.agentFolders, { restored: 0, skipped: 0 })
   assert.deepEqual(report.seating, { restored: 0, skipped: 0 })
+  assert.deepEqual(report.memory, { restored: 0, alreadyHere: 0, refused: 0, failed: 0 })
 
   // The proof, on the fresh host's own wire: the agent is a runtime, the
   // preference reads back, and the transcript answers a content search.
@@ -193,6 +196,32 @@ test('what one host exports, a fresh host restores — and can prove it has', as
   const again = await b.host.call('backup/import', { backup })
   assert.deepEqual(again.agents, { restored: 0, skipped: 1 })
   assert.deepEqual(again.transcripts, { restored: 0, skipped: 1 })
+})
+
+test('the memory sidecar is optional and never carries trust, even under a hostile key', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-backup-memory-'))
+  t.after(async () => rm(dir, { recursive: true, force: true }))
+  const { host } = await hostAt(dir)
+  t.after(() => host.dispose())
+
+  // A legacy backup, from before this sidecar existed, restores exactly as it always did.
+  const legacyReport = await host.call('backup/import', { backup: backupWith([]) })
+  assert.deepEqual(legacyReport.memory, { restored: 0, alreadyHere: 0, refused: 0, failed: 0 })
+
+  // Nothing under `memory` this sidecar does not itself define — an
+  // `attachmentTrust` key, most of all — can smuggle a load approval in.
+  const hostile = {
+    ...backupWith([]),
+    memory: { version: 1, objects: [], indexes: [], attachments: [], attachmentTrust: [{ token: 'x', approvedAt: 1 }] },
+  }
+  const hostileReport = await host.call('backup/import', { backup: hostile })
+  assert.deepEqual(hostileReport.memory, { restored: 0, alreadyHere: 0, refused: 0, failed: 0 })
+  await assert.rejects(readFile(join(dir, ATTACHMENT_TRUST_FILE)))
+
+  // Export round-trips the new key, and carries exactly its own four fields — no trust, no live gateway state.
+  const exported = await host.call('backup/export', {})
+  assert.deepEqual(Object.keys(exported.memory ?? {}).sort(), ['attachments', 'indexes', 'objects', 'version'])
+  assert.deepEqual(exported.memory, { version: 1, objects: [], indexes: [], attachments: [] })
 })
 
 test('restored Goals are inert history and never acquire local lane authority', async (t) => {
