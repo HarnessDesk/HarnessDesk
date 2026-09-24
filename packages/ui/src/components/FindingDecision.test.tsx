@@ -16,6 +16,7 @@ const view = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
   reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+  boundPr: { repo: 'acme/widgets', pr: 7 }, unbound: null, undecidable: null,
   ...over,
 })
 
@@ -68,14 +69,37 @@ it('a refused decision keeps the dialog open and shows the reason, never a silen
   expect(onClose).not.toHaveBeenCalled()
 })
 
-it('a local-only Goal greys Merge anyway with its reason, and Drop remains available', () => {
+it('Merge anyway asks for a bound pull request, not posting: posting off and nothing posted still leaves it available', () => {
   const store = rig((async () => view()) as never)
-  render(store, { goal: 'g1', view: view({ publication: 'local' }), onClose: () => {} })
+  render(store, { goal: 'g1', view: view({ publication: 'local', boundPr: { repo: 'acme/widgets', pr: 7 } }), onClose: () => {} })
+  const merge = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Merge anyway')! as HTMLButtonElement
+  expect(merge.disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('Publish a pull request')
+})
+
+it('with no bound pull request Merge anyway is greyed with the reason the desk gave, and Drop remains available', () => {
+  const store = rig((async () => view()) as never)
+  const unbound = 'This Goal’s evidence names more than one open pull request, so this round stays on the desk until a person picks one.'
+  render(store, { goal: 'g1', view: view({ publication: 'posted', boundPr: null, unbound }), onClose: () => {} })
   const merge = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Merge anyway')! as HTMLButtonElement
   expect(merge.disabled).toBe(true)
-  expect(merge.title).toContain('Publish a pull request')
+  expect(merge.title).toBe(unbound)
+  expect(document.body.textContent).toContain(unbound)
   const drop = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Drop')! as HTMLButtonElement
   expect(drop.disabled).toBe(false)
+})
+
+it('a run whose Goal is wrapped greys every action and says why, and sends nothing', async () => {
+  const decideFindingRun = vi.fn(async () => view())
+  const store = rig(decideFindingRun as never)
+  const undecidable = 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  render(store, { goal: 'g1', view: view({ undecidable, pendingExceptions: ['finding-0002'] }), onClose: () => {} })
+  expect(document.body.textContent).toContain(undecidable)
+  const actions = [...document.querySelectorAll('button')].filter((one) =>
+    ['Authorise another round', 'Merge anyway', 'Drop', 'Admit selected', 'Decline selected'].includes(one.textContent ?? ''))
+  expect(actions).toHaveLength(5)
+  expect(actions.every((one) => (one as HTMLButtonElement).disabled)).toBe(true)
+  expect(decideFindingRun).not.toHaveBeenCalled()
 })
 
 it('a run with nothing pending greys both exception buttons with their reason', () => {

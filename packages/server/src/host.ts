@@ -470,6 +470,20 @@ export type Broadcast = (notification: WireNotification) => void
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
 
+/** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
+const findingDecisionRefusal = (store: GoalStore, goal: string): string | null => {
+  let document: ReturnType<GoalStore['read']>
+  try {
+    document = store.read(goal)
+  } catch {
+    return 'There is no such Goal on this desk.'
+  }
+  if (document.restored) return 'This Goal came from a backup. Its findings are history here; start a new Goal to decide them.'
+  if (document.goal.state === 'wrapped') return 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  if (document.goal.state !== 'open') return 'This Goal is being wrapped, so nothing more is decided on it.'
+  return null
+}
+
 export class Host {
   /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
   browserProfileAllowed(profile: string): boolean {
@@ -1053,8 +1067,10 @@ export class Host {
         recordOverride: (run, override) => this.#flows.recordOverride(run, override),
         stopRun: (run, reason) => this.#flows.stopRun(run, reason),
         recordDecisionStamp: (run, stamp, key) => this.#flows.recordDecisionStamp(run, stamp, key),
+        decide: (run, step) => this.#flows.withDecision(run, step),
       },
       goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
+      goalClosed: (goal) => findingDecisionRefusal(this.#goalStore, goal),
       projectOf: async (goal) => {
         const state = this.#goalState(goal)
         return projectOf(state.cwd ?? state.root)

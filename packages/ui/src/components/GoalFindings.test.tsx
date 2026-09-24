@@ -198,6 +198,7 @@ it('shows the run’s status and a Decide control once a stopped run is cached, 
     run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
     reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
     reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+    boundPr: null, unbound: 'No open pull request is bound to this Goal, so this round stays on the desk.', undecidable: null,
   } as never]])
   const { store } = rig(state, { flowExecutions, findingRuns })
   await render(store)
@@ -206,6 +207,26 @@ it('shows the run’s status and a Decide control once a stopped run is cached, 
   act(() => decide.click())
   await act(async () => {})
   expect(document.body.textContent).toContain('Decide this run')
+})
+
+it('a wrapped Goal’s run greys Decide this run and says why', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const undecidable = 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', findings: {} } as never]])
+  const findingRuns = new Map([['run-1', {
+    run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
+    reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+    boundPr: null, unbound: null, undecidable,
+  } as never]])
+  const { store } = rig(state, { flowExecutions, findingRuns })
+  await render(store)
+  const decide = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Decide this run')! as HTMLButtonElement
+  expect(decide.disabled).toBe(true)
+  expect(container.textContent).toContain(undecidable)
 })
 
 it('opening a row reads its history explicitly, and closing returns focus to the row', async () => {

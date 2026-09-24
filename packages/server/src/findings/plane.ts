@@ -34,7 +34,7 @@ import {
 } from '../evidence/records.js'
 import type { StoreRead } from '../evidence/store.js'
 import type { FindingsGate, FlowSubject } from '../flow-evidence.js'
-import type { FindingRunSnapshot, ReviewPacketPin } from '../flow-execution.js'
+import type { FindingRunSnapshot, ReviewPacketPin, RunDecisionOps } from '../flow-execution.js'
 import type { GoalDocument } from '../goals/store.js'
 import type { TeamCallScope } from '../team.js'
 import type { FindingJournal, FindingJournalEntry } from './journal.js'
@@ -151,6 +151,12 @@ export interface FindingFlows {
   stopRun?(run: string, reason: string): Promise<FlowExecution>
   /** The last `finding/decide` this run actually applied: what makes a resubmitted stamp replay rather than refuse. */
   recordDecisionStamp?(run: string, stamp: string, key: string): Promise<FlowExecution>
+  /**
+   * One person decision, whole, inside the run's own queue: the stamp check
+   * and the action are one step there. `step` uses only the actions it is
+   * handed, never the queued ones above, and asks for no run queue itself.
+   */
+  decide?<T>(run: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T>
 }
 
 /** The Goal plane's side of a carry: its own transaction, which asks this plane for the records under its queue. */
@@ -173,6 +179,8 @@ export interface FindingsPort {
   }
   readonly flows: FindingFlows
   readonly goals?: FindingGoals
+  /** Why a Goal takes no person decision now — wrapped, closing, from a backup, or gone — or null while it is open. A snapshot read. */
+  goalClosed?(goal: string): string | null
   /** The project a Goal's facts are kept under. */
   projectOf(goal: string): Promise<string>
   /** A checkout's committed head now, and whether it holds uncommitted changes. */
@@ -1048,11 +1056,13 @@ export class FindingsPlane {
     const last = snapshot.rounds.at(-1)
     const blind = (this.#port.flows.blindRounds?.(snapshot.goal) ?? []).some((one) => one.run === run)
     const publication = this.#publisher ? await this.#publisher.status(run) : { publication: 'local' as const, reason: null }
+    const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
+    // What "merge anyway" needs: a pull request the desk observed and bound, whatever posting is set to.
+    const bound = boundPullRequest(facts)
     let reviewersFinished: number | null = null
     let reviewersTotal: number | null = null
     if (last?.reviews) {
       reviewersTotal = last.cards.length
-      const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
       reviewersFinished = new Set(facts.filter((view) =>
         !view.record.restored && view.record.fact.kind === 'review' &&
         view.record.card?.board === snapshot.goal && last.cards.includes(view.record.card.id))
@@ -1070,6 +1080,9 @@ export class FindingsPlane {
       reviewersFinished, reviewersTotal,
       pendingExceptions: [...pendingOf(series)],
       repair: last ? (snapshot.leads[String(last.n)] ?? null) : null,
+      boundPr: bound.kind === 'bound' ? { repo: bound.repo, pr: bound.pr } : null,
+      unbound: bound.kind === 'none' ? bound.reason : null,
+      undecidable: this.#port.goalClosed?.(snapshot.goal) ?? null,
     }
     const cwds = [...new Set(series.map((one) => one.checkout.cwd))].sort()
     const heads = await Promise.all(cwds.map(async (cwd) => ({ cwd, ...(await this.#port.headOf(cwd)) })))
@@ -1105,68 +1118,76 @@ export class FindingsPlane {
   }): Promise<FindingRunView> {
     const reason = input.reason.trim()
     if (reason === '' || input.reason.length > 4096) throw new Error('Say why, in 1 to 4096 characters.')
-    const snapshot = this.#port.flows.run?.(input.run)
-    if (!snapshot) throw new Error(`There is no flow run ${input.run}.`)
-    if (snapshot.goal !== input.goal) throw new Error('That run does not belong to this Goal.')
-    if (!snapshot.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    const first = this.#port.flows.run?.(input.run)
+    if (!first) throw new Error(`There is no flow run ${input.run}.`)
+    if (first.goal !== input.goal) throw new Error('That run does not belong to this Goal.')
+    if (!first.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    const closed = this.#port.goalClosed?.(input.goal) ?? null
+    if (closed) throw new Error(closed)
+    const decide = this.#port.flows.decide
+    if (!decide) throw new Error('This desk cannot record a decision on this run.')
     const key = canonical({ action: input.action, reason })
-    const last = snapshot.findings.lastDecision
-    if (last && last.stamp === input.stamp) {
-      if (last.key !== key) throw new Error('This exact read was already used for a different decision. Read the run again.')
-      return this.runView(input.run)
-    }
-    const current = await this.runView(input.run)
-    if (current.stamp !== input.stamp || current.round !== input.round) {
-      throw new Error('This run changed since you read it. Read it again before deciding.')
-    }
-    const project = await this.#port.projectOf(input.goal)
-    const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? snapshot.findings.series
-    switch (input.action.kind) {
-      case 'another-round': {
-        if (!this.#port.flows.authorizeExtraRound) throw new Error('This desk cannot authorize another round.')
-        await this.#port.flows.authorizeExtraRound(input.run, input.round, reason)
-        break
+    /* The stamp check and the action are one step inside the run's queue:
+       a second submission of the same read waits for the first, then finds
+       it recorded — the same action replays, anything else is refused. */
+    const replayed = await decide(input.run, async (ops) => {
+      const snapshot = this.#port.flows.run?.(input.run)
+      if (!snapshot?.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+      const last = snapshot.findings.lastDecision
+      if (last && last.stamp === input.stamp) {
+        if (last.key !== key) throw new Error('This exact read was already used for a different decision. Read the run again.')
+        return true
       }
-      case 'admit-exceptions':
-      case 'decline-exceptions': {
-        if (!this.#port.flows.recordExceptionDecision) throw new Error('This desk cannot decide a pending exception.')
-        const known = pendingOf(series)
-        if (input.action.findings.length === 0 || input.action.findings.some((id) => !known.has(id))) {
-          throw new Error('One or more of these findings are no longer a pending exception. Read the run again.')
+      const stillClosed = this.#port.goalClosed?.(input.goal) ?? null
+      if (stillClosed) throw new Error(stillClosed)
+      const current = await this.runView(input.run)
+      if (current.stamp !== input.stamp || current.round !== input.round) {
+        throw new Error('This run changed since you read it. Read it again before deciding.')
+      }
+      const project = await this.#port.projectOf(input.goal)
+      const series = this.#port.flows.seriesOfGoal?.(input.goal) ?? snapshot.findings.series
+      switch (input.action.kind) {
+        case 'another-round':
+          await ops.authorizeExtraRound(input.round, reason)
+          break
+        case 'admit-exceptions':
+        case 'decline-exceptions': {
+          const known = pendingOf(series)
+          if (input.action.findings.length === 0 || input.action.findings.some((id) => !known.has(id))) {
+            throw new Error('One or more of these findings are no longer a pending exception. Read the run again.')
+          }
+          await ops.recordExceptionDecision(input.action.findings, input.action.kind === 'admit-exceptions')
+          break
         }
-        await this.#port.flows.recordExceptionDecision(input.run, input.action.findings, input.action.kind === 'admit-exceptions')
-        break
-      }
-      case 'merge-anyway': {
-        if (!this.#port.flows.recordOverride) throw new Error('This desk cannot record a merge override.')
-        const facts = (await this.#port.flows.facts?.(input.goal)) ?? []
-        const bound = boundPullRequest(facts)
-        if (bound.kind === 'none') throw new Error('Publish a pull request before merging here.')
-        const ledger = await this.#serial(project, () => this.#ledger(project))
-        const owned = ledger.views.filter((one) => one.ownerGoal === input.goal)
-        const admitted = admittedOf(series)
-        const unresolved = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).map((one) => one.id)
-        const cwd = series[0]?.checkout.cwd
-        const at = cwd ? (await this.#port.headOf(cwd)).at ?? '' : ''
-        const override: FindingOverride = {
-          by: 'person', run: input.run, round: input.round, at, findings: unresolved, reason, decidedAt: this.#port.now(),
+        case 'merge-anyway': {
+          const facts = (await this.#port.flows.facts?.(input.goal)) ?? []
+          const bound = boundPullRequest(facts)
+          if (bound.kind === 'none') throw new Error('Publish a pull request before merging here.')
+          const ledger = await this.#serial(project, () => this.#ledger(project))
+          const owned = ledger.views.filter((one) => one.ownerGoal === input.goal)
+          const admitted = admittedOf(series)
+          const unresolved = owned.filter((one) => (admitted.has(one.id) && !isResolved(one)) || one.problem !== null).map((one) => one.id)
+          const cwd = series[0]?.checkout.cwd
+          const at = cwd ? (await this.#port.headOf(cwd)).at ?? '' : ''
+          await ops.recordOverride({
+            by: 'person', run: input.run, round: input.round, at, findings: unresolved, reason, decidedAt: this.#port.now(),
+          })
+          break
         }
-        await this.#port.flows.recordOverride(input.run, override)
-        break
+        case 'drop':
+          await ops.stop(reason)
+          break
+        case 'adjudicate':
+          await this.#adjudicate(input.goal, input.run, input.round, input.action.finding, input.action.state, reason, input.stamp)
+          break
       }
-      case 'drop': {
-        if (!this.#port.flows.stopRun) throw new Error('This desk cannot drop this run.')
-        await this.#port.flows.stopRun(input.run, reason)
-        break
-      }
-      case 'adjudicate': {
-        await this.#adjudicate(input.goal, input.run, input.round, input.action.finding, input.action.state, reason, input.stamp)
-        break
-      }
+      await ops.recordDecisionStamp(input.stamp, key)
+      return false
+    })
+    if (!replayed) {
+      this.#invalidateList(input.goal)
+      this.#port.changed?.(input.goal)
     }
-    await this.#port.flows.recordDecisionStamp?.(input.run, input.stamp, key)
-    this.#invalidateList(input.goal)
-    this.#port.changed?.(input.goal)
     return this.runView(input.run)
   }
 
@@ -1183,6 +1204,8 @@ export class FindingsPlane {
     goal: string, run: string, round: number, finding: string,
     state: 'open' | 'repaired' | 'withdrawn', reason: string, stamp: string,
   ): Promise<void> {
+    const closed = this.#port.goalClosed?.(goal) ?? null
+    if (closed) throw new Error(closed)
     const project = await this.#port.projectOf(goal)
     const operation = operationKey('verdict', `person:${goal}`, round, stamp)
     await this.#serial(project, async () => {

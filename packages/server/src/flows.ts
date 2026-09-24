@@ -31,7 +31,7 @@ import type {
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
-import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type StoredFlowExecution } from './flow-execution.js'
+import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
 import type { FindingJournal } from './findings/journal.js'
 import type { PublicationJournal } from './findings/publication.js'
@@ -375,6 +375,22 @@ export class Flows implements TeamFlows {
     const stopped = await this.#executions.stop(id, why)
     for (const listener of this.#runStopped) await listener(id)
     return stopped
+  }
+
+  /**
+   * One person decision on a run inside its queue (`FlowExecutions.withDecision`).
+   * A Drop inside it stops the run there; the stop's listeners are told once
+   * the step has let the queue go, exactly as `stopRun` tells them.
+   */
+  async withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
+    if (!this.#executions?.stored(id)) throw new Error(`There is no flow run ${id}.`)
+    let stopped = false
+    const result = await this.#executions.withDecision(id, (ops) => step({
+      ...ops,
+      stop: async (why) => { await ops.stop(why); stopped = true },
+    }))
+    if (stopped) for (const listener of this.#runStopped) await listener(id)
+    return result
   }
 
   readonly #runStopped = new Set<(run: string) => Promise<void>>()

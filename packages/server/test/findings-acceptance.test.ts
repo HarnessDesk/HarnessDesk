@@ -122,6 +122,8 @@ test('a person decides a stopped run: an admitted override authorizes merge read
     category: 'ordinary', blocking: true,
   }, f.scope('seat-2'))
   await f.finishReviews('request-changes')
+  // The person reads the run once the closed round's posting has settled: a posting landing moves the stamp.
+  await rig.pub.idle()
 
   const view = await f.plane.runView(f.run)
   assert.equal(view.blocking, 1)

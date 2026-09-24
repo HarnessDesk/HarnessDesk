@@ -6,7 +6,8 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { EvidenceStore } from '../src/evidence/store.js'
-import type { FindingRunSnapshot } from '../src/flow-execution.js'
+import type { FindingRunSnapshot, RunDecisionOps } from '../src/flow-execution.js'
+import { Serial } from '../src/goals/assignments.js'
 import { FindingsPlane, type FindingsPort } from '../src/findings/plane.js'
 import { tempDir } from './scratch.js'
 
@@ -62,7 +63,17 @@ const execution = (snapshot: FindingRunSnapshot): FlowExecution => ({
   state: 'stalled', rounds: [], operations: [], legacyRun: null, reason: null, findings: snapshot.findings ?? undefined,
 })
 
+/** A fake run's decision actions, as `FlowExecutions.withDecision` hands them: its own queued methods, called in order. */
+const opsOf = (flows: FindingsPort['flows'], run: string): RunDecisionOps => ({
+  authorizeExtraRound: async (round, reason) => { await flows.authorizeExtraRound!(run, round, reason) },
+  recordExceptionDecision: async (findings, admit) => { await flows.recordExceptionDecision!(run, findings, admit) },
+  recordOverride: async (override) => { await flows.recordOverride!(run, override) },
+  recordDecisionStamp: async (stamp, key) => { await flows.recordDecisionStamp!(run, stamp, key) },
+  stop: async (why) => { await flows.stopRun!(run, why) },
+})
+
 const rig = async (findingsOver: Partial<FindingRunState> = {}): Promise<Rig> => {
+  const decisions = new Serial()
   const home = tempDir('hd-findings-decisions-')
   const store = new EvidenceStore(home)
   await store.append(ROOT, 'evidence', [raise(1)].map((record) => ({ type: 'evidence', record }) as const))
@@ -113,6 +124,8 @@ const rig = async (findingsOver: Partial<FindingRunState> = {}): Promise<Rig> =>
         out.snapshot = { ...out.snapshot, findings: { ...out.snapshot.findings!, lastDecision: { stamp, key } } }
         return execution(out.snapshot)
       },
+      // The run's queue, as FlowExecutions.withDecision holds it: this fake's actions, one decision at a time.
+      decide: (run, step) => decisions.run(() => step(opsOf(port.flows, run))),
     },
     projectOf: async (goal) => { if (goal !== GOAL) throw new Error('That Goal is not on this desk.'); return ROOT },
     headOf: async () => ({ at: out.headAt, dirty: false }),
@@ -215,6 +228,11 @@ test('merge-anyway records the exact unresolved blockers once a pull request is 
         return execution(state.snapshot)
       },
       stopRun: async () => { throw new Error('unused') },
+      recordDecisionStamp: async (_run, stamp, key) => {
+        state.snapshot = { ...state.snapshot, findings: { ...state.snapshot.findings!, lastDecision: { stamp, key } } }
+        return execution(state.snapshot)
+      },
+      decide: (run, step) => new Serial().run(() => step(opsOf(port2.flows, run))),
     },
     projectOf: async () => ROOT,
     headOf: async () => ({ at: state.headAt, dirty: false }),

@@ -31,12 +31,15 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
 
-  const localOnly = view.publication === 'local'
+  // Merge anyway needs a pull request the desk bound, whatever posting is set to; the reason is the desk's own.
+  const mergeRefusal = view.boundPr ? null : (view.unbound ?? 'Publish a pull request before merging here.')
+  // A Goal no longer open takes no decision: every action is greyed, with this reason.
+  const closed = view.undecidable
 
   const decide = async (kind: FindingDecisionAction['kind'], action: FindingDecisionAction): Promise<void> => {
     const trimmed = reason.trim()
     if (trimmed === '') { setError('Say why.'); return }
-    if (pending) return
+    if (pending || closed) return
     setPending(kind)
     setError(null)
     try {
@@ -84,7 +87,8 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
           />
         </label>
         {error && <Banner tone="danger" title="This decision could not be recorded">{error}</Banner>}
-        {localOnly && <Note>Publish a pull request before merging here. You can still continue or Drop.</Note>}
+        {closed && <Banner tone="neutral" title="Nothing more is decided here">{closed}</Banner>}
+        {!closed && mergeRefusal && <Note>{`${mergeRefusal} You can still continue or Drop.`}</Note>}
         <div className="flex flex-col gap-1.5">
           <Text role="meta">Pending exceptions</Text>
           {view.pendingExceptions.length > 0 ? (
@@ -92,7 +96,7 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
               <label key={id} className="flex items-center gap-2">
                 <Switch
                   checked={selected.has(id)}
-                  disabled={pending !== null}
+                  disabled={pending !== null || closed !== null}
                   aria-label={`Select ${id}`}
                   onCheckedChange={() => toggle(id)}
                 />
@@ -106,8 +110,8 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
             <Button
               type="button"
               variant="default"
-              disabled={pending !== null || view.pendingExceptions.length === 0 || selected.size === 0}
-              title={view.pendingExceptions.length === 0 ? 'No exceptions are pending.' : undefined}
+              disabled={pending !== null || closed !== null || view.pendingExceptions.length === 0 || selected.size === 0}
+              title={closed ?? (view.pendingExceptions.length === 0 ? 'No exceptions are pending.' : undefined)}
               onClick={() => void actOnExceptions(true)}
             >
               {pending === 'admit-exceptions' ? 'Working…' : 'Admit selected'}
@@ -115,8 +119,8 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
             <Button
               type="button"
               variant="destructive"
-              disabled={pending !== null || view.pendingExceptions.length === 0 || selected.size === 0}
-              title={view.pendingExceptions.length === 0 ? 'No exceptions are pending.' : undefined}
+              disabled={pending !== null || closed !== null || view.pendingExceptions.length === 0 || selected.size === 0}
+              title={closed ?? (view.pendingExceptions.length === 0 ? 'No exceptions are pending.' : undefined)}
               onClick={() => void actOnExceptions(false)}
             >
               {pending === 'decline-exceptions' ? 'Working…' : 'Decline selected'}
@@ -129,8 +133,8 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
               key={action.kind}
               type="button"
               variant={action.tone === 'destructive' ? 'destructive' : 'default'}
-              disabled={pending !== null || (action.kind === 'merge-anyway' && localOnly)}
-              title={action.kind === 'merge-anyway' && localOnly ? 'Publish a pull request before merging here.' : undefined}
+              disabled={pending !== null || closed !== null || (action.kind === 'merge-anyway' && mergeRefusal !== null)}
+              title={closed ?? (action.kind === 'merge-anyway' ? mergeRefusal ?? undefined : undefined)}
               onClick={() => void act(action.kind)}
             >
               {pending === action.kind ? 'Working…' : action.label}

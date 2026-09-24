@@ -113,8 +113,17 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
           <>
             <FindingRoundStatus view={runView} />
             {(runView.reason !== null || runView.blocking > 0) && (
-              <Button variant="outline" size="sm" onClick={() => setDeciding(true)}>Decide this run</Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={runView.undecidable !== null}
+                title={runView.undecidable ?? undefined}
+                onClick={() => setDeciding(true)}
+              >
+                Decide this run
+              </Button>
             )}
+            {runView.undecidable && <Note>{runView.undecidable}</Note>}
           </>
         )}
         {boundPr ? (

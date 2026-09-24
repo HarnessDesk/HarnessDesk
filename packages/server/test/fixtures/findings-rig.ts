@@ -67,6 +67,8 @@ export interface FindingsRig {
   restart(): Promise<void>
   /** Told of every plane the rig attaches, before a restart resumes its runs: where a test attaches a publisher. */
   onPlane: ((plane: FindingsPlane) => void | Promise<void>) | null
+  /** Set, the Goal is no longer open — wrapped, say — with this sentence. */
+  goalClosed: string | null
 }
 
 export const findingsRig = async (
@@ -82,7 +84,7 @@ export const findingsRig = async (
   rig.heads.set('/repo', { at: SHA1, dirty: false })
   const store = new EvidenceStore(join(rig.dir, 'evidence'))
   const out = {
-    rig, store, appendHook: null, packetRefusal: null, goal: '', run: '', onPlane: null,
+    rig, store, appendHook: null, packetRefusal: null, goal: '', run: '', onPlane: null, goalClosed: null,
   } as unknown as FindingsRig
   const port: FindingsPort = {
     store: {
@@ -118,7 +120,9 @@ export const findingsRig = async (
       recordOverride: (run, override) => rig.flows.recordOverride(run, override),
       stopRun: (run, reason) => rig.flows.stopRun(run, reason),
       recordDecisionStamp: (run, stamp, key) => rig.flows.recordDecisionStamp(run, stamp, key),
+      decide: (run, step) => rig.flows.withDecision(run, step),
     },
+    goalClosed: () => out.goalClosed,
     projectOf: async () => '/repo',
     headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
     // The rig's checkouts are not repositories: a later review's delta is the one a test scripts.

@@ -161,6 +161,16 @@ export interface FlowExecutionPort {
   ): Promise<{ readonly result: { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }; readonly evidence: string | null; readonly problem: string | null }>
 }
 
+/** A person decision's actions on one run, each run inside the run's queue a `withDecision` step already holds. */
+export interface RunDecisionOps {
+  authorizeExtraRound(round: number, reason: string): Promise<void>
+  recordExceptionDecision(findings: readonly FindingId[], admit: boolean): Promise<void>
+  recordOverride(override: FindingOverride): Promise<void>
+  recordDecisionStamp(stamp: string, key: string): Promise<void>
+  /** The person's Drop: the run stops. Its listeners (unsent postings skipped) are told once the step is done. */
+  stop(why: string): Promise<void>
+}
+
 // ------------------------------------------------------------------ one queue
 
 /** One queue per run: board completions, evidence notices, stop and restart reconciliation take turns. */
@@ -548,23 +558,27 @@ export class FlowExecutions {
    */
   async authorizeExtraRound(id: string, round: number, reason: string): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      let run = this.#get(id)
-      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
-      if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
-      const already = run.findings.extraRound
-      // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
-      const replay = run.findings.stopped === null && already?.after === round && already.reason === reason
-      if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
-        throw new Error('This run is not stopped at that round any more. Read its status again.')
-      }
-      if (!replay) {
-        // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized round runs.
-        run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason } } })
-      }
-      run = await this.#put({ ...run, state: 'running', reason: null })
-      await this.#advance(id)
+      await this.#authorizeExtraRound(id, round, reason)
       return projectExecution(this.#get(id))
     })
+  }
+
+  async #authorizeExtraRound(id: string, round: number, reason: string): Promise<void> {
+    let run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
+    if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
+    const already = run.findings.extraRound
+    // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
+    const replay = run.findings.stopped === null && already?.after === round && already.reason === reason
+    if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
+      throw new Error('This run is not stopped at that round any more. Read its status again.')
+    }
+    if (!replay) {
+      // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized round runs.
+      run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason } } })
+    }
+    run = await this.#put({ ...run, state: 'running', reason: null })
+    await this.#advance(id)
   }
 
   /**
@@ -577,22 +591,26 @@ export class FlowExecutions {
    */
   async recordExceptionDecision(id: string, findings: readonly FindingId[], admit: boolean): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      let run = this.#get(id)
-      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
-      const names = new Set(findings)
-      const series: readonly FindingSeries[] = run.findings.series.map((one) => {
-        const applicable = one.pending.filter((pending) => names.has(pending))
-        if (applicable.length === 0) return one
-        return {
-          ...one,
-          pending: one.pending.filter((pending) => !names.has(pending)),
-          exceptions: admit ? [...one.exceptions, ...applicable] : one.exceptions,
-        }
-      })
-      run = await this.#put({ ...run, findings: { ...run.findings, series } })
-      await this.#advance(id)
+      await this.#recordExceptionDecision(id, findings, admit)
       return projectExecution(this.#get(id))
     })
+  }
+
+  async #recordExceptionDecision(id: string, findings: readonly FindingId[], admit: boolean): Promise<void> {
+    const run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    const names = new Set(findings)
+    const series: readonly FindingSeries[] = run.findings.series.map((one) => {
+      const applicable = one.pending.filter((pending) => names.has(pending))
+      if (applicable.length === 0) return one
+      return {
+        ...one,
+        pending: one.pending.filter((pending) => !names.has(pending)),
+        exceptions: admit ? [...one.exceptions, ...applicable] : one.exceptions,
+      }
+    })
+    await this.#put({ ...run, findings: { ...run.findings, series } })
+    await this.#advance(id)
   }
 
   /**
@@ -604,13 +622,17 @@ export class FlowExecutions {
    */
   async recordDecisionStamp(id: string, stamp: string, key: string): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      let run = this.#get(id)
-      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
-      if (run.findings.lastDecision?.stamp !== stamp || run.findings.lastDecision.key !== key) {
-        run = await this.#put({ ...run, findings: { ...run.findings, lastDecision: { stamp, key } } })
-      }
-      return projectExecution(run)
+      await this.#recordDecisionStamp(id, stamp, key)
+      return projectExecution(this.#get(id))
     })
+  }
+
+  async #recordDecisionStamp(id: string, stamp: string, key: string): Promise<void> {
+    const run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to decide.')
+    if (run.findings.lastDecision?.stamp !== stamp || run.findings.lastDecision.key !== key) {
+      await this.#put({ ...run, findings: { ...run.findings, lastDecision: { stamp, key } } })
+    }
   }
 
   /**
@@ -621,14 +643,37 @@ export class FlowExecutions {
    */
   async recordOverride(id: string, override: FindingOverride): Promise<FlowExecution> {
     return this.#queue.within(id, async () => {
-      let run = this.#get(id)
-      if (!run.findings) throw new Error('This run keeps no findings bookkeeping to override.')
-      const exact = JSON.stringify(override)
-      if (!run.findings.overrides.some((one) => JSON.stringify(one) === exact)) {
-        run = await this.#put({ ...run, findings: { ...run.findings, overrides: [...run.findings.overrides, override] } })
-      }
-      return projectExecution(run)
+      await this.#recordOverride(id, override)
+      return projectExecution(this.#get(id))
     })
+  }
+
+  async #recordOverride(id: string, override: FindingOverride): Promise<void> {
+    const run = this.#get(id)
+    if (!run.findings) throw new Error('This run keeps no findings bookkeeping to override.')
+    const exact = JSON.stringify(override)
+    if (!run.findings.overrides.some((one) => JSON.stringify(one) === exact)) {
+      await this.#put({ ...run, findings: { ...run.findings, overrides: [...run.findings.overrides, override] } })
+    }
+  }
+
+  /**
+   * One person decision on a run, whole, inside the run's own queue: the
+   * read it was made against is checked and the action applied as one step,
+   * so two submissions of the same read cannot both pass the check before
+   * either applies. `step` is handed this run's decision actions, each run
+   * in the queue already held — it must not ask for this run's queue again
+   * (host.ts, "Lock order").
+   */
+  withDecision<T>(id: string, step: (ops: RunDecisionOps) => Promise<T>): Promise<T> {
+    if (!this.#runs.has(id)) return Promise.reject(new Error(`There is no flow run ${id}.`))
+    return this.#queue.within(id, () => step({
+      authorizeExtraRound: (round, reason) => this.#authorizeExtraRound(id, round, reason),
+      recordExceptionDecision: (findings, admit) => this.#recordExceptionDecision(id, findings, admit),
+      recordOverride: (override) => this.#recordOverride(id, override),
+      recordDecisionStamp: (stamp, key) => this.#recordDecisionStamp(id, stamp, key),
+      stop: (why) => this.#finish(id, 'stopped', why),
+    }))
   }
 
   /**

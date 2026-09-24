@@ -367,4 +367,13 @@ export interface FindingRunView {
   readonly pendingExceptions: readonly FindingId[]
   /** This round's repair delta, one entry per reviewed series; null for a first review or a round with no packet. */
   readonly repair: readonly RepairLead[] | null
+  /**
+   * The pull request this Goal is bound to, from host-observed evidence —
+   * what "merge anyway" needs, whether or not posting is on. Null when none
+   * is, and `unbound` says why.
+   */
+  readonly boundPr: { readonly repo: string; readonly pr: number } | null
+  readonly unbound: string | null
+  /** Why no decision can be made on this run now — its Goal is wrapped, closing or from a backup; null while one can. */
+  readonly undecidable: string | null
 }
