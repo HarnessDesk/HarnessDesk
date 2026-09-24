@@ -1025,6 +1025,12 @@ const handlers = {
       return fail(id, 'Internal error', { details: 'the transcript could not be read' })
     }
     const state = newSession(entry.sessionId, entry.cwd)
+    // A load is handed the servers a session/new is: dumped the same way.
+    if (process.env.FAKE_ACP_DUMP_SERVERS) {
+      try {
+        writeFileSync(process.env.FAKE_ACP_DUMP_SERVERS, JSON.stringify(params?.mcpServers ?? []))
+      } catch {}
+    }
     // A load carries a reopened Seat's filter the same way session/new does.
     if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
       attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
