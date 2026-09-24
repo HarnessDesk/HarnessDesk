@@ -758,7 +758,7 @@ export class AcpRuntime implements AgentRuntime {
       // runtime has actually shaken hands: "what a runtime may claim before
       // it has observed anything" is nothing.
       ...(this.#initialized
-        ? { attachments: toAttachmentSupport(this.#attachmentCapability, this.#config.id, effectiveVersion ?? '') }
+        ? { attachments: toAttachmentSupport(this.#attachmentCapability, this.#config.id, effectiveVersion ?? '', this.#config.name) }
         : {}),
       provider: this.#provider,
       presentation: {

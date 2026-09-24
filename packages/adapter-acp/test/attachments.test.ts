@@ -32,6 +32,8 @@ test('negotiates before injecting: absent, wrong version, and malformed capabili
   await plain.start()
   assert.equal(plain.info.attachments?.skills, 'unsupported', 'an agent that never mentions the extension is unsupported, not assumed capable')
   assert.match(plain.info.attachments?.reason ?? '', /does not declare/)
+  assert.match(plain.info.attachments?.reason ?? '', /^Fake ACP Agent /, 'a reason a person reads names the agent by its presentation (rule 8)')
+  assert.doesNotMatch(plain.info.attachments?.reason ?? '', /fake-acp/)
 
   const wrongVersion = make({ FAKE_ACP_ATTACHMENTS: '1', FAKE_ACP_ATTACHMENTS_VERSION: '2' })
   t.after(() => wrongVersion.dispose())

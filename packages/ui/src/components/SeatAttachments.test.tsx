@@ -110,3 +110,13 @@ it('a live epoch on the current Seat reads differently from the same epoch shown
 
   expect(liveText).not.toEqual(historicalText)
 })
+
+it('names the runtime by its presentation, never its id (rule 8)', async () => {
+  const snapshot = { ...SNAPSHOT, runtimes: [{ id: 'one', presentation: { name: 'Pretty Agent' } }] } as unknown as AppSnapshot
+  const store = { ...storeFor(RECORD), getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><SeatAttachments seat={SEAT} /></StoreProvider>))
+  await settle()
+  const text = container.textContent ?? ''
+  expect(text).toContain('Currently on Pretty Agent')
+  expect(text).not.toMatch(/on one\b/)
+})

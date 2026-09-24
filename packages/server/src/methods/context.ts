@@ -151,7 +151,7 @@ export interface HostContext {
     record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
     /** Task 5's own two person-facing verbs on Task 1's trust store — a preview names exact bytes, an approval names exactly the token that preview minted. */
     readonly trust: {
-      preview(subject: AttachmentSubject, entries: readonly ResolvedAttachment[]): Promise<AttachmentReview>
+      preview(subject: AttachmentSubject, entries: readonly ResolvedAttachment[], options?: { readonly runtimeName?: string }): Promise<AttachmentReview>
       approve(token: string): Promise<void>
     }
     /** A Seat's frozen attachment history, by immutable Seat id — Task 3's own durable receipts, read back for the Agent page and the Library. */

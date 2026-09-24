@@ -37,6 +37,9 @@ test('attachment/agent shows runtime defaults for an undeclared Agent, never "no
   assert.equal(view.mcpMode, 'runtime-defaults')
   assert.deepEqual(view.declarations, [])
   assert.ok(view.support.length > 0, 'at least the fake runtime reports its own measured support')
+  // An unmeasured runtime's reason is read by a person: it names the runtime
+  // by its presentation, never its id (rule 8).
+  assert.match(view.support[0]!.reason ?? '', /^Fake Runtime has not been measured/)
 })
 
 test('attachment/agent refuses an Agent nobody has here', async (t) => {

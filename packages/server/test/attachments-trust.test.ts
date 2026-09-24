@@ -309,3 +309,30 @@ test('plain path reads no attachment roots', async (t) => {
   )
   assert.equal(existsAfter, false, 'a read-only question never creates the trust store')
 })
+
+test('a server’s review shows exactly what will run — command, arguments and environment — and says truthfully when it runs', async () => {
+  const dir = tempDir('hd-attach-trust-server-')
+  const trust = new AttachmentTrust(join(dir, 'attachment-trust.json'))
+  const server = {
+    name: 'reviewer-tools',
+    transport: 'stdio' as const,
+    command: '/usr/local/bin/node',
+    args: ['server.mjs', '--port', '0'],
+    env: { NODE_OPTIONS: '--max-old-space-size=512', GITHUB_TOKEN: 'ghp_not_a_real_token' },
+  }
+  const id = identity({ kind: 'mcp', name: 'reviewer-tools', digest: 'e'.repeat(64), source: 'library' })
+  const review = await trust.preview(subject({ ceiling: 'merge' }), [{ identity: id, files: [], server }], { runtimeName: 'Pretty Agent' })
+  const shown = review.files.find((one) => one.path === 'mcp/reviewer-tools/server')
+  assert.ok(shown, 'the server has an entry in the review, like every skill file does')
+  assert.match(shown.text, /\/usr\/local\/bin\/node/)
+  assert.match(shown.text, /"server\.mjs", "--port", "0"/)
+  assert.match(shown.text, /NODE_OPTIONS=--max-old-space-size=512/, 'an environment value that changes what runs is shown, not hidden')
+  assert.match(shown.text, /GITHUB_TOKEN=/, 'a secret’s name is shown')
+  assert.doesNotMatch(shown.text, /ghp_not_a_real_token/, 'a secret’s value is not')
+  assert.match(shown.text, /e{64}/, 'and the exact identity the approval is bound to')
+
+  assert.match(review.consequence, /Pretty Agent/, 'the runtime is named by its presentation, never its id')
+  assert.doesNotMatch(review.consequence, /\bclaude\b/)
+  assert.doesNotMatch(review.consequence, /the moment this Seat opens/, 'a server does not start when the Seat opens')
+  assert.match(review.consequence, /only when the Seat lists or calls its tools/)
+})

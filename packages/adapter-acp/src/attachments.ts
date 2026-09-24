@@ -64,6 +64,8 @@ export function toAttachmentSupport(
   capability: AcpAttachmentCapability | null,
   runtime: string,
   build: string,
+  /** How this agent is named to a person — its presentation name, never its id. */
+  name: string = runtime,
 ): AttachmentSupport {
   if (!capability) {
     return {
@@ -72,7 +74,7 @@ export function toAttachmentSupport(
       skills: 'unsupported',
       mcp: 'unsupported',
       suppressUnapproved: false,
-      reason: `${runtime} does not declare phase 12's attachment extension.`,
+      reason: `${name} does not declare phase 12's attachment extension.`,
     }
   }
   return {

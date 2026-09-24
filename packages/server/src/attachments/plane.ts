@@ -315,7 +315,7 @@ export class AttachmentsPlane {
     // rather than opened and then found to have loaded something nobody approved.
     if (anyUnapproved && !(await this.port.suppressUnapproved(subject))) {
       throw new UnsuppressedAutoLoadError(
-        `${subject.runtime} cannot be stopped from loading unapproved repository content on its own for this Seat.`,
+        'This agent cannot be stopped from loading unapproved repository content on its own for this Seat.',
       )
     }
 

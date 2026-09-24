@@ -75,7 +75,7 @@ const everyRuntimeSupport = (ctx: HostContext): readonly AttachmentSupport[] =>
         skills: 'unsupported',
         mcp: 'unsupported',
         suppressUnapproved: false,
-        reason: `${info.id} has not been measured against phase 12’s attachment contract.`,
+        reason: `${info.presentation.name} has not been measured against phase 12’s attachment contract.`,
       }
     )
   })
@@ -190,6 +190,7 @@ export const attachmentMethods = {
         ceiling: at.definition.ceiling,
       },
       resolved,
+      { runtimeName: ctx.runtimes.infoOf(runtime).presentation.name },
     )
   },
 

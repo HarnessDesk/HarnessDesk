@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { AttachmentDeclaration, SeatAttachmentsRecord, SeatId } from '@harnessdesk/protocol'
 
 import { Chip, Row, Rows, SectionHead } from '../design'
-import { useStore } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { GroupLine, PanelEmpty } from './Panel'
 
 /**
@@ -27,6 +27,7 @@ export const SeatAttachments = ({
   readonly historical?: boolean
 }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [read, setRead] = useState<
     | { readonly key: SeatId; readonly record: SeatAttachmentsRecord | null }
     | { readonly key: SeatId; readonly problem: string }
@@ -73,7 +74,10 @@ export const SeatAttachments = ({
     )
   }
 
-  const status = record.restored ? 'Restored' : historical ? `Loaded on ${record.runtime}` : `Currently on ${record.runtime}`
+  // Rule 8: a runtime is named by its presentation, never its id — and one
+  // this desk no longer has is named as such, not by the id it once had.
+  const runtimeName = snapshot.runtimes.find((one) => String(one.id) === record.runtime)?.presentation.name ?? 'an agent no longer on this desk'
+  const status = record.restored ? 'Restored' : historical ? `Loaded on ${runtimeName}` : `Currently on ${runtimeName}`
 
   return (
     <section aria-label="Attachments">

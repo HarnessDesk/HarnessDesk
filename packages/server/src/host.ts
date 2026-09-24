@@ -2571,7 +2571,7 @@ export class Host {
         prepare: (subject) => this.#attachments.prepare(subject),
         record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
         trust: {
-          preview: (subject, entries) => this.#attachmentTrust.preview(subject, entries),
+          preview: (subject, entries, options) => this.#attachmentTrust.preview(subject, entries, options),
           approve: (token) => this.#attachmentTrust.approve(token),
         },
         seatRecord: (seat) => this.#attachments.read(seat),
@@ -3494,7 +3494,7 @@ export class Host {
         skills: 'unsupported',
         mcp: 'unsupported',
         suppressUnapproved: false,
-        reason: `${subject.runtime} has not been measured against phase 12’s attachment contract.`,
+        reason: `${runtime?.info.presentation.name ?? 'This agent'} has not been measured against phase 12’s attachment contract.`,
       }
     )
   }

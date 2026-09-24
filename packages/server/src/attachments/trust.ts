@@ -11,6 +11,8 @@ import type {
   CeilingLevel,
 } from '@harnessdesk/protocol'
 
+import type { McpServerSpec } from '@harnessdesk/agent-inventory'
+
 import { plainCipher, type CredentialCipher } from '../credentials.js'
 import { errnoOf, NOTHING_YET } from '../errno.js'
 import type { AttachmentSubject, ResolvedAttachment } from './catalog.js'
@@ -81,15 +83,49 @@ interface PendingReview {
   readonly expiresAt: number
 }
 
-const consequenceOf = (subject: AttachmentSubject, entries: readonly ResolvedAttachment[]): string => {
+const consequenceOf = (runtimeName: string, subject: AttachmentSubject, entries: readonly ResolvedAttachment[]): string => {
   const skills = entries.filter((one) => one.identity.kind === 'skill').length
   const servers = entries.filter((one) => one.identity.kind === 'mcp').length
-  if (skills === 0 && servers === 0) return `${subject.runtime} will load nothing new for this Seat.`
+  if (skills === 0 && servers === 0) return `${runtimeName} will load nothing new for this Seat.`
   const parts: string[] = []
   if (skills > 0) parts.push(`${skills} skill${skills === 1 ? '' : 's'}`)
   if (servers > 0) parts.push(`${servers} MCP server${servers === 1 ? '' : 's'}`)
-  const serverNote = servers > 0 ? ' A server starts running the moment this Seat opens.' : ''
-  return `Approving this lets ${subject.runtime} load ${parts.join(' and ')} for this Seat, at the ${subject.ceiling} ceiling it already has.${serverNote}`
+  // When a server's command actually runs: the gateway starts it for one
+  // listing or one call at a time, each admitted by the desk's own gate, and
+  // only for an open Seat that may merge — never merely because a Seat opened.
+  const serverNote =
+    servers > 0
+      ? ` A server’s command runs on this Mac only when the Seat lists or calls its tools — each time through the desk’s gate, and only for an open Seat that may merge.`
+      : ''
+  return `Approving this lets ${runtimeName} load ${parts.join(' and ')} for this Seat, at the ${subject.ceiling} ceiling it already has.${serverNote}`
+}
+
+/** A name whose value is a credential by every convention in use: its value is never shown, only that it is set. */
+const SECRET_NAME = /(token|secret|password|passwd|credential|api[-_]?key|private[-_]?key|auth|cookie|session)/i
+
+const shownValue = (name: string, value: string): string => (SECRET_NAME.test(name) ? `•••• (a secret, ${value.length} characters; the approval covers its exact value)` : value)
+
+/**
+ * What a server entry will actually run, as a person reads it: the command,
+ * each argument, the environment and any URL and headers — the fields
+ * `canonicalMcp` digests, so what is shown is what the identity names. A
+ * value whose name marks it as a credential is shown as set, never shown.
+ */
+export const serverReviewText = (identity: AttachmentIdentity, spec: McpServerSpec): string => {
+  const lines: string[] = [`transport: ${spec.transport}`]
+  if (spec.command !== undefined) lines.push(`command: ${spec.command}`)
+  if (spec.args && spec.args.length > 0) lines.push(`arguments: ${spec.args.map((one) => JSON.stringify(one)).join(', ')}`)
+  if (spec.url !== undefined) lines.push(`url: ${spec.url}`)
+  const env = Object.entries(spec.env ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  lines.push(env.length === 0 ? 'environment: (nothing added)' : 'environment:')
+  for (const [name, value] of env) lines.push(`  ${name}=${shownValue(name, value)}`)
+  const headers = Object.entries(spec.headers ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  if (headers.length > 0) {
+    lines.push('headers:')
+    for (const [name, value] of headers) lines.push(`  ${name}: ${shownValue(name, value)}`)
+  }
+  lines.push(`identity: ${identity.digest}`)
+  return `${lines.join('\n')}\n`
 }
 
 export class AttachmentTrust {
@@ -112,7 +148,11 @@ export class AttachmentTrust {
    * Never touches disk beyond nothing — nothing here is durable until
    * `approve` is called, and nothing here starts a process or a request.
    */
-  async preview(subject: AttachmentSubject, entries: readonly ResolvedAttachment[]): Promise<AttachmentReview> {
+  async preview(
+    subject: AttachmentSubject,
+    entries: readonly ResolvedAttachment[],
+    options: { readonly runtimeName?: string } = {},
+  ): Promise<AttachmentReview> {
     const token = randomUUID()
     const expiresAt = this.#now() + REVIEW_TTL_MS
     this.#prune()
@@ -123,12 +163,16 @@ export class AttachmentTrust {
       identity: one.identity,
       problem: null,
     }))
-    const files = entries.flatMap((one) =>
-      one.files.map((file) => ({
+    const files = entries.flatMap((one) => [
+      ...one.files.map((file) => ({
         path: `${one.identity.kind}/${one.identity.name}/${file.path}`,
         text: new TextDecoder('utf-8', { fatal: false }).decode(file.bytes),
       })),
-    )
+      // A server has no files of its own: what is reviewed is what will run.
+      ...(one.identity.kind === 'mcp' && one.server
+        ? [{ path: `mcp/${one.identity.name}/server`, text: serverReviewText(one.identity, one.server) }]
+        : []),
+    ])
     return {
       token,
       expiresAt,
@@ -136,7 +180,7 @@ export class AttachmentTrust {
       files,
       runtime: subject.runtime,
       effectiveCeiling: subject.ceiling,
-      consequence: consequenceOf(subject, entries),
+      consequence: consequenceOf(options.runtimeName ?? 'This agent', subject, entries),
     }
   }
 
