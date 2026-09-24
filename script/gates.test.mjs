@@ -998,6 +998,42 @@ test('the method list stops at the validator table, not at the end of the file',
   assert.deepEqual(methodsIn(source), ['session/list'])
 })
 
+test('a method group spread into the validator table is on the list', () => {
+  /* `...goalValidators,` assembled goal/*, insight/* and finding/* into the
+     table from literals declared above it, and the parser read only the
+     table's own lines — every one of those methods was invisible to the gate.
+     The spread is followed to its own declaration; `unrelated` beside it is
+     the control that a literal nobody spreads is still not read. */
+  const source = [
+    "const goalValidators = {",
+    "  'goal/list': goalShape({}),",
+    "  'goal/create': goalShape({",
+    "    'not/a/method': isString,",
+    "  }),",
+    "}",
+    "const unrelated = {",
+    "  'not/a/method': 1,",
+    "}",
+    "const paramsValidators = {",
+    "  'session/list': shape({ runtime: isString }),",
+    "  ...goalValidators,",
+    "  'team/post': shape({}),",
+    "}",
+  ].join('\n')
+  assert.deepEqual(methodsIn(source), ['session/list', 'goal/list', 'goal/create', 'team/post'])
+  // A spread that names nothing declared fails loudly rather than dropping a group.
+  assert.throws(() => methodsIn("const paramsValidators = {\n  ...missingValidators,\n}"), /missingValidators/)
+})
+
+test('the real validator table: every spread group is read, and every method is reachable or pinned', () => {
+  /* The end-to-end half of the test above, against the file as it is. Before
+     spreads were followed this list had no goal/* or insight/* entry at all. */
+  const methods = methodsIn(fs.readFileSync(path.join(repoRoot, 'packages/protocol/src/wire-validators.ts'), 'utf8'))
+  for (const method of ['goal/list', 'insight/usage']) assert.ok(methods.includes(method), method)
+  const run = spawnSync(process.execPath, [path.join(repoRoot, 'script/check-reachable.mjs')], { encoding: 'utf8' })
+  assert.equal(run.status, 0, run.stderr + run.stdout)
+})
+
 test('a method name held in a variable is not a caller either', () => {
   /* The half stripping comments did not reach, found in review round 2 with
      its own reproduction: `const marker = 'team/inbound'` counted. A method
