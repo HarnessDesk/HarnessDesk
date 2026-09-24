@@ -119,6 +119,7 @@ test('review is bound to bytes runtime and ceiling', async () => {
   assert.equal(await trust.permits(subject({ runtime: 'codex' }), id), false, 'a different runtime must not inherit the grant')
   assert.equal(await trust.permits(subject({ build: '2.0.0' }), id), false, 'a new build must review again')
   assert.equal(await trust.permits(subject({ ceiling: 'merge' }), id), false, 'a widened ceiling must review again')
+  assert.equal(await trust.permits(subject({ ceiling: 'read' }), id), true, 'a narrower Seat is less authority, and the reviewed ceiling covers it')
   assert.equal(await trust.permits(subject({ agent: 'other-agent' }), id), false, 'a different Agent id must not inherit the grant')
 
   // The original combination is untouched by any of the above.

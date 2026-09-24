@@ -4289,10 +4289,12 @@ export class AppStore {
    * promise to fetch them again later. `root` must name the project this
    * Agent is actually about to be seated in: trust binds to that project's
    * own incarnation, the same one `agent/seat` itself uses, which for a
-   * `user` Agent is never its own folder.
+   * `user` Agent is never its own folder. No runtime is named: the host
+   * reviews for the runtime `agent/seat` will actually choose, and answers
+   * which one that is.
    */
-  async reviewAttachments(id: string, origin: AgentEntry['origin'], root: string, runtime: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
-    return this.transport.request('attachment/review', { id, origin, root, runtime })
+  async reviewAttachments(id: string, origin: AgentEntry['origin'], root: string): Promise<import('@harnessdesk/protocol').AttachmentReview> {
+    return this.transport.request('attachment/review', { id, origin, root })
   }
 
   /** Records a person's approval of exactly the reviewed token. */

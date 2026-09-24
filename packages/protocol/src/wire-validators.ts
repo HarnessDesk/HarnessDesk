@@ -865,7 +865,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     id: isFilled,
     origin: literalUnion('project', 'user', 'builtin'),
     root: atMost(4096, isFilled),
-    runtime: isFilled,
+    runtime: optional(isFilled),
   }),
   'attachment/approve': goalShape({ token: atMost(200, isFilled) }),
   'attachment/seat': goalShape({ seat: isFilled }),

@@ -493,6 +493,22 @@ async function finishAttachments(
   await attachments.record(record, prepared, receipt)
 }
 
+/**
+ * The runtime `seatAgent` would seat this Agent on by default — the same
+ * candidate list, the same desk read and the same `chooseSeat` at the same
+ * default ceiling — without opening anything. `attachment/review` asks this
+ * so a person approves loading for the runtime (and build) the Seat will
+ * actually check the approval against, never merely the first runtime that
+ * happens to support attachments at all. `null` when no candidate would seat.
+ */
+export async function defaultSeatRuntime(ctx: HostContext, definition: AgentDefinition): Promise<string | null> {
+  const list = candidatesFor(definition, await ctx.seating.read())
+  if ('refused' in list) return null
+  const desk = await readDesk(ctx, list.seats)
+  const need: CeilingNeed = { level: ceilingWithin(definition.ceiling, grantOf(undefined)), unheld: unheldPolicy(ctx.state.state.preferences) }
+  return chooseSeat(list.seats, desk.offers, need).seat?.runtime ?? null
+}
+
 /** The one seating operation used by a plain Agent and by Goal staffing. */
 export async function seatAgent(
   ctx: HostContext,

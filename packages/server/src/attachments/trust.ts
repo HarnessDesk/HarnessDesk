@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
+import { CEILING_LEVELS, reaches } from '@harnessdesk/protocol'
 import type {
   AgentOrigin,
   AttachmentDeclaration,
@@ -196,7 +197,11 @@ export class AttachmentTrust {
         grant.digest === identity.digest &&
         grant.runtime === subject.runtime &&
         grant.build === subject.build &&
-        grant.ceiling === subject.ceiling &&
+        // The ceiling a person reviewed covers any Seat at or below it: a
+        // narrower Seat is less authority, never more. A Seat above it — an
+        // Agent whose file raised its ceiling since — needs a new review.
+        (CEILING_LEVELS as readonly string[]).includes(grant.ceiling) &&
+        reaches(grant.ceiling, subject.ceiling) &&
         this.#verify(key, grant),
     )
   }

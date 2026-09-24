@@ -44,7 +44,10 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
   const mcpNames = view.declarations.filter((one) => one.kind === 'mcp').map((one) => one.name)
   const editable = entry.origin !== 'builtin'
   const loadable = view.declarations.some((one) => one.identity !== null)
-  const capableRuntime = view.support.find((one) => one.skills === 'scoped' || one.mcp === 'scoped-gated')?.runtime ?? null
+  // Whether any runtime here can scope a Seat at all — a yes/no, never a
+  // choice of runtime: which runtime a review is for is the host's answer
+  // (the one `agent/seat` will actually seat on), not the first capable row.
+  const anyCapable = view.support.some((one) => one.skills === 'scoped' || one.mcp === 'scoped-gated')
 
   return (
     <>
@@ -61,9 +64,9 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
           title={view.mcpMode === 'runtime-defaults' ? 'Runtime defaults' : mcpNames.join(', ')}
           control={editable ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit…</Button> : undefined}
         />
-        {loadable && capableRuntime && snapshot.workspace && (
+        {loadable && anyCapable && snapshot.workspace && (
           <Row
-            title={`Review what ${capableRuntime} would load in ${snapshot.workspace.name}`}
+            title={`Review what this Agent would load in ${snapshot.workspace.name}`}
             control={<Button size="sm" variant="outline" onClick={() => setReviewing(true)}>Review & Approve…</Button>}
           />
         )}
@@ -76,8 +79,8 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
           onSaved={(next) => { setView(next); setEditing(false) }}
         />
       )}
-      {reviewing && capableRuntime && snapshot.workspace && (
-        <AttachmentReviewDialog entry={entry} root={snapshot.workspace.path} runtime={capableRuntime} onClose={() => setReviewing(false)} />
+      {reviewing && snapshot.workspace && (
+        <AttachmentReviewDialog entry={entry} root={snapshot.workspace.path} onClose={() => setReviewing(false)} />
       )}
     </>
   )
@@ -202,15 +205,14 @@ const AttachmentEditDialog = ({
 const AttachmentReviewDialog = ({
   entry,
   root,
-  runtime,
   onClose,
 }: {
   readonly entry: AgentEntry
   readonly root: string
-  readonly runtime: string
   readonly onClose: () => void
 }) => {
   const store = useStore()
+  const snapshot = useSnapshot()
   const [review, setReview] = useState<AttachmentReview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -218,24 +220,29 @@ const AttachmentReviewDialog = ({
 
   useEffect(() => {
     let live = true
-    store.reviewAttachments(entry.id, entry.origin, root, runtime).then(
+    store.reviewAttachments(entry.id, entry.origin, root).then(
       (next) => { if (live) setReview(next) },
       (error: unknown) => { if (live) setProblem(error instanceof Error ? error.message : String(error)) },
     )
     return () => { live = false }
-  }, [entry.id, entry.origin, root, runtime, store])
+  }, [entry.id, entry.origin, root, store])
+
+  // Rule 8: a runtime is named by its presentation, never its id.
+  const runtimeName = review
+    ? (snapshot.runtimes.find((one) => String(one.id) === review.runtime)?.presentation.name ?? 'this agent')
+    : 'this agent'
 
   if (approved) {
     return (
       <Dialog title="Approved" onClose={onClose} footer={<Button variant="default" onClick={onClose}>Done</Button>}>
-        <Note>{runtime} may now load exactly the bytes just reviewed, the next time this Agent is seated.</Note>
+        <Note>{runtimeName} may now load exactly the bytes just reviewed, the next time this Agent is seated.</Note>
       </Dialog>
     )
   }
 
   return (
     <ConfirmDialog
-      title={`Approve what ${runtime} would load?`}
+      title={`Approve what ${runtimeName} would load?`}
       confirmLabel="Approve"
       busy={busy}
       onCancel={onClose}

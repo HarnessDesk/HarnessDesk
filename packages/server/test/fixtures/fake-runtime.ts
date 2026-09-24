@@ -282,6 +282,12 @@ export class FakeRuntime implements AgentRuntime {
        * this fixture suddenly gaining a capability nobody asked it for.
        */
       attachments?: AttachmentSupport
+      /**
+       * The brand the Library scans this runtime as (`presentation.brand`) —
+       * `claudecode` makes a project's `.mcp.json` a Library server, which a
+       * phase-12 test needs to resolve a real `mcp:` declaration.
+       */
+      brand?: string
       /** Which vendor its models come from, as an adapter would report it (`RuntimeInfo.provider`). */
       provider?: string | null
     } = {},
@@ -296,6 +302,7 @@ export class FakeRuntime implements AgentRuntime {
         ? { capabilities: { ...this.info.capabilities, ...identity.capabilities } }
         : {}),
       ...(identity.attachments ? { attachments: identity.attachments } : {}),
+      ...(identity.brand ? { presentation: { ...this.info.presentation, brand: identity.brand } } : {}),
       ...(identity.provider !== undefined ? { provider: identity.provider } : {}),
     }
     this.sessionStore = identity.sessionStore ?? null

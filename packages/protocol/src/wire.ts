@@ -1998,7 +1998,12 @@ export interface HostMethods {
    * a person actually meant would find nothing approved.
    */
   'attachment/review': {
-    params: { readonly id: string; readonly origin: AgentOrigin; readonly root: string; readonly runtime: string }
+    /**
+     * `runtime` is optional and best left out: without it the host reviews
+     * for the runtime `agent/seat` would choose for this Agent by default,
+     * so what a person approves is what the Seat will actually check.
+     */
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly root: string; readonly runtime?: string }
     result: AttachmentReview
   }
   /** Records a person's approval of exactly the reviewed token. */

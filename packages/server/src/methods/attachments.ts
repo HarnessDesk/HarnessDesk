@@ -5,11 +5,11 @@ import type { AgentAttachmentsView, AgentOrigin, AttachmentSupport } from '@harn
 
 import { parseAgentDefinition } from '../agent-def.js'
 import { readAgentSource, rewriteAgentFile } from '../agent-files.js'
-import { resolveAttachmentDeclarations } from './../attachments/catalog.js'
 import { attachmentFieldEdit } from '../attachments/edit.js'
 import { clearAgentNotes, readAgentNotes } from '../attachments/notes.js'
 import { incarnationOf } from '../evidence/seen.js'
 import {
+  defaultSeatRuntime,
   found,
   listedAgentPath,
   originAgent,
@@ -92,10 +92,9 @@ export const attachmentMethods = {
     if (!at.definition || at.digest === null) {
       throw new Error(`${at.path} cannot be read as an Agent, so its attachments cannot be shown.`)
     }
-    const { declarations } = await resolveAttachmentDeclarations(
+    const { declarations } = await requireAttachments(ctx).declarations(
       asEntry(params.id, params.origin, { path: at.path, digest: at.digest, definition: at.definition }),
       project ?? '',
-      ctx.runtimes.inventory(),
     )
     const view: AgentAttachmentsView = {
       agent: params.id,
@@ -161,14 +160,24 @@ export const attachmentMethods = {
     if (!at.definition || at.digest === null) {
       throw new Error(`${at.path} cannot be read as an Agent, so nothing here can be reviewed.`)
     }
-    const runtime = ctx.runtimes.get(params.runtime)
-    if (!runtime) throw new Error(`There is no runtime called “${params.runtime}” to review this Agent against.`)
-    const { resolved } = await resolveAttachmentDeclarations(
+    // The runtime the Seat will actually run on — the one `agent/seat`
+    // chooses by default — unless a caller names one: an approval is bound
+    // to a runtime build, so reviewing for any other runtime would approve
+    // something the real Seat never checks.
+    const runtimeName = params.runtime ?? (await defaultSeatRuntime(ctx, at.definition))
+    if (!runtimeName) throw new Error(`${at.definition.name} cannot be seated on any runtime here, so there is nothing to review yet.`)
+    const runtime = ctx.runtimes.get(runtimeName)
+    if (!runtime) throw new Error(`There is no runtime called “${runtimeName}” to review this Agent against.`)
+    const { resolved } = await attachments.declarations(
       asEntry(params.id, params.origin, { path: at.path, digest: at.digest, definition: at.definition }),
       root,
-      ctx.runtimes.inventory(),
     )
     const incarnation = await incarnationOf(root)
+    // The Agent's own ceiling — the most any Seat of it can run at. The
+    // grant this records covers any Seat at or below it (`AttachmentTrust
+    // .permits` compares with `reaches`), so a default `edit` seating of a
+    // `merge` Agent is covered by the one review, and a raised ceiling in
+    // the Agent's file is not.
     return attachments.trust.preview(
       {
         project: root,
@@ -176,7 +185,7 @@ export const attachmentMethods = {
         agent: params.id,
         origin: params.origin,
         agentDigest: at.digest,
-        runtime: params.runtime,
+        runtime: runtimeName,
         build: ctx.runtimes.infoOf(runtime).version ?? '',
         ceiling: at.definition.ceiling,
       },

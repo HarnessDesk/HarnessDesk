@@ -1,5 +1,6 @@
 import type { GatewaySupervisor } from '@harnessdesk/responses-gateway'
 import type {
+  AgentEntry,
   AgentRuntime,
   AgentSession,
   ApprovalDecision,
@@ -75,7 +76,7 @@ import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
 import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
-import type { ResolvedAttachment } from '../attachments/catalog.js'
+import type { AttachmentResolution, ResolvedAttachment } from '../attachments/catalog.js'
 
 /**
  * What a wire method may reach.
@@ -155,6 +156,12 @@ export interface HostContext {
     }
     /** A Seat's frozen attachment history, by immutable Seat id — Task 3's own durable receipts, read back for the Agent page and the Library. */
     seatRecord(seat: SeatId): Promise<SeatAttachmentsRecord | null>
+    /**
+     * Task 1's catalog for one Agent, against this desk's own Library home —
+     * the one read every attachment surface shares, so the Agent page, a
+     * review and a Seat's preparation never resolve a name two ways.
+     */
+    declarations(entry: AgentEntry, root: string): Promise<AttachmentResolution>
   }
   /**
    * The findings ledger, read and decided by a person. Narrower than the

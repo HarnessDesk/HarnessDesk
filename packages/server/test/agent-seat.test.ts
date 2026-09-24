@@ -1154,6 +1154,7 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
       approve: async () => { throw new Error('not used by this test') },
     },
     seatRecord: async () => null,
+    declarations: async () => ({ declarations: [], resolved: [] }),
   }
   await assert.rejects(
     // A real directory, unlike every other test's `/tmp/x`: phase 12's Seat

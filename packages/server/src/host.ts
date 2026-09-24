@@ -28,6 +28,7 @@ import {
   sessionId as makeSessionId,
   sessionKey,
   splitSessionKey,
+  type AgentEntry,
   type AgentEvent,
   type AgentRuntime,
   type ArchiveFilter,
@@ -408,6 +409,12 @@ export interface HostOptions {
    * what an account is, exactly as the sign-in flows already are.
    */
   readonly accounts?: AccountFactory
+  /**
+   * The home folder the Library is scanned under when an Agent's `skills:`
+   * and `mcp:` names are resolved — this person's own, unless a test points
+   * it at a fixture so a suite never reads the machine it runs on.
+   */
+  readonly libraryHome?: string
   /**
    * The writable agent registry — how the interface adds and removes ACP
    * agents. Supplied by the wiring, which is the only place that knows how a
@@ -810,7 +817,7 @@ export class Host {
       resolve: async (subject) => {
         const entry = await this.#agents.read(subject.agent, subject.project)
         if (!entry) return { declarations: [], resolved: [] }
-        const { declarations, resolved } = await resolveAttachmentDeclarations(entry, subject.project, this.#inventoryAgents())
+        const { declarations, resolved } = await this.#attachmentDeclarations(entry, subject.project)
         return {
           declarations,
           resolved: resolved.map((one) => ({
@@ -2554,6 +2561,7 @@ export class Host {
           approve: (token) => this.#attachmentTrust.approve(token),
         },
         seatRecord: (seat) => this.#attachments.read(seat),
+        declarations: (entry, root) => this.#attachmentDeclarations(entry, root),
       },
       findings: {
         list: (input) => this.#findings.list(input),
@@ -3452,6 +3460,11 @@ export class Host {
   /** Phase 12's frozen Seat attachments, for the same reason `attachmentTrust` is exposed. */
   get attachmentsPlane(): AttachmentsPlane {
     return this.#attachments
+  }
+
+  /** Task 1's catalog for one Agent, over this desk's runtimes and Library home — the one resolution every attachment surface shares. */
+  #attachmentDeclarations(entry: AgentEntry, root: string): ReturnType<typeof resolveAttachmentDeclarations> {
+    return resolveAttachmentDeclarations(entry, root, this.#inventoryAgents(), this.options.libraryHome ?? homedir())
   }
 
   /** What this runtime build can do with a Seat's attachments — unsupported until it is actually measured. */
