@@ -244,6 +244,18 @@ export class AttachmentsPlane {
     }
   }
 
+  /**
+   * Whether anything says this Seat carried a filter even though none can be
+   * read back: a frozen file that is there but unreadable, or receipts with
+   * no frozen file beside them. A reopen must refuse such a Seat rather than
+   * open it on the runtime's own defaults.
+   */
+  async lostFilter(seat: SeatId): Promise<boolean> {
+    if (await this.#readFrozen(seat)) return false
+    const present = await lstat(this.#frozenPath(seat)).catch(() => null)
+    return present !== null || (await this.#receipts.read(seat)) !== null
+  }
+
   /** Whether this Seat froze a filter that a reopen must re-apply. */
   async frozen(seat: SeatId): Promise<boolean> {
     return (await this.#readFrozen(seat)) !== null

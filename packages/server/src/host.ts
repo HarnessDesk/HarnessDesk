@@ -3524,7 +3524,26 @@ export class Host {
     const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
     if (!seat) return null
     const prepared = await this.#attachments.reapply(seat, { build: runtime.info.version ?? '' })
-    return prepared ? { seat, prepared } : null
+    if (prepared) return { seat, prepared }
+    // No frozen filter to re-apply. That is the plain path — a Seat that
+    // never declared anything — only when nothing says otherwise: a frozen
+    // file there but unreadable, receipts with no filter beside them, or an
+    // Agent that declares skills or servers all mean a filter this reopen
+    // cannot honour, and it fails closed rather than open on defaults.
+    if ((await this.#attachments.lostFilter(seat.id)) || (await this.#agentDeclaresAttachments(seat))) {
+      throw new Error(
+        `This conversation's approved attachments cannot be re-applied — its record of them is missing or damaged — so it was not reopened on the agent's own defaults. Seat the Agent again instead.`,
+      )
+    }
+    return null
+  }
+
+  /** Whether the Agent a Seat was seated as declares any skill or server today. */
+  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean> {
+    if (!seat.agent) return false
+    const entry = await this.#agents.read(seat.agent.id, seat.checkout.project ?? undefined).catch(() => null)
+    const definition = entry?.definition
+    return Boolean(definition && (definition.skills.length > 0 || definition.mcp.length > 0))
   }
 
   /**

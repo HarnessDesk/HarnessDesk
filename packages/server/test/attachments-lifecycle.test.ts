@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -356,3 +356,44 @@ test('dispose aborts an exchange in flight and closes what the wiring registered
   }
   assert.throws(() => process.kill(pid, 0), 'no server outlives the desk')
 })
+
+/*
+ * Each way a filter can be lost, with the Agent's file either still declaring
+ * attachments or since emptied — so the refusal is proven by the Seat's own
+ * record (an unreadable frozen file, receipts with none beside them) and,
+ * separately, by an Agent that declares attachments with no record at all.
+ */
+for (const [what, damage, emptyAgent] of [
+  ['deleted, receipts kept', (frozen: string) => rm(frozen), true],
+  ['corrupted', (frozen: string) => writeFile(frozen, '{"version":1,"seat":'), true],
+  ['deleted along with its receipts, the Agent still declaring', async (frozen: string) => {
+    await rm(frozen)
+    await rm(frozen.replace(`${join('attachments', 'frozen')}`, join('attachments', 'seats')).replace(/\.json$/, '.ndjson'))
+  }, false],
+] as const) {
+  test(`a Seat whose frozen filter is ${what} is refused on reopen — never resumed on the runtime's defaults`, async (t) => {
+    const desk = await deskWithMergeAgent(t)
+    await reviewAndApprove(desk)
+    const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work, permission: 'merge' })) as Session
+    const seat = desk.harness.host.registry.attachmentSeatOf(session.runtime, session.id)!
+    const frozen = join(desk.harness.stateDir, 'attachments', 'frozen', `${encodeURIComponent(seat)}.json`)
+    await readFile(frozen, 'utf8') // it was written
+    await desk.halt()
+    await damage(frozen)
+    if (emptyAgent) {
+      await writeFile(join(desk.harness.stateDir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\nceiling: merge\nprefer: [fake=fake-1]\n---\nRead the diff.\n')
+    }
+
+    const runtime = capableRuntime()
+    const again = await start({ libraryHome: tempDir('hd-attach-life-damaged-home-') }, desk.harness.stateDir, runtime)
+    t.after(() => stop(again))
+    const client = await Client.connect(again.server)
+    t.after(() => client.close())
+    await client.call('workspace/open', { path: desk.work })
+    await assert.rejects(
+      client.call('session/resume', { runtime: 'fake', sessionId: String(session.id) }),
+      /approved attachments cannot be re-applied/,
+    )
+    assert.equal(runtime.resumes, 0, 'the runtime was never asked to reopen it')
+  })
+}
