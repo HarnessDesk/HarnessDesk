@@ -1,6 +1,6 @@
-import { lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 
 /**
  * Phase 12's attachment-loading extension, agent side.
@@ -33,13 +33,12 @@ export interface AttachmentInput {
   readonly key: string
   readonly skills: readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null
   readonly mcp: readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null
-  readonly notes: { readonly digest: string; readonly text: string } | null
 }
 
 export interface AttachmentReceiptResult {
   readonly key: string
-  readonly loaded: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly digest: string }[]
-  readonly refused: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly reason: string }[]
+  readonly loaded: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly digest: string }[]
+  readonly refused: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[]
 }
 
 /** The one plugin name every staged bundle is given, and the qualifier every staged skill's exposed name carries. */
@@ -82,58 +81,157 @@ export function decodeAttachmentInput(meta: Record<string, unknown> | null | und
   if (!isPlainObject(declared) || declared['version'] !== 1) return null
   const input = declared['input']
   if (!isPlainObject(input)) return null
-  const { key, skills, mcp, notes } = input
+  const { key, skills, mcp } = input
   if (typeof key !== 'string' || key.length === 0 || key.length > 200) return null
+  // Agent notes are not part of this contract: a host that sends them is not
+  // one this bridge negotiated with, and they are never folded into a prompt.
+  if (input['notes'] !== undefined && input['notes'] !== null) return null
   if (skills !== null && !Array.isArray(skills)) return null
   if (mcp !== null && !Array.isArray(mcp)) return null
   const decodedSkills = skills === null ? null : skills.map(decodeNamedDigest)
   if (decodedSkills && decodedSkills.some((one) => one === null)) return null
   const decodedMcp = mcp === null ? null : mcp.map(decodeMcpEntry)
   if (decodedMcp && decodedMcp.some((one) => one === null)) return null
-  let decodedNotes: { readonly digest: string; readonly text: string } | null = null
-  if (notes !== null && notes !== undefined) {
-    if (!isPlainObject(notes) || typeof notes['digest'] !== 'string' || typeof notes['text'] !== 'string') return null
-    decodedNotes = { digest: notes['digest'], text: notes['text'] }
-  }
   return {
     key,
     skills: decodedSkills as readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null,
     mcp: decodedMcp as readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null,
-    notes: decodedNotes,
   }
 }
 
 // ------------------------------------------------------------ staging
 
-/** `~` is the only shortening `shortPath` (the host's own labeler) ever applies; reversing it is exact, never a guess. */
-const resolveHome = (path: string): string => (path === '~' ? homedir() : path.startsWith('~/') ? join(homedir(), path.slice(2)) : path)
+/**
+ * The same bounds, and the same digest, the host's own bundle reader
+ * (`packages/server/src/attachments/catalog.ts`: `readBundle`,
+ * `bundleDigest`) uses — duplicated because this bridge has no HarnessDesk
+ * dependency. Change one, change the other; both packages' tests pin the
+ * digest of the same fixture bundle.
+ */
+const MAX_BUNDLE_ENTRIES = 128
+const MAX_BUNDLE_DEPTH = 8
+const MAX_FILE_BYTES = 256 * 1024
+const MAX_BUNDLE_BYTES = 1024 * 1024
+/** macOS's `O_NOFOLLOW_ANY`: no component of the path may be a link, not only its last. */
+const NOFOLLOW_ANY = process.platform === 'darwin' ? 0x20000000 : 0
+
+export interface BundleFile {
+  readonly path: string
+  readonly bytes: Uint8Array
+}
+
+/** Sorted literal relative paths and length-prefixed bytes — the host's `bundleDigest`, byte for byte. */
+export function bundleDigest(files: readonly BundleFile[]): string {
+  const hash = createHash('sha256')
+  for (const file of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+    const path = Buffer.from(file.path, 'utf8')
+    const pathLength = Buffer.alloc(4)
+    pathLength.writeUInt32BE(path.length)
+    const byteLength = Buffer.alloc(4)
+    byteLength.writeUInt32BE(file.bytes.length)
+    hash.update(pathLength)
+    hash.update(path)
+    hash.update(byteLength)
+    hash.update(file.bytes)
+  }
+  return hash.digest('hex')
+}
+
+const isGitDir = (name: string): boolean => name.normalize('NFC').toLowerCase() === '.git'
+const usableName = (name: string): boolean => name !== '' && name !== '.' && name !== '..' && !/[\\/\0]/.test(name)
 
 /**
- * Copies one skill's bundle byte for byte, refusing outright the moment any
- * path in the tree — the bundle root or anything under it — is not an
- * ordinary file or directory. A symlink here could point anywhere the
- * approving person never saw; staging it would silently substitute whatever
- * it currently resolves to for the bytes that were actually reviewed, which
- * is exactly the class of bug this repository has already found and fixed
- * more than once in its own copy/backup paths.
+ * Reads one bundle whole or not at all, with the host reader's rules: no
+ * link at any level (the root included), regular files and folders only,
+ * `.git` skipped, and every bound checked before the bytes are kept. The
+ * bytes returned are the only bytes this bridge ever writes into a plugin,
+ * so the digest taken over them is the digest of what was staged.
  */
-function copyBundle(from: string, to: string): void {
-  const st = lstatSync(from)
-  if (st.isSymbolicLink()) throw new Error(`${from} is a symlink, not part of an approved bundle.`)
-  if (st.isDirectory()) {
-    mkdirSync(to, { recursive: true })
-    for (const entry of readdirSync(from)) copyBundle(join(from, entry), join(to, entry))
-    return
+export function readApprovedBundle(root: string): { readonly ok: true; readonly files: readonly BundleFile[] } | { readonly ok: false; readonly reason: string } {
+  if (!isAbsolute(root)) return { ok: false, reason: `${root} is not a folder the desk staged.` }
+  let top
+  try {
+    top = lstatSync(root)
+  } catch {
+    return { ok: false, reason: `${root} is not there.` }
   }
-  if (!st.isFile()) throw new Error(`${from} is neither a file nor a directory.`)
-  mkdirSync(dirname(to), { recursive: true })
-  writeFileSync(to, readFileSync(from))
+  if (top.isSymbolicLink()) return { ok: false, reason: `${root} is a link, not part of an approved bundle.` }
+  if (!top.isDirectory()) return { ok: false, reason: `${root} is not a folder.` }
+  // Canonical ancestor once (macOS's own `/var` is a link), the bundle root
+  // itself left unresolved: it was just checked not to be a link.
+  let base: string
+  try {
+    base = join(realpathSync(dirname(root)), basename(root))
+  } catch {
+    return { ok: false, reason: `${root} could not be resolved.` }
+  }
+  const files: BundleFile[] = []
+  let examined = 0
+  let total = 0
+  const walk = (dir: string, prefix: string, depth: number): string | null => {
+    if (depth > MAX_BUNDLE_DEPTH) return `${prefix || '.'} is nested deeper than ${MAX_BUNDLE_DEPTH} levels.`
+    let names: string[]
+    try {
+      names = readdirSync(dir)
+    } catch {
+      return `${prefix || root} could not be read.`
+    }
+    for (const name of [...names].sort()) {
+      examined += 1
+      if (examined > MAX_BUNDLE_ENTRIES) return `this bundle has more than ${MAX_BUNDLE_ENTRIES} entries.`
+      if (isGitDir(name)) continue
+      if (!usableName(name)) return 'an entry in this bundle has an unusable name.'
+      const path = prefix ? `${prefix}/${name}` : name
+      const full = join(dir, name)
+      let info
+      try {
+        info = lstatSync(full)
+      } catch {
+        return `${path} disappeared while it was being staged.`
+      }
+      if (info.isSymbolicLink()) return `${path} is a link, not part of an approved bundle.`
+      if (info.isDirectory()) {
+        const problem = walk(full, path, depth + 1)
+        if (problem) return problem
+        continue
+      }
+      if (!info.isFile()) return `${path} is neither a file nor a folder.`
+      if (info.size > MAX_FILE_BYTES) return `${path} is larger than ${MAX_FILE_BYTES / 1024} KiB.`
+      total += info.size
+      if (total > MAX_BUNDLE_BYTES) return `this bundle is larger than ${MAX_BUNDLE_BYTES / 1024} KiB in total.`
+      let fd: number
+      try {
+        fd = openSync(full, constants.O_RDONLY | constants.O_NONBLOCK | (NOFOLLOW_ANY || constants.O_NOFOLLOW))
+      } catch {
+        return `${path} was replaced, so nothing was staged.`
+      }
+      try {
+        const opened = fstatSync(fd)
+        if (!opened.isFile() || opened.ino !== info.ino || opened.dev !== info.dev) return `${path} was replaced, so nothing was staged.`
+        const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1)
+        let filled = 0
+        for (;;) {
+          const read = readSync(fd, buffer, filled, buffer.length - filled, filled)
+          if (read === 0) break
+          filled += read
+          if (filled > MAX_FILE_BYTES) return `${path} is larger than ${MAX_FILE_BYTES / 1024} KiB.`
+        }
+        files.push({ path, bytes: Uint8Array.prototype.slice.call(buffer, 0, filled) })
+      } finally {
+        closeSync(fd)
+      }
+    }
+    return null
+  }
+  const problem = walk(base, '', 0)
+  return problem ? { ok: false, reason: problem } : { ok: true, files }
 }
 
 export interface StagedAttachments {
   /** `null` when nothing staged at all — an empty or absent skill list never creates a plugin. */
   readonly pluginPath: string | null
   readonly qualifiedNames: readonly string[]
+  /** `digest` is taken over the bytes actually written into the plugin — never repeated back from the input. */
   readonly staged: readonly { readonly name: string; readonly digest: string }[]
   readonly refused: readonly { readonly name: string; readonly reason: string }[]
 }
@@ -142,10 +240,13 @@ export interface StagedAttachments {
  * Rebuilds `root` from scratch as a single host-generated plugin containing
  * nothing but a minimal `.claude-plugin/plugin.json` (a name, nothing else —
  * no hooks, no commands, no `.mcp.json`: decision 9's "no repo-provided
- * manifest is carried") and one `skills/<name>/` per approved skill, copied
- * from the exact path the host resolved. A skill whose source cannot be
- * copied safely (missing, or a symlink anywhere in it) is refused, named,
- * and simply left out — the rest of the batch still stages.
+ * manifest is carried") and one `skills/<name>/` per approved skill.
+ *
+ * Each skill is read once, bounded (`readApprovedBundle`), and hashed; the
+ * bytes written are exactly the bytes hashed. A skill whose staged digest is
+ * not the digest the host approved is refused and left out, never loaded
+ * under the approved one — whatever changed it in between. The rest of the
+ * batch still stages.
  */
 export function stageSkills(input: AttachmentInput, root: string): StagedAttachments {
   rmSync(root, { recursive: true, force: true })
@@ -155,13 +256,23 @@ export function stageSkills(input: AttachmentInput, root: string): StagedAttachm
   const refused: { name: string; reason: string }[] = []
   const qualifiedNames: string[] = []
   for (const skill of input.skills) {
-    try {
-      copyBundle(resolveHome(skill.path), join(pluginPath, 'skills', skill.name))
-      staged.push({ name: skill.name, digest: skill.digest })
-      qualifiedNames.push(`${PLUGIN_NAME}:${skill.name}`)
-    } catch (error) {
-      refused.push({ name: skill.name, reason: error instanceof Error ? error.message : String(error) })
+    const read = readApprovedBundle(skill.path)
+    if (!read.ok) {
+      refused.push({ name: skill.name, reason: read.reason })
+      continue
     }
+    const digest = bundleDigest(read.files)
+    if (digest !== skill.digest) {
+      refused.push({ name: skill.name, reason: 'The staged copy is not the content that was approved, so it was not loaded.' })
+      continue
+    }
+    const target = join(pluginPath, 'skills', skill.name)
+    for (const file of read.files) {
+      mkdirSync(dirname(join(target, file.path)), { recursive: true, mode: 0o700 })
+      writeFileSync(join(target, file.path), file.bytes, { mode: 0o600, flag: 'wx' })
+    }
+    staged.push({ name: skill.name, digest })
+    qualifiedNames.push(`${PLUGIN_NAME}:${skill.name}`)
   }
   if (staged.length === 0) return { pluginPath: null, qualifiedNames: [], staged: [], refused }
   mkdirSync(join(pluginPath, '.claude-plugin'), { recursive: true })
@@ -174,8 +285,6 @@ export function stageSkills(input: AttachmentInput, root: string): StagedAttachm
 export interface AttachmentOptions {
   /** Merged into `claudeCode.options` verbatim — see `bridge.ts`'s `withAttachments`. */
   readonly options: Record<string, unknown>
-  /** What notes text (if any) to fold into the standing instruction, labeled, never as an unlabeled system instruction. */
-  readonly notesAppend: string | null
   readonly staged: StagedAttachments
 }
 
@@ -197,8 +306,7 @@ export function attachmentOptions(input: AttachmentInput | null, stagingRoot: st
   const options: Record<string, unknown> = { settingSources: [], strictMcpConfig: true }
   options['skills'] = staged.qualifiedNames
   if (staged.pluginPath) options['plugins'] = [{ type: 'local', path: staged.pluginPath, skipMcpDiscovery: true }]
-  const notesAppend = input.notes && input.notes.text.trim() !== '' ? `Agent notes:\n${input.notes.text}` : null
-  return { options, notesAppend, staged }
+  return { options, staged }
 }
 
 // ------------------------------------------------------------ receipt
@@ -229,8 +337,8 @@ export async function attachmentReceipt(
   staged: StagedAttachments,
   query: LiveQuerySignals,
 ): Promise<AttachmentReceiptResult> {
-  const loaded: { kind: 'skill' | 'mcp' | 'notes'; name: string; digest: string }[] = []
-  const refused: { kind: 'skill' | 'mcp' | 'notes'; name: string; reason: string }[] = []
+  const loaded: { kind: 'skill' | 'mcp'; name: string; digest: string }[] = []
+  const refused: { kind: 'skill' | 'mcp'; name: string; reason: string }[] = []
 
   for (const entry of staged.refused) refused.push({ kind: 'skill', name: entry.name, reason: entry.reason })
 
@@ -251,13 +359,6 @@ export async function attachmentReceipt(
       if (gateway?.status === 'connected') loaded.push({ kind: 'mcp', name: server.name, digest: server.digest })
       else refused.push({ kind: 'mcp', name: server.name, reason })
     }
-  }
-
-  if (input.notes) {
-    // Notes ride the standing instruction, which has no further live signal
-    // to check — `bridge.ts` only reaches this branch once the text was
-    // actually folded in, so "loaded" here means exactly that, not a guess.
-    loaded.push({ kind: 'notes', name: 'notes', digest: input.notes.digest })
   }
 
   return { key: input.key, loaded, refused }

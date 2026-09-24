@@ -1025,6 +1025,10 @@ const handlers = {
       return fail(id, 'Internal error', { details: 'the transcript could not be read' })
     }
     const state = newSession(entry.sessionId, entry.cwd)
+    // A load carries a reopened Seat's filter the same way session/new does.
+    if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
+      attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
+    }
     // Replay: every content block of a stored turn as its own user chunk,
     // then an answer chunk — the shape Claude Code replays.
     for (const blocks of entry.turns) {

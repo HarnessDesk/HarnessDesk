@@ -174,14 +174,6 @@ export const withInstructions = <T extends { _meta?: Meta }>(params: T): T => {
   return { ...params, _meta: { ...(params._meta ?? {}), systemPrompt: { append: appended } } }
 }
 
-/** Composes onto whatever `systemPrompt` already carries — never in place of it — the exact same way `withInstructions` does, so the two extensions layer regardless of which ran first. */
-const appendSystemPrompt = <T extends { _meta?: Meta }>(params: T, text: string): T => {
-  if (typeof params._meta?.['systemPrompt'] === 'string') return params
-  const existing = params._meta?.['systemPrompt']
-  const appended = typeof existing === 'object' && existing !== null && typeof (existing as { append?: unknown }).append === 'string' ? `${(existing as { append: string }).append}\n\n${text}` : text
-  return { ...params, _meta: { ...(params._meta ?? {}), systemPrompt: { append: appended } } }
-}
-
 /**
  * Phase 12's own extension applied at session creation: decodes
  * `_meta.harnessdesk.attachments`, stages what it approves, and merges the
@@ -203,8 +195,7 @@ const withAttachments = <T extends { _meta?: Meta }>(
   const meta = params._meta ?? {}
   const claudeCode = (meta['claudeCode'] ?? {}) as { options?: Record<string, unknown> }
   const merged: T = { ...params, _meta: { ...meta, claudeCode: { ...claudeCode, options: { ...(claudeCode.options ?? {}), ...attached.options } } } }
-  const withNotes = attached.notesAppend ? appendSystemPrompt(merged, attached.notesAppend) : merged
-  return { params: withNotes, input, staged: attached.staged }
+  return { params: merged, input, staged: attached.staged }
 }
 const CONTROL_IDS = [EFFORT_OPTION_ID, AUTOCOMPACT_OPTION_ID, OUTPUT_STYLE_OPTION_ID] as const
 export const valueOf = (state: { values: Record<string, string> }, id: string): string => state.values[id] ?? DEFAULT

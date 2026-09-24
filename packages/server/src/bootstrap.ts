@@ -12,8 +12,7 @@ import { ExtensionKernel, setBrowserEngine, type BrowserEngine } from '@harnessd
 import { SupervisedExtensionHost } from '@harnessdesk/extension-host'
 import { invokeForBridge, ToolGateway } from './tool-gateway.js'
 import { GatedRegistry } from './ceilings/gate.js'
-import { McpToolGateway } from './attachments/gate.js'
-import { callStdioMcpServer, listStdioMcpServerTools } from './attachments/transport.js'
+import { attachmentGateway } from './attachments/wiring.js'
 import { builtinPlugins } from '@harnessdesk/plugins'
 
 import { AccountSlots, accountIdentity, codexPrimaryHome, writeGatewayConfig } from './accounts.js'
@@ -291,26 +290,7 @@ export const createDefaultHost = (
   // desk's own plugin tools — but gated by `host.ceilingGate`, the identical
   // gate every other tool call answers to, and resolved to a Seat through
   // the registry alone, never inferred from anything a call itself says.
-  const mcpGateway = new McpToolGateway({
-    serversFor: (seat) =>
-      host.attachmentsPlane.liveServersFor(seat)?.map((one) => ({
-        seat,
-        identity: one.identity,
-        endpoint: one.endpoint,
-        // Conservative by decision 13: every external server is `merge`
-        // until a trusted desk-owned manifest narrows it, which this phase
-        // does not yet have.
-        ceiling: 'merge' as const,
-      })) ?? null,
-    callerOf: (token) => {
-      const known = callers.get(token)
-      if (!known) return null
-      const seat = host.registry.attachmentSeatOf(runtimeId(known.runtime), sessionId(known.sessionId))
-      if (!seat) return null
-      return { seat, runtime: known.runtime, sessionId: known.sessionId }
-    },
-    admit: (call) => host.ceilingGate.admit(call),
-  })
+  const mcpBackend = attachmentGateway(() => host, (token) => callers.get(token))
   const socketPath = toolSocketPath(stateDir)
   const gateway = new ToolGateway(socketPath, {
     listTools: () => extensions.list('tool', {}),
@@ -328,22 +308,7 @@ export const createDefaultHost = (
       invokeForBridge(gated, callers, { namespace, name, args, caller }, (message, details) =>
         logger.debug(message, details),
       ),
-    mcpList: (caller) =>
-      mcpGateway.list(caller ?? '', async (gatewayServer) => {
-        const spec = host.mcpSpecFor(gatewayServer.endpoint)
-        // A server whose endpoint no longer resolves (the Seat closed, the
-        // token was revoked) simply has nothing to list — the same silent
-        // omission any other unreachable server's listing gets, never an
-        // invented tool for a server that can no longer be dialed.
-        if (!spec) return []
-        return listStdioMcpServerTools(spec)
-      }),
-    mcpCall: (caller, serverName, toolName, args) =>
-      mcpGateway.call(caller ?? '', serverName, toolName, async (gatewayServer) => {
-        const spec = host.mcpSpecFor(gatewayServer.endpoint)
-        if (!spec) throw new Error('This server is no longer reachable from this Seat; start a new one to apply its attachments.')
-        return callStdioMcpServer(spec, toolName, args)
-      }),
+    ...mcpBackend,
   })
   gateway.start()
   const bridgeEntry = toolBridgeEntry()
@@ -468,6 +433,9 @@ export const createDefaultHost = (
 
   // Codex writes its rollouts where the ledger can read them, and meters
   // itself over its own API — so it needs a corpus and no meter.
+  // Closed when the desk quits, like everything else it owns: no bridge
+  // reaches a Seat's server through a socket the desk has left behind.
+  host.onDispose(() => gateway.stop())
   host.bindUsage(runtimeId('codex'), { corpus: 'codex' })
 
   host.register(

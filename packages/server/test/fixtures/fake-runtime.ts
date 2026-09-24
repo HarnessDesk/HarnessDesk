@@ -46,6 +46,8 @@ import {
   type UserContent,
 } from '@harnessdesk/protocol'
 
+import { bundleDigest, readBundle } from '../../src/attachments/catalog.js'
+
 /**
  * An in-memory `AgentRuntime` for host tests.
  *
@@ -696,19 +698,35 @@ export class FakeRuntime implements AgentRuntime {
    * runtime (a stale key, an extra item, a thrown failure) sets
    * `attachmentReceiptOverrides` for that session id first.
    */
+  /** Runs just before a receipt is read — a test's chance to change what was staged after it was prepared. */
+  beforeAttachmentReceipt: ((given: SessionAttachments) => Promise<void>) | null = null
+
   async attachmentReceipt(session: SessionId): Promise<SessionAttachmentReceipt> {
+    const pending = this.attachmentsGiven.get(String(session))
+    if (pending && this.beforeAttachmentReceipt) await this.beforeAttachmentReceipt(pending)
     const override = this.attachmentReceiptOverrides.get(String(session))
     if (override instanceof Error) throw override
     if (override) return override
     const given = this.attachmentsGiven.get(String(session))
     if (!given) throw new Error(`fake runtime: session ${session} was never given attachments to load`)
+    // A skill is reported by the digest of what is actually at the path it
+    // was handed — hashed here, never repeated back from the input — so a
+    // staged copy that changed after it was prepared reads as different
+    // content, exactly as a real runtime's receipt must. A server has no
+    // bytes of its own here: the desk's gateway is what dials it.
+    const skills = await Promise.all(
+      (given.skills ?? []).map(async (one) => {
+        const read = await readBundle(one.path)
+        return read.ok ? { kind: 'skill' as const, name: one.name, digest: bundleDigest(read.files) } : null
+      }),
+    )
     return {
       key: given.key,
       loaded: [
-        ...(given.skills ?? []).map((one) => ({ kind: 'skill' as const, name: one.name, digest: one.digest })),
+        ...skills.filter((one): one is NonNullable<typeof one> => one !== null),
         ...(given.mcp ?? []).map((one) => ({ kind: 'mcp' as const, name: one.name, digest: one.digest })),
       ],
-      refused: [],
+      refused: (given.skills ?? []).filter((_, index) => skills[index] === null).map((one) => ({ kind: 'skill' as const, name: one.name, reason: 'not there' })),
     }
   }
 

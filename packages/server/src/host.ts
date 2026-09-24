@@ -109,7 +109,7 @@ import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
 import { canonicalDestination } from './git-worktree.js'
 import { Worktrees, openRepositoryRoot, repositoryOf } from './worktree.js'
-import type { InventoryAgent, McpServerSpec } from '@harnessdesk/agent-inventory'
+import type { InventoryAgent } from '@harnessdesk/agent-inventory'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
@@ -121,7 +121,7 @@ import { FindingsPlane } from './findings/plane.js'
 import { Publications, type FindingForgePort } from './findings/publication.js'
 import { QuestionDeadline } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
-import { AttachmentsPlane, type AttachmentSubject as PlaneAttachmentSubject, type AttachmentsPlanePort, type ResolvedForPlane } from './attachments/plane.js'
+import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
 import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import type { GhInCheckout } from './evidence/forge.js'
@@ -583,14 +583,14 @@ export class Host {
   /** Phase 12's frozen Seat attachments: prepare/open/read, and the live gateway server list each open Seat may reach. */
   readonly #attachments: AttachmentsPlane
   /**
-   * The real MCP server spec an approved attachment's opaque `endpoint`
-   * names, so the gateway can actually dial out for it later — never handed
-   * to an adapter, which only ever sees the opaque string itself. Bounded the
-   * same way the tool gateway's own correlation maps are: an entry that ages
-   * out is simply a server the gateway can no longer reach, the same as one
-   * whose Seat already closed.
+   * Aborted when the desk quits: every MCP exchange the gateway has in
+   * flight for a Seat is torn down with it (`attachments/transport.ts`
+   * escalates to SIGKILL), rather than left running past the process that
+   * started it.
    */
-  readonly #mcpSpecs = new Map<string, McpServerSpec>()
+  readonly #attachmentAbort = new AbortController()
+  /** Teardown a wiring registered with `onDispose` — the tool gateway's socket, most of all. */
+  readonly #disposers: (() => Promise<void> | void)[] = []
   readonly #provenance: ProvenancePlane
   /** Startup stays off the interactive launch path, but quit still owns it. */
   #provenanceStart: Promise<void> = Promise.resolve()
@@ -813,23 +813,27 @@ export class Host {
     this.#attachmentTrust = new AttachmentTrust(join(this.#state.directory, ATTACHMENT_TRUST_FILE), {
       cipher: options.credentialCipher ?? plainCipher,
     })
-    this.#attachments = new AttachmentsPlane(join(this.#state.directory, 'attachments', 'seats'), {
-      resolve: async (subject) => {
-        const entry = await this.#agents.read(subject.agent, subject.project)
-        if (!entry) return { declarations: [], resolved: [] }
-        const { declarations, resolved } = await this.#attachmentDeclarations(entry, subject.project)
-        return {
-          declarations,
-          resolved: resolved.map((one) => ({
-            identity: one.identity,
-            endpoint: one.server ? this.#mcpEndpointFor(one.identity.name, one.identity.digest, one.server) : null,
-          })),
-        }
+    // Receipts, the frozen filter each Seat re-applies on a reopen, and the
+    // staged copies of exactly what was approved — all machine state, none of
+    // it in a project tree, and none of it carried by a backup except the
+    // receipts, which come back as history only.
+    this.#attachments = new AttachmentsPlane(
+      join(this.#state.directory, 'attachments', 'seats'),
+      {
+        resolve: async (subject) => {
+          const entry = await this.#agents.read(subject.agent, subject.project)
+          if (!entry) return { declarations: [], resolved: [] }
+          return this.#attachmentDeclarations(entry, subject.project)
+        },
+        permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
+        support: (subject) => this.#attachmentSupport(subject),
+        suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
       },
-      permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
-      support: (subject) => this.#attachmentSupport(subject),
-      suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
-    })
+      {
+        staging: join(this.#state.directory, 'attachments', 'staged'),
+        frozen: join(this.#state.directory, 'attachments', 'frozen'),
+      },
+    )
     this.#forge = new ForgePlane(
       {
         agentOf: (runtime) => {
@@ -1854,6 +1858,11 @@ export class Host {
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    // No Seat reaches a server past this point: every live grant is revoked,
+    // every exchange in flight is aborted, and the gateway's socket is closed.
+    // (Synchronous: nothing here may yield before every runtime is told, below.)
+    this.#attachments.revokeAll()
+    this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
     /*
@@ -1890,6 +1899,11 @@ export class Host {
         }),
       ),
     )
+    for (const disposer of this.#disposers.splice(0)) {
+      await Promise.resolve()
+        .then(disposer)
+        .catch((error: unknown) => this.#logger.warn('a teardown did not finish cleanly', { error: String(error) }))
+    }
     for (const unsubscribe of this.#subscriptions) unsubscribe()
     this.#subscriptions.length = 0
     for (const list of this.#runtimeSubscriptions.values()) for (const off of list) off()
@@ -2562,6 +2576,9 @@ export class Host {
         },
         seatRecord: (seat) => this.#attachments.read(seat),
         declarations: (entry, root) => this.#attachmentDeclarations(entry, root),
+        reopen: (runtime, id) => this.#reopenAttachments(runtime, id),
+        finishReopen: (runtime, live, reopened) => this.#finishReopen(runtime, live, reopened),
+        forkRefusal: (runtime, id) => this.#forkRefusal(runtime, id),
       },
       findings: {
         list: (input) => this.#findings.list(input),
@@ -3482,21 +3499,53 @@ export class Host {
     )
   }
 
-  /**
-   * A stable, opaque reference to a resolved MCP server spec — never the spec
-   * itself, which carries a real command and never reaches an adapter or a
-   * wire reply. The real spec is kept in `#mcpSpecs` for the gateway alone to
-   * dial out with, once a call is actually admitted.
-   */
-  #mcpEndpointFor(name: string, digest: string, spec: McpServerSpec): string {
-    const endpoint = `mcp:${name}:${digest}`
-    this.#mcpSpecs.set(endpoint, spec)
-    return endpoint
+  /** Aborted at quit: the gateway hands it to every MCP exchange it starts for a Seat. */
+  get attachmentSignal(): AbortSignal {
+    return this.#attachmentAbort.signal
   }
 
-  /** The real spec an approved attachment's opaque endpoint names — for the gateway's own dial-out alone. */
-  mcpSpecFor(endpoint: string): McpServerSpec | undefined {
-    return this.#mcpSpecs.get(endpoint)
+  /** Registers teardown that must run when this desk quits — before anything it depends on is gone. */
+  onDispose(disposer: () => Promise<void> | void): void {
+    this.#disposers.push(disposer)
+  }
+
+  /**
+   * A reopen of a conversation whose latest kept Seat froze attachments: the
+   * frozen filter, revalidated for this runtime build (`AttachmentsPlane
+   * .reapply`). `null` for a plain conversation, one seated before phase 12,
+   * or a restored Seat — none of which has a filter to re-apply.
+   */
+  async #reopenAttachments(runtime: AgentRuntime, id: SessionId): Promise<ReopenedSeat | null> {
+    const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
+    if (!seat) return null
+    const prepared = await this.#attachments.reapply(seat, { build: runtime.info.version ?? '' })
+    return prepared ? { seat, prepared } : null
+  }
+
+  /**
+   * Reads what the reopened conversation actually loaded, appends it as the
+   * Seat's next epoch, and records the Seat beside the session again. A
+   * failure closes the reopened handle rather than leave it running on a
+   * filter nobody could record.
+   */
+  async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void> {
+    try {
+      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key)
+      await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
+      this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
+    } catch (error) {
+      await this.#letGo(runtime.info.id, live.id, live)
+      throw new Error(
+        `This conversation's approved attachments could not be re-applied, so it was closed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
+  async #forkRefusal(runtime: RuntimeId, id: SessionId): Promise<string | null> {
+    const seat = this.#evidence.seats.latestKeptOf(runtime, id)
+    if (!seat || !(await this.#attachments.frozen(seat.id))) return null
+    return 'This conversation carries an Agent’s approved attachments, and a fork of it would run without them. Seat the Agent again instead.'
   }
 
   readonly #ceilingGate = new CeilingGate({
@@ -3940,9 +3989,16 @@ export class Host {
       )
     }
     let live: AgentSession
+    // A Seat that froze attachments reopens on that same filter, revalidated
+    // — never on the runtime's own defaults, which would load every ambient
+    // skill and server its approval was there to keep out.
+    const reopened = await this.#reopenAttachments(runtime, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
-      live = await runtime.resumeSession(id, environment ? { environment } : {})
+      live = await runtime.resumeSession(id, {
+        ...(environment ? { environment } : {}),
+        ...(reopened ? { attachments: reopened.prepared.input } : {}),
+      })
     } catch (error) {
       if (isSessionBusy(error)) throw await this.#busyElsewhere(runtime, id, error)
       // The sentence is the same either way; what differs is whether asking
@@ -3960,6 +4016,7 @@ export class Host {
     const transcript = await this.#read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
     const record = this.registry.upsert(session, live)
+    if (reopened) await this.#finishReopen(runtime, live, reopened)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),

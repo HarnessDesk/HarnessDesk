@@ -191,7 +191,6 @@ export interface AcpAttachmentInput {
   readonly key: string
   readonly skills: readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null
   readonly mcp: readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null
-  readonly notes: { readonly digest: string; readonly text: string } | null
 }
 
 /** `_harnessdesk/attachment_receipt`'s params: which session, and the exact prepared key it must match. */
@@ -203,8 +202,8 @@ export interface AcpAttachmentReceiptParams {
 /** `_harnessdesk/attachment_receipt`'s result: what the agent says it actually loaded. */
 export interface AcpAttachmentReceiptResult {
   readonly key: string
-  readonly loaded: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly digest: string }[]
-  readonly refused: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly reason: string }[]
+  readonly loaded: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly digest: string }[]
+  readonly refused: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[]
 }
 
 /**

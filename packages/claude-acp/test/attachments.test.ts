@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -10,7 +10,9 @@ import {
   ATTACHMENT_CAPABILITY_VALUE,
   attachmentOptions,
   attachmentReceipt,
+  bundleDigest,
   decodeAttachmentInput,
+  readApprovedBundle,
   stageSkills,
   type AttachmentInput,
 } from '../src/attachments.js'
@@ -59,9 +61,15 @@ const input = (over: Partial<AttachmentInput> = {}): AttachmentInput => ({
   key: 'k-1',
   skills: null,
   mcp: null,
-  notes: null,
   ...over,
 })
+
+/** The digest the host would have approved for a folder's bytes: what a staged skill must match to be loaded. */
+const approved = (dir: string): string => {
+  const read = readApprovedBundle(dir)
+  assert.ok(read.ok, 'the fixture bundle must be readable')
+  return bundleDigest(read.files)
+}
 
 test('the declared capability is exactly version 1, all three fields true', () => {
   assert.deepEqual(ATTACHMENT_CAPABILITY_VALUE, { version: 1, skills: true, mcp: true, suppressUnapproved: true })
@@ -73,26 +81,30 @@ test('decodeAttachmentInput accepts only the exact host shape', () => {
   assert.equal(decodeAttachmentInput(undefined), null, 'a plain conversation has nothing to decode')
   assert.equal(decodeAttachmentInput({}), null)
   assert.equal(decodeAttachmentInput({ harnessdesk: {} }), null, 'no attachments key at all')
-  assert.equal(decodeAttachmentInput({ harnessdesk: { attachments: { version: 2, input: { key: 'k', skills: null, mcp: null, notes: null } } } }), null, 'wrong version')
-  assert.equal(decodeAttachmentInput({ harnessdesk: { attachments: { version: 1, input: { key: '', skills: null, mcp: null, notes: null } } } }), null, 'empty key')
+  assert.equal(decodeAttachmentInput({ harnessdesk: { attachments: { version: 2, input: { key: 'k', skills: null, mcp: null } } } }), null, 'wrong version')
+  assert.equal(decodeAttachmentInput({ harnessdesk: { attachments: { version: 1, input: { key: '', skills: null, mcp: null } } } }), null, 'empty key')
   assert.equal(
-    decodeAttachmentInput({ harnessdesk: { attachments: { version: 1, input: { key: 'k', skills: [{ name: 'x' }], mcp: null, notes: null } } } }),
+    decodeAttachmentInput({ harnessdesk: { attachments: { version: 1, input: { key: 'k', skills: [{ name: 'x' }], mcp: null } } } }),
     null,
     'a skill entry missing digest/path invalidates the whole thing, never salvaged in part',
+  )
+  assert.equal(
+    decodeAttachmentInput({ harnessdesk: { attachments: { version: 1, input: { key: 'k', skills: null, mcp: null, notes: { digest: 'e'.repeat(64), text: 'hello' } } } } }),
+    null,
+    'notes are not part of this contract: an input carrying them is refused whole, never folded into a prompt',
   )
   const good = decodeAttachmentInput({
     harnessdesk: {
       attachments: {
         version: 1,
-        input: { key: 'k-1', skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/demo' }], mcp: null, notes: { digest: 'e'.repeat(64), text: 'hello' } },
+        input: { key: 'k-1', skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '/staged/demo' }], mcp: null },
       },
     },
   })
   assert.deepEqual(good, {
     key: 'k-1',
-    skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/demo' }],
+    skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '/staged/demo' }],
     mcp: null,
-    notes: { digest: 'e'.repeat(64), text: 'hello' },
   })
 })
 
@@ -101,9 +113,9 @@ test('decodeAttachmentInput accepts only the exact host shape', () => {
 test('stageSkills builds one plugin with a minimal manifest and the real bytes, nothing else', () => {
   const source = skillSource()
   const root = scratch('claude-acp-stage-')
-  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: source }] }), root)
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: approved(source), path: source }] }), root)
   assert.ok(staged.pluginPath)
-  assert.deepEqual(staged.staged, [{ name: 'demo', digest: 'd'.repeat(64) }])
+  assert.deepEqual(staged.staged, [{ name: 'demo', digest: approved(source) }])
   assert.deepEqual(staged.refused, [])
   assert.deepEqual(staged.qualifiedNames, ['harnessdesk:demo'])
   const manifest = JSON.parse(readFileSync(join(staged.pluginPath!, '.claude-plugin', 'plugin.json'), 'utf8'))
@@ -117,13 +129,13 @@ test('a missing source is refused by name; other skills in the same batch still 
   const staged = stageSkills(
     input({
       skills: [
-        { name: 'demo', digest: 'd'.repeat(64), path: source },
+        { name: 'demo', digest: approved(source), path: source },
         { name: 'ghost', digest: 'e'.repeat(64), path: join(root, 'never-existed') },
       ],
     }),
     root,
   )
-  assert.deepEqual(staged.staged, [{ name: 'demo', digest: 'd'.repeat(64) }])
+  assert.deepEqual(staged.staged, [{ name: 'demo', digest: approved(source) }])
   assert.equal(staged.refused.length, 1)
   assert.equal(staged.refused[0]?.name, 'ghost')
 })
@@ -147,17 +159,62 @@ test('a symlink anywhere in the approved bundle is refused, never staged as what
   const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: real }] }), root)
   assert.equal(staged.staged.length, 0, 'a bundle containing any symlink is refused whole, not stripped of just that entry')
   assert.equal(staged.refused.length, 1)
-  assert.match(staged.refused[0]?.reason ?? '', /symlink/)
+  assert.match(staged.refused[0]?.reason ?? '', /is a link/)
 })
 
-test('stageSkills resolves a shortPath ~ prefix back to the real home directory', () => {
+test('a path that is not an absolute, host-staged folder is refused by name — never resolved against a home directory', () => {
   const root = scratch('claude-acp-stage-')
-  // A path this bridge cannot resolve at all must still be refused by name,
-  // not thrown past the caller — proves resolveHome runs before the copy,
-  // not that any particular home directory layout exists on this machine.
-  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/__hd_test_never_exists__' }] }), root)
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/demo' }] }), root)
   assert.equal(staged.staged.length, 0)
   assert.equal(staged.refused[0]?.name, 'demo')
+  assert.match(staged.refused[0]?.reason ?? '', /not a folder the desk staged/)
+})
+
+test('the host and this bridge hash one bundle identically', () => {
+  // Pinned beside `packages/server/test/attachments-catalog.test.ts`'s own
+  // `PINNED_BUNDLE_DIGEST`: this bridge cannot import the host's reader, so
+  // the two copies of the algorithm are held to one fixture's digest instead.
+  const dir = scratch('claude-acp-pin-')
+  writeFileSync(join(dir, 'SKILL.md'), '---\nname: demo\n---\nDo the thing.\n')
+  mkdirSync(join(dir, 'scripts'))
+  writeFileSync(join(dir, 'scripts', 'run.sh'), '#!/bin/sh\necho one\n')
+  assert.equal(approved(dir), '90c5cc6bc70e7a9bb761c3f5e2c8b1400b5aea4227a65530d6e66913c185aa0a')
+})
+
+test('.git inside a bundle is never staged, and never part of its digest', () => {
+  const source = skillSource()
+  const before = approved(source)
+  mkdirSync(join(source, '.git'))
+  writeFileSync(join(source, '.git', 'config'), '[core]\n')
+  assert.equal(approved(source), before)
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: before, path: source }] }), scratch('claude-acp-stage-'))
+  assert.equal(staged.staged.length, 1)
+  assert.equal(existsSync(join(staged.pluginPath!, 'skills', 'demo', '.git')), false)
+})
+
+test('a bundle past its bounds is refused whole, before anything is staged', () => {
+  const source = skillSource()
+  writeFileSync(join(source, 'big.txt'), 'x'.repeat(256 * 1024 + 1))
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: source }] }), scratch('claude-acp-stage-'))
+  assert.equal(staged.staged.length, 0)
+  assert.match(staged.refused[0]?.reason ?? '', /larger than 256 KiB/)
+  assert.equal(staged.pluginPath, null)
+})
+
+test('bytes that changed after approval are refused — never staged or reported under the approved digest', async () => {
+  const source = skillSource()
+  const digest = approved(source)
+  writeFileSync(join(source, 'SKILL.md'), '---\nname: demo\n---\nDo something else entirely.\n')
+  const root = scratch('claude-acp-stage-')
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest, path: source }] }), root)
+  assert.deepEqual(staged.staged, [])
+  assert.match(staged.refused[0]?.reason ?? '', /not the content that was approved/)
+  assert.equal(staged.pluginPath, null, 'nothing is left where Claude Code could load it')
+  const receipt = await attachmentReceipt(input({ skills: [{ name: 'demo', digest, path: source }] }), staged, {
+    supportedCommands: async () => [{ name: 'harnessdesk:demo' }],
+    mcpServerStatus: async () => [],
+  })
+  assert.deepEqual(receipt.loaded, [], 'a runtime that happens to list the name still never reports the changed bytes as the approved ones')
 })
 
 // ------------------------------------------------------------ options
@@ -168,7 +225,7 @@ test('no input at all changes nothing — the plain path stays plain', () => {
 
 test('an explicit skill list produces settingSources: [], strictMcpConfig: true, and the exact qualified names', () => {
   const source = skillSource()
-  const result = attachmentOptions(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: source }] }), scratch('claude-acp-opts-'))
+  const result = attachmentOptions(input({ skills: [{ name: 'demo', digest: approved(source), path: source }] }), scratch('claude-acp-opts-'))
   assert.ok(result)
   assert.deepEqual(result.options['settingSources'], [])
   assert.equal(result.options['strictMcpConfig'], true)
@@ -184,19 +241,13 @@ test('strictMcpConfig and settingSources apply even when only mcp (not skills) w
   assert.equal(result.options['plugins'], undefined, 'no skills approved: no plugin is fabricated just to carry the MCP restriction')
 })
 
-test('notes are folded in as a labeled append, never bare system-instruction text', () => {
-  const withNotes = attachmentOptions(input({ notes: { digest: 'd'.repeat(64), text: 'Prefer small diffs.' } }), scratch('claude-acp-opts-'))
-  assert.equal(withNotes?.notesAppend, 'Agent notes:\nPrefer small diffs.')
-  const blank = attachmentOptions(input({ notes: { digest: 'd'.repeat(64), text: '   ' } }), scratch('claude-acp-opts-'))
-  assert.equal(blank?.notesAppend, null, 'whitespace-only notes append nothing')
-})
-
 // ------------------------------------------------------------ receipt
 
 test('a skill Claude Code actually reports is loaded; one it does not is refused honestly, never assumed from staging alone', async () => {
   const source = skillSource()
   const root = scratch('claude-acp-stage-')
-  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: source }, { name: 'silent', digest: 'e'.repeat(64), path: skillSource() }] }), root)
+  const silent = skillSource('---\nname: silent\n---\nQuiet.\n')
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: approved(source), path: source }, { name: 'silent', digest: approved(silent), path: silent }] }), root)
   const receipt = await attachmentReceipt(
     input({ key: 'k-1', skills: staged.staged.map((s) => ({ name: s.name, digest: s.digest, path: '' })) }),
     staged,
@@ -205,7 +256,7 @@ test('a skill Claude Code actually reports is loaded; one it does not is refused
       mcpServerStatus: async () => [],
     },
   )
-  assert.deepEqual(receipt.loaded, [{ kind: 'skill', name: 'demo', digest: 'd'.repeat(64) }])
+  assert.deepEqual(receipt.loaded, [{ kind: 'skill', name: 'demo', digest: approved(source) }])
   assert.deepEqual(receipt.refused, [{ kind: 'skill', name: 'silent', reason: 'Claude Code did not report this skill as loaded.' }])
 })
 
@@ -245,8 +296,9 @@ test('a refused staging failure is carried through to the receipt, never silentl
 
 test('a query that cannot be asked is not treated as one that answered success', async () => {
   const source = skillSource()
-  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: source }] }), scratch('claude-acp-stage-'))
-  const receipt = await attachmentReceipt(input({ skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '' }] }), staged, {
+  const staged = stageSkills(input({ skills: [{ name: 'demo', digest: approved(source), path: source }] }), scratch('claude-acp-stage-'))
+  assert.equal(staged.staged.length, 1)
+  const receipt = await attachmentReceipt(input({ skills: [{ name: 'demo', digest: approved(source), path: '' }] }), staged, {
     supportedCommands: async () => {
       throw new Error('the query is not live')
     },
@@ -254,15 +306,6 @@ test('a query that cannot be asked is not treated as one that answered success',
   })
   assert.deepEqual(receipt.loaded, [])
   assert.equal(receipt.refused[0]?.name, 'demo')
-})
-
-test('folded-in notes are reported loaded once actually applied — never claimed before that', async () => {
-  const staged = { pluginPath: null, qualifiedNames: [], staged: [], refused: [] }
-  const receipt = await attachmentReceipt(input({ notes: { digest: 'd'.repeat(64), text: 'hi' } }), staged, {
-    supportedCommands: async () => [],
-    mcpServerStatus: async () => [],
-  })
-  assert.deepEqual(receipt.loaded, [{ kind: 'notes', name: 'notes', digest: 'd'.repeat(64) }])
 })
 
 // ------------------------------------------------------------ real bridge, SDK faked
@@ -290,7 +333,7 @@ test('a real session over the real bridge gets an honest receipt — never a fab
     const source = skillSource()
     const session = await runtime.createSession({
       cwd: WORKDIR,
-      attachments: { key: 'k-e2e-1', skills: [{ name: 'demo', digest: 'd'.repeat(64), path: source }], mcp: null, notes: null },
+      attachments: { key: 'k-e2e-1', skills: [{ name: 'demo', digest: approved(source), path: source }], mcp: null },
     })
     const receipt = await runtime.attachmentReceipt(session.id)
     assert.equal(receipt.key, 'k-e2e-1')

@@ -31,7 +31,7 @@ import {
   runtimeId,
   sessionId as makeSessionId,
 } from '@harnessdesk/protocol'
-import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
+import { receiptFrom, type AttachmentSubject, type PreparedAttachments } from '../attachments/plane.js'
 
 import { ceilingEdit, parseAgentDefinition } from '../agent-def.js'
 import { incarnationOf } from '../evidence/seen.js'
@@ -481,16 +481,8 @@ async function finishAttachments(
   record: SeatRecord,
 ): Promise<void> {
   if (prepared.declarations.length === 0) return
-  let receipt: SessionAttachmentReceipt = { key: prepared.input.key, loaded: [], refused: [] }
-  if (runtime?.attachmentReceipt) {
-    try {
-      const observed = await runtime.attachmentReceipt(makeSessionId(sessionId))
-      if (observed.key === prepared.input.key) receipt = observed
-    } catch {
-      // Left as the empty receipt above: a readback that failed is "not loaded", never "loaded".
-    }
-  }
-  await attachments.record(record, prepared, receipt)
+  // A readback that failed, or answered for another key, is "not loaded", never "loaded".
+  await attachments.record(record, prepared, await receiptFrom(runtime, makeSessionId(sessionId), prepared.input.key))
 }
 
 /**

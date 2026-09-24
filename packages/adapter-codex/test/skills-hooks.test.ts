@@ -94,7 +94,6 @@ test('seating an Agent — create and resume, with attachments asked for — nev
     key: 'k-1',
     skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/demo' }],
     mcp: null,
-    notes: null,
   }
   const session = await runtime.createSession({ cwd: '/w', attachments })
   await runtime.resumeSession(session.id, { attachments })

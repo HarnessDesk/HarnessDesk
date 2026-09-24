@@ -23,7 +23,6 @@ const attachments = (overrides: Partial<SessionAttachments> = {}): SessionAttach
   key: 'k-1',
   skills: [{ name: 'demo', digest: 'd'.repeat(64), path: '~/demo' }],
   mcp: null,
-  notes: null,
   ...overrides,
 })
 
@@ -171,4 +170,23 @@ test('a receipt naming a real Library MCP identity is accepted, and a 16-hex dis
   const s2 = await short.createSession({ cwd: process.cwd(), attachments: shortInput })
   t.after(() => s2.close())
   await assert.rejects(short.attachmentReceipt(s2.id), /this desk will not trust/, 'a truncated digest gates nothing')
+})
+
+test('a load (a reopened Seat) carries the frozen input it is handed, and its receipt answers for the reopen’s own key', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'acp-attach-load-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const store = join(dir, 'sessions.json')
+  writeFileSync(store, JSON.stringify({ kept: { sessionId: 'kept', cwd: dir, title: 'Kept', updatedAt: new Date().toISOString(), turns: [] } }))
+  const runtime = make({ FAKE_ACP_ATTACHMENTS: '1', FAKE_ACP_STORE: store })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const reopened = attachments({ key: 'reopen-key' })
+  const session = await runtime.resumeSession('kept' as never, { attachments: reopened })
+  t.after(() => session.close())
+  const receipt = await runtime.attachmentReceipt(session.id)
+  assert.equal(receipt.key, 'reopen-key')
+  assert.deepEqual(receipt.loaded.map((one) => one.name), ['demo'])
 })

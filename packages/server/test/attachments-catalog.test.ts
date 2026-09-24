@@ -6,7 +6,7 @@ import { test } from 'node:test'
 
 import type { AgentEntry } from '@harnessdesk/protocol'
 
-import { mcpIdentityDigest, resolveAttachmentDeclarations, resolveAttachments } from '../src/attachments/catalog.js'
+import { bundleDigest, mcpIdentityDigest, resolveAttachmentDeclarations, resolveAttachments } from '../src/attachments/catalog.js'
 import { tempDir } from './scratch.js'
 
 /**
@@ -265,4 +265,15 @@ test('an MCP server whose spec cannot be decoded has no identity to approve', as
   assert.equal(resolved.length, 0)
   assert.equal(declarations[0]!.identity, null)
   assert.match(declarations[0]!.problem ?? '', /cannot be read as a server/)
+})
+
+/** Pinned beside `claude-acp/test/attachments.test.ts`'s copy of the same algorithm, which cannot import this one. */
+export const PINNED_BUNDLE_DIGEST = '90c5cc6bc70e7a9bb761c3f5e2c8b1400b5aea4227a65530d6e66913c185aa0a'
+
+test('the bundle digest of a fixed two-file bundle is pinned, so the bridge’s own copy of the algorithm cannot drift', () => {
+  const files = [
+    { path: 'scripts/run.sh', bytes: Buffer.from('#!/bin/sh\necho one\n') },
+    { path: 'SKILL.md', bytes: Buffer.from('---\nname: demo\n---\nDo the thing.\n') },
+  ]
+  assert.equal(bundleDigest(files), PINNED_BUNDLE_DIGEST)
 })

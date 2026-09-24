@@ -11,8 +11,7 @@ import { Agents } from '../src/agents.js'
 import { builtinAgentRoot } from '../src/host.js'
 import { resolveAttachmentDeclarations } from '../src/attachments/catalog.js'
 import { incarnationOf } from '../src/evidence/seen.js'
-import { McpToolGateway } from '../src/attachments/gate.js'
-import { callStdioMcpServer, listStdioMcpServerTools } from '../src/attachments/transport.js'
+import { attachmentGateway } from '../src/attachments/wiring.js'
 import { ToolGateway } from '../src/tool-gateway.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
 import { Client, start, stop } from './fixtures/harness.js'
@@ -163,40 +162,13 @@ test('an unapproved MCP tool call is refused at the real gateway, over its own s
   const callers = new Map<string, { runtime: string; sessionId: string }>()
   const token = 'test-caller-token'
   callers.set(token, { runtime: String(session.runtime), sessionId: String(session.id) })
-  const mcpGateway = new McpToolGateway({
-    serversFor: (seat) =>
-      harness.host.attachmentsPlane.liveServersFor(seat)?.map((one) => ({
-        seat,
-        identity: one.identity,
-        endpoint: one.endpoint,
-        ceiling: 'merge' as const,
-      })) ?? null,
-    callerOf: (t) => {
-      const known = callers.get(t)
-      if (!known) return null
-      const seat = harness.host.registry.attachmentSeatOf(known.runtime as never, known.sessionId as never)
-      if (!seat) return null
-      return { seat, runtime: known.runtime, sessionId: known.sessionId }
-    },
-    admit: (call) => harness.host.ceilingGate.admit(call),
-  })
   const socketDir = tempDir('hd-attach-e2e-sock-')
   const socketPath = join(socketDir, 'tools.sock')
+  // `bootstrap.ts`'s own wiring, not a copy of it.
   const gateway = new ToolGateway(socketPath, {
     listTools: () => [],
     invokeByName: async () => ({ ok: false, error: 'not used by this test' }),
-    mcpList: (caller) =>
-      mcpGateway.list(caller ?? '', async (gatewayServer) => {
-        const spec = harness.host.mcpSpecFor(gatewayServer.endpoint)
-        if (!spec) return []
-        return listStdioMcpServerTools(spec)
-      }),
-    mcpCall: (caller, serverName, toolName, args) =>
-      mcpGateway.call(caller ?? '', serverName, toolName, async (gatewayServer) => {
-        const spec = harness.host.mcpSpecFor(gatewayServer.endpoint)
-        if (!spec) throw new Error('unreachable in this test')
-        return callStdioMcpServer(spec, toolName, args)
-      }),
+    ...attachmentGateway(() => harness.host, (one) => callers.get(one)),
   })
   gateway.start()
   t.after(() => gateway.stop())

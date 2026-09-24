@@ -95,11 +95,17 @@ export const sessionMethods = {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
     let live: AgentSession
+    // A Seat that froze attachments reopens on that filter, revalidated —
+    // never on the runtime's defaults. A conversation already live here kept
+    // the filter it opened with, and is handed back as it is.
+    const sessionId = makeSessionId(params.sessionId)
+    const reopened = ctx.registry.get(runtime.info.id, sessionId)?.live ? null : ((await ctx.attachments?.reopen(runtime, sessionId)) ?? null)
     try {
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
-      live = await runtime.resumeSession(makeSessionId(params.sessionId), {
+      live = await runtime.resumeSession(sessionId, {
         ...options,
         ...(environment ? { environment } : {}),
+        ...(reopened ? { attachments: reopened.prepared.input } : {}),
       })
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
@@ -130,7 +136,9 @@ export const sessionMethods = {
     // render.
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
-    return ctx.registry.upsert(session, live).session
+    const record = ctx.registry.upsert(session, live)
+    if (reopened) await ctx.attachments!.finishReopen(runtime, live, reopened)
+    return record.session
   },
 
   'session/fork': async (ctx, params) => {
@@ -143,6 +151,10 @@ export const sessionMethods = {
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
+    // A fork is a new conversation, not the Seat: it would run with none of
+    // the Seat's approved filter, on the runtime's own defaults. Refused.
+    const refusal = await ctx.attachments?.forkRefusal(runtime.info.id, makeSessionId(params.sessionId))
+    if (refusal) throw new Error(refusal)
     const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
     const live = await runtime.forkSession(makeSessionId(params.sessionId), {
       ...options,

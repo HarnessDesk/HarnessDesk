@@ -75,7 +75,7 @@ import type { UsageMeter } from '../usage/meter.js'
 import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
-import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
+import type { AttachmentSubject, PreparedAttachments, ReopenedSeat } from '../attachments/plane.js'
 import type { AttachmentResolution, ResolvedAttachment } from '../attachments/catalog.js'
 
 /**
@@ -162,6 +162,18 @@ export interface HostContext {
      * review and a Seat's preparation never resolve a name two ways.
      */
     declarations(entry: AgentEntry, root: string): Promise<AttachmentResolution>
+    /**
+     * A reopen (resume, load) of a conversation whose Seat froze
+     * attachments: its frozen filter, revalidated — handed to the runtime at
+     * the reopen, never left to its native defaults. `null` for a plain
+     * conversation. Throws when the runtime can no longer be kept from
+     * loading content nobody approved.
+     */
+    reopen(runtime: AgentRuntime, sessionId: SessionId): Promise<ReopenedSeat | null>
+    /** Appends the reopened conversation's receipt as the Seat's next epoch; closes it if that cannot be done. */
+    finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void>
+    /** Why forking this conversation is refused — a fork would run with no filter — or null. */
+    forkRefusal(runtime: RuntimeId, sessionId: SessionId): Promise<string | null>
   }
   /**
    * The findings ledger, read and decided by a person. Narrower than the

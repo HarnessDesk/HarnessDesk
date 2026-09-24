@@ -1135,7 +1135,7 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
   ;(seen.ctx as unknown as { attachments: HostContext['attachments'] }).attachments = {
     prepare: async (subject) => ({
       subject,
-      input: { key: 'k', skills: null, mcp: [{ name: 'reviewer-tools', digest: 'd', endpoint: 'e' }], notes: null },
+      input: { key: 'k', skills: null, mcp: [{ name: 'reviewer-tools', digest: 'd', endpoint: 'e' }] },
       declarations: [
         {
           kind: 'mcp',
@@ -1144,6 +1144,7 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
           problem: null,
         },
       ],
+      servers: new Map(),
     }),
     record: async () => {
       recordCalls += 1
@@ -1155,6 +1156,9 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
     },
     seatRecord: async () => null,
     declarations: async () => ({ declarations: [], resolved: [] }),
+    reopen: async () => null,
+    finishReopen: async () => { throw new Error('not used by this test') },
+    forkRefusal: async () => null,
   }
   await assert.rejects(
     // A real directory, unlike every other test's `/tmp/x`: phase 12's Seat

@@ -123,16 +123,24 @@ export interface SeatAttachmentsRecord {
  */
 export interface SessionAttachments {
   readonly key: string
+  /**
+   * `path` is the host's own staged copy of exactly the approved bytes, under
+   * machine state (`attachments/staged/skill/<digest>/`) — never the Agent's
+   * or the Library's folder, which can change after the approval.
+   */
   readonly skills: readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null
   readonly mcp: readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null
-  readonly notes: { readonly digest: string; readonly text: string } | null
+  // Agent notes are not carried: decision 17 wants approved notes as
+  // labeled context, never a system instruction, and this phase has no
+  // approval for notes. The field is absent rather than always null, so no
+  // runtime ever grows a path that would fold them in unapproved.
 }
 
 /** What a runtime says it loaded, in answer to `SessionAttachments` — the readback `activateBindings` checks. */
 export interface SessionAttachmentReceipt {
   readonly key: string
-  readonly loaded: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly digest: string }[]
-  readonly refused: readonly { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly reason: string }[]
+  readonly loaded: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly digest: string }[]
+  readonly refused: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[]
 }
 
 /**

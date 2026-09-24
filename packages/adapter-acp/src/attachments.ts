@@ -92,7 +92,6 @@ const wireInputOf = (input: SessionAttachments): AcpAttachmentInput => ({
   key: input.key,
   skills: input.skills,
   mcp: input.mcp,
-  notes: input.notes,
 })
 
 /**
@@ -124,7 +123,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 const validName = (value: unknown): value is string => typeof value === 'string' && Buffer.byteLength(value, 'utf8') <= MAX_NAME_BYTES && value.length > 0
 const validReason = (value: unknown): value is string => typeof value === 'string' && Buffer.byteLength(value, 'utf8') <= MAX_REASON_BYTES
-const validKind = (value: unknown): value is 'skill' | 'mcp' | 'notes' => value === 'skill' || value === 'mcp' || value === 'notes'
+const validKind = (value: unknown): value is 'skill' | 'mcp' => value === 'skill' || value === 'mcp'
 
 interface IntendedSet {
   readonly key: string
@@ -158,7 +157,7 @@ export function validateAttachmentReceipt(raw: unknown, intended: IntendedSet): 
   const allowed = intendedNames(intended)
   const seen = new Set<string>()
 
-  const loaded: { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly digest: string }[] = []
+  const loaded: { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly digest: string }[] = []
   for (const entry of loadedRaw) {
     if (!isPlainObject(entry) || Object.keys(entry).length !== 3) return null
     const { kind, name, digest } = entry
@@ -174,7 +173,7 @@ export function validateAttachmentReceipt(raw: unknown, intended: IntendedSet): 
     loaded.push({ kind, name, digest })
   }
 
-  const refused: { readonly kind: 'skill' | 'mcp' | 'notes'; readonly name: string; readonly reason: string }[] = []
+  const refused: { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[] = []
   for (const entry of refusedRaw) {
     if (!isPlainObject(entry) || Object.keys(entry).length !== 3) return null
     const { kind, name, reason } = entry
