@@ -221,6 +221,36 @@ export class AttachmentsPlane {
     return this.#receipts.read(seat)
   }
 
+  /** Task 6's own backup export: every observation epoch of every Seat this desk has ever recorded. */
+  attachmentHistory(): Promise<readonly SeatAttachmentsRecord[]> {
+    return this.#receipts.allHistories()
+  }
+
+  /**
+   * Backup import's one write path for a Seat's attachment history:
+   * `'restored'` when this epoch was newly appended, `'alreadyHere'` when an
+   * identical epoch already exists (the `restored` provenance flag is not
+   * part of that comparison — the same observation, recorded here first or
+   * imported first, is one epoch, not two), and `'refused'` for a gap, a
+   * mismatch against an existing epoch, or a schema/bound violation
+   * `AttachmentReceipts.append` itself catches by throwing.
+   */
+  async appendRestored(record: SeatAttachmentsRecord): Promise<'restored' | 'alreadyHere' | 'refused'> {
+    const history = await this.#receipts.history(record.seat)
+    const existing = history.find((one) => one.epoch === record.epoch)
+    const sameContent = (a: SeatAttachmentsRecord, b: SeatAttachmentsRecord): boolean =>
+      JSON.stringify({ ...a, restored: undefined }) === JSON.stringify({ ...b, restored: undefined })
+    if (existing) return sameContent(existing, record) ? 'alreadyHere' : 'refused'
+    const expected = history.length === 0 ? 0 : history[history.length - 1]!.epoch + 1
+    if (record.epoch !== expected) return 'refused'
+    try {
+      await this.#receipts.append({ ...record, restored: true })
+      return 'restored'
+    } catch {
+      return 'refused'
+    }
+  }
+
   /** Ends this Seat's live gateway access — called on release, wrap, session delete and host shutdown. Never touches history. */
   async revokeLive(seat: SeatId): Promise<void> {
     this.#live.delete(seat)

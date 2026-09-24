@@ -36,7 +36,7 @@ const tupleKey = (citation: GoalCitation): string =>
   JSON.stringify([citation.goal, citation.receipt, citation.project, citation.path, citation.at])
 
 /** Fixed top-level field order — the canonical form every retained snapshot is written in. */
-const canonicalSnapshot = (snapshot: MemorySnapshot): string =>
+export const canonicalSnapshot = (snapshot: MemorySnapshot): string =>
   JSON.stringify({
     version: snapshot.version,
     citation: {
@@ -64,7 +64,7 @@ const looksLikeSeat = (value: unknown): value is SeatRecord =>
   typeof (value.session as { runtime?: unknown }).runtime === 'string'
 
 /** Reads a snapshot back exactly as strictly as `capture` could have written one — never more permissively. */
-const snapshotOf = (value: unknown): MemorySnapshot | null => {
+export const snapshotOf = (value: unknown): MemorySnapshot | null => {
   if (!object(value) || value.version !== 1) return null
   if (!citationOf(value.citation)) return null
   if (typeof value.text !== 'string') return null
@@ -204,6 +204,11 @@ export class MemoryPlane implements GoalMemoryPort {
     }
   }
 
+  /** Whether this exact tuple is already registered under this exact archive key — backup import's own duplicate check, never an I/O read. */
+  isRegistered(citation: GoalCitation, archive: string): boolean {
+    return this.registered.get(tupleKey(citation)) === archive
+  }
+
   /**
    * A synchronous, in-memory-only answer for a caller (`GoalPlane`'s
    * citation-created dependency check) that cannot await one more I/O round
@@ -217,6 +222,29 @@ export class MemoryPlane implements GoalMemoryPort {
     if (this.poisoned.has(tuple)) return true
     if (!this.registered.has(tuple)) return true
     return this.restoredOnly.get(tuple) === true
+  }
+
+  /**
+   * The exact bytes filed under one content-addressed key, with no citation
+   * shape check at all — Task 6's own backup export, which reads by key
+   * because that is what a Goal document's own index names, never by tuple.
+   */
+  readRaw(key: string): Promise<string | null> {
+    return this.archive.read(key)
+  }
+
+  /**
+   * Writes an already-captured snapshot back verbatim — the same canonical
+   * form and size bound `capture` itself uses, so an imported object is
+   * refiled under the exact key it was exported with. Import-only: a live
+   * capture always goes through `capture`, never this.
+   */
+  writeSnapshot(snapshot: MemorySnapshot): Promise<string> {
+    const serialized = canonicalSnapshot(snapshot)
+    if (Buffer.byteLength(serialized, 'utf8') > 9 * 1024 * 1024) {
+      throw new Error('This citation is too large to retain: 9 MiB includes its receipt and Seat context.')
+    }
+    return this.archive.retain(serialized, async () => {})
   }
 
   async list(root: string, at: string): Promise<readonly MemoryFile[]> {

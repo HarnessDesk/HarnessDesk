@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { mkdir, open, rename, rm } from 'node:fs/promises'
+import { mkdir, open, readdir, rename, rm } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
@@ -147,6 +147,29 @@ export class AttachmentReceipts {
     return this.#historyOf(join(this.folder, seatFile(seat)))
   }
 
+  /**
+   * Every observation epoch of every Seat this desk has ever recorded,
+   * flattened — Task 6's own backup export. Reads each sidecar file's own
+   * records rather than decoding a Seat id back out of its (sometimes
+   * shortened) file name: every line already names its own `seat`, which is
+   * the only identity that matters here.
+   */
+  async allHistories(): Promise<readonly SeatAttachmentsRecord[]> {
+    let names: string[]
+    try {
+      names = await readdir(this.folder)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw error
+    }
+    const all: SeatAttachmentsRecord[] = []
+    for (const name of names) {
+      if (!name.endsWith('.ndjson')) continue
+      all.push(...(await this.#historyOf(join(this.folder, name))))
+    }
+    return all
+  }
+
   async #historyOf(path: string): Promise<readonly SeatAttachmentsRecord[]> {
     let text: string
     try {
@@ -182,4 +205,4 @@ export class AttachmentReceipts {
   }
 }
 
-export { seatFile as attachmentSeatFileFor }
+export { seatFile as attachmentSeatFileFor, recordOf as attachmentRecordOf }

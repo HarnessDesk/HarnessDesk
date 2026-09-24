@@ -19,7 +19,7 @@ import type {
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
 import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer, Sha } from './evidence.js'
-import type { MemoryFile, MemoryResolution } from './memory.js'
+import type { GoalMemoryIndex, MemoryFile, MemoryResolution, MemorySnapshot } from './memory.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
@@ -172,6 +172,43 @@ export interface BackupFile {
     readonly documents: readonly unknown[]
     readonly lanes: readonly Lane[]
   }
+  /**
+   * Retained citation snapshots, the Goal-side index that resolves them, and
+   * every Seat's frozen attachment history — Task 2 and Task 3's own durable
+   * state, never this machine's live gateway state, trust files or server
+   * processes. Absent in a backup from before this feature existed.
+   */
+  readonly memory?: MemoryBackup
+}
+
+/**
+ * Task 6's own backup sidecar: what retention keeps, portable. `objects` are
+ * content-addressed exactly as `CitationArchive` files them; `indexes` are
+ * one entry per Goal document that carries a `memory` field, keyed by that
+ * Goal so import can fold each back into the Goal it belongs to rather than
+ * guessing from the objects alone; `attachments` is every observation epoch
+ * of every Seat this desk ever recorded; flattened, because
+ * `SeatAttachmentsRecord` already names its own Seat and epoch.
+ */
+export interface MemoryBackup {
+  readonly version: 1
+  readonly objects: readonly { readonly key: string; readonly snapshot: MemorySnapshot }[]
+  readonly indexes: readonly { readonly goal: GoalId; readonly memory: GoalMemoryIndex }[]
+  readonly attachments: readonly SeatAttachmentsRecord[]
+}
+
+/**
+ * What a memory restore actually did, counted after re-reading what was
+ * written. `alreadyHere` is a duplicate — an object, index or attachment
+ * epoch this desk already holds, byte for byte — never a reason for concern;
+ * `refused` is a damaged digest, an over-limit entry or an orphan index link,
+ * each counted rather than silently dropped; `failed` could not be written.
+ */
+export interface MemoryBackupReport {
+  readonly restored: number
+  readonly alreadyHere: number
+  readonly refused: number
+  readonly failed: number
 }
 
 /**
@@ -222,6 +259,7 @@ export interface BackupReport {
     readonly lanesDuplicate: number
     readonly lanesConflict: number
   }
+  readonly memory?: MemoryBackupReport
 }
 
 /**

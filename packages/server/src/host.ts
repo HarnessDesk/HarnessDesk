@@ -133,6 +133,7 @@ import { Flows, runCheck } from './flows.js'
 import { dispatchAfter, Serial } from './goals/assignments.js'
 import { goalMembers } from './goals/members.js'
 import { GoalPlane, type GoalPlanePort } from './goals/plane.js'
+import { exportMemory, importMemory, type MemoryBackupPort } from './memory/backup.js'
 import { availablePorts, laneOf, LaneAllocator, LaneStore } from './goals/lanes.js'
 import {
   environmentForCheckout,
@@ -2670,6 +2671,25 @@ export class Host {
   }
 
   /**
+   * Task 6's own backup sidecar port: the two otherwise-separate subsystems
+   * `MemoryBackup` spans, `GoalPlane`'s own `MemoryPlane` and the top-level
+   * `AttachmentsPlane`, behind the one small interface `memory/backup.ts`
+   * actually needs. Never a trust file, a staging directory, a gateway token
+   * or a server process — none of those are reachable through it.
+   */
+  #memoryBackupPort(): MemoryBackupPort {
+    return {
+      documents: () => this.#goals.memoryDocuments(),
+      readObject: (key) => this.#goals.readMemoryObject(key),
+      writeObject: (snapshot) => this.#goals.writeMemoryObject(snapshot),
+      registerRestoredMemory: (goal, index) => this.#goals.registerRestoredMemory(goal, index),
+      isRegistered: (citation, archive) => this.#goals.memoryRegistered(citation, archive),
+      attachmentHistory: () => this.#attachments.attachmentHistory(),
+      appendAttachment: (record) => this.#attachments.appendRestored(record),
+    }
+  }
+
+  /**
    * The backup file: everything HarnessDesk keeps for itself. Credentials are
    * deliberately absent — they live in the OS keystore, would not decrypt on
    * another machine, and a restore is followed by signing in again.
@@ -2698,6 +2718,7 @@ export class Host {
         // authority yet, so its portable Goal history has no lanes to export.
         lanes: this.#laneStore.loaded ? this.#lanes.list() : [],
       },
+      memory: await exportMemory(this.#memoryBackupPort()),
     }
   }
 
@@ -2886,8 +2907,9 @@ export class Host {
         } else goals.lanesConflict += 1
       }
     }
-    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, goals })
-    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, ...(goals ? { goals } : {}) }
+    const memory = await importMemory(this.#memoryBackupPort(), file.memory)
+    this.#logger.info('backup restored', { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, goals, memory })
+    return { agents, preferences, transcripts, agentFolders, seating, evidence, provenance, memory, ...(goals ? { goals } : {}) }
   }
 
   /**

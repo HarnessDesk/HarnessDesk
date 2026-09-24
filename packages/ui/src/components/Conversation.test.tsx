@@ -91,6 +91,9 @@ const rig = (
     loadHistory: vi.fn(),
     resumeSession: vi.fn(),
     readSeatAgent: vi.fn(),
+    // Not recorded — these fixtures never made any Agent declare an attachment.
+    seatRecord: vi.fn(async () => null),
+    readSeatAttachments: vi.fn(async () => null),
   } as unknown as AppStore
   return { store }
 }

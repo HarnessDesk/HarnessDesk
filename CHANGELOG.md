@@ -7,6 +7,48 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An Agent can carry skills, MCP servers and its own notes.** Its file
+  declares them by name — `skills:`/`mcp:`, editable from the Agent page,
+  with an empty list read as "Runtime defaults" rather than "None" — and a
+  Seat freezes exactly what loaded at open, never picking up a later edit or
+  approval. Agent-local content (a `skills/` folder beside the Agent's file)
+  is untrusted until a person reviews the exact bytes and approves them, once
+  per repository, Agent, runtime build and effective ceiling; loading an
+  unapproved bundle is refused rather than substituting a different runtime
+  or silently skipping it. An external MCP server is classified `merge` by
+  default and reached only through the desk's own gateway, never a direct
+  unmediated connection. Codex and the ACP runtimes both honor a scoped
+  filter; a runtime that cannot prove it stays on its own native default.
+  `NOTES.md` beside an Agent's file is private working context the Agent page
+  reads and clears, never system instructions.
+- **A Seat's name card and the Library show what actually loaded** — an
+  Agent's page, its name card and a project's Library page each show
+  declared skills and servers next to what a Seat's runtime build actually
+  reported back, with "declared, not loaded" distinguished from "not
+  recorded" (an Agent with nothing declared, or a Seat opened before this
+  shipped) so neither reads as a fabricated success. The Library's Agent
+  filter narrows to what one Agent declares without changing the measured
+  reach every other row already showed.
+- **A Goal can cite committed project memory that outlives the Goal that
+  made it.** A person picks a wrapped source Goal and one of its project's
+  committed `.harnessdesk/memory/*.md` files, at an exact revision, and
+  confirms "Cite in this Goal" — the exact bytes, the source Goal's receipt
+  and the Seats that were there are retained immediately, before the
+  citation is saved, so a later reader still sees the original text even
+  after the source Goal, its Git history or the whole desk that made it is
+  gone. Every honest gap says so: "Source Goal unavailable; retained copy",
+  "Original revision unavailable", or, for a citation made before this
+  shipped, "The original source was not retained" — never a guess dressed up
+  as the real thing. Opening a citation only ever displays it; it starts no
+  turn and grants nothing.
+- **Backup and restore now carry this history too** — every retained
+  citation and every Seat's attachment record round-trip through the same
+  backup file, restored as history a person can read, never as a live grant:
+  an imported Seat attachment epoch is always marked restored, and an
+  imported citation can satisfy only the one dependency edge it created, never
+  authorize new work. One damaged entry in an otherwise-good backup is
+  refused and counted; it does not stop the rest of that history from coming
+  back.
 - **A reviewer's finished card no longer goes back to "claimed".** If
   another Seat opened on the same Goal while a reviewer was completing its
   card, the reviewer was told the card was done, but the board kept it

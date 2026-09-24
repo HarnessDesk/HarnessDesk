@@ -116,6 +116,9 @@ const rig = async (root: string, delayCapture?: (citation: GoalCitation) => Prom
     resolve: (citation) => memoryPlane.resolve(citation),
     register: (index, restored) => memoryPlane.register(index, restored),
     isKnownRestored: (citation) => memoryPlane.isKnownRestored(citation),
+    readRaw: (key) => memoryPlane.readRaw(key),
+    writeSnapshot: (snapshot) => memoryPlane.writeSnapshot(snapshot),
+    isRegistered: (citation, archive) => memoryPlane.isRegistered(citation, archive),
   }
   return { store, seats, port, memoryPlane, archiveFolder, plane: new GoalPlane(store, port, undefined, Date.now, memory) }
 }

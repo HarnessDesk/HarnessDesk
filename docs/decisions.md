@@ -442,3 +442,74 @@ never does.
 **The rule:** a fact counts for a rule by the card it is filed on and the
 revision it names, never by the round number it carries, and never for a
 checkout that could not have changed.
+
+---
+
+## A declared attachment is a catalogue name, never an executable spec
+
+An Agent's `skills:`/`mcp:` lines name entries by identifier, not by command
+or path. Reading a cloned repository's `AGENT.md` and the `skills/` folder
+beside it starts no process and runs no script; it only ever produces the
+identities and bytes a person reviews before anything is trusted to load.
+Agent-local content is hashed whole — every referenced script and resource,
+not only `SKILL.md` — and bound to the repository's own incarnation, the
+Agent's origin and id, that bundle's digest, the runtime build and the
+effective ceiling; any one of those changing means review again. An external
+MCP server is classified `merge` by default, whatever a repository or the
+server's own tool annotations claim, and is only ever reached through the
+desk's own gateway, which can identify and gate every call — a runtime never
+holds a server's real address. A runtime that cannot suppress its own
+unapproved auto-loading for one Seat is refused outright before any session
+exists, never seated unscoped and hoped honest.
+
+**The rule:** trust and classification are host-computed from what was
+actually read, never taken from a repository's own claim about itself, and a
+runtime that cannot honor a Seat's declarations fails that seating in its own
+words rather than falling through to a different one nobody announced.
+
+---
+
+## A Seat freezes its attachments; nothing it loaded can change after it opens
+
+What a Seat's runtime loads is decided once, at open, from the Agent's
+declarations as they stood then — not re-read on reconnect, not widened by a
+later approval, not narrowed by an edit to the Agent's file. `prepare` runs
+before a runtime session exists so the isolated input it is given can
+actually reflect what was decided; `record` durably appends one epoch to
+that Seat's own append-only history only after the runtime's own readback
+says what it loaded, so a Seat's history is what was *observed*, never what
+was merely requested. A later reconnect or resume revalidates those same
+frozen inputs and appends a new epoch; it never re-derives from the Agent's
+current wishes. History persists after a Seat closes and after a restart,
+and a restored (backup-imported) epoch is marked so and never reads as a
+live "currently loaded" — retention is a fact about the past, not a
+standing grant.
+
+**The rule:** a Seat's attachment record is append-only and observed, never
+rewritten and never optimistic; "declared, not loaded", "loaded" and "not
+recorded" are three different facts and no code path collapses one into
+another to look tidier.
+
+---
+
+## A memory citation retains bytes before the Goal ever references them
+
+Citing a wrapped Goal's committed memory file into another Goal is a person
+action, never an automatic link: `.harnessdesk/memory/<slug>.md` is ordinary
+committed prose, and a citation names a full commit, a literal path and the
+exact wrapped receipt a person selected — "Source selected by you", never a
+claim the file itself makes about its own origin. Retention is
+durable-before-reference: the exact bytes, the source Goal's receipt and the
+Seats that were there are written to content-addressed storage first, and
+only a successful write is ever referenced from the citing Goal's own index —
+a failure past that point leaves at most an unreferenced object, never a
+citation pointing at nothing. The source Goal, its checkout or the whole
+desk that made it may later disappear; the retained copy still resolves,
+honestly labeled `Source Goal unavailable` or `Original revision
+unavailable` rather than silently going quiet. None of this grants a tool,
+moves an evidence column, or lets a citation someone merely restored from a
+backup satisfy a dependency a live Goal never actually earned.
+
+**The rule:** retention happens before the Goal mutation that references it,
+a citation is data a person carries on purpose, and no archived or restored
+record may authorize dispatch, membership or tools by itself.

@@ -4170,6 +4170,27 @@ export class AppStore {
     await this.transport.request('attachment/approve', { token })
   }
 
+  /** A Seat's frozen attachment history, by its own immutable id — `null` when nothing was ever recorded for it. */
+  async readSeatAttachments(seat: import('@harnessdesk/protocol').SeatId): Promise<import('@harnessdesk/protocol').SeatAttachmentsRecord | null> {
+    return this.transport.request('attachment/seat', { seat })
+  }
+
+  /** Every committed `.harnessdesk/memory/*.md` file at one exact revision — never re-resolving HEAD per row. */
+  async readMemoryFiles(root: string, at: string): Promise<readonly import('@harnessdesk/protocol').MemoryFile[]> {
+    return this.transport.request('memory/list', { root, at })
+  }
+
+  /** Opens one citation's retained bytes, with truthful missing-source labels. */
+  async readMemoryCitation(root: string, citation: import('@harnessdesk/protocol').GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
+    return this.transport.request('memory/read', { root, citation })
+  }
+
+  /** Retains this citation and links it into the Goal being cited into — the one write `goal/cite` itself makes. */
+  async citeMemory(goal: GoalId, citation: import('@harnessdesk/protocol').GoalCitation): Promise<void> {
+    await this.transport.request('goal/cite', { goal, citation })
+    await this.#refreshGoal(goal)
+  }
+
   /**
    * Numbered against overlapping reads: a workspace switch, an `agent/changed`
    * push and a sign-in can each start one of these while an earlier one is

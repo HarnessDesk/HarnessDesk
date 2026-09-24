@@ -29,6 +29,12 @@ import { previewWrap, Wraps, type WrapInput } from './wrap.js'
 export interface GoalMemorySupport extends GoalMemoryPort {
   register(index: GoalMemoryIndex, restored?: boolean): void
   isKnownRestored(citation: GoalCitation): boolean
+  /** Task 6's own backup export: the exact retained bytes under one content-addressed key, never a citation-shaped lookup. */
+  readRaw(key: string): Promise<string | null>
+  /** Task 6's own backup import: refiles an already-captured snapshot verbatim, keyed by its own content hash. */
+  writeSnapshot(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string>
+  /** Task 6's own backup import: whether this exact tuple is already registered under this exact archive key. */
+  isRegistered(citation: GoalCitation, archive: string): boolean
 }
 
 export interface GoalPlanePort extends GoalOperationPort {
@@ -434,6 +440,43 @@ export class GoalPlane {
    */
   resolveMemory(citation: GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
     return this.memory.resolve(citation)
+  }
+
+  /**
+   * Task 6's own backup export: every loaded Goal document's own `memory`
+   * field, exactly as the store already holds it — never a live re-read
+   * through the registry, and never a scan of the archive folder.
+   */
+  memoryDocuments(): readonly { readonly goal: string; readonly memory: GoalMemoryIndex }[] {
+    return this.store.list().flatMap((document) => (document.memory ? [{ goal: document.goal.id, memory: document.memory }] : []))
+  }
+
+  /** Backup export's read-through onto one retained object, by its own content-addressed key. */
+  readMemoryObject(key: string): Promise<string | null> {
+    return this.memory.readRaw(key)
+  }
+
+  /** Backup import's write-through for one already-captured snapshot, refiled under its own content hash. */
+  writeMemoryObject(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string> {
+    return this.memory.writeSnapshot(snapshot)
+  }
+
+  /**
+   * Folds an imported index into the live registry, marked restored — never
+   * rewrites the Goal document itself, which is why this makes a citation
+   * resolvable immediately after a backup import rather than only after the
+   * next restart's `hydrateMemory` sweep. `false` when no such Goal exists
+   * locally to attach it to; the caller counts that as refused.
+   */
+  registerRestoredMemory(goal: string, index: GoalMemoryIndex): boolean {
+    if (!this.store.list().some((one) => one.goal.id === goal)) return false
+    this.memory.register(index, true)
+    return true
+  }
+
+  /** Backup import's own duplicate check: whether this exact tuple is already registered under this exact archive key. */
+  memoryRegistered(citation: GoalCitation, archive: string): boolean {
+    return this.memory.isRegistered(citation, archive)
   }
 
   cite(goal: string, citation: GoalCitation): Promise<void> {

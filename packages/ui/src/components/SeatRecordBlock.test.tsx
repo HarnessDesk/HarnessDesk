@@ -53,6 +53,8 @@ const mount = async (seatRecord: (runtime: string, sessionId: string) => Promise
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     seatRecord: vi.fn(seatRecord),
+    // Not recorded — this fixture never made any Agent declare an attachment.
+    readSeatAttachments: vi.fn(async () => null),
   } as unknown as AppStore
   await act(async () => {
     root.render(

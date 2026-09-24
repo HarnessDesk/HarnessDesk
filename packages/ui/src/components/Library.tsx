@@ -4,12 +4,15 @@ import {
   entryHasProblem,
   isReachProblem,
   summarise,
+  type AgentEntry,
+  type AgentOrigin,
   type Library,
   type LibraryEntry,
   type LibraryKind,
   type LibraryUsage,
   type ReachState,
   type RuntimeId,
+  type RuntimeInfo,
 } from '@harnessdesk/protocol'
 
 import { runtimeLabel } from '../lib/accounts'
@@ -35,6 +38,7 @@ import {
   Button,
   EmptyState,
   Label,
+  NativeSelect,
   Switch,
   ToggleGroup,
   ToggleGroupItem,
@@ -96,6 +100,20 @@ import styles from './Library.module.css'
  * should land on the four rows that need attention, not on the hundred that
  * do not.
  */
+
+/**
+ * What this runtime build can do with a Seat's declared attachments — never
+ * this file's own concept, and never confused with `reach`: a column can
+ * measure a skill reaching it while still being unable to scope which of an
+ * Agent's declared names actually load. Surfaced only as the column's own
+ * hover text, alongside the runtime's plain name, so a healthy desk stays
+ * exactly as quiet as it always was.
+ */
+const attachmentSupportWords = (info?: RuntimeInfo): string | null => {
+  const support = info?.attachments
+  if (!support) return null
+  return `Skills ${support.skills === 'scoped' ? 'scoped' : 'unscoped'} · Servers ${support.mcp === 'scoped-gated' ? 'gated' : 'unscoped'}`
+}
 
 type Filter =
   | 'all'
@@ -254,6 +272,10 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   const [flow, setFlow] = useState<LibraryFlow | null>(
     initialFlow === 'import' ? { type: 'import' } : null,
   )
+  /** `''` is every Agent; otherwise `${origin}:${id}` of one on the current roster. */
+  const [agentFilter, setAgentFilter] = useState('')
+  /** `${kind}:${name}` -> every Agent (winner, never a shadowed origin) that declared it. Bounded to the visible roster — never a background scan of every repository. */
+  const [declaredBy, setDeclaredBy] = useState<ReadonlyMap<string, readonly { readonly id: string; readonly origin: AgentOrigin; readonly label: string }[]> | null>(null)
 
   const cwd = snapshot.workspace?.path
 
@@ -279,6 +301,55 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   useEffect(() => {
     void load()
   }, [load])
+
+  // The Agent filter's own roster — the same guarded, cached read every other
+  // Agent picker in the app uses (`CommandPalette`), never a fresh load per
+  // render of this page.
+  useEffect(() => {
+    if (snapshot.agents === null) void store.loadAgents()
+  }, [store, snapshot.agents])
+
+  /**
+   * What each Agent on the visible roster declares, resolved once per
+   * roster change — never per keystroke or per filter press, and never a
+   * scan of every repository this machine has ever opened. A shadowed
+   * origin never contributes here: `snapshot.agents` already names only the
+   * winner for each id, the same roster the Agents window itself lists.
+   */
+  useEffect(() => {
+    const roster = snapshot.agents
+    if (!roster) {
+      setDeclaredBy(null)
+      return
+    }
+    let live = true
+    Promise.all(
+      roster.map(async (entry: AgentEntry) => {
+        try {
+          return { entry, view: await store.readAgentAttachments(entry.id, entry.origin) }
+        } catch {
+          return null
+        }
+      }),
+    ).then((results) => {
+      if (!live) return
+      const map = new Map<string, { id: string; origin: AgentOrigin; label: string }[]>()
+      for (const result of results) {
+        if (!result) continue
+        const label = result.entry.definition?.name ?? result.entry.id
+        for (const declaration of result.view.declarations) {
+          const compositeKey = `${declaration.kind}:${declaration.name}`
+          const list = map.get(compositeKey) ?? []
+          list.push({ id: result.entry.id, origin: result.entry.origin, label })
+          map.set(compositeKey, list)
+        }
+      }
+      setDeclaredBy(map)
+    })
+    return () => {
+      live = false
+    }
+  }, [store, snapshot.agents])
 
   /**
    * Column headings, named the way the rest of the interface names an agent:
@@ -338,6 +409,14 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
 
   const rows = useMemo(() => {
     return searched.filter((entry) => {
+      if (agentFilter) {
+        // Declarations, not measured reach: a name this Agent declared stays
+        // in the filtered set even when no runtime has resolved it yet
+        // (decision: "retain unresolved rows"). Reach is a separate column,
+        // read from `entry.reach` exactly as it always was.
+        const refs = declaredBy?.get(`${entry.kind}:${entry.name}`) ?? []
+        if (!refs.some((ref) => `${ref.origin}:${ref.id}` === agentFilter)) return false
+      }
       if (filter === 'problems') return entryHasProblem(entry)
       if (filter === 'partial') {
         const reaching = entry.reach.filter((one) => one.state === 'reaches').length
@@ -359,7 +438,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       }
       return true
     })
-  }, [searched, filter, usage])
+  }, [searched, filter, usage, agentFilter, declaredBy])
 
   /**
    * The never-fired view is a to-do list, and a to-do list leads with what
@@ -627,6 +706,21 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           label="Filter the library by name"
           onChange={setQuery}
         />
+        {snapshot.agents && snapshot.agents.length > 0 && (
+          <NativeSelect
+            aria-label="Agent"
+            className="w-40 shrink-0"
+            value={agentFilter}
+            onChange={(event) => setAgentFilter(event.target.value)}
+          >
+            <option value="">All Agents</option>
+            {snapshot.agents.map((entry) => (
+              <option key={`${entry.origin}:${entry.id}`} value={`${entry.origin}:${entry.id}`}>
+                {entry.definition?.name ?? entry.id}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
         <Label className="gap-1.5 text-sm font-normal whitespace-nowrap text-(--hd-secondary-foreground)">
           <Switch
             checked={filter === 'problems'}
@@ -683,6 +777,14 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           </Tooltip>
         </ToggleGroup>
       </div>
+
+      {agentFilter && (
+        <Text as="p" role="meta" className="mb-2">
+          {`${rows.length} of ${searched.length} declared by ${
+            snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? 'this Agent'
+          }`}
+        </Text>
+      )}
 
       {counts && (
         <div className="mb-3 flex flex-wrap items-center gap-1.5">
@@ -869,7 +971,12 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                     key={column.id}
                     className={styles.agentHead}
                   >
-                    <Text role="muted" className={styles.agentName} title={column.label} truncate>
+                    <Text
+                      role="muted"
+                      className={styles.agentName}
+                      title={[column.label, attachmentSupportWords(column.info)].filter(Boolean).join(' — ')}
+                      truncate
+                    >
                       {column.info && <RuntimeMark runtime={column.info} size={13} />}
                       {column.head}
                     </Text>

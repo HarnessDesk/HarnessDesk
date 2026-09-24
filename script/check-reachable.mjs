@@ -59,14 +59,6 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
-  'attachment/seat':
-    "phase 12 Task 5's own promised interface for Task 6's name-card and Library consumers (SeatAttachments, ComposerControls), which land separately — remove this line in the task that adds the first caller",
-  'memory/list':
-    "phase 12 Task 6's own read-only front door onto Task 2's retention (docs/superpowers/plans/2026-09-19-agents-memory.md); its UI consumer (MemoryCitation.tsx) has not landed in this pass — proven directly by memory-methods.test.ts and by wire calls in the CDP walkthrough. Remove this line in the task that adds the first UI caller",
-  'memory/read':
-    'likewise — the same MemoryCitation.tsx consumer would call this one too',
-  'goal/cite':
-    'a gap, not a design: citing a wrapped Goal\'s receipt into an open one is built on the host and has no surface yet — pinned when spreads were first followed, so the gate could see it at all. Same MemoryCitation.tsx consumer named above would call this one too (its "Cite in this Goal" confirmation) — remove this line alongside the other two once that lands.',
 }
 
 /**

@@ -1,7 +1,11 @@
-import type { GoalReceipt as GoalReceiptRecord } from '@harnessdesk/protocol'
+import { useState } from 'react'
 
-import { Chip, CodeText, Note, Row, Rows, SectionHead, Text } from '../design'
+import type { GoalCitation, GoalReceipt as GoalReceiptRecord } from '@harnessdesk/protocol'
+
+import { Chip, CodeText, Dialog, Note, Row, RowButton, Rows, SectionHead, Text } from '../design'
+import { shortSha } from '../lib/evidence'
 import { InsightCost } from './InsightCost'
+import { MemoryCitation } from './MemoryCitation'
 
 export interface GoalReceiptProps {
   readonly receipt: GoalReceiptRecord | Omit<GoalReceiptRecord, 'id' | 'wrappedAt'>
@@ -25,6 +29,7 @@ const nameOf = (members: GoalReceiptRecord['members'], seat: string): string | n
 }
 
 export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
+  const [opened, setOpened] = useState<GoalCitation | null>(null)
   return (
   <div>
     <Chip tone="neutral">As recorded when wrapped</Chip>
@@ -85,7 +90,16 @@ export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
     {receipt.citations.length > 0 ? (
       <>
         <SectionHead name="Citations" />
-        <Rows>{receipt.citations.map((citation) => <Row key={`${citation.receipt}:${citation.path}`} title={citation.path} desc={`Receipt ${citation.receipt} at ${citation.at}`} />)}</Rows>
+        <Rows>
+          {receipt.citations.map((citation) => (
+            <RowButton
+              key={`${citation.receipt}:${citation.path}`}
+              title={citation.path}
+              desc={`Receipt ${citation.receipt} at ${shortSha(citation.at)}`}
+              onClick={() => setOpened(citation)}
+            />
+          ))}
+        </Rows>
       </>
     ) : null}
     {receipt.gaps.length > 0 ? (
@@ -95,6 +109,11 @@ export const GoalReceipt = ({ receipt, insight }: GoalReceiptProps) => {
       </>
     ) : null}
     {'id' in receipt && insight ? <InsightCost {...insight} /> : null}
+    {opened && (
+      <Dialog title={opened.path} size="lg" onClose={() => setOpened(null)}>
+        <MemoryCitation root={opened.project} goal={null} citation={opened} />
+      </Dialog>
+    )}
   </div>
   )
 }

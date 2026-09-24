@@ -32,7 +32,8 @@ You review a change somebody else wrote. …
 | `permission` | The supported legacy spelling — `read`, `publish` or `merge`. Legacy `read` means `edit` on the ceiling ladder. Do not put both keys in one file. |
 | `answers` | The verdicts it may give. |
 | `produces` | What it leaves behind. |
-| `skills` | The skills it expects, by name. Read-only for now. |
+| `skills` | The skills it expects, by name. Omitted or empty means the runtime's own defaults, never "none". |
+| `mcp` | The MCP servers it expects, by name. Same empty-means-default rule as `skills`. |
 | `prefer` | The seats it asks for, in order — at most eight. |
 | the body | The brief, handed to the seat once as its standing order. |
 
@@ -55,6 +56,31 @@ meaning and is translated to `edit`; old `publish` and `merge` keep those
 levels. A file with no key is treated as `read` and flagged for review. A file
 with both `ceiling` and `permission` is refused, whichever line comes first,
 and the error names both lines.
+
+## What it may carry: skills, servers and notes
+
+`skills:` and `mcp:` name catalogue entries, never a command or a path. A
+declared name never runs anything by being read: an Agent's page (**Edit…**)
+previews the exact `skills:`/`mcp:` diff before writing it, and **Review &
+Approve…** shows a person the exact bytes an Agent-local `skills/` bundle
+contains — hashed whole, including every script and resource it references —
+before it is trusted to load for a given repository, runtime build and
+ceiling; any of those changing means review again. An external MCP server is
+treated conservatively (`merge`) unless a trusted, desk-owned manifest already
+says otherwise, and is only ever reached through the desk's own gateway. A
+runtime that cannot be stopped from auto-loading unapproved repository
+content on its own refuses the whole seating rather than opening unscoped.
+
+A Seat freezes exactly what it decided to load at open; nothing it loaded
+changes afterward, whatever the Agent's file does next. What actually loaded
+— versus what was declared but refused, and why — is on the Seat's own name
+card and in the Library's Agent filter, read by the Seat's immutable id, not
+by the Agent's current name.
+
+`NOTES.md`, beside the Agent's own file, is that Agent's private working
+notes — read and cleared from its page, never treated as an instruction or as
+evidence of anything. A project Agent's notes are visible in its checkout's
+Git history like the rest of the file; nothing here is secret.
 
 ## Three places, one roster
 
@@ -224,7 +250,8 @@ reason; a shadowed copy is muted and says what shadows it; a file that will not
 parse says why. Each row opens the Agent's page: its file, with *Open file* and
 *Reveal*; its ceiling; its own seats and their state here; *On this Mac*, this
 machine's seats, added to, reordered or cleared; what it answers and produces,
-and its skills; and its brief's first paragraph, with *Open in editor*.
+its Skills and Servers allowlists, and its Notes; and its brief's first
+paragraph, with *Open in editor*.
 
 Every would-be or live Agent seat carries an explicit ceiling chip. Neutral
 means held; warning means asked, and both words are written on the chip rather

@@ -85,6 +85,9 @@ const rig = async (
     resolve: (citation) => real.resolve(citation),
     register: (index, restored) => real.register(index, restored),
     isKnownRestored: (citation) => real.isKnownRestored(citation),
+    readRaw: (key) => real.readRaw(key),
+    writeSnapshot: (snapshot) => real.writeSnapshot(snapshot),
+    isRegistered: (citation, archive) => real.isRegistered(citation, archive),
   }
   return {
     store, seats, port, transitions,
