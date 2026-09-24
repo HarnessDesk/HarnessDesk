@@ -1679,3 +1679,73 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
   expect(names).toContain('shared-skill — First Agent: Reaches')
   expect(names).toContain('shared-skill — Second Agent: Not installed')
 })
+
+/**
+ * PR #893's CI (`e2e/ui-system/provenance.spec.ts`) caught a page-wide crash:
+ * `store.readAgentAttachments` resolved `undefined` for one Agent in the
+ * roster — exactly what a store that does not honor its own
+ * `Promise<AgentAttachmentsView>` contract can produce, which is what the
+ * preview harness fixture (missing an implementation) actually did — and
+ * this effect read `result.view.declarations` with no guard, throwing
+ * `Cannot read properties of undefined (reading 'declarations')` before
+ * `setDeclaredBy` ever ran. One unreadable Agent must never blank out every
+ * other Agent's declarations.
+ */
+it('an Agent whose attachments view could not be read is treated as nothing declared, not a crash (#893)', async () => {
+  const value = library([entry('shared-skill', ['reaches', 'absent'])])
+  const agentA: AgentEntry = {
+    id: 'agent-a', origin: 'user', path: '/home/u/.harnessdesk/agents/agent-a/AGENT.md', digest: 'da', shadows: [], problems: [],
+    definition: { id: 'agent-a', name: 'Agent A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const agentB: AgentEntry = {
+    id: 'agent-b', origin: 'project', path: '/repo/.harnessdesk/agents/agent-b/AGENT.md', digest: 'db', shadows: [], problems: [],
+    definition: { id: 'agent-b', name: 'Agent B', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], mcp: [], prefer: [], brief: '' } as unknown as AgentEntry['definition'],
+  }
+  const viewFor: Record<string, AgentAttachmentsView | undefined> = {
+    'agent-a': {
+      agent: 'agent-a', origin: 'user', agentDigest: 'da', skillsMode: 'allowlist', mcpMode: 'runtime-defaults', support: [],
+      declarations: [
+        { kind: 'skill', name: 'shared-skill', identity: { kind: 'skill', name: 'shared-skill', digest: 'x'.repeat(64), source: 'agent', pathLabel: 'p' }, problem: null },
+      ],
+    },
+    // agent-b's read never resolves a real view — never thrown, never
+    // rejected, just missing, exactly like the unimplemented preview-harness
+    // stub CI actually hit.
+    'agent-b': undefined,
+  }
+  const request = vi.fn(async (method: string) =>
+    method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} }
+    : method === 'library/plan' ? { plannedAt: 1, ops: [] }
+    : value,
+  )
+  const snapshot: AppSnapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')],
+    agents: [agentA, agentB],
+  } as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    transport: { request },
+    loadAgents: vi.fn(async () => {}),
+    readAgentAttachments: vi.fn(async (id: string) => viewFor[id]),
+  } as unknown as AppStore
+
+  await act(async () => {
+    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+  })
+  // Settle the roster's own declaration read — a microtask past mount, same
+  // as the sibling test above.
+  await act(async () => {})
+
+  const select = document.body.querySelector('select[aria-label="Agent"]') as HTMLSelectElement
+  expect(select, 'the Agent filter should be offered once a roster exists').toBeTruthy()
+  await act(async () => {
+    select.value = 'user:agent-a'
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  // Agent A's own, real declaration must survive Agent B's unreadable one —
+  // never blanked out by a sibling that could not be read.
+  expect(document.body.textContent).toContain('shared-skill')
+})

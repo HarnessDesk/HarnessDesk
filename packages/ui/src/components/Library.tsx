@@ -335,7 +335,13 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       if (!live) return
       const map = new Map<string, { id: string; origin: AgentOrigin; label: string }[]>()
       for (const result of results) {
-        if (!result) continue
+        // `readAgentAttachments` is typed to always resolve a full view or
+        // reject — the `catch` above already turns a rejection into `null`.
+        // A `view` that is still missing here (a store that does not honor
+        // that contract) is the same "nothing declared" state as an empty
+        // `declarations` array, never a reason to lose every other Agent's
+        // roster read.
+        if (!result || !result.view) continue
         const label = result.entry.definition?.name ?? result.entry.id
         for (const declaration of result.view.declarations) {
           const compositeKey = `${declaration.kind}:${declaration.name}`
