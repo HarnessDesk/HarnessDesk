@@ -74,6 +74,8 @@ export interface GoalPlanePort extends GoalOperationPort {
   seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean }): Promise<SeatRecord>
   /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
   intakeHeld?(goal: string): boolean
+  /** This Goal's frozen trigger-origin projection for its receipt, read fresh at wrap time. Absent or null: not a trigger Goal. */
+  intakeReceipt?(goal: string): Promise<NonNullable<GoalReceipt['intake']> | null>
   openLegacySeat(input: {
     goal: string
     spec: FlowSeat
@@ -671,6 +673,7 @@ export class GoalPlane {
     const evidenceRefs = [...await this.port.evidenceIds(id, document.goal.root)]
       .sort((left, right) => left.id.localeCompare(right.id))
     const findings = this.port.findings ? await this.port.findings(id) : null
+    const intake = this.port.intakeReceipt ? await this.port.intakeReceipt(id) : null
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
       ...(findings?.gaps ?? []),
@@ -708,6 +711,7 @@ export class GoalPlane {
       revisions,
       ...(findings ? { findings: findings.receipt } : {}),
       ...(findings?.publication && findings.publication.length > 0 ? { publication: [...findings.publication].sort() } : {}),
+      ...(intake ? { intake } : {}),
     } satisfies WrapInput)
   }
 

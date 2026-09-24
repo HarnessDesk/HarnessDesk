@@ -442,3 +442,32 @@ never does.
 **The rule:** a fact counts for a rule by the card it is filed on and the
 revision it names, never by the round number it carries, and never for a
 checkout that could not have changed.
+
+---
+
+## A trigger's vocabulary is closed, and arming binds the whole file
+
+A project's `.harnessdesk` folder can declare that a pull request, an issue
+or a schedule opens work — but it declares from a fixed, finite vocabulary,
+never an expression, a template or a name that reaches a command, an
+environment variable or a ceiling. The alternative — letting a declaration
+name anything a flow already could — would make a cloned repository able to
+choose what runs on someone else's machine the moment they armed it, which is
+exactly the trust boundary a clone does not cross for any other file today.
+
+Arming does not consent to "this trigger" as a name; it consents to the exact
+bytes of the file, the exact resolved flow, every Seat and command that flow
+would open, and the forge account and repository bound at that moment. A
+comment-only edit to the file, a Seat's ceiling changing, or the bound
+account signing out all invalidate the arm before the next firing, and
+re-arming shows a fresh preview rather than assuming the old one still holds.
+Money follows the same discipline in the other direction: a budget is an
+observed stop threshold the desk watches spend against, never a pre-charge or
+an invoice, because no vendor here exposes a real one — a turn already in
+flight can still spend past the limit before its meter reports and the stop
+takes effect, and arming and Settings both say so rather than promising a
+number this design cannot back.
+
+**The rule:** nothing a trigger declares can become a command, a path, an
+environment key or a ceiling, and no dependency an arm was shown — file
+bytes, flow, Seats, commands, account — may change without invalidating it.

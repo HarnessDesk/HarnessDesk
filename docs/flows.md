@@ -695,17 +695,23 @@ engine reads its name.
 
 ## Triggers
 
-A flow is started by a person pressing a thing. That is the whole of v1, and
-the ladder it climbs later is already decided:
+A flow is started by a person pressing a thing, or by a project's own
+committed declaration doing it on their behalf. The ladder:
 
 ```
-Run manually  →  PR opened  →  CI failed  →  Issue labelled  →  Schedule  →  Webhook
+Run manually  →  PR opened / pushed  →  Issue labelled / closed / commented  →  Schedule  →  Webhook
 ```
 
-Everything past the first rung needs a server-side event source this product
-does not have yet. Scheduling in particular belongs to Routines: a flow that
-wants to run nightly should be *triggered* by a routine rather than grow a
-clock of its own.
+The first four rungs exist. A project names them in `triggers.yml`, in its
+`.harnessdesk` folder — a pull request, an issue, or an interval, what each
+firing opens, how firings group into one Goal, and a bounded budget — and
+that declaration runs nowhere until a person arms it on their own machine,
+with the exact flow, Seats and commands it would run shown first. Arming,
+history and the machine's own pause and daily cap are covered in
+`docs/multi-agent.md`'s Intake section; nothing here changes how a person-started
+flow works. A webhook or an inbound message source is still undecided: Intake
+reads only host-validated facts it polled itself, and any future source enters
+that same boundary rather than a listener of its own.
 
 ---
 

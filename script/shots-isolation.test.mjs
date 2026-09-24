@@ -246,3 +246,19 @@ test('each provenance take removes residue and seeds only synthetic local facts'
   })
   assert.equal(existsSync(join(home, 'evidence')), false)
 })
+
+test('the Intake acceptance rig owns a disposable home and never runs the live gate silently', () => {
+  const script = readFileSync(join(root, 'script/shots/intake-acceptance.mjs'), 'utf8')
+  // A fresh `mkdtempSync` under the OS temp directory, never the real
+  // `$HOME` or `HARNESSDESK_HOME` this machine already uses.
+  assert.match(script, /mkdtempSync\(join\(tmpdir\(\), 'harnessdesk-intake-acceptance-'\)\)/)
+  assert.doesNotMatch(script, /process\.env\['HOME'\]/)
+  // Cleanup runs whether the walkthrough finished or threw.
+  const body = script.slice(script.indexOf('let desk'))
+  assert.match(body, /finally\s*\{[\s\S]*rmSync\(rig, \{ recursive: true, force: true \}\)/)
+  // The live gate is refused, not skipped as green, when its one required
+  // input is absent — never a synthetic pass.
+  const live = script.slice(script.indexOf("if (mode === 'live')"), script.indexOf("if (mode !== 'rig')"))
+  assert.match(live, /HD_INTAKE_ACCEPTANCE_REPO/)
+  assert.match(live, /process\.exit\(1\)/)
+})

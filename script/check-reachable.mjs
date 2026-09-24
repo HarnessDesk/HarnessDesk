@@ -61,17 +61,6 @@ const UNREACHED = {
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
   'goal/cite':
     'a gap, not a design: citing a wrapped Goal\'s receipt into an open one is built on the host and has no surface yet — pinned when spreads were first followed, so the gate could see it at all',
-  // Intake (phase 8): answered and validated at the wire since task 6; the
-  // project triggers page (task 7) and machine Settings and the Goal header
-  // (task 8) are their first callers, and each pin goes with its caller.
-  'trigger/list': 'phase 8 task 6 host route; its surface, the project triggers section, lands in task 7',
-  'trigger/preview': 'phase 8 task 6 host route; the arming dialog that redeems its token lands in task 7',
-  'trigger/arm': 'phase 8 task 6 host route; the arming dialog lands in task 7',
-  'trigger/disarm': 'phase 8 task 6 host route; the project triggers section lands in task 7',
-  'trigger/history': 'phase 8 task 6 host route; the visible skip history lands in task 7',
-  'trigger/preferences': 'phase 8 task 6 host route; Settings › Triggers (pause and daily cap) lands in task 8',
-  'trigger/preferences/set': 'phase 8 task 6 host route; Settings › Triggers lands in task 8',
-  'trigger/goal': 'phase 8 task 6 host route; the Goal header’s origin and waits land in task 8',
 }
 
 /**

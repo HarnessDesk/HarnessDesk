@@ -578,9 +578,11 @@ write; a changed file is refused. Built-ins must be customized first. See
 **Settings › Permissions › Ceilings** shows four held/asked chips for every
 installed runtime, using controls the runtime declares and reads back rather
 than a runtime-name table. It also chooses whether a watched conversation may
-open an unheld seat and say so, or pass it over. The same section is focused
-when a seating refusal's fix opens Settings; Approvals and Rules remain beside
-it and do not auto-answer held peer actions.
+open an unheld seat and say so, or pass it over, and a second, independent
+choice for a Goal a trigger opened — refuse by default, or seat it and say so
+as an explicit decision. The same section is focused when a seating refusal's
+fix opens Settings; Approvals and Rules remain beside it and do not
+auto-answer held peer actions.
 
 **Runtimes** is every registered runtime with its accounts beneath it, and a
 page per runtime (health, update, the runtime's own options) or per account;
@@ -595,8 +597,14 @@ authentication, and nothing at all before either has happened. It is never
 
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which
-lists the project's own Agents and the folder they are read from, with *Open*
-and *Forget* for a project that is not the one open.
+lists the project's own Agents, its checks, its flows, its Triggers and the
+folder they are read from, with *Open* and *Forget* for a project that is not
+the one open. A project's Triggers section describes each declared source as
+a sentence and its arm state; turning one on opens the exact arming review
+before anything runs. Below the folder list, "Triggers on this Mac" is this
+machine's own pause and daily cap for every armed trigger, with what is
+reserved and charged today. See
+[multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
 
 The runtime page also draws the controls the runtime declares for new sessions.
 Codex includes an optional CLI profile there: choosing one reads its bounded
@@ -721,6 +729,15 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+
+A Goal a trigger opened carries its origin honestly: its header names where it
+came from ("from PR #12," "from issue #7," "from a schedule") with a link to
+the forge when there is one, and the sidebar's room row carries the same short
+label. Any wait on it — a held message or action, a question nobody answered,
+a person's own card, or a stopped run — shows as Needs you with who it is
+waiting on and the existing surface that resolves it; a plain conversation or
+an ordinary Goal shows none of this and asks Intake nothing. A wrapped
+trigger Goal's receipt keeps that same origin and stop reason.
 
 ## Flows
 

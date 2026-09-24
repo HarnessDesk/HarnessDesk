@@ -737,12 +737,100 @@ state turn cost honestly.
   approval policies, outside HarnessDesk's approval surface and audit log; the
   desk-level answer to multiple vendors collaborating is a Room.
 
-## 9. Engineering limits, anti-goals, and what it does not do yet
+## 9. Intake: bounded work a project can open on its own
+
+Every Goal so far in this document starts because a person pressed a thing.
+Intake is the one exception, and it is deliberately narrow: a project commits
+what may open work, a person on their own machine decides whether that
+declaration ever runs, and every Goal it opens is bounded the same way a
+person-started one would be — a budget, a round limit, and a person at every
+wait.
+
+**The declaration.** A project names its sources in `triggers.yml`, in its
+`.harnessdesk` folder: a pull request (opened or pushed), an issue (labelled,
+closed or commented), or a schedule (every so many minutes, on UTC-aligned
+slots). Each names what it opens — a flow or a single Agent — how firings
+group into one Goal (by pull request, issue or slot), what a later firing at
+the same head does (open a new round, or record the fact and ask a person),
+how many Goals it may have open at once, whether a fork is ever read, and a
+budget in USD, rounds, hours and rounds-without-progress. The vocabulary is
+closed on purpose: nothing in the file names a command, an environment
+variable, or a ceiling, and outside text — a PR title, an issue body, a
+comment — is bounded, untrusted prose that can never become one. It arrives
+with a clone like any other file; nothing runs because it exists.
+
+**Arming.** A project's page lists every declared source as a sentence —
+"When a pull request opens or is pushed, open review-pr, at most 4 at
+once" — with its arm state and what last happened. Turning one on opens the
+exact decision before it is armed: the committed file it read, whether the
+working copy differs from it, every Seat the resolved flow would open and
+every candidate passed over with why, each trusted command verbatim with its
+folder and timeout, the grouping and again behavior, whether forks are
+allowed (read-only, no command ever runs against one), the total budget, and
+what arming reserves against the machine's daily cap. That review's token is
+one-time and bound to the exact file bytes, flow, Seats, commands and forge
+account; anything about them changing invalidates it before the next review
+even lands. Arming is per machine — a declaration a project ships is not an
+arm, and disarming stops new firings without touching a Goal already open.
+
+**Monitoring and admission.** Once armed, the desk polls the forge as the
+signed-in person, at most once a minute per project and source, using durable
+cursors so a restart or an overlapping poll cannot fire the same fact twice.
+A fact that matches an armed trigger's dedupe key opens a new Goal, joins an
+open one without a new round, or is recorded as skipped with a reason —
+budget, a stranger's fork, a trigger no longer armed — every one of which is a
+visible line in that trigger's history, newest first, and an exact duplicate
+is always named as such rather than a second round. A later push to a Goal's
+existing head stops its stale work — interrupting every live turn — before
+either opening one new round (when the trigger says `again`) or recording the
+fact and asking a person (when it does not).
+
+**Budgets, the daily cap, and unattended ceilings.** Each Goal a trigger opens
+reserves its whole USD budget against the machine's daily cap the moment it
+opens; the cap is set in Settings › Workspaces under "Triggers on this Mac,"
+in UTC days, alongside what is reserved and charged today — an unreadable
+charge reads as unknown, never zero, and unknown or stale spend refuses
+further unattended dispatch rather than guessing. "Pause every trigger" stops
+watching every source and interrupts every live run this started, with why;
+resuming replays nothing. Money here is an observed stop threshold, never an
+invoice: a turn already running can spend past the limit before its meter
+reports and the stop takes effect. Permissions › Ceilings carries a second,
+independent policy for exactly this case — what a Goal a trigger opened does
+when a runtime cannot hold the ceiling it needs. It defaults to refuse; seating
+it and saying so is an explicit person decision, kept apart from the same
+choice for a conversation someone is watching.
+
+**Waits, notifications, and the receipt.** In a Goal a trigger opened, nothing
+waits on a person in silence: a held message or action, a question nobody
+answered, a person's own card, a stopped run, or a source that could not be
+read each becomes one named, durable wait, shown as Needs you on the Goal's
+own header and in the sidebar's room row — which also names where the Goal
+came from ("from PR #12," "from issue #7," "from a schedule") — and resolved
+through the same approval, message, question, person-card or trigger surface
+any other wait already uses. macOS notifications gain two kinds of their own,
+individually silenceable exactly like every other kind: unattended work that
+needs a person, and a trigger that was skipped. A wrapped Goal's receipt keeps
+that same origin and stop reason, frozen, so reading it back later never has
+to guess where the work came from.
+
+**What this does not do.** There is no webhook server or inbound message
+listener — every fact Intake acts on is one it polled and validated itself.
+A trusted command still cannot interpolate a PR title, an issue body or a
+comment. A pull request from a fork, even when allowed, is reviewed
+read-only; no command runs against its contents. And a transient head between
+two polls, or spend a turn incurs between its meter reporting and a stop
+taking effect, are honest limits this design accepts rather than promises
+around.
+
+## 10. Engineering limits, anti-goals, and what it does not do yet
 
 ### Engineering limits and anti-goals
 
-- **Not an autonomous swarm**: the desk does not start unprompted agent turns.
-  The desk proposes; the human commits.
+- **Not an autonomous swarm**: the desk does not start an agent turn a person
+  did not authorize. The one exception is an explicitly armed trigger
+  (§9): even there, a person reviewed and armed the exact flow, Seats and
+  commands on their own machine before any of it could run, and every wait it
+  hits still needs a person rather than guessing.
 - **Cooperation over coercion**: HarnessDesk provides the tools and briefings;
   it cannot force a proprietary model to read the board. The UI explicitly
   reflects whether a member has actively used the board (`usedBoard`).

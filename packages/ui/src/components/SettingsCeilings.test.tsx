@@ -45,11 +45,15 @@ const mount = ({
   runtimes = [runtime('alpha', 'Alpha', true), runtime('beta', 'Beta')],
   load = vi.fn(async () => 'seat' as UnheldCeilings),
   save = vi.fn(async () => {}),
+  loadUnattended = vi.fn(async () => 'refuse' as UnheldCeilings),
+  saveUnattended = vi.fn(async () => {}),
   focus = null,
 }: {
   runtimes?: readonly RuntimeInfo[]
   load?: AppStore['loadUnheldCeilings']
   save?: AppStore['saveUnheldCeilings']
+  loadUnattended?: AppStore['loadUnattendedCeilings']
+  saveUnattended?: AppStore['setUnattendedCeilings']
   focus?: string | null
 } = {}) => {
   let snapshot = { ...emptySnapshot(), status: 'open', runtimes: [...runtimes] } as AppSnapshot
@@ -59,6 +63,8 @@ const mount = ({
     getSnapshot: () => snapshot,
     loadUnheldCeilings: load,
     saveUnheldCeilings: save,
+    loadUnattendedCeilings: loadUnattended,
+    setUnattendedCeilings: saveUnattended,
   } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><CeilingsSection focus={focus} /></StoreProvider>))
   return {
@@ -70,7 +76,12 @@ const mount = ({
   }
 }
 
-const choices = (): HTMLButtonElement[] => [...document.body.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+/** The watched group's own two radios — "In a conversation you are watching". */
+const choices = (): HTMLButtonElement[] =>
+  [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="If a runtime cannot hold a ceiling"] [role="radio"]')]
+/** The unattended group's own two radios — "Goals a trigger opened". */
+const unattendedChoices = (): HTMLButtonElement[] =>
+  [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="If a runtime cannot hold a ceiling in a Goal a trigger opened"] [role="radio"]')]
 const chips = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[data-ceiling][data-hold]')]
 
 it('says, per runtime and per level, whether it holds the ceiling or is only asked', async () => {
@@ -123,6 +134,33 @@ it('a pending load or save cannot be overtaken by a click', async () => {
   expect(choices().every((choice) => choice.disabled)).toBe(true)
   await act(async () => saving.resolve())
   expect(choices().every((choice) => !choice.disabled)).toBe(true)
+})
+
+it('refuses to seat unattended work by default, and writes the other choice — never touching the watched preference', async () => {
+  const save = vi.fn(async () => {})
+  const saveUnattended = vi.fn(async () => {})
+  mount({ save, saveUnattended })
+  await act(async () => {})
+  expect(unattendedChoices().map((choice) => choice.getAttribute('aria-checked'))).toEqual(['true', 'false'])
+  await act(async () => unattendedChoices()[1]!.click())
+  expect(saveUnattended).toHaveBeenCalledWith('seat')
+  expect(save).not.toHaveBeenCalled()
+})
+
+it('a pending unattended load or save cannot be overtaken by a click, and the watched group is unaffected', async () => {
+  const loadingUnattended = deferred<UnheldCeilings>()
+  const savingUnattended = deferred<void>()
+  const saveUnattended = vi.fn(() => savingUnattended.promise)
+  mount({ loadUnattended: vi.fn(() => loadingUnattended.promise), saveUnattended })
+  expect(unattendedChoices().every((choice) => choice.disabled)).toBe(true)
+  await act(async () => {})
+  expect(choices().every((choice) => !choice.disabled)).toBe(true)
+  await act(async () => loadingUnattended.resolve('seat'))
+  expect(unattendedChoices().map((choice) => choice.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+  act(() => { unattendedChoices()[0]!.click(); unattendedChoices()[0]!.click() })
+  expect(saveUnattended).toHaveBeenCalledTimes(1)
+  await act(async () => savingUnattended.resolve())
+  expect(unattendedChoices().every((choice) => !choice.disabled)).toBe(true)
 })
 
 it('is where a refusal’s fix lands: focused', async () => {

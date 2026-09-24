@@ -14,7 +14,7 @@ import { parseClientMessage, ValidationError } from '../src/index.js'
 
 const request = (method: string, params: unknown) => parseClientMessage({ id: 1, method, params })
 const ROOT = '/work/project'
-const TOKEN = '6f1b2c3d-0000-4000-8000-000000000001'
+const TOKEN = '6f1b2c3d-0000-4000-8000-000000000001' // hd-secrets-ok: a shape-only fixture value, never a real credential
 const GOAL = 'goal-6f1b2c3d-0000-4000-8000-000000000001'
 
 test('person controls reject forged origin and unknown authority', () => {

@@ -1418,6 +1418,11 @@ export class Host {
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
       intakeHeld: (goal: string) => this.#intake?.held(goal) ?? false,
+      intakeReceipt: async (goal: string) => {
+        const status = await this.#intake?.goal(goal)
+        if (!status) return null
+        return { trigger: status.trigger, source: status.source, label: status.label, stop: status.budget?.stop ?? null }
+      },
       findings: async (goal: string) => {
         const { receipt, gaps } = await this.#findings.receiptWithGaps(goal)
         return {

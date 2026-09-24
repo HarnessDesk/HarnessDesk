@@ -56,6 +56,12 @@ import {
   type TeamInbound,
   type TeamPeerInfo,
   type TeamState,
+  type TriggerArmPreview,
+  type TriggerGoalStatus,
+  type TriggerHistoryPage,
+  type TriggerPreferences,
+  type TriggerProjectView,
+  type TriggerView,
   type FlowDryRun,
   type FlowEntry,
   type FlowExecution,
@@ -328,6 +334,100 @@ export class AppStore {
     return health
   }
 
+  // -------------------------------------------------------------- intake
+  /**
+   * A project's own consent revision only ever grows. A `trigger/list` reply
+   * carries its own, and `trigger/changed` pushes it independently — a list
+   * request started before an arm can land after it, and its older number
+   * must not walk the revision back down, which is what a component's
+   * `useEffect` on `triggerRevisions[root]` depends on to know to re-read.
+   * The host stays authoritative for armed state and history: this counter
+   * is invalidation only, never a cache of the view itself.
+   */
+  #keepTriggerRevision(project: string, revision: number): void {
+    if (revision <= (this.#snapshot.triggerRevisions[project] ?? -1)) return
+    this.#patch({ triggerRevisions: { ...this.#snapshot.triggerRevisions, [project]: revision } })
+  }
+
+  async projectTriggers(root: string): Promise<TriggerProjectView> {
+    const view = await this.transport.request('trigger/list', { root })
+    this.#keepTriggerRevision(root, view.revision)
+    return view
+  }
+
+  previewTrigger(root: string, id: string): Promise<TriggerArmPreview> {
+    return this.transport.request('trigger/preview', { root, id })
+  }
+
+  async armTrigger(root: string, id: string, token: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/arm', { root, id, token })
+    // The exact new consent revision arrives on `trigger/changed`; bumping
+    // ahead of it here only nudges a mounted `ProjectTriggers` to re-read
+    // immediately rather than wait for that round trip, and the guard above
+    // keeps the eventual real number from ever being walked backwards.
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  async disarmTrigger(root: string, id: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/disarm', { root, id })
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
+  triggerHistory(root: string, id: string, cursor?: string): Promise<TriggerHistoryPage> {
+    return this.transport.request('trigger/history', cursor === undefined ? { root, id } : { root, id, cursor })
+  }
+
+  triggerPreferences(): Promise<TriggerPreferences> {
+    return this.transport.request('trigger/preferences', {})
+  }
+
+  async setTriggerPreferences(revision: number, paused: boolean, dailyUsd: number): Promise<TriggerPreferences> {
+    const next = await this.transport.request('trigger/preferences/set', { revision, paused, dailyUsd })
+    this.#patch({ triggerPreferences: next })
+    return next
+  }
+
+  triggerGoal(goal: string): Promise<TriggerGoalStatus | null> {
+    return this.transport.request('trigger/goal', { goal: goal as GoalId })
+  }
+
+  /** What happens when a Goal a trigger opened cannot hold a Seat's ceiling. Mirrors `loadUnheldCeilings`. */
+  async loadUnattendedCeilings(): Promise<UnheldCeilings> {
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      const unattended = typeof stored === 'object' && stored !== null
+        ? (stored as { unattended?: unknown }).unattended
+        : undefined
+      return unattended === 'seat' ? 'seat' : 'refuse'
+    } catch {
+      return 'refuse'
+    }
+  }
+
+  /**
+   * Writes only the unattended unheld-ceiling preference, first reading the
+   * current object so the watched value already there is never erased: the
+   * host's `app/state/set` replaces `unheldCeilings` whole rather than
+   * merging inside it.
+   */
+  async setUnattendedCeilings(value: UnheldCeilings): Promise<void> {
+    let watched: unknown
+    try {
+      const preferences = await this.transport.request('app/state/get', {})
+      const stored = preferences['unheldCeilings']
+      watched = typeof stored === 'object' && stored !== null ? (stored as { watched?: unknown }).watched : undefined
+    } catch {
+      watched = undefined
+    }
+    await this.#writePreference(
+      { unheldCeilings: { ...(watched === 'seat' || watched === 'refuse' ? { watched } : {}), unattended: value } },
+      'What happens when a trigger’s Goal cannot hold a ceiling',
+    )
+  }
+
   #snapshot: AppSnapshot = emptySnapshot()
   #listeners = new Set<() => void>()
   readonly transport: Transport
@@ -543,6 +643,15 @@ export class AppStore {
         if (notification.method === 'evidence/changed') {
           const { room, evidence } = notification.params
           this.#keepBoardEvidence(room, evidence)
+        }
+        if (notification.method === 'trigger/changed') {
+          this.#keepTriggerRevision(notification.params.project, notification.params.revision)
+        }
+        if (notification.method === 'trigger/attention') {
+          const { attention } = notification.params
+          this.#patch({
+            triggerAttention: { ...this.#snapshot.triggerAttention, [attention.id]: attention },
+          })
         }
         if (notification.method === 'team/removed') {
           const { room } = notification.params

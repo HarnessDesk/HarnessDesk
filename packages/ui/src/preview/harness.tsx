@@ -73,8 +73,9 @@ import {
 import { gitCommit, gitLog, gitRefs, gitStatus, gitWorktrees } from './git-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_SEAT, PREVIEW_UNSEEN } from './evidence-fixture'
 import { terminalAttach } from './terminal-fixture'
-import { PREVIEW_GOAL, PREVIEW_GOALS } from './goal-fixture'
+import { PREVIEW_GOAL, PREVIEW_GOALS, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
+import { triggerArmPreview, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
    nothing here restates what the file says. Not a `design/ui` module on
@@ -1131,6 +1132,21 @@ class PreviewStore {
   seatRecord = async (runtime: string, sessionId: string): Promise<SeatRecord | null> =>
     sessionKey(runtime, sessionId) === PREVIEW_SESSION_KEY ? PREVIEW_SEAT : null
   projectChecks = async (): Promise<ProjectChecks> => PREVIEW_CHECKS
+
+  // --- intake ------------------------------------------------------------
+  projectTriggers = async (): Promise<import('@harnessdesk/protocol').TriggerProjectView> => triggerProjectView()
+  previewTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerArmPreview> => triggerArmPreview()
+  armTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: true, state: 'armed' })
+  disarmTrigger = async (): Promise<import('@harnessdesk/protocol').TriggerView> => triggerView({ armed: false, state: 'off' })
+  triggerHistory = async (): Promise<import('@harnessdesk/protocol').TriggerHistoryPage> => triggerHistoryPage()
+  triggerPreferences = async (): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture()
+  setTriggerPreferences = async (
+    _revision: number, paused: boolean, dailyUsd: number,
+  ): Promise<import('@harnessdesk/protocol').TriggerPreferences> => triggerPreferencesFixture({ paused, dailyUsd })
+  triggerGoal = async (goal: string): Promise<import('@harnessdesk/protocol').TriggerGoalStatus | null> =>
+    goal === PREVIEW_TRIGGER_GOAL.goal.id ? triggerGoalStatus({ goal }) : null
+  loadUnattendedCeilings = async (): Promise<'seat' | 'refuse'> => 'refuse'
+  setUnattendedCeilings = async (): Promise<void> => {}
 
   // --- flows -----------------------------------------------------------
   flowGeneration = (): number => 0

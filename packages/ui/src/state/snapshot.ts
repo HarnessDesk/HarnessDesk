@@ -35,6 +35,8 @@ import type {
   GoalView,
   Lane,
   LanePreferences,
+  TriggerAttention,
+  TriggerPreferences,
   Worktree,
   WorkspaceEntry,
 } from '@harnessdesk/protocol'
@@ -243,6 +245,18 @@ export interface AppSnapshot {
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
   /** Latest host revision accepted for each capture-health entry. */
   readonly provenanceRevision: ReadonlyMap<string, number>
+  /**
+   * This machine's consent revision for each project's `.harnessdesk/triggers.yml`,
+   * keyed by project root — invalidation only, from `trigger/changed` and from
+   * `trigger/list`'s own answer. `ProjectTriggers` re-reads when its project's
+   * entry moves; the armed state and history it reads stay the host's, never
+   * cached here.
+   */
+  readonly triggerRevisions: Readonly<Record<string, number>>
+  /** This machine's trigger pause and daily cap, or null until Settings has read it once. */
+  readonly triggerPreferences: TriggerPreferences | null
+  /** Every named wait on unattended work this window has been told about, by its durable id. */
+  readonly triggerAttention: Readonly<Record<string, TriggerAttention>>
   readonly status: ConnectionStatus
   readonly runtimes: readonly RuntimeInfo[]
   readonly activeRuntime: RuntimeId | null
@@ -718,6 +732,9 @@ const EMPTY_WORKBENCH = emptyWorkbench()
 const EMPTY: AppSnapshot = {
   captureHealth: new Map(),
   provenanceRevision: new Map(),
+  triggerRevisions: {},
+  triggerPreferences: null,
+  triggerAttention: {},
   status: 'connecting',
   runtimes: [],
   catalogRefreshing: false,
@@ -827,6 +844,8 @@ export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
   captureHealth: new Map(),
   provenanceRevision: new Map(),
+  triggerRevisions: {},
+  triggerAttention: {},
   sessions: new Map(),
   queues: new Map(),
   tasks: new Map(),

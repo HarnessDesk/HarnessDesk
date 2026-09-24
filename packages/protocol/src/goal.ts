@@ -1,6 +1,7 @@
 import type { CeilingLevel, EvidenceRecord, SeatId, SeatRecord, Sha } from './evidence.js'
 import type { FindingReceipt } from './findings.js'
 import type { FlowPermission, FlowSeat } from './flow.js'
+import type { TriggerBudgetState, TriggerSource } from './intake.js'
 import type { Intent, TeamEntry, TeamState } from './team.js'
 
 export type GoalId = string
@@ -119,6 +120,19 @@ export interface GoalReceipt {
   readonly gaps: readonly string[]
   /** The findings this Goal owned when it wrapped, frozen. Absent: the version that wrapped it did not record them. */
   readonly findings?: FindingReceipt
+  /**
+   * Where this Goal came from, frozen at wrap: which trigger, its source, the
+   * host's own label ("from PR #12"), and why unattended work on it stopped —
+   * `null` when it never stopped, `undefined` if it wrapped before Intake
+   * observed anything on it. Absent entirely for an ordinary Goal, or a
+   * receipt wrapped before this field existed.
+   */
+  readonly intake?: {
+    readonly trigger: string
+    readonly source: TriggerSource
+    readonly label: string
+    readonly stop: TriggerBudgetState['stop']
+  }
 }
 
 /** The mutable board payload contains neither members nor a second Plan API. */

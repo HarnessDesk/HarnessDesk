@@ -178,6 +178,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
 - **Spend ledger and usage** — token counts, cache hit ratios, and vendor
   rate-limit windows calculated across backends (`packages/server/src/ledger/`,
   `packages/server/src/usage/`).
+- **Intake** (`packages/server/src/intake/`, [multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own))
+  — a project's committed trigger declarations, this machine's per-trigger
+  consent, bounded polling of the signed-in person's own forge, and a durable
+  admission journal that opens a Goal and a round through `GoalPlane` and
+  `Flows` exactly once per firing. Machine consent and its signing key are
+  excluded from backup; the declaration itself is an ordinary project file.
 - **Background tasks** ([background-tasks.md](background-tasks.md)) — the
   agent's own long-running work, relayed from whichever runtime keeps a
   registry of it and held here so a reload does not lose sight of a job that

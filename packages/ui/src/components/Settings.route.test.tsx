@@ -101,6 +101,8 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
     savePolicyRules: vi.fn(async () => {}),
     loadUnheldCeilings: vi.fn(async () => 'seat'),
     saveUnheldCeilings: vi.fn(async () => {}),
+    loadUnattendedCeilings: vi.fn(async () => 'refuse'),
+    setUnattendedCeilings: vi.fn(async () => {}),
   } as unknown as AppStore
 }
 

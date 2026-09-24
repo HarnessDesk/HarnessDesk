@@ -33,14 +33,21 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
   const snapshot = useSnapshot()
   const section = useRef<HTMLElement>(null)
   const saving = useRef(false)
+  const savingUnattended = useRef(false)
   const [watched, setWatched] = useState<UnheldCeilings | null>(null)
+  const [unattended, setUnattended] = useState<UnheldCeilings | null>(null)
   const [busy, setBusy] = useState(false)
+  const [unattendedBusy, setUnattendedBusy] = useState(false)
 
   useEffect(() => {
     let live = true
     setWatched(null)
+    setUnattended(null)
     void store.loadUnheldCeilings().then((next) => {
       if (live) setWatched(next)
+    })
+    void store.loadUnattendedCeilings().then((next) => {
+      if (live) setUnattended(next)
     })
     return () => { live = false }
   }, [store])
@@ -64,7 +71,21 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
     }
   }
 
+  const chooseUnattended = async (next: UnheldCeilings): Promise<void> => {
+    if (unattended === null || savingUnattended.current) return
+    savingUnattended.current = true
+    setUnattended(next)
+    setUnattendedBusy(true)
+    try {
+      await store.setUnattendedCeilings(next)
+    } finally {
+      savingUnattended.current = false
+      setUnattendedBusy(false)
+    }
+  }
+
   const disabled = watched === null || busy
+  const unattendedDisabled = unattended === null || unattendedBusy
   return (
     <section ref={section} aria-label="Ceilings" tabIndex={-1}>
       <SectionHead name="Ceilings" />
@@ -92,6 +113,24 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
           selected={watched === 'refuse'}
           disabled={disabled}
           onClick={() => void choose('refuse')}
+        />
+      </Rows>
+
+      <Note>Goals a trigger opened, with nobody watching:</Note>
+      <Rows role="radiogroup" aria-label="If a runtime cannot hold a ceiling in a Goal a trigger opened">
+        <RowChoice
+          title="Refuse to seat it"
+          desc="It is passed over, with why. This is the default: unattended work never seats a Seat it cannot hold."
+          selected={unattended === 'refuse'}
+          disabled={unattendedDisabled}
+          onClick={() => void chooseUnattended('refuse')}
+        />
+        <RowChoice
+          title="Seat it and say so"
+          desc="The seat opens with its ceiling asked, drawn in the warning tone wherever it appears — choosing this is an explicit decision, not a default."
+          selected={unattended === 'seat'}
+          disabled={unattendedDisabled}
+          onClick={() => void chooseUnattended('seat')}
         />
       </Rows>
     </section>

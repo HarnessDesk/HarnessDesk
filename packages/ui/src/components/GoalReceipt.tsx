@@ -2,6 +2,7 @@ import type { GoalReceipt as GoalReceiptRecord } from '@harnessdesk/protocol'
 
 import { Chip, CodeText, MetaList, Note, Row, RowButton, Rows, SectionHead, Text } from '../design'
 import { blockingWords, lifecycleTone, lifecycleWords } from '../lib/findings'
+import { intakeStopWords } from '../lib/intake'
 import { InsightCost } from './InsightCost'
 
 export interface GoalReceiptProps {
@@ -31,6 +32,10 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
   return (
   <div>
     <Chip tone="neutral">As recorded when wrapped</Chip>
+    {receipt.intake && <Note>{`Opened ${receipt.intake.label}.`}</Note>}
+    {receipt.intake?.stop && (
+      <Note tone="warn">{`${intakeStopWords(receipt.intake.stop.reason)} ${receipt.intake.stop.detail}`}</Note>
+    )}
     <SectionHead name="What finished" />
     <Text as="p" role="value">{receipt.summary}</Text>
     <SectionHead name="Findings" />
