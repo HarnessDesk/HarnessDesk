@@ -60,6 +60,12 @@ move is real work and is not news to a person weighing an upgrade.
   A reviewer can no longer post to the pull request itself while its round
   is blind. Without a bound pull request, or with posting off, rounds stay
   on the desk.
+- **A reviewer's finished card no longer goes back to "claimed".** If
+  another Seat opened on the same Goal while a reviewer was completing its
+  card, the reviewer was told the card was done, but the board kept it
+  claimed. The flow then sent the reviewer the same card again, or waited on
+  it indefinitely. A completion is now saved. A completion whose card was
+  released or reassigned while its review was being checked is now refused.
 - **Assigning a card just after adding it no longer leaves the Goal stuck.**
   If the card's save was still queued, the assignment used to be refused and
   stayed half-done, so the Goal then refused every later save. Relaunching
