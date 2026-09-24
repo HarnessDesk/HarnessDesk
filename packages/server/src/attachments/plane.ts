@@ -206,7 +206,7 @@ export class AttachmentsPlane {
           one.identity.name === declaration.name &&
           one.identity.digest === declaration.identity?.digest,
       )
-    return this.#decide(subject, found, true, async (declaration) => {
+    return this.#decide(subject, found, null, async (declaration) => {
       const read = content(declaration)
       if (!read) return { problem: 'This content was not read, so it cannot be loaded.' }
       return declaration.kind === 'skill' ? this.#stageSkill(declaration.identity!, read.files) : this.#stageServer(declaration.identity!, read.server)
@@ -230,7 +230,7 @@ export class AttachmentsPlane {
     const frozen = await this.#readFrozen(seat.id)
     if (!frozen) return null
     const subject: AttachmentSubject = { ...frozen.subject, build: now.build }
-    const prepared = await this.#decide(subject, frozen.declarations, false, async (declaration) => {
+    const prepared = await this.#decide(subject, frozen.declarations, frozen.subject, async (declaration) => {
       if (declaration.kind === 'mcp' && seat.closed !== null) return { problem: 'This Seat has ended, so its servers are no longer reachable.' }
       return declaration.kind === 'skill' ? this.#restagedSkill(declaration.identity!) : this.#restagedServer(declaration.identity!)
     })
@@ -270,9 +270,11 @@ export class AttachmentsPlane {
   async #decide(
     subject: AttachmentSubject,
     found: readonly AttachmentDeclaration[],
-    fresh: boolean,
+    /** The subject a reopened Seat was frozen under; null for a fresh Seat. */
+    frozenAs: AttachmentSubject | null,
     stage: (declaration: AttachmentDeclaration) => Promise<Staged>,
   ): Promise<PreparedAttachments> {
+    const fresh = frozenAs === null
     const key = randomUUID()
     const support = this.port.support(subject)
     const declaredSkills = found.some((one) => one.kind === 'skill')
@@ -297,7 +299,17 @@ export class AttachmentsPlane {
         declaration.kind === 'skill' ? support.skills === 'scoped' : declaration.kind === 'mcp' ? support.mcp === 'scoped-gated' : false
       if (!approved) {
         anyUnapproved = true
-        finalized.push({ ...declaration, problem: 'Review this content before loading it.' })
+        // A reopen onto another build of the agent: the approval is still
+        // there, for the build it was given for. Say that, and what to do —
+        // never a generic failure, and never "review" as if nobody had.
+        const otherBuild =
+          frozenAs !== null && frozenAs.build !== subject.build && (await this.port.permits(frozenAs, identity))
+        finalized.push({
+          ...declaration,
+          problem: otherBuild
+            ? `This was approved for another build of this agent (${frozenAs.build || 'unknown'}), and it now runs ${subject.build || 'an unknown build'}; review it again on the Agent page, then seat the Agent again.`
+            : 'Review this content before loading it.',
+        })
         continue
       }
       if (!permitted) {

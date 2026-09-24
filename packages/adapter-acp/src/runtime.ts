@@ -2178,9 +2178,18 @@ export class AcpRuntime implements AgentRuntime {
       return this.resumeSession(id, options)
     }
     const live = this.#sessions.get(id)
-    if (live) {
+    if (live && (!options.attachments || this.#attachmentInputs.get(id)?.key === options.attachments.key)) {
       if (environment && !saved) throw new Error('An already-open session cannot acquire a lane environment.')
       return live
+    }
+    if (live) {
+      // Live, but not on the filter this reopen carries — a read loads a
+      // conversation (ACP has no other way to read one) and a read has no
+      // filter to give. Handed back as it is, the Seat would run on the
+      // agent's own defaults and its receipt would answer for nothing. So it
+      // is let go here and loaded again, this time with the filter.
+      this.#sessions.delete(id)
+      await live.close().catch(() => {})
     }
 
     const run = (async () => {

@@ -299,7 +299,7 @@ test('reapply re-applies the frozen filter on a reopen: a new key, the same appr
   const newBuild = await plane.reapply(opened, { build: '2.0.0' })
   assert.deepEqual(newBuild?.input.skills, [])
   assert.deepEqual(newBuild?.input.mcp, [])
-  assert.match(newBuild?.declarations[0]!.problem ?? '', /Review this content/)
+  assert.match(newBuild?.declarations[0]!.problem ?? '', /approved for another build of this agent \(1\.0\.0\), and it now runs 2\.0\.0; review it again/)
 
   // The staged copy is gone: the reopen says so, and still applies the filter.
   await rm(join(staging, 'skill', skillId.digest), { recursive: true })
