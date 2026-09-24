@@ -3,7 +3,7 @@ import { test } from 'node:test'
 
 import { INDEPENDENT } from '../src/flow-execution.js'
 import {
-  board, claimed, comparison, cwdOf, desk, execution, git, person, review, settled, start, TASK, UNKNOWN, whenChanged, write,
+  board, claimed, comparison, cwdOf, desk, E2E, execution, git, person, review, settled, start, TASK, UNKNOWN, whenChanged, write,
 } from './fixtures/flow-host-evidence.js'
 
 /*
@@ -16,7 +16,7 @@ import {
  */
 
 for (const count of [1, 2]) {
-  test(`comparison with ${count} competitor(s): the judge's recorded review carries the picked revision to the merge card`, async (t) => {
+  test(`comparison with ${count} competitor(s): the judge's recorded review carries the picked revision to the merge card`, E2E, async (t) => {
     const d = await desk(t)
     const run = await start(d, await comparison(d, count), TASK)
     const competitors = await claimed(d, run.goal, 'competitor', count)
@@ -44,7 +44,7 @@ for (const count of [1, 2]) {
  * on is the one it picked among its predecessors, never its own checkout's
  * head — the same walk its candidates came from.
  */
-test('a judge granted edit is judged on the competitor it picked, never on its own checkout', async (t) => {
+test('a judge granted edit is judged on the competitor it picked, never on its own checkout', E2E, async (t) => {
   const d = await desk(t)
   const text = await comparison(d, 1)
   assert.match(text, /uses: \[judge\]\n    grant: read\n/)
@@ -67,7 +67,7 @@ test('a judge granted edit is judged on the competitor it picked, never on its o
  * independent.
  */
 for (const second of UNKNOWN) {
-  test(`a judge on a runtime ${second.why} is never taken for independent`, async (t) => {
+  test(`a judge on a runtime ${second.why} is never taken for independent`, E2E, async (t) => {
     const d = await desk(t, second)
     const run = await start(d, await comparison(d, 1), TASK)
     const [competitor] = await claimed(d, run.goal, 'competitor', 1)

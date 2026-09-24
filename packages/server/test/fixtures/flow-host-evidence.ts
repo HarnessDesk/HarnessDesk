@@ -82,6 +82,8 @@ export interface Desk {
   readonly stateDir: string
   /** Resolves on the host's next notification to its windows: something on the desk moved. */
   readonly moved: () => Promise<void>
+  /** What went wrong inside a fake agent's own turn, so a wait that times out can say it rather than only stderr. */
+  readonly problems: string[]
 }
 
 /** The second runtime: another vendor's by default, so a step independent of the first has somewhere to sit. */
@@ -141,7 +143,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     woken?.()
   })
   await host.call('workspace/open', { path: repo.dir })
-  return { host, root: repo.dir, forge: gh, runs: [], runtimes, stateDir, moved: () => next }
+  return { host, root: repo.dir, forge: gh, runs: [], runtimes, stateDir, moved: () => next, problems: [] }
 }
 
 /** A shipped flow's own text, read through the catalogue as a person's window reads it. */
@@ -168,10 +170,17 @@ export const execution = async (d: Desk, run: string): Promise<FlowExecution> =>
  * fallback re-read is short and backs off while it keeps missing, so a slow
  * or busy run costs at most a fraction of a second of extra latency per
  * step, not a whole second: what it waits for either arrives promptly or the
- * run is stuck, which the safety deadline (far past any step's own time) and
- * the dump say.
+ * run is stuck, which the safety deadline and the dump say.
+ *
+ * The deadline sits under each case's own timeout (`E2E`), and that under
+ * the suite's 120 s per file, so a stuck run fails its own case with where
+ * the board and the run stood — never the whole file, silently, at 120 s.
+ * Each case takes a few seconds alone; 32 of these files at once on one
+ * machine took a case up to 85 s, which is what the margin is for.
  */
-export const SAFETY_MS = 180_000
+export const SAFETY_MS = 75_000
+/** Every end-to-end case's own timeout: past the safety deadline, so the dump lands first. */
+export const E2E = { timeout: 100_000 } as const
 const POLL_FLOOR_MS = 50
 const POLL_CEILING_MS = 500
 export const whenChanged = async <T>(d: Desk, read: () => Promise<T | null> | T | null, what: string): Promise<T> => {
@@ -216,7 +225,12 @@ export const explained = async <T>(d: Desk, goal: string, waiting: Promise<T>): 
     const cards = (await board(d, goal)).map((one) => `#${one.id} ${one.role} ${one.state} ${one.outcome ?? ''}`)
     const runs = await Promise.all(d.runs.map((run) => execution(d, run)))
     const stood = runs.map((run) => `${run.state} ${run.reason ?? ''} ${run.rounds.map((one) => `${one.role}:${one.state}`).join(',')}`)
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${cards.join('\n')}\n${stood.join('\n')}`)
+    // Which orders went out, and which wait for the end of a turn: a card handed a second order was a card the desk lost.
+    const orders = runs.flatMap((run) => run.operations.filter((one) => one.kind === 'turn').map((one) => `${one.key} #${one.card} ${one.state}`))
+    throw new Error([
+      error instanceof Error ? error.message : String(error), ...cards, ...stood, `orders: ${orders.join(', ')}`,
+      ...d.problems.map((one) => `inside an agent's turn: ${one}`),
+    ].join('\n'))
   }
 }
 
@@ -309,7 +323,11 @@ export const workInsideTheBrief = (d: Desk, behaviours: Readonly<Record<string, 
         }, 'the card claimed for this Seat')
         await behaviours[mine.role ?? '']!(d, mine)
         session.finish()
-      })().catch((error: unknown) => { console.error('a working agent failed', error) })
+      })().catch((error: unknown) => {
+        // Said where the test's own wait will report it, not only on stderr.
+        d.problems.push(error instanceof Error ? error.message : String(error))
+        console.error('a working agent failed', error)
+      })
     }
   }
 }

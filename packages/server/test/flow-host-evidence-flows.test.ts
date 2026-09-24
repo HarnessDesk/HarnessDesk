@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises'
 import { test } from 'node:test'
 
 import { builtinFlowRoot } from '../src/host.js'
-import { answer, claimed, desk, person, review, settled, shipped, start, TASK, write } from './fixtures/flow-host-evidence.js'
+import { answer, claimed, desk, E2E, person, review, settled, shipped, start, TASK, write } from './fixtures/flow-host-evidence.js'
 
 /*
  * The remaining shipped flows — `alignment`, `mechanical-contest` and
@@ -15,7 +15,7 @@ import { answer, claimed, desk, person, review, settled, shipped, start, TASK, w
  * share lives in `test/fixtures/flow-host-evidence.ts`.
  */
 
-test('the alignment flow reaches its end', async (t) => {
+test('the alignment flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, await shipped(d, 'alignment'), TASK)
   await answer(d, (await claimed(d, run.goal, 'propose', 1))[0]!, 'agreed')
@@ -24,7 +24,7 @@ test('the alignment flow reaches its end', async (t) => {
   await settled(d, run.id)
 })
 
-test('the mechanical contest flow reaches its end', async (t) => {
+test('the mechanical contest flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, await shipped(d, 'mechanical-contest'), TASK)
   const competitors = await claimed(d, run.goal, 'competitor', 2)
@@ -33,7 +33,7 @@ test('the mechanical contest flow reaches its end', async (t) => {
   await settled(d, run.id)
 })
 
-test('the staged relay flow reaches its end', async (t) => {
+test('the staged relay flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, await shipped(d, 'staged-relay'), TASK)
   await answer(d, (await claimed(d, run.goal, 'analyze', 1))[0]!, 'agreed')

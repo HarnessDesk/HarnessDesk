@@ -204,6 +204,65 @@ test('an older document read back while a Team write is queued never replaces th
   assert.equal(card(r.stored(), 1)?.state, 'done')
 })
 
+/*
+ * A completion looks at the card, then waits on its flow's review check —
+ * facts and git reads, slow on a loaded machine — before it writes. A Goal
+ * read back from its document in that gap (a Seat opening on the same Goal
+ * refreshes it) must not leave the completion writing to a copy of the
+ * board nobody reads any more: that completion was answered "Completed",
+ * saved nowhere, and the card sat claimed with its agent gone.
+ */
+const reviewCheckHeld = (r: Awaited<ReturnType<typeof rig>>) => {
+  let entered!: () => void
+  const asked = new Promise<void>((resolve) => { entered = resolve })
+  let open!: () => void
+  const gate = new Promise<void>((resolve) => { open = resolve })
+  r.team.attachFlows({
+    completed: () => {},
+    refuseOutcome: () => null,
+    refuseCompletion: async () => {
+      entered()
+      await gate
+      return null
+    },
+  } as never)
+  return { asked, open }
+}
+
+test('a completion whose review check is still running when its Goal is read back is saved, not lost', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const check = reviewCheckHeld(r)
+  const said = r.team.complete(1, {}, scope('worker'))
+  await check.asked
+  r.install(room, r.stored(), false)
+  check.open()
+  assert.match(await said, /^Completed #1/)
+  await r.team.flush()
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.state, 'done', 'the board everyone reads shows it done')
+  assert.equal(card(r.stored(), 1)?.state, 'done', 'and what is durable is what the agent was told')
+})
+
+test('a completion whose card was taken from it while its review check ran is refused, and changes nothing', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const check = reviewCheckHeld(r)
+  const said = r.team.complete(1, {}, scope('worker'))
+  await check.asked
+  // The Goal plane releases the card and hands it to another Seat while the check runs.
+  await r.goalPlane(room, (intents) => intents.map((one) => (one.id === 1 ? { ...one, state: 'open' as const, claim: null } : one)))
+  await r.goalPlane(room, assignTo('other'))
+  check.open()
+  assert.match(await said, /^Refused: you do not hold #1/)
+  await r.team.flush()
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.claim?.sessionId, 'other')
+  assert.equal(card(r.stored(), 1)?.state, 'claimed')
+})
+
 test('R4: a completion refused because its write failed is never saved by a later write', async (t) => {
   const r = await rig(t)
   const room = await setup(r)

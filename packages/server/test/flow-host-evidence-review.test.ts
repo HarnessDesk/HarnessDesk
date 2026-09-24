@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
-  type Behaviour, board, claimed, cwdOf, desk, git, person, review, scopeOf, settled, shipped, start, TASK, whenChanged, workInsideTheBrief, write,
+  board, claimed, cwdOf, desk, E2E, git, person, review, scopeOf, settled, shipped, start, TASK, type Behaviour, whenChanged, workInsideTheBrief, write,
 } from './fixtures/flow-host-evidence.js'
 
 /*
@@ -15,7 +15,7 @@ import {
  * `test/fixtures/flow-host-evidence.ts`.
  */
 
-test('independent review with every Seat working inside its brief: each completion persists and the specialists open', async (t) => {
+test('independent review with every Seat working inside its brief: each completion persists and the specialists open', E2E, async (t) => {
   const d = await desk(t, undefined, { refusesWhileBusy: true })
   // A reviewer asks for what it may judge until it is offered something, as an agent working its card does.
   const reviewInside: Behaviour = async (desk, card) => {
@@ -37,7 +37,7 @@ test('independent review with every Seat working inside its brief: each completi
   assert.deepEqual(reordered, [])
 })
 
-test('the independent review flow reaches its end', async (t) => {
+test('the independent review flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, await shipped(d, 'independent-review'), TASK)
   await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
@@ -46,7 +46,7 @@ test('the independent review flow reaches its end', async (t) => {
   await settled(d, run.id)
 })
 
-test('the fan-out review flow reaches its end', async (t) => {
+test('the fan-out review flow reaches its end', E2E, async (t) => {
   const d = await desk(t)
   const run = await start(d, await shipped(d, 'fan-out'), TASK)
   await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
@@ -55,7 +55,7 @@ test('the fan-out review flow reaches its end', async (t) => {
   await settled(d, run.id)
 })
 
-test('a check, green CI and an open pull request, each observed at the build revision, open the ship card together', async (t) => {
+test('a check, green CI and an open pull request, each observed at the build revision, open the ship card together', E2E, async (t) => {
   const d = await desk(t)
   const source = [
     'version: 2',

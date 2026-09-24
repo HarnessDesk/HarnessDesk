@@ -1120,7 +1120,7 @@ export class Team {
     if (previous && this.#port.mutate && !options.final) {
       state = { ...state, intents: previous.intents, channel: previous.channel }
     }
-    this.#boards.set(state.id, {
+    const next: Board = {
       id: state.id,
       name: state.name,
       updatedAt: state.updatedAt,
@@ -1136,7 +1136,20 @@ export class Team {
       roster: { ...(remembered ?? previous?.roster ?? {}) },
       intents: [...state.intents],
       channel: [...state.channel],
-    })
+    }
+    if (!previous) {
+      this.#boards.set(state.id, next)
+      return
+    }
+    /* Onto the board already held, never a new one in its place. A verb holds
+       its board across its own awaits — `complete` waits on its flow's review
+       check between reading the card and writing it — and a Goal read back
+       in that gap (a Seat opening on the same Goal refreshes it) used to swap
+       a fresh object into `#boards`. The verb then finished on the copy
+       nobody reads: the agent was told "Completed", the save wrote the fresh
+       copy with the card still claimed, and the run waited on it for good. */
+    if (next.cwd === undefined) delete previous.cwd
+    Object.assign(previous, next)
   }
 
   inboundFor(runtime: string, sessionId: string): TeamInbound {
@@ -2336,28 +2349,40 @@ export class Team {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
-    const intent = board.intents.find((entry) => entry.id === intentId)
-    if (!intent) return `There is no intent #${intentId}.`
-    if (
-      intent.state !== 'claimed' ||
-      !intent.claim ||
-      intent.claim.runtime !== caller.runtime ||
-      intent.claim.sessionId !== caller.sessionId
-    ) {
-      return `Refused: you do not hold #${intentId}, so you cannot complete it. Claim it first, or leave it to ${this.#holderName(board, intent)}.`
+    /* The card as it stands, held by this caller — or why not. Asked twice:
+       here, and again after the review check below, which awaits facts and
+       git and so gives the Goal plane time to release or reassign the card. */
+    const held = (): { intent: Intent } | { refused: string } => {
+      const intent = board.intents.find((entry) => entry.id === intentId)
+      if (!intent) return { refused: `There is no intent #${intentId}.` }
+      if (
+        intent.state !== 'claimed' ||
+        !intent.claim ||
+        intent.claim.runtime !== caller.runtime ||
+        intent.claim.sessionId !== caller.sessionId
+      ) {
+        return { refused: `Refused: you do not hold #${intentId}, so you cannot complete it. Claim it first, or leave it to ${this.#holderName(board, intent)}.` }
+      }
+      return { intent }
     }
+    const first = held()
+    if ('refused' in first) return first.refused
     /* What the card answered, checked against what its role may say before
        anything is written. An outcome a role never declared is a rule that
        will silently never fire, so it is refused here with the vocabulary
        spelled out rather than stored and puzzled over later. */
     const outcome = args.outcome?.trim() || null
-    const refusal = this.#flows?.refuseOutcome(board.id, intent, outcome) ?? null
+    const refusal = this.#flows?.refuseOutcome(board.id, first.intent, outcome) ?? null
     if (refusal) return refusal
     /* A role that declares `produces: review` cannot finish by claim alone:
        `complete_claim` is never allowed to stand in for the structured
        judgment a merge step's evidence guard actually reads. */
-    const missingReview = (await this.#flows?.refuseCompletion?.(board.id, intent, caller)) ?? null
+    const missingReview = (await this.#flows?.refuseCompletion?.(board.id, first.intent, caller)) ?? null
     if (missingReview) return missingReview
+    this.#assertMutable(board)
+    const still = held()
+    if ('refused' in still) return still.refused
+    const intent = still.intent
     /* A Goal board's completion is reported once it is saved, never before:
        an agent told "Completed" on a write that never landed would stop,
        and the card would sit claimed with nobody on it. A save that fails

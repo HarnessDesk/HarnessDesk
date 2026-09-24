@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { BoardEvidence, FlowExecution } from '@harnessdesk/protocol'
 
 import {
-  answer, board, claimed, cwdOf, desk, execution, git, person, settled, shipped, start, whenChanged, workInsideTheBrief, write,
+  answer, board, claimed, cwdOf, desk, E2E, execution, git, person, settled, shipped, start, whenChanged, workInsideTheBrief, write,
 } from './fixtures/flow-host-evidence.js'
 
 /*
@@ -17,7 +17,7 @@ import {
  * `test/fixtures/flow-host-evidence.ts`.
  */
 
-test('investigation: an observed diff of the committed answer opens the close-out, woken by the evidence plane', async (t) => {
+test('investigation: an observed diff of the committed answer opens the close-out, woken by the evidence plane', E2E, async (t) => {
   const d = await desk(t)
   // What a window is told: every change to the run's state, pushed whole, not only when it asks.
   const told: FlowExecution[] = []
@@ -41,7 +41,7 @@ test('investigation: an observed diff of the committed answer opens the close-ou
  * default branch. The diff that guard reads is what was committed since the
  * step began, so the close-out still opens.
  */
-test('investigation on the default branch: the answer committed since the step began opens the close-out', async (t) => {
+test('investigation on the default branch: the answer committed since the step began opens the close-out', E2E, async (t) => {
   const d = await desk(t, undefined, { onMain: true })
   const run = await start(d, await shipped(d, 'investigation'), { question: 'Where does the time go?' })
   const [research] = await claimed(d, run.goal, 'research', 1)
@@ -64,7 +64,7 @@ test('investigation on the default branch: the answer committed since the step b
  * yet it says what it waits for, and once it has, it ends saying which rule
  * did not apply and why.
  */
-test('investigation with nothing committed ends saying there was no committed change to read', async (t) => {
+test('investigation with nothing committed ends saying there was no committed change to read', E2E, async (t) => {
   const d = await desk(t, undefined, { onMain: true })
   const told: FlowExecution[] = []
   d.host.addBroadcaster((notification) => {
@@ -89,7 +89,7 @@ test('investigation with nothing committed ends saying there was no committed ch
  * the run follows the board, never stalls on "still working", and the
  * completion is on disk.
  */
-test('a Seat that works its card inside its brief turn: the run follows the board and never stalls on "still working"', async (t) => {
+test('a Seat that works its card inside its brief turn: the run follows the board and never stalls on "still working"', E2E, async (t) => {
   const d = await desk(t, undefined, { refusesWhileBusy: true, onMain: true })
   workInsideTheBrief(d, {
     research: async (desk, card) => { await write(desk, card, 'the answer', 'gathered') },
@@ -111,7 +111,7 @@ test('a Seat that works its card inside its brief turn: the run follows the boar
  * in an error, and the Seat then finishes the card in the turn it started.
  */
 for (const ending of ['completes', 'fails'] as const) {
-  test(`a brief turn that ${ending} with the card still open is followed by exactly one card order`, async (t) => {
+  test(`a brief turn that ${ending} with the card still open is followed by exactly one card order`, E2E, async (t) => {
     const d = await desk(t, undefined, { refusesWhileBusy: true })
     const orders: string[] = []
     for (const runtime of d.runtimes) {
