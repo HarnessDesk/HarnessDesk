@@ -1,0 +1,92 @@
+import type { CeilingLevel } from './evidence.js'
+import type { FlowSeat } from './flow.js'
+
+/**
+ * Authoring: the files a person edits to start an Agent, a Goal or a team —
+ * an `AGENT.md`, a flow and a project's triggers — read and changed as the
+ * files they are.
+ *
+ * Nothing here is a second format. A shape is a phase-6 flow, an Agent is
+ * its `AGENT.md`, and a trigger is Intake's own entry; each owning parser
+ * stays the only judge of what a document means, and every source this
+ * vocabulary carries is re-read by that parser before anything uses it. A
+ * target names an origin and an id, never a path: the host decides where a
+ * project's, a person's or a built-in file lives, and a built-in one is never
+ * written.
+ */
+
+/** Which file a person means. `root` is the project it is read through; a user or built-in flow still resolves against one. */
+export type AuthoringTarget =
+  | { readonly kind: 'agent'; readonly origin: 'project' | 'user' | 'builtin'; readonly id: string; readonly root?: string }
+  | { readonly kind: 'flow'; readonly origin: 'project' | 'user' | 'builtin'; readonly id: string; readonly root: string }
+  | { readonly kind: 'triggers'; readonly origin: 'project'; readonly root: string }
+
+/** One thing in the way of using a document or a shortcut in it: where, what, and what fixes it. */
+export interface AuthoringIssue {
+  readonly at: string
+  readonly text: string
+  readonly fix: string
+}
+
+/**
+ * A file as it is on disk, exactly: the bytes (as text), their digest, and
+ * the path a person opens. `exists` is false only for a project's triggers
+ * file that is not there yet — it is saved with `expected: null`, which
+ * creates and never overwrites.
+ */
+export interface AuthoringDocument {
+  readonly target: AuthoringTarget
+  readonly source: string
+  readonly digest: string
+  readonly exists: boolean
+  readonly displayPath: string
+  readonly writable: boolean
+  readonly issues: readonly AuthoringIssue[]
+}
+
+/**
+ * One field of an Agent's front matter, edited in place. The host encodes the
+ * value; no caller ever sends the text that is written.
+ */
+export type AgentFieldEdit =
+  | { readonly key: 'name' | 'description'; readonly value: string }
+  | { readonly key: 'ceiling'; readonly value: CeilingLevel }
+  | { readonly key: 'answers' | 'produces'; readonly value: readonly string[] }
+  | { readonly key: 'prefer'; readonly value: readonly FlowSeat[] }
+
+/**
+ * What a start is about. Each is an input the host resolves — a branch to its
+ * head, a pull request to its head and base, a diff to two commits, a working
+ * tree to a bounded snapshot — never a fact a caller asserts.
+ */
+export type StartContext =
+  | { readonly kind: 'project'; readonly root: string }
+  | { readonly kind: 'branch'; readonly root: string; readonly branch: string }
+  | { readonly kind: 'pull-request'; readonly root: string; readonly number: number }
+  | { readonly kind: 'diff'; readonly root: string; readonly from: string; readonly to: string }
+  | { readonly kind: 'working-diff'; readonly root: string }
+
+export const START_CONTEXT_KINDS: readonly StartContext['kind'][] = ['project', 'branch', 'pull-request', 'diff', 'working-diff']
+
+/** Which resolved fact of a start context fills a flow input. */
+export type ShapeBindingValue = 'branch' | 'base' | 'head' | 'pr' | 'diff'
+export const SHAPE_BINDING_VALUES: readonly ShapeBindingValue[] = ['branch', 'base', 'head', 'pr', 'diff']
+
+/**
+ * What a flow's reserved `layout:` says to the authoring surfaces: where it
+ * sits on the front door, which contexts it starts from, which of its inputs
+ * a context fills, and where each role sits on the graph. The engine never
+ * reads it; nothing in it grants, seats or routes anything.
+ */
+export interface ShapeLayout {
+  readonly frontDoor?: {
+    readonly order?: number
+    readonly contexts?: readonly StartContext['kind'][]
+    readonly bindings?: readonly { readonly input: string; readonly value: ShapeBindingValue }[]
+  }
+  readonly positions?: Readonly<Record<string, { readonly x: number; readonly y: number }>>
+}
+
+/** The most bindings or positions a layout may name, and how far a position may sit from the origin. */
+export const SHAPE_LAYOUT_LIMIT = 128
+export const SHAPE_POSITION_LIMIT = 10000

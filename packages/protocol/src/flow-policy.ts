@@ -13,6 +13,13 @@ export interface FlowAgentRole {
   readonly isolate: boolean
   readonly grant: CeilingLevel
   readonly independentOf: readonly string[]
+  /**
+   * Whether this role's siblings in one round are blind to each other's
+   * packages and findings until it closes. Absent means true, and the file
+   * says `blind: false` to let them see; publication waits for the round to
+   * close either way. Only an Agent role says it.
+   */
+  readonly blind?: boolean
 }
 
 export type FlowPolicyRole = FlowAgentRole
