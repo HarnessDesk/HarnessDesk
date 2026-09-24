@@ -348,3 +348,42 @@ test('a real session over the real bridge gets an honest receipt — never a fab
     await runtime.dispose()
   }
 })
+
+test('a session key is a plain token before it ever names a folder: anything that could walk out of the staging root is refused whole', () => {
+  const keyed = (key: string) =>
+    decodeAttachmentInput({ harnessdesk: { attachments: { version: 1, input: { key, skills: null, mcp: null } } } })
+  for (const bad of ['..', '.', '../escape', '/abs/path', 'a/b', 'a\\b', 'nul\0byte', ' spaced', 'x'.repeat(129), '.hidden']) {
+    assert.equal(keyed(bad), null, JSON.stringify(bad))
+  }
+  assert.ok(keyed('3f2a8c1e-9b7d-4c6a-8e5f-0a1b2c3d4e5f'), 'the host’s own keys (UUIDs) are accepted')
+  assert.ok(keyed('k-1'))
+})
+
+test('a session’s staged folder goes when the session closes', async () => {
+  const state = scratch('claude-acp-attachments-close-state-')
+  const runtime = new AcpRuntime({
+    id: 'claude-code',
+    name: 'Claude Code',
+    command: process.execPath,
+    args: [BRIDGE],
+    env: { CLAUDE_CODE_EXECUTABLE: FAKE_CLAUDE, CLAUDE_CONFIG_DIR: scratch('claude-acp-attachments-close-config-'), CLAUDE_ACP_STATE_DIR: state, CLAUDECODE: '' },
+  })
+  await runtime.start()
+  try {
+    const source = skillSource()
+    const session = await runtime.createSession({
+      cwd: WORKDIR,
+      attachments: { key: 'k-close-1', skills: [{ name: 'demo', digest: approved(source), path: source }], mcp: null },
+    })
+    const staged = join(state, 'attachments', 'k-close-1')
+    assert.equal(existsSync(staged), true, 'staged while the session is open')
+    // ACP's own close, as any client sends it (this desk's adapter drops its
+    // handle instead; a delete, and the replacement of a session under a
+    // new key, release the folder the same way).
+    await runtime.connection.request('session/close', { sessionId: String(session.id) })
+    for (let tries = 0; tries < 50 && existsSync(staged); tries += 1) await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(existsSync(staged), false, 'removed once the session closes')
+  } finally {
+    await runtime.dispose()
+  }
+})

@@ -41,6 +41,9 @@ export interface AttachmentReceiptResult {
   readonly refused: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[]
 }
 
+/** A session key as a folder name may be: a plain token, letters, digits, `-` and `_`, starting with neither. */
+const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+
 /** The one plugin name every staged bundle is given, and the qualifier every staged skill's exposed name carries. */
 const PLUGIN_NAME = 'harnessdesk'
 /** The ACP-level `mcpServers` name `bootstrap.ts` gives the desk's own gateway (`toolServer = { name: 'harnessdesk', ... }`). */
@@ -82,7 +85,10 @@ export function decodeAttachmentInput(meta: Record<string, unknown> | null | und
   const input = declared['input']
   if (!isPlainObject(input)) return null
   const { key, skills, mcp } = input
-  if (typeof key !== 'string' || key.length === 0 || key.length > 200) return null
+  // The key names this session's staging folder, which is later removed
+  // recursively: only a plain token (the host mints UUIDs) may ever be one —
+  // never a separator, a dot-segment or anything longer than a name.
+  if (typeof key !== 'string' || !SAFE_KEY.test(key)) return null
   // Agent notes are not part of this contract: a host that sends them is not
   // one this bridge negotiated with, and they are never folded into a prompt.
   if (input['notes'] !== undefined && input['notes'] !== null) return null

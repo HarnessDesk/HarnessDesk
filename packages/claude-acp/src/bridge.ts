@@ -1,7 +1,7 @@
 import { closeSync, fstatSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import {
   agent as acpAgent,
   methods,
@@ -378,14 +378,39 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       },
     }
   }
+  /** Where one session's approved skills are staged — a key `decodeAttachmentInput` already proved is a plain token. */
+  #stagingRoot(key: string): string {
+    return join(this.#stateDir, 'attachments', key)
+  }
+
+  /**
+   * Forgets what a session was prepared with and removes its staged folder —
+   * on close, on delete, and when a new or reloaded session replaces it under
+   * another key. `#recreate` closes through `super`, so a reconfigure keeps
+   * the folder its frozen options still point at.
+   */
+  #releaseAttachments(sessionId: string, keep?: string): void {
+    const held = this.#attachments.get(sessionId)
+    this.#attachments.delete(sessionId)
+    if (held && held.input.key !== keep) rmSync(this.#stagingRoot(held.input.key), { recursive: true, force: true })
+  }
+
+  override async closeSession(params: Parameters<ClaudeAcpAgent['closeSession']>[0]): ReturnType<ClaudeAcpAgent['closeSession']> {
+    try {
+      return await super.closeSession(params)
+    } finally {
+      this.#releaseAttachments(params.sessionId)
+    }
+  }
+
   override async newSession(request: NewSessionRequest): Promise<NewSessionResponse> {
     const instructed = withInstructions(request)
-    const { params, input, staged } = withAttachments(instructed, (key) => join(this.#stateDir, 'attachments', key))
+    const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const values = optionsIn(params._meta)
     const response = await super.newSession({ ...params, _meta: withOptions(params._meta, values, new AbortController()) })
     this.#deletedSessions.delete(response.sessionId)
+    this.#releaseAttachments(response.sessionId, input?.key)
     if (input && staged) this.#attachments.set(response.sessionId, { input, staged })
-    else this.#attachments.delete(response.sessionId)
     const session = this.sessions[response.sessionId]
     const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: { ...values }, spawned: { ...values }, prompted: false, styles: await optionStyles(this, response.sessionId), meta: params._meta, cwd: params.cwd }
@@ -402,10 +427,10 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     const remembered = this.#readControls(request.sessionId)
     this.#deletedSessions.delete(request.sessionId)
     const instructed = withInstructions(request)
-    const { params, input, staged } = withAttachments(instructed, (key) => join(this.#stateDir, 'attachments', key))
+    const { params, input, staged } = withAttachments(instructed, (key) => this.#stagingRoot(key))
     const response = await super.loadSession({ ...params, _meta: withOptions(params._meta, remembered, new AbortController()) })
+    this.#releaseAttachments(request.sessionId, input?.key)
     if (input && staged) this.#attachments.set(request.sessionId, { input, staged })
-    else this.#attachments.delete(request.sessionId)
     const session = this.sessions[request.sessionId]
     const decorated = decorateModelOptions(response, (session?.modelInfos ?? []) as readonly ModelInfo[])
     const stored: StoredControlsWithRuntime = { values: remembered, spawned: { ...remembered }, prompted: true, styles: await optionStyles(this, request.sessionId), meta: params._meta, cwd: params.cwd }
@@ -481,7 +506,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
       this.#controls.delete(sessionId)
       this.#tasks.delete(sessionId)
       this.#delegations.delete(sessionId)
-      this.#attachments.delete(sessionId)
+      this.#releaseAttachments(sessionId)
       const poller = this.#outputPollers.get(sessionId)
       if (poller) clearTimeout(poller)
       this.#outputPollers.delete(sessionId)
