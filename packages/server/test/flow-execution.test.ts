@@ -270,3 +270,78 @@ test('a round that cannot open stalls the run with the reason, never a silent "r
   const execution = later.flows.executionsFor(run.goal)[0]!
   assert.deepEqual([execution.state, execution.reason], ['stalled', REFUSED])
 })
+
+test('trigger dispatch is held through durable application', async (t) => {
+  const rig = await goalRig(t)
+  const REVIEW = `
+version: 2
+name: Review a change
+roles:
+  reviewer: { kind: agent, uses: reviewer }
+  gate: { kind: check, run: "pnpm test", timeout: 60, exits: { "0": pass }, otherwise: fail }
+seed: { role: reviewer, title: Review it }
+rules:
+  - { id: verify, on: reviewer, when: { every: [approve] }, then: { role: gate, title: Verify } }
+`
+  const agents = [agent('reviewer', ['approve'])]
+  // A trigger's start: the Goal and the round's cards exist, and nothing is seated, handed over or run.
+  const run = await rig.startTriggered(REVIEW, agents, { again: 'reviewer' })
+  await rig.flows.flush()
+  assert.equal(run.intake?.dispatchHeld, true)
+  assert.equal(rig.board(run.goal).intents.length, 1, 'the seed round’s card exists')
+  assert.deepEqual(rig.events.filter((one) => !one.startsWith('goal:')), [], 'no Seat, order or check before the firing is applied')
+  // Neither a completion notice, an evidence notice nor a re-arm can move a held run.
+  await rig.flows.wakeEvidence(run.goal)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => !one.startsWith('goal:')), [])
+
+  // Released: exactly what a person's start would have done.
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => !one.startsWith('goal:')), ['open:seat-1', 'order:seat-1'])
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.intake?.dispatchHeld, false)
+
+  // A later firing: its round is held before it opens, whatever the first round is doing.
+  const key = 'b'.repeat(64)
+  const round = await rig.flows.againTriggered(run.id, key, [])
+  await rig.flows.flush()
+  assert.equal(round.state, 'opening')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.intake?.dispatchHeld, true)
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'the later round seats nobody while held')
+  // The first round finishing does not advance a held run either.
+  await rig.team.complete(1, { outcome: 'approve' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('check:')), [], 'no check runs while held')
+  // Asked again, the same firing's round is the same round.
+  assert.equal((await rig.flows.againTriggered(run.id, key, [])).n, round.n)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+
+  // A gate that refuses stops the run with its reason instead of dispatching.
+  const gated = await rig.startTriggered(REVIEW, agents)
+  rig.triggerGate = () => 'Out of budget: this Goal reached its spend limit.'
+  await rig.flows.resumeTriggered(gated.id)
+  await rig.flows.flush()
+  const stalled = rig.flows.executionsFor(gated.goal)[0]!
+  assert.equal(stalled.state, 'stalled')
+  assert.equal(stalled.reason, 'Out of budget: this Goal reached its spend limit.')
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'], 'the refused run seated nobody')
+  rig.triggerGate = null
+
+  // What it runs changed after the firing: the run is stopped with why, and never dispatches.
+  const changed = await rig.startTriggered(REVIEW, agents, { changed: true })
+  assert.equal(changed.state, 'stopped')
+  assert.match(changed.reason ?? '', /changed after it fired/)
+  await rig.flows.resumeTriggered(changed.id)
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+
+  // A restart reads the held flag back and keeps holding.
+  const held = await rig.startTriggered(REVIEW, agents)
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(held.goal)[0]!.intake?.dispatchHeld, true)
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+})

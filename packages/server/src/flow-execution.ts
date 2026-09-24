@@ -21,11 +21,14 @@ import type {
   FlowSeat,
   FlowThen,
   GoalCreateInput,
+  GoalOrigin,
   GoalSeatRequest,
   Intent,
   Lane,
   RepairLead,
   SeatRecord,
+  TriggerDefinition,
+  TriggerFact,
 } from '@harnessdesk/protocol'
 
 import { ConfinedTree } from './confined-tree.js'
@@ -36,6 +39,8 @@ import {
 import { decideLoop } from './findings/rounds.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
+import type { TriggerClosure } from './intake/consent.js'
+import { effectiveBudget } from './intake/definition.js'
 import type { Team } from './team.js'
 
 /**
@@ -107,6 +112,39 @@ export interface FlowStartRequest {
   readonly vars?: Readonly<Record<string, string>>
   readonly authorization: StoredFlowExecution['authorization']
 }
+
+/**
+ * What `startTriggered` is handed (phase 8): the firing's key and the run id
+ * it reserved, the trigger's Goal (already made under its own reserved id),
+ * the closure digest its arm consented to, the frozen definition and fact,
+ * and the host evidence the firing observed. Host-only: no wire method
+ * reaches it, and it never redeems a person's start token.
+ */
+export interface TriggerStartRequest {
+  readonly key: string
+  readonly id: string
+  readonly goal: string
+  readonly root: string
+  readonly closureDigest: string
+  readonly definition: TriggerDefinition
+  readonly fact: TriggerFact
+  readonly evidence: readonly string[]
+}
+
+/** A firing the run could not take, said as a reason a person reads: not a storage failure, and not retried as one. */
+export class TriggerRefusal extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TriggerRefusal'
+  }
+}
+
+/** Why a trigger's run holds instead of dispatching: its dispatch is held until its firing is recorded. */
+export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
+/** What a trigger's run says when what it would run no longer matches what was armed. */
+export const TRIGGER_CLOSURE_CHANGED = 'What this trigger runs changed after it fired, so nothing was started. Arm it again, then start this work.'
+/** A run id a trigger reserves. */
+export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /**
  * The host, as a run on a Goal needs it. The first four are the plan's
@@ -269,6 +307,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   legacyRun: run.legacyRun,
   reason: run.reason,
   ...(run.findings ? { findings: run.findings } : {}),
+  ...(run.intake ? { intake: run.intake } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -396,6 +435,17 @@ export interface FlowExecutionsOptions {
    * evidence plane attached never fabricates a match.
    */
   readonly facts?: (goal: string) => Promise<readonly EvidenceView[]>
+  /**
+   * Phase 8: how a trigger's run is compiled — the same frozen closure its
+   * arm consented to, re-read — which Goal a trigger made, and the gate every
+   * one of its dispatches passes (budgets, pause, consent). Absent, no
+   * trigger run starts.
+   */
+  readonly triggered?: {
+    freeze(root: string, definition: TriggerDefinition): Promise<TriggerClosure>
+    originOf(goal: string): GoalOrigin | null
+    gate?(run: FlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string }>
+  }
 }
 
 /** Runs on Goals. `Flows` hands every Goal-born run and every card of one to this. */
@@ -405,6 +455,7 @@ export class FlowExecutions {
   readonly #port: FlowExecutionPort
   readonly #now: () => number
   readonly #facts: FlowExecutionsOptions['facts'] | null
+  readonly #triggered: FlowExecutionsOptions['triggered'] | null
   readonly #queue = new SerialRun()
   #runs = new Map<string, StoredFlowExecution>()
   /** Goals a broken run file names: no new round opens on them until it is restored. */
@@ -429,6 +480,7 @@ export class FlowExecutions {
     this.#port = port
     this.#now = options.now ?? now
     this.#facts = options.facts ?? null
+    this.#triggered = options.triggered ?? null
   }
 
   async idle(): Promise<void> {
@@ -1261,6 +1313,129 @@ export class FlowExecutions {
     }
   }
 
+  // ------------------------------------------------------- trigger starts
+
+  /**
+   * A trigger's run, under the id its firing reserved, on the trigger's own
+   * Goal: made once, found again by every retry of the same firing. It
+   * attaches only to the Goal whose persisted origin names this trigger and
+   * firing and that holds no other run, re-reads the frozen closure the arm
+   * consented to and compiles from it — phase 6's own compilation, checks,
+   * round journal and seating; never a person's start token — and opens its
+   * seed round's cards with dispatch **held**: no Seat opens, no card is
+   * handed over and no check runs until `resumeTriggered`. A closure that no
+   * longer matches the arm makes the run stopped, with the reason, and
+   * dispatches nothing.
+   */
+  async startTriggered(request: TriggerStartRequest): Promise<FlowExecution> {
+    const refused = this.refusal(request.goal)
+    if (refused) throw new Error(refused)
+    const triggered = this.#triggered
+    if (!triggered) throw new Error('Trigger runs are not available on this desk.')
+    if (!TRIGGER_RUN_ID.test(request.id)) throw new TriggerRefusal('A trigger’s run id is not one the desk reserves.')
+    return this.#queue.within(request.id, async () => {
+      const existing = this.#runs.get(request.id)
+      if (existing) {
+        if (existing.goal !== request.goal || existing.intake?.key !== request.key) {
+          throw new TriggerRefusal('Another run already holds this trigger’s reserved id. Nothing was adopted.')
+        }
+        if (existing.state === 'running' && existing.rounds.length === 0) await this.#afterStart(request.id)
+        return projectExecution(this.#get(request.id))
+      }
+      const origin = triggered.originOf(request.goal)
+      if (origin?.kind !== 'trigger' || origin.trigger !== request.definition.id || origin.event !== request.key) {
+        throw new TriggerRefusal('This Goal was not opened by this trigger firing, so its run is not attached to it.')
+      }
+      if ([...this.#runs.values()].some((one) => one.goal === request.goal)) {
+        throw new TriggerRefusal('This Goal already has a run. A trigger’s run attaches only to its own new Goal.')
+      }
+      const closure = await triggered.freeze(request.root, request.definition)
+      const compiled = closure.preview.compiled
+      if (compiled.document.format !== 'agents') throw new TriggerRefusal('Only a flow in the Agent format runs from a trigger.')
+      const policy = compiled.document.flow
+      const errors = [...compiled.problems, ...closure.preview.problems].filter((one) => one.level === 'error')
+      const reason = closure.digest !== request.closureDigest || closure.problems.length > 0 || errors.length > 0 ? TRIGGER_CLOSURE_CHANGED : null
+      const vars: Record<string, string> = {}
+      // Only the flow's own defaults: no title, body or comment from outside becomes a variable.
+      for (const input of policy.inputs) vars[input.id] = input.default ?? ''
+      const at = this.#now()
+      await this.#put(this.#operation({
+        version: 2, id: request.id, goal: request.goal, document: compiled.document,
+        state: reason ? 'stopped' : 'running', rounds: [], operations: [], legacyRun: null, reason,
+        compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
+        authorization: {
+          sourceDigest: sourceDigest(closure.source),
+          commandDigest: sourceDigest(JSON.stringify(closure.preview.commands)),
+          approvedAt: at,
+        },
+        operationTimes: {},
+        // The narrower of the trigger's and the flow's loop limits, frozen for the life of the run.
+        findings: { ...startingFindings(policy), budget: effectiveBudget(request.definition.budget, policy.budget) },
+        intake: {
+          key: request.key, trigger: request.definition.id, closureDigest: request.closureDigest,
+          dispatchHeld: true, again: request.definition.again,
+        },
+      }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+      if (!reason) await this.#afterStart(request.id)
+      return projectExecution(this.#get(request.id))
+    })
+  }
+
+  /**
+   * A later firing's round on a trigger's run: its dispatch held first, then
+   * the round opened under the firing's own cause, so a retry finds it rather
+   * than opening another. A run that settled after its last round takes it
+   * (the Goal is still open); one a person stopped, or that stopped for a
+   * person, does not — the firing is recorded and the person decides.
+   */
+  againTriggered(id: string, key: string, evidence: readonly string[]): Promise<FlowRoundState> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      const cause = `cause:intake:${key}`
+      const existing = run.rounds.find((one) => one.cause === cause)
+      if (existing && existing.state !== 'opening') return existing
+      const then = run.intake.again
+      if (!then) throw new TriggerRefusal('This trigger opens no later round, so the new work was recorded for a person to decide.')
+      if (run.state === 'stopped' || run.state === 'stalled') {
+        throw new TriggerRefusal(`This Goal’s run is ${run.state === 'stopped' ? 'stopped' : 'waiting for a person'}, so the new work was recorded for a person to decide.`)
+      }
+      run = await this.#put({
+        ...run, state: 'running', reason: run.state === 'settled' ? null : run.reason,
+        intake: { ...run.intake, dispatchHeld: true },
+      })
+      return this.#openRound(id, then, { key: cause, evidence }, [])
+    })
+  }
+
+  /**
+   * Lets a trigger's run dispatch: its firing is durably recorded and every
+   * gate allowed it. Idempotent; a run that is not running only has its hold
+   * cleared. The run then advances exactly as it would have — a held round's
+   * Seats opened, its cards handed over, its checks run.
+   */
+  resumeTriggered(id: string): Promise<void> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      if (run.intake.dispatchHeld) run = await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: false } })
+      if (run.state === 'running') await this.#advance(id)
+    })
+  }
+
+  /** Whether a trigger's run may dispatch now: not held, and its gate allows it. Stalls it with the gate's reason when not. */
+  async #mayDispatch(id: string): Promise<boolean> {
+    const run = this.#get(id)
+    if (!run.intake) return true
+    if (run.intake.dispatchHeld) return false
+    const gate = this.#triggered?.gate
+    if (!gate) return true
+    const verdict = await gate(projectExecution(run))
+    if (verdict.ok) return true
+    await this.#stall(id, verdict.reason)
+    return false
+  }
+
   // --------------------------------------------------------------- rounds
 
   /** Phase 8's entry: a round opened for an outside cause, idempotent on its key. */
@@ -1366,6 +1541,10 @@ export class FlowExecutions {
     // claim one: the Goal a Seat claims through reads that write, not the
     // engine's memory, and a claim that raced it found no such card.
     await this.#team.flush()
+    /* A trigger's run stops here while its dispatch is held, or its gate
+       refuses: the round's cards exist, and nothing is seated, handed over or
+       run until `resumeTriggered` lets it go and the gate allows it. */
+    if (!await this.#mayDispatch(id)) return this.#get(id).rounds.find((one) => one.n === round.n)!
     /* A later review of a series gets its repair packet, read and pinned
        before any of its Seats opens: a delta that cannot be read in full
        stops the run here, with nothing seated. */
@@ -1693,6 +1872,7 @@ export class FlowExecutions {
       const key = `check:${round.n}:${index}`
       const operation = run.operations.find((one) => one.key === key)
       if (operation?.state !== 'uncertain') throw new Error('This check is not waiting to be run again.')
+      if (run.intake?.dispatchHeld) throw new Error(DISPATCH_HELD)
       if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
       /*
        * Re-armed, not resumed: this call is the person's one explicit consent
@@ -1743,6 +1923,8 @@ export class FlowExecutions {
     let run = this.#get(id)
     if (run.state !== 'running') return
     if (run.goal === '') return
+    // A trigger's run whose firing is not yet recorded opens nothing and sends nothing.
+    if (run.intake?.dispatchHeld) return
     const last = run.rounds.at(-1)
     if (!last) {
       await this.#afterStart(id)
@@ -1751,6 +1933,10 @@ export class FlowExecutions {
     if (last.state === 'opening') {
       // Half opened before a crash or a failed write: the same cause opens it the same way.
       const previous = run.rounds.find((one) => one.n === last.n - 1)
+      if (last.cause.startsWith('cause:intake:') && run.intake?.again) {
+        await this.#open(id, run.intake.again, { key: last.cause, evidence: last.evidence }, [])
+        return
+      }
       if (last.cause === 'seed' || !previous) {
         await this.#open(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
         return
@@ -1853,6 +2039,7 @@ export class FlowExecutions {
   async #reArm(id: string, operation: FlowOperation): Promise<void> {
     const run = this.#get(id)
     if (run.state !== 'running') return
+    if (run.intake && !await this.#mayDispatch(id)) return
     const seat = this.#port.seatOf(operation.seat!)
     if (!seat || seat.closed) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)

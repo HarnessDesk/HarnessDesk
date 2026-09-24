@@ -1037,14 +1037,22 @@ export class Host {
      * - project (`FindingsPlane`'s queue, one per canonical project): the
      *   evidence store only. It asks for nothing.
      *
-     * Intake adds one queue to the far left and two leaves beside project:
+     * Intake adds two queues to the far left and two leaves beside project:
      *
-     *   intake source  →  (admission, phase 8 task 4)  →  publication  →  …
+     *   intake source  →  admission  →  publication  →  …
      *
      * - intake source (`IntakeMonitor`, one per project and source): reads the
      *   forge or the clock, offers each fact to admission, then commits its
      *   cursor. Nothing to its right ever waits on it; an arm's first
      *   observation takes it before, never inside, the consent queue.
+     * - admission (`Admission`, one per desk): `intake.json`, the one journal
+     *   of firings, Goal groups and round intents. Inside it an offer reads
+     *   the arm again (consent, a leaf that takes no queue), claims an open
+     *   Goal under the Goal queue (`GoalPlane.intakeClaim`, the lifecycle
+     *   barrier a wrap also takes), journals, then applies each effect: a
+     *   Goal (Goal), a fact (project), a held round (run → Team → Goal) and
+     *   the release (run). A wrap takes the Goal queue for its barrier and
+     *   never waits on admission: it refuses while a firing is landing.
      * - intake consent (`TriggerConsent`, one per desk): `triggers-machine.json`
      *   and its sealed key only. It asks for nothing; an arm observes the
      *   source before it takes this queue and re-reads what it binds inside it.
@@ -1264,7 +1272,7 @@ export class Host {
       ready: () => this.#goalsReady
         ? { ok: true as const }
         : { ok: false as const, reason: 'The Goal store is still starting. Wait for recovery to finish.' },
-      seatAgent: async (input: GoalSeatRequest, goal) => {
+      seatAgent: async (input: GoalSeatRequest, goal, policy) => {
         const asked = {
           id: input.agent,
           cwd: goal.cwd,
@@ -1276,6 +1284,7 @@ export class Host {
           board: goal.id,
           role: null,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
+          ...(policy.unattended ? { unattended: true } : {}),
         })).record
       },
       openLegacySeat: async (input, goal) => {

@@ -243,7 +243,7 @@ export function factsOfGoal(
   facts: readonly EvidenceRecord[],
 ): EvidenceRecord[] {
   const ids = new Set(seats.filter((seat) => seat.board === goal).map((seat) => seat.id))
-  return facts.filter((fact) => fact.card?.board === goal || (fact.seat != null && ids.has(fact.seat)))
+  return facts.filter((fact) => fact.card?.board === goal || (fact.seat != null && ids.has(fact.seat)) || fact.intake?.goal === goal)
 }
 
 export interface LanePreferences {

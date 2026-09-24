@@ -167,3 +167,54 @@ test('a receipt from before members and evidenceSeats existed is still read; mal
   assert.throws(() => wrappedWith({ ...base, evidenceSeats: [{ id: 'fact-1', seat: 'seat-1', seatLabel: 7 }] }), /cannot be read/)
   assert.throws(() => wrappedWith({ ...base, evidenceSeats: 'fact-1' }), /cannot be read/)
 })
+
+test('a trigger’s reserved Goal id is made once and never adopts another Goal', async () => {
+  const { GoalPlane } = await import('../src/goals/plane.js')
+  const home = await empty()
+  const store = new GoalStore(home)
+  await store.load()
+  const forbidden = async (): Promise<never> => { throw new Error('not in this test') }
+  const plane = new GoalPlane(store, {
+    seats: { all: () => [], byId: () => null },
+    confine: async (input) => ({ root: input.root, cwd: input.cwd ?? input.root }),
+    known: async () => null, claimable: () => true, opening: forbidden,
+    board: (id) => ({ ...store.read(id).board, id, name: '', root: store.read(id).goal.root, updatedAt: 0, members: [] }) as never,
+    evidence: async (id) => ({ room: id, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] }),
+    evidenceIds: async () => [], flow: () => undefined, busy: () => false, waits: () => false, stranded: () => false, held: () => false,
+    settledFor: async () => {}, answer: async () => ({ answer: null, gaps: [] }), revision: async () => ({ head: null, dirty: null }),
+    changed: () => {}, activity: () => {}, ready: () => ({ ok: true }), seatAgent: forbidden, openLegacySeat: forbidden,
+    importOpening: forbidden, closeId: forbidden, claim: forbidden, releaseClaim: forbidden, refuseMail: forbidden,
+    retainLane: forbidden, finish: forbidden, finishWrap: forbidden, wake: () => {},
+  })
+  const key = 'a'.repeat(64)
+  const id = 'goal-00000000-0000-4000-8000-000000000007'
+  const request = {
+    key, id, input: { root: '/work/repo', sentence: 'Pull request #7, from trigger review', origin: { kind: 'trigger' as const, trigger: 'review', event: key } },
+  }
+  const made = await plane.ensureTriggerGoal(request)
+  assert.equal(made.goal.id, id)
+  assert.deepEqual(made.goal.origin, { kind: 'trigger', trigger: 'review', event: key })
+  // Every retry of the same firing finds the same Goal: nothing new is written.
+  assert.equal((await plane.ensureTriggerGoal(request)).goal.revision, 0)
+  assert.deepEqual(store.list().map((one) => one.goal.id), [id])
+  // Anything else under that id refuses rather than adopting it.
+  for (const other of [
+    { ...request, key: 'b'.repeat(64), input: { ...request.input, origin: { ...request.input.origin, event: 'b'.repeat(64) } } },
+    { ...request, input: { ...request.input, origin: { ...request.input.origin, trigger: 'another' } } },
+    { ...request, input: { ...request.input, root: '/work/other' } },
+    { ...request, input: { ...request.input, sentence: 'Something else' } },
+  ]) {
+    await assert.rejects(plane.ensureTriggerGoal(other), /already holds this trigger’s reserved id|name the trigger and the firing/)
+  }
+  // A person's Goal is never adopted under a trigger's key, and an id the desk does not reserve is refused.
+  const person = await plane.create({ root: '/work/repo', sentence: 'A person’s Goal' })
+  await assert.rejects(plane.ensureTriggerGoal({ ...request, id: person.goal.id }), /Another Goal already holds/)
+  await assert.rejects(plane.ensureTriggerGoal({ ...request, id: 'goal-../../x' }), /not one the desk reserves/)
+  await assert.rejects(plane.ensureTriggerGoal({ ...request, input: { ...request.input, origin: { ...request.input.origin, event: 'c'.repeat(64) } } }), /name the trigger and the firing/)
+  // Read back by a fresh store: the reserved Goal is durable with its origin.
+  const reopened = new GoalStore(home)
+  await reopened.load()
+  assert.deepEqual(reopened.read(id).goal.origin, { kind: 'trigger', trigger: 'review', event: key })
+  assert.equal(plane.unattended(id), true)
+  assert.equal(plane.unattended(person.goal.id), false)
+})

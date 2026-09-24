@@ -31,7 +31,7 @@ import type {
 
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from './errno.js'
 import { FlowCatalog } from './flow-catalog.js'
-import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution } from './flow-execution.js'
+import { CORRUPT_RUN, ExecutionFiles, FlowExecutions, sourceDigest, type FlowStartRequest, type RunDecisionOps, type StoredFlowExecution, type TriggerStartRequest } from './flow-execution.js'
 import type { FlowReview } from './flow-evidence.js'
 import type { FindingJournal } from './findings/journal.js'
 import type { PublicationJournal } from './findings/publication.js'
@@ -339,6 +339,26 @@ export class Flows implements TeamFlows {
   openRound(run: string, then: FlowThen, cause: { key: string; evidence: readonly string[] }): Promise<FlowRoundState> {
     if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
     return this.#executions.openRound(run, then, cause)
+  }
+
+  /** Phase 8, host-only: a trigger firing's run on its own reserved Goal, dispatch held. See `FlowExecutions.startTriggered`. */
+  async startTriggered(request: TriggerStartRequest): Promise<FlowExecution> {
+    if (this.#unreadable) throw this.#unreadable
+    if (this.#corrupt) throw new Error(this.#corrupt)
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.startTriggered(request)
+  }
+
+  /** Phase 8, host-only: a later firing's round on a trigger's run, dispatch held. */
+  againTriggered(run: string, key: string, evidence: readonly string[]): Promise<FlowRoundState> {
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.againTriggered(run, key, evidence)
+  }
+
+  /** Phase 8, host-only: a trigger's run may dispatch — its firing is recorded and its gates allow it. */
+  resumeTriggered(run: string): Promise<void> {
+    if (!this.#executions) throw new Error('Runs on Goals are not available on this desk.')
+    return this.#executions.resumeTriggered(run)
   }
 
   /** Every run on this Goal, as execution state. */

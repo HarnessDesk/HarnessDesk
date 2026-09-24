@@ -43,7 +43,7 @@ import {
   userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
-import { unheldPolicy } from '../ceilings/policy.js'
+import { unattendedPolicy, unheldPolicy } from '../ceilings/policy.js'
 import {
   agentOrder,
   blockedPlan,
@@ -434,6 +434,12 @@ export interface AgentSeatContext {
   environment?: Readonly<Record<string, string>>
   openingId?: SeatId
   grant?: SeatGrant
+  /**
+   * Set by the Goal plane from a Goal's persisted trigger origin, never by a
+   * wire caller: the Seat is unattended, so this machine's unattended
+   * unheld-ceiling policy — refuse unless a person chose otherwise — applies.
+   */
+  unattended?: boolean
 }
 
 /** The one seating operation used by a plain Agent and by Goal staffing. */
@@ -453,7 +459,8 @@ export async function seatAgent(
     definition.ceiling,
     context.grant?.kind === 'ceiling' ? context.grant.level : grantOf(requested),
   )
-  const need: CeilingNeed = { level, unheld: unheldPolicy(ctx.state.state.preferences) }
+  const preferences = ctx.state.state.preferences
+  const need: CeilingNeed = { level, unheld: context.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences) }
   const list = candidatesFor(definition, await ctx.seating.read(), params.seats)
   if ('refused' in list) throw new Error(`${definition.name} cannot be seated: ${list.refused}`)
   const candidates = list.seats
