@@ -112,3 +112,79 @@ it('an unreadable history says so without pretending the ledger is complete', as
   await render(store)
   expect(document.body.textContent).toContain('cannot be shown as complete')
 })
+
+// ------------------------------------------------------------ a person decides
+
+const STAMP = 'c'.repeat(64)
+const runView = (over: Record<string, unknown> = {}) => ({
+  run: 'run-1', goal: 'g1', round: 4, finished: 3, total: 5, embargoed: false, open: 1, blocking: 1,
+  reason: null, stamp: STAMP, publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+  pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null, ...over,
+}) as never
+
+const renderDeciding = async (store: AppStore, decide: unknown): Promise<void> => {
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <FindingDetail goal="g1" finding="finding-1" onClose={() => {}} decide={decide as never} />
+      </StoreProvider>,
+    )
+  })
+  await act(async () => {})
+}
+
+const clickNamed = (label: string): HTMLButtonElement =>
+  [...document.querySelectorAll('button')].find((one) => one.textContent === label)! as HTMLButtonElement
+
+const typeReason = (text: string): void => {
+  const textarea = document.querySelector('textarea[aria-label="Why"]') as HTMLTextAreaElement
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, text)
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+it('a person decides a claimed repair with a reason, against the run view they read', async () => {
+  const repaired = page({ finding: { ...page().finding, lifecycle: { state: 'repaired', confirmed: false, repairs: [] } } })
+  const { store } = rig(repaired)
+  const decideFindingRun = vi.fn(async () => runView())
+  Object.assign(store, { decideFindingRun })
+  await renderDeciding(store, runView())
+  expect(clickNamed('Accept the repair')).toBeTruthy()
+  expect(clickNamed('Reject the repair')).toBeTruthy()
+  await act(async () => { clickNamed('Accept the repair').click() })
+  expect(decideFindingRun).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('Say why.')
+  typeReason('checked the change myself')
+  await act(async () => { clickNamed('Accept the repair').click() })
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 4, stamp: STAMP,
+    action: { kind: 'adjudicate', finding: 'finding-1', state: 'repaired' }, reason: 'checked the change myself',
+  })
+})
+
+it('an open finding can only be withdrawn by a person; a repair is never accepted before one is claimed', async () => {
+  const { store } = rig(page())
+  Object.assign(store, { decideFindingRun: vi.fn(async () => runView()) })
+  await renderDeciding(store, runView())
+  expect(clickNamed('Withdraw it')).toBeTruthy()
+  expect(clickNamed('Accept the repair')).toBeUndefined()
+})
+
+it('a finding of another run, or a Goal no longer open, keeps the decision greyed with its reason', async () => {
+  const { store } = rig(page())
+  Object.assign(store, { decideFindingRun: vi.fn(async () => runView()) })
+  await renderDeciding(store, runView({ run: 'run-2' }))
+  expect(clickNamed('Withdraw it').disabled).toBe(true)
+  expect(document.body.textContent).toContain('This finding belongs to an earlier run on this Goal.')
+  await renderDeciding(store, runView({ undecidable: 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.' }))
+  expect(clickNamed('Withdraw it').disabled).toBe(true)
+  expect(document.body.textContent).toContain('This Goal is wrapped.')
+})
+
+it('a resolved finding offers no decision at all', async () => {
+  const done = page({ finding: { ...page().finding, lifecycle: { state: 'withdrawn', confirmed: true, repairs: [] } } })
+  const { store } = rig(done)
+  await renderDeciding(store, runView())
+  expect(document.body.textContent).not.toContain('Decide it yourself')
+})

@@ -113,7 +113,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
               >
                 {pending === skipping.key ? 'Working…' : 'Skip it'}
               </Button>
-              <Button variant="ghost" onClick={() => setSkipping(null)}>Keep it</Button>
+              <Button variant="secondary" onClick={() => setSkipping(null)}>Keep it</Button>
             </>
           }
         >

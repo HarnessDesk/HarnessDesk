@@ -184,7 +184,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
           </Button>
         )}
       </ToolPaneBody>
-      {opened && <FindingDetail goal={goal} finding={opened} onClose={() => setOpened(null)} />}
+      {opened && <FindingDetail goal={goal} finding={opened} onClose={() => setOpened(null)} {...(runView ? { decide: runView } : {})} />}
       {deciding && runView && <FindingDecision goal={goal} view={runView} onClose={() => setDeciding(false)} />}
     </ToolPane>
   )

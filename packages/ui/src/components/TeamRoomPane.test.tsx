@@ -1765,3 +1765,34 @@ it('a name or a mode set in another view is drawn here when the room’s state a
   // From the push alone: the roster was not asked for again.
   expect(store.teamPeers).toHaveBeenCalledTimes(1)
 })
+
+/*
+ * A wrapped Goal's receipt is where its unresolved findings are carried
+ * from, and where each is opened: the carry action and the finding's own
+ * history are reached from there, not from anywhere a live Goal draws.
+ */
+it('a wrapped Goal’s receipt offers to carry its unresolved findings and opens a finding’s history', async () => {
+  const A = 'a'.repeat(40)
+  const unresolved = {
+    id: 'finding-open', origin: { goal: ROOM, run: 'run-1', round: 2, card: 1, seat: 'seat-1', at: A }, ownerGoal: ROOM,
+    title: 'Still open', body: '', category: 'ordinary', blocking: true, related: null, anchor: null,
+    lifecycle: { state: 'open', confirmed: false, repairs: [] }, sequence: 1, evidence: [], posted: [], restored: false, problem: null,
+  }
+  const receipt = {
+    version: 1, id: 'receipt-1', goal: ROOM, sentence: 'Checkout rewrite', wrappedAt: 1, summary: 'Done.',
+    cards: [], seats: [], evidence: [], answers: [], lanes: [], citations: [], gaps: [], revisions: [],
+    findings: { version: 1, evidence: [], overrides: [], findings: [unresolved] },
+  }
+  const goal = {
+    goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'wrapped', revision: 5, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: 'receipt-1' },
+    activity: null, waitingOn: [], members: [], board: state, receipt, problem: null,
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
+  Object.assign(store, { readFinding: vi.fn(async () => ({ finding: unresolved, records: [], seat: null, next: null, problem: null })) })
+  await render(store)
+  const carry = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Carry unresolved findings…')
+  expect(carry).toBeDefined()
+  const opener = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-open'))!
+  await act(async () => { opener.click() })
+  expect(store.readFinding).toHaveBeenCalledWith(ROOM, 'finding-open')
+})

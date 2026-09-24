@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import type { FindingDetailPage, FindingOrigin, FindingRecord } from '@harnessdesk/protocol'
+import type { FindingDetailPage, FindingOrigin, FindingRecord, FindingRunView, FindingView } from '@harnessdesk/protocol'
 
-import { Banner, Button, Chip, CodeText, Dialog, KeyValue, KeyValueRow, Text } from '../design'
+import { Banner, Button, Chip, CodeText, Dialog, KeyValue, KeyValueRow, Note, SectionHead, Text, Textarea } from '../design'
 import { openExternal } from '../lib/desktop'
 import { blockingWords, postWords } from '../lib/findings'
 import { useStore } from '../state/context'
@@ -56,14 +56,18 @@ export const FindingDetail = ({
   goal,
   finding,
   onClose,
+  decide,
 }: {
   readonly goal: string
   readonly finding: string
   readonly onClose: () => void
+  /** The run a person may decide this finding against, as they last read it; absent where no decision is offered. */
+  readonly decide?: FindingRunView
 }) => {
   const store = useStore()
   const [read, setRead] = useState<Read>({ kind: 'loading' })
   const [more, setMore] = useState(false)
+  const [generation, setGeneration] = useState(0)
 
   useEffect(() => {
     let live = true
@@ -73,7 +77,7 @@ export const FindingDetail = ({
       (error: unknown) => { if (live) setRead({ kind: 'error', message: error instanceof Error ? error.message : String(error) }) },
     )
     return () => { live = false }
-  }, [store, goal, finding])
+  }, [store, goal, finding, generation])
 
   const loadMore = async (): Promise<void> => {
     if (read.kind !== 'ready' || !read.page.next || more) return
@@ -145,9 +149,78 @@ export const FindingDetail = ({
             <section aria-label="Raised by" className="border-t border-(--hd-border) pt-3">
               {seat ? <SeatRecordView seat={seat} /> : <Text role="muted">This Seat is unavailable.</Text>}
             </section>
+            {decide && (
+              <PersonVerdict goal={goal} view={view} run={decide} onDecided={() => setGeneration((one) => one + 1)} />
+            )}
           </div>
         )
       })()}
     </Dialog>
+  )
+}
+
+/**
+ * A person's own verdict on a finding (`adjudicate`): the same lifecycle
+ * event a raising Agent's later review records, by a person, with a reason.
+ * Offered only on an unresolved finding; a repair is accepted or rejected
+ * only once one has been claimed. Bound to the run view the person read, so
+ * a run that moved on refuses it rather than applying it to something else.
+ */
+const PersonVerdict = ({ goal, view, run, onDecided }: {
+  readonly goal: string
+  readonly view: FindingView
+  readonly run: FindingRunView
+  readonly onDecided: () => void
+}) => {
+  const store = useStore()
+  const [why, setWhy] = useState('')
+  const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  if (view.lifecycle.confirmed || view.restored || view.problem !== null) return null
+  const refusal = run.undecidable ??
+    (view.origin.run !== run.run && view.origin.goal === goal ? 'This finding belongs to an earlier run on this Goal.' : null)
+  const choices: readonly { readonly label: string; readonly state: 'open' | 'repaired' | 'withdrawn' }[] = view.lifecycle.state === 'repaired'
+    ? [{ label: 'Accept the repair', state: 'repaired' }, { label: 'Reject the repair', state: 'open' }, { label: 'Withdraw it', state: 'withdrawn' }]
+    : [{ label: 'Withdraw it', state: 'withdrawn' }]
+  const choose = async (label: string, state: 'open' | 'repaired' | 'withdrawn'): Promise<void> => {
+    if (pending || refusal) return
+    const reason = why.trim()
+    if (reason === '') { setError('Say why.'); return }
+    setPending(label)
+    setError(null)
+    try {
+      await store.decideFindingRun({
+        goal, run: run.run, round: run.round, stamp: run.stamp,
+        action: { kind: 'adjudicate', finding: view.id, state }, reason,
+      })
+      setWhy('')
+      onDecided()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      setPending(null)
+    }
+  }
+  return (
+    <section aria-label="Decide it yourself" className="flex flex-col gap-2 border-t border-(--hd-border) pt-3">
+      <SectionHead name="Decide it yourself" />
+      {refusal && <Note>{refusal}</Note>}
+      <Textarea aria-label="Why" value={why} disabled={refusal !== null || pending !== null} onChange={(event) => setWhy(event.target.value)} placeholder="Say why you are deciding this rather than a reviewer." />
+      {error && <Banner tone="danger" title="This decision could not be recorded">{error}</Banner>}
+      <span className="flex gap-2">
+        {choices.map((choice) => (
+          <Button
+            key={choice.label}
+            size="sm"
+            variant={choice.state === 'withdrawn' ? 'outline' : 'default'}
+            disabled={refusal !== null || pending !== null}
+            title={refusal ?? undefined}
+            onClick={() => void choose(choice.label, choice.state)}
+          >
+            {pending === choice.label ? 'Working…' : choice.label}
+          </Button>
+        ))}
+      </span>
+    </section>
   )
 }

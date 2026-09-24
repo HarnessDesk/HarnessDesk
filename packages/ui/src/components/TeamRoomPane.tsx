@@ -45,6 +45,8 @@ import { GoalHeader } from './GoalHeader'
 import { GoalWrap } from './GoalWrap'
 import { GoalReceipt } from './GoalReceipt'
 import { GoalReceiptCost } from './GoalReceiptCost'
+import { FindingCarry } from './FindingCarry'
+import { FindingDetail } from './FindingDetail'
 import { FlowRunStatus } from './FlowRunStatus'
 import { WindowControls } from './WindowControls'
 import {
@@ -241,6 +243,8 @@ export const TeamRoomPane = ({
   /** The "add an agent" dialog, opened from the roster's own heading. */
   const [adding, setAdding] = useState(false)
   const [wrapping, setWrapping] = useState(false)
+  /** A finding opened from the wrapped Goal's receipt: its full history, read on its own. */
+  const [receiptFinding, setReceiptFinding] = useState<string | null>(null)
   /** The top row's own failure — the board-only switch not landing. */
   const [barTrouble, setBarTrouble] = useState<string | null>(null)
   /**
@@ -659,7 +663,14 @@ export const TeamRoomPane = ({
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
       {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
-      {goal?.receipt ? <><GoalReceipt receipt={goal.receipt} root={goal.goal.root} /><GoalReceiptCost receipt={goal.receipt} /></> : null}
+      {goal?.receipt ? (
+        <>
+          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+          <FindingCarry source={goal} />
+          <GoalReceiptCost receipt={goal.receipt} />
+          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
+        </>
+      ) : null}
 
       {/*
         * The room's one top row, across both halves.
