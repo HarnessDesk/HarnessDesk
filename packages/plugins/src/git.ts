@@ -1,5 +1,5 @@
 import type { ForgeSeat, HarnessContext, HarnessPlugin } from '@harnessdesk/cordis-host'
-import type { ForgeReference, ScopeQuery } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, type ForgeReference, type ScopeQuery } from '@harnessdesk/protocol'
 
 /**
  * Git tools, available to every agent.
@@ -206,7 +206,23 @@ const DEFAULT_SHAPE = /(?:^|\n)🤖 Generated with \[HarnessDesk\]\([^)]*\)[^\n]
 const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** GitHub's text without the desk's mark, for a card and for an excerpt. */
-export const unmarked = (text: string): string => text.replace(/ ?<!-- harnessdesk:signature -->/g, '')
+export const unmarked = (text: string): string =>
+  text.replace(/ ?<!-- harnessdesk:signature -->/g, '').replace(/^<!-- harnessdesk:post -->(?:\n|$)/, '')
+
+/** A body with the desk's post marker taken off its first line, as an agent may pass a read back. */
+const unmarkedPost = (body: string): string =>
+  body.startsWith(`${DESK_POST_MARKER}\n`) ? body.slice(DESK_POST_MARKER.length + 1) : body === DESK_POST_MARKER ? '' : body
+
+/**
+ * A body the desk posts, opening with its marker (`DESK_POST_MARKER`) — once,
+ * whatever the body already opened with — so a trigger that reads the forge
+ * back never mistakes the desk's own words for a person's. An empty body
+ * stays empty.
+ */
+export const deskMarked = (body: string): string => {
+  const rest = body.startsWith(`${DESK_POST_MARKER}\n`) ? body.slice(DESK_POST_MARKER.length + 1) : body === DESK_POST_MARKER ? '' : body
+  return rest === '' ? '' : `${DESK_POST_MARKER}\n${rest}`
+}
 
 /** How much of a body the transcript card is given: the opening, as the forge holds it. */
 const EXCERPT_LIMIT = 600
@@ -647,7 +663,7 @@ export const gitPlugin: HarnessPlugin = {
           }
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.signature, DEFAULT_SIGNATURE)
-          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', signBody(body, signed.line)]
+          const argv = ['pr', 'create', '--head', branch, '--title', title, '--body', deskMarked(signBody(body, signed.line))]
           if (typeof args.base === 'string' && args.base.trim() !== '') argv.push('--base', args.base.trim())
           if (args.draft === true) argv.push('--draft')
           const created = await gh(argv)
@@ -689,7 +705,7 @@ export const gitPlugin: HarnessPlugin = {
           if (typeof args.body === 'string') {
             // What the desk signed with last time is read off GitHub's own
             // copy, so a body passed back without the mark still loses it.
-            argv.push('--body', signBody(args.body, signed.line, previousSignature(current.body)))
+            argv.push('--body', deskMarked(signBody(unmarkedPost(args.body), signed.line, previousSignature(current.body))))
             changed += 1
           }
           if (typeof args.base === 'string' && args.base.trim() !== '') {
@@ -782,7 +798,7 @@ export const gitPlugin: HarnessPlugin = {
           const seat = await seatFor(scope)
           const signed = signatureFor(seat, config?.reviewSignature, DEFAULT_REVIEW_SIGNATURE)
           const review = signed.line === null ? body : body === '' ? signed.line : `${signed.line}\n\n${body}`
-          await gh(['pr', 'review', String(pr.number), flag, '--body', review])
+          await gh(['pr', 'review', String(pr.number), flag, '--body', deskMarked(review)])
           // `gh pr review` prints no address for what it posted; the API knows.
           let url = pr.url
           try {
@@ -819,7 +835,7 @@ export const gitPlugin: HarnessPlugin = {
           if (body === '') throw new Error('A comment needs a body.')
           await publicationAllowed(scope)
           const pr = await pullRequestFor(args.number)
-          const posted = await gh(['pr', 'comment', String(pr.number), '--body', body])
+          const posted = await gh(['pr', 'comment', String(pr.number), '--body', deskMarked(body)])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? pr.url
           const note = await publish(referenceOf(pr, { kind: 'comment', action: 'posted', via: await viaOf(scope), url }), scope)
           return [`Commented on pull request #${pr.number}: ${pr.title}`, url, note]
@@ -893,7 +909,7 @@ export const gitPlugin: HarnessPlugin = {
           ].join('\n')
           const body = (issue.body ?? '').trim()
           const discussion = (issue.comments ?? [])
-            .map((comment) => `${comment.author?.login ?? 'someone'}${comment.createdAt ? ` (${comment.createdAt})` : ''}:\n${(comment.body ?? '').trim()}`)
+            .map((comment) => `${comment.author?.login ?? 'someone'}${comment.createdAt ? ` (${comment.createdAt})` : ''}:\n${unmarked(comment.body ?? '').trim()}`)
             .join('\n\n')
           return cap([head, body, discussion === '' ? '' : `Discussion:\n${discussion}`].filter((part) => part !== '').join('\n\n'))
         },
@@ -918,7 +934,7 @@ export const gitPlugin: HarnessPlugin = {
           // An issue number may be the bound pull request's own conversation: the embargo holds here too.
           await publicationAllowed(scope)
           const issue = JSON.parse(await gh(['issue', 'view', selector, '--json', 'number,title,state,url,author'])) as GhIssue
-          const posted = await gh(['issue', 'comment', String(issue.number), '--body', body])
+          const posted = await gh(['issue', 'comment', String(issue.number), '--body', deskMarked(body)])
           const url = posted.split('\n').map((line) => line.trim()).find((line) => /^https?:\/\//.test(line)) ?? issue.url
           const note = await publish(
             {

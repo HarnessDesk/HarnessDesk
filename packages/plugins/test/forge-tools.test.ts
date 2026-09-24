@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 
 import { ExtensionKernel, setForgeEngine, type ForgeEngine, type ForgeSeat } from '@harnessdesk/cordis-host'
-import type { ContributionId, ForgeReference, ToolResult } from '@harnessdesk/protocol'
+import { DESK_POST_MARKER, type ContributionId, type ForgeReference, type ToolResult } from '@harnessdesk/protocol'
 
 import { DEFAULT_REVIEW_SIGNATURE, DEFAULT_SIGNATURE, SIGNATURE_MARK, gitPlugin, previousSignature, renderSignature, signBody, unmarked } from '../src/index.js'
 
@@ -158,7 +158,19 @@ const rig = async (t: { after(fn: () => void | Promise<void>): void }, config: R
 const bodySentTo = (calls: string[][], verb: string): string => {
   const call = calls.find((args) => args[0] === 'pr' && args[1] === verb)
   assert.ok(call, `gh pr ${verb} was called`)
-  return call[call.indexOf('--body') + 1] ?? ''
+  return withoutMarker(call[call.indexOf('--body') + 1] ?? '')
+}
+
+/**
+ * What a body said once the desk's own first line is taken off — after
+ * checking it is there: everything the desk posts opens with it, so a
+ * trigger never answers the desk's own words (review #898).
+ */
+const withoutMarker = (body: string): string => {
+  assert.ok(body.startsWith(`${DESK_POST_MARKER}\n`), `the desk's post opens with its marker: ${JSON.stringify(body.slice(0, 40))}`)
+  const rest = body.slice(DESK_POST_MARKER.length + 1)
+  assert.ok(!rest.includes(DESK_POST_MARKER), 'and carries it once')
+  return rest
 }
 
 test('pr_create signs the description for the seat and records the pull request in the conversation', async (t) => {
@@ -261,7 +273,7 @@ test('pr_review opens with the review line; pr_comment is unsigned', async (t) =
   await forge.run('pr_create', { title: 'Add widgets', body: 'first' })
   const said = await forge.run('pr_review', { event: 'request_changes', body: 'The limiter leaks.' })
   assert.match(said, /Requested changes on pull request #7/)
-  assert.equal(readFileSync(join(forge.home, 'review.md'), 'utf8'), '**Review by Codex GPT-5.4 · High · via HarnessDesk**\n\nThe limiter leaks.')
+  assert.equal(withoutMarker(readFileSync(join(forge.home, 'review.md'), 'utf8')), '**Review by Codex GPT-5.4 · High · via HarnessDesk**\n\nThe limiter leaks.')
   const review = forge.calls().find((args) => args[1] === 'review')!
   assert.ok(review.includes('--request-changes'))
   const posted = forge.published.at(-1)!
@@ -270,7 +282,7 @@ test('pr_review opens with the review line; pr_comment is unsigned', async (t) =
 
   await forge.run('pr_comment', { body: 'Also: the tests.' })
   const comment = forge.calls().find((args) => args[1] === 'comment')!
-  assert.equal(comment[comment.indexOf('--body') + 1], 'Also: the tests.')
+  assert.equal(withoutMarker(comment[comment.indexOf('--body') + 1]!), 'Also: the tests.')
   assert.equal(forge.published.at(-1)?.kind, 'comment')
   assert.equal(forge.published.at(-1)?.signature, null)
   assert.equal(forge.published.at(-1)?.url, 'https://github.com/acme/widgets/pull/7#issuecomment-1')
@@ -354,10 +366,10 @@ test('a person’s own template is replaced on update, whatever it says, because
   assert.equal(bodySentTo(own.calls(), 'edit'), `Rewritten.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`, 'one line, the current seat’s, whatever the template says')
   // A description signed before the mark existed still loses its default-shaped line.
   await own.run('pr_update', { body: 'Older.\n\n🤖 Generated with [HarnessDesk](https://harnessdesk.app) (Codex GPT-5.4 · High)' })
-  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), `Older.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`)
+  assert.equal(withoutMarker(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Older.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}`)
   own.seat.current = { agent: 'Gemini CLI', version: null, model: null, effort: null, thinking: false, label: 'Gemini CLI' }
   await own.run('pr_update', { body: `Bare.\n\nWritten by Codex · GPT-5.4 Mini ${SIGNATURE_MARK}` })
-  assert.equal(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1), `Bare.\n\nWritten by Gemini CLI ${SIGNATURE_MARK}`)
+  assert.equal(withoutMarker(own.calls().filter((args) => args[1] === 'edit').at(-1)!.at(-1)!), `Bare.\n\nWritten by Gemini CLI ${SIGNATURE_MARK}`)
 })
 
 test('an author’s last line that resembles a signature is the author’s, and stays', async (t) => {
@@ -409,7 +421,7 @@ test('checks, issues and their comments are read and posted, and the record says
   assert.equal(posted.url, 'https://github.com/acme/widgets/issues/42#issuecomment-2')
   assert.equal(posted.state, 'open')
   const comment = forge.calls().find((args) => args[0] === 'issue' && args[1] === 'comment')!
-  assert.equal(comment[comment.indexOf('--body') + 1], 'On it.')
+  assert.equal(withoutMarker(comment[comment.indexOf('--body') + 1]!), 'On it.')
 
   // A comment on a pull request says so too — said, not guessed from the size.
   await forge.run('pr_comment', { body: 'And here.' })

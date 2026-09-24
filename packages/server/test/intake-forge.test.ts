@@ -223,6 +223,8 @@ test('a comment carries its author by stable id, a desk post is known only by it
       comment(8, marker.replace('<!--', '&lt;!--')),
       comment(9, `${marker.replace('pub-', 'pub-X')}`),
       comment(10, `${marker} and then some words`),
+      comment(11, '<!-- harnessdesk:post -->\nA tool’s comment.'),
+      comment(12, '> <!-- harnessdesk:post -->\nquoting a tool’s comment'),
     ],
   })
   const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never)
@@ -230,7 +232,7 @@ test('a comment carries its author by stable id, a desk post is known only by it
   assert.equal(byId.get('1')?.author, accountDigest(7), 'the signed-in account, by the same digest an arm binds')
   assert.equal(byId.get('2')?.author, accountDigest(99))
   assert.equal(byId.get('3')?.author, null, 'no readable author')
-  assert.deepEqual([4, 5, 6, 7, 8, 9, 10].map((id) => byId.get(String(id))?.desk), [true, true, false, false, false, false, false],
+  assert.deepEqual([4, 5, 6, 7, 8, 9, 10, 11, 12].map((id) => byId.get(String(id))?.desk), [true, true, false, false, false, false, false, true, false],
     'only a first line that is exactly a marker the desk writes')
   assert.ok(read.facts.every((fact) => fact.authorWrites === null), 'nobody was asked about permissions')
   assert.equal(forge.calls.filter((path) => path.includes('/collaborators/')).length, 0)
@@ -249,7 +251,7 @@ test('a comment carries its author by stable id, a desk post is known only by it
     'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/someone-else/permission',
     'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
     'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
-    'repos/acme/widgets/collaborators/jane-doe/permission',
+    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
   ], 'one bounded read per comment, by a validated login')
   forge.permissions.set('someone-else', { id: 99, permission: 'read' })
   const reader = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })

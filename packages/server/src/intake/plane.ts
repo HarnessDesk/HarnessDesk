@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto'
-import { open } from 'node:fs/promises'
+import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import {
   DEFAULT_TRIGGER_DAILY_USD, TRIGGER_DAILY_USD_MAX, TRIGGER_HISTORY_PAGE,
-  type FlowExecution, type FlowOrigin, type FlowPreview, type GoalOrigin, type SeatRecord, type TriggerArmPreview,
+  type FlowExecution, type FlowOrigin, type ForgeReference, type FlowPreview, type GoalOrigin, type SeatRecord, type TriggerArmPreview,
   type TriggerAttention, type TriggerFact, type TriggerFiring, type TriggerGoalStatus, type TriggerHistoryPage,
   type TriggerDefinition, type TriggerPreferences, type TriggerProjectView, type TriggerSource, type TriggerSourceStatus, type TriggerView,
   type WireNotification,
@@ -57,6 +57,10 @@ import { IntakeStore, type IntakeFiring, type IntakeOperation } from './store.js
  */
 
 const PREFERENCES_FILE = 'triggers-preferences.json'
+const DESK_POSTS_FILE = 'triggers-desk-posts.json'
+/** The comment ids the desk remembers posting, per repository: the newest, never more. */
+const DESK_POSTS_LIMIT = 5000
+const ISSUE_COMMENT = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/(?:issues|pull)\/[1-9][0-9]{0,15}#issuecomment-([1-9][0-9]{0,18})$/
 const METER_MS = 30_000
 const SKIP_WINDOW_MS = 5 * 60_000
 const SUBJECT = /^[1-9][0-9]{0,15}$/
@@ -179,6 +183,9 @@ export class IntakePlane {
   readonly #early = new Map<string, { started?: number; ended?: number }>()
   /** The source groups a status has named, so a source back to watching resolves its wait. */
   readonly #sources = new Map<string, TriggerSourceStatus>()
+  /** Comment ids the desk posted itself, by repository, read from `triggers-desk-posts.json` once. */
+  #deskPosts: Map<string, string[]> | null = null
+  readonly #deskSerial = new Serial()
   /** What each source read learned of its arms, by the read: gone with it. */
   readonly #batches = new WeakMap<object, Map<string, Promise<ArmBinding | null>>>()
 
@@ -366,6 +373,7 @@ export class IntakePlane {
     if (this.#store.problem === null) await this.#admission.transact(() => ({ next: null, value: undefined })).catch(() => {})
     await this.#attention.idle()
     await this.#prefsSerial.run(async () => {})
+    await this.#deskSerial.run(async () => {})
   }
 
   #track<T>(work: Promise<T>): Promise<T> {
@@ -389,6 +397,8 @@ export class IntakePlane {
 
   async #offer(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<OfferAnswer> {
     if (this.#closed) throw new Error('The desk is closing.')
+    // A comment whose id the desk recorded posting is the desk's own, marker or not: it never fires.
+    if (fact.action === 'commented' && fact.desk !== true && await this.#postedHere(fact)) fact = { ...fact, desk: true }
     const answer = await this.#admission.offer(arm, fact, batch ? { binding: () => this.#bindingOnce(batch, arm) } : {})
     this.#changed(arm.project)
     if (answer.outcome === 'fired') await this.#syncTimers()
@@ -404,6 +414,46 @@ export class IntakePlane {
     }
     this.#schedule()
     return answer
+  }
+
+  async #readDeskPosts(): Promise<Map<string, string[]>> {
+    if (this.#deskPosts) return this.#deskPosts
+    const posts = new Map<string, string[]>()
+    try {
+      const parsed = JSON.parse(await readFile(join(this.#port.home, DESK_POSTS_FILE), 'utf8')) as unknown
+      if (isMap(parsed) && parsed['version'] === 1 && isMap(parsed['comments'])) {
+        for (const [repository, ids] of Object.entries(parsed['comments'])) {
+          if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
+        }
+      }
+    } catch { /* none yet, or unreadable: the marker still guards every post */ }
+    this.#deskPosts = posts
+    return posts
+  }
+
+  async #postedHere(fact: TriggerFact): Promise<boolean> {
+    const match = ISSUE_COMMENT.exec(fact.url ?? '')
+    if (!match || match[1] !== fact.repository) return false
+    return (await this.#readDeskPosts()).get(match[1]!)?.includes(match[2]!) ?? false
+  }
+
+  /**
+   * The desk posted a comment to the forge (a tool's `issue_comment`,
+   * `pr_comment`): its id is recorded, and kept across a restart, so the
+   * comment never fires a trigger even if its marker were lost. Reads and
+   * writes one small file; a desk with no trigger still records, for the
+   * trigger armed tomorrow over the same issue.
+   */
+  deskPosted(reference: ForgeReference): Promise<void> {
+    const match = reference.kind === 'comment' ? ISSUE_COMMENT.exec(reference.url) : null
+    if (!match || match[1] !== reference.repo) return Promise.resolve()
+    return this.#deskSerial.run(async () => {
+      const posts = await this.#readDeskPosts()
+      const ids = posts.get(match[1]!) ?? []
+      if (ids.includes(match[2]!)) return
+      posts.set(match[1]!, [...ids, match[2]!].slice(-DESK_POSTS_LIMIT))
+      await atomicJson(join(this.#port.home, DESK_POSTS_FILE), { version: 1, comments: Object.fromEntries(posts) })
+    })
   }
 
   /**

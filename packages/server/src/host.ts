@@ -813,6 +813,8 @@ export class Host {
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
         embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
+        // Read lazily: the intake plane is made after this one, and nothing posts before both exist.
+        posted: (reference) => this.#intake.deskPosted(reference),
       },
       options.forge ?? {},
     )

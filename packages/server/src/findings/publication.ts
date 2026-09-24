@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 
-import type {
-  EvidenceRecord, EvidenceView, FindingAnchor, FindingId, FindingPost, FindingView, SeatRecord,
+import {
+  DESK_POST_MARKER, type EvidenceRecord, type EvidenceView, type FindingAnchor, type FindingId, type FindingPost, type FindingView, type SeatRecord,
 } from '@harnessdesk/protocol'
 import { renderSignature } from '@harnessdesk/plugins'
 
@@ -320,9 +320,14 @@ const DESK_MARKER = /^<!-- harnessdesk:finding-op pub-[0-9a-f]{48}(?::[A-Za-z0-9
 /**
  * Whether a body is one the desk posted, read exactly as reconciliation
  * reads its own: its first line is, character for character, a marker the
- * desk writes. A marker quoted, escaped, indented or on a later line is not.
+ * desk writes — a publication operation's, or the one every tool post opens
+ * with (`DESK_POST_MARKER`). A marker quoted, escaped, indented or on a later
+ * line is not.
  */
-export const isDeskPost = (body: string): boolean => DESK_MARKER.test(body.split('\n')[0] ?? '')
+export const isDeskPost = (body: string): boolean => {
+  const first = body.split('\n')[0] ?? ''
+  return first === DESK_POST_MARKER || DESK_MARKER.test(first)
+}
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')
 
 /** An operation key: the run, its round, the entry's kind and the evidence it posts. The same close always makes the same keys. */
