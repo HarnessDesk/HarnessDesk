@@ -79,10 +79,26 @@ it("arming and disarming nudge this project's revision forward without waiting f
 it("a trigger/changed push only moves this project's revision forward, never back", () => {
   push({ method: 'trigger/changed', params: { project: ROOT, revision: 5 } })
   expect(store.getSnapshot().triggerRevisions[ROOT]).toBe(5)
+  // A push carrying an older number is still news — a source's status moved without a new consent revision —
+  // so it invalidates by moving forward, never by walking back (review #898, round 3).
   push({ method: 'trigger/changed', params: { project: ROOT, revision: 2 } })
-  expect(store.getSnapshot().triggerRevisions[ROOT]).toBe(5)
+  expect(store.getSnapshot().triggerRevisions[ROOT]).toBe(6)
   push({ method: 'trigger/changed', params: { project: ROOT, revision: 9 } })
   expect(store.getSnapshot().triggerRevisions[ROOT]).toBe(9)
+})
+
+it('a push names the canonical project; the root this window read it by is invalidated too', async () => {
+  // The window opened the project by a path the host canonicalizes (a symlinked temp folder, say).
+  request.mockResolvedValueOnce(triggerProjectView({ project: `/private${ROOT}`, revision: 1_000 }))
+  await store.projectTriggers(ROOT)
+  const before = store.getSnapshot().triggerRevisions[ROOT]!
+  // A source stopped at a gap: the host says so for its canonical project, with its journal's small revision.
+  push({ method: 'trigger/changed', params: { project: `/private${ROOT}`, revision: 3 } })
+  expect(store.getSnapshot().triggerRevisions[ROOT]).toBeGreaterThan(before)
+  // The machine's own controls name no project: every project this window reads is invalidated.
+  const again = store.getSnapshot().triggerRevisions[ROOT]!
+  push({ method: 'trigger/changed', params: { project: '', revision: 1 } })
+  expect(store.getSnapshot().triggerRevisions[ROOT]).toBeGreaterThan(again)
 })
 
 it('older root reply cannot undo a newer arm', async () => {

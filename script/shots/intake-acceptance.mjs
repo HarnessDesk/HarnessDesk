@@ -404,6 +404,45 @@ try {
   await sleep(500)
   await shoot(cdp, 'history')
 
+  // A source gap, and Watch from now: resume triggers, then a burst of 101 labelled issues — more than one read may
+  // hold — stops the issue source at a gap; the trigger's row says so and offers Watch from now, which resumes it.
+  await cdp.eval(`${STORE}.askSettings('workspaces', 'triggers')`)
+  await waitForSnapshot(() => cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]') !== null`), Boolean, { attempts: 150 })
+  if (await cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]').getAttribute('aria-checked') === 'true'`)) {
+    await click(cdp, `document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')`)
+    await waitForSnapshot(() => cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')?.getAttribute('aria-checked') === 'false'`), Boolean, { attempts: 150 })
+  }
+  const burst = JSON.parse(readFileSync(ghState, 'utf8'))
+  const at = Date.now()
+  for (let number = 200; number < 301; number += 1) {
+    burst.issues.push({ number, state: 'open', created: at, updated: at + number, title: `Burst ${number}`, body: '', events: [{ id: 50_000 + number, event: 'labeled', created: at, label: 'needs-triage' }], comments: [] })
+  }
+  writeFileSync(ghState, JSON.stringify(burst, null, 2))
+  say('seeded 101 labelled issues at once; waiting for the source to stop at a gap')
+  await cdp.eval(`${STORE}.askSettings('workspaces', ${q(project)})`)
+  const gapRow = `[...document.querySelectorAll('[aria-label="Triggers"] *')].some((node) => node.textContent?.trim() === 'Its source stopped at a gap')`
+  const gapped = await waitForSnapshot(() => cdp.eval(gapRow), Boolean, { attempts: 2400 }).catch(() => false)
+  if (!gapped) {
+    say(`--- debug: triggers section ---\n${await cdp.eval(`document.querySelector('[aria-label="Triggers"]')?.innerText ?? ''`)}\n--- end debug ---`)
+    say(`--- debug: app.log tail ---\n${readFileSync(logPath, 'utf8').slice(-3000)}\n--- end debug ---`)
+    throw new Error('the source never stopped at a gap')
+  }
+  const gapText = await cdp.eval(`document.querySelector('[aria-label="Triggers"]')?.innerText ?? ''`)
+  say(`the Triggers section at the gap:\n${gapText.split('\n').filter((line) => /gap|Watch from now|read can cover|skipped, not replayed/i.test(line)).map((line) => `    ${line}`).join('\n')}`)
+  await cdp.eval(`[...document.querySelectorAll('[aria-label="Triggers"] *')].find((node) => node.textContent?.trim() === 'Its source stopped at a gap')?.scrollIntoView({ block: 'center' }); true`)
+  await sleep(300)
+  await shoot(cdp, 'source-gap')
+  await click(cdp, `[...document.querySelectorAll('[aria-label="Triggers"] button')].find((b) => b.textContent.trim() === 'Watch from now')`)
+  await waitForSnapshot(() => cdp.eval(`!(${gapRow})`), Boolean, { attempts: 300 })
+  const watching = await cdp.eval(`document.querySelector('[aria-label="Triggers"]')?.innerText ?? ''`)
+  if (/Watch from now|stopped at a gap/.test(watching)) throw new Error('Watch from now did not resume the source')
+  const burstFired = await cdp.eval(`${STORE}.triggerHistory(${q(project)}, 'triage-issue').then((page) => page.items.filter((one) => Number(one.subject) >= 200).length)`)
+  if (burstFired !== 0) throw new Error(`the gap was replayed: ${burstFired} burst issues answered`)
+  await cdp.eval(`document.querySelector('[aria-label="Triggers"]')?.scrollIntoView({ block: 'start' }); true`)
+  await sleep(300)
+  await shoot(cdp, 'watching-from-now')
+  say('Watch from now resumed the source: the gap row is gone, and none of the 101 skipped issues fired')
+
   say(`frames saved under ${OUT} (not published)`)
 } finally {
   if (desk) await closeDesk(desk)

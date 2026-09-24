@@ -325,7 +325,8 @@ const DESK_MARKER = /^<!-- harnessdesk:finding-op pub-[0-9a-f]{48}(?::[A-Za-z0-9
  * line is not.
  */
 export const isDeskPost = (body: string): boolean => {
-  const first = body.split('\n')[0] ?? ''
+  // A first line that arrived with CRLF endings is the same line.
+  const first = (body.split('\n')[0] ?? '').replace(/\r$/, '')
   return first === DESK_POST_MARKER || DESK_MARKER.test(first)
 }
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex')

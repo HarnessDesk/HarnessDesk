@@ -140,6 +140,8 @@ export class TriggerRefusal extends Error {
 }
 
 /** Why a trigger's run holds instead of dispatching: its dispatch is held until its firing is recorded. */
+/** How long a released trigger Seat's interrupted turn is waited for before its release is tried anyway. */
+const RELEASE_WAIT_MS = 10_000
 export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
 export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
 /** What a trigger's run says when what it would run no longer matches what was armed. */
@@ -1267,6 +1269,10 @@ export class FlowExecutions {
           await this.#port.interrupt?.(record).catch((error: unknown) => {
             this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
           })
+          // An interrupt asks; the turn ends a moment later. The release waits for it, bounded, rather than being refused.
+          for (let waited = 0; waited < RELEASE_WAIT_MS && this.#port.busy?.(record); waited += 50) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
         }
       }
       try {

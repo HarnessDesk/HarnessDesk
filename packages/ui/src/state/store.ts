@@ -351,8 +351,27 @@ export class AppStore {
 
   async projectTriggers(root: string): Promise<TriggerProjectView> {
     const view = await this.transport.request('trigger/list', { root })
+    // The host names a project by its canonical path; this window may have opened it by another (a symlink).
+    const roots = this.#triggerRoots.get(view.project) ?? new Set<string>()
+    this.#triggerRoots.set(view.project, roots.add(root))
     this.#keepTriggerRevision(root, view.revision)
     return view
+  }
+
+  /** The roots this window read each canonical project's triggers by. */
+  readonly #triggerRoots = new Map<string, Set<string>>()
+
+  /**
+   * A `trigger/changed` push is news whatever number it carries — a source's
+   * status can move without a new consent revision, and the host numbers its
+   * journal and its consent apart — so it invalidates by moving each
+   * affected revision forward: the project it names, every root this window
+   * read that project by, and every one of them for the machine's own
+   * controls (no project). Never backwards.
+   */
+  #triggersChanged(project: string, revision: number): void {
+    const keys = project === '' ? [...this.#triggerRoots.values()].flatMap((roots) => [...roots]) : [project, ...(this.#triggerRoots.get(project) ?? [])]
+    for (const key of new Set(keys)) this.#keepTriggerRevision(key, Math.max(revision, (this.#snapshot.triggerRevisions[key] ?? 0) + 1))
   }
 
   previewTrigger(root: string, id: string): Promise<TriggerArmPreview> {
@@ -651,9 +670,7 @@ export class AppStore {
           const { room, evidence } = notification.params
           this.#keepBoardEvidence(room, evidence)
         }
-        if (notification.method === 'trigger/changed') {
-          this.#keepTriggerRevision(notification.params.project, notification.params.revision)
-        }
+        if (notification.method === 'trigger/changed') this.#triggersChanged(notification.params.project, notification.params.revision)
         if (notification.method === 'trigger/attention') {
           const { attention } = notification.params
           this.#patch({

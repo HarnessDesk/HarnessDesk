@@ -254,12 +254,17 @@ test('pr_update re-signs a new description, replacing the earlier line, and reco
 
 test('pr_merge merges only at the commit that was reviewed, squashes unless told otherwise, and records the pull request merged', async (t) => {
   const forge = await rig(t)
+  // Opened through the desk: its description opens with the desk's marker, which a squash commit must never carry.
+  await forge.run('pr_create', { title: 'Add widgets', body: 'Widgets, as discussed.' })
   const head = '0123456789abcdef0123456789abcdef01234567'
   const said = await forge.run('pr_merge', { number: 7, head })
   assert.match(said, /Merged pull request #7: Add widgets/)
-  assert.deepEqual(forge.calls().find((args) => args[0] === 'pr' && args[1] === 'merge'), [
-    'pr', 'merge', '7', '--squash', '--match-head-commit', head,
-  ])
+  const merge = forge.calls().find((args) => args[0] === 'pr' && args[1] === 'merge')!
+  assert.deepEqual(merge.slice(0, 6), ['pr', 'merge', '7', '--squash', '--match-head-commit', head])
+  const message = merge[merge.indexOf('--body') + 1] ?? ''
+  assert.ok(merge.includes('--body'), 'the commit message body is the desk’s to give')
+  assert.ok(!message.includes('harnessdesk:'), 'and carries no desk marker')
+  assert.match(message, /^Widgets, as discussed\./)
   assert.equal(forge.published.at(-1)?.kind, 'pullRequest')
   assert.equal(forge.published.at(-1)?.state, 'merged')
 

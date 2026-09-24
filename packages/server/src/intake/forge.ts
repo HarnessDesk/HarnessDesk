@@ -59,13 +59,18 @@ export class ForgeReadError extends Error {
   readonly kind: ForgeFailure
   /** The forge answered that the thing asked about is not there (HTTP 404): an answer, not a failed read. */
   readonly notFound: boolean
-  constructor(kind: ForgeFailure, message: string, notFound = false) {
+  /** The read ran out of its own time budget: the forge was slow, not necessarily down. */
+  readonly budget: boolean
+  constructor(kind: ForgeFailure, message: string, notFound = false, budget = false) {
     super(message)
     this.kind = kind
     this.notFound = notFound
+    this.budget = budget
     this.name = 'ForgeReadError'
   }
 }
+
+const outOfTime = (): ForgeReadError => new ForgeReadError('offline', 'The forge did not answer in time.', false, true)
 
 export const UNREADABLE = 'The forge answered with something the desk cannot read.'
 const unreadable = (): ForgeReadError => new ForgeReadError('unreadable', UNREADABLE)
@@ -282,12 +287,12 @@ export class ForgeSource {
   async #get(project: string, path: string, deadline: number, signal: AbortSignal): Promise<unknown> {
     if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
     const left = deadline - Date.now()
-    if (left <= 0) throw new ForgeReadError('offline', 'The forge did not answer in time.')
+    if (left <= 0) throw outOfTime()
     const result = await this.#run(['api', '--method', 'GET', '-H', 'Accept: application/vnd.github+json', path], null, {
       cwd: project, timeoutMs: left, maxBytes: this.#maxBytes,
     })
     if (signal.aborted) throw new ForgeReadError('offline', 'The read was stopped.')
-    if (result.timedOut) throw new ForgeReadError('offline', 'The forge did not answer in time.')
+    if (result.timedOut || Date.now() > deadline) throw outOfTime()
     if (result.overflow) throw unreadable()
     if (result.exitCode !== 0) throw failureOf(result.stderr)
     try {
@@ -389,10 +394,10 @@ export class ForgeSource {
    * Whether the forge says an account can write to a repository: its
    * permission there read by login, and the answer's own account id checked
    * against the author's. False when the forge says it has no such
-   * collaborator; null when its answer is unreadable or names another
-   * account — which never fires anything. A read that could not be made now
-   * (offline, rate limited, signed out) throws: no answer, so the whole read
-   * is kept and the fact offered again, never consumed as a skip.
+   * collaborator (HTTP 404); null when its answer names another account —
+   * which never fires anything. Any other failure — offline, rate limited,
+   * signed out, forbidden, garbled — throws: no answer, so the read keeps
+   * its cursor and the fact is offered again, never consumed as a skip.
    */
   async #writes(project: string, repository: string, login: string, id: number, deadline: number, signal: AbortSignal): Promise<boolean | null> {
     if (!LOGIN.test(login)) return null
@@ -400,8 +405,9 @@ export class ForgeSource {
     try {
       answer = await this.#get(project, `repos/${repository}/collaborators/${login}/permission`, deadline, signal)
     } catch (error) {
-      if (signal.aborted || !(error instanceof ForgeReadError) || error.kind !== 'unreadable') throw error
-      return error.notFound ? false : null
+      // Only the forge saying there is no such collaborator is an answer; a 403, a garbled or a failed read is none.
+      if (!signal.aborted && error instanceof ForgeReadError && error.notFound) return false
+      throw error
     }
     if (!isMap(answer) || !isMap(answer['user']) || answer['user']['id'] !== id || typeof answer['permission'] !== 'string') return null
     return WRITES.has(answer['permission']) || (typeof answer['role_name'] === 'string' && WRITES.has(answer['role_name']))
@@ -488,83 +494,118 @@ export class ForgeSource {
     return null
   }
 
+  /**
+   * One read of a source's issues. Always makes progress: the list is read,
+   * then each changed issue in `updated` order, and an issue already read at
+   * this same update is not read again. A read that runs out of its time
+   * budget part-way keeps what it covered — its facts offered, its cursor
+   * moved to the first issue it did not finish — and the next read goes on
+   * from there. Only a read that could cover nothing at all, or a burst
+   * past what one read may ever hold, is a gap a person resumes from now.
+   */
   async #issues(project: string, cursor: SourceCursor, signal: AbortSignal, permissions: boolean): Promise<PollBatch> {
     const repository = this.#repo(cursor)
     const deadline = Date.now() + this.#timeoutMs
     const floor = cursor.observedThrough - OVERLAP_MS
+    const burst = 'More issues changed than one read can cover.'
     const changed: IssueRow[] = []
     let complete = false
     let through = cursor.observedThrough
-    for (let page = 1; page <= this.#maxPages && !complete; page += 1) {
-      const answer = await this.#page(project, `repos/${repository}/issues?state=all&sort=updated&direction=desc&per_page=${PER_PAGE}&page=${page}`, deadline, signal)
-      for (const raw of answer) {
-        if (!isMap(raw)) throw unreadable()
-        const updated = time(raw['updated_at'])
-        if (updated < floor) {
-          complete = true
-          break
+    try {
+      for (let page = 1; page <= this.#maxPages && !complete; page += 1) {
+        const answer = await this.#page(project, `repos/${repository}/issues?state=all&sort=updated&direction=desc&per_page=${PER_PAGE}&page=${page}`, deadline, signal)
+        for (const raw of answer) {
+          if (!isMap(raw)) throw unreadable()
+          const updated = time(raw['updated_at'])
+          if (updated < floor) {
+            complete = true
+            break
+          }
+          through = Math.max(through, updated)
+          // The issue list also lists pull requests; they are the other source's, never read as issues.
+          if ('pull_request' in raw) continue
+          // Not touched since this source began watching: it can carry no fact, so it neither counts nor is read (a
+          // source resumed after a gap is not stopped again by the very burst it skipped).
+          if (updated <= cursor.baseline) continue
+          changed.push(this.#issue(raw, repository))
         }
-        through = Math.max(through, updated)
-        // The issue list also lists pull requests; they are the other source's, never read as issues.
-        if ('pull_request' in raw) continue
-        // Not touched since this source began watching: it can carry no fact, so it neither counts nor is read (a
-        // source resumed after a gap is not stopped again by the very burst it skipped).
-        if (updated <= cursor.baseline) continue
-        changed.push(this.#issue(raw, repository))
+        if (answer.length < PER_PAGE) complete = true
       }
-      if (answer.length < PER_PAGE) complete = true
+    } catch (error) {
+      // Not even the list fits in one read: nothing can be covered, so the source stops at a gap, honestly.
+      if (error instanceof ForgeReadError && error.budget && !signal.aborted) return this.#gap(cursor, burst)
+      throw error
     }
-    if (!complete || changed.length > ISSUE_LIMIT) return this.#gap(cursor, 'More issues changed than one read can cover.')
+    if (!complete || changed.length > ISSUE_LIMIT) return this.#gap(cursor, burst)
     const subjects: Record<string, { head: string | null; event: string }> = { ...cursor.subjects }
     const facts: TriggerFact[] = []
     const since = new Date(Math.max(0, floor)).toISOString()
-    for (const issue of [...changed].sort((a, b) => a.updated - b.updated || a.number - b.number)) {
+    // One permission answer per author within one read.
+    const writers = new Map<string, boolean | null>()
+    const ordered = [...changed].sort((a, b) => a.updated - b.updated || a.number - b.number)
+    for (const [index, issue] of ordered.entries()) {
       const subject = String(issue.number)
       const known = marksOf(subjects[subject]?.event)
+      // Read already at this very update: nothing new on it since.
+      if (known !== null && known.u === issue.updated) continue
+      const found: TriggerFact[] = []
       let events = known?.e ?? 0
       let comments = known?.c ?? 0
       const fresh = (id: number, created: number, mark: number): boolean => created > cursor.baseline && (known === null || id > mark)
-      const listed = await this.#all(project, `repos/${repository}/issues/${issue.number}/events`, deadline, signal)
-      if (listed === null) return this.#gap(cursor, 'An issue has more events than one read can cover.')
-      for (const raw of listed) {
-        if (!isMap(raw)) throw unreadable()
-        const id = positive(raw['id'])
-        const created = time(raw['created_at'])
-        const kind = raw['event'] === 'labeled' ? 'labelled' : raw['event'] === 'closed' ? 'closed' : null
-        if (kind && fresh(id, created, known?.e ?? 0)) {
-          // The label a labelled event added, only as a validated name; its immutable event id already makes the fact one.
-          const label = kind === 'labelled' && isMap(raw['label']) ? labelName(raw['label']['name']) : null
-          facts.push({
-            source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, kind, id]), action: kind,
-            at: created, head: null, fork: false, title: issue.title, body: issue.body, url: issue.url, trigger: null,
-            ...(label !== null ? { label } : {}),
-          })
+      try {
+        const listed = await this.#all(project, `repos/${repository}/issues/${issue.number}/events`, deadline, signal)
+        if (listed === null) return this.#gap(cursor, 'An issue has more events than one read can cover.')
+        for (const raw of listed) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          const created = time(raw['created_at'])
+          const kind = raw['event'] === 'labeled' ? 'labelled' : raw['event'] === 'closed' ? 'closed' : null
+          if (kind && fresh(id, created, known?.e ?? 0)) {
+            // The label a labelled event added, only as a validated name; its immutable event id already makes the fact one.
+            const label = kind === 'labelled' && isMap(raw['label']) ? labelName(raw['label']['name']) : null
+            found.push({
+              source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, kind, id]), action: kind,
+              at: created, head: null, fork: false, title: issue.title, body: issue.body, url: issue.url, trigger: null,
+              ...(label !== null ? { label } : {}),
+            })
+          }
+          events = Math.max(events, id)
         }
-        events = Math.max(events, id)
-      }
-      const replies = await this.#all(project, `repos/${repository}/issues/${issue.number}/comments?since=${since}`, deadline, signal)
-      if (replies === null) return this.#gap(cursor, 'An issue has more comments than one read can cover.')
-      for (const raw of replies) {
-        if (!isMap(raw)) throw unreadable()
-        const id = positive(raw['id'])
-        const created = time(raw['created_at'])
-        if (fresh(id, created, known?.c ?? 0)) {
-          // Who wrote it, by stable id only; whether the desk itself posted it, by its exact marker.
-          const user = isMap(raw['user']) ? raw['user'] : null
-          const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
-          const desk = typeof raw['body'] === 'string' && isDeskPost(raw['body'])
-          const login = user && typeof user['login'] === 'string' ? user['login'] : null
-          const writes = permissions && !desk && authorId !== null && login !== null
-            ? await this.#writes(project, repository, login, authorId, deadline, signal) : null
-          facts.push({
-            source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'commented', id]), action: 'commented',
-            at: created, head: null, fork: false, title: issue.title, body: prose(raw['body']),
-            url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
-            author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
-          })
+        const replies = await this.#all(project, `repos/${repository}/issues/${issue.number}/comments?since=${since}`, deadline, signal)
+        if (replies === null) return this.#gap(cursor, 'An issue has more comments than one read can cover.')
+        for (const raw of replies) {
+          if (!isMap(raw)) throw unreadable()
+          const id = positive(raw['id'])
+          const created = time(raw['created_at'])
+          if (fresh(id, created, known?.c ?? 0)) {
+            // Who wrote it, by stable id only; whether the desk itself posted it, by its exact marker.
+            const user = isMap(raw['user']) ? raw['user'] : null
+            const authorId = user && Number.isSafeInteger(user['id']) && (user['id'] as number) >= 1 ? user['id'] as number : null
+            const desk = typeof raw['body'] === 'string' && isDeskPost(raw['body'])
+            const login = user && typeof user['login'] === 'string' ? user['login'] : null
+            let writes: boolean | null = null
+            if (permissions && !desk && authorId !== null && login !== null) {
+              const cached = `${login}\u0000${authorId}`
+              if (!writers.has(cached)) writers.set(cached, await this.#writes(project, repository, login, authorId, deadline, signal))
+              writes = writers.get(cached) ?? null
+            }
+            found.push({
+              source: 'issue', project, repository, subject, event: eventKey([repository, issue.number, 'commented', id]), action: 'commented',
+              at: created, head: null, fork: false, title: issue.title, body: prose(raw['body']),
+              url: confined(raw['html_url'], `/${repository}/issues/${issue.number}`, `#issuecomment-${id}`), trigger: null,
+              author: authorId === null ? null : accountDigest(authorId), authorWrites: writes, desk,
+            })
+          }
+          comments = Math.max(comments, id)
         }
-        comments = Math.max(comments, id)
+      } catch (error) {
+        if (!(error instanceof ForgeReadError) || !error.budget || signal.aborted) throw error
+        // Out of time part-way: nothing covered at all is a gap; otherwise keep what was covered, up to this issue.
+        if (index === 0) return this.#gap(cursor, burst)
+        const covered = Math.max(cursor.observedThrough, issue.updated - 1)
+        return this.#bounded(cursor, facts, { ...cursor, observedThrough: covered, continuation: null, subjects: prune(subjects) }, [])
       }
+      facts.push(...found)
       subjects[subject] = { head: null, event: JSON.stringify({ e: events, c: comments, u: issue.updated }) }
     }
     return this.#bounded(cursor, facts, { ...cursor, observedThrough: through, continuation: null, subjects: prune(subjects) }, [])

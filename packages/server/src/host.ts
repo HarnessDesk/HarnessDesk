@@ -1186,7 +1186,7 @@ export class Host {
      * - a trigger's run posts each closed round as one review through the
      *   publication queue, exactly as phase 7 posts a finding: journaled in
      *   the run's queue, sent from the publication queue holding none.
- *
+     *
      * Phase 12's queues are leaves beside project, each taken only by the
      * Goal queue or by nothing at all, and each asking for nothing:
      *

@@ -153,7 +153,7 @@ export interface AdmissionEffects {
    * A firing set aside for the person: its run, when one exists, is let go
    * of any hold and waits for them with why — never left held on nothing.
    */
-  setAside?(operation: IntakeOperation, reason: string): Promise<void>
+  setAside?(operation: IntakeOperation, reason: string, stop: boolean): Promise<void>
   /** Whether the run an applied firing waits to release has ended (stopped by a person or a budget): nothing will let it go now. */
   ended?(operation: IntakeOperation): boolean
   /** Lets go of runs a pause or the cap held, once their gate allows it again (`IntakeTargets.releaseHeld`). */
@@ -534,7 +534,8 @@ export class Admission {
     }
     await this.#store.commit(next)
     snapshot = next
-    if (!noGoal) await this.#effects.setAside?.(operation, reason).catch(() => {})
+    // Given back its slot and reservation: its run is stopped, so nothing can spend under them. Otherwise it waits on the person.
+    if (!noGoal) await this.#effects.setAside?.(operation, reason, release).catch(() => {})
   }
 
   async #update(key: string, change: (operation: IntakeOperation) => IntakeOperation): Promise<IntakeOperation> {

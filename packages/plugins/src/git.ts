@@ -759,7 +759,9 @@ export const gitPlugin: HarnessPlugin = {
           if (method !== 'squash' && method !== 'merge' && method !== 'rebase') {
             throw new Error('method must be squash, merge or rebase.')
           }
-          await gh(['pr', 'merge', selector, `--${method}`, '--match-head-commit', head])
+          // A squash or merge commit takes the description as its message: given here without the desk's markers.
+          const body = method === 'rebase' ? null : unmarked((await viewPullRequest(selector)).body ?? '').trim()
+          await gh(['pr', 'merge', selector, `--${method}`, '--match-head-commit', head, ...(body !== null ? ['--body', body] : [])])
           const pr = await viewPullRequest(selector)
           const note = await publish(referenceOf(pr, { kind: 'pullRequest', via: await viaOf(scope) }), scope)
           return [`Merged pull request #${pr.number}: ${pr.title}`, pr.url, note]

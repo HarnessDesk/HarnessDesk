@@ -76,8 +76,12 @@ export interface IntakeTargets {
    * Absent, nothing is held that way.
    */
   releaseHeld?(): Promise<void>
-  /** A firing set aside for the person: its run let go of any hold, waiting on them with why. */
-  setAside?(operation: IntakeOperation, reason: string): Promise<void>
+  /**
+   * A firing set aside for the person: its run let go of any hold, waiting
+   * on them with why — or, `stop`, stopped outright, when nothing of the
+   * firing can ever run and its slot and reservation were given back.
+   */
+  setAside?(operation: IntakeOperation, reason: string, stop: boolean): Promise<void>
   /** Whether a firing's run has ended, so its release can never come (`AdmissionEffects.ended`). */
   ended?(operation: IntakeOperation): boolean
 }
@@ -148,8 +152,8 @@ export class IntakeEffects implements AdmissionEffects {
     return this.#targets.ended?.(operation) ?? false
   }
 
-  async setAside(operation: IntakeOperation, reason: string): Promise<void> {
-    await this.#targets.setAside?.(operation, reason)
+  async setAside(operation: IntakeOperation, reason: string, stop: boolean): Promise<void> {
+    await this.#targets.setAside?.(operation, reason, stop)
   }
 
   async release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string; readonly final?: boolean }> {

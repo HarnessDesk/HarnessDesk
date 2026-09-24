@@ -189,6 +189,8 @@ export class IntakePlane {
   readonly #sources = new Map<string, TriggerSourceStatus>()
   /** Comment ids the desk posted itself, by repository, read from `triggers-desk-posts.json` once. */
   #deskPosts: Map<string, string[]> | null = null
+  /** Why `triggers-desk-posts.json` is kept as it is rather than written, or null. */
+  #deskPostsUnreadable: string | null = null
   readonly #deskSerial = new Serial()
   /** What each source read learned of its arms, by the read: gone with it. */
   readonly #batches = new WeakMap<object, Map<string, Promise<ArmBinding | null>>>()
@@ -270,8 +272,14 @@ export class IntakePlane {
       supersede: (operation) => this.#supersede(operation),
       releaseHeld: () => this.#releaseHeld(),
       ended: (operation) => port.flows.execution(operation.run)?.state === 'stopped',
-      setAside: async (operation, reason) => {
-        if (port.flows.execution(operation.run)) await port.flows.setAsideTriggered(operation.run, reason)
+      setAside: async (operation, reason, stop) => {
+        // Nothing of it can ever run: its run is stopped, so its released slot and reservation can never be spent under.
+        if (port.flows.execution(operation.run)) {
+          if (stop) {
+            port.flows.interruptChecks?.(operation.goal)
+            await port.flows.stopRun(operation.run, reason)
+          } else await port.flows.setAsideTriggered(operation.run, reason)
+        }
         this.#schedule()
       },
     }), {
@@ -314,6 +322,8 @@ export class IntakePlane {
    */
   async ready(): Promise<void> {
     if (this.#closed) return
+    // Every wait still open is said again first, by its own id: a window sees a held approval's wait at once, not after recovery.
+    this.#attention.replay()
     this.#dispatchReady = true
     if (this.#problem === null) {
       await this.#admission.recover().catch((error: unknown) => {
@@ -322,7 +332,6 @@ export class IntakePlane {
     }
     if (this.#closed) return
     await this.#startWatching()
-    this.#attention.replay()
     this.#schedule()
   }
 
@@ -429,17 +438,38 @@ export class IntakePlane {
     return answer
   }
 
+  /**
+   * The desk's recorded comment ids. Fails closed: a file that is missing is
+   * none yet; one that cannot be read or does not parse whole is kept as it
+   * is — never overwritten — and read as empty (the marker still guards every
+   * post) until a person looks, with the reason logged once.
+   */
   async #readDeskPosts(): Promise<Map<string, string[]>> {
     if (this.#deskPosts) return this.#deskPosts
     const posts = new Map<string, string[]>()
+    let text: string | null = null
     try {
-      const parsed = JSON.parse(await readFile(join(this.#port.home, DESK_POSTS_FILE), 'utf8')) as unknown
+      text = await readFile(join(this.#port.home, DESK_POSTS_FILE), 'utf8')
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'ENOENT') this.#deskPostsUnreadable = 'it could not be read'
+    }
+    if (text !== null) {
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(text)
+      } catch {
+        parsed = null
+      }
       if (isMap(parsed) && parsed['version'] === 1 && isMap(parsed['comments'])) {
+        // Whatever reads is kept; an entry that does not is dropped from memory, never from the file on its own.
         for (const [repository, ids] of Object.entries(parsed['comments'])) {
           if (REPO.test(repository) && Array.isArray(ids)) posts.set(repository, ids.filter((one): one is string => typeof one === 'string' && /^[1-9][0-9]{0,18}$/.test(one)).slice(-DESK_POSTS_LIMIT))
         }
+      } else {
+        this.#deskPostsUnreadable = 'it is not a record this desk wrote'
       }
-    } catch { /* none yet, or unreadable: the marker still guards every post */ }
+    }
+    if (this.#deskPostsUnreadable) this.#port.log('the desk’s record of its own forge comments is kept as it is and not written', { reason: this.#deskPostsUnreadable })
     this.#deskPosts = posts
     return posts
   }
@@ -462,6 +492,8 @@ export class IntakePlane {
     if (!match || match[1] !== reference.repo) return Promise.resolve()
     return this.#deskSerial.run(async () => {
       const posts = await this.#readDeskPosts()
+      // A record this desk cannot read is never overwritten with one id: kept for a person, and the marker guards meanwhile.
+      if (this.#deskPostsUnreadable) return
       const ids = posts.get(match[1]!) ?? []
       if (ids.includes(match[2]!)) return
       posts.set(match[1]!, [...ids, match[2]!].slice(-DESK_POSTS_LIMIT))

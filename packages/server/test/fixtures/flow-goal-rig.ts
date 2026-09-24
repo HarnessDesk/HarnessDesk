@@ -116,6 +116,12 @@ export interface GoalRig {
   failOrder: boolean
   /** Seats inside a turn now — their brief's, say — which an order would be refused by. */
   busySeats: Set<string>
+  /**
+   * A turn an interrupt asks to stop ends a moment later, as a real agent's
+   * does, and a release refuses a Seat still inside its turn — as the host's
+   * Goal plane refuses it.
+   */
+  turnsEndLater: boolean
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
   /** Every accepted order's text, by Seat id, in order. */
@@ -172,7 +178,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
@@ -236,6 +242,10 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     return record
   }
   const release = async (_goal: string, id: string): Promise<void> => {
+    if (rig.turnsEndLater && rig.busySeats.has(id)) {
+      rig.events.push(`refused:${id}`)
+      throw new Error("Stop this Seat's current turn before releasing it")
+    }
     rig.events.push(`release:${id}`)
     const record = rig.seats.get(id)
     if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
@@ -268,7 +278,8 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     busy: (seat) => rig.busySeats.has(String(seat.id)),
     interrupt: async (seat) => {
       rig.events.push(`interrupt:${seat.id}`)
-      rig.busySeats.delete(String(seat.id))
+      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), 120)
+      else rig.busySeats.delete(String(seat.id))
     },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     reseat: async (seat) => rig.comesBackAs ?? seat.seatLabel,

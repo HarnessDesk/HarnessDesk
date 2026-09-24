@@ -147,3 +147,16 @@ test('the desk remembers the ids it posted across a restart, so a comment that l
   const seen = await outcomes(d)
   assert.deepEqual(seen.get('3'), ['skipped', 'This comment was posted by this desk, so it does not fire a trigger.'])
 })
+
+test('a record of desk posts the desk cannot read is kept as it is, never overwritten with one id', E2E, async (t) => {
+  const d = await armed(t, 'me')
+  const file = join(d.stateDir, 'triggers-desk-posts.json')
+  writeFileSync(file, '{"version": 1, "comments": {"acme/widgets": ["123", "456"')
+  const tool = tools(t, d)
+  await tool.load()
+  const posted = await tool.comment(5, 'Checked again.')
+  assert.equal(readFileSync(file, 'utf8'), '{"version": 1, "comments": {"acme/widgets": ["123", "456"', 'fail closed: the file is not reset')
+  // The marker still guards the post meanwhile.
+  onForge(d, 5, posted)
+  assert.deepEqual((await outcomes(d)).get('5'), ['skipped', 'This comment was posted by this desk, so it does not fire a trigger.'])
+})

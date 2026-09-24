@@ -336,7 +336,11 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
     goals: { ensureTriggerGoal: async (request) => { await options.beforeGoal?.(request.input.root); const view = await goals.ensureTriggerGoal(request); log(`goal:${request.id}`); crash('goal'); return view } },
     ended: (operation) => flows.executionOf(operation.run)?.state === 'stopped',
     // As the plane does it: a firing set aside lets its run go of any hold, waiting on the person.
-    setAside: async (operation, reason) => { if (flows.executionOf(operation.run)) await flows.setAsideTriggered(operation.run, reason) },
+    setAside: async (operation, reason, stop) => {
+      if (!flows.executionOf(operation.run)) return
+      if (stop) await flows.stopRun(operation.run, reason)
+      else await flows.setAsideTriggered(operation.run, reason)
+    },
     evidence: { observeTrigger: async (firing, goal, fact) => { const ids = await evidence.observeTrigger(firing, goal, fact); crash('evidence'); return ids } },
     flows: {
       startTriggered: async (request) => {

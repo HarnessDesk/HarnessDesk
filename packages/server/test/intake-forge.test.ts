@@ -225,6 +225,7 @@ test('a comment carries its author by stable id, a desk post is known only by it
       comment(10, `${marker} and then some words`),
       comment(11, '<!-- harnessdesk:post -->\nA tool’s comment.'),
       comment(12, '> <!-- harnessdesk:post -->\nquoting a tool’s comment'),
+      comment(13, '<!-- harnessdesk:post -->\r\nA tool’s comment, with CRLF endings.'),
     ],
   })
   const read = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never)
@@ -232,7 +233,7 @@ test('a comment carries its author by stable id, a desk post is known only by it
   assert.equal(byId.get('1')?.author, accountDigest(7), 'the signed-in account, by the same digest an arm binds')
   assert.equal(byId.get('2')?.author, accountDigest(99))
   assert.equal(byId.get('3')?.author, null, 'no readable author')
-  assert.deepEqual([4, 5, 6, 7, 8, 9, 10, 11, 12].map((id) => byId.get(String(id))?.desk), [true, true, false, false, false, false, false, true, false],
+  assert.deepEqual([4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map((id) => byId.get(String(id))?.desk), [true, true, false, false, false, false, false, true, false, true],
     'only a first line that is exactly a marker the desk writes')
   assert.ok(read.facts.every((fact) => fact.authorWrites === null), 'nobody was asked about permissions')
   assert.equal(forge.calls.filter((path) => path.includes('/collaborators/')).length, 0)
@@ -249,22 +250,54 @@ test('a comment carries its author by stable id, a desk post is known only by it
   const reads = forge.calls.filter((path) => path.includes('/collaborators/'))
   assert.deepEqual(reads, [
     'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/someone-else/permission',
-    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
-    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
-    'repos/acme/widgets/collaborators/jane-doe/permission', 'repos/acme/widgets/collaborators/jane-doe/permission',
-  ], 'one bounded read per comment, by a validated login')
+  ], 'one bounded read per author within one read, by a validated login')
   forge.permissions.set('someone-else', { id: 99, permission: 'read' })
   const reader = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
   assert.equal(reader.facts.find((fact) => fact.url?.endsWith('-2'))?.authorWrites, false, 'can read, cannot write')
   // A read that cannot be made now is no answer: the whole read throws and keeps its cursor, never a skip (review #898).
   forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'gh: HTTP 502 Bad Gateway' } : null
   await assert.rejects(source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true }), /could not be reached/)
-  // An answer nobody can read is unknown, never yes; the forge saying there is no such collaborator is a no.
+  // A garbled answer or a 403 is no answer either: replayed, never read as a no (review #898, round 3).
   forge.fail = (path) => path.includes('/collaborators/') ? 'malformed' : null
-  const garbled = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
-  assert.ok(garbled.facts.every((fact) => fact.authorWrites === null))
+  await assert.rejects(source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true }))
+  forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'gh: Resource not accessible by integration (HTTP 403)' } : null
+  await assert.rejects(source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true }))
+  // Only the forge saying there is no such collaborator is a no.
   forge.fail = null
   forge.permissions.delete('someone-else')
   const missing = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
   assert.equal(missing.facts.find((fact) => fact.url?.endsWith('-2'))?.authorWrites, false)
+})
+
+test('a busy issue window always makes progress: a read that runs out of time keeps what it covered, and the next goes on', async () => {
+  // Every call is slow; one read's budget covers only some of the changed issues (review #898, round 3).
+  const forge = new FakeForge()
+  const base = ARMED
+  const slow: typeof forge.runner = async (...args) => { await new Promise((resolve) => setTimeout(resolve, 40)); return forge.runner(...args) }
+  const reader = new ForgeSource({ run: slow, now: () => base, timeoutMs: 600 })
+  let cursor: SourceCursor = { version: 1, source: 'issue', repository: REPO, baseline: base - 1, observedThrough: base, continuation: null, subjects: {} }
+  for (let n = 1; n <= 12; n += 1) {
+    forge.issues.push({ number: n, state: 'open', created: base + n, updated: base + n, events: [], comments: [{ id: 100 + n, body: 'hi', created: base + n, updated: base + n }] })
+  }
+  const seen = new Set<string>()
+  let reads = 0
+  while (seen.size < 12 && reads < 8) {
+    reads += 1
+    const batch = await reader.poll(PROJECT, cursor, never)
+    assert.equal(batch.complete, true, `read ${reads} answers what it covered, never a timeout`)
+    for (const fact of batch.facts) {
+      assert.ok(!seen.has(fact.event), 'no fact is offered twice')
+      seen.add(fact.event)
+    }
+    assert.ok(batch.next.observedThrough >= cursor.observedThrough, 'coverage never moves back')
+    cursor = batch.next
+  }
+  assert.equal(seen.size, 12, 'every comment was read')
+  assert.ok(reads > 1 && reads < 8, `it took more than one read and finished (${reads})`)
+
+  // A budget that cannot cover even the list is no progress at all: a gap a person resumes from now, never "offline".
+  const stuck = new ForgeSource({ run: slow, now: () => base, timeoutMs: 20 })
+  const gap = await stuck.poll(PROJECT, { ...cursor, observedThrough: base, subjects: {} }, never)
+  assert.equal(gap.complete, false)
+  assert.match(gap.problem ?? '', /More issues changed than one read can cover/)
 })

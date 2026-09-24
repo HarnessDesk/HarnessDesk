@@ -151,7 +151,8 @@ test('a firing no seat can ever take as things stand is set aside with the chang
   assert.doesNotMatch(first.items[0]!.reason ?? '', /starts on its own/)
   assert.equal((await d.host.call('trigger/preferences', {})).reservedUsd, 0, 'its reservation is given back')
   const run = await d.host.call('flow/execution', { run: first.items[0]!.run! }) as FlowExecution
-  assert.deepEqual([run.state, run.intake?.dispatchHeld], ['stalled', false], 'its run waits on the person, not held on nothing')
+  // Its slot and reservation were given back, so its run is stopped: nothing can spend under what no longer counts.
+  assert.equal(run.state, 'stopped', 'its run is stopped, never left to spend uncounted')
   // Its concurrency slot is given back: the next pull request is answered, not skipped for the limit.
   pushPull(d, 2, 'b')
   d.clocks.advance(60_000)

@@ -498,3 +498,19 @@ test('a hold set when one Seat’s turn ends interrupts every other Seat still i
   assert.equal(rig.busySeats.has('seat-2'), false)
   assert.ok(!rig.events.includes('release:seat-2'), 'held, not let go')
 })
+
+test('a trigger run that stops waits for the turns it interrupted to end before releasing their Seats, so no release is refused', async (t) => {
+  const rig = await goalRig(t)
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  rig.busySeats.add('seat-2')
+  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('refused:')), [], 'no release refused for a turn still ending')
+  for (const seat of ['seat-1', 'seat-2']) {
+    assert.ok(rig.events.indexOf(`interrupt:${seat}`) < rig.events.indexOf(`release:${seat}`), `${seat}: interrupted, then released`)
+  }
+})
