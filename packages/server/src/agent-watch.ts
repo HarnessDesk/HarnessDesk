@@ -17,6 +17,30 @@ export type WatchFn = (
   listener: (event: string, filename: string | Buffer | null) => void,
 ) => FSWatcher
 
+/** A timer handle this module can cancel; a fake clock's handle need not be a real one. */
+export interface ClockTimer {
+  readonly unref?: () => void
+}
+
+/**
+ * The one shape this module ever schedules a delay through: every settle
+ * timer (`#poke`, `#scheduleRescan`) and the retry backoff (`#retry`) go
+ * through this rather than calling `setTimeout`/`clearTimeout` directly, so a
+ * test can hold time still while a real burst of filesystem events lands —
+ * however unevenly a loaded machine spaces them out — and then move it
+ * forward itself, in one step, to settle the burst on its own terms instead
+ * of racing a real window against real load.
+ */
+export interface Clock {
+  readonly setTimeout: (callback: () => void, ms: number) => ClockTimer
+  readonly clearTimeout: (timer: ClockTimer) => void
+}
+
+const realClock: Clock = {
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (timer) => clearTimeout(timer as NodeJS.Timeout),
+}
+
 /**
  * The roster, watched: when a file under one of its roots changes, the desk
  * says so, and every listing and dry run drawn from the roster is asked again.
@@ -78,6 +102,12 @@ export interface AgentWatchOptions {
   readonly log?: (message: string, details?: unknown) => void
   /** Test-only: replaces `node:fs`'s `watch`. The host never passes this. */
   readonly watchFn?: WatchFn
+  /**
+   * Test-only: replaces every `setTimeout`/`clearTimeout` this watch
+   * schedules — both settle timers and the retry backoff. The host never
+   * passes this; it defaults to the real clock.
+   */
+  readonly clock?: Clock
   /**
    * Test-only: called the moment `#follow` has confirmed its scope is still
    * live, synchronously and before its own first `await` — the single point
@@ -175,7 +205,8 @@ export class AgentWatch {
   readonly #watchers = new Map<string, { readonly scope: string | null; readonly close: () => void }>()
   /** A root's own top-level links, watched at their target: keyed under the root's own key (`linksOf`). */
   readonly #links = new Map<string, { readonly scope: string | null; readonly target: string; readonly close: () => void }>()
-  readonly #timers = new Map<string | null, ReturnType<typeof setTimeout>>()
+  readonly #clock: Clock
+  readonly #timers = new Map<string | null, ClockTimer>()
   /**
    * A root's own re-scan of its top-level links, still pending: reset on
    * every accepted event from its recursive watch, so it runs once per
@@ -184,9 +215,9 @@ export class AgentWatch {
    * share `scope: null` between them, and each root's rescan settles on its
    * own.
    */
-  readonly #rescanTimers = new Map<string, { readonly scope: string | null; readonly timer: ReturnType<typeof setTimeout> }>()
+  readonly #rescanTimers = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /** A watch that could not be made, waiting on its backoff to retry through `#follow`. */
-  readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ReturnType<typeof setTimeout> }>()
+  readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /**
    * A run of failures, per root: how long the wait before its latest retry
    * was. Present from a failure until a watch for that root proves healthy —
@@ -203,6 +234,7 @@ export class AgentWatch {
 
   constructor(options: AgentWatchOptions) {
     this.#options = options
+    this.#clock = options.clock ?? realClock
     for (const root of options.roots) void this.#follow({ scope: null, target: root, within: null })
   }
 
@@ -234,11 +266,11 @@ export class AgentWatch {
     this.#watchers.clear()
     for (const one of this.#links.values()) one.close()
     this.#links.clear()
-    for (const timer of this.#timers.values()) clearTimeout(timer)
+    for (const timer of this.#timers.values()) this.#clock.clearTimeout(timer)
     this.#timers.clear()
-    for (const one of this.#rescanTimers.values()) clearTimeout(one.timer)
+    for (const one of this.#rescanTimers.values()) this.#clock.clearTimeout(one.timer)
     this.#rescanTimers.clear()
-    for (const one of this.#retries.values()) clearTimeout(one.timer)
+    for (const one of this.#retries.values()) this.#clock.clearTimeout(one.timer)
     this.#retries.clear()
     this.#runs.clear()
     this.#rescans.clear()
@@ -262,18 +294,18 @@ export class AgentWatch {
     }
     for (const [key, one] of [...this.#retries]) {
       if (one.scope !== scope) continue
-      clearTimeout(one.timer)
+      this.#clock.clearTimeout(one.timer)
       this.#retries.delete(key)
     }
     for (const [key, one] of [...this.#rescanTimers]) {
       if (one.scope !== scope) continue
-      clearTimeout(one.timer)
+      this.#clock.clearTimeout(one.timer)
       this.#rescanTimers.delete(key)
     }
     for (const [key, one] of [...this.#runs]) if (one.scope === scope) this.#runs.delete(key)
     for (const [key, one] of [...this.#rescans]) if (one.scope === scope) this.#rescans.delete(key)
     const timer = this.#timers.get(scope)
-    if (timer) clearTimeout(timer)
+    if (timer) this.#clock.clearTimeout(timer)
     this.#timers.delete(scope)
   }
 
@@ -285,8 +317,8 @@ export class AgentWatch {
   #poke(scope: string | null): void {
     if (!this.#alive(scope)) return
     const pending = this.#timers.get(scope)
-    if (pending) clearTimeout(pending)
-    const timer = setTimeout(() => {
+    if (pending) this.#clock.clearTimeout(pending)
+    const timer = this.#clock.setTimeout(() => {
       this.#timers.delete(scope)
       if (!this.#disposed) this.#options.changed(scope)
     }, this.#options.settleMs ?? SETTLE_MS)
@@ -311,8 +343,8 @@ export class AgentWatch {
     if (!this.#alive(follow.scope)) return
     const key = keyOf(follow)
     const pending = this.#rescanTimers.get(key)
-    if (pending) clearTimeout(pending.timer)
-    const timer = setTimeout(() => {
+    if (pending) this.#clock.clearTimeout(pending.timer)
+    const timer = this.#clock.setTimeout(() => {
       this.#rescanTimers.delete(key)
       void this.#rescanLinks(follow)
     }, this.#options.settleMs ?? SETTLE_MS)
@@ -332,7 +364,7 @@ export class AgentWatch {
 
   #cancelRetry(key: string): void {
     const pending = this.#retries.get(key)
-    if (pending) clearTimeout(pending.timer)
+    if (pending) this.#clock.clearTimeout(pending.timer)
     this.#retries.delete(key)
   }
 
@@ -388,7 +420,7 @@ export class AgentWatch {
       })
     }
     this.#runs.set(key, { scope: follow.scope, delay })
-    const timer = setTimeout(() => {
+    const timer = this.#clock.setTimeout(() => {
       this.#retries.delete(key)
       void this.#follow(follow)
     }, delay)
