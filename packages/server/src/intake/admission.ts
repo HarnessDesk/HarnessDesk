@@ -154,6 +154,8 @@ export interface AdmissionEffects {
    * of any hold and waits for them with why — never left held on nothing.
    */
   setAside?(operation: IntakeOperation, reason: string): Promise<void>
+  /** Whether the run an applied firing waits to release has ended (stopped by a person or a budget): nothing will let it go now. */
+  ended?(operation: IntakeOperation): boolean
   /** Lets go of runs a pause or the cap held, once their gate allows it again (`IntakeTargets.releaseHeld`). */
   releaseHeld?(): Promise<void>
 }
@@ -210,6 +212,7 @@ export const skipConcurrency = (limit: number): string =>
   `This trigger already has ${limit} open ${limit === 1 ? 'Goal' : 'Goals'}, its limit, so this did not fire. Wrap one to make room; this is not replayed.`
 export const PAUSED = 'Triggers are paused on this machine, so nothing is admitted until they resume.'
 export const AGAIN_MISSING = 'New work arrived for this Goal, and this trigger opens no further round. It was recorded; decide what to do with it.'
+export const RUN_ENDED = 'Its run was stopped before this firing was let go, so it was set aside for you and will not run on its own.'
 /** How many times a firing's effects are tried before they go to the person. */
 export const FAULT_ATTEMPTS = 3
 export const faultWaiting = (reason: string): string =>
@@ -275,13 +278,14 @@ export class Admission {
 
   /**
    * Whether a firing is being recorded into this Goal now — claimed under
-   * the Goal plane's queue, or journaled and not yet applied. A wrap waits
+   * the Goal plane's queue, or journaled and not yet released. A wrap waits
    * for it (`GoalPlanePort.intakeHeld`).
    */
   held(goal: string): boolean {
     if (this.#claiming.has(goal)) return true
     try {
-      return this.#store.read().operations.some((operation) => operation.goal === goal && operation.state === 'prepared')
+      // Prepared or applied, until its dispatch is released: a wrap now would stop work this firing is still bringing.
+      return this.#store.read().operations.some((operation) => operation.goal === goal && !operation.dispatched)
     } catch {
       return false
     }
@@ -428,6 +432,11 @@ export class Admission {
       if (pending.dispatched || held.has(pending.project)) continue
       if (!retry && this.#faults.has(pending.project)) {
         held.add(pending.project)
+        continue
+      }
+      // Applied, waiting at its gate, and its run has ended: nothing will ever let it go, so it is the person's.
+      if (pending.state === 'applied' && this.#effects.ended?.(pending)) {
+        await this.#setAside(pending, RUN_ENDED, false)
         continue
       }
       try {

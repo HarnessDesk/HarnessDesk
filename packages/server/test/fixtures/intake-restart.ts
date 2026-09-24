@@ -15,7 +15,7 @@ import { FlowPreviews } from '../../src/flow-preview.js'
 import { Flows, type FlowPort } from '../../src/flows.js'
 import { Serial } from '../../src/goals/assignments.js'
 import { migrateDesk } from '../../src/goals/migration.js'
-import { GoalPlane, type GoalPlanePort } from '../../src/goals/plane.js'
+import { GoalPlane, type GoalMemorySupport, type GoalPlanePort } from '../../src/goals/plane.js'
 import { GoalStore } from '../../src/goals/store.js'
 import { Admission, type AdmissionStep, type OfferAnswer } from '../../src/intake/admission.js'
 import { IntakeEffects, type IntakeTargets } from '../../src/intake/apply.js'
@@ -84,6 +84,10 @@ export interface DeskOptions {
   readonly now?: () => number
   /** Held before admission reads the arm again: where a race is staged. */
   readonly beforeBinding?: () => Promise<void>
+  /** Whether a Goal's flow reads as live to its wrap, as the host answers (`GoalPlanePort.flowLive`); off by default. */
+  readonly live?: boolean
+  /** The Goal plane's memory support; its own archive when absent. */
+  readonly memory?: GoalMemorySupport
   /** Run before a firing's Goal is made, with its project: throw to fail that effect. */
   readonly beforeGoal?: (project: string) => Promise<void>
   /** Held before a firing's round is opened, with the project it opens in: throw to fail that effect. */
@@ -187,6 +191,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
     evidence: async (id) => ({ room: id, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] }),
     evidenceIds: async () => [],
     flow: () => undefined,
+    ...(options.live ? { flowLive: (goal: string) => flows.executionsFor(goal).some((run) => run.state === 'running' || run.state === 'stalled') } : {}),
     busy: () => false,
     waits: () => false,
     stranded: () => false,
@@ -200,11 +205,16 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
     seatAgent: forbidden,
     openLegacySeat: forbidden,
     importOpening: forbidden,
-    closeId: forbidden,
+    // A wrap closes the Seats a trigger's run opened: recorded here as the host's Seat book would.
+    closeId: async (id: string, why: string) => {
+      const record = seats.get(id)
+      if (record && !record.closed) seats.set(id, { ...record, closed: { at: Date.now(), why } as never })
+      log(`close:${id}`)
+    },
     claim: forbidden,
-    releaseClaim: forbidden,
-    refuseMail: forbidden,
-    retainLane: forbidden,
+    releaseClaim: async () => {},
+    refuseMail: async () => {},
+    retainLane: async () => {},
     finish: forbidden,
     finishWrap: async (operation) => {
       const document = goalStore.read(operation.goal)
@@ -221,7 +231,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
     },
     intakeHeld: (goal) => admission?.held(goal) ?? false,
   }
-  const goals = new GoalPlane(goalStore, goalPort, goalSerial)
+  const goals = new GoalPlane(goalStore, goalPort, goalSerial, Date.now, options.memory)
   for (const document of goalStore.list()) {
     if (!team.stateFor(document.goal.id).root) team.installProjection(boardOf(document.goal.id))
   }
@@ -324,6 +334,7 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
 
   const targets: IntakeTargets = {
     goals: { ensureTriggerGoal: async (request) => { await options.beforeGoal?.(request.input.root); const view = await goals.ensureTriggerGoal(request); log(`goal:${request.id}`); crash('goal'); return view } },
+    ended: (operation) => flows.executionOf(operation.run)?.state === 'stopped',
     // As the plane does it: a firing set aside lets its run go of any hold, waiting on the person.
     setAside: async (operation, reason) => { if (flows.executionOf(operation.run)) await flows.setAsideTriggered(operation.run, reason) },
     evidence: { observeTrigger: async (firing, goal, fact) => { const ids = await evidence.observeTrigger(firing, goal, fact); crash('evidence'); return ids } },

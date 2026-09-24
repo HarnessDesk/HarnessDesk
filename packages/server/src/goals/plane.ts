@@ -536,6 +536,15 @@ export class GoalPlane {
        it) or finds the Goal closing and opens a new generation — never both. */
     await this.serial.run(async () => {
       if (this.port.intakeHeld?.(goal)) throw new Error(INTAKE_LANDING)
+      /* Checked again here, under the barrier, before anything is stopped:
+         the check above and the citations' I/O leave a window in which a
+         firing may have landed and revived this Goal's run. A run live now
+         that was not then — or any other change — refuses the wrap with the
+         run untouched, never stopped for a wrap that cannot commit. */
+      const now = await this.#wrapInput(goal)
+      if ((now.flow && !input.flow) || previewWrap({ ...now, flow: false }, approved).stamp !== stamp) {
+        throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+      }
       this.#closing.add(goal)
     })
     try {

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 
 import { prepareAdmission, SKIP_CHANGED, SKIP_FORK } from '../src/intake/admission.js'
 import { committedToday, utcDay } from '../src/intake/budget.js'
+import type { GoalMemorySupport } from '../src/goals/plane.js'
 import { INTAKE_LANDING } from '../src/goals/plane.js'
 import { Gate, settle } from './fixtures/intake-forge.js'
 import { definition, desk, onDisk, prFact, sha } from './fixtures/intake-restart.js'
@@ -175,7 +176,8 @@ test('wrap and next fact choose exactly one generation', async () => {
     const home = tempDir('hd-intake-wrap-')
     const stop = new Gate()
     const atStop = new Gate()
-    const d = await desk(home, { gate: hold, beforeStop: async () => { atStop.open(); await stop.opened } })
+    // Dispatch allowed: a firing held at its gate is landing work a wrap must wait for (review #898, round 3).
+    const d = await desk(home, { beforeStop: async () => { atStop.open(); await stop.opened } })
     const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
     await d.settle()
     const wrapping = wrap(d, opened.goal!).then(() => 'wrapped', (error: Error) => error.message)
@@ -205,7 +207,7 @@ test('wrap and next fact choose exactly one generation', async () => {
   // the Goal as open, and the barrier alone decides — the firing opens a new generation.
   {
     const home = tempDir('hd-intake-wrap-')
-    const d = await desk(home, { gate: hold })
+    const d = await desk(home)
     const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
     await d.settle()
     const cards = d.goalStore.read(opened.goal!).board.intents
@@ -338,4 +340,79 @@ test('a later firing set aside lets its run go of the hold it took, and the run 
   assert.equal(run.intake?.dispatchHeld, false, 'never left held on a firing that will not come')
   assert.equal(run.state, 'stalled')
   assert.match(run.reason ?? '', /set aside for you/)
+})
+
+test('a firing that lands while a wrap retains its citations is never stopped by that wrap', async () => {
+  for (const held of [false, true]) {
+    const home = tempDir('hd-intake-wrap-window-')
+    const atCapture = new Gate()
+    const captured = new Gate()
+    let capturing = false
+    // The wrap's own I/O before its barrier: retaining a memory citation, held here on a gate.
+    const memory = {
+      capture: async () => { if (capturing) { atCapture.open(); await captured.opened } return 'd'.repeat(64) },
+      resolve: async () => ({ state: 'unavailable' }),
+      register: () => {}, isKnownRestored: () => false, readRaw: async () => null, writeSnapshot: async () => 'key', isRegistered: () => false,
+    } as unknown as GoalMemorySupport
+    let dispatch = true
+    const d = await desk(home, { live: true, memory, gate: async () => dispatch ? null : 'Every trigger is paused. Resume triggers to continue.' })
+    const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+    await d.settle()
+    const goal = opened.goal!
+    // Its one Seat answers: the run settles, and nothing of it is live.
+    const [card] = d.team.stateFor(goal).intents
+    const seat = [...d.seats.values()].find((one) => one.board === goal)!
+    void seat
+    d.team.intentAction(goal, card!.id, 'done', undefined, 'approve')
+    await d.flows.flush()
+    d.flows.completed(goal, d.team.stateFor(goal).intents.find((one) => one.id === card!.id)!)
+    await d.settle()
+    const run = d.flows.executionsFor(goal)[0]!
+    assert.equal(run.state, 'settled')
+    const document = d.goalStore.read(goal)
+    await d.goalStore.save({
+      ...document,
+      citations: [{ goal, receipt: 'receipt-1', project: document.goal.root, path: '.harnessdesk/memory/notes.md', at: 'c'.repeat(40) }],
+      goal: { ...document.goal, revision: document.goal.revision + 1 },
+    }, document.goal.revision)
+    const choices = { summary: 'Reviewed', cards: d.goalStore.read(goal).board.intents.map((one) => ({ id: one.id, resolution: 'finished' as const, reason: null })) }
+    const preview = await d.goals.preview(goal, choices)
+
+    capturing = true
+    dispatch = !held
+    const wrapping = d.goals.wrap(goal, preview.stamp, choices).then(() => 'wrapped', (error: Error) => error.message)
+    await atCapture.opened
+    // In the window between the wrap's check and its barrier, a new head lands and revives the run.
+    const pushed = await d.admission.offer(d.arm, prFact(1, sha('b'), 'pushed'))
+    await d.settle()
+    assert.equal(pushed.goal, goal)
+    captured.open()
+    const outcome = await wrapping
+    assert.notEqual(outcome, 'wrapped', `${held ? 'held' : 'dispatched'}: the wrap does not go through`)
+    assert.match(outcome, held ? /A trigger is adding new work to this Goal/ : /changed while you reviewed/)
+    const after = d.flows.executionsFor(goal)[0]!
+    assert.equal(after.state, 'running', `${held ? 'held' : 'dispatched'}: the revived run is never stopped by the refused wrap`)
+    assert.equal(after.rounds.length, 2)
+    assert.equal(d.goalStore.read(goal).goal.state, 'open')
+  }
+})
+
+test('a firing held at its gate is landing work a wrap waits for — until its run is stopped, when it is set aside', async () => {
+  const home = tempDir('hd-intake-held-wrap-')
+  const d = await desk(home, { gate: async () => 'Every trigger is paused. Resume triggers to continue.' })
+  const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+  await d.settle()
+  const goal = opened.goal!
+  const choices = { summary: 'Reviewed', cards: d.goalStore.read(goal).board.intents.map((one) => ({ id: one.id, resolution: 'dropped' as const, reason: 'Not needed' })) }
+  const preview = await d.goals.preview(goal, choices)
+  await assert.rejects(d.goals.wrap(goal, preview.stamp, choices), (error: Error) => error.message === INTAKE_LANDING, 'held, not yet let go: still landing')
+  // The person stops the run: nothing will let this firing go now, so it is set aside, and the Goal can wrap.
+  const run = d.flows.executionsFor(goal)[0]!
+  await d.flows.stopRun(run.id, 'the person stopped this flow')
+  await d.admission.recover()
+  assert.equal(d.store.read().firings[opened.firing]?.setAside, true)
+  assert.deepEqual(d.store.read().operations, [])
+  const again = await d.goals.preview(goal, choices)
+  await d.goals.wrap(goal, again.stamp, choices)
+  assert.equal(d.goalStore.read(goal).goal.state, 'wrapped')
 })

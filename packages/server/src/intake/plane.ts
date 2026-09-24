@@ -269,6 +269,7 @@ export class IntakePlane {
       },
       supersede: (operation) => this.#supersede(operation),
       releaseHeld: () => this.#releaseHeld(),
+      ended: (operation) => port.flows.execution(operation.run)?.state === 'stopped',
       setAside: async (operation, reason) => {
         if (port.flows.execution(operation.run)) await port.flows.setAsideTriggered(operation.run, reason)
         this.#schedule()

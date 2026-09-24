@@ -78,6 +78,8 @@ export interface IntakeTargets {
   releaseHeld?(): Promise<void>
   /** A firing set aside for the person: its run let go of any hold, waiting on them with why. */
   setAside?(operation: IntakeOperation, reason: string): Promise<void>
+  /** Whether a firing's run has ended, so its release can never come (`AdmissionEffects.ended`). */
+  ended?(operation: IntakeOperation): boolean
 }
 
 /** Whether a firing brought an open Goal a head its running work was not started for. */
@@ -140,6 +142,10 @@ export class IntakeEffects implements AdmissionEffects {
 
   async releaseHeld(): Promise<void> {
     await this.#targets.releaseHeld?.()
+  }
+
+  ended(operation: IntakeOperation): boolean {
+    return this.#targets.ended?.(operation) ?? false
   }
 
   async setAside(operation: IntakeOperation, reason: string): Promise<void> {
