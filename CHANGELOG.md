@@ -7,6 +7,20 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A paused or uncertain finding posting is yours to settle, and nothing is
+  posted twice** — the Goal's Findings pane lists each closed-round posting
+  that needs you with the reason: *Post again* reads the pull request back
+  before anything is sent, *Skip* asks why and puts that on the receipt, and
+  rounds kept on the desk before a pull request was bound are posted only
+  after you preview and confirm them. A wrapped Goal's receipt opens each
+  finding's history and carries unresolved ones into another open Goal, and a
+  finding's history lets you withdraw it or accept or reject a claimed repair
+  yourself, with a reason. Fixed along the way: wrapping could hang while a
+  flow seated a card; a decision made while a round was closing could be
+  lost; a reviewer in a blind round could read a sibling's verdict or reach it
+  through a new card; two submissions of one decision could both apply;
+  *Merge anyway* was greyed whenever nothing had been posted; and `review-pr`
+  stopped before its referee after one repair.
 - **The findings ledger has a home in the Goal rail, and a stopped run asks you directly** —
   Findings joins Board and Chat on a Goal's own rail: filter All, Open or
   Blocking; a row shows a claimed repair honestly ("Repair claimed · awaiting

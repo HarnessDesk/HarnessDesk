@@ -624,7 +624,11 @@ sibling reads another sibling's findings, its review, or anything it posted,
 through any desk route — the board, `get_context`, `list_findings`, the
 channel — while the round is open, and neither can it post to a bound pull
 request: `pr_review`, `pr_comment` and `issue_comment` all refuse for an
-embargoed Seat and the conversation it delegated to. Once every reviewer's
+embargoed Seat and the conversation it delegated to. A reviewer's own
+verdicts and repairs recorded in the round are left out of a sibling's reads
+too, not only what it raised, and a reviewer in an open blind round adds no
+card to the board and takes no card but its own — a card is read by every
+member at once. Once every reviewer's
 card has durably completed, the round's whole batch — every finding, every
 review, one comment each — is decided and journaled together, then sent one
 comment at a time; a person watching mid-round sees how many reviewers have
@@ -657,12 +661,26 @@ deletes the Goal). A stopped run's decision is bound to the exact stamp the
 person read it at, so a resubmission of that same stamp replays the outcome
 already reached rather than either double-spending a round or refusing a
 lost-answer retry outright; a different action under a stamp already used is a
-genuine conflict and refuses.
+genuine conflict and refuses. The check and the action are one step in the
+run's own queue, so two submissions of one read never both apply. Merge anyway
+asks only for a bound pull request, not for posting to be on. A Goal that is
+wrapped, being wrapped or from a backup takes no decision at all; a person may
+also decide a single finding themselves from its history — withdraw it, or
+accept or reject a repair once one is claimed — with a reason, recorded as a
+person's verdict.
 
 Posting is on by default the moment a Goal is bound to a pull request — bound
 by host-observed evidence, never by a URL anyone typed — and off for a Goal
 with none, kept entirely on the desk. A person may turn it off for a bound
-Goal too. When a wrap finds a posting still unsettled after working it to its
+Goal too. A posting that paused (the pull request moved, a comment was edited
+by hand, the pull request could not be read) or whose answer was lost waits on
+the Goal's Findings pane for a person: **post again** reads the pull request
+back first — one exact copy is recorded where it is and never sent again,
+several are left for the person to look at, and none, with the person having
+asked, is the one fresh attempt — and **skip** records, with the person's
+reason, a gap the receipt carries. Rounds kept on the desk before a pull
+request was bound are posted only when a person previews exactly what would
+go and confirms it. When a wrap finds a posting still unsettled after working it to its
 end, it refuses to finish until the person says `publicationGaps: 'record'`,
 which writes each one into the receipt as a gap rather than silently dropping
 it. A wrap's receipt freezes every finding the Goal owned and any override a
