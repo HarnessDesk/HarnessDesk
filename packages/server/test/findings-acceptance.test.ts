@@ -39,6 +39,7 @@ const acceptanceRig = async (t: { after(fn: () => Promise<void>): void }): Promi
       return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
     },
     entry: (key) => f.rig.flows.publicationEntry(key),
+    snapshot: (run) => f.rig.flows.publicationOf(run),
     roundClosed: (run, round) => f.rig.flows.roundClosed(run, round),
     goal: () => ({ open: preference.open, preference: preference.value }),
     projectOf: async () => '/repo',

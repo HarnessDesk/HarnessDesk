@@ -404,6 +404,8 @@ export class FlowExecutions {
   readonly #closeListeners = new Set<(run: string, round: number) => void | Promise<void>>()
   /** Close processing a listener started, so `idle()` waits for it as it waits for the run queues. */
   readonly #closing = new Set<Promise<void>>()
+  /** The closes being processed now, by run and round: never two of one close at once. */
+  readonly #processingCloses = new Set<string>()
   /** What a ready rule also needs besides its guards: no open admitted blocker and no pending exception. */
   #findingsGate: ((run: string) => Promise<FindingsGate | null>) | null = null
   /** A later review round's package, read before its Seats open; throws when the delta cannot be read in full. */
@@ -449,6 +451,13 @@ export class FlowExecutions {
   }
 
   #emitClosed(run: string, round: number): void {
+    /* One processing of a close at a time: a person's decision advancing the
+       run while its close is still being read would otherwise start a second
+       one, and the two would race to record it. */
+    const key = `${run}\u0000${round}`
+    if (this.#processingCloses.has(key)) return
+    this.#processingCloses.add(key)
+    const settled: Promise<unknown>[] = []
     for (const listener of this.#closeListeners) {
       try {
         const work = listener(run, round)
@@ -460,11 +469,13 @@ export class FlowExecutions {
             await this.#queue.within(run, () => this.#stall(run, `Round ${round} could not be closed: ${why}`)).catch(() => undefined)
           }).finally(() => this.#closing.delete(tracked))
           this.#closing.add(tracked)
+          settled.push(tracked)
         }
       } catch (error) {
         this.#port.log('a closed round could not be processed', { run, round, error: error instanceof Error ? error.message : String(error) })
       }
     }
+    void Promise.all(settled).finally(() => this.#processingCloses.delete(key))
   }
 
   /** A run as the findings plane reads it when one of its rounds closes. */
@@ -490,18 +501,38 @@ export class FlowExecutions {
   }
 
   /**
-   * Records a closed round's findings bookkeeping — `next`, or none when the
-   * round was already counted — with its close operation finished, in one
-   * write, then advances the run from its own queue. Idempotent on the round.
+   * Records a closed round's findings bookkeeping with its close operation
+   * finished, in one write, then advances the run from its own queue.
+   * Idempotent on the round. `close` is applied here, inside the run's
+   * queue, to the run's bookkeeping as it stands now — never to the copy the
+   * close read before its awaits — and only the fields a close owns are
+   * taken from it: the closed rounds, the idle count, the progress seen, the
+   * stop, and the review series (which `close` builds by applying its round's
+   * `closeSeries` to the current ones). Everything a person decided while the
+   * close was reading — an override, an exception, an extra round, a
+   * decision stamp — is kept. Null records nothing but the close itself.
    */
-  recordRoundClose(id: string, round: number, next: FindingRunState | null): Promise<void> {
+  recordRoundClose(id: string, round: number, close: ((current: FindingRunState) => FindingRunState) | null): Promise<void> {
     return this.#queue.within(id, async () => {
       const run = this.#runs.get(id)
       if (!run?.findings) return
       const key = `close:${round}`
       const operation = run.operations.find((one) => one.key === key)
       if (operation?.state === 'finished') return
-      await this.#put(this.#operation({ ...run, findings: next ?? run.findings }, key, { kind: 'round', state: 'finished', card: null, seat: null }))
+      const current = run.findings
+      let findings = current
+      if (close && !current.closedRounds.includes(round)) {
+        const closed = close(current)
+        findings = {
+          ...current,
+          closedRounds: closed.closedRounds,
+          idleRounds: closed.idleRounds,
+          progress: closed.progress,
+          series: closed.series,
+          stopped: closed.stopped,
+        }
+      }
+      await this.#put(this.#operation({ ...run, findings }, key, { kind: 'round', state: 'finished', card: null, seat: null }))
       await this.#advance(id)
     })
   }
@@ -520,12 +551,15 @@ export class FlowExecutions {
       let run = this.#get(id)
       if (!run.findings) throw new Error('This run keeps no findings bookkeeping to authorize a round on.')
       if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
-      if (!run.findings.stopped || run.findings.stopped.round !== round) {
+      const already = run.findings.extraRound
+      // The same authorization again — a retry, or a crash before its round opened — replays it; it spends nothing more.
+      const replay = run.findings.stopped === null && already?.after === round && already.reason === reason
+      if (!replay && (!run.findings.stopped || run.findings.stopped.round !== round)) {
         throw new Error('This run is not stopped at that round any more. Read its status again.')
       }
-      const already = run.findings.extraRound
-      if (!already || already.after !== round || already.reason !== reason) {
-        run = await this.#put({ ...run, findings: { ...run.findings, extraRound: { after: round, reason } } })
+      if (!replay) {
+        // The stop is answered: cleared, so nothing says the run is waiting for a person while its authorized round runs.
+        run = await this.#put({ ...run, findings: { ...run.findings, stopped: null, extraRound: { after: round, reason } } })
       }
       run = await this.#put({ ...run, state: 'running', reason: null })
       await this.#advance(id)
@@ -982,6 +1016,11 @@ export class FlowExecutions {
   /** Every run with a publication journaled, and its Goal. */
   publicationRuns(): readonly { readonly run: string; readonly goal: string }[] {
     return [...this.#runs.values()].filter((run) => Object.keys(run.publication?.rounds ?? {}).length > 0).map((run) => ({ run: run.id, goal: run.goal }))
+  }
+
+  /** A run's publication journal as it stands: a snapshot read that takes no queue. */
+  publicationOf(id: string): StoredPublication | null {
+    return this.#runs.get(id)?.publication ?? null
   }
 
   /** A publication by its key, in whichever run journaled it: a snapshot read. */

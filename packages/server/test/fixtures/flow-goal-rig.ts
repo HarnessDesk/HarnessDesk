@@ -8,6 +8,7 @@ import { FlowReview, type ReviewAppendOutcome, type ReviewSubjectPort } from '..
 import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort, type StoredFlowExecution } from '../../src/flow-execution.js'
 import { compileFlowPolicy, parseFlowPolicy } from '../../src/flow-policy.js'
 import { Flows, type FlowPort } from '../../src/flows.js'
+import { Serial } from '../../src/goals/assignments.js'
 import { Team, type TeamPeer, type TeamPort } from '../../src/team.js'
 
 /**
@@ -95,6 +96,14 @@ export interface GoalRig {
   readonly staleFacts: Set<string>
   /** The real guard/review logic, over `facts` above. */
   readonly review: FlowReview
+  /**
+   * The Goal queue, as the host's: every Seat opening and release takes it,
+   * exactly as `GoalPlane.seat`/`release` do, so a test that holds it sees
+   * what a run seating a card really waits on.
+   */
+  readonly goalSerial: Serial
+  /** Told when a run asks for a Seat, before the opening waits for the Goal queue. */
+  seatAsked: (() => void) | null
   /** Asked of each opening before it happens; throw to refuse it. */
   beforeOpen: ((n: number, agent: string) => void) | null
   /** Asked after the conversation exists but before its card is claimed. */
@@ -148,6 +157,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     checkContexts: [] as (string | undefined)[],
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
+    goalSerial: new Serial(), seatAsked: null,
     beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
     orderTexts: new Map<string, string[]>(),
     dispatch: { ok: true } as GoalRig['dispatch'],
@@ -170,6 +180,50 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     rig.facts.set(goal, [...(rig.facts.get(goal) ?? []), record])
     return record
   }
+  /* Inside the Goal queue, as `GoalPlane.seat` and `GoalPlane.release` run: the host's own order. */
+  const openSeat = async (input: Parameters<FlowExecutionPort['openSeat']>[0]): Promise<SeatRecord> => {
+    opened += 1
+    const n = opened
+    rig.beforeOpen?.(n, input.agent)
+    const asked = input.seats?.[0]?.runtime ?? 'alpha'
+    const runtime = rig.opensAs?.(asked) ?? asked
+    const sessionId = `s${n}`
+    const cwd = input.isolate ? `/repo/.lanes/${n}` : '/repo'
+    const record: SeatRecord = {
+      id: `seat-${n}` as SeatRecord['id'], agent: { id: input.agent, name: input.agent, origin: 'project' },
+      briefDigest: rig.digests.get(input.agent) ?? `${input.agent}-digest`, seat: { runtime }, seatLabel: runtime, passedOver: [],
+      standing: { kind: 'ceiling', level: input.grant?.kind === 'ceiling' ? input.grant.level : 'read' }, ceiling: null,
+      checkout: { cwd, project: '/repo', branch: null, head: null }, session: { runtime, sessionId },
+      board: input.goal, role: null, openedAt: n, closed: null,
+    }
+    peers.push({ runtime: runtime as RuntimeId, sessionId, title: null, cwd, agent: runtime, busy: true, canSteer: false, queuedByUser: 0, model: runtime, here: true })
+    await team.joinRoom(input.goal, runtime as RuntimeId, sessionId)
+    rig.seats.set(String(record.id), record)
+    if (input.isolate) {
+      const lane = rig.laneFor(n, record)
+      if (lane) rig.lanes.set(String(record.id), lane)
+    }
+    rig.events.push(`open:${record.id}`)
+    rig.beforeClaim?.(n)
+    if (input.card !== undefined) {
+      // The host's own claim, on its authority: allowed only while this card's Seat is opening.
+      const bound = rig.flows.bindingFor(input.goal, input.card)
+      if (bound && !bound.opening) throw new Error('This card cannot be assigned now.')
+      const state = team.stateFor(input.goal)
+      team.installProjection({
+        ...state,
+        intents: state.intents.map((card) => card.id === input.card
+          ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now() } }
+          : card),
+      })
+    }
+    return record
+  }
+  const release = async (_goal: string, id: string): Promise<void> => {
+    rig.events.push(`release:${id}`)
+    const record = rig.seats.get(id)
+    if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
+  }
   const port: FlowExecutionPort = {
     providerOf: async (runtime) => rig.providers.get(runtime) ?? null,
     canDispatch: () => rig.dispatch,
@@ -184,48 +238,10 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     seatsOn: (goal) => [...rig.seats.values()].filter((seat) => seat.board === goal && seat.closed === null),
     digestOf: async (_goal, id) => rig.digests.get(id) ?? `${id}-digest`,
     openSeat: async (input) => {
-      opened += 1
-      const n = opened
-      rig.beforeOpen?.(n, input.agent)
-      const asked = input.seats?.[0]?.runtime ?? 'alpha'
-      const runtime = rig.opensAs?.(asked) ?? asked
-      const sessionId = `s${n}`
-      const cwd = input.isolate ? `/repo/.lanes/${n}` : '/repo'
-      const record: SeatRecord = {
-        id: `seat-${n}` as SeatRecord['id'], agent: { id: input.agent, name: input.agent, origin: 'project' },
-        briefDigest: rig.digests.get(input.agent) ?? `${input.agent}-digest`, seat: { runtime }, seatLabel: runtime, passedOver: [],
-        standing: { kind: 'ceiling', level: input.grant?.kind === 'ceiling' ? input.grant.level : 'read' }, ceiling: null,
-        checkout: { cwd, project: '/repo', branch: null, head: null }, session: { runtime, sessionId },
-        board: input.goal, role: null, openedAt: n, closed: null,
-      }
-      peers.push({ runtime: runtime as RuntimeId, sessionId, title: null, cwd, agent: runtime, busy: true, canSteer: false, queuedByUser: 0, model: runtime, here: true })
-      await team.joinRoom(input.goal, runtime as RuntimeId, sessionId)
-      rig.seats.set(String(record.id), record)
-      if (input.isolate) {
-        const lane = rig.laneFor(n, record)
-        if (lane) rig.lanes.set(String(record.id), lane)
-      }
-      rig.events.push(`open:${record.id}`)
-      rig.beforeClaim?.(n)
-      if (input.card !== undefined) {
-        // The host's own claim, on its authority: allowed only while this card's Seat is opening.
-        const bound = rig.flows.bindingFor(input.goal, input.card)
-        if (bound && !bound.opening) throw new Error('This card cannot be assigned now.')
-        const state = team.stateFor(input.goal)
-        team.installProjection({
-          ...state,
-          intents: state.intents.map((card) => card.id === input.card
-            ? { ...card, state: 'claimed', claim: { runtime: runtime as RuntimeId, sessionId, at: Date.now() } }
-            : card),
-        })
-      }
-      return record
+      rig.seatAsked?.()
+      return rig.goalSerial.run(() => openSeat(input))
     },
-    release: async (_goal, id) => {
-      rig.events.push(`release:${id}`)
-      const record = rig.seats.get(id)
-      if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
-    },
+    release: (goal, id) => rig.goalSerial.run(() => release(goal, id)),
     order: async (seat, text) => {
       if (rig.failOrder) throw new Error('the agent is not running')
       if (rig.busySeats.has(String(seat.id))) throw new Error('still working on the last message')

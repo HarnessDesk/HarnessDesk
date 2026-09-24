@@ -440,6 +440,10 @@ export class Flows implements TeamFlows {
     return this.#executions?.publicationRuns() ?? []
   }
 
+  publicationOf(run: string): ReturnType<FlowExecutions['publicationOf']> {
+    return this.#executions?.publicationOf(run) ?? null
+  }
+
   publicationEntry(key: string): ReturnType<FlowExecutions['publicationEntry']> {
     return this.#executions?.publicationEntry(key) ?? null
   }

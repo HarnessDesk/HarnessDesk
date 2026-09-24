@@ -43,6 +43,7 @@ const publicationRig = async (t: { after(fn: () => Promise<void>): void }, optio
       return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
     },
     entry: (key) => f.rig.flows.publicationEntry(key),
+    snapshot: (run) => f.rig.flows.publicationOf(run),
     roundClosed: (run, round) => f.rig.flows.roundClosed(run, round),
     goal: () => ({ open: goal.open, preference: goal.preference }),
     projectOf: async () => '/repo',
@@ -460,4 +461,44 @@ test('a wrap settles posting first: a lost answer is read back, a paused posting
   const gaps = await r.pub.gaps(f.goal)
   assert.equal(gaps.length, 3)
   assert.ok(gaps.every((gap) => /is not posted: Pull request #7 moved from/.test(gap)))
+})
+
+/*
+ * The lock order (host.ts, "Lock order"): a run seating a card holds its run
+ * queue and then asks for the Goal queue; a wrap preview holds the Goal queue
+ * and reads what posting left unsettled. That read must take no queue at all,
+ * or each waits on the other forever.
+ */
+test('a wrap preview holding the Goal queue never waits on a run that is seating a card', async (t) => {
+  const r = await publicationRig(t)
+  const { f } = r
+  await review(r)
+  await f.finishReviews('request-changes')
+  await r.pub.idle()
+  assert.ok(f.rig.flows.publicationRuns().some((one) => one.run === f.run), 'the run has a journaled publication to read')
+  let letPreviewRead!: () => void
+  const previewGate = new Promise<void>((resolve) => { letPreviewRead = resolve })
+  let inPreview!: () => void
+  const previewHolds = new Promise<void>((resolve) => { inPreview = resolve })
+  // The preview: the Goal queue held, then — after git answers — the publication gaps read.
+  const preview = f.rig.goalSerial.run(async () => {
+    inPreview()
+    await previewGate
+    return r.pub.gaps(f.goal)
+  })
+  await previewHolds
+  // A run step that seats the next review's cards, taken while the preview holds the Goal queue.
+  let asked!: () => void
+  const seatAsked = new Promise<void>((resolve) => { asked = resolve })
+  f.rig.seatAsked = () => asked()
+  f.rig.heads.set('/repo', { at: SHA2, dirty: false })
+  const step = f.finishFixer()
+  await seatAsked
+  letPreviewRead()
+  const stuck = new Promise<'stuck'>((resolve) => { const timer = setTimeout(() => resolve('stuck'), 3_000); timer.unref() })
+  const [gaps, stepped] = await Promise.all([Promise.race([preview, stuck]), Promise.race([step.then(() => 'seated' as const), stuck])])
+  assert.notEqual(gaps, 'stuck', 'the preview read its gaps without waiting on the run')
+  assert.deepEqual(gaps, [], 'nothing of the closed round is unsettled')
+  assert.equal(stepped, 'seated', 'the run seated its cards once the preview let the Goal queue go')
+  assert.equal(f.cards('reviewer').filter((one) => one.state === 'claimed').length, 2)
 })

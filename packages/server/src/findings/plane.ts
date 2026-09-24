@@ -49,11 +49,12 @@ import { admittedOf, advanceProgress, closeSeries, decideLoop, pendingOf, progre
  *
  * Every finding event — a Seat's raise, repair claim or verdict, a person's
  * carry — is appended here and nowhere else, one project at a time. The
- * order a command takes its queues is fixed: the flow run's own queue (whose
- * journal records the command before it takes effect), then this plane's
- * project queue, never the other way round, and nothing holding the project
- * queue ever asks for a run or a Goal. A carry takes the Goal queue, then
- * the project queue. So no two writers ever read-modify-write one finding.
+ * order a command takes its queues is the desk's one lock order ("Lock
+ * order" in host.ts): the flow run's own queue (whose journal records the
+ * command before it takes effect), then this plane's project queue, never
+ * the other way round, and nothing holding the project queue ever asks for a
+ * run or a Goal. A carry takes the Goal queue, then the project queue. So no
+ * two writers ever read-modify-write one finding.
  *
  * Every command reads the ledger inside the project queue, validates the
  * caller's live authority against what it read — the Seat the calling
@@ -121,8 +122,12 @@ export interface FindingFlows {
   run?(run: string): FindingRunSnapshot | null
   /** A round's subjects, read now: the revisions its reviewers judged. */
   subjects?(goal: string, round: FlowRoundState): Promise<readonly FlowSubject[]>
-  /** Records a closed round's bookkeeping and lets the run go on. Idempotent on the round. */
-  recordClose?(run: string, round: number, next: FindingRunState | null): Promise<void>
+  /**
+   * Records a closed round's bookkeeping and lets the run go on. Idempotent
+   * on the round. `close` is applied inside the run's queue to its current
+   * bookkeeping; only the fields a close owns are taken from what it answers.
+   */
+  recordClose?(run: string, round: number, close: ((current: FindingRunState) => FindingRunState) | null): Promise<void>
   /** Open blind review rounds on a Goal. */
   blindRounds?(goal: string): readonly { readonly run: string; readonly round: number; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[]
   /** A Goal's facts in append order, each with its freshness now. */
@@ -911,12 +916,13 @@ export class FindingsPlane {
     const ledger = await this.#serial(project, () => this.#ledger(project))
     const facts = await flows.facts(snapshot.goal)
     const subjects = closing.reviews ? await flows.subjects(snapshot.goal, closing) : []
-    const next = closeRound({ snapshot, round: closing, ledger, facts, subjects })
+    // Computed from what this close read, applied to the run as it stands when the write runs.
+    const close = (current: FindingRunState): FindingRunState => closeRound({ snapshot, state: current, round: closing, ledger, facts, subjects })
     /* The round's release is decided and journaled before the run goes on;
        its comments are sent afterwards, one at a time, and the run never
        waits on a forge. A decision that cannot be written stops the run. */
     await this.#publisher?.close(run, round)
-    await flows.recordClose(run, round, next)
+    await flows.recordClose(run, round, close)
   }
 
   /**
@@ -1206,13 +1212,15 @@ export class FindingsPlane {
  */
 export function closeRound(input: {
   readonly snapshot: FindingRunSnapshot
+  /** The run's bookkeeping to close onto: the current one, read inside the run's queue. The snapshot's when absent. */
+  readonly state?: FindingRunState
   readonly round: FindingRunSnapshot['rounds'][number]
   readonly ledger: { readonly records: readonly EvidenceRecord[]; readonly views: readonly FindingView[]; readonly unreadable: number }
   readonly facts: readonly EvidenceView[]
   readonly subjects: readonly FlowSubject[]
 }): FindingRunState {
   const { snapshot, round, ledger } = input
-  const state = snapshot.findings!
+  const state = input.state ?? snapshot.findings!
   const goal = snapshot.goal
   const owned = ledger.views.filter((one) => one.ownerGoal === goal)
   // Series: the round's reviews, by role and subject checkout.

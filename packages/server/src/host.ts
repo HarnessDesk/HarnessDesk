@@ -1000,6 +1000,33 @@ export class Host {
       },
     }), review)
     this.#team.attachFlows(this.#flows)
+    /*
+     * Lock order. Five queues order the desk's writes; a holder may only ask
+     * for a queue to its right, and never waits on one to its left:
+     *
+     *   publication  →  run  →  Team  →  Goal  →  project
+     *
+     * - publication (`Publications`, one desk-wide queue of forge operations):
+     *   takes a run queue for each journal transition and the project queue
+     *   for a ledger read or a post event, holding neither across a remote call.
+     * - run (`FlowExecutions`' `SerialRun`, one per flow run): may seat or
+     *   release a Seat and create a Goal (the Goal queue), write the board
+     *   (Team), and run a finding command, gate, packet or publication decision
+     *   (the project queue). Never the publication queue: a closed round's
+     *   batch is decided in the run queue but sent from its own.
+     * - Team (the board's write chain): a board save runs in the Goal queue.
+     * - Goal (the host's `#goalSerial`): may read the ledger and append a
+     *   carry (the project queue). Everything it reads of a run — its state,
+     *   its overrides, what posting left unsettled — is a snapshot that takes
+     *   no queue (`Publications.gaps`, `status`); a wrap waits for posting to
+     *   settle (`settledFor`) before it takes this queue, never inside it.
+     * - project (`FindingsPlane`'s queue, one per canonical project): the
+     *   evidence store only. It asks for nothing.
+     *
+     * A run seating a card holds run → Goal; a wrap preview holds Goal and
+     * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
+     * and `goal-wrap.test.ts` hold both sides at once.
+     */
     /* Read lazily, like the review wiring above: nothing here runs until a
        Seat calls a finding tool or a person carries findings, well after the
        constructor has made every plane it names. */
@@ -1052,6 +1079,7 @@ export class Host {
         return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
       },
       entry: (key) => this.#flows.publicationEntry(key),
+      snapshot: (run) => this.#flows.publicationOf(run),
       roundClosed: (run, round) => this.#flows.roundClosed(run, round),
       goal: (goal) => {
         try {

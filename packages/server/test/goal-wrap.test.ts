@@ -6,6 +6,8 @@ import type { EvidenceRecord, WrapChoices } from '@harnessdesk/protocol'
 
 import { EvidenceStore } from '../src/evidence/store.js'
 import { FindingsPlane } from '../src/findings/plane.js'
+import { Publications, type PublicationJournal, type StoredPublication } from '../src/findings/publication.js'
+import { SerialRun } from '../src/flow-execution.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalPlane } from '../src/goals/plane.js'
 import { GoalStore } from '../src/goals/store.js'
@@ -284,4 +286,61 @@ test('wrap shows partial publication gaps', async () => {
   const wrapped = await plane.wrap('g1', again.stamp, choices({ publicationGaps: 'record' }))
   assert.ok(wrapped.gaps.includes(publication[0]!))
   assert.deepEqual(store.read('g1').receipt?.gaps, wrapped.gaps)
+})
+
+/*
+ * The two real queues of the deadlock a review found, as the host holds them
+ * (host.ts, "Lock order"): a run step holds its run queue and seats a card,
+ * which asks for the Goal queue; a wrap preview holds the Goal queue and
+ * reads the publication gaps. The gaps are a snapshot read, so neither waits.
+ */
+test('a wrap preview and a run step seating a card never wait on each other', async () => {
+  const home = tempDir('hd-goal-wrap-lock-order-')
+  await migrateDesk(home, async () => {})
+  const store = new GoalStore(home)
+  await store.load()
+  await store.save({
+    version: 1, goal: goal('g1'), board: { nextIntent: 2, messaging: true, intents: [intent(1, { state: 'done' })], channel: [] },
+    citations: [], receipt: null, operation: null,
+  }, null)
+  const runQueue = new SerialRun()
+  const journaled: StoredPublication = { rounds: {}, ops: {} }
+  const publications = new Publications({
+    journal: (run: string, step: (journal: PublicationJournal) => Promise<unknown>) => runQueue.within(run, () => step({
+      round: () => null, entry: () => null, entries: () => [], decide: async () => {}, put: async () => {},
+    })),
+    runs: () => [{ run: 'r1', goal: 'g1' }],
+    snapshot: () => journaled,
+  } as unknown as ConstructorParameters<typeof Publications>[0])
+  let letRevisionGo!: () => void
+  const revisionGate = new Promise<void>((resolve) => { letRevisionGo = resolve })
+  let inPreview!: () => void
+  const previewStarted = new Promise<void>((resolve) => { inPreview = resolve })
+  const forbidden = async (): Promise<never> => { throw new Error('not in this test') }
+  let seated = 0
+  const plane = new GoalPlane(store, {
+    seats: { all: () => [], byId: () => null }, confine: forbidden, known: async () => null, claimable: () => false, opening: forbidden,
+    board: (id) => { const document = store.read(id); return { ...document.board, id, name: document.goal.sentence, root: document.goal.root, updatedAt: 1, members: [] } },
+    evidence: async (id) => ({ room: id, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] }),
+    evidenceIds: async () => [{ id: 'fact-1', seat: null }], flow: () => undefined, busy: () => false, waits: () => false, stranded: () => false, held: () => false,
+    settledFor: async () => {}, answer: async () => ({ answer: null, gaps: [] }),
+    // Reading git: the await inside the preview where the run step gets in.
+    revision: async () => { inPreview(); await revisionGate; return { head: null, dirty: null } },
+    changed: () => {}, activity: () => {}, ready: () => ({ ok: true }),
+    seatAgent: async () => { seated += 1; throw new Error('seated, then refused by this test') },
+    openLegacySeat: forbidden, importOpening: forbidden, closeId: forbidden, claim: forbidden, releaseClaim: forbidden,
+    refuseMail: forbidden, retainLane: forbidden, finish: forbidden, wake: () => {}, finishWrap: forbidden,
+    findings: async () => ({ receipt: { version: 1, evidence: [], findings: [], overrides: [] }, gaps: [], publication: await publications.gaps('g1') }),
+  })
+  const preview = plane.preview('g1', choices()).then(() => 'previewed', (error: Error) => `refused: ${error.message}`)
+  await previewStarted
+  const step = runQueue.within('r1', async () => {
+    await plane.seat({ goal: 'g1', agent: 'x' }).catch(() => undefined)
+    return 'stepped'
+  })
+  letRevisionGo()
+  const stuck = new Promise<string>((resolve) => { const timer = setTimeout(() => resolve('stuck'), 2_000); timer.unref() })
+  const results = await Promise.all([Promise.race([preview, stuck]), Promise.race([step, stuck])])
+  assert.deepEqual(results, ['previewed', 'stepped'])
+  assert.equal(seated, 1, 'the run step reached the seating once the preview let the Goal queue go')
 })

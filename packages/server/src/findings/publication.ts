@@ -451,6 +451,14 @@ export interface PublicationsPort {
   run(run: string): PublishingRun | null
   /** An operation by key, in whichever run journaled it: a snapshot read. */
   entry(key: string): PublicationEntry | null
+  /**
+   * A run's whole publication journal as it stands: a snapshot read that
+   * takes no queue. What the Goal queue may read while it is held (a wrap
+   * preview's gaps), and what a decision already inside the run's own queue
+   * reads (its status), without waiting on that queue — see "Lock order" in
+   * host.ts.
+   */
+  snapshot(run: string): StoredPublication | null
   /** True only once every card of the round is finished and its close is on disk. */
   roundClosed(run: string, round: number): boolean
   /** A Goal as posting reads it now; null when there is no such Goal. */
@@ -574,11 +582,16 @@ export class Publications implements FindingPublisher {
     }
   }
 
-  /** What a wrap's receipt cannot vouch for: every operation on this Goal still unsettled, said as a sentence. */
+  /**
+   * What a wrap's receipt cannot vouch for: every operation on this Goal still
+   * unsettled, said as a sentence. A snapshot read that takes no queue: the
+   * Goal queue is held while it runs, and a run holding its own queue may be
+   * waiting for that Goal queue to seat a card.
+   */
   async gaps(goal: string): Promise<readonly string[]> {
     const out: string[] = []
     for (const { run } of this.#port.runs().filter((one) => one.goal === goal)) {
-      const entries = await this.#port.journal(run, async (journal) => journal.entries())
+      const entries = Object.values(this.#port.snapshot(run)?.ops ?? {})
       out.push(...entries.filter((entry) => UNSETTLED.has(entry.state)).map(gapOf))
     }
     return out
@@ -606,10 +619,11 @@ export class Publications implements FindingPublisher {
   /** Where a run's publications stand, for the person, and the first reason one needs them. */
   async status(run: string): Promise<{ readonly publication: 'local' | 'pending' | 'posted' | 'partial' | 'uncertain'; readonly reason: string | null }> {
     if (!this.#port.runs().some((one) => one.run === run)) return { publication: 'local', reason: this.#problems.get(run) ?? null }
-    const { rounds, entries } = await this.#port.journal(run, async (journal) => ({
-      rounds: this.#port.run(run)?.rounds.map((one) => journal.round(one.n)).filter((one): one is PublicationRound => one !== null) ?? [],
-      entries: journal.entries(),
-    }))
+    // A snapshot: a person's decision reads this from inside the run's own queue.
+    const stored = this.#port.snapshot(run)
+    const rounds = this.#port.run(run)?.rounds.map((one) => stored?.rounds[String(one.n)] ?? null)
+      .filter((one): one is PublicationRound => one !== null) ?? []
+    const entries = Object.values(stored?.ops ?? {})
     const problem = this.#problems.get(run) ?? entries.find((entry) => entry.reason !== null && entry.state !== 'posted')?.reason ??
       rounds.find((one) => one.mode === 'refused')?.reason ?? null
     if (entries.length === 0) return { publication: 'local', reason: problem }
