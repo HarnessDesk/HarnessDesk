@@ -193,3 +193,39 @@ test('an unimportable payload is refused as one entry, never partially applied',
   assert.deepEqual(await importMemory(port, { version: 2, objects: [], indexes: [], attachments: [] }), { restored: 0, alreadyHere: 0, refused: 1, failed: 0 })
   assert.deepEqual(await importMemory(port, { version: 1, objects: 'nope', indexes: [], attachments: [] }), { restored: 0, alreadyHere: 0, refused: 1, failed: 0 })
 })
+
+test('a hostile index cannot knock out a live citation: a link whose archive does not carry its citation is refused, and a restored registration never conflicts with a live one', async () => {
+  const root = await repo('hd-memory-backup-hostile-')
+  const at = await commitMemoryFile(root, 'decisions.md', 'We chose the flat file.\n')
+  const other = await commitMemoryFile(root, 'other.md', 'Something else.\n')
+  const live: GoalCitation = { goal: 'source', receipt: 'r1', project: root, path: '.harnessdesk/memory/decisions.md', at }
+  const decoy: GoalCitation = { goal: 'source', receipt: 'r1', project: root, path: '.harnessdesk/memory/other.md', at: other }
+  const plane = new MemoryPlane(tempDir('hd-memory-backup-hostile-archive-'), {
+    receiptOf: (id) => (id === 'source' ? receipt('source', 'r1') : null),
+    seats: { byId: () => null },
+  })
+  const liveKey = await plane.capture(live)
+  plane.register({ citations: [{ citation: live, archive: liveKey }], satisfiedCitationSources: [{ goal: 'source', receipt: 'r1' }] })
+  const decoyKey = await plane.capture(decoy) // a real, valid object — for a different citation
+  const decoySnapshot = JSON.parse((await plane.readRaw(decoyKey))!)
+
+  const backup: MemoryBackup = {
+    version: 1,
+    objects: [{ key: decoyKey, snapshot: decoySnapshot }],
+    // The index claims the *live* citation lives in the decoy's archive.
+    indexes: [{ goal: 'target', memory: { citations: [{ citation: live, archive: decoyKey }], satisfiedCitationSources: [] } }],
+    attachments: [],
+  }
+  const report = await importMemory(portOf(plane, attachmentsPlane(tempDir('hd-memory-backup-hostile-att-')), [], new Set(['target'])), backup)
+  assert.equal(report.refused, 1, 'the link whose archive does not carry its citation is refused')
+  assert.equal(plane.isKnownRestored(live), false, 'the live citation is still live')
+  const resolved = await plane.resolve(live)
+  assert.equal(resolved.state, 'retained', 'and still resolves to its own retained bytes')
+  if (resolved.state === 'retained') assert.equal(resolved.snapshot.text, 'We chose the flat file.\n')
+
+  // And at the plane itself: a restored registration of a live tuple under
+  // another archive is ignored — it neither replaces nor poisons it.
+  plane.register({ citations: [{ citation: live, archive: '2'.repeat(64) }], satisfiedCitationSources: [] }, true)
+  assert.equal(plane.isKnownRestored(live), false)
+  assert.equal((await plane.resolve(live)).state, 'retained')
+})

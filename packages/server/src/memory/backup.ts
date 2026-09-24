@@ -51,6 +51,23 @@ const MAX_ATTACHMENTS = 10_000
 const object = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** A citation's complete tuple — the only identity an index link and an archive object may be matched on. */
+const tupleOf = (citation: GoalCitation): string =>
+  JSON.stringify([citation.goal, citation.receipt, citation.project, citation.path, citation.at])
+
+/** The citation tuple an archive object this desk already holds carries, or null when it holds none (or holds damage). */
+const carriedBy = async (port: MemoryBackupPort, key: string): Promise<string | null> => {
+  const raw = await port.readObject(key)
+  if (raw === null) return null
+  try {
+    const snapshot = snapshotOf(JSON.parse(raw))
+    if (!snapshot || createHash('sha256').update(canonicalSnapshot(snapshot)).digest('hex') !== key) return null
+    return tupleOf(snapshot.citation)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Assembles the sidecar from what this desk actually holds: every archive
  * key any loaded Goal document's own index still names, read back and
@@ -130,7 +147,8 @@ export const importMemory = async (
     return { ...report, refused: 1 }
   }
 
-  const accepted = new Set<string>()
+  /** Archive key → the citation tuple its accepted object actually carries. */
+  const accepted = new Map<string, string>()
   for (const entry of raw.objects) {
     if (!object(entry) || typeof entry.key !== 'string') {
       report.refused += 1
@@ -151,7 +169,7 @@ export const importMemory = async (
     if (existing !== null) {
       if (existing === canonical) {
         report.alreadyHere += 1
-        accepted.add(entry.key)
+        accepted.set(entry.key, tupleOf(snapshot.citation))
       } else {
         report.refused += 1 // same key, different bytes — a hash collision or local damage, never guessed at
       }
@@ -160,7 +178,7 @@ export const importMemory = async (
     try {
       await port.writeObject(snapshot)
       report.restored += 1
-      accepted.add(entry.key)
+      accepted.set(entry.key, tupleOf(snapshot.citation))
     } catch {
       report.failed += 1
     }
@@ -173,9 +191,17 @@ export const importMemory = async (
     }
     const validCitations: { citation: GoalCitation; archive: string }[] = []
     for (const one of entry.memory.citations) {
-      const known = accepted.has(one.archive) || (await port.readObject(one.archive)) !== null
-      if (!known) {
+      // The object an index names must exist *and* carry the very citation
+      // the index says it does: an index is a claim, and an archive that
+      // holds some other citation's bytes would let a hostile backup point a
+      // live citation at the wrong text — or collide with it on purpose.
+      const carried = accepted.get(one.archive) ?? (await carriedBy(port, one.archive))
+      if (carried === null) {
         report.refused += 1 // an orphan link — never accepted as a dangling history reference
+        continue
+      }
+      if (carried !== tupleOf(one.citation)) {
+        report.refused += 1 // the archive holds a different citation than this link claims
         continue
       }
       validCitations.push(one)

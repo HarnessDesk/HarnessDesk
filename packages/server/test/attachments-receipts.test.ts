@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { appendFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { SeatAttachmentsRecord } from '@harnessdesk/protocol'
 
-import { AttachmentReceipts } from '../src/attachments/receipts.js'
+import { AttachmentReceipts, attachmentSeatFileFor } from '../src/attachments/receipts.js'
 import { McpToolGateway, type McpGatewayPort } from '../src/attachments/gate.js'
 import { tempDir } from './scratch.js'
 
@@ -102,4 +104,16 @@ test('legacy and restored are not live', async () => {
   )
   const called = await gateway.call('token-for-restored-seat', 'anything', 'anything', async () => 'should not run')
   assert.equal(called.ok, false, 'a restored sidecar can mint no live token and reach no server')
+})
+
+test('the reader stops at the first line that does not parse: nothing after a damaged line is trusted', async () => {
+  const folder = tempDir('hd-attach-receipts-damaged-')
+  const receipts = new AttachmentReceipts(folder)
+  await receipts.append(epoch({ epoch: 0 }))
+  const file = join(folder, attachmentSeatFileFor('seat-1' as never))
+  // A torn write, then a well-formed epoch 1 after it: the epoch after the
+  // damage is exactly what a reader must not believe.
+  await appendFile(file, `{"version":1,"seat":"seat-1","ep\n${JSON.stringify(epoch({ epoch: 1 }))}\n`)
+  const history = await receipts.history('seat-1' as never)
+  assert.deepEqual(history.map((one) => one.epoch), [0])
 })

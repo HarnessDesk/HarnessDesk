@@ -269,6 +269,18 @@ export class MemoryPlane implements GoalMemoryPort {
       if (this.poisoned.has(tuple)) continue
       const current = this.registered.get(tuple)
       if (current !== undefined && current !== one.archive) {
+        // Restored history never overrides, and never conflicts with, what
+        // this desk registered itself: a backup that names another archive
+        // for a tuple already known here is ignored — never allowed to
+        // poison a live citation by colliding with it. Only two of this
+        // desk's own registrations disagreeing is an integrity problem.
+        if (restored) continue
+        if (this.restoredOnly.get(tuple) === true) {
+          // A live registration replaces what only a restore ever claimed.
+          this.registered.set(tuple, one.archive)
+          this.restoredOnly.set(tuple, false)
+          continue
+        }
         this.poisoned.add(tuple)
         this.registered.delete(tuple)
         this.restoredOnly.delete(tuple)

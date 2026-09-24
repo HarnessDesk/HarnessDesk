@@ -191,7 +191,7 @@ export class AttachmentReceipts {
       try {
         parsed = JSON.parse(line)
       } catch {
-        continue
+        break // a line that does not parse is where trust ends, exactly like one that does not validate
       }
       const record = recordOf(parsed)
       // A line that does not parse, or whose epoch does not strictly
