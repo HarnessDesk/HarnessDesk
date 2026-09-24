@@ -59,15 +59,6 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
-  // Phase 10's authoring verbs: temporary, each removed as the front door, Agent and shape editors call it.
-  'authoring/read': 'phase 10 Task 2 — the Agent page and shape editor read files through it (Tasks 5–6)',
-  'authoring/agent/patch': 'phase 10 Task 2 — the Agent page edits one row through it (Task 5)',
-  'authoring/save/preview': 'phase 10 Task 2 — the Agent and shape editors preview saves through it (Tasks 5–8)',
-  'authoring/save/apply': 'phase 10 Task 2 — the same editors apply those previews (Tasks 5–8)',
-  'authoring/save/pending': 'phase 10 Task 2 — the unfinished-save list reads it (Task 6)',
-  'authoring/save/resume': 'phase 10 Task 2 — that list resumes an unfinished save (Task 6)',
-  'authoring/save/discard': 'phase 10 Task 2 — that list discards an unfinished save’s record (Task 6)',
-  'authoring/start/preview': 'phase 10 Task 3 — the front door’s two-click start draws its dry run through it (Task 4)',
 }
 
 /**

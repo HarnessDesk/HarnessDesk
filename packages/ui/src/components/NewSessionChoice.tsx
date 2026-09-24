@@ -9,6 +9,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon, BriefIcon, FlowIcon, TeamIcon } from './Icons'
 import { FlowStart, type FlowChoice } from './FlowStart'
+import { FrontDoor } from './FrontDoor'
 import { GoalCreate } from './GoalCreate'
 import styles from './NewSessionChoice.module.css'
 
@@ -23,6 +24,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
   const root = projectRootOf(snapshot.workspace)
   const [creatingGoal, setCreatingGoal] = useState(false)
   const [startingFlow, setStartingFlow] = useState(false)
+  const [startingFrontDoor, setStartingFrontDoor] = useState(false)
 
   useEffect(() => { void store.loadAgents() }, [store])
   const agents = inForce(snapshot.agents ?? [])
@@ -65,6 +67,18 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
 
   if (creatingGoal && root) return <GoalCreate root={root} onClose={onClose} />
   if (startingFlow && root) return <FlowGoalCreate root={root} onClose={onClose} />
+  if (startingFrontDoor && root) {
+    return (
+      <FrontDoor
+        context={{ kind: 'project', root }}
+        onClose={onClose}
+        onStarted={(execution) => {
+          store.openGoal(execution.goal)
+          onClose()
+        }}
+      />
+    )
+  }
 
   const startPlain = (): void => {
     onClose()
@@ -120,6 +134,18 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
           <span className={styles.text}>
             <Text role="row">A flow</Text>
             <Text role="muted">An editable policy that routes work between several Agents on one Goal.</Text>
+          </span>
+        </Button>
+        <Button
+          type="button"
+          variant="choice" size="row" className={styles.choice}
+          disabled={!root}
+          onClick={() => setStartingFrontDoor(true)}
+        >
+          <IconTile tint="violet"><TeamIcon size={16} /></IconTile>
+          <span className={styles.text}>
+            <Text role="row">Start with a team</Text>
+            <Text role="muted">Choose a shape this project ships, read what it would do, then start it.</Text>
           </span>
         </Button>
       </div>

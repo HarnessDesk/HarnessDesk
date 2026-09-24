@@ -205,6 +205,24 @@ const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}
     writeAttachmentEdit: vi.fn(async (entry: AgentEntry) => entry),
     readAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: null, digest: null, writable: true, problem: null })),
     clearAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: '', digest: 'e'.repeat(64), writable: true, problem: null })),
+    // Task 5's editable fields: a neutral document for whichever Agent is
+    // open, so every existing test — which has no opinion about editing a
+    // field — still settles rather than throwing "not a function".
+    readAuthoring: vi.fn(async (target: { readonly id?: string }) => ({
+      target,
+      source: '---\nname: x\n---\nBrief.\n',
+      digest: `digest-${target.id ?? 'x'}`,
+      exists: true,
+      displayPath: 'AGENT.md',
+      writable: true,
+      issues: [],
+    })),
+    previewAgentEdit: vi.fn(async () => ({ token: null, edits: [], issues: [{ at: 'file', text: 'not wired in this test', fix: '' }], resuming: false })),
+    applyAuthoringSave: vi.fn(async () => ({ state: 'refused', written: [], message: 'not wired in this test' })),
+    // The overview's unfinished-saves banner: neutral (none) unless a test says otherwise.
+    authoringPending: vi.fn(async () => []),
+    resumeAuthoringSave: vi.fn(async () => ({ token: null, edits: [], issues: [{ at: 'save', text: 'not wired in this test', fix: '' }], resuming: true })),
+    discardAuthoringSave: vi.fn(async () => []),
     ...overrides,
   }) as unknown as AppStore
 

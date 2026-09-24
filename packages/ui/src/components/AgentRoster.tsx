@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import type { AgentEntry, AgentOrigin } from '@harnessdesk/protocol'
+import type { AgentEntry, AgentOrigin, AuthoringPending } from '@harnessdesk/protocol'
 
 import {
   agentName,
@@ -14,11 +14,13 @@ import {
   seatTaken,
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
+import { projectRootOf } from '../lib/projects'
 import type { AppSnapshot } from '../state/store'
-import { useSnapshot } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
+import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
-import { Chip, Note, PageHead, Row, RowButton, RowValue, Rows, SectionHead } from '../design'
+import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, SectionHead } from '../design'
 import styles from './AgentRoster.module.css'
 
 /**
@@ -90,6 +92,7 @@ export const AgentsRosterSection = ({
 }) => {
   const snapshot = useSnapshot()
   const [open, setOpen] = useState<string | null>(focus)
+  const [creating, setCreating] = useState(false)
   useEffect(() => {
     setOpen(focus)
   }, [focus])
@@ -114,7 +117,12 @@ export const AgentsRosterSection = ({
 
   return (
     <>
-      <PageHead title="Agents" blurb="Who does the work: a brief, the most it may do, and the seats it prefers." />
+      <PageHead
+        title="Agents"
+        blurb="Who does the work: a brief, the most it may do, and the seats it prefers."
+        actions={<Button variant="default" onClick={() => setCreating(true)}>New Agent…</Button>}
+      />
+      <AuthoringPendingSection />
       {ORDER.filter((origin) => origin !== 'project' || snapshot.workspace !== null).map((origin) => {
         const heading = originWords(origin, project)
         const rows = sections[origin]
@@ -151,6 +159,17 @@ export const AgentsRosterSection = ({
           </section>
         )
       })}
+      {creating && (
+        <AgentNew
+          root={projectRootOf(snapshot.workspace) ?? undefined}
+          onClose={() => setCreating(false)}
+          onCreated={(entry) => {
+            setCreating(false)
+            setOpen(entry.id)
+            onFocus?.(entry.id)
+          }}
+        />
+      )}
     </>
   )
 }
@@ -205,5 +224,99 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
       }
       onClick={onOpen}
     />
+  )
+}
+
+/**
+ * A save that began and did not finish — a crash, a killed process, a lost
+ * power — read once when this window opens. `AgentFields` and `AgentNew`
+ * write through the same journaled transaction (Task 2's `AuthoringPlane`),
+ * so a restart offers exactly this: resume it, which checks each file on
+ * disk before writing what is missing, or discard the record, which leaves
+ * every file as it is. Nothing here resumes on its own.
+ */
+const AuthoringPendingSection = () => {
+  const store = useStore()
+  const [pending, setPending] = useState<readonly AuthoringPending[] | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [problem, setProblem] = useState<string | null>(null)
+
+  useEffect(() => {
+    let live = true
+    store.authoringPending().then(
+      (next) => {
+        if (live) setPending(next)
+      },
+      () => {
+        if (live) setPending([])
+      },
+    )
+    return () => {
+      live = false
+    }
+  }, [store])
+
+  if (!pending || pending.length === 0) return null
+
+  const resume = async (id: string): Promise<void> => {
+    setBusyId(id)
+    setProblem(null)
+    try {
+      const preview = await store.resumeAuthoringSave(id)
+      if (!preview.token) {
+        setProblem(preview.issues[0]?.text ?? 'This save could not be resumed.')
+        return
+      }
+      const result = await store.applyAuthoringSave(preview.token)
+      if (result.state !== 'applied') {
+        setProblem(result.message)
+        return
+      }
+      setPending(await store.authoringPending())
+      void store.loadAgents()
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const discard = async (id: string): Promise<void> => {
+    setBusyId(id)
+    setProblem(null)
+    try {
+      setPending(await store.discardAuthoringSave(id))
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <section aria-label="Unfinished saves">
+      <SectionHead name="Unfinished saves" />
+      <Rows>
+        {pending.map((one) => (
+          <Row
+            key={one.id}
+            title={one.message}
+            wrapDesc
+            desc={one.files.length > 0 ? one.files.join(', ') : undefined}
+            control={
+              <span className="flex gap-(--hd-space-2)">
+                <Button size="sm" variant="outline" disabled={busyId === one.id} onClick={() => void resume(one.id)}>
+                  {busyId === one.id ? 'Resuming…' : 'Resume'}
+                </Button>
+                <Button size="sm" variant="ghost" disabled={busyId === one.id} onClick={() => void discard(one.id)}>
+                  Discard
+                </Button>
+              </span>
+            }
+          />
+        ))}
+      </Rows>
+      {problem && <Note tone="bad">{problem}</Note>}
+    </section>
   )
 }

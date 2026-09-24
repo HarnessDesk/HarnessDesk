@@ -101,6 +101,17 @@ import {
   type InsightOrderQuery,
   type InsightOrderPreview,
   type Worktree,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringPending,
+  type AuthoringSaveInput,
+  type AuthoringSavePreview,
+  type AuthoringSaveResult,
+  type AuthoringTarget,
+  type FrontDoorPreview,
+  type FrontDoorPreviewInput,
+  type StartContext,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
 import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
@@ -4234,6 +4245,46 @@ export class AppStore {
     return execution
   }
 
+  // ------------------------------------------------------------- front door
+
+  /**
+   * Every call to `previewFrontDoor` below owns the one live generation:
+   * calling it — from any target, any caller — retires whatever the last
+   * call was waiting on. A reply that lands once a newer call has already
+   * started can never write `frontDoor.preview`, so it can never enable
+   * Start on a stale token, however late it arrives.
+   */
+  #frontDoorGen = 0
+
+  /** Opens the front door for one context, and — to reuse it — one empty Goal at the revision it was seen at. */
+  openFrontDoor(context: StartContext, goal?: { readonly id: string; readonly revision: number }): void {
+    this.#frontDoorGen += 1
+    this.#patch({ frontDoor: { context, goal: goal ?? null, preview: null } })
+  }
+
+  /** Closes the front door. Any preview in flight becomes stale the instant this runs. */
+  closeFrontDoor(): void {
+    this.#frontDoorGen += 1
+    this.#patch({ frontDoor: null })
+  }
+
+  /**
+   * The front door's dry run for one chosen shape and its typed inputs.
+   * Spends nothing. Clears `frontDoor.preview` the instant it is called —
+   * before the request is even sent — so a source or input change disables
+   * Start immediately rather than leaving the previous token live while a
+   * fresh one is fetched.
+   */
+  async previewFrontDoor(input: FrontDoorPreviewInput): Promise<FrontDoorPreview> {
+    const mine = ++this.#frontDoorGen
+    if (this.#snapshot.frontDoor) this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview: null } })
+    const preview = await this.transport.request('authoring/start/preview', input)
+    if (mine === this.#frontDoorGen && this.#snapshot.frontDoor) {
+      this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
+    }
+    return preview
+  }
+
   // ------------------------------------------------------------------ evidence
 
   async loadBoardEvidence(room: string): Promise<void> {
@@ -4356,6 +4407,52 @@ export class AppStore {
       })
     }
     return written
+  }
+
+  // -------------------------------------------------------------- authoring
+
+  /** An Agent, a flow or a project's triggers file, exactly as it is on disk, with what is in the way of using it. Throws. */
+  async readAuthoring(target: AuthoringTarget): Promise<AuthoringDocument> {
+    return this.transport.request('authoring/read', { target })
+  }
+
+  /** One field of an Agent, changed in place and previewed against `expected` — the host encodes the value. Throws. */
+  async previewAgentEdit(
+    target: Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>,
+    expected: string,
+    edit: AgentFieldEdit,
+  ): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/agent/patch', { target, expected, edit })
+  }
+
+  /** What saving this source (and any new Agents it names) would write, before anything is. Throws. */
+  async previewAuthoringSave(input: AuthoringSaveInput): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/save/preview', input)
+  }
+
+  /** Writes exactly what one preview showed. A token already applied answers its saved result again. Throws. */
+  async applyAuthoringSave(token: string): Promise<AuthoringSaveResult> {
+    return this.transport.request('authoring/save/apply', { token })
+  }
+
+  /** Saves that began and did not finish, each with what is known to have landed. Throws. */
+  async authoringPending(): Promise<readonly AuthoringPending[]> {
+    return this.transport.request('authoring/save/pending', {})
+  }
+
+  /** A recorded, unfinished save, previewed again from what is on disk now. Throws. */
+  async resumeAuthoringSave(id: string): Promise<AuthoringSavePreview> {
+    return this.transport.request('authoring/save/resume', { id })
+  }
+
+  /** Drops the record of an unfinished save. Every file stays exactly as it is. Throws. */
+  async discardAuthoringSave(id: string): Promise<readonly AuthoringPending[]> {
+    return this.transport.request('authoring/save/discard', { id })
+  }
+
+  /** One Agent by its directory name, chosen exactly as `agent/list` chooses; null when nobody defined it. Throws. */
+  async readAgent(id: string, project?: string): Promise<AgentEntry | null> {
+    return this.transport.request('agent/read', { id, ...(project ? { project } : {}) })
   }
 
   /** Any origin, including `builtin` — the read-only front door onto an Agent's declarations, or its notes. */

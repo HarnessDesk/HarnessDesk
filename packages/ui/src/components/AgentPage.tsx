@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'react'
 import {
   SEAT_PREFERENCE_LIMIT,
   type AgentEntry,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringTarget,
   type FlowSeat,
   type ModelInfo,
   type RuntimeId,
@@ -35,6 +38,7 @@ import { AgentSeatCosts } from './AgentSeatCosts'
 import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
 import {
   BackLink,
+  Banner,
   Button,
   Checkbox,
   CodeText,
@@ -55,8 +59,17 @@ import {
 } from '../design'
 import styles from './AgentPage.module.css'
 import { AgentAttachments } from './AgentAttachments'
+import { AgentFields, AgentPageSections } from './AgentFields'
 import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
+
+/** The one file `AgentFields` reads and saves through — a project's own Agent needs the project that owns it. */
+const authoringTarget = (entry: AgentEntry, project: string | null): AuthoringTarget => ({
+  kind: 'agent',
+  origin: entry.origin,
+  id: entry.id,
+  ...(entry.origin === 'project' && project ? { root: project } : {}),
+})
 
 /**
  * An Agent's page — a drill from the roster, not a dialog.
@@ -94,6 +107,9 @@ export const AgentPage = ({
   const [seatingBusy, setSeatingBusy] = useState(false)
   const [seatingProblem, setSeatingProblem] = useState<string | null>(null)
   const seatingInFlight = useRef(false)
+  const [agentDocument, setAgentDocument] = useState<AuthoringDocument | null>(null)
+  const [documentProblem, setDocumentProblem] = useState<string | null>(null)
+  const [fieldsBusy, setFieldsBusy] = useState(false)
   const definition = entry.definition
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
@@ -109,9 +125,47 @@ export const AgentPage = ({
     setUpdatingCeiling(false)
   }, [entry.id, entry.origin, entry.path, snapshot.agentsProject])
 
+  useEffect(() => {
+    if (!definition) return
+    let live = true
+    setAgentDocument(null)
+    setDocumentProblem(null)
+    store.readAuthoring(authoringTarget(entry, snapshot.agentsProject)).then(
+      (next) => {
+        if (live) setAgentDocument(next)
+      },
+      (error: unknown) => {
+        if (live) setDocumentProblem(error instanceof Error ? error.message : String(error))
+      },
+    )
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id, entry.origin, snapshot.agentsProject, store])
+
   const openFile = (): void => {
     store.openFile(entry.path)
     onLeave()
+  }
+
+  /**
+   * A field just landed. The digest `AgentFields` was editing against is now
+   * stale for the next one, so both the roster (for `entry`) and the document
+   * (for its digest) are read again before another edit is allowed —
+   * `fieldsBusy` is what disables its rows meanwhile.
+   */
+  const onFieldEdited = (_edit: AgentFieldEdit): void => {
+    setFieldsBusy(true)
+    void Promise.all([
+      store.loadAgents(),
+      store.readAuthoring(authoringTarget(entry, snapshot.agentsProject)).then(
+        (next) => setAgentDocument(next),
+        () => {
+          // A read that fails after a save that landed leaves the last good document on screen.
+        },
+      ),
+    ]).finally(() => setFieldsBusy(false))
   }
 
   const setMachineSeats = async (
@@ -258,14 +312,30 @@ export const AgentPage = ({
           />
           <AgentSeatCosts entry={entry} />
 
-          <SectionHead name="What it hands back" />
-          <Rows>
-            <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
-            <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
-          </Rows>
+          {agentDocument ? (
+            <AgentFields
+              document={agentDocument}
+              entry={entry}
+              busy={fieldsBusy}
+              onEdit={onFieldEdited}
+              onOpenFile={openFile}
+            />
+          ) : documentProblem ? (
+            <Banner tone="danger" title="This Agent’s file could not be read">{documentProblem}</Banner>
+          ) : (
+            <>
+              <SectionHead name="What it hands back" />
+              <Rows>
+                <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
+                <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
+              </Rows>
+            </>
+          )}
 
           <AgentAttachments entry={entry} />
           <AgentNotes entry={entry} />
+
+          <AgentPageSections entry={entry}>{null}</AgentPageSections>
 
           <SectionHead name="Brief" />
           <Rows>
