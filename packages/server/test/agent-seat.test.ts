@@ -1156,8 +1156,7 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
     },
     seatRecord: async () => null,
     declarations: async () => ({ declarations: [], resolved: [] }),
-    reopen: async () => null,
-    finishReopen: async () => { throw new Error('not used by this test') },
+    carriesFilter: async () => false,
     forkRefusal: async () => null,
   }
   await assert.rejects(

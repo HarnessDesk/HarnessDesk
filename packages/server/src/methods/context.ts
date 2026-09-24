@@ -75,7 +75,7 @@ import type { UsageMeter } from '../usage/meter.js'
 import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
-import type { AttachmentSubject, PreparedAttachments, ReopenedSeat } from '../attachments/plane.js'
+import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
 import type { AttachmentResolution, ResolvedAttachment } from '../attachments/catalog.js'
 
 /**
@@ -163,15 +163,12 @@ export interface HostContext {
      */
     declarations(entry: AgentEntry, root: string): Promise<AttachmentResolution>
     /**
-     * A reopen (resume, load) of a conversation whose Seat froze
-     * attachments: its frozen filter, revalidated — handed to the runtime at
-     * the reopen, never left to its native defaults. `null` for a plain
-     * conversation. Throws when the runtime can no longer be kept from
-     * loading content nobody approved.
+     * Whether this conversation's Seat carries — or should carry — a filter
+     * (a frozen one, one that was lost, or an Agent that now declares
+     * attachments): such a conversation is reopened only through the host's
+     * shared reopen (`sessions.live`), which applies it or refuses.
      */
-    reopen(runtime: AgentRuntime, sessionId: SessionId): Promise<ReopenedSeat | null>
-    /** Appends the reopened conversation's receipt as the Seat's next epoch; closes it if that cannot be done. */
-    finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void>
+    carriesFilter(runtime: RuntimeId, sessionId: SessionId): Promise<boolean>
     /** Why forking this conversation is refused — a fork would run with no filter — or null. */
     forkRefusal(runtime: RuntimeId, sessionId: SessionId): Promise<string | null>
   }

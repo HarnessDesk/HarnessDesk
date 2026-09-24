@@ -2178,16 +2178,18 @@ export class AcpRuntime implements AgentRuntime {
       return this.resumeSession(id, options)
     }
     const live = this.#sessions.get(id)
-    if (live && (!options.attachments || this.#attachmentInputs.get(id)?.key === options.attachments.key)) {
+    // Live, but opened with no filter at all — a read loads a conversation
+    // (ACP has no other way to read one) and a read has no filter to give.
+    // Handed back as it is, the Seat would run on the agent's own defaults.
+    // So that one, and only while idle, is let go and loaded again with the
+    // filter. A session already on a filter is the Seat's, whatever key a
+    // second reopen carries; and a running turn is never cancelled by one.
+    const unfiltered = live !== undefined && options.attachments !== undefined && !this.#attachmentInputs.has(id) && !live.busy
+    if (live && !unfiltered) {
       if (environment && !saved) throw new Error('An already-open session cannot acquire a lane environment.')
       return live
     }
     if (live) {
-      // Live, but not on the filter this reopen carries — a read loads a
-      // conversation (ACP has no other way to read one) and a read has no
-      // filter to give. Handed back as it is, the Seat would run on the
-      // agent's own defaults and its receipt would answer for nothing. So it
-      // is let go here and loaded again, this time with the filter.
       this.#sessions.delete(id)
       await live.close().catch(() => {})
     }

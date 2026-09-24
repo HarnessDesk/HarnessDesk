@@ -192,3 +192,54 @@ test('a load (a reopened Seat) carries the frozen input it is handed, and its re
   assert.equal(receipt.key, 'reopen-key')
   assert.deepEqual(receipt.loaded.map((one) => one.name), ['demo'])
 })
+
+const storedPeer = async (t: { after(fn: () => unknown): void }) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const dir = mkdtempSync(join(tmpdir(), 'acp-attach-reopen-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const store = join(dir, 'sessions.json')
+  const opens = join(dir, 'opens.ndjson')
+  writeFileSync(store, JSON.stringify({ kept: { sessionId: 'kept', cwd: dir, title: 'Kept', updatedAt: new Date().toISOString(), turns: [] } }))
+  const runtime = make({ FAKE_ACP_ATTACHMENTS: '1', FAKE_ACP_STORE: store, FAKE_ACP_OPENS: opens })
+  t.after(() => runtime.dispose())
+  await runtime.start()
+  const loads = async () => {
+    const { readFileSync } = await import('node:fs')
+    let text = ''
+    try { text = readFileSync(opens, 'utf8') } catch {}
+    return text.split('\n').filter(Boolean).map((line) => JSON.parse(line) as { method: string; filtered?: boolean }).filter((one) => one.method === 'session/load')
+  }
+  return { runtime, loads }
+}
+
+test('a session a read opened with no filter is loaded again with the filter a reopen carries', async (t) => {
+  const { runtime, loads } = await storedPeer(t)
+  await runtime.readSession('kept' as never) // over ACP, a read is a load — with no filter
+  const session = await runtime.resumeSession('kept' as never, { attachments: attachments({ key: 'reopen-key' }) })
+  t.after(() => session.close())
+  assert.deepEqual((await loads()).map((one) => one.filtered), [false, true])
+  assert.equal((await runtime.attachmentReceipt(session.id)).key, 'reopen-key')
+})
+
+test('a session already open on a filter, or with a turn running, is handed back as it is — a second reopen never cancels it', async (t) => {
+  const { runtime, loads } = await storedPeer(t)
+  const first = await runtime.resumeSession('kept' as never, { attachments: attachments({ key: 'key-a' }) })
+  t.after(() => first.close())
+  const again = await runtime.resumeSession('kept' as never, { attachments: attachments({ key: 'key-b' }) })
+  assert.equal(again, first, 'already on a filter: the same session, not a reload')
+  assert.deepEqual((await loads()).map((one) => one.filtered), [true])
+  assert.equal((await runtime.attachmentReceipt(first.id)).key, 'key-a')
+
+  // An unfiltered session with a turn in flight is not dropped either.
+  const { runtime: other, loads: otherLoads } = await storedPeer(t)
+  await other.readSession('kept' as never)
+  const live = await other.resumeSession('kept' as never)
+  const turn = live.send([{ type: 'text', text: 'slow' }])
+  const during = await other.resumeSession('kept' as never, { attachments: attachments({ key: 'key-c' }) })
+  assert.equal(during, live, 'a running turn is never cancelled by a reopen')
+  assert.deepEqual((await otherLoads()).map((one) => one.filtered), [false])
+  await live.interrupt?.()
+  await turn.catch(() => {})
+})

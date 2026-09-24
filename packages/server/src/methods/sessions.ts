@@ -98,15 +98,24 @@ export const sessionMethods = {
     // A Seat that froze attachments reopens on that filter, revalidated —
     // never on the runtime's defaults. A conversation already live here kept
     // the filter it opened with, and is handed back as it is.
+    // A Seat that carries — or should carry — a filter is reopened the one
+    // way the host reopens it everywhere: on its frozen, revalidated filter,
+    // through the host's shared reopen, so a reconnect already opening it
+    // (a queued message, a room post) and this resume are one reopen, never
+    // two that race — the second would drop the session under the first's
+    // running turn. A conversation already live here kept its filter.
     const sessionId = makeSessionId(params.sessionId)
-    const reopened = ctx.registry.get(runtime.info.id, sessionId)?.live ? null : ((await ctx.attachments?.reopen(runtime, sessionId)) ?? null)
+    const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
     try {
-      const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
-      live = await runtime.resumeSession(sessionId, {
-        ...options,
-        ...(environment ? { environment } : {}),
-        ...(reopened ? { attachments: reopened.prepared.input } : {}),
-      })
+      if (scoped) {
+        live = await ctx.sessions.live({ runtime: runtime.info.id, sessionId })
+      } else {
+        const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+        live = await runtime.resumeSession(sessionId, {
+          ...options,
+          ...(environment ? { environment } : {}),
+        })
+      }
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.
@@ -136,9 +145,7 @@ export const sessionMethods = {
     // render.
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
-    const record = ctx.registry.upsert(session, live)
-    if (reopened) await ctx.attachments!.finishReopen(runtime, live, reopened)
-    return record.session
+    return ctx.registry.upsert(session, live).session
   },
 
   'session/fork': async (ctx, params) => {

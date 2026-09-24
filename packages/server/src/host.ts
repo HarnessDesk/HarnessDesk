@@ -2576,8 +2576,10 @@ export class Host {
         },
         seatRecord: (seat) => this.#attachments.read(seat),
         declarations: (entry, root) => this.#attachmentDeclarations(entry, root),
-        reopen: (runtime, id) => this.#reopenAttachments(runtime, id),
-        finishReopen: (runtime, live, reopened) => this.#finishReopen(runtime, live, reopened),
+        carriesFilter: async (runtime, id) => {
+          const seat = this.#evidence.seats.latestKeptOf(runtime, id)
+          return seat !== null && (await this.#carriesFilter(seat))
+        },
         forkRefusal: (runtime, id) => this.#forkRefusal(runtime, id),
       },
       findings: {
@@ -3596,15 +3598,20 @@ export class Host {
     if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
     const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
     if (!seat) return null
-    const scoped =
-      (await this.#attachments.frozen(seat.id)) ||
-      (await this.#attachments.lostFilter(seat.id)) ||
-      (await this.#agentDeclaresAttachments(seat))
-    if (!scoped) return null
+    if (!(await this.#carriesFilter(seat))) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
     if (kept) return kept
     const live = await this.#liveFor(runtime.info.id, id)
     return this.#transcripts.enrich(await runtime.readSession(live.id))
+  }
+
+  /** Whether a Seat carries — or should carry — a filter: a frozen one, a lost one, or an Agent that now declares attachments. */
+  async #carriesFilter(seat: SeatRecord): Promise<boolean> {
+    return (
+      (await this.#attachments.frozen(seat.id)) ||
+      (await this.#attachments.lostFilter(seat.id)) ||
+      (await this.#agentDeclaresAttachments(seat))
+    )
   }
 
   /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
@@ -3862,7 +3869,16 @@ export class Host {
     // Two calls arriving together — a send and the option write beside it —
     // must resume once between them, not once each.
     const already = this.#reattaching.get(key)
-    if (already) return already
+    if (already) {
+      this.#reopenWaiters.set(key, (this.#reopenWaiters.get(key) ?? 0) + 1)
+      try {
+        return await already
+      } finally {
+        const left = (this.#reopenWaiters.get(key) ?? 1) - 1
+        if (left > 0) this.#reopenWaiters.set(key, left)
+        else this.#reopenWaiters.delete(key)
+      }
+    }
     const attempt = this.#reattach(this.#runtime({ runtime }), id)
     this.#reattaching.set(key, attempt)
     try {
@@ -3874,6 +3890,18 @@ export class Host {
 
   /** Conversations being re-opened right now, so concurrent callers share one. */
   readonly #reattaching = new Map<string, Promise<AgentSession>>()
+  /** How many callers are waiting on a reopen already in flight, per conversation. */
+  readonly #reopenWaiters = new Map<string, number>()
+
+  /**
+   * How many callers are waiting on a reopen of this conversation that is
+   * already in flight — the observable sign that a second caller joined the
+   * one reopen rather than starting another. For a test's gate and for
+   * diagnostics; it decides nothing.
+   */
+  reopenWaiters(runtime: string, sessionId: string): number {
+    return this.#reopenWaiters.get(`${runtime}\u0000${sessionId}`) ?? 0
+  }
 
   /**
    * The team plane's handle for a member — reopened when the agent restarted

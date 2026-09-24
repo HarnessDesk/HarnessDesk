@@ -72,12 +72,13 @@ const deskAt = async (
   await halt(first)
   if (options.forgetTranscripts) await rm(join(first.stateDir, 'transcripts'), { recursive: true, force: true })
 
-  const again = await start({ libraryHome: home }, first.stateDir, peer(store, version, options.opens) as unknown as FakeRuntime)
+  const runtime = peer(store, version, options.opens)
+  const again = await start({ libraryHome: home }, first.stateDir, runtime as unknown as FakeRuntime)
   t.after(() => stop(again))
   const reopened = await Client.connect(again.server)
   t.after(() => reopened.close())
   await reopened.call('workspace/open', { path: work })
-  return { again, client: reopened, session, seat }
+  return { again, client: reopened, session, seat, runtime }
 }
 
 const statuses = (record: { readonly results: readonly { identity: { kind: string }; status: string; reason: string | null }[] } | null) =>
@@ -132,3 +133,44 @@ for (const [how, forgetTranscripts] of [
     assert.deepEqual(statuses(await again.host.attachmentsPlane.read(seat))?.slice(-2), ['skill:loaded', 'mcp:loaded'])
   })
 }
+
+test('a turn a reconnect started survives a session/resume that arrives while the reconnect is still opening it: one reopen, one epoch', async (t) => {
+  const opens = join(tempDir('hd-acp-race-opens-'), 'opens.ndjson')
+  const { again, client, session, seat, runtime } = await deskAt(t, '1.0.0', { opens })
+  // Hold the one reopen in the agent until both callers have asked for it.
+  const real = runtime.resumeSession.bind(runtime)
+  let entered = 0
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let firstEntered!: () => void
+  const firstIn = new Promise<void>((resolve) => { firstEntered = resolve })
+  runtime.resumeSession = async (...args: Parameters<typeof real>) => {
+    entered += 1
+    firstEntered()
+    await gate
+    return real(...args)
+  }
+  const id = String(session.id)
+  // A reconnect: the next message to the conversation reopens it (through the host's shared reopen).
+  const sent = client.call('turn/send', { runtime: 'rig-agent', sessionId: id, input: [{ type: 'text', text: 'slow' }] })
+  await firstIn
+  // The person opens the same conversation while that reopen is in flight.
+  const resumed = client.call('session/resume', { runtime: 'rig-agent', sessionId: id })
+  // Released once the second caller has either joined the reopen in flight or started a second one.
+  for (let turns = 0; entered < 2 && again.host.reopenWaiters('rig-agent', id) < 1; turns += 1) {
+    if (turns > 10_000) throw new Error('the second caller never arrived')
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+  release()
+  await sent
+  await resumed
+  assert.equal(entered, 1, 'one reopen served both callers')
+  const loads = (await readFile(opens, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line) as { method: string; sessionId: string })
+    .filter((one) => one.method === 'session/load' && one.sessionId === id)
+  assert.equal(loads.length, 1, 'the conversation was loaded once, never dropped and loaded again under the running turn')
+  const record = await again.host.attachmentsPlane.read(seat)
+  assert.equal(record?.epoch, 1, 'one reopen, one epoch')
+  const live = again.host.registry.get('rig-agent' as never, id as never)
+  assert.ok(live?.running.size, 'the turn the reconnect started is still running — nothing cancelled it')
+  await client.call('turn/interrupt', { runtime: 'rig-agent', sessionId: id }).catch(() => {})
+})
