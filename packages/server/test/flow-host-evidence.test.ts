@@ -577,6 +577,33 @@ test('the other shipped flows each reach their end', async (t) => {
     await person(d, run.goal, 'referee', 'merged')
     await settled(d, run.id)
   })
+  /* The loop the file exists for: reviewers ask for changes, the fixer
+     repairs — twice — they approve, the check runs, and the person referee
+     still gets the card: the shipped budget has to reach that far. */
+  await t.test('review-pr, through two repairs to its person referee', async (t) => {
+    const d = await desk(t)
+    /* Both fake runtimes mint `fake-session-<n>` from their own counters, so a
+       third Seat on the first can be answered with an id the second already
+       used, which the desk refuses as a conversation it holds. Real runtimes
+       mint unique ids; this puts the first's counter out of the second's way. */
+    for (let n = 0; n < 50; n += 1) await d.runtimes[0]!.createSession({ cwd: d.root })
+    const run = await start(d, await shipped(d, 'review-pr'), TASK)
+    const [fixer] = await claimed(d, run.goal, 'fixer', 1)
+    d.forge.open.add(await git(cwdOf(d, fixer!), 'symbolic-ref', '--short', 'HEAD'))
+    await write(d, fixer!, 'fixed')
+    for (const attempt of ['repaired once', 'repaired twice']) {
+      for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'request-changes')
+      const [repair] = await claimed(d, run.goal, 'fixer', 1)
+      // Each repair is its own Seat's checkout: the pull request the forge reports is the one on its branch.
+      d.forge.open.add(await git(cwdOf(d, repair!), 'symbolic-ref', '--short', 'HEAD'))
+      await write(d, repair!, attempt)
+    }
+    for (const card of await claimed(d, run.goal, 'reviewer', 2)) await review(d, card, 'approve')
+    const referee = await person(d, run.goal, 'referee', 'merged')
+    assert.equal(referee.role, 'referee', 'the person referee was reached, not a stop for the budget')
+    const done = await settled(d, run.id)
+    assert.equal(done.findings?.stopped ?? null, null)
+  })
 })
 
 /*

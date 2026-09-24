@@ -45,6 +45,9 @@ rules:
     then: { role: referee, title: "Merge the reviewed pull request" }
 messaging: board-only
 # How far a run may go before it stops for a person: closed rounds in all, and
-# closed rounds in a row that brought no new evidence. Raise it for longer loops.
-budget: { rounds: 5, without-progress: 2 }
+# closed rounds in a row that brought no new evidence. The fix, its review, the
+# check and the referee are four rounds; each repair adds two (the fix and its
+# re-review), so two repairs reach the referee in eight — and a ninth keeps the
+# referee's own close from reading as a stop. Raise it for longer loops.
+budget: { rounds: 9, without-progress: 2 }
 wait: 240
