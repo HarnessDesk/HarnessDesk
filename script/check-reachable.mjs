@@ -59,8 +59,6 @@ const UNREACHED = {
     'the pull half of `team/changed`, which pushes one room whole and is replayed on connect',
   'team/rooms':
     'likewise — every room a workspace holds arrives by push, so nothing needs to ask',
-  'goal/cite':
-    'a gap, not a design: citing a wrapped Goal\'s receipt into an open one is built on the host and has no surface yet — pinned when spreads were first followed, so the gate could see it at all',
 }
 
 /**

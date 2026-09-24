@@ -1,7 +1,9 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { GoalReceipt as Receipt } from '@harnessdesk/protocol'
+import { StoreProvider } from '../state/context'
+import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import stylesSettings from '../design/patterns/Settings.module.css'
 import { GoalReceipt } from './GoalReceipt'
 
@@ -139,6 +141,44 @@ it('names evidence from a restored Seat by its own recorded seatLabel, absent fr
   expect(text).toContain('Claude · Opus')
   expect(text).not.toContain('restored-seat')
   expect(text).toContain('fact-restored')
+})
+
+const settle = () => act(async () => {})
+
+it('a citation row opens its retained detail in a dialog, reading through the store', async () => {
+  const receipt = {
+    version: 1, id: 'r1', goal: 'g1', sentence: 'Ship', wrappedAt: 4, summary: 'Done.',
+    cards: [], seats: [], evidence: [], answers: [], lanes: [], revisions: [],
+    citations: [{ goal: 'source-goal', receipt: 'r-source', project: '/repo', path: '.harnessdesk/memory/decisions.md', at: 'a'.repeat(40) }],
+    gaps: [],
+  } as unknown as Receipt
+  const snapshot = { ...emptySnapshot(), status: 'open' } as unknown as AppSnapshot
+  const readMemoryCitation = vi.fn(async () => ({
+    state: 'retained' as const,
+    snapshot: {
+      version: 1 as const,
+      citation: receipt.citations[0]!,
+      text: 'Chose the flat file.',
+      receipt: { version: 1, id: 'r-source', goal: 'source-goal', sentence: 'Chose the format', wrappedAt: 1, summary: '', cards: [], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [] },
+      seats: [],
+      capturedAt: 1,
+      missingSeatIds: [],
+    },
+    sourceAvailable: true,
+    revisionAvailable: true,
+    restored: false,
+  }))
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, readMemoryCitation } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><GoalReceipt receipt={receipt} root="/repo" /></StoreProvider>))
+  const trigger = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('.harnessdesk/memory/decisions.md'))
+  expect(trigger).toBeTruthy()
+  act(() => trigger!.click())
+  await settle()
+  expect(readMemoryCitation).toHaveBeenCalledWith('/repo', receipt.citations[0])
+  expect(document.body.textContent).toContain('Chose the flat file.')
+  const closeButton = [...document.body.querySelectorAll('button')].find((one) => one.getAttribute('aria-label') === 'Close' || one.textContent === 'Close')
+  act(() => (closeButton ?? document.body.querySelector('[role="dialog"] button'))?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await settle()
 })
 
 it('falls back to the raw id when a receipt predates the members it would need to name a Seat', () => {

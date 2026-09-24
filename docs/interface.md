@@ -575,6 +575,17 @@ choices, previews the exact one-line file diff, and requires an author-controlle
 write; a changed file is refused. Built-ins must be customized first. See
 [agents.md](agents.md).
 
+An Agent's page also shows its Skills and Servers as an editable allowlist —
+an empty one reads "Runtime defaults", never "None" — with **Edit…**
+previewing the exact `skills:`/`mcp:` diff before it writes, and **Review &
+Approve…** showing the exact bytes a runtime would load before a person
+approves them once for that repository, Agent, runtime build and ceiling. Its
+Notes section reads and clears `NOTES.md` beside the Agent's file: private
+working context, never system instructions. A Seat's own name card and the
+Library's Agent filter both read back what a Seat's runtime build actually
+loaded, by that Seat's own immutable id — "declared, not loaded" and "not
+recorded" are shown as different facts, never folded into one another.
+
 **Settings › Permissions › Ceilings** shows four held/asked chips for every
 installed runtime, using controls the runtime declares and reads back rather
 than a runtime-name table. It also chooses whether a watched conversation may
@@ -596,7 +607,17 @@ authentication, and nothing at all before either has happened. It is never
 **Workspaces** lists every folder opened, each a way into its project's page —
 *Project settings* in the sidebar's project menu opens the same page — which
 lists the project's own Agents and the folder they are read from, with *Open*
-and *Forget* for a project that is not the one open.
+and *Forget* for a project that is not the one open. Its Memory section stays
+a single "Project memory" row until pressed — no read happens before that —
+and then shows the project's committed `.harnessdesk/memory/*.md` files, at
+the checkout's own HEAD, with an uncommitted one captioned "Commit this file
+before citing it" rather than offered. Choosing one of the project's own open
+Goals there offers "Cite in this Goal…"; confirming shows the file, its
+revision and the wrapped source Goal chosen before it writes anything. A
+citation's own retained detail — from here, or from a receipt's Citations
+row — is read-only: opening one starts no turn and grants nothing, and a
+missing source Goal or Git revision says so honestly beside the text that was
+retained.
 
 The runtime page also draws the controls the runtime declares for new sessions.
 Codex includes an optional CLI profile there: choosing one reads its bounded
@@ -721,6 +742,8 @@ port start, block width and browser-profile isolation. Retained descriptors show
 their Goal, Seat and checkout. Releasing ports never claims to remove files.
 Wrapped Goals open an immutable receipt headed **As recorded when wrapped**;
 partial answers, gaps, unknown spend and dirty retained lanes remain visible.
+A receipt's Citations row opens each memory citation's own retained detail in
+a dialog, the same read-only view a project's Memory section opens.
 
 ## Flows
 

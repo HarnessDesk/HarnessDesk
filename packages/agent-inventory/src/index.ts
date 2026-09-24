@@ -27,6 +27,7 @@ export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
 export {
   canHostMcp,
+  canonicalMcp,
   decodeMcpEntry,
   dialectFor,
   readRawMcpEntry,

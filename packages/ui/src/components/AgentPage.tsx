@@ -54,6 +54,8 @@ import {
   Switch,
 } from '../design'
 import styles from './AgentPage.module.css'
+import { AgentAttachments } from './AgentAttachments'
+import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
 
 /**
@@ -260,23 +262,10 @@ export const AgentPage = ({
           <Rows>
             <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
             <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
-            <Row
-              title="Skills"
-              control={
-                definition.skills.length === 0 ? (
-                  <RowValue>None</RowValue>
-                ) : (
-                  <span className={styles.actions}>
-                    {definition.skills.map((skill) => (
-                      <Button key={skill} size="sm" variant="link" title="Open the Library" onClick={() => store.askSettings('library')}>
-                        {skill}
-                      </Button>
-                    ))}
-                  </span>
-                )
-              }
-            />
           </Rows>
+
+          <AgentAttachments entry={entry} />
+          <AgentNotes entry={entry} />
 
           <SectionHead name="Brief" />
           <Rows>

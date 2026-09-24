@@ -1,5 +1,12 @@
 import type { AgentEntry, AgentOrigin, CeilingUpdate, MachineSeating, SeatPlan } from './agent.js'
 import type { ApprovalDecision } from './approval.js'
+import type {
+  AgentAttachmentsView,
+  AgentNotesView,
+  AttachmentEditPreview,
+  AttachmentReview,
+  SeatAttachmentsRecord,
+} from './attachments.js'
 import type { CaptureHealth, ProjectProvenance, ProvenanceBackup, ProvenanceSeatDetail } from './provenance.js'
 import type {
   CapabilityContribution,
@@ -11,7 +18,8 @@ import type {
   ScopeQuery,
 } from './capability.js'
 import type { EditorDocument, EditorEvent } from './editor.js'
-import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer } from './evidence.js'
+import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer, Sha } from './evidence.js'
+import type { GoalMemoryIndex, MemoryFile, MemoryResolution, MemorySnapshot } from './memory.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
@@ -175,6 +183,43 @@ export interface BackupFile {
     readonly documents: readonly unknown[]
     readonly lanes: readonly Lane[]
   }
+  /**
+   * Retained citation snapshots, the Goal-side index that resolves them, and
+   * every Seat's frozen attachment history — Task 2 and Task 3's own durable
+   * state, never this machine's live gateway state, trust files or server
+   * processes. Absent in a backup from before this feature existed.
+   */
+  readonly memory?: MemoryBackup
+}
+
+/**
+ * Task 6's own backup sidecar: what retention keeps, portable. `objects` are
+ * content-addressed exactly as `CitationArchive` files them; `indexes` are
+ * one entry per Goal document that carries a `memory` field, keyed by that
+ * Goal so import can fold each back into the Goal it belongs to rather than
+ * guessing from the objects alone; `attachments` is every observation epoch
+ * of every Seat this desk ever recorded; flattened, because
+ * `SeatAttachmentsRecord` already names its own Seat and epoch.
+ */
+export interface MemoryBackup {
+  readonly version: 1
+  readonly objects: readonly { readonly key: string; readonly snapshot: MemorySnapshot }[]
+  readonly indexes: readonly { readonly goal: GoalId; readonly memory: GoalMemoryIndex }[]
+  readonly attachments: readonly SeatAttachmentsRecord[]
+}
+
+/**
+ * What a memory restore actually did, counted after re-reading what was
+ * written. `alreadyHere` is a duplicate — an object, index or attachment
+ * epoch this desk already holds, byte for byte — never a reason for concern;
+ * `refused` is a damaged digest, an over-limit entry or an orphan index link,
+ * each counted rather than silently dropped; `failed` could not be written.
+ */
+export interface MemoryBackupReport {
+  readonly restored: number
+  readonly alreadyHere: number
+  readonly refused: number
+  readonly failed: number
 }
 
 /**
@@ -225,6 +270,7 @@ export interface BackupReport {
     readonly lanesDuplicate: number
     readonly lanesConflict: number
   }
+  readonly memory?: MemoryBackupReport
 }
 
 /**
@@ -641,6 +687,15 @@ export interface HostMethods {
   'goal/receipt': { params: { goal: GoalId }; result: GoalReceipt | null }
   'goal/cite': { params: { goal: GoalId; citation: GoalCitation }; result: null }
   'goal/migration/ack': { params: Record<string, never>; result: null }
+  /** Project memory files committed at one exact revision — never re-resolving HEAD per row. */
+  'memory/list': { params: { root: string; at: Sha }; result: readonly MemoryFile[] }
+  /**
+   * Opens one citation's retained bytes. `citation` names its own project;
+   * `root` is the caller's admitted project and must match it, so an archive
+   * key or source path from another project can never be read through a
+   * citation that only looks like it belongs to the one open here.
+   */
+  'memory/read': { params: { root: string; citation: GoalCitation }; result: MemoryResolution }
 
   /**
    * The findings ledger, read by a person. `finding/list`/`finding/read`
@@ -1882,6 +1937,79 @@ export interface HostMethods {
     }
     result: AgentEntry
   }
+  /**
+   * Phase 12, Task 5: what an Agent declares (`skills:`/`mcp:`) and what
+   * each measured runtime build can actually do with each kind, for the
+   * Agent page. A front door — it never loads anything, and never accepts a
+   * loaded state or a digest from the caller: everything here is read back
+   * from the same catalog/trust machinery a real Seat opening consults.
+   */
+  'attachment/agent': {
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly project?: string }
+    result: AgentAttachmentsView
+  }
+  /** Previews exactly the `skills:`/`mcp:` lines a write would change, touching nothing else. */
+  'attachment/edit/preview': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly skills: readonly string[]
+      readonly mcp: readonly string[]
+    }
+    result: AttachmentEditPreview
+  }
+  /** Writes exactly the previewed edit, bound to the digest that preview showed. */
+  'attachment/edit/write': {
+    params: {
+      readonly id: string
+      readonly origin: 'user' | 'project'
+      readonly project?: string
+      readonly skills: readonly string[]
+      readonly mcp: readonly string[]
+      readonly digest: string
+    }
+    result: AgentEntry
+  }
+  /** Reads `NOTES.md` beside an Agent's file. A missing file is `text: null`, never created by reading it. */
+  'attachment/notes': {
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly project?: string }
+    result: AgentNotesView
+  }
+  /** Clears `NOTES.md` to empty — an explicit action bound to the exact digest shown. */
+  'attachment/notes/clear': {
+    params: { readonly id: string; readonly origin: 'user' | 'project'; readonly project?: string; readonly digest: string }
+    result: AgentNotesView
+  }
+  /**
+   * What a person is asked to approve before this Agent's declared content
+   * may ever load for the named runtime: the exact bundle bytes, never a
+   * promise to fetch them again later. `runtime` and every other fact in the
+   * answer (ceiling, incarnation, build) are host-derived; a client cannot
+   * supply them.
+   *
+   * `root` is required, unlike the `project?` an Agent's own file operations
+   * take: trust is bound to the *repository this Seat will actually open in*
+   * (`evidence/seen.ts`'s own incarnation, the same call `seatAgent` makes
+   * with the Seat's real `cwd`), which for a `user`-origin Agent is never the
+   * Agent's own folder — the two can be, and normally are, different
+   * directories entirely. Reviewing without naming that root would bind
+   * trust to the wrong incarnation, and a later Seat opened in the project
+   * a person actually meant would find nothing approved.
+   */
+  'attachment/review': {
+    /**
+     * `runtime` is optional and best left out: without it the host reviews
+     * for the runtime `agent/seat` would choose for this Agent by default,
+     * so what a person approves is what the Seat will actually check.
+     */
+    params: { readonly id: string; readonly origin: AgentOrigin; readonly root: string; readonly runtime?: string }
+    result: AttachmentReview
+  }
+  /** Records a person's approval of exactly the reviewed token. */
+  'attachment/approve': { params: { readonly token: string }; result: null }
+  /** A Seat's frozen attachment identities and load history, by immutable Seat id — never by an Agent's current name or file. */
+  'attachment/seat': { params: { readonly seat: SeatId }; result: SeatAttachmentsRecord | null }
   /**
    * *Customize…*: copies the Agent found at `from` to this machine or to a
    * project, where the copy shadows it, and answers the copy's entry. Refused

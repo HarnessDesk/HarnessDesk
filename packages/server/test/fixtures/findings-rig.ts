@@ -21,7 +21,7 @@ export const SHA3 = '3'.repeat(40)
 export const REVIEWER = (id: string, runtime = 'beta'): AgentEntry => ({
   id, origin: 'project', path: `.harnessdesk/agents/${id}/AGENT.md`, digest: `${id}-digest`, shadows: [], problems: [],
   definition: {
-    id, name: id, ceiling: 'read', ceilingFrom: 'ceiling', answers: ['approve', 'request-changes'], produces: ['review'], skills: [],
+    id, name: id, ceiling: 'read', ceilingFrom: 'ceiling', answers: ['approve', 'request-changes'], produces: ['review'], skills: [], mcp: [],
     prefer: [{ runtime }], brief: `${id} brief`,
   },
 })

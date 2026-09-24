@@ -53,6 +53,7 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], folder: s
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'Work.',
   },
@@ -206,6 +207,35 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={DOCS.path} />)
   await settle()
   expect(container.querySelector('section[aria-label="Checks"]')).toBeNull()
+})
+
+it('plain project stays plain: no explicit memory use, no Memory section, no memory read', async () => {
+  const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
+  await settle()
+  expect(container.querySelector('section[aria-label="Memory"]')).toBeNull()
+  expect(container.textContent).toContain('Project memory')
+  expect((store as unknown as { transport?: { request: unknown } }).transport).toBeUndefined()
+})
+
+it('opening project memory reads it lazily, and an empty project says so honestly', async () => {
+  const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
+  await settle()
+  const memoryRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Project memory'))
+  expect(memoryRow).toBeTruthy()
+  ;(store as unknown as { transport: { request: ReturnType<typeof vi.fn> } }).transport = {
+    request: vi.fn(async (method: string) =>
+      method === 'git/log' ? { commits: [{ sha: 'a'.repeat(40) }], hasMore: false }
+      : method === 'git/status' ? { root: STOREFRONT.path, ahead: 0, behind: 0, files: [] }
+      : method === 'goal/list' ? []
+      : {},
+    ),
+  }
+  ;(store as unknown as { readMemoryFiles: ReturnType<typeof vi.fn> }).readMemoryFiles = vi.fn(async () => [])
+  act(() => memoryRow!.click())
+  await settle()
+  const section = container.querySelector('section[aria-label="Memory"]')
+  expect(section).toBeTruthy()
+  expect(section?.textContent).toMatch(/no project memory/i)
 })
 
 it('the project’s flows are read lazily, only once its page is open, and never on the plain Workspaces list', async () => {

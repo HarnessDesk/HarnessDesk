@@ -233,3 +233,30 @@ it('focuses nothing when it opens, so a held Return confirms nothing', async () 
   })
   expect(surface.contains(document.activeElement)).toBe(false)
 })
+
+it('a confirm holds whatever it is asked to confirm: the popup is bounded by the window, its body scrolls between a fixed header and footer, and code in it wraps', () => {
+  act(() =>
+    root.render(
+      <ConfirmDialog title="Approve what this agent would load?" confirmLabel="Approve" tone="default" onConfirm={() => {}} onCancel={() => {}}>
+        <pre data-testid="code">{`command: ${'x'.repeat(2000)}`}</pre>
+      </ConfirmDialog>,
+    ),
+  )
+  const surface = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+  const content = getComputedStyle(surface)
+  // The sheet arrived — a stubbed module would read as a block with no bound.
+  expect(content.display).toBe('flex')
+  expect(content.flexDirection).toBe('column')
+  expect(content.maxHeight).toMatch(/--hd-dialog-max-height|100dvh/)
+  const body = surface.querySelector<HTMLElement>('[data-slot="confirm-body"]')!
+  expect(getComputedStyle(body).overflowY).toBe('auto')
+  expect(getComputedStyle(body).minHeight).toMatch(/^0(px)?$/)
+  const code = surface.querySelector<HTMLElement>('[data-testid="code"]')!
+  expect(getComputedStyle(code).whiteSpace).toBe('pre-wrap')
+  expect(getComputedStyle(code).overflowWrap).toBe('anywhere')
+  // Header and footer never give up their height to a tall body.
+  for (const slot of ['alert-dialog-header', 'alert-dialog-footer']) {
+    const part = surface.querySelector<HTMLElement>(`[data-slot="${slot}"]`)!
+    expect(getComputedStyle(part).flexShrink).toBe('0')
+  }
+})

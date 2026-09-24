@@ -1,20 +1,52 @@
 import { randomUUID } from 'node:crypto'
+import { join } from 'node:path'
 
 import {
   activityOf, checkedDependencies, flowStepOf, placeCard,
   type BoardEvidence, type CarryFindingsInput, type EvidenceRecord, type FindingReceipt, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCitation, type GoalCreateInput, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
 
 import type { SeatOpening } from '../evidence/records.js'
+import { memoryPath } from '../memory/git.js'
+import { MemoryPlane, type GoalMemoryPort } from '../memory/plane.js'
 import { Assignments, Serial } from './assignments.js'
 import type { LaneAllocator } from './lanes.js'
 import { goalMembers, memberProjection } from './members.js'
 import { recoverOperation, type CarryPort, type GoalOperation, type GoalOperationPort } from './operations.js'
 import { GoalStore, type GoalDocument } from './store.js'
 import { citationBlob, previewWrap, Wraps, type WrapInput } from './wrap.js'
+
+/**
+ * What `GoalPlane` needs from memory beyond the citation/resolution pair
+ * every other consumer sees (`GoalMemoryPort`): the same live-registration
+ * bookkeeping `MemoryPlane` already keeps for `resolve`, reused here so a
+ * citation-created dependency edge can be checked synchronously — no
+ * `canDispatch` caller in this codebase can be made to await one more I/O
+ * round trip just to learn whether a Goal may be dispatched.
+ */
+export interface GoalMemorySupport extends GoalMemoryPort {
+  register(index: GoalMemoryIndex, restored?: boolean): void
+  isKnownRestored(citation: GoalCitation): boolean
+  /** Task 6's own backup export: the exact retained bytes under one content-addressed key, never a citation-shaped lookup. */
+  readRaw(key: string): Promise<string | null>
+  /** Task 6's own backup import: refiles an already-captured snapshot verbatim, keyed by its own content hash. */
+  writeSnapshot(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string>
+  /** Task 6's own backup import: whether this exact tuple is already registered under this exact archive key. */
+  isRegistered(citation: GoalCitation, archive: string): boolean
+}
+
+/** Whether a cited path is a project memory file — the only kind a citation retains. */
+const isMemoryPath = (path: string): boolean => {
+  try {
+    memoryPath(path)
+    return true
+  } catch {
+    return false
+  }
+}
 
 export interface GoalPlanePort extends GoalOperationPort {
   seats: {
@@ -24,6 +56,14 @@ export interface GoalPlanePort extends GoalOperationPort {
   confine(input: GoalCreateInput): Promise<{ root: string; cwd: string }>
   known(runtime: string, session: string): Promise<{ project: string; busy: boolean } | null>
   claimable(goal: string, card: number, session: SessionPointer): boolean
+  /**
+   * Passed straight through to `Assignments` (see its own doc comment):
+   * whether this live conversation's attachment loading was actually
+   * observed here, for a session that claims an Agent identity. Optional so
+   * a host not wired for phase 12 keeps today's behavior — `GoalPlane` never
+   * invents a stricter default than the port it was given asks for.
+   */
+  attachmentsObserved?(session: SessionPointer): Promise<boolean>
   opening(goal: string, session: SessionPointer, id: SeatId): Promise<SeatOpening>
   board(goal: string): TeamState
   evidence(goal: string): Promise<BoardEvidence>
@@ -92,19 +132,32 @@ export class GoalPlane {
   /** How a carry's events reach the findings ledger: its one writer's append. */
   #appendCarry: ((records: readonly EvidenceRecord[]) => Promise<void>) | null = null
 
+  private readonly memory: GoalMemorySupport
+
   constructor(
     readonly store: GoalStore,
     private readonly port: GoalPlanePort,
     readonly serial = new Serial(),
     private readonly now: () => number = Date.now,
-    private readonly citationCheck: typeof citationBlob = citationBlob,
+    memory?: GoalMemorySupport,
   ) {
+    this.memory = memory ?? new MemoryPlane(join(store.directory, 'memory-archive'), {
+      receiptOf: (goal) => {
+        try {
+          return this.store.read(goal).receipt
+        } catch {
+          return null
+        }
+      },
+      seats: { byId: (id) => this.port.seats.byId(id) },
+    }, now)
     this.#assignments = new Assignments({
       goal: (id) => { this.#dispatch(id); return this.store.read(id).goal },
       seats: () => port.seats.all(),
       known: (runtime, session) => port.known(runtime, session),
       claimable: (goal, card, session) => port.claimable(goal, card, session),
       commit: (goal, card, session) => this.#assign(goal, card, session),
+      ...(port.attachmentsObserved ? { attachmentsObserved: (session: SessionPointer) => port.attachmentsObserved!(session) } : {}),
     }, serial)
     this.#wraps = new Wraps({
       hold: (goal) => this.port.holdBoard?.(goal, WRAPPING) ?? (() => {}),
@@ -210,6 +263,24 @@ export class GoalPlane {
     }
   }
 
+  /**
+   * Folds every already-saved Goal document's citation index back into the
+   * memory plane after a restart. `MemoryPlane.resolve` answers only from
+   * the in-memory registry `register` builds — it never scans the archive
+   * folder itself — so without this, a citation made and wrapped in one
+   * process would read back "The original source was not retained" in the
+   * very next one, even though nothing about it was actually lost. A
+   * document's own `restored` marker (backup-imported history, never this
+   * desk's own prior run) is what `register` is told: a Goal this desk
+   * wrote and is simply reloading is not "restored" just because the
+   * process that wrote it has since exited.
+   */
+  async hydrateMemory(): Promise<void> {
+    for (const document of this.store.list()) {
+      if (document.memory) this.memory.register(document.memory, document.restored !== undefined)
+    }
+  }
+
   async create(input: GoalCreateInput): Promise<GoalView> {
     return this.serial.run(async () => {
       const ready = this.port.ready()
@@ -263,9 +334,22 @@ export class GoalPlane {
 
   dependenciesReady(id: string): boolean {
     const documents = this.store.list()
-    return this.store.read(id).goal.dependsOn.every((dependency) =>
-      documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped',
-    )
+    const document = this.store.read(id)
+    return document.goal.dependsOn.every((dependency) => {
+      if (documents.find((one) => one.goal.id === dependency)?.goal.state === 'wrapped') return true
+      // Missing, or not yet wrapped: an ordinary dependency stays blocked.
+      // Only the one edge a citation itself created — and only while its
+      // retention is genuinely, locally verified, never merely restored —
+      // may still count as satisfied. Checked synchronously and entirely
+      // from what `cite` already recorded: no caller here can be made to
+      // await an archive read just to learn whether a Goal may dispatch.
+      const source = document.memory?.satisfiedCitationSources.find((one) => one.goal === dependency)
+      if (!source) return false
+      const citation = document.memory?.citations.find(
+        (one) => one.citation.goal === dependency && one.citation.receipt === source.receipt,
+      )?.citation
+      return citation !== undefined && !this.memory.isKnownRestored(citation)
+    })
   }
 
   canDispatch(id: string): { ok: true } | { ok: false; reason: string } {
@@ -333,14 +417,102 @@ export class GoalPlane {
     const input = await this.#wrapInput(goal)
     const ready = previewWrap({ ...input, flow: false }, approved)
     if (ready.stamp !== stamp) throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    await this.#resolveCitationsBeforeWrap(goal)
     // Only now, with the wrap otherwise certain to proceed: the barrier — no
     // round opens and no Seat is sent work once wrapping has begun.
     await this.port.stopFlows?.(goal)
     return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
   }
 
+  /**
+   * Best-effort retention for any citation on this Goal that was never
+   * captured — a document from before this phase shipped, most of all. The
+   * citation itself is never rewritten, only `memory` gains an entry for it;
+   * a source no longer available is left exactly as unresolved as it already
+   * was; a wrapped receipt this pass could not enrich still freezes whatever
+   * `document.citations` already says, honestly.
+   */
+  async #resolveCitationsBeforeWrap(goal: string): Promise<void> {
+    const document = this.store.read(goal)
+    if (document.restored || document.goal.state !== 'open') return
+    const known = new Set((document.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
+    // Only memory files are ever retained; any other cited document stays phase 5's.
+    const missing = document.citations.filter((one) => isMemoryPath(one.path) && !known.has(JSON.stringify(one)))
+    if (missing.length === 0) return
+    const captured: { citation: GoalCitation; archive: string }[] = []
+    for (const citation of missing) {
+      try {
+        captured.push({ citation, archive: await this.memory.capture(citation) })
+      } catch {
+        // Best-effort: a source that can no longer be captured stays unresolved rather than blocking the wrap.
+      }
+    }
+    if (captured.length === 0) return
+    await this.serial.run(async () => {
+      const current = this.store.read(goal)
+      if (current.restored || current.goal.state !== 'open') return
+      const knownNow = new Set((current.memory?.citations ?? []).map((one) => JSON.stringify(one.citation)))
+      const fresh = captured.filter((one) => !knownNow.has(JSON.stringify(one.citation)))
+      if (fresh.length === 0) return
+      const memory: GoalMemoryIndex = {
+        citations: [...(current.memory?.citations ?? []), ...fresh],
+        satisfiedCitationSources: current.memory?.satisfiedCitationSources ?? [],
+      }
+      await this.store.save({ ...current, memory, goal: { ...current.goal, revision: current.goal.revision + 1, updatedAt: this.now() } }, current.goal.revision)
+      this.memory.register(memory)
+    })
+  }
+
   async receipt(goal: string): Promise<GoalReceipt | null> {
     return this.store.read(goal).receipt
+  }
+
+  /**
+   * Opens a citation this Goal (or one it references) already made — Task 6's
+   * own front door onto Task 2's retention. Delegates straight to the memory
+   * plane's own resolution, which is what actually reads the retained
+   * snapshot and reports source/revision availability; this method exists so
+   * `methods/memory.ts` never needs a second reference to that private plane.
+   */
+  resolveMemory(citation: GoalCitation): Promise<import('@harnessdesk/protocol').MemoryResolution> {
+    return this.memory.resolve(citation)
+  }
+
+  /**
+   * Task 6's own backup export: every loaded Goal document's own `memory`
+   * field, exactly as the store already holds it — never a live re-read
+   * through the registry, and never a scan of the archive folder.
+   */
+  memoryDocuments(): readonly { readonly goal: string; readonly memory: GoalMemoryIndex }[] {
+    return this.store.list().flatMap((document) => (document.memory ? [{ goal: document.goal.id, memory: document.memory }] : []))
+  }
+
+  /** Backup export's read-through onto one retained object, by its own content-addressed key. */
+  readMemoryObject(key: string): Promise<string | null> {
+    return this.memory.readRaw(key)
+  }
+
+  /** Backup import's write-through for one already-captured snapshot, refiled under its own content hash. */
+  writeMemoryObject(snapshot: import('@harnessdesk/protocol').MemorySnapshot): Promise<string> {
+    return this.memory.writeSnapshot(snapshot)
+  }
+
+  /**
+   * Folds an imported index into the live registry, marked restored — never
+   * rewrites the Goal document itself, which is why this makes a citation
+   * resolvable immediately after a backup import rather than only after the
+   * next restart's `hydrateMemory` sweep. `false` when no such Goal exists
+   * locally to attach it to; the caller counts that as refused.
+   */
+  registerRestoredMemory(goal: string, index: GoalMemoryIndex): boolean {
+    if (!this.store.list().some((one) => one.goal.id === goal)) return false
+    this.memory.register(index, true)
+    return true
+  }
+
+  /** Backup import's own duplicate check: whether this exact tuple is already registered under this exact archive key. */
+  memoryRegistered(citation: GoalCitation, archive: string): boolean {
+    return this.memory.isRegistered(citation, archive)
   }
 
   cite(goal: string, citation: GoalCitation): Promise<void> {
@@ -354,7 +526,21 @@ export class GoalPlane {
       if (source.goal.state !== 'wrapped' || source.receipt?.id !== citation.receipt) {
         throw new Error('Choose an existing wrapped receipt.')
       }
-      await this.citationCheck(target.goal.root, citation.path, citation.at)
+      // Retention precedes the Goal mutation: bytes, receipt and Seat context
+      // land durably in the archive before anything here ever references
+      // them, so a failure past this point leaves at most an unreferenced
+      // archive object — never a citation pointing at nothing. This await is
+      // also this method's one race window: another change can land on
+      // `goal` while it is pending, which the re-read and re-check right
+      // after it exist to catch.
+      //
+      // Only a project memory file (`.harnessdesk/memory/<slug>.md`) is
+      // retained — phase 12's decision 1. Any other committed document is
+      // cited exactly as phase 5 cited it: checked at its revision, never
+      // retained, so its edge waits on its source like any other.
+      const archive = isMemoryPath(citation.path)
+        ? await this.memory.capture(citation)
+        : (await citationBlob(target.goal.root, citation.path, citation.at), null)
       target = this.store.read(goal)
       this.#editable(target)
       const currentSource = this.store.read(citation.goal)
@@ -365,11 +551,25 @@ export class GoalPlane {
       const dependsOn = checkedDependencies(target.goal,
         target.goal.dependsOn.includes(citation.goal) ? target.goal.dependsOn : [...target.goal.dependsOn, citation.goal],
         this.store.list().map((one) => one.goal))
+      const memory: GoalMemoryIndex | undefined = archive === null
+        ? target.memory
+        : {
+            citations: [...(target.memory?.citations ?? []), { citation: structuredClone(citation), archive }],
+            satisfiedCitationSources: [
+              ...(target.memory?.satisfiedCitationSources ?? []).filter((one) => one.goal !== citation.goal),
+              { goal: citation.goal, receipt: citation.receipt },
+            ],
+          }
       await this.store.save({
         ...target,
         citations: [...target.citations, structuredClone(citation)],
+        ...(memory ? { memory } : {}),
         goal: { ...target.goal, dependsOn, revision: target.goal.revision + 1, updatedAt: this.now() },
       }, target.goal.revision)
+      // Registered only now, after the durable Goal mutation committed: a
+      // failed compare-and-swap above must never make this citation look
+      // resolvable when no Goal document actually references it.
+      if (archive !== null && memory) this.memory.register(memory)
     })
   }
 

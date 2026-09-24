@@ -29,7 +29,7 @@ import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 const JUDGE_PRODUCES_REVIEW = (id: string, runtime: string): AgentEntry => ({
   id, origin: 'project', path: `.harnessdesk/agents/${id}/AGENT.md`, digest: `${id}-digest`, shadows: [], problems: [],
   definition: {
-    id, name: id, ceiling: 'read', ceilingFrom: 'ceiling', answers: ['picked', 'neither'], produces: ['review'], skills: [],
+    id, name: id, ceiling: 'read', ceilingFrom: 'ceiling', answers: ['picked', 'neither'], produces: ['review'], skills: [], mcp: [],
     prefer: [{ runtime }], brief: `${id} brief`,
   },
 })

@@ -52,7 +52,7 @@ const COMPARISON_SOURCE = [
 const ENTRY: FlowEntry = { id: 'comparison', origin: 'builtin', path: 'comparison.yml', name: 'Comparison', description: null, format: 'agents', problem: null, shadows: [] }
 const AGENT: AgentEntry = {
   id: 'implementer', origin: 'builtin', path: '/app/agents/implementer/AGENT.md', digest: 'd1', shadows: [], problems: [],
-  definition: { id: 'implementer', name: 'Implementer', description: null, ceiling: 'publish', ceilingFrom: 'ceiling', answers: [], produces: [], skills: [], prefer: [{ runtime: 'alpha' }], brief: 'Build it.' },
+  definition: { id: 'implementer', name: 'Implementer', description: null, ceiling: 'publish', ceilingFrom: 'ceiling', answers: [], produces: [], skills: [], mcp: [], prefer: [{ runtime: 'alpha' }], brief: 'Build it.' },
 }
 const PLAN: SeatPlan = {
   id: 'implementer', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'asked' },

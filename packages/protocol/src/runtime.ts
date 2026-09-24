@@ -1,4 +1,5 @@
 import type { ApprovalDecision } from './approval.js'
+import type { AttachmentSupport, SessionAttachmentReceipt } from './attachments.js'
 import type { AgentEvent } from './events.js'
 import type { CeilingLevel } from './evidence.js'
 import type { ApprovalId, RuntimeId, SessionId, TurnId } from './ids.js'
@@ -441,6 +442,15 @@ export interface RuntimeInfo {
   readonly capabilities: RuntimeCapabilities
   readonly ceilings?: Readonly<Partial<Record<CeilingLevel, CeilingControl>>>
   readonly presentation: RuntimePresentation
+  /**
+   * Phase 12's stronger session contract: whether this runtime build can
+   * negotiate a scoped, per-Seat skill/server filter and prove what it
+   * loaded — never to be confused with the broad, always-on
+   * `RuntimeCapabilities.skills`/`.mcp` above. Absent (not merely `false`)
+   * for a runtime that has not been measured against this contract; decision
+   * 16 is explicit that the older capabilities never stand in for it.
+   */
+  readonly attachments?: AttachmentSupport
   /**
    * Which vendor's models this runtime's sessions reach, as its adapter
    * resolved it from the agent's own configuration. Null when the adapter
@@ -1066,6 +1076,19 @@ export interface AgentRuntime {
   /** Bring an existing session back into memory so it can take turns again. */
   resumeSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
   forkSession(id: SessionId, options?: Partial<SessionOptions>): Promise<AgentSession>
+
+  /**
+   * What this session actually loaded, in answer to the `attachments` this
+   * session (or its most recent recreate/resume/fork) was given — read back
+   * from the runtime itself, never assumed from what was requested.
+   *
+   * Optional, and its absence is exactly what `info.attachments` being unset
+   * already says: a runtime with no measured native contract implements
+   * neither. Only ever called for a session that was actually opened with a
+   * non-null `SessionOptions.attachments`; the host never asks a plain
+   * conversation to account for attachments it was never given.
+   */
+  attachmentReceipt?(session: SessionId): Promise<SessionAttachmentReceipt>
 }
 
 export interface AgentSession {

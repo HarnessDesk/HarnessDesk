@@ -69,7 +69,9 @@ export const sessionMethods = {
     // discarded: the wire names a route by id, the host exchanges the
     // stored credential for a loopback gateway, and only the resolved
     // gateway address reaches the adapter.
-    const { route: _clientRoute, routeId, ...rest } = params.options as typeof params.options & {
+    // `attachments` is the host's own, like `route`: a Seat's approved filter
+    // is set by `agent/seat` alone, never by whoever calls this.
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = params.options as typeof params.options & {
       routeId?: string
     }
     let options = rest as typeof params.options
@@ -85,7 +87,7 @@ export const sessionMethods = {
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
@@ -93,12 +95,27 @@ export const sessionMethods = {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
     let live: AgentSession
+    // A Seat that froze attachments reopens on that filter, revalidated —
+    // never on the runtime's defaults. A conversation already live here kept
+    // the filter it opened with, and is handed back as it is.
+    // A Seat that carries — or should carry — a filter is reopened the one
+    // way the host reopens it everywhere: on its frozen, revalidated filter,
+    // through the host's shared reopen, so a reconnect already opening it
+    // (a queued message, a room post) and this resume are one reopen, never
+    // two that race — the second would drop the session under the first's
+    // running turn. A conversation already live here kept its filter.
+    const sessionId = makeSessionId(params.sessionId)
+    const scoped = !ctx.registry.get(runtime.info.id, sessionId)?.live && ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false)
     try {
-      const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
-      live = await runtime.resumeSession(makeSessionId(params.sessionId), {
-        ...options,
-        ...(environment ? { environment } : {}),
-      })
+      if (scoped) {
+        live = await ctx.sessions.live({ runtime: runtime.info.id, sessionId })
+      } else {
+        const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
+        live = await runtime.resumeSession(sessionId, {
+          ...options,
+          ...(environment ? { environment } : {}),
+        })
+      }
     } catch (error) {
       // A conversation held by another writer is not a failure to explain
       // but a place to be sent; it keeps its own sentence and its code.
@@ -134,13 +151,17 @@ export const sessionMethods = {
   'session/fork': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
     if (typeof routeId === 'string') {
       options = { ...options, route: await ctx.routes.resolve(runtime, routeId) }
     }
+    // A fork is a new conversation, not the Seat: it would run with none of
+    // the Seat's approved filter, on the runtime's own defaults. Refused.
+    const refusal = await ctx.attachments?.forkRefusal(runtime.info.id, makeSessionId(params.sessionId))
+    if (refusal) throw new Error(refusal)
     const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
     const live = await runtime.forkSession(makeSessionId(params.sessionId), {
       ...options,

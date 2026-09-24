@@ -155,6 +155,58 @@ export const ACP_SESSION_DELETE_CAPABILITY = 'deleteSession'
 export const ACP_INSTRUCTIONS_CAPABILITY = 'instructions'
 
 /**
+ * Phase 12's attachment-loading extension, client side.
+ *
+ * Declared in `initialize`'s `_meta.harnessdesk.attachments` — an object,
+ * not a boolean, because the client needs three separate facts before it can
+ * trust an agent with a Seat's filter at all: whether skills and MCP servers
+ * can each be scoped, and whether the agent can suppress its own unapproved
+ * auto-loading of repository content. `version` is checked exactly equal to
+ * `1`; a missing extension, a wrong version or a non-boolean field all mean
+ * unsupported, never a guess from which agent this happens to be.
+ *
+ * `session/new` and `session/load` carry the host's isolated input the same
+ * way `ACP_INSTRUCTIONS_CAPABILITY` carries the standing instruction: under
+ * `_meta.harnessdesk.attachments`, here shaped `{version, input}`. The one
+ * extension request, `_harnessdesk/attachment_receipt`, asks what was
+ * actually loaded; the agent answers, the client never accepts one it did
+ * not ask for and never trusts a key that does not match what it prepared.
+ *
+ * The names are duplicated in `@harnessdesk/claude-acp`, the agent half,
+ * which has no HarnessDesk dependency by design. Change one, change the other.
+ */
+export const ACP_ATTACHMENTS_CAPABILITY = 'attachments'
+export const ACP_ATTACHMENT_RECEIPT = '_harnessdesk/attachment_receipt'
+
+/** What an agent declares under `_meta.harnessdesk.attachments` in `initialize`'s result. */
+export interface AcpAttachmentCapability {
+  readonly version: 1
+  readonly skills: boolean
+  readonly mcp: boolean
+  readonly suppressUnapproved: boolean
+}
+
+/** The isolated input carried under `_meta.harnessdesk.attachments` on `session/new`/`session/load`. */
+export interface AcpAttachmentInput {
+  readonly key: string
+  readonly skills: readonly { readonly name: string; readonly digest: string; readonly path: string }[] | null
+  readonly mcp: readonly { readonly name: string; readonly digest: string; readonly endpoint: string }[] | null
+}
+
+/** `_harnessdesk/attachment_receipt`'s params: which session, and the exact prepared key it must match. */
+export interface AcpAttachmentReceiptParams {
+  readonly sessionId: string
+  readonly key: string
+}
+
+/** `_harnessdesk/attachment_receipt`'s result: what the agent says it actually loaded. */
+export interface AcpAttachmentReceiptResult {
+  readonly key: string
+  readonly loaded: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly digest: string }[]
+  readonly refused: readonly { readonly kind: 'skill' | 'mcp'; readonly name: string; readonly reason: string }[]
+}
+
+/**
  * What a bridge reports having removed, so the app can say so honestly.
  * `removed` is the paths that are now gone; an empty list with no error means
  * the agent had nothing stored for that session, which is not a failure.

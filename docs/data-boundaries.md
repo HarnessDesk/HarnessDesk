@@ -28,9 +28,14 @@ transcripts rather than inferred from current configuration.
 ## Local — the default, and today the only one
 
 Nothing leaves. Agent credentials, API keys, vendor sessions, source, terminal
-output, diffs, transcripts, browser state, the audit log, and what the desk
-observed — every Seat it kept and every fact it recorded — are files on your
-disk, under `~/.harnessdesk` and your own repositories. The host binds a
+output, diffs, transcripts, browser state, the audit log, what the desk
+observed — every Seat it kept and every fact it recorded — an Agent's own
+declared skills and MCP servers, a person's local approval of an Agent-local
+bundle, and every retained project-memory citation, are files on your disk,
+under `~/.harnessdesk` and your own repositories. Reviewing a repository's
+`AGENT.md` and the bundle beside it never runs anything on its own — it only
+ever produces bytes a person reviews before they are trusted to load. The
+host binds a
 loopback socket the renderer talks to; nothing listens on a routable address.
 To see a card's pull request and its CI, the desk asks your forge with your
 own `gh`, in the card's checkout — the same tool, and the same account, the
@@ -51,6 +56,20 @@ ownership, port reservations or the machine's lane preferences. On restore,
 Goals are stamped as imported read-only history, operation journals are cleared,
 and lane descriptors become released archives with no Seat or browser binding.
 Nothing restored starts an agent, reserves a port or replays a wrap.
+
+### Memory citations and Seat attachment history restore as history, never as a grant
+
+A backup also carries every retained project-memory citation (the exact
+cited bytes, the source Goal's receipt and the Seats that were there) and
+every Seat's frozen attachment history. It never carries a person's local
+attachment approvals, a staging directory, a gateway token, an MCP server's
+address, or any other live capability state — none of those travel, and
+restoring a backup never grants one. An imported Seat attachment epoch is
+always marked restored and never shown as currently loaded; an imported
+citation can satisfy only the one dependency edge it originally created,
+never authorize a fresh Goal. One damaged object in an otherwise-good backup
+is refused and counted, never silently dropped from a total that then reads
+as complete.
 
 ---
 

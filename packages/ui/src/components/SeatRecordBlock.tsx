@@ -8,6 +8,7 @@ import { shortSha } from '../lib/evidence'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { GroupLine, PanelEmpty } from './Panel'
+import { SeatAttachments } from './SeatAttachments'
 
 export const SeatRecordBlock = () => {
   const store = useStore()
@@ -96,6 +97,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
           <KeyValueRow label="Restored">{`From a backup, ${new Date(seat.restored.at).toLocaleString()}. This desk did not keep this seat, so it says nothing about what this conversation is here.`}</KeyValueRow>
         )}
       </KeyValue>
+      <SeatAttachments seat={seat.id} historical={seat.closed !== null || seat.restored !== null} />
     </section>
   )
 }

@@ -14,6 +14,7 @@ import {
   type RuntimeId,
   type SeatCandidate,
   type SeatCeiling,
+  type SeatId,
   type Session,
   type SessionId,
   type SessionKey,
@@ -100,6 +101,17 @@ export interface SessionRecord {
    * laid back over the settings on every fold (`seatedSession`).
    */
   seatedAs: SeatedAs | null
+  /**
+   * The Seat this conversation's attachments were frozen under, when it has
+   * one — kept beside the session for the same reason `seatedAs` is: a
+   * runtime re-announcing its settings has never heard of it, and folding a
+   * fresh read must not lose the desk's own record of what this conversation
+   * was scoped to. `null` for a plain conversation, and for one seated before
+   * this field existed. This is the tool gateway's own way to resolve a live
+   * caller token back to the Seat whose frozen server list it may reach —
+   * never laid over `session.settings`, unlike `seatedAs`.
+   */
+  attachmentSeat: SeatId | null
 }
 
 /**
@@ -287,6 +299,7 @@ export class SessionRegistry {
       queue: emptyQueue(),
       tasks: [],
       seatedAs: this.#restore?.(session.runtime, session.id) ?? null,
+      attachmentSeat: null,
     }
     record.session = seatedSession(this.#settle(record, inherited), record.seatedAs)
     this.#records.set(sessionKey(session.runtime, session.id), record)
@@ -506,6 +519,28 @@ export class SessionRegistry {
     const settings = record.session.settings ?? record.live?.settings()
     record.session = seatedSession(settings ? { ...record.session, settings } : record.session, seated)
     return record
+  }
+
+  /**
+   * Records which Seat this conversation's attachments were frozen under —
+   * called once, after phase 12's transaction durably opens the Seat. Kept
+   * beside the session, like `seatedAs`, so a runtime re-announcing its
+   * settings (`upsert`, `reduceSession`) can never make the desk forget it.
+   */
+  recordAttachmentSeat(runtime: RuntimeId, id: SessionId, seat: SeatId): void {
+    const record = this.get(runtime, id)
+    if (!record) throw new Error(`No conversation ${id} is open to record a Seat's attachments for.`)
+    record.attachmentSeat = seat
+  }
+
+  /**
+   * The Seat this live conversation's attachments were frozen under, or
+   * `null` for a plain conversation, one seated before this field existed, or
+   * one no longer open at all. The tool gateway's own way to resolve a live
+   * caller token to the Seat whose frozen server list it may reach.
+   */
+  attachmentSeatOf(runtime: RuntimeId, id: SessionId): SeatId | null {
+    return this.get(runtime, id)?.attachmentSeat ?? null
   }
 
   /**

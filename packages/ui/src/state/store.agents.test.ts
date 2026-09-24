@@ -42,6 +42,7 @@ const ENTRY: AgentEntry = {
     answers: [],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'claude-code' }],
     brief: 'Review.',
   },

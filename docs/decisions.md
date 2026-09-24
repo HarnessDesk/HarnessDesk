@@ -442,3 +442,120 @@ never does.
 **The rule:** a fact counts for a rule by the card it is filed on and the
 revision it names, never by the round number it carries, and never for a
 checkout that could not have changed.
+
+---
+
+## A declared attachment is a catalogue name, never an executable spec
+
+An Agent's `skills:`/`mcp:` lines name entries by identifier, not by command
+or path. Reading a cloned repository's `AGENT.md` and the `skills/` folder
+beside it starts no process and runs no script; it only ever produces the
+identities and bytes a person reviews before anything is trusted to load.
+Agent-local content is hashed whole — every referenced script and resource,
+not only `SKILL.md` — and bound to the repository's own incarnation, the
+Agent's origin and id, that bundle's digest, the runtime build and the
+effective ceiling; any one of those changing means review again. An external
+MCP server is classified `merge` by default, whatever a repository or the
+server's own tool annotations claim, and is only ever reached through the
+desk's own gateway, which can identify and gate every call — a runtime never
+holds a server's real address. A runtime that cannot suppress its own
+unapproved auto-loading for one Seat is refused outright before any session
+exists, never seated unscoped and hoped honest.
+
+One identity per attachment, taken from one read: a skill's is SHA-256 over
+its whole bundle, a server's is SHA-256 over `canonicalMcp` of the spec that
+would run (never the Library's 16-hex display digest). The same identity
+gates the review, the approval, preparation, staging, the runtime's receipt
+and the gateway. The host stages what it approved — the exact bytes under
+`attachments/staged/skill/<digest>/`, the exact spec under
+`attachments/staged/mcp/<digest>.json` — and a runtime is handed that staged
+copy, never the Agent's or the Library's own folder, which can change after
+a person looked. The bundled bridge re-reads the staged folder with the same
+bounds, hashes what it copies, and reports that hash; anything else is not
+loaded. A review is for the runtime `agent/seat` will actually choose, at the
+Agent's own ceiling, and the grant covers any Seat at or below that ceiling —
+a narrower Seat is less authority. An external server still needs a Seat that
+may merge, so the default (`edit`) seating of a merge-ceiling Agent loads its
+skills and says why its servers did not. A server's review shows the command,
+arguments and environment that will run (a credential's value is shown only
+as set), and its command runs only when the Seat lists or calls its tools,
+through the desk's gate, in an empty host-owned folder — never the Seat's
+checkout, whose own configuration could change what an approved command
+resolves to.
+
+**The rule:** trust and classification are host-computed from what was
+actually read, never taken from a repository's own claim about itself, and a
+runtime that cannot honor a Seat's declarations fails that seating in its own
+words rather than falling through to a different one nobody announced.
+
+---
+
+## A Seat freezes its attachments; nothing it loaded can change after it opens
+
+What a Seat's runtime loads is decided once, at open, from the Agent's
+declarations as they stood then — not re-read on reconnect, not widened by a
+later approval, not narrowed by an edit to the Agent's file. `prepare` runs
+before a runtime session exists so the isolated input it is given can
+actually reflect what was decided; `record` durably appends one epoch to
+that Seat's own append-only history only after the runtime's own readback
+says what it loaded, so a Seat's history is what was *observed*, never what
+was merely requested. A later reconnect or resume revalidates those same
+frozen inputs and appends a new epoch; it never re-derives from the Agent's
+current wishes. History persists after a Seat closes and after a restart,
+and a restored (backup-imported) epoch is marked so and never reads as a
+live "currently loaded" — retention is a fact about the past, not a
+standing grant.
+
+The frozen filter survives everything a conversation outlives. A Seat keeps
+what it decided at open in machine state (`attachments/frozen/`), and a
+resume, a load, or a reconnect after its runtime restarts hands the runtime
+that same filter — revalidated against the staged copies, the approval for
+the runtime build now running, and the Seat's ceiling — then appends the
+reopen's receipt as a new epoch. A reopen whose runtime can no longer keep
+unapproved content out is refused; one it cannot record is closed. A fork is
+refused outright: it would be a new conversation on the runtime's defaults,
+and it is not the Seat. No session method accepts `attachments` from a
+client; only `agent/seat` sets it.
+
+**The rule:** a Seat's attachment record is append-only and observed, never
+rewritten and never optimistic; "declared, not loaded", "loaded" and "not
+recorded" are three different facts and no code path collapses one into
+another to look tidier.
+
+---
+
+## A memory citation retains bytes before the Goal ever references them
+
+Citing a wrapped Goal's committed memory file into another Goal is a person
+action, never an automatic link: `.harnessdesk/memory/<slug>.md` is ordinary
+committed prose, and a citation names a full commit, a literal path and the
+exact wrapped receipt a person selected — "Source selected by you", never a
+claim the file itself makes about its own origin. Retention is
+durable-before-reference: the exact bytes, the source Goal's receipt and the
+Seats that were there are written to content-addressed storage first, and
+only a successful write is ever referenced from the citing Goal's own index —
+a failure past that point leaves at most an unreferenced object, never a
+citation pointing at nothing. The source Goal, its checkout or the whole
+desk that made it may later disappear; the retained copy still resolves,
+honestly labeled `Source Goal unavailable` or `Original revision
+unavailable` rather than silently going quiet. None of this grants a tool,
+moves an evidence column, or lets a citation someone merely restored from a
+backup satisfy a dependency a live Goal never actually earned.
+
+Retention is for project memory only. `goal/cite` keeps the reach phase 5
+gave it — any committed document at a full revision may be cited — and
+retains a snapshot only when the path is a memory file; any other citation is
+checked at its revision and waits on its source like any other dependency.
+The plan narrows what memory is (decision 1), not what a Goal may cite.
+Memory is read from an ordinary checkout or from a linked worktree, which is
+what every Agent lane is: `.git` → `gitdir` → `commondir` is followed hop by
+hop, each reached through no link, the gitdir must be one its repository
+registered under its own common directory, and its back-pointer must name
+this very checkout — anything else is refused. A backup's index is a claim:
+a link is accepted only when the archive it names carries that exact
+citation, and restored history never replaces or collides with a citation
+this desk registered itself.
+
+**The rule:** retention happens before the Goal mutation that references it,
+a citation is data a person carries on purpose, and no archived or restored
+record may authorize dispatch, membership or tools by itself.
