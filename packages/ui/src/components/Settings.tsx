@@ -113,6 +113,7 @@ import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
 import { LaneSettings } from './LaneSettings'
+import { TriggerSettings } from './TriggerSettings'
 import styles from './Settings.module.css'
 
 /**
@@ -1485,9 +1486,13 @@ const BrowserSection = () => {
  */
 export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | null }) => {
   const snapshot = useSnapshot()
-  const [open, setOpen] = useState<string | null>(focus)
+  // 'triggers' is not a workspace path — it asks this list page to scroll to
+  // its own machine-wide "Triggers on this Mac", never to open a project by
+  // that literal name.
+  const [open, setOpen] = useState<string | null>(focus === 'triggers' ? null : focus)
   useEffect(() => {
-    if (focus) setOpen(focus)
+    if (focus === 'triggers') setOpen(null)
+    else if (focus) setOpen(focus)
   }, [focus])
 
   if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
@@ -1520,6 +1525,7 @@ export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | 
       <WorktreeRows />
       <SectionHead name="Lanes" />
       <LaneSettings root={snapshot.workspace?.path} />
+      <TriggerSettings focus={focus} />
     </>
   )
 }

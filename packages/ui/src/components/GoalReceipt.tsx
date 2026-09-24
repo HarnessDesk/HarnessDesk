@@ -5,6 +5,7 @@ import type { GoalCitation, GoalReceipt as GoalReceiptRecord } from '@harnessdes
 import { Chip, CodeText, Dialog, MetaList, Note, Row, RowButton, Rows, SectionHead, Text } from '../design'
 import { shortSha } from '../lib/evidence'
 import { blockingWords, lifecycleTone, lifecycleWords } from '../lib/findings'
+import { intakeStopWords } from '../lib/intake'
 import { InsightCost } from './InsightCost'
 import { MemoryCitation } from './MemoryCitation'
 
@@ -36,6 +37,10 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
   return (
   <div>
     <Chip tone="neutral">As recorded when wrapped</Chip>
+    {receipt.intake && <Note>{`Opened ${receipt.intake.label}.`}</Note>}
+    {receipt.intake?.stop && (
+      <Note tone="warn">{`${intakeStopWords(receipt.intake.stop.reason)} ${receipt.intake.stop.detail}`}</Note>
+    )}
     <SectionHead name="What finished" />
     <Text as="p" role="value">{receipt.summary}</Text>
     <SectionHead name="Findings" />

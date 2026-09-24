@@ -35,6 +35,8 @@ export interface WrapInput {
    * them as gaps only when the person says so (`WrapChoices.publicationGaps`).
    */
   publication?: readonly string[]
+  /** This Goal's trigger-origin projection, read through Intake just before freezing. Absent: not a trigger Goal. */
+  intake?: GoalReceipt['intake']
 }
 
 export type { WrapChoices } from '@harnessdesk/protocol'
@@ -94,6 +96,7 @@ export function previewWrap(input: WrapInput, choices: WrapChoices): WrapPreview
       revisions: input.revisions,
       gaps: input.gaps,
       ...(input.findings ? { findings: input.findings } : {}),
+      ...(input.intake ? { intake: input.intake } : {}),
     }),
   }
 }

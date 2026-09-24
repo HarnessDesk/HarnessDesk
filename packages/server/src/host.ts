@@ -19,6 +19,7 @@ import {
   type ApprovalDecision,
   type NoticeItem,
   type SeatCeiling,
+  flowStepOf,
   isBusy,
   isSessionBusy,
   isSessionGone,
@@ -57,6 +58,7 @@ import {
   type RepoInfo,
   type SessionSummary,
   type Intent,
+  type TeamActor,
   type TeamState,
   type Turn,
   type UserContent,
@@ -116,9 +118,9 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
-import { GhFindingForge } from './findings/forge.js'
+import { GhFindingForge, type GhApiRunner } from './findings/forge.js'
 import { FindingsPlane } from './findings/plane.js'
-import { Publications, type FindingForgePort } from './findings/publication.js'
+import { gapOf, Publications, type FindingForgePort } from './findings/publication.js'
 import { QuestionDeadline } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmentSubject, type ReopenedSeat } from './attachments/plane.js'
@@ -154,6 +156,9 @@ import { acquireDeskWriter } from './goals/writer-lease.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
+import { IntakePlane, type IntakeTimers } from './intake/plane.js'
+import { NO_WAITS, type HostWaits } from './intake/waits.js'
+import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
 import { dispatch, TERMINAL_CHIP, type HostContext } from './methods/index.js'
@@ -426,6 +431,20 @@ export interface HostOptions {
    * to `RuntimeInfo.install` and asked again through `runtime/installs`.
    */
   readonly installs?: InstallService
+  /**
+   * Intake's reach outside the desk, for tests only: the forge `gh` a
+   * trigger reads, the clocks it paces and budgets by, the timers its
+   * watchers run on, and where a project's usage is read from. Absent
+   * everywhere else, where the person's own `gh`, the wall and monotonic
+   * clocks, unref'd timers and the ledger are used. Never a wire route.
+   */
+  readonly intake?: {
+    readonly gh?: GhApiRunner
+    readonly now?: () => number
+    readonly monotonic?: () => number
+    readonly timers?: IntakeTimers
+    readonly usage?: (project: string, from: number, to: number) => Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }>
+  }
 }
 
 /**
@@ -606,6 +625,8 @@ export class Host {
   readonly #questions: QuestionDeadline
   /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
   readonly #insight: InsightPlane
+  /** Triggers: consent, monitoring, admission, budgets and named waits. See `intake/plane.ts`. */
+  readonly #intake: IntakePlane
   readonly #turnInsight = new InsightContexts()
   #goalWriter: Awaited<ReturnType<typeof acquireDeskWriter>> | null = null
   #goalsReady = false
@@ -854,6 +875,8 @@ export class Host {
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
         embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
+        // Read lazily: the intake plane is made after this one, and nothing posts before both exist.
+        posted: (reference) => this.#intake.deskPosted(reference),
       },
       options.forge ?? {},
     )
@@ -910,6 +933,14 @@ export class Host {
         }
       },
       canDispatch: (goal) => this.#goals.canDispatch(goal),
+      // A trigger's Goal is unattended: its members accept each other's messages unless one says otherwise.
+      unattendedInbound: (room) => {
+        try {
+          return this.#goalStore.read(room).goal.origin.kind === 'trigger'
+        } catch {
+          return false
+        }
+      },
       canMutateBoard: (goal) => {
         try {
           const document = this.#goalStore.read(goal)
@@ -1030,7 +1061,12 @@ export class Host {
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
-      openSeat: (input) => this.#goals.seat(input),
+      openSeat: async (input) => {
+        const record = await this.#goals.seat(input)
+        // A trigger Goal's Seat starts its meter here — once durable, never awaited inside the run's queue.
+        this.#intake.seated(record, this.#delegationUncertainRuntimes.has(record.session.runtime) ? 'unknown' : 'none')
+        return record
+      },
       release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
       canDispatch: (goal) => this.#goals.canDispatch(goal),
       createGoal: async (input) => (await this.#goals.create(input)).goal,
@@ -1044,6 +1080,11 @@ export class Host {
       busy: (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
         return record ? this.#queueBusy(record) : false
+      },
+      // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
+      interrupt: async (seat) => {
+        const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
+        if (record?.live && record.running.size > 0) await record.live.interrupt()
       },
       laneOf: (seat) => this.#lanes.forSeat(seat.id),
       reseat: async (seat) => {
@@ -1074,6 +1115,21 @@ export class Host {
         const state = this.#goalState(goal)
         return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
       },
+      /* A trigger's run: compiled from the same frozen closure its arm
+         consented to, attached only to the Goal its firing made, and gated
+         on every dispatch by its budget. Read lazily: the intake plane is
+         made after this engine, and no trigger run starts before both exist. */
+      triggered: {
+        freeze: (root, definition) => this.#intake.freeze(root, definition),
+        originOf: (goal) => {
+          try {
+            return this.#goalStore.read(goal).goal.origin
+          } catch {
+            return null
+          }
+        },
+        gate: async (run) => this.#intake.gate(run),
+      },
     }), review)
     this.#team.attachFlows(this.#flows)
     /*
@@ -1098,6 +1154,38 @@ export class Host {
      *   settle (`settledFor`) before it takes this queue, never inside it.
      * - project (`FindingsPlane`'s queue, one per canonical project): the
      *   evidence store only. It asks for nothing.
+     *
+     * Intake adds two queues to the far left and two leaves beside project:
+     *
+     *   intake source  →  admission  →  publication  →  …
+     *
+     * - intake source (`IntakeMonitor`, one per project and source): reads the
+     *   forge or the clock, offers each fact to admission, then commits its
+     *   cursor. Nothing to its right ever waits on it; an arm's first
+     *   observation takes it before, never inside, the consent queue.
+     * - admission (`Admission`, one per desk): `intake.json`, the one journal
+     *   of firings, Goal groups and round intents. Inside it an offer reads
+     *   the arm again (consent, a leaf that takes no queue), claims an open
+     *   Goal under the Goal queue (`GoalPlane.intakeClaim`, the lifecycle
+     *   barrier a wrap also takes), journals, then applies each effect: a
+     *   Goal (Goal), a fact (project), a held round (run → Team → Goal) and
+     *   the release (run). A wrap takes the Goal queue for its barrier and
+     *   never waits on admission: it refuses while a firing is landing.
+     * - intake consent (`TriggerConsent`, one per desk): `triggers-machine.json`
+     *   and its sealed key only. It asks for nothing; an arm observes the
+     *   source before it takes this queue and re-reads what it binds inside it.
+     * - intake cursors (`SourceCursors`, one per desk): `triggers-cursors.json`
+     *   only, re-read inside its own queue on every commit. It asks for nothing.
+     * - intake preferences and attention (`IntakePlane`, one each per desk):
+     *   `triggers-preferences.json` and `triggers-attention.json`, leaves that
+     *   ask for nothing. Waits are named from snapshots (the journal, runs,
+     *   the board, approvals, postings) read outside every queue, then written
+     *   through the outbox's own; a budget's meter, stop and settlement take
+     *   admission's queue and are never awaited inside a run, Team or Goal
+     *   queue — a Seat's opening, a turn and a wrap only queue them.
+     * - a trigger's run posts each closed round as one review through the
+     *   publication queue, exactly as phase 7 posts a finding: journaled in
+     *   the run's queue, sent from the publication queue holding none.
      *
      * Phase 12's queues are leaves beside project, each taken only by the
      * Goal queue or by nothing at all, and each asking for nothing:
@@ -1195,6 +1283,10 @@ export class Host {
       template: () => this.#reviewSignature(),
       appendPost: (input) => this.#findings.appendPost(input),
       forge: options.findingForge ?? new GhFindingForge(),
+      // A trigger's run posts each closed round as one review; every other run, comment by comment.
+      summary: (run) => this.#flows.executionOf(run)?.intake !== undefined,
+      // Posting is dispatch too: a paused machine, or a cap below what is committed, sends nothing new for a trigger's Goal.
+      beforeDispatch: (goal) => this.#intake.beforeDispatch(goal),
       now: () => Date.now(),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
     })
@@ -1229,9 +1321,15 @@ export class Host {
       agents: (root) => this.#agents.list(root),
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
-      previewAgent: (root, agent, seats, grant) => previewAgent(this.#context, root, agent, seats, grant),
+      previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
       storedRun: async (run) => this.#flows.storedRun(run),
       now: () => Date.now(),
+    })
+    // The catalogue a trigger's closure resolves its flow through: the same layers and rules as a person's.
+    const intakeCatalog = new FlowCatalog({
+      userRoot: join(this.#state.directory, 'flows'),
+      builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
+      confine: (root) => this.#confineRoom(root),
     })
     this.#flowUpdates = new FlowUpdates({
       stateDir: join(this.#state.directory, 'flow-updates'),
@@ -1340,7 +1438,7 @@ export class Host {
       ready: () => this.#goalsReady
         ? { ok: true as const }
         : { ok: false as const, reason: 'The Goal store is still starting. Wait for recovery to finish.' },
-      seatAgent: async (input: GoalSeatRequest, goal) => {
+      seatAgent: async (input: GoalSeatRequest, goal, policy) => {
         const asked = {
           id: input.agent,
           cwd: goal.cwd,
@@ -1352,6 +1450,7 @@ export class Host {
           board: goal.id,
           role: null,
           ...(input.grant === undefined ? {} : { grant: input.grant }),
+          ...(policy.unattended ? { unattended: true } : {}),
         })).record
       },
       openLegacySeat: async (input, goal) => {
@@ -1418,6 +1517,12 @@ export class Host {
       holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
+      intakeHeld: (goal: string) => this.#intake?.held(goal) ?? false,
+      intakeReceipt: async (goal: string) => {
+        const status = await this.#intake?.goal(goal)
+        if (!status) return null
+        return { trigger: status.trigger, source: status.source, label: status.label, stop: status.budget?.stop ?? null }
+      },
       findings: async (goal: string) => {
         const { receipt, gaps } = await this.#findings.receiptWithGaps(goal)
         return {
@@ -1480,6 +1585,59 @@ export class Host {
       projects: () => [],
       push: (notice) => this.#push(notice),
       log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#intake = new IntakePlane({
+      home: this.#state.directory,
+      cipher: options.credentialCipher ?? plainCipher,
+      confine: (root) => this.#confineGitRoot(root),
+      flowSource: (root, id) => intakeCatalog.resolve(root, id),
+      // A trigger's closure is read as its Goal will be seated: unattended.
+      preview: (root, source) => this.#flowPreviews.freeze(root, source, { unattended: true }),
+      // And what each Agent attaches, by content: an arm consents to the bytes a Seat would load.
+      attachments: async (root, agent) => {
+        const entry = await this.#agents.read(agent, root)
+        if (!entry?.definition) return []
+        return (await this.#attachmentDeclarations(entry, root)).resolved
+          .map((one) => JSON.stringify([one.identity.kind, one.identity.name, one.identity.digest, one.identity.source]))
+      },
+      goals: {
+        ensureTriggerGoal: (request) => this.#goals.ensureTriggerGoal(request),
+        lifecycle: (goal) => this.#goals.lifecycle(goal),
+        claim: (goal, claim) => this.#goals.intakeClaim(goal, claim),
+        origin: (goal) => {
+          try {
+            return this.#goalStore.read(goal).goal.origin
+          } catch {
+            return null
+          }
+        },
+      },
+      flows: {
+        startTriggered: (request) => this.#flows.startTriggered(request),
+        againTriggered: (run, key, evidence) => this.#flows.againTriggered(run, key, evidence),
+        resumeTriggered: (run) => this.#flows.resumeTriggered(run),
+        supersedeTriggered: (run, why, next) => this.#flows.supersedeTriggered(run, why, next),
+        runs: (goal) => this.#flows.executionsFor(goal),
+        execution: (run) => this.#flows.executionOf(run),
+        stopRun: async (run, why) => { await this.#flows.stopRun(run, why) },
+        holdTriggered: (run, why) => this.#flows.holdTriggered(run, why),
+        setAsideTriggered: (run, why) => this.#flows.setAsideTriggered(run, why),
+        interruptChecks: (goal) => this.#flows.interruptChecks(goal),
+      },
+      evidence: { observeTrigger: (firing, goal, fact) => this.#evidence.observeTrigger(firing, goal, fact) },
+      seats: () => this.#evidence.seats.all(),
+      interrupt: (goal) => this.#interruptGoal(goal),
+      lane: (goal) => this.#allowanceOf(goal),
+      refreshLanes: (goals) => this.#refreshAllowances(goals),
+      republish: (goal) => this.#publications.settleForWrap(goal),
+      usage: options.intake?.usage ?? ((project, from, to) => this.#usageOf(project, from, to)),
+      waits: (goal) => this.#triggerWaits(goal),
+      push: (notification) => this.#push(notification),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+      now: options.intake?.now ?? (() => Date.now()),
+      monotonic: options.intake?.monotonic ?? (() => performance.now()),
+      ...(options.intake?.gh ? { gh: options.intake.gh } : {}),
+      ...(options.intake?.timers ? { timers: options.intake.timers } : {}),
     })
     this.#context = this.#buildContext()
   }
@@ -1748,6 +1906,9 @@ export class Host {
     await this.#publications.recover().catch((error: unknown) => {
       this.#logger.warn('closed rounds could not be queued for posting again', { error: error instanceof Error ? error.message : String(error) })
     })
+    // Then triggers, with dispatch held: every journaled firing finished to its
+    // held round before any runtime is asked for anything, and before any run resumes.
+    await this.#intake.load()
     // Both room and flow recovery can change a Goal's activity. Seed the
     // in-memory comparison point only after they have settled, so the first
     // later change can cross the notification boundary normally.
@@ -1794,7 +1955,21 @@ export class Host {
        run's rounds is board work and belongs above; *sending* to a seat needs
        the agent that holds it to be running, and asking a moment too early
        answers "Cursor is not running" for every seat of every flow. */
-    void this.#flows.resume()
+    /* Held firings are released through their gates, and only then is any
+       source read: a trigger's run never dispatches before its runtime is up. */
+    /* In the documented order: held firings released through their gates
+       first, then flows resume — a trigger's run never advances on a resume
+       that overtook its firing's release. Not awaited by start itself. */
+    void (async () => {
+      if (!this.#disposed) {
+        await this.#intake.ready().catch((error: unknown) => {
+          this.#logger.warn('triggers could not start watching', { error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+      await this.#flows.resume()
+    })().catch((error: unknown) => {
+      this.#logger.warn('flows could not resume', { error: error instanceof Error ? error.message : String(error) })
+    })
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
   }
 
@@ -1865,6 +2040,12 @@ export class Host {
     this.#attachmentAbort.abort()
     this.#catalogs.stop()
     this.#agentWatch?.dispose()
+    /* Triggers stop first: no new admission, no poll, no budget sweep and no
+       meter read from here on; what is in flight is abandoned with its cursor
+       kept, and awaited below before the runs and the Goals are flushed. */
+    const intakeClosed = this.#intake.close().catch((error: unknown) => {
+      this.#logger.warn('triggers did not close cleanly', { error: error instanceof Error ? error.message : String(error) })
+    })
     /*
       Every runtime is told the quit has begun before anything below can yield.
 
@@ -1920,6 +2101,7 @@ export class Host {
     this.#team.stopWaiting('the desk is closing')
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
     this.#questions.close()
+    await intakeClosed
     await this.#flows.flush()
     await this.#publications.idle()
     await this.#findings.close()
@@ -2506,6 +2688,8 @@ export class Host {
       },
     }, document.goal.revision)
     this.#team.closeGoalWaits(operation.goal)
+    // A trigger Goal's reservation settles against its final spend — never awaited inside the Goal's queue.
+    this.#intake.wrapped(operation.goal)
     try {
       const view = await this.#goals.view(operation.goal)
       this.#team.installProjection(view.board, this.#goalStore.read(operation.goal).legacy?.roster, { final: true })
@@ -2516,6 +2700,117 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     }
+  }
+
+  /**
+   * Interrupts every live turn on a Goal's open Seats — a budget stop, a
+   * pause, a new head — keeping whatever each already said. A turn that
+   * already ended is nothing to interrupt.
+   */
+  async #interruptGoal(goal: string): Promise<void> {
+    const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
+    await Promise.all(seats.map(async (seat) => {
+      const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+      if (!record?.live || record.running.size === 0) return
+      await record.live.interrupt().catch((error: unknown) => {
+        this.#logger.warn('a trigger Seat’s turn could not be interrupted', { seat: seat.id, error: error instanceof Error ? error.message : String(error) })
+      })
+    }))
+  }
+
+  /** The runtimes a Goal's open Seats spend from. */
+  #spendingRuntimes(goal: string): readonly RuntimeId[] {
+    return [...new Set(this.#evidence.seats.all()
+      .filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
+      .map((seat) => runtimeId(seat.session.runtime)))]
+  }
+
+  /**
+   * Whether a Goal's Seats still have allowance, as the usage service last
+   * read each of their runtimes: a limit reached is spent; no reading, a
+   * stale one, or one that failed with nothing to show is unknown — which
+   * refuses unattended dispatch rather than guessing.
+   */
+  #allowanceOf(goal: string): 'available' | 'spent' | 'unknown' {
+    const now = Date.now()
+    let unknown = false
+    for (const runtime of this.#spendingRuntimes(goal)) {
+      const report = this.#usageService.cached(runtime)
+      if (!report) { unknown = true; continue }
+      if (report.reached !== null || report.lanes.some((lane) => lane.usedPercent >= 100)) return 'spent'
+      if (now - report.fetchedAt > report.staleAfterMs) unknown = true
+      else if (report.error && report.lanes.length === 0 && !report.credits) unknown = true
+    }
+    return unknown ? 'unknown' : 'available'
+  }
+
+  /** Reads the allowance of every runtime these Goals spend from again, where the last reading went stale. */
+  async #refreshAllowances(goals: readonly string[]): Promise<void> {
+    const runtimes = new Set(goals.flatMap((goal) => this.#spendingRuntimes(goal)))
+    const now = Date.now()
+    for (const runtime of runtimes) {
+      const report = this.#usageService.cached(runtime)
+      if (report && now - report.fetchedAt < report.staleAfterMs / 2) continue
+      await this.#usageService.refresh(runtime).catch(() => undefined)
+    }
+  }
+
+  /** Every usage sample the ledger holds for a project in a window, and whether it could read all of it. */
+  async #usageOf(project: string, from: number, to: number): Promise<{ readonly samples: readonly UsageSample[]; readonly complete: boolean }> {
+    const detail = await this.#ledgerService.readInsight({ root: project, from, to })
+    return { samples: detail.samples, complete: detail.gaps.length === 0 }
+  }
+
+  /**
+   * What the host holds on a trigger Goal for a person, read as a snapshot:
+   * the Team's held messages, a Seat conversation's approvals and held desk
+   * actions, its questions, the cards a flow addressed to a person, and the
+   * postings a person has to look at.
+   */
+  #triggerWaits(goal: string): HostWaits {
+    let board: TeamState
+    try {
+      board = this.#goalState(goal)
+    } catch {
+      return NO_WAITS
+    }
+    const actor = (one: TeamActor | null | undefined): string =>
+      !one ? 'someone' : one.kind === 'user' ? 'you' : one.title || this.#conversationName(one.runtime, one.sessionId)
+    const messages = board.channel.flatMap((entry) => entry.kind === 'message' && entry.state === 'held'
+      ? [{ id: entry.id, from: actor(entry.from), to: entry.to ? (entry.to.nickname ?? entry.to.title) : 'everyone', reason: entry.reason ?? null }]
+      : [])
+    const seats = this.#evidence.seats.all().filter((seat) => seat.board === goal && seat.closed === null && !seat.restored)
+    const approvals: { id: string; seat: string; what: string; held: boolean }[] = []
+    const questions: { id: string; seat: string; what: string }[] = []
+    for (const seat of seats) {
+      const record = this.registry.get(runtimeId(seat.session.runtime), makeSessionId(seat.session.sessionId))
+      if (!record) continue
+      const who = seat.agent?.name ?? seat.seatLabel
+      for (const approval of record.approvals.values()) {
+        if (approval.type === 'userInput' || approval.type === 'elicitation') {
+          const what = approval.type === 'userInput' ? approval.questions?.[0]?.question : (approval.message ?? approval.reason)
+          questions.push({ id: String(approval.id), seat: who, what: String(what ?? 'A question is waiting in its conversation.') })
+          continue
+        }
+        const what = approval.type === 'command' ? `run ${approval.command}` : approval.type === 'fileChange'
+          ? `change ${approval.changes.length === 1 ? 'one file' : `${approval.changes.length} files`}`
+          : approval.summary ?? 'an action is waiting'
+        approvals.push({ id: String(approval.id), seat: who, what: String(what), held: String(approval.id).startsWith('held-') })
+      }
+    }
+    const executions = this.#flows.executionsFor(goal)
+    const steps = board.intents.flatMap((intent) => intent.state !== 'done' && intent.state !== 'abandoned' &&
+      flowStepOf(intent, undefined, executions)?.kind === 'person' ? [{ card: intent.id, title: intent.title }] : [])
+    const postings: { key: string; reason: string }[] = []
+    for (const run of executions.filter((one) => one.intake)) {
+      for (const entry of Object.values(this.#flows.publicationOf(run.id)?.ops ?? {})) {
+        if (entry.state === 'uncertain' || (entry.state === 'prepared' && entry.reason !== null) || entry.state === 'started') {
+          if (entry.state === 'started' && entry.reason === null) continue
+          postings.push({ key: entry.key, reason: gapOf(entry) })
+        }
+      }
+    }
+    return { messages, approvals, questions, steps, members: [], postings }
   }
 
   /**
@@ -2605,6 +2900,7 @@ export class Host {
       usage: () => this.#usageService,
       ledger: () => this.#ledgerService,
       insight: this.#insight,
+      intake: this.#intake,
       libraryUsage: () => {
         // Lazy: the reader is only built when the page first asks, and the
         // first read pays for the transcripts it walks. Every read after is
@@ -3457,6 +3753,30 @@ export class Host {
    * runtimes and records, and a publication lands in a transcript only the
    * host holds.
    */
+  /**
+   * What the desktop shell answered for one named wait on unattended work:
+   * shown outside the app, or could not be. Recorded on the wait's own id;
+   * never a wire route, and never claimed for the shell.
+   */
+  intakeNotified(id: string, status: 'delivered' | 'unavailable'): Promise<boolean> {
+    return this.#intake.notified(id, status)
+  }
+
+  /** Announces every unresolved wait again by its own id: for a subscriber that joined after they were raised. */
+  replayIntakeAttention(): void {
+    this.#intake.replay()
+  }
+
+  /** The intake plane, for tests that drive its timers by hand and read its journal. */
+  get intakePlane(): IntakePlane {
+    return this.#intake
+  }
+
+  /** The flow engine, for tests that stop a run the way a person's Drop does. */
+  get flowsPlane(): Flows {
+    return this.#flows
+  }
+
   get forgePlane(): ForgePlane {
     return this.#forge
   }
@@ -4930,6 +5250,12 @@ export class Host {
           )
         : []
     const record = this.registry.apply(runtime, event)
+    // A trigger Goal's Seat started or ended a turn: its meter reads usage with it.
+    if ((event.type === 'turn/started' || event.type === 'turn/completed') && record) {
+      const seated = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime &&
+        candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
+      if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
+    }
     if (event.type === 'turn/started' && record) {
       this.#sendingNow.delete(recordKey(record))
       const seat = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime && candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
@@ -5814,6 +6140,8 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    // What a trigger Goal's waits are made of: named again once the current pass ends.
+    if (!this.#disposed) this.#intake?.noticed(notification)
     if (!this.#disposed && notification.method === 'evidence/changed' && this.#team.hasRoom(notification.params.room)) {
       this.#provenance.evidenceChanged(this.#team.stateFor(notification.params.room).root)
     }

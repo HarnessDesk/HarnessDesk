@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, FlowEntry, ProjectChecks, WorkspaceEntry } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowEntry, ProjectChecks, TriggerProjectView, WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
@@ -80,6 +80,37 @@ const FLOWS: Readonly<Record<string, readonly FlowEntry[]>> = {
   [STOREFRONT.path]: [{ id: 'fix', origin: 'project', path: '.harnessdesk/flows/fix.yml', name: 'Fix', description: null, format: 'agents', problem: null, shadows: [] }],
 }
 
+const TRIGGERS = (path: string): TriggerProjectView => ({
+  project: path,
+  revision: 1,
+  path: `${path}/.harnessdesk/triggers.yml`,
+  exists: path === STOREFRONT.path,
+  workingCopyChanged: false,
+  triggers: path === STOREFRONT.path
+    ? [{
+      id: 'review-pr',
+      definition: {
+        id: 'review-pr',
+        on: { kind: 'pull-request', events: ['opened', 'pushed'] },
+        opens: { flow: 'fix' },
+        goal: ['pr'],
+        again: null,
+        dedupe: ['pr', 'head', 'event'],
+        concurrency: 4,
+        forks: 'never',
+        budget: { usd: 5, rounds: 3, hours: 4, withoutProgress: 2 },
+      },
+      armed: false,
+      state: 'off',
+      reason: null,
+      fix: null,
+      last: null,
+      openGoals: 0,
+    }]
+    : [],
+  problems: [],
+})
+
 const mount = (node: React.ReactNode) => {
   const snapshot = {
     ...emptySnapshot(),
@@ -93,9 +124,15 @@ const mount = (node: React.ReactNode) => {
     getSnapshot: () => snapshot,
     loadWorktrees: vi.fn(async () => {}),
     loadLanePreferences: vi.fn(async () => {}),
+    triggerPreferences: vi.fn(async () => { throw new Error('not used in this test') }),
     agentsIn: vi.fn(async (path: string) => AGENTS[path] ?? []),
     projectChecks: vi.fn(async (path: string) => CHECKS(path)),
     flowCatalog: vi.fn(async (path: string) => FLOWS[path] ?? []),
+    projectTriggers: vi.fn(async (path: string) => TRIGGERS(path)),
+    previewTrigger: vi.fn(async () => { throw new Error('not used in this test') }),
+    armTrigger: vi.fn(async () => { throw new Error('not used in this test') }),
+    disarmTrigger: vi.fn(async () => { throw new Error('not used in this test') }),
+    triggerHistory: vi.fn(async () => ({ items: [], next: null })),
     loadCaptureHealth: vi.fn(async () => {}),
     setCapture: vi.fn(async () => ({ project: STOREFRONT.path, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 })),
     retryCapture: vi.fn(async () => ({ project: STOREFRONT.path, enabled: true, state: 'healthy', reason: 'Current.', nextStep: 'None.', checkedAt: 1, lastCapturedAt: 1, pending: 0, gaps: 0, revision: 1 })),
@@ -199,7 +236,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Provenance'])
+  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Triggers', 'Provenance'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())
@@ -207,6 +244,45 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={DOCS.path} />)
   await settle()
   expect(container.querySelector('section[aria-label="Checks"]')).toBeNull()
+})
+
+it('opening a plain project creates no trigger or Goal: it only reads, and a project with none says so', async () => {
+  const { store } = mount(<WorkspacesSection focus={DOCS.path} />)
+  await settle()
+  expect(store.projectTriggers).toHaveBeenCalledWith(DOCS.path)
+  const text = container.querySelector('section[aria-label="Triggers"]')?.textContent ?? ''
+  expect(text).toContain('No triggers')
+  expect(text).toContain('.harnessdesk/triggers.yml')
+  expect(store.previewTrigger).not.toHaveBeenCalled()
+  expect(store.armTrigger).not.toHaveBeenCalled()
+  expect(store.disarmTrigger).not.toHaveBeenCalled()
+})
+
+it('a project’s own trigger is listed off by default, next to its checks and flows', async () => {
+  mount(<WorkspacesSection focus={STOREFRONT.path} />)
+  await settle()
+  const text = container.querySelector('section[aria-label="Triggers"]')?.textContent ?? ''
+  expect(text).toContain('When a pull request opens or is pushed')
+  expect(text).toContain('Off')
+})
+
+it('asking for “Triggers on this Mac” while a project is open returns to the list rather than staying on that project', async () => {
+  const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
+  await settle()
+  expect(container.querySelector('section[aria-label="Agents"]')).not.toBeNull()
+
+  act(() => {
+    root.render(
+      <StoreProvider store={{ ...store, triggerPreferences: vi.fn(async () => ({ revision: 1, paused: false, dailyUsd: 20, day: '2026-09-24', chargedUsd: 0, reservedUsd: 0 })) } as unknown as AppStore}>
+        <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {} }}>
+          <WorkspacesSection focus="triggers" />
+        </ShellProvider>
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  expect(container.querySelector('section[aria-label="Agents"]')).toBeNull()
+  expect(container.textContent).toContain('Triggers on this Mac')
 })
 
 it('plain project stays plain: no explicit memory use, no Memory section, no memory read', async () => {

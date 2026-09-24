@@ -445,6 +445,77 @@ checkout that could not have changed.
 
 ---
 
+## A trigger's vocabulary is closed, and arming binds the whole file
+
+A project's `.harnessdesk` folder can declare that a pull request, an issue
+or a schedule opens work — but it declares from a fixed, finite vocabulary,
+never an expression, a template or a name that reaches a command, an
+environment variable or a ceiling. The alternative — letting a declaration
+name anything a flow already could — would make a cloned repository able to
+choose what runs on someone else's machine the moment they armed it, which is
+exactly the trust boundary a clone does not cross for any other file today.
+
+Arming does not consent to "this trigger" as a name; it consents to the exact
+bytes of the file, the exact resolved flow, every Seat and command that flow
+would open, and the forge account and repository bound at that moment. A
+comment-only edit to the file, a Seat's ceiling changing, or the bound
+account signing out all invalidate the arm before the next firing, and
+re-arming shows a fresh preview rather than assuming the old one still holds.
+Money follows the same discipline in the other direction: a budget is an
+observed stop threshold the desk watches spend against, never a pre-charge or
+an invoice, because no vendor here exposes a real one — a turn already in
+flight can still spend past the limit before its meter reports and the stop
+takes effect, and arming and Settings both say so rather than promising a
+number this design cannot back.
+
+**The rule:** nothing a trigger declares can become a command, a path, an
+environment key or a ceiling, and no dependency an arm was shown — file
+bytes, flow, Seats, commands, account — may change without invalidating it.
+
+## An arm binds what runs, not whether it can run now; a pause holds, a budget stops
+
+An arm is consent to content: the file, the flow, each Agent, each command,
+the seats each role would try and the ceiling it needs, and the forge
+account and repository. It is not a promise that a seat can be taken this
+minute. The first cut bound the seat plan's outcome — which candidate won
+and whether it held its ceiling — so a runtime that was down for a minute,
+or a sign-in that blinked, turned every firing in that minute into "changed
+since armed" and consumed it for good. Availability is now read again at
+dispatch (the firing waits, named, until a seat can be taken), and a read
+that cannot be made while answering a fact is no answer at all: the fact is
+kept and offered again.
+
+The same split decides pause and the daily cap. A pause, or a cap lowered
+below what is already committed, is a gate that lifts on its own, so it
+holds work — turns and checks interrupted, nothing recorded — and lifting it
+continues that work. A reached budget is not a gate: it is recorded, and a
+run it stops lets go of and interrupts every Seat, so nothing started under
+it keeps spending unmetered. The arming preview seats roles under the
+unattended policy for the same reason the binding excludes availability:
+consent has to describe what will actually run.
+
+**The rule:** bind content, recheck the world at dispatch; hold for what
+lifts on its own, stop for what does not.
+
+## Whose comment fires a trigger is the project's to say, and never the desk's own
+
+A trigger that reads issue comments started work for anyone who could
+comment, which on a public repository is anyone. The owner's decision
+(2026-09-24) is a closed, bounded `from:` — `me` by default, the account the
+arm is bound to; `collaborators`, anyone the forge says can write to the
+repository; or `anyone`, which the arming review warns about in plain words
+— because it is a product setting every user needs, not a constant. Authors
+are compared by the forge's numeric account id, digested the same way the
+arm binds the signed-in account; a login or a display name is never trusted,
+and an author or a permission that cannot be read never fires. The desk
+posts to the forge as that same account, so a comment it posted itself would
+pass `me` and fire again, a loop: everything the desk posts — a tool's
+comment, review or description, and every finding publication — opens with a
+marker line of the desk's own, any comment whose first line is exactly such a
+marker (the reconciliation rule, never a looser match) is skipped in every
+mode, and the id of every comment the desk posts is remembered across a
+restart, so a comment whose marker was edited away is still the desk's.
+
 ## A declared attachment is a catalogue name, never an executable spec
 
 An Agent's `skills:`/`mcp:` lines name entries by identifier, not by command

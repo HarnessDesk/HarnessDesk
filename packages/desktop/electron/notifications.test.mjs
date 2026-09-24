@@ -138,7 +138,7 @@ test('a body is one line and never a novel', () => {
 test('the settings page and the decider agree on the kinds', () => {
   assert.deepEqual(
     SYSTEM_NOTIFICATION_KINDS.map((entry) => entry.kind).sort(),
-    ['approvals', 'failures', 'goalNeedsYou', 'goalReadyToWrap', 'needsYou', 'turns'],
+    ['approvals', 'failures', 'goalNeedsYou', 'goalReadyToWrap', 'needsYou', 'triggerAttention', 'triggerSkipped', 'turns'],
   )
 })
 

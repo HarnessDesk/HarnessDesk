@@ -1,6 +1,6 @@
 import { isAbsolute, normalize } from 'node:path'
 
-import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type GoalReceiptEvidenceSeat, type Intent, type ProjectChecks, type TeamState, type WireNotification } from '@harnessdesk/protocol'
+import { factsOfGoal, type BackupFile, type BoardEvidence, type EvidenceRecord, type EvidenceView, type GoalReceiptEvidenceSeat, type Intent, type ProjectChecks, type TeamState, type TriggerFact, type WireNotification } from '@harnessdesk/protocol'
 
 import type { ReviewAppendOutcome } from '../flow-evidence.js'
 import type { CredentialCipher } from '../credentials.js'
@@ -307,6 +307,55 @@ export class EvidencePlane {
     })
     if (outcome.outcome === 'added' && record.card) this.announce(record.card.board)
     return outcome
+  }
+
+  /**
+   * Records what a trigger firing observed on the forge as evidence of its
+   * Goal (phase 8): for a pull-request fact, the pull request at the head the
+   * desk read, open. Issue, comment and schedule facts are source input, not
+   * evidence, and record nothing. Idempotent on `(firing, part)` through the
+   * store's compare-and-merge: a recovery that observes the same part again
+   * gets the existing fact's id back, and a different fact under the same
+   * firing and part is refused with both kept as they were — never a second
+   * record, never a rewritten one. Answers the fact ids, in part order.
+   */
+  async observeTrigger(firing: string, goal: string, fact: TriggerFact): Promise<readonly string[]> {
+    if (fact.source !== 'pull-request' || fact.head === null || fact.repository === null) return []
+    const number = Number(fact.subject)
+    if (!Number.isSafeInteger(number) || number < 1) throw new Error('This pull request’s number cannot be recorded.')
+    const record: EvidenceRecord = {
+      id: mintId(),
+      fact: { kind: 'pr', number, head: fact.head, state: 'open', url: fact.url },
+      card: null,
+      checkout: null,
+      seat: null,
+      round: null,
+      observedAt: this.#now(),
+      intake: { firing, part: 'pr', goal },
+    }
+    const same = (one: EvidenceRecord): boolean => JSON.stringify(one.fact) === JSON.stringify(record.fact) && one.intake?.goal === goal
+    const outcome: { id: string | null; conflict: boolean } = { id: null, conflict: false }
+    await this.store.merge(fact.project, 'evidence', [{ type: 'evidence', record }], (line, here, added) => {
+      if (line.type !== 'evidence') return 'refused'
+      const existing = [...here, ...added].flatMap((one) =>
+        one.type === 'evidence' && one.record.intake?.firing === firing && one.record.intake.part === 'pr' ? [one.record] : [])
+      if (existing.length === 0) {
+        outcome.id = record.id
+        return 'add'
+      }
+      const match = existing.find(same)
+      if (match) {
+        outcome.id = match.id
+        return 'duplicate'
+      }
+      outcome.conflict = true
+      return 'refused'
+    })
+    if (outcome.conflict || outcome.id === null) {
+      throw new Error('This firing already recorded a different pull request fact. Both are kept; nothing was rewritten.')
+    }
+    this.announce(goal)
+    return [outcome.id]
   }
 
   /** Tells every window a room's evidence moved. Never throws: a fact is kept whether or not a window hears of it. */

@@ -182,6 +182,17 @@ export class FlowCatalog {
     return found.source
   }
 
+  /**
+   * A trigger's `opens: { flow }`, resolved by the same id and layer rules as
+   * every other catalogue read — project, then user, then built-in, the
+   * nearest winning even when broken — with where the winner came from, so an
+   * arm can bind which file it consented to.
+   */
+  async resolve(root: string, id: string): Promise<{ readonly source: string; readonly origin: FlowOrigin; readonly path: string }> {
+    const found = await this.locate(await this.project(root), id)
+    return { source: found.source, origin: found.entry.origin, path: found.entry.path }
+  }
+
   async customize(root: string, id: string, token: string): Promise<FlowUpdateResult> {
     if (!this.#options.customize) return { state: 'refused', written: [], message: 'Preview this customization before applying it.' }
     return this.#options.customize(root, id, token)

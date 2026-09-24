@@ -4,8 +4,9 @@ import type { FindingAnchor, FindingPost } from '@harnessdesk/protocol'
 
 import { isSha } from '../evidence/records.js'
 import {
-  APPEND_JOIN, chainOf, PublicationConflict, segmentsOf, sha256,
-  type FindingForgePort, type ObservedTarget, type PublicationEntry,
+  APPEND_JOIN, chainOf, PublicationConflict, segmentsOf, sha256, summaryCommentMarker,
+  type FindingForgePort, type FindingSummaryForgePort, type ObservedTarget, type PublicationEntry,
+  type SummaryReviewInput, type SummaryReviewLocation,
 } from './publication.js'
 
 /**
@@ -90,7 +91,15 @@ interface GhComment {
   readonly commit_id?: unknown
 }
 
-export class GhFindingForge implements FindingForgePort {
+interface GhReview {
+  readonly id?: unknown
+  readonly body?: unknown
+  readonly html_url?: unknown
+  readonly commit_id?: unknown
+  readonly state?: unknown
+}
+
+export class GhFindingForge implements FindingForgePort, FindingSummaryForgePort {
   readonly #run: GhApiRunner
   readonly #host: string
   readonly #timeoutMs: number
@@ -135,6 +144,76 @@ export class GhFindingForge implements FindingForgePort {
       if (answer.length < PER_PAGE) return all
     }
     throw new Error(`the pull request has more than ${this.#maxPages} pages of comments, so the desk could not read them all`)
+  }
+
+  /** A call about one pull request that no single publication operation names: a round's review. */
+  #target(input: Pick<SummaryReviewInput, 'repo' | 'pr' | 'project'>, method: 'GET' | 'POST', path: string, body?: Readonly<Record<string, unknown>>): Promise<unknown> {
+    if (!REPO.test(input.repo) || !Number.isSafeInteger(input.pr) || input.pr < 1) throw new Error('This pull request cannot be used in a forge address.')
+    const args = ['api', '--method', method, '-H', 'Accept: application/vnd.github+json', path, ...(body ? ['--input', '-'] : [])]
+    return this.#gh(this.#projects.get(`${input.repo}#${input.pr}`) ?? input.project, args, body ? JSON.stringify(body) : null)
+  }
+
+  async #targetPages<T>(input: SummaryReviewInput, path: string): Promise<readonly T[]> {
+    const all: T[] = []
+    for (let page = 1; page <= this.#maxPages; page += 1) {
+      const answer = await this.#target(input, 'GET', `${path}?per_page=${PER_PAGE}&page=${page}`)
+      if (!Array.isArray(answer)) throw new Error('the forge answered a list with something else')
+      all.push(...(answer as T[]))
+      if (answer.length < PER_PAGE) return all
+    }
+    throw new Error(`the pull request has more than ${this.#maxPages} pages, so the desk could not read them all`)
+  }
+
+  /** A review's address and its inline comments', confined to the target and matched to the findings they carry. */
+  async #reviewLocation(input: SummaryReviewInput, review: GhReview): Promise<SummaryReviewLocation> {
+    const id = review.id
+    if (!Number.isSafeInteger(id) || (id as number) < 1 || typeof review.html_url !== 'string') throw new Error('the forge answered without the review’s id or address')
+    let url: URL
+    try {
+      url = new URL(review.html_url)
+    } catch {
+      throw new Error('the forge answered with a review address it cannot read')
+    }
+    if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || url.host !== this.#host || url.port !== '' ||
+      url.search !== '' || url.pathname !== `/${input.repo}/pull/${input.pr}` || url.hash !== `#pullrequestreview-${id as number}`) {
+      throw new Error('The forge answered with a review address outside this pull request, so it was not recorded.')
+    }
+    const comments = await this.#targetPages<GhComment>(input, `repos/${input.repo}/pulls/${input.pr}/reviews/${id as number}/comments`)
+    const out: { finding: string; id: string; url: string }[] = []
+    for (const wanted of input.comments) {
+      const marker = summaryCommentMarker(input.key, wanted.finding)
+      const matches = comments.filter((one) => typeof one.body === 'string' && one.body.split('\n')[0] === marker && one.body === wanted.body)
+      if (matches.length !== 1) throw new Error('The review’s inline comments do not match what was sent, so it was not recorded.')
+      const location = this.#location({ key: input.key, repo: input.repo, pr: input.pr } as PublicationEntry, matches[0]!, 'review-comment')
+      if (!location) throw new Error('The forge answered with a comment address outside this pull request, so it was not recorded.')
+      out.push({ finding: wanted.finding, id: String(location.comment), url: location.url })
+    }
+    return { id: String(id), url: url.href, comments: out }
+  }
+
+  /**
+   * Posts a closed round as one `COMMENT` review pinned to the head it
+   * reviewed, its inline comments in the same review: never an approval, and
+   * never two requests for one round.
+   */
+  async publishSummary(input: SummaryReviewInput): Promise<SummaryReviewLocation> {
+    if (!isSha(input.head)) throw new Error('A review is pinned to a full commit id.')
+    const answer = await this.#target(input, 'POST', `repos/${input.repo}/pulls/${input.pr}/reviews`, {
+      commit_id: input.head, event: 'COMMENT', body: input.body,
+      comments: input.comments.map((one) => ({ path: one.path, line: one.line, side: one.side, body: one.body })),
+    }) as GhReview
+    return this.#reviewLocation(input, answer)
+  }
+
+  /** Every exact copy of a round's review the pull request holds: its marker, its body and its head. */
+  async reconcileSummary(input: SummaryReviewInput): Promise<readonly SummaryReviewLocation[]> {
+    const marker = `<!-- harnessdesk:finding-op ${input.key} -->`
+    const reviews = await this.#targetPages<GhReview>(input, `repos/${input.repo}/pulls/${input.pr}/reviews`)
+    const exact = reviews.filter((one) => typeof one.body === 'string' && one.body.split('\n')[0] === marker &&
+      sha256(one.body) === sha256(input.body) && one.commit_id === input.head)
+    const out: SummaryReviewLocation[] = []
+    for (const review of exact) out.push(await this.#reviewLocation(input, review))
+    return out
   }
 
   /** The forge's own location for a comment, confined to the target; null when it is anything else. */

@@ -1,4 +1,4 @@
-import type { GoalActivity, GoalReceipt, GoalView, TeamState } from '@harnessdesk/protocol'
+import type { GoalActivity, GoalOrigin, GoalReceipt, GoalView, TeamState } from '@harnessdesk/protocol'
 
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
@@ -41,7 +41,7 @@ const view = (
   sentence: string,
   activity: GoalActivity | null,
   state: 'open' | 'wrapping' | 'wrapped' = 'open',
-  options: Partial<Pick<GoalView, 'waitingOn' | 'problem' | 'receipt'>> = {},
+  options: Partial<Pick<GoalView, 'waitingOn' | 'problem' | 'receipt'>> & { readonly origin?: GoalOrigin } = {},
 ): GoalView => ({
   goal: {
     id,
@@ -52,7 +52,7 @@ const view = (
     revision: state === 'open' ? 2 : 3,
     checkout: 'shared',
     dependsOn: options.waitingOn?.map((one) => one.id) ?? [],
-    origin: { kind: 'person' },
+    origin: options.origin ?? { kind: 'person' },
     createdAt: at - 60_000,
     updatedAt: at,
     receipt: state === 'wrapped' ? (options.receipt ?? receipt).id : null,
@@ -78,6 +78,11 @@ export const PREVIEW_GOALS: readonly GoalView[] = [
   view('goal-restored', 'Imported release history', null, 'open', {
     problem: 'This Goal came from a backup. Start a new Goal to continue its work.',
   }),
+  view('goal-trigger', 'Fix the retry bug', 'working', 'open', {
+    origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' },
+  }),
 ]
 
 export const PREVIEW_GOAL = PREVIEW_GOALS[1]!
+/** The one Goal a trigger opened, for the intake preview scenes. */
+export const PREVIEW_TRIGGER_GOAL = PREVIEW_GOALS.find((one) => one.goal.id === 'goal-trigger')!

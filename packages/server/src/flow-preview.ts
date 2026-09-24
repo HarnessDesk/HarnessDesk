@@ -39,7 +39,7 @@ export interface FlowPreviewPort {
   /** The Agent roster this preview resolves against, project-first. */
   agents(root: string): Promise<readonly AgentEntry[]>
   /** One Agent's seat plan for the exact seats and grant a role names. */
-  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel): Promise<SeatPlan>
+  previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean }): Promise<SeatPlan>
   /** A retried check's own run: its saved source and inputs, read back for the equality check — never a new choice. */
   storedRun?(run: string): Promise<{ readonly source: string; readonly vars: Readonly<Record<string, string>> } | null>
   now(): number
@@ -124,7 +124,6 @@ export class FlowPreviews {
     await this.#port.confine(root)
     let actualSource = source
     let actualVars = vars
-    const problems: FlowProblem[] = []
     if (retry) {
       const saved = (await this.#port.storedRun?.(retry.run)) ?? null
       if (!saved) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
@@ -134,9 +133,45 @@ export class FlowPreviews {
       actualSource = saved.source
       actualVars = saved.vars
     }
-    const parsed = parseFlowPolicy(actualSource)
+    const built = await this.#build(root, actualSource)
+    const errors = built.problems.filter((one) => one.level === 'error')
+    let token: string | null = null
+    // An unparsed document is the empty legacy placeholder: never a token.
+    if (errors.length === 0 && built.compiled.document.format === 'agents') {
+      token = randomUUID()
+      this.#tokens.set(token, {
+        root, source: actualSource, vars: actualVars, compiled: built.compiled, seats: built.seats, commands: built.commands,
+        expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), consumed: false,
+      })
+    }
+    return { ...built, token }
+  }
+
+  /**
+   * The same statement a person's dry run makes, for arming a trigger: every
+   * Seat, command, guard and problem, and **no start token**. A trigger's
+   * consent is a different, durable authority owned by `TriggerConsent`; the
+   * one-shot token a person presses Start with is never minted for it, so
+   * neither can be redeemed as the other.
+   */
+  async freeze(root: string, source: string, options: { readonly unattended?: boolean } = {}): Promise<FlowPreview> {
+    await this.#port.confine(root)
+    return { ...(await this.#build(root, source, options.unattended === true)), token: null }
+  }
+
+  /**
+   * Everything a preview says, read once; mints nothing. `unattended` seats
+   * each role as a trigger's Goal would be seated — under this machine's
+   * unattended ceiling policy — so what an arm shows is what will run.
+   */
+  async #build(root: string, source: string, unattended = false): Promise<Omit<FlowPreview, 'token'>> {
+    const problems: FlowProblem[] = []
+    const parsed = parseFlowPolicy(source)
     problems.push(...parsed.problems)
-    if (!parsed.document) return emptyPreview(problems)
+    if (!parsed.document) {
+      const { token: _none, ...empty } = emptyPreview(problems)
+      return empty
+    }
     const agents = await this.#port.agents(root)
     const compiled = compileFlowPolicy(parsed.document, agents)
     problems.push(...compiled.problems)
@@ -149,10 +184,13 @@ export class FlowPreviews {
         if (role.kind !== 'agent') continue
         const bindings = compiled.bindings.filter((one) => one.role === role.id).sort((a, b) => a.index - b.index)
         for (const binding of bindings) {
-          const plan = await this.#port.previewAgent(root, binding.agent.id, binding.seats, binding.grant)
+          const plan = await this.#port.previewAgent(root, binding.agent.id, binding.seats, binding.grant, unattended ? { unattended: true } : undefined)
           seats.push({ role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate })
-          if (plan.blocked || plan.winner === null) {
-            problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked ?? `No seat could be opened for “${binding.agent.id}”.` })
+          if (plan.blocked) {
+            problems.push({ level: 'error', at: `roles.${role.id}`, text: plan.blocked })
+          } else if (plan.winner === null) {
+            // Every candidate passed over now: a fact about this machine at this moment, not about the flow.
+            problems.push({ level: 'error', at: `roles.${role.id}`, text: `No seat could be opened for “${binding.agent.id}”.`, availability: true })
           }
         }
       }
@@ -160,16 +198,7 @@ export class FlowPreviews {
     const commands = commandsOf(root, compiled)
     const guards = guardsOf(compiled)
     const messaging = compiled.document.format === 'agents' ? compiled.document.flow.messaging : 'board-only'
-    const errors = problems.filter((one) => one.level === 'error')
-    let token: string | null = null
-    if (errors.length === 0) {
-      token = randomUUID()
-      this.#tokens.set(token, {
-        root, source: actualSource, vars: actualVars, compiled, seats, commands, expires: this.#port.now() + TOKEN_TTL_MS,
-        ...(retry ? { retryOf: retry } : {}), consumed: false,
-      })
-    }
-    return { token, compiled, seats, commands, guards, messaging, problems }
+    return { compiled, seats, commands, guards, messaging, problems }
   }
 
   /**

@@ -270,3 +270,247 @@ test('a round that cannot open stalls the run with the reason, never a silent "r
   const execution = later.flows.executionsFor(run.goal)[0]!
   assert.deepEqual([execution.state, execution.reason], ['stalled', REFUSED])
 })
+
+test('trigger dispatch is held through durable application', async (t) => {
+  const rig = await goalRig(t)
+  const REVIEW = `
+version: 2
+name: Review a change
+roles:
+  reviewer: { kind: agent, uses: reviewer }
+  gate: { kind: check, run: "pnpm test", timeout: 60, exits: { "0": pass }, otherwise: fail }
+seed: { role: reviewer, title: Review it }
+rules:
+  - { id: verify, on: reviewer, when: { every: [approve] }, then: { role: gate, title: Verify } }
+`
+  const agents = [agent('reviewer', ['approve'])]
+  // A trigger's start: the Goal and the round's cards exist, and nothing is seated, handed over or run.
+  const run = await rig.startTriggered(REVIEW, agents, { again: 'reviewer' })
+  await rig.flows.flush()
+  assert.equal(run.intake?.dispatchHeld, true)
+  assert.equal(rig.board(run.goal).intents.length, 1, 'the seed round’s card exists')
+  assert.deepEqual(rig.events.filter((one) => !one.startsWith('goal:')), [], 'no Seat, order or check before the firing is applied')
+  // Neither a completion notice, an evidence notice nor a re-arm can move a held run.
+  await rig.flows.wakeEvidence(run.goal)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => !one.startsWith('goal:')), [])
+
+  // Released: exactly what a person's start would have done.
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => !one.startsWith('goal:')), ['open:seat-1', 'order:seat-1'])
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.intake?.dispatchHeld, false)
+
+  // A later firing: its round is held before it opens, whatever the first round is doing.
+  const key = 'b'.repeat(64)
+  const round = await rig.flows.againTriggered(run.id, key, [])
+  await rig.flows.flush()
+  assert.equal(round.state, 'opening')
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.intake?.dispatchHeld, true)
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'the later round seats nobody while held')
+  // The first round finishing does not advance a held run either.
+  await rig.team.complete(1, { outcome: 'approve' }, rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('check:')), [], 'no check runs while held')
+  // Asked again, the same firing's round is the same round.
+  assert.equal((await rig.flows.againTriggered(run.id, key, [])).n, round.n)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+
+  // A gate that refuses stops the run with its reason instead of dispatching.
+  const gated = await rig.startTriggered(REVIEW, agents)
+  rig.triggerGate = () => 'Out of budget: this Goal reached its spend limit.'
+  await rig.flows.resumeTriggered(gated.id)
+  await rig.flows.flush()
+  const stalled = rig.flows.executionsFor(gated.goal)[0]!
+  assert.equal(stalled.state, 'stalled')
+  assert.equal(stalled.reason, 'Out of budget: this Goal reached its spend limit.')
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'], 'the refused run seated nobody')
+  rig.triggerGate = null
+
+  // What it runs changed after the firing: the run is stopped with why, and never dispatches.
+  const changed = await rig.startTriggered(REVIEW, agents, { changed: true })
+  assert.equal(changed.state, 'stopped')
+  assert.match(changed.reason ?? '', /changed after it fired/)
+  await rig.flows.resumeTriggered(changed.id)
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+
+  // A restart reads the held flag back and keeps holding.
+  const held = await rig.startTriggered(REVIEW, agents)
+  await rig.restart()
+  await rig.flows.resume()
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(held.goal)[0]!.intake?.dispatchHeld, true)
+  assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+})
+
+const TWO_REVIEWERS = `
+version: 2
+name: Review a change twice
+roles:
+  reviewer: { kind: agent, uses: [reviewer-a, reviewer-b] }
+seed: { role: reviewer, title: Review it }
+rules: []
+`
+const TWO_AGENTS = [agent('reviewer-a', ['approve']), agent('reviewer-b', ['approve'])]
+
+test('a pause or the cap holds a trigger run without stopping it, and its release hands held Seats their cards again', async (t) => {
+  const rig = await goalRig(t)
+  const REVIEW = `
+version: 2
+name: Review a change
+roles:
+  reviewer: { kind: agent, uses: reviewer }
+seed: { role: reviewer, title: Review it }
+rules: []
+`
+  const run = await rig.startTriggered(REVIEW, [agent('reviewer', ['approve'])])
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => /^(open|order):/.test(one)), ['open:seat-1', 'order:seat-1'])
+
+  // Paused: the Seat's turn is interrupted and ends. The run holds, it does not stall or stop.
+  const PAUSED = 'Every trigger is paused. Resume triggers to continue.'
+  rig.triggerGate = () => ({ reason: PAUSED, transient: true })
+  const session = rig.sessionOf('seat-1')
+  await rig.flows.reArm(session.runtime, session.sessionId)
+  await rig.flows.flush()
+  const held = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(held.state, 'running', 'a pause is not a stop')
+  assert.equal(held.reason, null, 'nor a stall a person has to clear')
+  assert.equal(held.intake?.dispatchHeld, true)
+  assert.equal(held.intake?.heldFor, PAUSED)
+  assert.equal(orders(rig.events).length, 1, 'nothing is handed over while held')
+
+  // Resumed: the Seat whose turn ended while held is handed its card again, once.
+  rig.triggerGate = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  const released = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(released.intake?.dispatchHeld, false)
+  assert.equal(released.intake?.heldFor ?? null, null)
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-1'], 'the held card goes back to its Seat')
+  // A release with nothing held re-sends nothing.
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.equal(orders(rig.events).length, 2)
+})
+
+test('a stop that lands while a round is still seating hands no card over and leaves no turn running', async (t) => {
+  const rig = await goalRig(t)
+  const STOP = 'Timed out: this Goal reached its time budget.'
+
+  // The stop lands after the first Seat opened, before the second is asked for.
+  const early = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  rig.beforeClaim = (n) => { if (n === 1) rig.triggerGate = () => STOP }
+  const releasing = rig.flows.resumeTriggered(early.id)
+  const stopping = rig.flows.stopRun(early.id, STOP)
+  await Promise.all([releasing, stopping])
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-1'], 'no Seat opens after the stop')
+  assert.deepEqual(orders(rig.events), [], 'no card is handed over after the stop')
+  assert.ok(rig.events.indexOf('interrupt:seat-1') >= 0 && rig.events.indexOf('interrupt:seat-1') < rig.events.indexOf('release:seat-1'), 'its brief turn is interrupted as it is released')
+  assert.equal(rig.flows.executionsFor(early.goal)[0]!.state, 'stopped')
+
+  // The stop lands while the second Seat is being opened: it opens, and is handed nothing.
+  rig.events.length = 0
+  rig.triggerGate = null
+  rig.beforeClaim = null
+  const late = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  let asked = 0
+  let unblock!: () => void
+  const blocked = new Promise<void>((resolve) => { unblock = resolve })
+  let reachedSecond!: () => void
+  const second = new Promise<void>((resolve) => { reachedSecond = resolve })
+  rig.seatAsked = () => {
+    asked += 1
+    // The Goal queue is held before the second opening is queued: it waits for the test.
+    if (asked === 2) {
+      void rig.goalSerial.run(() => blocked)
+      reachedSecond()
+    }
+  }
+  const release2 = rig.flows.resumeTriggered(late.id)
+  await second
+  rig.triggerGate = () => STOP
+  const stop2 = rig.flows.stopRun(late.id, STOP)
+  unblock()
+  await Promise.all([release2, stop2])
+  await rig.flows.flush()
+  assert.deepEqual(opens(rig.events), ['open:seat-2', 'open:seat-3'])
+  assert.deepEqual(orders(rig.events), [], 'neither Seat is handed its card')
+  for (const seat of ['seat-2', 'seat-3']) {
+    const interrupted = rig.events.indexOf(`interrupt:${seat}`)
+    assert.ok(interrupted >= 0 && interrupted < rig.events.indexOf(`release:${seat}`), `${seat} interrupted as it is released`)
+  }
+  assert.equal(rig.flows.executionsFor(late.goal)[0]!.state, 'stopped')
+})
+
+test('a pause or a stop kills a trigger run’s running check, left for a person and never run again on its own', { timeout: 20_000 }, async (t) => {
+  const rig = await goalRig(t)
+  const CHECK = `
+version: 2
+name: Check a change
+roles:
+  gate: { kind: check, run: "pnpm test", timeout: 600, exits: { "0": pass }, otherwise: fail }
+seed: { role: gate, title: Verify }
+rules: []
+`
+  const run = await rig.startTriggered(CHECK, [])
+  let started!: () => void
+  const running = new Promise<void>((resolve) => { started = resolve })
+  rig.checksRunUntilStopped = started
+  const releasing = rig.flows.resumeTriggered(run.id)
+  await running
+  // The run's queue is held by the check: the interruption reaches it without waiting there.
+  rig.flows.interruptChecks(run.goal)
+  await releasing
+  await rig.flows.flush()
+  assert.ok(rig.events.includes('check-stopped:pnpm test'), 'the running check was killed')
+  const stopped = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stopped.state, 'stalled')
+  assert.match(stopped.reason ?? '', /stopped part-way/)
+  assert.equal(stopped.operations.find((one) => one.key === 'check:1:0')?.state, 'uncertain', 'a person decides whether it runs again')
+  assert.equal(rig.board(run.goal).intents[0]?.state === 'done', false, 'no outcome is claimed for it')
+  // Nothing runs it again on its own.
+  rig.checksRunUntilStopped = null
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.equal(rig.events.filter((one) => one === 'check:pnpm test').length, 1)
+})
+
+test('a hold set when one Seat’s turn ends interrupts every other Seat still in a turn', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2'])
+  // Both at work; then the pause lands, and the first Seat's turn happens to end before any sweep.
+  rig.busySeats.add('seat-2')
+  rig.triggerGate = () => ({ reason: 'Every trigger is paused. Resume triggers to continue.', transient: true })
+  const first = rig.sessionOf('seat-1')
+  await rig.flows.reArm(first.runtime, first.sessionId)
+  await rig.flows.flush()
+  assert.ok(rig.flows.executionsFor(run.goal)[0]!.intake?.heldFor, 'held by the turn that ended')
+  assert.ok(rig.events.includes('interrupt:seat-2'), 'the Seat still inside its turn is interrupted, not left working through the pause')
+  assert.equal(rig.busySeats.has('seat-2'), false)
+  assert.ok(!rig.events.includes('release:seat-2'), 'held, not let go')
+})
+
+test('a trigger run that stops waits for the turns it interrupted to end before releasing their Seats, so no release is refused', async (t) => {
+  const rig = await goalRig(t)
+  rig.turnsEndLater = true
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  rig.busySeats.add('seat-1')
+  rig.busySeats.add('seat-2')
+  await rig.flows.stopRun(run.id, 'Timed out: this Goal reached its time budget.')
+  await rig.flows.flush()
+  assert.deepEqual(rig.events.filter((one) => one.startsWith('refused:')), [], 'no release refused for a turn still ending')
+  for (const seat of ['seat-1', 'seat-2']) {
+    assert.ok(rig.events.indexOf(`interrupt:${seat}`) < rig.events.indexOf(`release:${seat}`), `${seat}: interrupted, then released`)
+  }
+})

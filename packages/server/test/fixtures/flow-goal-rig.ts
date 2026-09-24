@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { AgentEntry, Evidence, EvidenceRecord, EvidenceView, Lane, RuntimeId, SeatRecord, TeamState } from '@harnessdesk/protocol'
+import { DEFAULT_TRIGGER_BUDGET, type AgentEntry, type Evidence, type EvidenceRecord, type EvidenceView, type FlowExecution, type GoalOrigin, type Lane, type RuntimeId, type SeatRecord, type TeamState, type TriggerDefinition } from '@harnessdesk/protocol'
 
 import { FlowReview, type ReviewAppendOutcome, type ReviewSubjectPort } from '../../src/flow-evidence.js'
 import { ExecutionFiles, FlowExecutions, sourceDigest, type FlowExecutionPort, type StoredFlowExecution } from '../../src/flow-execution.js'
@@ -77,6 +77,8 @@ export interface GoalRig {
   readonly checkOutcomes: Map<string, { readonly exit: number | null; readonly timedOut: boolean; readonly tail: string }>
   /** When true, every check's evidence append reports as failed (`problem` set, `evidence` null). */
   checkEvidenceFails: boolean
+  /** Checks run until their signal aborts, as a long command a pause or a stop kills; told when one starts. */
+  checksRunUntilStopped: (() => void) | null
   /** Checkouts whose check evidence append fails, one check at a time: how one card of a fan-out is left uncertain. */
   readonly failEvidenceIn: Set<string>
   /** Every check's own `cwd`, in call order — how a fan-out's distinct checkouts are told apart. */
@@ -114,6 +116,12 @@ export interface GoalRig {
   failOrder: boolean
   /** Seats inside a turn now — their brief's, say — which an order would be refused by. */
   busySeats: Set<string>
+  /**
+   * A turn an interrupt asks to stop ends a moment later, as a real agent's
+   * does, and a release refuses a Seat still inside its turn — as the host's
+   * Goal plane refuses it.
+   */
+  turnsEndLater: boolean
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
   /** Every accepted order's text, by Seat id, in order. */
@@ -125,6 +133,17 @@ export interface GoalRig {
   comesBackAs: string | null
   compile(source: string, agents: readonly AgentEntry[]): ReturnType<typeof compileFlowPolicy>
   start(source: string, agents: readonly AgentEntry[]): ReturnType<Flows['startGoal']>
+  /**
+   * Phase 8: a trigger's run on a Goal the rig makes with a trigger origin,
+   * through the real `startTriggered` — held until `flows.resumeTriggered`.
+   * The closure is frozen from `source` and `agents` exactly as a trigger's
+   * arm would freeze it; `changed` makes the re-read closure differ.
+   */
+  startTriggered(source: string, agents: readonly AgentEntry[], options?: { readonly again?: string; readonly changed?: boolean; readonly key?: string; readonly budget?: TriggerDefinition['budget'] }): Promise<FlowExecution>
+  /** The dispatch gate a trigger's run passes; null lets it go. A `transient` refusal (a pause, the cap) holds rather than stops. */
+  triggerGate: ((run: FlowExecution) => string | { readonly reason: string; readonly transient: true } | null) | null
+  /** Each trigger Goal's persisted origin, as the Goal store would answer it. */
+  readonly origins: Map<string, GoalOrigin>
   /** A fresh engine over the same folder, board and Goal plane: a restart. */
   restart(): Promise<{ flows: Flows; executions: FlowExecutions; files: FaultyFiles }>
   board(goal: string): TeamState
@@ -152,14 +171,17 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     heads: new Map<string, { at: string | null; dirty: boolean }>(),
     checkOutcomes: new Map<string, { exit: number | null; timedOut: boolean; tail: string }>(),
     checkEvidenceFails: false,
+    checksRunUntilStopped: null,
     failEvidenceIn: new Set<string>(),
     checkCwds: [] as string[],
     checkContexts: [] as (string | undefined)[],
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
     orderTexts: new Map<string, string[]>(),
+    origins: new Map<string, GoalOrigin>(),
+    triggerGate: null,
     dispatch: { ok: true } as GoalRig['dispatch'],
     laneFor: (n: number, seat: SeatRecord): Lane => ({
       id: `lane-${n}`, goal: seat.board!, seat: String(seat.id), cwd: seat.checkout.cwd, branch: `harnessdesk/lane-${n}`,
@@ -220,6 +242,10 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     return record
   }
   const release = async (_goal: string, id: string): Promise<void> => {
+    if (rig.turnsEndLater && rig.busySeats.has(id)) {
+      rig.events.push(`refused:${id}`)
+      throw new Error("Stop this Seat's current turn before releasing it")
+    }
     rig.events.push(`release:${id}`)
     const record = rig.seats.get(id)
     if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
@@ -250,6 +276,11 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       rig.onOrder?.(seat)
     },
     busy: (seat) => rig.busySeats.has(String(seat.id)),
+    interrupt: async (seat) => {
+      rig.events.push(`interrupt:${seat.id}`)
+      if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), 120)
+      else rig.busySeats.delete(String(seat.id))
+    },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
     reseat: async (seat) => rig.comesBackAs ?? seat.seatLabel,
     changed: () => {},
@@ -257,6 +288,14 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },
     runCheck: async (command, where, card) => {
       rig.events.push(`check:${command}`)
+      if (rig.checksRunUntilStopped) {
+        const started = rig.checksRunUntilStopped
+        const stopped = new Promise<void>((resolve) => where.signal?.addEventListener('abort', () => resolve(), { once: true }))
+        started()
+        await stopped
+        rig.events.push(`check-stopped:${command}`)
+        return { result: { exit: null, timedOut: false, tail: 'stopped' }, evidence: null, problem: null }
+      }
       rig.checkCwds.push(where.cwd)
       rig.checkContexts.push(where.flowContext)
       const outcome = rig.checkOutcomes.get(command) ?? { exit: 0, timedOut: false, tail: '' }
@@ -323,6 +362,23 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     const files = new FaultyFiles(join(dir, 'flows-v2'))
     const executions: FlowExecutions = new FlowExecutions(files, team, port, {
       facts: async (goal) => viewsFor(goal),
+      triggered: {
+        freeze: async () => {
+          const frozen = triggerSource
+          if (!frozen) throw new Error('No trigger closure was staged.')
+          const compiled = rig.compile(frozen.source, frozen.agents)
+          return {
+            source: frozen.source, digest: sourceDigest(`${frozen.source}${frozen.changed ? '#changed' : ''}`), bindings: [], problems: [], availability: [],
+            preview: { token: null, compiled, seats: [], commands: [], guards: [], messaging: 'board-only', problems: [] },
+          }
+        },
+        originOf: (goal) => rig.origins.get(goal) ?? null,
+        gate: async (run) => {
+          const verdict = rig.triggerGate?.(run) ?? null
+          if (verdict === null) return { ok: true as const }
+          return typeof verdict === 'string' ? { ok: false as const, reason: verdict } : { ok: false as const, reason: verdict.reason, transient: true as const }
+        },
+      },
     })
     const flows = new Flows(join(dir, 'flows'), team, legacy, undefined, executions, review)
     team.attachFlows(flows)
@@ -338,6 +394,31 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     root: '/repo', sentence: 'Finish the change', source, sourcePath: null, compiled: rig.compile(source, agents),
     authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1 },
   })
+  let triggerSource: { source: string; agents: readonly AgentEntry[]; changed: boolean } | null = null
+  let triggered = 0
+  rig.startTriggered = async (source, agents, options = {}) => {
+    triggered += 1
+    const key = options.key ?? triggered.toString(16).padStart(64, '0')
+    const room = await team.createRoom('/repo', `Pull request #${triggered}, from trigger review`)
+    rig.origins.set(room.id, { kind: 'trigger', trigger: 'review', event: key })
+    const definition: TriggerDefinition = {
+      id: 'review', on: { kind: 'pull-request', events: ['opened', 'pushed'] }, opens: { flow: 'review-pr' }, goal: ['pr'],
+      again: options.again ? { role: options.again, title: 'Continue this work', detail: null } : null,
+      dedupe: ['pr', 'head', 'event'], concurrency: 1, forks: 'never', budget: options.budget ?? DEFAULT_TRIGGER_BUDGET,
+    }
+    triggerSource = { source, agents, changed: false }
+    const digest = sourceDigest(source)
+    triggerSource = { source, agents, changed: options.changed ?? false }
+    return rig.flows.startTriggered({
+      key, id: `flow-trigger-${triggered.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`, goal: room.id, root: '/repo',
+      closureDigest: digest, definition,
+      fact: {
+        source: 'pull-request', project: '/repo', repository: 'acme/widgets', subject: String(triggered), event: key, action: 'opened',
+        at: 1, head: 'a'.repeat(40), fork: false, title: '', body: '', url: null, trigger: null,
+      },
+      evidence: [],
+    })
+  }
   rig.restart = async () => {
     await rig.flows.flush().catch(() => {})
     const next = build()

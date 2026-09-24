@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import {
   activityOf, checkedDependencies, flowStepOf, placeCard,
   type BoardEvidence, type CarryFindingsInput, type EvidenceRecord, type FindingReceipt, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
-  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
+  type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalOrigin, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
   type WrapChoices, type WrapPreview,
 } from '@harnessdesk/protocol'
@@ -106,7 +106,17 @@ export interface GoalPlanePort extends GoalOperationPort {
     /** Publications of this Goal's findings still unsettled after posting was worked to its end: a person records them. */
     readonly publication?: readonly string[]
   }>
-  seatAgent(input: GoalSeatRequest, goal: Goal): Promise<SeatRecord>
+  /**
+   * Seats an Agent on a Goal. `policy.unattended` is chosen here, from the
+   * Goal's own persisted origin — never from the request: a Goal a trigger
+   * opened seats under the unattended ceiling policy.
+   */
+  seatAgent(input: GoalSeatRequest, goal: Goal, policy: { readonly unattended: boolean }): Promise<SeatRecord>
+  /** Whether a trigger firing is being recorded into this Goal now: a wrap waits for it to land. Absent, never. */
+  /** A trigger firing still landing on this Goal: true, or the sentence that says why it waits and what clears it. */
+  intakeHeld?(goal: string): boolean | string
+  /** This Goal's frozen trigger-origin projection for its receipt, read fresh at wrap time. Absent or null: not a trigger Goal. */
+  intakeReceipt?(goal: string): Promise<NonNullable<GoalReceipt['intake']> | null>
   openLegacySeat(input: {
     goal: string
     spec: FlowSeat
@@ -121,6 +131,19 @@ export interface GoalPlanePort extends GoalOperationPort {
 /** Why a Goal's board takes no change while it wraps. */
 export const WRAPPING = 'This Goal is wrapping, so its board takes no new work. Start another Goal for it.'
 
+/** Why a wrap waits: a trigger firing is being recorded into this Goal. */
+export const INTAKE_LANDING = 'A trigger is adding new work to this Goal. Review the wrap again once it has landed.'
+
+/** What `ensureTriggerGoal` is handed: the firing's key, the Goal id it reserved, and the exact Goal to make. */
+export interface TriggerGoalRequest {
+  readonly key: string
+  readonly id: string
+  readonly input: GoalCreateInput & { readonly origin: Extract<GoalOrigin, { kind: 'trigger' }> }
+}
+
+/** A Goal id a trigger reserves: the same shape `create` mints. */
+export const TRIGGER_GOAL_ID = /^goal-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
 /** Goals coordinate transactions; Team owns card and channel rules. */
 export class GoalPlane {
   readonly #assignments: Assignments
@@ -131,6 +154,8 @@ export class GoalPlane {
   readonly #recoveryProblems = new Map<string, string>()
   /** How a carry's events reach the findings ledger: its one writer's append. */
   #appendCarry: ((records: readonly EvidenceRecord[]) => Promise<void>) | null = null
+  /** Goals a wrap has begun on, decided under this plane's queue: no trigger firing joins one. */
+  readonly #closing = new Set<string>()
 
   private readonly memory: GoalMemorySupport
 
@@ -307,6 +332,94 @@ export class GoalPlane {
     })
   }
 
+  /**
+   * A trigger's Goal, under the id its firing reserved: made once, and found
+   * again by every retry of the same firing. Host-only — no wire method
+   * reaches it. A Goal already under that id is answered only when it is
+   * exactly this firing's (trigger origin, same trigger and firing key, same
+   * project and sentence); anything else refuses rather than adopting
+   * another Goal. `create` still mints ids for people and flows.
+   */
+  ensureTriggerGoal(request: TriggerGoalRequest): Promise<GoalView> {
+    return this.serial.run(async () => {
+      const ready = this.port.ready()
+      if (!ready.ok) throw new Error(ready.reason)
+      const { input } = request
+      if (!TRIGGER_GOAL_ID.test(request.id)) throw new Error('A trigger’s Goal id is not one the desk reserves.')
+      if (input.origin.kind !== 'trigger' || input.origin.event !== request.key || !input.origin.trigger) {
+        throw new Error('A trigger’s Goal must name the trigger and the firing that opened it.')
+      }
+      const sentence = input.sentence.trim()
+      if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
+      const existing = this.store.list().find((one) => one.goal.id === request.id)
+      if (existing) {
+        const origin = existing.goal.origin
+        const { root } = await this.port.confine(input)
+        if (existing.restored || origin.kind !== 'trigger' || origin.trigger !== input.origin.trigger ||
+          origin.event !== request.key || existing.goal.root !== root || existing.goal.sentence !== sentence) {
+          throw new Error('Another Goal already holds this trigger’s reserved id. Nothing was adopted.')
+        }
+        return this.view(request.id)
+      }
+      const { root, cwd } = await this.port.confine(input)
+      const at = this.now()
+      await this.store.save({
+        version: 1,
+        goal: {
+          id: request.id, root, cwd, sentence, state: 'open', revision: 0, checkout: input.checkout ?? 'shared',
+          dependsOn: [], origin: { kind: 'trigger', trigger: input.origin.trigger, event: request.key },
+          createdAt: at, updatedAt: at, receipt: null,
+        },
+        board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+        citations: [], receipt: null, operation: null,
+      }, null)
+      const view = await this.view(request.id)
+      this.#rememberAndPublish(view)
+      return view
+    })
+  }
+
+  /**
+   * The lifecycle barrier a trigger firing and a wrap share, taken under this
+   * plane's queue: whether this open Goal takes a firing now. When it does,
+   * `claim` runs before the queue is let go — the caller marks the Goal as
+   * receiving work, which a wrap then waits on — so a wrap and a firing
+   * decide in one order and never both. A Goal a wrap has begun on, a
+   * restored one, or one no longer open takes nothing: the firing opens a new
+   * generation instead.
+   */
+  intakeClaim(id: string, claim: () => void): Promise<boolean> {
+    return this.serial.run(async () => {
+      let document: GoalDocument
+      try {
+        document = this.store.read(id)
+      } catch {
+        return false
+      }
+      if (document.restored || document.goal.state !== 'open' || document.operation?.kind === 'wrap' || this.#closing.has(id)) return false
+      claim()
+      return true
+    })
+  }
+
+  /** How a Goal stands for intake: open, closing (a wrap has begun), wrapped, or not on this desk. */
+  lifecycle(id: string): 'open' | 'closing' | 'wrapped' | 'missing' {
+    let document: GoalDocument
+    try {
+      document = this.store.read(id)
+    } catch {
+      return 'missing'
+    }
+    if (document.restored || document.goal.state === 'wrapped') return 'wrapped'
+    if (document.goal.state === 'wrapping' || this.#closing.has(id)) return 'closing'
+    return 'open'
+  }
+
+  /** Whether seating on this Goal is unattended: read from the Goal's own persisted origin, never from a request. */
+  unattended(id: string): boolean {
+    return this.store.read(id).goal.origin.kind === 'trigger'
+  }
+
   update(id: string, revision: number, patch: { sentence?: string; dependsOn?: readonly string[]; findingPublication?: boolean }): Promise<GoalView> {
     return this.serial.run(async () => {
       const document = this.store.read(id)
@@ -417,11 +530,33 @@ export class GoalPlane {
     const input = await this.#wrapInput(goal)
     const ready = previewWrap({ ...input, flow: false }, approved)
     if (ready.stamp !== stamp) throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+    // Citations retained first: it takes this plane's queue itself, so never inside the barrier below.
     await this.#resolveCitationsBeforeWrap(goal)
-    // Only now, with the wrap otherwise certain to proceed: the barrier — no
-    // round opens and no Seat is sent work once wrapping has begun.
-    await this.port.stopFlows?.(goal)
-    return this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
+    /* The lifecycle barrier a trigger firing shares: decided under this
+       plane's queue, so a firing either landed first (and this wrap waits for
+       it) or finds the Goal closing and opens a new generation — never both. */
+    await this.serial.run(async () => {
+      const landing = this.port.intakeHeld?.(goal)
+      if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
+      /* Checked again here, under the barrier, before anything is stopped:
+         the check above and the citations' I/O leave a window in which a
+         firing may have landed and revived this Goal's run. A run live now
+         that was not then — or any other change — refuses the wrap with the
+         run untouched, never stopped for a wrap that cannot commit. */
+      const now = await this.#wrapInput(goal)
+      if ((now.flow && !input.flow) || previewWrap({ ...now, flow: false }, approved).stamp !== stamp) {
+        throw new Error('This Goal changed while you reviewed its receipt. Review it again.')
+      }
+      this.#closing.add(goal)
+    })
+    try {
+      // Only now, with the wrap otherwise certain to proceed: the barrier — no
+      // round opens and no Seat is sent work once wrapping has begun.
+      await this.port.stopFlows?.(goal)
+      return await this.#wraps.commit(goal, stamp, choices, randomUUID(), this.now())
+    } finally {
+      this.#closing.delete(goal)
+    }
   }
 
   /**
@@ -629,7 +764,8 @@ export class GoalPlane {
     return this.serial.run(async () => {
       this.#dispatch(input.goal)
       const goal = this.store.read(input.goal).goal
-      const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where))
+      const policy = { unattended: goal.origin.kind === 'trigger' }
+      const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where, policy))
       if (input.card !== undefined) {
         try {
           await this.port.claim(input.goal, input.card, record)
@@ -749,6 +885,7 @@ export class GoalPlane {
     const evidenceRefs = [...await this.port.evidenceIds(id, document.goal.root)]
       .sort((left, right) => left.id.localeCompare(right.id))
     const findings = this.port.findings ? await this.port.findings(id) : null
+    const intake = this.port.intakeReceipt ? await this.port.intakeReceipt(id) : null
     const gaps = [
       ...answersRead.flatMap((read) => read.gaps),
       ...(findings?.gaps ?? []),
@@ -786,12 +923,15 @@ export class GoalPlane {
       revisions,
       ...(findings ? { findings: findings.receipt } : {}),
       ...(findings?.publication && findings.publication.length > 0 ? { publication: [...findings.publication].sort() } : {}),
+      ...(intake ? { intake } : {}),
     } satisfies WrapInput)
   }
 
   async #stageWrap(goal: string, receipt: GoalReceipt, stamp: string): Promise<void> {
     const document = this.store.read(goal)
     this.#editable(document)
+    const landing = this.port.intakeHeld?.(goal)
+    if (landing) throw new Error(typeof landing === 'string' ? landing : INTAKE_LANDING)
     const operation = { kind: 'wrap', id: randomUUID(), goal, stamp, receipt } as const
     await this.store.save({
       ...document,

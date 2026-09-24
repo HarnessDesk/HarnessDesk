@@ -115,6 +115,31 @@ export interface FlowOperation {
 }
 
 /**
+ * A run a trigger started (phase 8): the firing that started it, the trigger,
+ * the closure digest its arm consented to, and whether its dispatch is held.
+ * `dispatchHeld` is set before every start or later round a firing opens and
+ * cleared only once that firing is durably recorded and every gate allows
+ * work: while it is set, no Seat is opened, no card is handed over and no
+ * check runs. `again` is the round a later firing opens, frozen at the start.
+ */
+export interface FlowIntake {
+  readonly key: string
+  readonly trigger: string
+  readonly closureDigest: string
+  readonly dispatchHeld: boolean
+  readonly again: FlowThen | null
+  /**
+   * Why a gate that lifts on its own — the machine paused, the daily cap
+   * below what is committed — holds this run's dispatch; null or absent when
+   * nothing like that does. Such a hold records no stop: the run stays
+   * running, and its release continues it.
+   */
+  readonly heldFor?: string | null
+  /** The Seats whose turn ended while that hold stood: each is handed its card again once it lifts. */
+  readonly rearm?: readonly string[]
+}
+
+/**
  * A flow run as execution state attached to one Goal. Its membership is the
  * Goal's Seats; this holds no member list of its own.
  */
@@ -130,6 +155,8 @@ export interface FlowExecution {
   readonly reason: string | null
   /** The run's findings bookkeeping; absent on a run saved before it existed, which keeps its old behaviour. */
   readonly findings?: FindingRunState
+  /** Set only on a run a trigger started. */
+  readonly intake?: FlowIntake
 }
 
 // ---------------------------------------------------------------- review

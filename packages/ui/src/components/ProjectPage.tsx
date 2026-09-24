@@ -11,6 +11,7 @@ import { MemoryCitation } from './MemoryCitation'
 import { ProjectChecks } from './ProjectChecks'
 import { ProjectFlows } from './ProjectFlows'
 import { ProjectProvenance } from './ProjectProvenance'
+import { ProjectTriggers } from './ProjectTriggers'
 import {
   BackLink,
   Button,
@@ -169,6 +170,7 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
       </section>
       <ProjectFlows root={root} current={current} />
       <ProjectChecks root={root} />
+      <ProjectTriggers root={root} />
       <ProjectProvenance root={root} />
       {memoryOpen ? (
         <section aria-label="Memory">

@@ -3,6 +3,7 @@ import type { GoalView } from '@harnessdesk/protocol'
 import { Button, Chip, DetailHead, Note, RowButton, Rows } from '../design'
 import { goalActions, goalWords } from '../lib/goals'
 import { useStore } from '../state/context'
+import { GoalIntake } from './GoalIntake'
 
 export const GoalHeader = ({ view, onWrap }: { readonly view: GoalView; readonly onWrap: () => void }) => {
   const store = useStore()
@@ -32,6 +33,7 @@ export const GoalHeader = ({ view, onWrap }: { readonly view: GoalView; readonly
         </Rows>
       ) : null}
       {reason ? <Note {...(view.problem ? { tone: 'bad' as const } : {})}>{reason}</Note> : null}
+      {view.goal.origin.kind === 'trigger' && <GoalIntake goal={view.goal.id} />}
     </>
   )
 }

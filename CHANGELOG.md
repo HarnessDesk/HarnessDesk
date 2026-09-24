@@ -7,6 +7,43 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A project can open bounded work on its own, and you decide exactly what that means before it ever runs** —
+  a project's own `.harnessdesk/triggers.yml` declares what opens work: a
+  pull request, an issue, or a schedule. A project's page now has a Triggers
+  section listing each one as a sentence — "When a pull request opens or is
+  pushed, open review-pr, at most 4 at once" — with what last happened,
+  including a skipped firing and why. Turning one on opens the exact arming
+  review before anything is armed: the committed file it reads, every Seat it
+  would open and every candidate passed over, each trusted command verbatim
+  with its folder and timeout, how firings group into one Goal, what a later
+  push does, whether a fork is ever run, the total budget, and the daily
+  reservation it would take — closable only by an explicit Arm or Cancel,
+  never by a stray click or a held Return. History pages every firing, newest
+  first, and always names an exact duplicate rather than a second round.
+  An issue trigger that reads comments fires only on the armed account's own
+  comments unless it says `from: collaborators` or `from: anyone` (which the
+  review warns about), and nothing the desk posts itself ever fires one. A
+  runtime that is down or a sign-in that blinks never consumes a firing: it
+  waits and starts once it can. Settings › Workspaces adds "Triggers on this
+  Mac": pause every trigger on this machine at once — which stops watching
+  and holds the work triggers started, and resuming continues it — and a
+  daily cap in USD, shown against what is reserved and charged today; zero
+  means no new paid work, and an unreadable charge reads as unknown, never
+  zero. Permissions › Ceilings adds a second policy,
+  answering what a Goal a trigger opened does when a runtime cannot hold a
+  ceiling — refuse by default, or an explicit choice to seat it and say so —
+  kept apart from the existing choice for a conversation you are watching. A
+  Goal a trigger opened now says where it came from ("from PR #12", "from
+  issue #7", "from a schedule") in its own header and in the sidebar's room
+  row, and every wait on it — a held message or action, a question nobody
+  answered, a person's card, a stopped run, an unreadable source — shows
+  plainly as Needs you, named and with a working way to resolve it; a Goal's
+  receipt keeps that same origin and stop reason once it wraps. macOS
+  notifications gain two kinds of their own: unattended work that needs you,
+  and a trigger that was skipped, each individually silenceable the same way
+  every other kind already is. Nothing about this is a promise of an exact
+  invoice — arming and Settings both say so — and nothing runs unattended
+  until a person on that machine has explicitly armed it.
 - **An Agent can carry skills, MCP servers and its own notes.** Its file
   declares them by name — `skills:`/`mcp:`, editable from the Agent page,
   with an empty list read as "Runtime defaults" rather than "None" — and a

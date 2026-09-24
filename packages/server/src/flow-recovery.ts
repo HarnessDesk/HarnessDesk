@@ -183,6 +183,13 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       bad(error instanceof Error ? error.message : String(error))
     }
   }
+  if (raw['intake'] !== undefined) {
+    const intake = raw['intake']
+    const again = object(intake) ? intake['again'] : undefined
+    if (!object(intake) || !text(intake['key']) || !/^[0-9a-f]{64}$/.test(String(intake['key'])) || !text(intake['trigger']) ||
+      !text(intake['closureDigest']) || typeof intake['dispatchHeld'] !== 'boolean' ||
+      !(again === null || (object(again) && text(again['role']) && text(again['title'])))) bad('has trigger bookkeeping it cannot describe')
+  }
   const compiled = raw['compiled']
   if (!object(compiled) || !Array.isArray(compiled['bindings']) || !Array.isArray(compiled['problems'])) bad('has no compiled policy')
   for (const binding of (compiled as { bindings: unknown[] }).bindings) {

@@ -35,6 +35,20 @@ const baseReceipt = {
   cards: [], seats: [], evidence: [], answers: [], lanes: [], revisions: [], citations: [], gaps: [],
 } as unknown as Receipt
 
+it('a trigger Goal’s receipt keeps its origin and exact stop reason; an ordinary receipt names neither', () => {
+  const receipt = {
+    ...baseReceipt,
+    intake: { trigger: 'review-pr', source: 'pull-request', label: 'from PR #12', stop: { reason: 'out of budget', detail: 'The daily cap was reached before this round closed.', at: 10 } },
+  } as unknown as Receipt
+  act(() => root.render(<GoalReceipt receipt={receipt} root="/repo" />))
+  expect(container.textContent).toContain('Opened from PR #12.')
+  expect(container.textContent).toContain('Out of budget.')
+  expect(container.textContent).toContain('The daily cap was reached before this round closed.')
+
+  act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" />))
+  expect(container.textContent).not.toContain('Opened from')
+})
+
 it('an old receipt with no findings field never claims none were found', () => {
   act(() => root.render(<GoalReceipt receipt={baseReceipt} root="/repo" />))
   expect(container.textContent).toContain('Findings were not recorded.')

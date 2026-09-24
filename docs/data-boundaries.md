@@ -47,6 +47,23 @@ checkout the command runs in.
 
 **Retention:** yours. Deleting the folder deletes it.
 
+### An armed trigger polls the same forge, on its own schedule
+
+Once a project's trigger is explicitly armed on this machine, the desk polls
+that forge — as the same signed-in person, with no new credential minted —
+without a person asking each time, which is a different boundary from
+reading a card's pull request on demand, and the arming review says so before
+the switch takes effect: what it reads, how often, and that a fork's contents
+are never read for anything beyond deciding whether to open a read-only
+review. What it reads becomes bounded, validated facts a firing acts on, held
+locally in this machine's own trigger consent, cursors and admission journal
+(`~/.harnessdesk`) — never a second copy of the forge's own data, and never
+free text from a PR or an issue treated as anything but information. Pausing
+or disarming stops the polling immediately; deleting the state folder deletes
+the consent and everything it recorded, the same as any other local file.
+
+**Retention:** yours. Deleting the folder, or disarming the trigger, stops it.
+
 ### Goal backups carry history, not authority
 
 A HarnessDesk backup includes Goal documents, receipts, migration metadata and

@@ -78,6 +78,8 @@ export const findingsRig = async (
     readonly dropCloses?: boolean
     /** The flow's messaging policy; board-only unless a test needs the channel. */
     readonly messaging?: 'board-only' | 'members'
+    /** The reviewer role's Agents, one blind reviewer each; the two built-in ones unless a test needs more. */
+    readonly reviewers?: readonly string[]
   } = {},
 ): Promise<FindingsRig> => {
   const rig = await goalRig(t)
@@ -149,7 +151,11 @@ export const findingsRig = async (
     rig.flows.attachReviewPackets((run, round, role, subjects) => out.plane.packetFor(run, round, role, subjects))
   }
   attach(options.dropCloses === true)
-  const execution = await rig.start(FIX_AND_REVIEW.replace('messaging: board-only', `messaging: ${options.messaging ?? 'board-only'}`), AGENTS())
+  const reviewers = options.reviewers ?? ['code-reviewer', 'security-reviewer']
+  const flow = FIX_AND_REVIEW.replace('messaging: board-only', `messaging: ${options.messaging ?? 'board-only'}`)
+    .replace('uses: [code-reviewer, security-reviewer]', `uses: [${reviewers.join(', ')}]`)
+  const agents = [...AGENTS(), ...reviewers.filter((id) => id !== 'code-reviewer' && id !== 'security-reviewer').map((id) => REVIEWER(id))]
+  const execution = await rig.start(flow, agents)
   await rig.flows.flush()
   out.goal = execution.goal
   out.run = execution.id

@@ -420,3 +420,40 @@ test('bounded malformed fields refuse', async () => {
   assert.equal(read.skipped, bad.length, 'every malformed finding line is counted, not read')
   assert.ok((await readFile(file, 'utf8')).includes(text), 'and its bytes are kept as written')
 })
+
+test('trigger observation reuses immutable fact identity', async () => {
+  const plane = new EvidencePlane({ dir: tempDir('hd-evidence-intake-'), seenFile: join(tempDir('hd-evidence-seen-'), 'seen.json') }, planePort)
+  const firing = 'f'.repeat(64)
+  const goal = 'goal-00000000-0000-4000-8000-000000000001'
+  const fact = (head: string) => ({
+    source: 'pull-request' as const, project: '/work/repo', repository: 'acme/widgets', subject: '7', event: 'e'.repeat(64),
+    action: 'opened' as const, at: 5, head, fork: false, title: 'Change 7', body: 'a body is never evidence', url: 'https://github.com/acme/widgets/pull/7', trigger: null,
+  })
+  const [first] = await plane.observeTrigger(firing, goal, fact(A))
+  // Recovery observes the same part again: the same fact id, and no second record.
+  assert.deepEqual(await plane.observeTrigger(firing, goal, fact(A)), [first])
+  // The same firing and part naming something else is refused; nothing is rewritten and nothing added.
+  await assert.rejects(plane.observeTrigger(firing, goal, fact('b'.repeat(40))), /different pull request fact/)
+  const lines = (await plane.store.read('/work/repo', 'evidence')).lines.flatMap((line) => (line.type === 'evidence' ? [line.record] : []))
+  assert.equal(lines.length, 1)
+  assert.deepEqual(lines[0]!.fact, { kind: 'pr', number: 7, head: A, state: 'open', url: 'https://github.com/acme/widgets/pull/7' })
+  assert.deepEqual(lines[0]!.intake, { firing, part: 'pr', goal })
+  assert.ok(!JSON.stringify(lines[0]).includes('a body is never evidence'), 'untrusted prose never becomes evidence')
+  // The fact is the Goal's, with no card or Seat yet.
+  assert.deepEqual((await plane.factIdsOfGoal(goal, '/work/repo')).map((one) => one.id), [first])
+  // Issue, comment and schedule facts are source input only.
+  assert.deepEqual(await plane.observeTrigger('a'.repeat(64), goal, { ...fact(A), source: 'issue', head: null }), [])
+
+  // The metadata is read as strictly as any other: its three keys, a firing key, and a part that names the fact's own kind.
+  const record = lines[0]!
+  assert.ok(lineOf({ v: 1, type: 'evidence', record }, FACTS))
+  for (const intake of [
+    { firing, part: 'ci', goal },
+    { firing: 'short', part: 'pr', goal },
+    { firing, part: 'pr', goal, extra: true },
+    { firing, part: 'pr' },
+  ]) {
+    assert.equal(lineOf({ v: 1, type: 'evidence', record: { ...record, intake } }, FACTS), null, JSON.stringify(intake))
+  }
+  assert.equal(lineOf({ v: 1, type: 'evidence', record: { ...checkFact(), intake: record.intake } }, FACTS), null, 'no intake metadata on a check fact')
+})

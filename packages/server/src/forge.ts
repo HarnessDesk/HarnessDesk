@@ -45,6 +45,12 @@ export interface ForgePort {
   toolsOffered(): boolean
   /** Why a conversation may not publish to a forge yet — a blind review round still open — or null. Absent: never embargoed. */
   embargoOf?(runtime: string, sessionId: string): string | null
+  /**
+   * Something the desk posted reached the forge: told before anything else,
+   * whether or not the conversation can record it, so a trigger reading the
+   * forge back never answers the desk's own comment as a person's.
+   */
+  posted?(reference: ForgeReference): Promise<void>
 }
 
 export interface ForgePlaneOptions {
@@ -180,6 +186,7 @@ export class ForgePlane implements ForgeEngine {
     if (!isForgeReference(reference)) {
       throw new Error('The publication is not a forge reference: kind, repo, number, url and via are required, in their types.')
     }
+    await this.port.posted?.(reference).catch(() => {})
     const now = Date.now()
     const item: PublicationItem = {
       id: itemId(`publication-${randomUUID()}`),

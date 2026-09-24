@@ -2,7 +2,7 @@ import type { FindingAnchor, FindingPost } from '@harnessdesk/protocol'
 
 import {
   APPEND_JOIN, chainOf, PublicationConflict, segmentsOf, sha256,
-  type FindingForgePort, type ObservedTarget, type PublicationEntry,
+  type FindingForgePort, type ObservedTarget, type PublicationEntry, type SummaryReviewInput, type SummaryReviewLocation,
 } from '../../src/findings/publication.js'
 
 /**
@@ -35,6 +35,12 @@ export class FakeFindingForge implements FindingForgePort {
   onSend: ((operation: PublicationEntry, body: string) => SendOutcome | Promise<SendOutcome>) | null = null
   /** Set, every read back throws this. */
   findFails: string | null = null
+  /** The pull request's reviews, as the forge holds them: a closed round's one review lands here. */
+  readonly reviews: { readonly id: number; readonly body: string; readonly head: string; readonly comments: readonly { readonly id: number; readonly body: string }[] }[] = []
+  /** Every review sent, in order: exactly what the desk asked the forge to post. */
+  readonly summaries: SummaryReviewInput[] = []
+  /** Decides what the next review send does; `ok` when unset. */
+  onSummary: ((input: SummaryReviewInput) => SendOutcome | Promise<SendOutcome>) | null = null
   #next = 100
 
   constructor(head: string) {
@@ -75,6 +81,40 @@ export class FakeFindingForge implements FindingForgePort {
     return this.comments
       .filter((one) => one.kind === kind && one.body.split('\n')[0] === operation.marker && sha256(one.body) === operation.digest)
       .map((one) => this.#post(operation, one))
+  }
+
+  #review(input: SummaryReviewInput, review: FakeFindingForge['reviews'][number]): SummaryReviewLocation {
+    return {
+      id: String(review.id), url: `https://github.com/${this.repo}/pull/${input.pr}#pullrequestreview-${review.id}`,
+      comments: input.comments.map((wanted) => {
+        const comment = review.comments.find((one) => one.body === wanted.body)!
+        return { finding: wanted.finding, id: String(comment.id), url: `https://github.com/${this.repo}/pull/${input.pr}#discussion_r${comment.id}` }
+      }),
+    }
+  }
+
+  async publishSummary(input: SummaryReviewInput): Promise<SummaryReviewLocation> {
+    this.calls.push('summary')
+    this.summaries.push(input)
+    const outcome = (await this.onSummary?.(input)) ?? 'ok'
+    if (outcome === 'fail') throw new Error('connect ECONNREFUSED')
+    const land = (): FakeFindingForge['reviews'][number] => {
+      const review = { id: this.#next++, body: input.body, head: input.head, comments: input.comments.map((one) => ({ id: this.#next++, body: one.body })) }
+      this.reviews.push(review)
+      return review
+    }
+    const landed = land()
+    if (outcome === 'duplicate') land()
+    if (outcome === 'lose' || outcome === 'duplicate') throw new Error('socket hang up')
+    return this.#review(input, landed)
+  }
+
+  async reconcileSummary(input: SummaryReviewInput): Promise<readonly SummaryReviewLocation[]> {
+    this.calls.push('reconcile')
+    if (this.findFails) throw new Error(this.findFails)
+    return this.reviews
+      .filter((one) => one.body.split('\n')[0] === `<!-- harnessdesk:finding-op ${input.key} -->` && sha256(one.body) === sha256(input.body) && one.head === input.head)
+      .map((one) => this.#review(input, one))
   }
 
   async send(operation: PublicationEntry, body: string, _anchor: FindingAnchor | null): Promise<FindingPost> {

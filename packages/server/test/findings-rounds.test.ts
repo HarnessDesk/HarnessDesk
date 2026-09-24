@@ -174,3 +174,32 @@ test('unanswered question preserves partial output', async () => {
   await settle()
   assert.deepEqual(interrupts, ['alpha:s1'])
 })
+
+test('trigger budget cannot widen flow progress rules', async (t) => {
+  const { effectiveBudget } = await import('../src/intake/definition.js')
+  const { agent, goalRig } = await import('./fixtures/flow-goal-rig.js')
+  // The narrower of the two, field by field, whichever side is narrower: a trigger can only tighten a flow.
+  assert.deepEqual(effectiveBudget({ usd: 5, hours: 4, rounds: 8, withoutProgress: 9 }, { rounds: 3, withoutProgress: 2 }), { rounds: 3, withoutProgress: 2 })
+  assert.deepEqual(effectiveBudget({ usd: 5, hours: 4, rounds: 2, withoutProgress: 1 }, { rounds: 3, withoutProgress: 2 }), { rounds: 2, withoutProgress: 1 })
+  assert.deepEqual(effectiveBudget({ usd: 5, hours: 4, rounds: 8, withoutProgress: 9 }, undefined), { rounds: 3, withoutProgress: 2 }, 'the flow default still binds')
+
+  // A trigger's run freezes the intersection where the findings plane counts it.
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(`
+version: 2
+name: Review until clean
+budget: { rounds: 3, without-progress: 2 }
+roles:
+  reviewer: { kind: agent, uses: reviewer }
+seed: { role: reviewer, title: Review it }
+rules: []
+`, [agent('reviewer', ['approve'])], { budget: { usd: 5, hours: 4, rounds: 8, withoutProgress: 9 } })
+  assert.deepEqual(run.findings?.budget, { rounds: 3, withoutProgress: 2 })
+  const limits = run.findings!.budget
+  // The frozen limits stop the loop where the flow would: the third closed round, or two rounds with no new evidence.
+  assert.equal(decideLoop(sample({ closed: limits.rounds, limit: limits.rounds, unresolved: 1 })).next, 'person')
+  assert.equal(decideLoop(sample({ closed: 1, limit: limits.rounds, idle: 1, idleLimit: limits.withoutProgress, newProgress: false, unresolved: 1 })).next, 'person')
+  // Progress is still semantic: the same evidence seen again is not progress, whatever budget the trigger named.
+  const keys = progressKeys({ facts: [check('c1', 1)], slotOf: () => null, confirmed: [] })
+  assert.equal(advanceProgress(keys, keys, false).newProgress, false)
+})

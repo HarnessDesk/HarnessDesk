@@ -21,6 +21,9 @@ import type { EditorDocument, EditorEvent } from './editor.js'
 import type { BoardEvidence, CeilingLevel, ProjectChecks, SeatId, SeatRecord, SessionPointer, Sha } from './evidence.js'
 import type { GoalMemoryIndex, MemoryFile, MemoryResolution, MemorySnapshot } from './memory.js'
 import type { FlowDryRun, FlowFile, FlowPermission, FlowRun, FlowSeat } from './flow.js'
+import type {
+  TriggerArmPreview, TriggerAttention, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences, TriggerProjectView, TriggerView,
+} from './intake.js'
 import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
   FlowEntry,
@@ -734,6 +737,33 @@ export interface HostMethods {
     params: { readonly goal: GoalId; readonly run: string; readonly action: FindingPublishAction }
     result: FindingPublicationsView
   }
+
+  /**
+   * Intake: what a project's committed triggers may open on this machine.
+   * Every mutation is a person's — arming redeems the one-use token its own
+   * preview answered, and the machine's pause and daily cap are compared on
+   * the revision the window read. None of these is ever an Agent's tool, and
+   * none carries an origin, a grant, a fact or a command.
+   */
+  'trigger/list': { params: { readonly root: string }; result: TriggerProjectView }
+  'trigger/preview': { params: { readonly root: string; readonly id: string }; result: TriggerArmPreview }
+  'trigger/arm': { params: { readonly root: string; readonly id: string; readonly token: string }; result: TriggerView }
+  'trigger/disarm': { params: { readonly root: string; readonly id: string }; result: TriggerView }
+  /**
+   * A person resumes a trigger's source that stopped at a gap: it watches
+   * from now, and what changed in the gap is skipped, never replayed.
+   * Refused unless that source stopped at a gap.
+   */
+  'trigger/rebaseline': { params: { readonly root: string; readonly id: string }; result: TriggerView }
+  'trigger/preferences': { params: Record<string, never>; result: TriggerPreferences }
+  'trigger/preferences/set': {
+    params: { readonly revision: number; readonly paused: boolean; readonly dailyUsd: number }
+    result: TriggerPreferences
+  }
+  /** A trigger's firings, newest first, at most fifty a page. */
+  'trigger/history': { params: { readonly root: string; readonly id: string; readonly cursor?: string }; result: TriggerHistoryPage }
+  /** A trigger Goal's origin, budget and named waits; null for any other Goal. */
+  'trigger/goal': { params: { readonly goal: GoalId }; result: TriggerGoalStatus | null }
 
   'host/hello': {
     params: { readonly clientVersion: string }
@@ -2451,6 +2481,10 @@ export type WireNotification =
   | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }
   /** Invalidation only, never a claim's body: reload the affected Goal's findings. */
   | { method: 'finding/changed'; params: { readonly goal: GoalId; readonly revision: number } }
+  /** Invalidation only: a project's triggers, their arms or their history moved. Refetch after a reconnect. */
+  | { method: 'trigger/changed'; params: { readonly project: string; readonly revision: number } }
+  /** One named wait on unattended work, raised or resolved; its id is durable, so a replay never makes a second. */
+  | { method: 'trigger/attention'; params: { readonly attention: TriggerAttention } }
   | {
       readonly method: 'provenance/changed'
       readonly params: {

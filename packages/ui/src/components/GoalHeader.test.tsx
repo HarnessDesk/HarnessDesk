@@ -29,3 +29,30 @@ it('opens dependencies and disables mutations for wrapped history', () => {
   expect([...document.querySelectorAll('button')].find(one => one.textContent === 'Wrap')?.hasAttribute('disabled')).toBe(true)
   expect(document.body.textContent).toContain('receipt is kept here')
 })
+
+it('a plain conversation’s Goal never asks Intake for anything', () => {
+  const snapshot = emptySnapshot() as AppSnapshot
+  const triggerGoal = vi.fn(async () => null)
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn(), triggerGoal } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view()} onWrap={() => {}} /></StoreProvider>))
+  expect(triggerGoal).not.toHaveBeenCalled()
+  expect(document.body.querySelector('section[aria-label="Trigger origin"]')).toBeNull()
+})
+
+it('a trigger Goal shows its origin, drawn from the host’s own label', async () => {
+  const snapshot = { ...emptySnapshot(), goals: new Map([['g1', view({ origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' } })]]) } as unknown as AppSnapshot
+  const triggerGoal = vi.fn(async () => ({
+    goal: 'g1', trigger: 'review-pr', source: 'pull-request' as const, label: 'from PR #12', url: null,
+    budget: null, waits: [],
+  }))
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn(), triggerGoal } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <GoalHeader view={view({ origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' } })} onWrap={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  expect(triggerGoal).toHaveBeenCalledWith('g1')
+  expect(document.body.textContent).toContain('Opened from PR #12')
+})

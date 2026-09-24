@@ -2,6 +2,7 @@ import { AGENT_DESCRIPTION_LIMIT, AGENT_NAME_LIMIT, SEAT_PREFERENCE_LIMIT } from
 import type { ApprovalDecision } from './approval.js'
 import type { FindingDecisionAction, FindingPublishAction } from './findings.js'
 import { lanePreferences } from './goal.js'
+import { TRIGGER_DAILY_USD_MAX, TRIGGER_ID } from './intake.js'
 import { CEILING_LEVELS } from './ceiling.js'
 import type {
   ClientToHost,
@@ -400,6 +401,72 @@ const findingValidators = {
   'finding/publish': goalShape({ goal: goalId, run: findingRun, action: findingPublishAction }),
 }
 
+/**
+ * Intake's person controls. A root is an absolute, printable path the host
+ * then confines; an id is a trigger's slug; a token or cursor is at most 200
+ * printable characters and means nothing here; money is finite and bounded.
+ * `goalShape` refuses every other key, so an origin, grant, fact or command
+ * never rides along.
+ */
+const triggerRoot: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  const absolute = text.startsWith('/') || /^[A-Za-z]:[\\/]/.test(text) || text.startsWith('\\\\')
+  if (text.length === 0 || text.length > 4096 || !absolute || /[\u0000-\u001f\u007f]/.test(text)) {
+    throw new ValidationError(path, 'expected an absolute project folder')
+  }
+  return text
+}
+const triggerId: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (!TRIGGER_ID.test(text)) throw new ValidationError(path, 'expected a trigger id: 1 to 64 lowercase letters, digits, - or _')
+  return text
+}
+const triggerOpaque: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (text.length === 0 || text.length > 200 || /[\u0000-\u001f\u007f]/.test(text)) {
+    throw new ValidationError(path, 'expected 1 to 200 printable characters')
+  }
+  return text
+}
+const triggerGoal: Validator<string> = (value, path = '') => {
+  const text = isString(value, path)
+  if (text.length === 0 || text.length > 64 || /[\u0000-\u001f\u007f]/.test(text)) throw new ValidationError(path, 'expected a Goal id of at most 64 characters')
+  return text
+}
+const triggerUsd: Validator<number> = (value, path = '') => {
+  const number = isNumber(value, path)
+  if (!Number.isFinite(number) || number < 0 || number > TRIGGER_DAILY_USD_MAX) {
+    throw new ValidationError(path, `expected a finite daily cap from 0 to ${TRIGGER_DAILY_USD_MAX} dollars`)
+  }
+  return number
+}
+const triggerValidators = {
+  'trigger/list': goalShape({ root: triggerRoot }),
+  'trigger/preview': goalShape({ root: triggerRoot, id: triggerId }),
+  'trigger/arm': goalShape({ root: triggerRoot, id: triggerId, token: triggerOpaque }),
+  'trigger/disarm': goalShape({ root: triggerRoot, id: triggerId }),
+  'trigger/rebaseline': goalShape({ root: triggerRoot, id: triggerId }),
+  'trigger/preferences': goalShape({}),
+  'trigger/preferences/set': goalShape({ revision: goalInteger(0), paused: isBoolean, dailyUsd: triggerUsd }),
+  'trigger/history': goalShape({ root: triggerRoot, id: triggerId, cursor: optional(triggerOpaque) }),
+  'trigger/goal': goalShape({ goal: triggerGoal }),
+}
+
+/**
+ * A window's own preferences. Intake's machine state — its arms, its pause
+ * and its cap — is never one of them: it has its own person-only methods,
+ * so a key that could be mistaken for it is refused here.
+ */
+const windowPreferences: Validator<Record<string, unknown>> = (value, path = '') => {
+  const patch = isObject(value, path)
+  for (const key of Object.keys(patch)) {
+    if (/^trigger/i.test(key) || /^intake/i.test(key)) {
+      throw new ValidationError(`${path}.${key}`, 'trigger arms, pause and daily cap are set through their own controls')
+    }
+  }
+  return patch
+}
+
 /** Read-only Insight accepts selectors, never values the host is responsible for measuring. */
 const insightMillis: Validator<number> = (value, path = '') => {
   const number = isNumber(value, path)
@@ -491,6 +558,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'memory/list': goalShape({ root: atMost(4096, isFilled), at: goalHex([40, 64]) }),
   'memory/read': goalShape({ root: atMost(4096, isFilled), citation: goalCitation }),
   ...findingValidators,
+  ...triggerValidators,
   ...insightValidators,
   'host/hello': shape({ clientVersion: isString }),
 
@@ -999,7 +1067,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/imports/apply': shape({ runtime: isString, items: arrayOf(isUnknown) }),
 
   'app/state/get': isObject,
-  'app/state/set': shape({ patch: isObject }),
+  'app/state/set': shape({ patch: windowPreferences }),
   'app/browsers': isObject,
 }
 

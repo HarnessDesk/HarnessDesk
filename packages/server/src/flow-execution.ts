@@ -21,11 +21,14 @@ import type {
   FlowSeat,
   FlowThen,
   GoalCreateInput,
+  GoalOrigin,
   GoalSeatRequest,
   Intent,
   Lane,
   RepairLead,
   SeatRecord,
+  TriggerDefinition,
+  TriggerFact,
 } from '@harnessdesk/protocol'
 
 import { ConfinedTree } from './confined-tree.js'
@@ -36,6 +39,8 @@ import {
 import { decideLoop } from './findings/rounds.js'
 import type { FindingJournal, FindingJournalEntry } from './findings/journal.js'
 import type { PublicationEntry, PublicationJournal, StoredPublication } from './findings/publication.js'
+import type { TriggerClosure } from './intake/consent.js'
+import { effectiveBudget } from './intake/definition.js'
 import type { Team } from './team.js'
 
 /**
@@ -109,6 +114,42 @@ export interface FlowStartRequest {
 }
 
 /**
+ * What `startTriggered` is handed (phase 8): the firing's key and the run id
+ * it reserved, the trigger's Goal (already made under its own reserved id),
+ * the closure digest its arm consented to, the frozen definition and fact,
+ * and the host evidence the firing observed. Host-only: no wire method
+ * reaches it, and it never redeems a person's start token.
+ */
+export interface TriggerStartRequest {
+  readonly key: string
+  readonly id: string
+  readonly goal: string
+  readonly root: string
+  readonly closureDigest: string
+  readonly definition: TriggerDefinition
+  readonly fact: TriggerFact
+  readonly evidence: readonly string[]
+}
+
+/** A firing the run could not take, said as a reason a person reads: not a storage failure, and not retried as one. */
+export class TriggerRefusal extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TriggerRefusal'
+  }
+}
+
+/** Why a trigger's run holds instead of dispatching: its dispatch is held until its firing is recorded. */
+/** How long a released trigger Seat's interrupted turn is waited for before its release is tried anyway. */
+const RELEASE_WAIT_MS = 10_000
+export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
+export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
+/** What a trigger's run says when what it would run no longer matches what was armed. */
+export const TRIGGER_CLOSURE_CHANGED = 'What this trigger runs changed after it fired, so nothing was started. Arm it again, then start this work.'
+/** A run id a trigger reserves. */
+export const TRIGGER_RUN_ID = /^flow-trigger-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/**
  * The host, as a run on a Goal needs it. The first four are the plan's
  * boundary; the rest are the reads and sends a round cannot happen without.
  */
@@ -135,6 +176,12 @@ export interface FlowExecutionPort {
    * never.
    */
   busy?(seat: SeatRecord): boolean
+  /**
+   * Interrupts a Seat's live turn, keeping what it already said: what a
+   * trigger's run does to every Seat it releases, so no turn it started
+   * outlives it. Absent, nothing is interrupted.
+   */
+  interrupt?(seat: SeatRecord): Promise<void>
   /** The lane a Seat was given, or null when it has none. */
   laneOf(seat: SeatRecord): Lane | null
   /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
@@ -269,6 +316,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   legacyRun: run.legacyRun,
   reason: run.reason,
   ...(run.findings ? { findings: run.findings } : {}),
+  ...(run.intake ? { intake: run.intake } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -396,6 +444,22 @@ export interface FlowExecutionsOptions {
    * evidence plane attached never fabricates a match.
    */
   readonly facts?: (goal: string) => Promise<readonly EvidenceView[]>
+  /**
+   * Phase 8: how a trigger's run is compiled — the same frozen closure its
+   * arm consented to, re-read — which Goal a trigger made, and the gate every
+   * one of its dispatches passes (budgets, pause, consent). Absent, no
+   * trigger run starts.
+   */
+  readonly triggered?: {
+    freeze(root: string, definition: TriggerDefinition): Promise<TriggerClosure>
+    originOf(goal: string): GoalOrigin | null
+    /**
+     * `transient` marks a refusal that lifts on its own — a pause, the daily
+     * cap: the run is held, never stalled or stopped, and its release
+     * continues it. Any other refusal stalls the run for a person.
+     */
+    gate?(run: FlowExecution): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean }>
+  }
 }
 
 /** Runs on Goals. `Flows` hands every Goal-born run and every card of one to this. */
@@ -405,8 +469,11 @@ export class FlowExecutions {
   readonly #port: FlowExecutionPort
   readonly #now: () => number
   readonly #facts: FlowExecutionsOptions['facts'] | null
+  readonly #triggered: FlowExecutionsOptions['triggered'] | null
   readonly #queue = new SerialRun()
   #runs = new Map<string, StoredFlowExecution>()
+  /** The checks running now, by Goal: what a pause or a stop aborts without waiting for the run's queue. */
+  readonly #checks = new Map<string, Set<AbortController>>()
   /** Goals a broken run file names: no new round opens on them until it is restored. */
   #blocked = new Map<string, string>()
   /** Set when a run file names no readable Goal: nothing new starts anywhere. */
@@ -429,6 +496,7 @@ export class FlowExecutions {
     this.#port = port
     this.#now = options.now ?? now
     this.#facts = options.facts ?? null
+    this.#triggered = options.triggered ?? null
   }
 
   async idle(): Promise<void> {
@@ -1188,8 +1256,25 @@ export class FlowExecutions {
     this.#team.nudgeRoom(run.goal)
   }
 
-  async #release(goal: string, ids: readonly string[]): Promise<void> {
+  /**
+   * Releases Seats. `interrupt` — a trigger's run — interrupts each one's
+   * live turn first, keeping what it said: a Seat the run lets go never
+   * keeps working unmetered after the run stopped (review #898).
+   */
+  async #release(goal: string, ids: readonly string[], interrupt = false): Promise<void> {
     for (const id of ids) {
+      if (interrupt) {
+        const record = this.#port.seatOf(id)
+        if (record) {
+          await this.#port.interrupt?.(record).catch((error: unknown) => {
+            this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+          })
+          // An interrupt asks; the turn ends a moment later. The release waits for it, bounded, rather than being refused.
+          for (let waited = 0; waited < RELEASE_WAIT_MS && this.#port.busy?.(record); waited += 50) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+          }
+        }
+      }
       try {
         await this.#port.release(goal, id)
       } catch (error) {
@@ -1259,6 +1344,241 @@ export class FlowExecutions {
         this.#port.log('a flow run could not record why it stopped', { run: id, error: stalling instanceof Error ? stalling.message : String(stalling) })
       }
     }
+  }
+
+  // ------------------------------------------------------- trigger starts
+
+  /**
+   * A trigger's run, under the id its firing reserved, on the trigger's own
+   * Goal: made once, found again by every retry of the same firing. It
+   * attaches only to the Goal whose persisted origin names this trigger and
+   * firing and that holds no other run, re-reads the frozen closure the arm
+   * consented to and compiles from it — phase 6's own compilation, checks,
+   * round journal and seating; never a person's start token — and opens its
+   * seed round's cards with dispatch **held**: no Seat opens, no card is
+   * handed over and no check runs until `resumeTriggered`. A closure that no
+   * longer matches the arm makes the run stopped, with the reason, and
+   * dispatches nothing.
+   */
+  async startTriggered(request: TriggerStartRequest): Promise<FlowExecution> {
+    const refused = this.refusal(request.goal)
+    if (refused) throw new Error(refused)
+    const triggered = this.#triggered
+    if (!triggered) throw new Error('Trigger runs are not available on this desk.')
+    if (!TRIGGER_RUN_ID.test(request.id)) throw new TriggerRefusal('A trigger’s run id is not one the desk reserves.')
+    return this.#queue.within(request.id, async () => {
+      const existing = this.#runs.get(request.id)
+      if (existing) {
+        if (existing.goal !== request.goal || existing.intake?.key !== request.key) {
+          throw new TriggerRefusal('Another run already holds this trigger’s reserved id. Nothing was adopted.')
+        }
+        if (existing.state === 'running' && existing.rounds.length === 0) await this.#afterStart(request.id)
+        return projectExecution(this.#get(request.id))
+      }
+      const origin = triggered.originOf(request.goal)
+      if (origin?.kind !== 'trigger' || origin.trigger !== request.definition.id || origin.event !== request.key) {
+        throw new TriggerRefusal('This Goal was not opened by this trigger firing, so its run is not attached to it.')
+      }
+      if ([...this.#runs.values()].some((one) => one.goal === request.goal)) {
+        throw new TriggerRefusal('This Goal already has a run. A trigger’s run attaches only to its own new Goal.')
+      }
+      const closure = await triggered.freeze(request.root, request.definition)
+      const compiled = closure.preview.compiled
+      if (compiled.document.format !== 'agents') throw new TriggerRefusal('Only a flow in the Agent format runs from a trigger.')
+      const policy = compiled.document.flow
+      // Whether a seat can be taken right now is read again when the run seats, never taken for a changed closure.
+      const errors = [...compiled.problems, ...closure.preview.problems].filter((one) => one.level === 'error' && !one.availability)
+      const reason = closure.digest !== request.closureDigest || closure.problems.length > 0 || errors.length > 0 ? TRIGGER_CLOSURE_CHANGED : null
+      const vars: Record<string, string> = {}
+      // Only the flow's own defaults: no title, body or comment from outside becomes a variable.
+      for (const input of policy.inputs) vars[input.id] = input.default ?? ''
+      const at = this.#now()
+      await this.#put(this.#operation({
+        version: 2, id: request.id, goal: request.goal, document: compiled.document,
+        state: reason ? 'stopped' : 'running', rounds: [], operations: [], legacyRun: null, reason,
+        compiled, source: closure.source, sourcePath: null, vars, startedAt: at, updatedAt: at,
+        authorization: {
+          sourceDigest: sourceDigest(closure.source),
+          commandDigest: sourceDigest(JSON.stringify(closure.preview.commands)),
+          approvedAt: at,
+        },
+        operationTimes: {},
+        // The narrower of the trigger's and the flow's loop limits, frozen for the life of the run.
+        findings: { ...startingFindings(policy), budget: effectiveBudget(request.definition.budget, policy.budget) },
+        intake: {
+          key: request.key, trigger: request.definition.id, closureDigest: request.closureDigest,
+          dispatchHeld: true, again: request.definition.again,
+        },
+      }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+      if (!reason) await this.#afterStart(request.id)
+      return projectExecution(this.#get(request.id))
+    })
+  }
+
+  /**
+   * A later firing's round on a trigger's run: its dispatch held first, then
+   * the round opened under the firing's own cause, so a retry finds it rather
+   * than opening another. A run that settled after its last round takes it
+   * (the Goal is still open); one a person stopped, or that stopped for a
+   * person, does not — the firing is recorded and the person decides.
+   */
+  againTriggered(id: string, key: string, evidence: readonly string[]): Promise<FlowRoundState> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      const cause = `cause:intake:${key}`
+      const existing = run.rounds.find((one) => one.cause === cause)
+      if (existing && existing.state !== 'opening') return existing
+      const then = run.intake.again
+      if (!then) throw new TriggerRefusal('This trigger opens no later round, so the new work was recorded for a person to decide.')
+      if (run.state === 'stopped' || run.state === 'stalled') {
+        throw new TriggerRefusal(`This Goal’s run is ${run.state === 'stopped' ? 'stopped' : 'waiting for a person'}, so the new work was recorded for a person to decide.`)
+      }
+      run = await this.#put({
+        ...run, state: 'running', reason: run.state === 'settled' ? null : run.reason,
+        intake: { ...run.intake, dispatchHeld: true },
+      })
+      return this.#openRound(id, then, { key: cause, evidence }, [])
+    })
+  }
+
+  /**
+   * Lets a trigger's run dispatch: its firing is durably recorded and every
+   * gate allowed it. Idempotent; a run that is not running only has its hold
+   * cleared. The run then advances exactly as it would have — a held round's
+   * Seats opened, its cards handed over, its checks run.
+   */
+  resumeTriggered(id: string): Promise<void> {
+    return this.#queue.within(id, async () => {
+      let run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      // The Seats whose turn a pause or the cap ended: handed their cards again below, once each.
+      const waiting = run.intake.rearm ?? []
+      if (run.intake.dispatchHeld || (run.intake.heldFor ?? null) !== null || waiting.length > 0) {
+        run = await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: false, heldFor: null, rearm: [] } })
+      }
+      if (run.state !== 'running') return
+      await this.#advance(id)
+      for (const key of waiting) {
+        const operation = this.#get(id).operations.find((one) => one.key === key)
+        if (operation?.seat) await this.#reArm(id, operation, true)
+      }
+    })
+  }
+
+  /**
+   * A later firing brought a new head (phase 8): work on the old one stops.
+   * With a round to follow, dispatch is held — the old round's cards are
+   * never handed out again, and the new round waits for its release; with
+   * none, the run waits for a person with the reason. Idempotent, and it
+   * never discards a card, an answer or a finding.
+   */
+  supersedeTriggered(id: string, why: string, next: 'round' | 'person'): Promise<void> {
+    return this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      if (next === 'round') {
+        if (!run.intake.dispatchHeld) await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true } })
+        return
+      }
+      if (run.state === 'running' && run.reason !== why) await this.#stall(id, why)
+    })
+  }
+
+  /**
+   * Whether a trigger's run may dispatch now: not held, and its gate allows
+   * it. A refusal that lifts on its own (a pause, the cap) holds the run; any
+   * other stalls it with the gate's reason.
+   */
+  /**
+   * Stops every check running on a Goal now, outside the run's queue — which
+   * a running check holds — so a pause or a stop reaches it at once. Each is
+   * left uncertain for a person, never run again on its own (decision 18).
+   */
+  interruptChecks(goal: string): void {
+    for (const controller of this.#checks.get(goal) ?? []) controller.abort()
+  }
+
+  async #mayDispatch(id: string): Promise<boolean> {
+    const run = this.#get(id)
+    if (!run.intake) return true
+    if (run.intake.dispatchHeld) return false
+    const verdict = await this.#gateOf(id)
+    if (verdict.ok) return true
+    if (verdict.transient) await this.#hold(id, verdict.reason)
+    else await this.#stall(id, verdict.reason)
+    return false
+  }
+
+  async #gateOf(id: string): Promise<{ readonly ok: true } | { readonly ok: false; readonly reason: string; readonly transient?: boolean }> {
+    const run = this.#get(id)
+    const gate = this.#triggered?.gate
+    return gate ? gate(projectExecution(run)) : { ok: true }
+  }
+
+  /** Holds a trigger's run for a gate that lifts on its own: running, nothing recorded as a stop, released by `resumeTriggered`. */
+  async #hold(id: string, why: string): Promise<void> {
+    const run = this.#get(id)
+    if (!run.intake || run.state !== 'running') return
+    if (run.intake.dispatchHeld && run.intake.heldFor === why) return
+    const first = (run.intake.heldFor ?? null) === null
+    await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, heldFor: why } })
+    /* Whoever set the hold first — a turn ending, a Seat about to open, the
+       budget watch — every other Seat of the run still inside a turn is
+       interrupted with it, so nothing keeps working through a pause because
+       the watch found the run already held (review #898). */
+    if (first) {
+      for (const seat of this.#openSeats(this.#get(id))) {
+        await this.#port.interrupt?.(seat).catch((error: unknown) => {
+          this.#port.log('a held flow Seat’s turn could not be interrupted', { run: id, seat: String(seat.id), error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+    }
+  }
+
+  /** The run's Seats that are still open, each once. */
+  #openSeats(run: StoredFlowExecution): SeatRecord[] {
+    return [...new Set(run.rounds.flatMap((round) => round.seats))]
+      .map((seat) => this.#port.seatOf(seat))
+      .filter((record): record is SeatRecord => record !== null && record.closed === null)
+  }
+
+  /**
+   * A firing of this run was set aside for the person (phase 8): whatever
+   * held its dispatch is let go, and a running run waits on them with why —
+   * never left held on a firing that will not come.
+   */
+  setAsideTriggered(id: string, why: string): Promise<void> {
+    return this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      if (run.intake.dispatchHeld || (run.intake.heldFor ?? null) !== null) {
+        await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: false, heldFor: null, rearm: [] } })
+      }
+      if (this.#get(id).state === 'running') await this.#stall(id, why)
+    })
+  }
+
+  /**
+   * A pause or the daily cap reached a trigger's run from outside it (the
+   * budget watch): it holds, with why, and no card is handed over or check
+   * run until `resumeTriggered` lets it go. Not a stop: nothing is recorded
+   * that a release would have to undo.
+   */
+  holdTriggered(id: string, why: string): Promise<void> {
+    return this.#queue.within(id, () => this.#hold(id, why))
+  }
+
+  /**
+   * A Seat's turn ended while its run was held by a pause or the cap: it is
+   * handed its card again once the hold lifts, never while it stands.
+   */
+  async #noteHeld(id: string, operation: FlowOperation): Promise<void> {
+    const run = this.#get(id)
+    if (!run.intake?.heldFor || run.intake.rearm?.includes(operation.key)) return
+    const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
+    if (!card || done(card)) return
+    await this.#put({ ...run, intake: { ...run.intake, rearm: [...(run.intake.rearm ?? []), operation.key] } })
   }
 
   // --------------------------------------------------------------- rounds
@@ -1366,6 +1686,10 @@ export class FlowExecutions {
     // claim one: the Goal a Seat claims through reads that write, not the
     // engine's memory, and a claim that raced it found no such card.
     await this.#team.flush()
+    /* A trigger's run stops here while its dispatch is held, or its gate
+       refuses: the round's cards exist, and nothing is seated, handed over or
+       run until `resumeTriggered` lets it go and the gate allows it. */
+    if (!await this.#mayDispatch(id)) return this.#get(id).rounds.find((one) => one.n === round.n)!
     /* A later review of a series gets its repair packet, read and pinned
        before any of its Seats opens: a delta that cannot be read in full
        stops the run here, with nothing seated. */
@@ -1419,9 +1743,30 @@ export class FlowExecutions {
   async #seatRound(id: string, round: FlowRoundState, bindings: readonly FlowBinding[], isolate: boolean, independentOf: readonly string[]): Promise<boolean> {
     const openedNow: string[] = []
     const fail = async (reason: string): Promise<false> => {
-      await this.#release(this.#get(id).goal, openedNow)
+      const run = this.#get(id)
+      await this.#release(run.goal, openedNow, run.intake !== undefined)
       await this.#stall(id, reason)
       return false
+    }
+    /*
+     * A trigger's gate is asked again before every Seat opens and every card
+     * is handed over, not only when the round opens: a stop, a pause or the
+     * cap landing while the round is still seating reaches the very next
+     * step (review #898). A hold keeps what is open for its release; any
+     * other refusal lets this round's new Seats go, interrupted.
+     */
+    const mayGo = async (): Promise<boolean | 'fail'> => {
+      const current = this.#get(id)
+      if (!current.intake) return true
+      if (current.intake.dispatchHeld) return false
+      const verdict = await this.#gateOf(id)
+      if (verdict.ok) return true
+      if (verdict.transient) {
+        await this.#hold(id, verdict.reason)
+        return false
+      }
+      await fail(verdict.reason)
+      return 'fail'
     }
     const seats: SeatRecord[] = []
     for (const [index, binding] of bindings.entries()) {
@@ -1457,7 +1802,8 @@ export class FlowExecutions {
         if (candidates.length === 0) return fail(INDEPENDENT)
       }
       if (await this.#port.digestOf(run.goal, binding.agent.id) !== binding.digest) return fail(BRIEF_CHANGED)
-      run = await this.#put(this.#operation(run, key, { kind: 'seat', state: 'started', card, seat: null }))
+      if (await mayGo() !== true) return false
+      run = await this.#put(this.#operation(this.#get(id), key, { kind: 'seat', state: 'started', card, seat: null }))
       let record: SeatRecord
       try {
         record = await this.#port.openSeat({
@@ -1500,6 +1846,7 @@ export class FlowExecutions {
         return fail(`The order for card #${round.cards[index]} may not have reached its Seat while the desk was stopped. Check that conversation, then start a new run.`)
       }
       const cardId = round.cards[index] ?? null
+      if (await mayGo() !== true) return false
       const handed = await this.#handOver(id, key, seat, cardId, bindings[index]!)
       if (handed !== null) return fail(`Card #${cardId} could not be handed to its Seat: ${handed}`)
     }
@@ -1658,8 +2005,34 @@ export class FlowExecutions {
         return false
       }
     }
-    run = await this.#put(this.#operation(run, key, { kind: 'check', state: 'started', card, seat: null }))
-    const outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext }, { goal: run.goal, card, name: round.role, round: round.n })
+    // A trigger's gate is asked again before each check spawns: a stop, a pause or the cap reaches the next one.
+    if (run.intake) {
+      if (run.intake.dispatchHeld) return false
+      const verdict = await this.#gateOf(id)
+      if (!verdict.ok) {
+        if (verdict.transient) await this.#hold(id, verdict.reason)
+        else await this.#stall(id, verdict.reason)
+        return false
+      }
+    }
+    run = await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'started', card, seat: null }))
+    const controller = new AbortController()
+    const running = this.#checks.get(run.goal) ?? new Set<AbortController>()
+    this.#checks.set(run.goal, running.add(controller))
+    let outcome: Awaited<ReturnType<FlowExecutionPort['runCheck']>>
+    try {
+      outcome = await this.#port.runCheck(check.run, { cwd: target.cwd, timeoutSec: check.timeout, flowContext, signal: controller.signal }, { goal: run.goal, card, name: round.role, round: round.n })
+    } finally {
+      running.delete(controller)
+      if (running.size === 0) this.#checks.delete(run.goal)
+    }
+    if (controller.signal.aborted) {
+      /* Stopped part-way by a pause or a stop: whatever it did is its own, and
+         is never run again on its own — a person looks, then chooses Run again. */
+      await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
+      await this.#stall(id, CHECK_INTERRUPTED)
+      return false
+    }
     if (outcome.problem) {
       await this.#put(this.#operation(this.#get(id), key, { kind: 'check', state: 'uncertain', card, seat: null }))
       await this.#stall(id, outcome.problem)
@@ -1693,6 +2066,7 @@ export class FlowExecutions {
       const key = `check:${round.n}:${index}`
       const operation = run.operations.find((one) => one.key === key)
       if (operation?.state !== 'uncertain') throw new Error('This check is not waiting to be run again.')
+      if (run.intake?.dispatchHeld) throw new Error(DISPATCH_HELD)
       if (run.state !== 'running' && run.state !== 'stalled') throw new Error(run.reason ?? 'This flow run is not running.')
       /*
        * Re-armed, not resumed: this call is the person's one explicit consent
@@ -1743,6 +2117,8 @@ export class FlowExecutions {
     let run = this.#get(id)
     if (run.state !== 'running') return
     if (run.goal === '') return
+    // A trigger's run whose firing is not yet recorded opens nothing and sends nothing.
+    if (run.intake?.dispatchHeld) return
     const last = run.rounds.at(-1)
     if (!last) {
       await this.#afterStart(id)
@@ -1751,6 +2127,10 @@ export class FlowExecutions {
     if (last.state === 'opening') {
       // Half opened before a crash or a failed write: the same cause opens it the same way.
       const previous = run.rounds.find((one) => one.n === last.n - 1)
+      if (last.cause.startsWith('cause:intake:') && run.intake?.again) {
+        await this.#open(id, run.intake.again, { key: last.cause, evidence: last.evidence }, [])
+        return
+      }
       if (last.cause === 'seed' || !previous) {
         await this.#open(id, policyOf(run).seed, { key: last.cause, evidence: last.evidence }, [])
         return
@@ -1812,7 +2192,8 @@ export class FlowExecutions {
     // Kept Seats are released once. The Goal stays open for its person to wrap.
     const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
       .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
-    await this.#release(run.goal, open)
+    // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
+    await this.#release(run.goal, open, run.intake !== undefined)
     this.#team.nudgeRoom(run.goal)
   }
 
@@ -1850,9 +2231,13 @@ export class FlowExecutions {
     return false
   }
 
-  async #reArm(id: string, operation: FlowOperation): Promise<void> {
+  async #reArm(id: string, operation: FlowOperation, resumed = false): Promise<void> {
     const run = this.#get(id)
     if (run.state !== 'running') return
+    if (run.intake && !await this.#mayDispatch(id)) {
+      await this.#noteHeld(id, operation)
+      return
+    }
     const seat = this.#port.seatOf(operation.seat!)
     if (!seat || seat.closed) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
@@ -1874,6 +2259,15 @@ export class FlowExecutions {
     }
     const budget = policyOf(run).rearm ?? 3
     const spent = (this.#rearms.get(String(seat.id)) ?? []).filter((at) => this.#now() - at < 60 * 60 * 1000)
+    if (resumed) {
+      /* A turn a pause or the cap ended is not a Seat that stopped early: its
+         card goes back once, outside the re-arm budget. */
+      const prefix = `turn:${round.n}:${index}:resume:`
+      const key = `${prefix}${run.operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
+      const refused = await this.#handOver(id, key, seat, card.id, binding)
+      if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed back to its Seat: ${refused}`)
+      return
+    }
     if (spent.length >= budget) {
       await this.#stall(id, `The Seat for card #${card.id} ended its turn ${spent.length} times inside the hour, so it is not being handed its card again.`)
       return

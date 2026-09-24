@@ -19,6 +19,7 @@ import { Host, Logger, StateStore } from '../src/index.js'
 import { migrateDesk } from '../src/goals/migration.js'
 import { GoalStore, restoredLane, type GoalDocument } from '../src/goals/store.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { rig as triggerRig } from './fixtures/intake-consent.js'
 import { goal } from './fixtures/goals.js'
 import { Client, halt, start as startHarness } from './fixtures/harness.js'
 
@@ -1702,4 +1703,55 @@ test('restored findings retain details without live operations', async () => {
     await rm(source, { recursive: true, force: true })
     await rm(target, { recursive: true, force: true })
   }
+})
+
+// ------------------------------------------------------------ intake (phase 8)
+/*
+ * Named addition for trigger consent: arming is this machine's and this
+ * person's alone. A backup carries a project's declarations only as the
+ * repository content they already are — never an arm, a signing key or a
+ * source cursor — and nothing in a backup, however it is crafted, restores
+ * one as live state.
+ */
+test('restore never arms a trigger', async (t) => {
+  const dirA = await mkdtemp(join(tmpdir(), 'hd-backup-trigger-a-'))
+  const dirB = await mkdtemp(join(tmpdir(), 'hd-backup-trigger-b-'))
+  t.after(async () => {
+    await rm(dirA, { recursive: true, force: true })
+    await rm(dirB, { recursive: true, force: true })
+  })
+  const a = await hostAt(dirA)
+  t.after(() => a.host.dispose())
+  const armedHere = triggerRig({ home: dirA })
+  const preview = await armedHere.consent.preview(armedHere.world.project, 'review')
+  await armedHere.consent.arm(armedHere.world.project, 'review', preview.token!)
+  assert.ok(await armedHere.consent.binding(armedHere.world.project, 'review'))
+  const machineFile = await readFile(join(dirA, 'triggers-machine.json'), 'utf8')
+  const key = (await readFile(join(dirA, 'triggers-key.bin'), 'utf8')).trim()
+
+  const backup = await a.host.call('backup/export', {})
+  const exported = JSON.stringify(backup)
+  assert.ok(!exported.includes(key), 'the signing key never travels')
+  assert.ok(!exported.includes('"signature"'), 'no signed arm travels')
+  assert.ok(!exported.includes(machineFile), 'the consent file never travels')
+
+  // A crafted backup that carries the whole consent file, and the key, in every place a restore reads.
+  const crafted = {
+    ...backup,
+    preferences: { ...backup.preferences, triggers: JSON.parse(machineFile), 'triggers-key': key, triggerConsent: { review: true } },
+    triggers: JSON.parse(machineFile),
+  }
+  const b = await hostAt(dirB)
+  t.after(() => b.host.dispose())
+  await b.host.call('backup/import', { backup: crafted })
+  // Nothing on the restored desk arms, polls or opens anything for it.
+  await assert.rejects(readFile(join(dirB, 'triggers-machine.json'), 'utf8'), /ENOENT/)
+  await assert.rejects(readFile(join(dirB, 'triggers-key.bin'), 'utf8'), /ENOENT/)
+  const restored = triggerRig({ home: dirB })
+  assert.equal(await restored.consent.binding(restored.world.project, 'review'), null)
+  assert.deepEqual(await restored.consent.armed(), [], 'no current arm, so nothing is polled')
+  const view = (await restored.consent.list(restored.world.project)).triggers.find((one) => one.id === 'review')
+  assert.equal(view?.state, 'off')
+  const goals = await b.host.call('goal/list', {})
+  assert.equal(goals.filter((one) => one.goal.origin.kind === 'trigger').length, 0, 'no Goal is reserved for it')
 })

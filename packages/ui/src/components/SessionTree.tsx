@@ -619,6 +619,25 @@ const GroupHead = ({
  * questions and a tree that answers the wrong one is a tree you stop
  * expanding.
  */
+/**
+ * A trigger Goal's origin, on its own room row — the host's own short label
+ * ("from PR #12"), never a source token or a raw event id. Fetched only for
+ * a room whose Goal a trigger opened; a plain conversation's row never asks.
+ */
+const RoomOrigin = ({ goal }: { readonly goal: string }) => {
+  const store = useStore()
+  const [label, setLabel] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    store.triggerGoal(goal).then(
+      (status) => { if (live) setLabel(status?.label ?? null) },
+      () => { if (live) setLabel(null) },
+    )
+    return () => { live = false }
+  }, [store, goal])
+  return label ? <Chip tone="neutral">{label}</Chip> : null
+}
+
 const RoomRow = ({
   room,
   sessions,
@@ -719,6 +738,7 @@ const RoomRow = ({
           const words = goalWords({ goal: goal.goal, activity: goal.activity })
           return <Chip tone={words.tone}>{words.label}</Chip>
         })() : null}
+        {goal?.goal.origin.kind === 'trigger' && <RoomOrigin goal={goal.goal.id} />}
         {/* A state and a size, and they must not read as one number. Drawn
             plainly the row said "1 0" — two counts in the same grey, the same
             size, a gap apart, and the second with nothing on it to say what it

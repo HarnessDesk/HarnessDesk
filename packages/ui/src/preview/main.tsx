@@ -12,6 +12,8 @@ import { ObservedDialog } from '../components/EvidenceChips'
 import { RunCheck } from '../components/RunCheck'
 import { ProjectChecks } from '../components/ProjectChecks'
 import { ProjectFlows } from '../components/ProjectFlows'
+import { ProjectTriggers } from '../components/ProjectTriggers'
+import { TriggerArm } from '../components/TriggerArm'
 import { FlowUpdate } from '../components/FlowUpdate'
 import { RaceStart } from '../components/RaceStart'
 import { FlowRunStatus } from '../components/FlowRunStatus'
@@ -46,7 +48,8 @@ import {
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
-import { PREVIEW_GOAL } from './goal-fixture'
+import { PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
+import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import '../styles/app.css'
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
@@ -62,6 +65,43 @@ Object.assign(store as unknown as Record<string, unknown>, {
     return health
   },
   retryCapture: async () => captureHealth(),
+})
+
+// The project's own trigger list is mutable here: arming and disarming the
+// switch in "Project — its triggers" below writes back into this state, the
+// same way the capture switch above does, so the preview page is something
+// a person can actually operate rather than a frozen screenshot.
+let goalIntakeScene: GoalIntakeScene = 'pull-request'
+/** Read by `triggerGoal` below; set from the "goal intake scene" Dial. */
+const setPreviewGoalIntakeScene = (scene: GoalIntakeScene): void => { goalIntakeScene = scene }
+
+let previewTriggers = triggerProjectView()
+Object.assign(store as unknown as Record<string, unknown>, {
+  projectTriggers: async () => previewTriggers,
+  previewTrigger: async (_root: string, id: string) => sceneArmPreview((TRIGGER_ARM_SCENES as readonly string[]).includes(id) ? (id as TriggerArmScene) : 'ready'),
+  armTrigger: async (_root: string, id: string) => {
+    const armed = previewTriggers.triggers.find((one) => one.id === id)
+    if (!armed) throw new Error(`[preview] no trigger named ${id}`)
+    const next = { ...armed, armed: true, state: 'armed' as const }
+    previewTriggers = { ...previewTriggers, triggers: previewTriggers.triggers.map((one) => (one.id === id ? next : one)) }
+    return next
+  },
+  disarmTrigger: async (_root: string, id: string) => {
+    const off = previewTriggers.triggers.find((one) => one.id === id)
+    if (!off) throw new Error(`[preview] no trigger named ${id}`)
+    const next = { ...off, armed: false, state: 'off' as const }
+    previewTriggers = { ...previewTriggers, triggers: previewTriggers.triggers.map((one) => (one.id === id ? next : one)) }
+    return next
+  },
+  triggerGoal: async (goal: string) => (goal === PREVIEW_TRIGGER_GOAL.goal.id ? sceneGoalStatus(goalIntakeScene) : null),
+  triggerHistory: async () => triggerHistoryPage({
+    items: [
+      triggerFiring(),
+      triggerFiring({ id: 'firing-2', subject: '11', outcome: 'skipped', reason: 'A stranger’s head; forks are never run.', goal: null, run: null, round: null, head: 'b'.repeat(40) }),
+      triggerFiring({ id: 'firing-3', subject: '11', outcome: 'duplicate', reason: null }),
+    ],
+    next: null,
+  }),
 })
 
 /**
@@ -215,7 +255,10 @@ const Preview = () => {
     | 'flow update'
     | 'flow customize'
     | 'race'
+    | 'trigger arm'
   >('off')
+  const [armScene, setArmScene] = useState<TriggerArmScene>('ready')
+  const [goalScene, setGoalScene] = useState<GoalIntakeScene>('pull-request')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
@@ -259,8 +302,15 @@ const Preview = () => {
         <Dial
           label="dialog"
           value={dialog}
-          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race'] as const}
+          options={['off', 'remove', 'bring back', 'sign in', 'new session', 'seat sheet', 'save as agent', 'what was observed', 'run a check', 'flow update', 'flow customize', 'race', 'trigger arm'] as const}
           onChange={setDialog}
+        />
+        <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
+        <Dial
+          label="goal intake scene"
+          value={goalScene}
+          options={GOAL_INTAKE_SCENES}
+          onChange={(next) => { setGoalScene(next); setPreviewGoalIntakeScene(next) }}
         />
       </div>
       {/* Sign-in is on this page's own store rather than the worktree one: it
@@ -294,6 +344,9 @@ const Preview = () => {
       )}
       {dialog === 'race' && (
         <RaceStart root={PREVIEW_ROOT} task="Fix the retry bug" onClose={() => setDialog('off')} />
+      )}
+      {dialog === 'trigger arm' && (
+        <TriggerArm root={PREVIEW_ROOT} id={armScene} onClose={() => setDialog('off')} onArmed={() => setDialog('off')} />
       )}
       {dialog === 'seat sheet' && (
         <SeatSheet
@@ -402,6 +455,11 @@ const Preview = () => {
           <WorkspacesSection focus={PREVIEW_ROOT} />
         </div>
       </Frame>
+      <Frame title="Settings › Workspaces — Triggers on this Mac">
+        <div className="max-h-[560px] overflow-y-auto p-4">
+          <WorkspacesSection />
+        </div>
+      </Frame>
       {/* The Dashboard, at the width the window really opens it at. Its own
           rail scopes the page, so clicking an account in here shows the
           burn-down band the way the app does.
@@ -507,6 +565,11 @@ const Preview = () => {
             <ProjectChecks root={PREVIEW_ROOT} />
           </div>
         </Frame>
+        <Frame title="Project — its triggers">
+          <div className="p-4">
+            <ProjectTriggers root={PREVIEW_ROOT} />
+          </div>
+        </Frame>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
@@ -531,6 +594,11 @@ const Preview = () => {
         <Frame title="Goal — state, roster and channel">
           <div className="h-[540px]">
             <TeamRoomPane room={PREVIEW_GOAL.goal.id} />
+          </div>
+        </Frame>
+        <Frame title="Goal — opened by a trigger">
+          <div className="h-[540px]">
+            <TeamRoomPane key={goalScene} room={PREVIEW_TRIGGER_GOAL.goal.id} />
           </div>
         </Frame>
         <div className="flex min-w-0 flex-col gap-4">

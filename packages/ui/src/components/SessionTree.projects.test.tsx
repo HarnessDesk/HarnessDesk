@@ -145,3 +145,49 @@ it('only a stopped project adds capture text, including its folded canonical ali
   render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
   expect(container.textContent).not.toContain('Capture stopped')
 })
+
+it('a trigger Goal’s room shows its origin; a plain project’s row and its own sessions gain no Intake decoration', async () => {
+  const room = {
+    id: 'room-1', name: 'Fix the retry bug', updatedAt: 2, members: [], root: REPO,
+    intents: [], channel: [], messaging: true,
+  } as unknown as import('@harnessdesk/protocol').TeamState
+  const goal = {
+    goal: { id: 'room-1', root: REPO, cwd: REPO, sentence: 'Fix the retry bug', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' }, createdAt: 1, updatedAt: 2, receipt: null },
+    activity: 'working', waitingOn: [], members: [], board: room, receipt: null, problem: null,
+  } as unknown as import('@harnessdesk/protocol').GoalView
+  const triggerGoal = vi.fn(async () => ({
+    goal: 'room-1', trigger: 'review-pr', source: 'pull-request' as const, label: 'from PR #12', url: null, budget: null, waits: [],
+  }))
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: runtime.id,
+    runtimes: [runtime],
+    history: [session('a', REPO, { root: REPO, worktree: false })],
+    workspace: workspace(REPO, { root: REPO, worktree: false }),
+    workspaces: [workspace(REPO, { root: REPO, worktree: false }), workspace('/other', { root: '/other', worktree: false })],
+    teams: new Map([['room-1', room]]),
+    goals: new Map([['room-1', goal]]),
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    setListPrefs: vi.fn(),
+    setProjectsCollapsed: vi.fn(),
+    toggleProjectCollapsed: vi.fn(),
+    setOthersOpen: vi.fn(),
+    triggerGoal,
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <SessionTree now={2} />
+      </StoreProvider>,
+    )
+  })
+  expect(triggerGoal).toHaveBeenCalledWith('room-1')
+  expect(container.textContent).toContain('from PR #12')
+  // The plain repo row (not the room) carries no origin text of its own.
+  const projectHeads = [...container.querySelectorAll<HTMLElement>('[draggable="true"]')]
+  for (const head of projectHeads) expect(head.textContent).not.toContain('from PR #12')
+})

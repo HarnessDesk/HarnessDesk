@@ -75,6 +75,23 @@ test('a preview owns immutable copies of every reviewed collection', () => {
   assert.equal(preview.stamp, wrapStamp(input(), choices()))
 })
 
+test('a receipt freezes its trigger origin and stop reason exactly, and an ordinary Goal’s receipt names no origin at all', () => {
+  const stop = { reason: 'out of budget' as const, detail: 'The daily cap was reached before this round closed.', at: 10 }
+  const withIntake = input({ intake: { trigger: 'review-pr', source: 'pull-request', label: 'from PR #12', stop } })
+  const preview = previewWrap(withIntake, choices())
+  assert.deepEqual(preview.receipt.intake, { trigger: 'review-pr', source: 'pull-request', label: 'from PR #12', stop })
+
+  // A trigger Goal that never hit a stop keeps that fact, not a guess: the
+  // field is present, and its stop reads null rather than being dropped.
+  const neverStopped = input({ intake: { trigger: 'review-pr', source: 'pull-request', label: 'from PR #12', stop: null } })
+  assert.deepEqual(previewWrap(neverStopped, choices()).receipt.intake, {
+    trigger: 'review-pr', source: 'pull-request', label: 'from PR #12', stop: null,
+  })
+
+  const ordinary = previewWrap(input(), choices())
+  assert.equal('intake' in ordinary.receipt, false)
+})
+
 test('receipt freezes citation references: a later revision of the same input never changes the wrapped copy', () => {
   const citation = {
     goal: 'source', receipt: 'receipt-source', project: '/work/repo',

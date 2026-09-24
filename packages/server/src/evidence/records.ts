@@ -324,6 +324,19 @@ const findingDetailFits = (detail: unknown, record: Record<string, unknown>): bo
   return posted === undefined || posted === null
 }
 
+/**
+ * A trigger firing's observation metadata, checked against the fact it rides
+ * on: exactly its three keys, the firing's 64-hex key, and a part that names
+ * the fact's own kind — a `pr` part on a pull-request fact, a `ci` part on a
+ * CI fact, and nothing on any other kind.
+ */
+const intakeFits = (intake: unknown, record: Record<string, unknown>): boolean => {
+  if (!isRecord(intake) || !hasExactly(intake, ['firing', 'part', 'goal'])) return false
+  if (typeof intake['firing'] !== 'string' || !/^[0-9a-f]{64}$/.test(intake['firing']) || !isId(intake['goal'])) return false
+  const kind = (record['fact'] as Record<string, unknown>)['kind']
+  return (intake['part'] === 'pr' && kind === 'pr') || (intake['part'] === 'ci' && kind === 'ci')
+}
+
 export const evidenceRecordOf = (value: unknown): EvidenceRecord | null => {
   if (!isRecord(value)) return null
   const card = value['card']
@@ -343,7 +356,9 @@ export const evidenceRecordOf = (value: unknown): EvidenceRecord | null => {
     (posted === undefined || posted === null || (isRecord(posted) && isCount(posted['pr']) && isCount(posted['comment']))) &&
     optionalNull(value['restored'], isRestored) &&
     // Phase 7: a finding event's metadata, or none. Metadata a later build wrote in another version is not read.
-    (finding === undefined || finding === null || findingDetailFits(finding, value))
+    (finding === undefined || finding === null || findingDetailFits(finding, value)) &&
+    // Phase 8: which trigger firing observed it, or none.
+    (value['intake'] === undefined || value['intake'] === null || intakeFits(value['intake'], value))
   return ok ? (value as unknown as EvidenceRecord) : null
 }
 

@@ -49,7 +49,7 @@ import {
   userAgentFolder,
 } from '../agent-files.js'
 import { isReservedId, reservedIdText } from '../agent-seating-file.js'
-import { unheldPolicy } from '../ceilings/policy.js'
+import { unattendedPolicy, unheldPolicy } from '../ceilings/policy.js'
 import {
   agentOrder,
   blockedPlan,
@@ -440,6 +440,12 @@ export interface AgentSeatContext {
   environment?: Readonly<Record<string, string>>
   openingId?: SeatId
   grant?: SeatGrant
+  /**
+   * Set by the Goal plane from a Goal's persisted trigger origin, never by a
+   * wire caller: the Seat is unattended, so this machine's unattended
+   * unheld-ceiling policy — refuse unless a person chose otherwise — applies.
+   */
+  unattended?: boolean
 }
 
 /**
@@ -519,7 +525,8 @@ export async function seatAgent(
     definition.ceiling,
     context.grant?.kind === 'ceiling' ? context.grant.level : grantOf(requested),
   )
-  const need: CeilingNeed = { level, unheld: unheldPolicy(ctx.state.state.preferences) }
+  const preferences = ctx.state.state.preferences
+  const need: CeilingNeed = { level, unheld: context.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences) }
   // Its repository's identity on disk, not its path: computed once, the same
   // way `evidence/seen.ts` binds a command approval, so a repository deleted
   // and cloned again at the same path is a new incarnation and inherits
@@ -1182,13 +1189,16 @@ export const previewAgent = async (
   agent: string,
   seats: readonly FlowSeat[],
   grant: CeilingLevel,
+  options: { readonly unattended?: boolean } = {},
 ): Promise<SeatPlan> => {
   const project = await projectOf(ctx, root)
   const entry = await ctx.agents.read(agent, project)
   if (!entry) return blockedPlan(agent, `No Agent called “${agent}”.`)
   if (!entry.definition || entry.digest === null) return blockedPlan(agent, unusable(entry))
   const machine = await ctx.seating.read()
-  const unheld = unheldPolicy(ctx.state.state.preferences)
+  // A trigger's arm previews its Seats exactly as its Goal will seat them: under the unattended policy.
+  const preferences = ctx.state.state.preferences
+  const unheld = options.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences)
   const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
   const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld }
   if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')

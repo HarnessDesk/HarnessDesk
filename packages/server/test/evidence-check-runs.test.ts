@@ -537,7 +537,9 @@ test('one check on a card at a time, whatever its name — even renamed while it
   await assert.rejects(r.plane.checks.run('room-1', 1, 'slower', answer(renamed)), /^Error: slow is running on #1, /)
   // Another card is another checkout's turn.
   await r.plane.checks.run('room-1', 2, 'quick', answer(await unseen(r.plane.checks.run('room-1', 2, 'quick'))))
-  await until(async () => ((await exists(join(r.markers, 'quick'))) ? true : null), 'the other card\'s check')
+  // Its fact recorded, not only its file touched: under load the command's exit and its fact land after the marker,
+  // and a quit in between stops it before it is observed.
+  await until(async () => ((await exists(join(r.markers, 'quick'))) && (await r.facts()).some((fact) => fact.card?.id === 2) ? true : null), 'the other card\'s check')
 
   await r.plane.close()
   assert.deepEqual(r.plane.running.of('room-1'), [])

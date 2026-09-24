@@ -75,6 +75,7 @@ import type { UsageMeter } from '../usage/meter.js'
 import type { UsageService } from '../usage/service.js'
 import type { Worktrees } from '../worktree.js'
 import type { InsightPlane } from '../insight/plane.js'
+import type { IntakePlane } from '../intake/plane.js'
 import type { AttachmentSubject, PreparedAttachments } from '../attachments/plane.js'
 import type { AttachmentResolution, ResolvedAttachment } from '../attachments/catalog.js'
 
@@ -208,6 +209,12 @@ export interface HostContext {
   libraryUsage(): LibraryUsageReader
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
   readonly insight: Pick<InsightPlane, 'goal' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
+  /**
+   * Intake: a project's committed triggers as this machine stands on them,
+   * and the person's own controls. The only way a handler reaches triggers;
+   * every mutation here is a person's, and none is ever an Agent's tool.
+   */
+  readonly intake: Pick<IntakePlane, 'list' | 'preview' | 'arm' | 'disarm' | 'rebaseline' | 'preferences' | 'setPreferences' | 'history' | 'goal'>
 
   /** The extension kernel, or a refusal that names the build. */
   extensions(): ExtensionHost
