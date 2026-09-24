@@ -103,6 +103,34 @@ describe('the canonical button', () => {
     }
   })
 
+  /* A refused row's own dimming is a canonical Button concern (see
+     NewSessionChoice.tsx's comment on its `.group` rule): `ghost` and
+     `floating` already fade on `data-refused` for a runtime an attachment
+     can't reach, so `choice` — the picker variant a refused Agent row also
+     uses — must fade the same way rather than reading identically to a
+     seatable row (#871). */
+  it('fades a refused ghost or floating control as a whole', () => {
+    for (const variant of ['ghost', 'floating'] as const) {
+      expect(buttonVariants({ variant }), `${variant} does not fade data-refused`).toContain('data-[refused]:opacity-45')
+    }
+  })
+
+  /*
+   * `choice` cannot fade as a whole the way `ghost`/`floating` do: an Agent
+   * choice carries its refusal reason in the same control, and a caller
+   * measured the review-flagged version at ~1.9:1 in light mode — a reason
+   * a person is refused specifically so they can read it has to clear body
+   * text contrast, not merely exist. Only the lead glyph and the name fade;
+   * the reason (never marked `data-role=row`, the name's own role) keeps
+   * its ink.
+   */
+  it('fades a refused choice by its lead and name only, leaving its reason at full ink', () => {
+    const choice = buttonVariants({ variant: 'choice' })
+    expect(choice).not.toContain('data-[refused]:opacity-45')
+    expect(choice).toContain('data-[refused]:[&_[data-slot=icon-tile]]:opacity-45')
+    expect(choice).toContain('data-[refused]:[&_[data-role=row]]:opacity-45')
+  })
+
   it('carries navigation ink into named text roles and owns arrange markers', () => {
     const navigation = buttonVariants({ variant: 'navigation' })
     expect(navigation).toContain('data-[active]:[&_[data-slot=text]]:text-')

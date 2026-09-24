@@ -27,7 +27,9 @@ const input = (over: Partial<WrapInput> = {}): WrapInput => ({
   flow: false,
   pending: false,
   seats: ['seat-1'],
+  members: [{ seat: 'seat-1', agent: 'Reviewer', seatLabel: 'Fake · one' }],
   evidence: ['fact-1'],
+  evidenceSeats: [{ id: 'fact-1', seat: 'seat-1' }],
   answers: [{
     seat: 'seat-1', session: { runtime: 'fake', sessionId: 'one' }, turn: 'turn-1',
     text: 'Finished.', partial: false, stopReason: null,
