@@ -5,6 +5,7 @@ import type { TriggerDefinition, TriggerFact } from '@harnessdesk/protocol'
 import { Serial } from '../goals/assignments.js'
 import { consentMatches, type ArmBinding, type ArmedTrigger } from './consent.js'
 import { applyAdmission } from './apply.js'
+import { settleDaily } from './budget.js'
 import { acceptsFact } from './definition.js'
 import { dedupeKey, groupKey } from './keys.js'
 import { fullness, GROUP_LIMIT, type IntakeFiring, type IntakeGroup, type IntakeOperation, type IntakePayload, type IntakeSnapshot, type IntakeStore } from './store.js'
@@ -147,7 +148,12 @@ export interface AdmissionEffects {
   /** Opens (held) the round the operation intends; a reason for a person when the run could not take it. */
   ensureRound(operation: IntakeOperation, evidence: readonly string[]): Promise<string | null>
   /** Releases an applied operation's dispatch when every gate allows it; the reason it waits otherwise. */
-  release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string }>
+  release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string; readonly final?: boolean }>
+  /**
+   * A firing set aside for the person: its run, when one exists, is let go
+   * of any hold and waits for them with why — never left held on nothing.
+   */
+  setAside?(operation: IntakeOperation, reason: string): Promise<void>
   /** Lets go of runs a pause or the cap held, once their gate allows it again (`IntakeTargets.releaseHeld`). */
   releaseHeld?(): Promise<void>
 }
@@ -442,6 +448,9 @@ export class Admission {
               // A gate's refusal passed: what stays is what the round's own opening said.
               const dispatched = await this.#update(current.key, (one) => ({ ...one, dispatched: true, payload: null, attention: one.roundAttention !== undefined ? one.roundAttention : one.attention }))
               this.#options.onStep?.('dispatched', dispatched)
+            } else if (released.final) {
+              // Nothing will let it go on its own — no seat can ever qualify as things stand: the person's, now.
+              await this.#setAside(current, released.reason, true)
             } else if (current.attention !== released.reason) {
               await this.#update(current.key, (one) => ({ ...one, attention: released.reason }))
             }
@@ -486,14 +495,37 @@ export class Admission {
       return
     }
     const aside = faultSetAside(reason)
-    const firing = snapshot.firings[key]
-    await this.#store.commit({
-      ...snapshot,
-      operations: snapshot.operations.filter((one) => one.key !== key),
-      firings: firing ? { ...snapshot.firings, [key]: { ...firing, attention: aside } } : snapshot.firings,
-    })
+    await this.#setAside(operation, aside, false)
     this.#faults.delete(operation.project)
     this.#options.onFault?.({ project: operation.project, trigger: operation.trigger, key, goal: operation.goal, reason: aside, final: true })
+  }
+
+  /**
+   * Sets a firing aside for the person, in one save: its operation gone, its
+   * tombstone marked set aside with why, and — for a firing that opened its
+   * Goal — the Goal's daily reservation released at zero when nothing of it
+   * can ever run (no Goal was made, or `release` says no seat ever will),
+   * with its concurrency slot released the same way. Then its run, if any,
+   * is let go of its hold to wait on the person.
+   */
+  async #setAside(operation: IntakeOperation, reason: string, nothingRuns: boolean): Promise<void> {
+    let snapshot = this.#store.read()
+    const firing = snapshot.firings[operation.key]
+    const noGoal = this.#port.lifecycle(operation.goal) === 'missing'
+    const release = operation.mode === 'start' && (noGoal || nothingRuns)
+    let next: IntakeSnapshot = {
+      ...snapshot,
+      operations: snapshot.operations.filter((one) => one.key !== operation.key),
+      firings: firing ? { ...snapshot.firings, [operation.key]: { ...firing, attention: reason, setAside: true } } : snapshot.firings,
+    }
+    if (release) {
+      next = settleDaily(next, operation.goal, 0, this.#port.now()) ?? next
+      const group = next.groups[operation.group]
+      if (group && group.goal === operation.goal && group.open) next = { ...next, groups: { ...next.groups, [operation.group]: { ...group, open: false } } }
+    }
+    await this.#store.commit(next)
+    snapshot = next
+    if (!noGoal) await this.#effects.setAside?.(operation, reason).catch(() => {})
   }
 
   async #update(key: string, change: (operation: IntakeOperation) => IntakeOperation): Promise<IntakeOperation> {

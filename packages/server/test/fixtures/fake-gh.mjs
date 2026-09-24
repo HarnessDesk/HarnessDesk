@@ -140,6 +140,25 @@ if (args[0] === 'repo' && args[1] === 'view') {
     process.stdout.write(JSON.stringify(state.view))
     process.exitCode = 0
   }
+} else if (args[0] === 'issue' && (args[1] === 'view' || args[1] === 'comment')) {
+  // The Git plugin's issue tools: read an issue, and post a comment to it as the signed-in account.
+  const issue = state.issues.find((one) => one.number === Number(args[2]))
+  if (!issue) {
+    process.stderr.write(`GraphQL: Could not resolve to an issue with the number of ${args[2]}.\n`)
+    process.exitCode = 1
+  } else if (args[1] === 'view') {
+    process.stdout.write(JSON.stringify({ number: issue.number, title: issue.title ?? `Issue ${issue.number}`, state: 'OPEN', url: `https://github.com/${state.repo}/issues/${issue.number}`, author: { login: state.user?.login ?? 'someone' }, body: issue.body ?? '', labels: [], comments: [] }))
+    process.exitCode = 0
+  } else {
+    const at = args.indexOf('--body')
+    const now = Date.now()
+    const id = 8000 + state.issues.reduce((count, one) => count + one.comments.length, 0)
+    issue.comments.push({ id, body: at === -1 ? '' : args[at + 1], created: now, updated: now })
+    issue.updated = now
+    writeFileSync(statePath, JSON.stringify(state, null, 2))
+    process.stdout.write(`https://github.com/${state.repo}/issues/${issue.number}#issuecomment-${id}\n`)
+    process.exitCode = 0
+  }
 } else if (args[0] === 'api') {
   const path = args[args.length - 1]
   try {

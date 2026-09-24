@@ -33,6 +33,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { closeDesk, launchDesk, sleep, STORE, waitForSnapshot } from '../lib/desk.mjs'
+import { connect } from 'node:net'
+import { toolSocketPath } from '../../packages/server/dist/src/bootstrap.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const args = process.argv.slice(2)
@@ -244,6 +246,8 @@ try {
     events: [{ id: 1, event: 'labeled', created: Date.now(), label: 'needs-triage' }],
     comments: [],
   })
+  // Issue #44, for the desk's own tool to comment on below.
+  state.issues.push({ number: 44, state: 'open', created: Date.now(), updated: Date.now(), title: 'Axle', body: '', events: [], comments: [] })
   // Three comments on issue #43: the armed account's own, a stranger's, and one the desk itself posted.
   const marker = `<!-- harnessdesk:finding-op pub-${'c'.repeat(48)} -->`
   state.issues.push({
@@ -298,20 +302,41 @@ try {
     say('no Goal opened within the wait window — recorded, not faked; see app.log')
   }
 
-  // The comment rule, read back from the host: one firing for the armed account's comment, and two skips with why.
+  // A real desk comment: the app's own Git plugin posts on issue #44 through its `issue_comment` tool, reached the
+  // way an agent's tool bridge reaches it (the desk's tool socket), and so through the desk's own forge plane.
+  const gateway = toolSocketPath(home)
+  const invoked = await new Promise((resolveCall, rejectCall) => {
+    const socket = connect(gateway)
+    let buffer = ''
+    socket.on('data', (chunk) => {
+      buffer += chunk.toString()
+      const line = buffer.split('\n').find((one) => one.trim() !== '')
+      if (line && buffer.includes('\n')) { socket.end(); resolveCall(JSON.parse(line)) }
+    })
+    socket.on('error', rejectCall)
+    socket.write(`${JSON.stringify({ id: 1, method: 'tools/invoke', params: { namespace: 'git', name: 'issue_comment', args: { number: 44, body: 'I looked: the axle is bent.' } } })}\n`)
+  })
+  if (!invoked.result?.ok) throw new Error(`the desk's issue_comment did not post: ${JSON.stringify(invoked)}`)
+  const onForge = JSON.parse(readFileSync(ghState, 'utf8')).issues.find((one) => one.number === 44).comments.at(-1)
+  say(`the desk's issue_comment posted: ${JSON.stringify(onForge.body)}`)
+  if (!onForge.body.startsWith('<!-- harnessdesk:post -->\n')) throw new Error('the desk’s post does not open with its marker')
+
+  // The comment rule, read back from the host: one firing for the armed account's own comment, and three skips with why.
   const talk = await waitForSnapshot(
-    () => cdp.eval(`${STORE}.triggerHistory(${q(project)}, 'talk').then((page) => page.items.length >= 3 ? page.items.map((one) => [one.outcome, one.reason]) : null)`),
+    () => cdp.eval(`${STORE}.triggerHistory(${q(project)}, 'talk').then((page) => page.items.length >= 4 ? page.items.map((one) => [one.subject, one.outcome, one.reason]) : null)`),
     Boolean,
     { attempts: 900 },
   ).catch(() => null)
-  if (!talk) throw new Error('the comment trigger answered fewer than three comments — see app.log')
-  const outcomes = talk.map(([outcome]) => outcome).sort()
+  if (!talk) throw new Error('the comment trigger answered fewer than four comments — see app.log')
   say(`comment trigger history: ${JSON.stringify(talk)}`)
-  if (JSON.stringify(outcomes) !== JSON.stringify(['fired', 'skipped', 'skipped'])) throw new Error(`the comment rule answered ${JSON.stringify(outcomes)}`)
+  const outcomes = talk.map(([, outcome]) => outcome).sort()
+  if (JSON.stringify(outcomes) !== JSON.stringify(['fired', 'skipped', 'skipped', 'skipped'])) throw new Error(`the comment rule answered ${JSON.stringify(outcomes)}`)
   for (const why of ['someone else wrote this one', 'posted by this desk']) {
-    if (!talk.some(([, reason]) => reason?.includes(why))) throw new Error(`no skip said: ${why}`)
+    if (!talk.some(([, , reason]) => reason?.includes(why))) throw new Error(`no skip said: ${why}`)
   }
-  say('only the armed account’s own comment fired; the stranger’s and the desk’s own post were skipped, with why')
+  const desk44 = talk.find(([subject]) => subject === '44')
+  if (desk44?.[1] !== 'skipped' || !desk44[2]?.includes('posted by this desk')) throw new Error(`the desk's own comment on #44 was answered ${JSON.stringify(desk44)}`)
+  say('only the armed account’s own comment fired; the stranger’s, a marked desk post and the desk’s real issue_comment were skipped, with why')
 
   // Paused is a hold, not a stop: the triage Goal's run is held with why, nothing recorded as a stop.
   const statusOf = async () => {

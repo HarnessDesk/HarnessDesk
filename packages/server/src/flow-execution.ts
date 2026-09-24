@@ -1515,7 +1515,42 @@ export class FlowExecutions {
     const run = this.#get(id)
     if (!run.intake || run.state !== 'running') return
     if (run.intake.dispatchHeld && run.intake.heldFor === why) return
+    const first = (run.intake.heldFor ?? null) === null
     await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: true, heldFor: why } })
+    /* Whoever set the hold first — a turn ending, a Seat about to open, the
+       budget watch — every other Seat of the run still inside a turn is
+       interrupted with it, so nothing keeps working through a pause because
+       the watch found the run already held (review #898). */
+    if (first) {
+      for (const seat of this.#openSeats(this.#get(id))) {
+        await this.#port.interrupt?.(seat).catch((error: unknown) => {
+          this.#port.log('a held flow Seat’s turn could not be interrupted', { run: id, seat: String(seat.id), error: error instanceof Error ? error.message : String(error) })
+        })
+      }
+    }
+  }
+
+  /** The run's Seats that are still open, each once. */
+  #openSeats(run: StoredFlowExecution): SeatRecord[] {
+    return [...new Set(run.rounds.flatMap((round) => round.seats))]
+      .map((seat) => this.#port.seatOf(seat))
+      .filter((record): record is SeatRecord => record !== null && record.closed === null)
+  }
+
+  /**
+   * A firing of this run was set aside for the person (phase 8): whatever
+   * held its dispatch is let go, and a running run waits on them with why —
+   * never left held on a firing that will not come.
+   */
+  setAsideTriggered(id: string, why: string): Promise<void> {
+    return this.#queue.within(id, async () => {
+      const run = this.#get(id)
+      if (!run.intake) throw new TriggerRefusal('This run was not started by a trigger.')
+      if (run.intake.dispatchHeld || (run.intake.heldFor ?? null) !== null) {
+        await this.#put({ ...run, intake: { ...run.intake, dispatchHeld: false, heldFor: null, rearm: [] } })
+      }
+      if (this.#get(id).state === 'running') await this.#stall(id, why)
+    })
   }
 
   /**

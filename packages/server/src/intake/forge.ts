@@ -57,9 +57,12 @@ export type ForgeFailure = 'offline' | 'rate-limited' | 'signed-out' | 'unreadab
 /** A read that failed, by kind only: no command, environment, token or raw answer is carried. */
 export class ForgeReadError extends Error {
   readonly kind: ForgeFailure
-  constructor(kind: ForgeFailure, message: string) {
+  /** The forge answered that the thing asked about is not there (HTTP 404): an answer, not a failed read. */
+  readonly notFound: boolean
+  constructor(kind: ForgeFailure, message: string, notFound = false) {
     super(message)
     this.kind = kind
+    this.notFound = notFound
     this.name = 'ForgeReadError'
   }
 }
@@ -177,6 +180,7 @@ const failureOf = (stderr: string): ForgeReadError => {
   if (/HTTP 5\d\d|could not resolve|error connecting|connection|timed? ?out|network|ENOTFOUND|ECONN|EAI_AGAIN|ENOENT|spawn/i.test(stderr)) {
     return new ForgeReadError('offline', 'The forge could not be reached.')
   }
+  if (/HTTP 404|Not Found/i.test(stderr)) return new ForgeReadError('unreadable', 'The forge has no such thing.', true)
   return unreadable()
 }
 
@@ -384,8 +388,11 @@ export class ForgeSource {
   /**
    * Whether the forge says an account can write to a repository: its
    * permission there read by login, and the answer's own account id checked
-   * against the author's. Null when it cannot be read or does not match —
-   * which never fires anything.
+   * against the author's. False when the forge says it has no such
+   * collaborator; null when its answer is unreadable or names another
+   * account — which never fires anything. A read that could not be made now
+   * (offline, rate limited, signed out) throws: no answer, so the whole read
+   * is kept and the fact offered again, never consumed as a skip.
    */
   async #writes(project: string, repository: string, login: string, id: number, deadline: number, signal: AbortSignal): Promise<boolean | null> {
     if (!LOGIN.test(login)) return null
@@ -393,8 +400,8 @@ export class ForgeSource {
     try {
       answer = await this.#get(project, `repos/${repository}/collaborators/${login}/permission`, deadline, signal)
     } catch (error) {
-      if (signal.aborted) throw error
-      return null
+      if (signal.aborted || !(error instanceof ForgeReadError) || error.kind !== 'unreadable') throw error
+      return error.notFound ? false : null
     }
     if (!isMap(answer) || !isMap(answer['user']) || answer['user']['id'] !== id || typeof answer['permission'] !== 'string') return null
     return WRITES.has(answer['permission']) || (typeof answer['role_name'] === 'string' && WRITES.has(answer['role_name']))

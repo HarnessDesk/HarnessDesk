@@ -60,7 +60,7 @@ export interface IntakeTargets {
    * Every gate dispatch passes, checked at the moment of release: machine
    * pause, the arm still standing, budgets, named waits. Null when it may go.
    */
-  gate(operation: IntakeOperation): Promise<string | null>
+  gate(operation: IntakeOperation): Promise<string | { readonly reason: string; readonly final: true } | null>
   /**
    * A later firing brought a new head to an open Goal: work still running
    * for the old one is stopped before anything else of this firing happens —
@@ -76,6 +76,8 @@ export interface IntakeTargets {
    * Absent, nothing is held that way.
    */
   releaseHeld?(): Promise<void>
+  /** A firing set aside for the person: its run let go of any hold, waiting on them with why. */
+  setAside?(operation: IntakeOperation, reason: string): Promise<void>
 }
 
 /** Whether a firing brought an open Goal a head its running work was not started for. */
@@ -140,11 +142,16 @@ export class IntakeEffects implements AdmissionEffects {
     await this.#targets.releaseHeld?.()
   }
 
-  async release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string }> {
+  async setAside(operation: IntakeOperation, reason: string): Promise<void> {
+    await this.#targets.setAside?.(operation, reason)
+  }
+
+  async release(operation: IntakeOperation): Promise<{ readonly released: true } | { readonly released: false; readonly reason: string; readonly final?: boolean }> {
     // Nothing of this firing's own waits to be sent: its input is recorded, and the person is told.
     if (operation.mode === 'record') return { released: true }
     const refused = await this.#targets.gate(operation)
-    if (refused !== null) return { released: false, reason: refused }
+    if (typeof refused === 'string') return { released: false, reason: refused }
+    if (refused !== null) return { released: false, reason: refused.reason, final: true }
     await this.#targets.flows.resumeTriggered(operation.run)
     return { released: true }
   }

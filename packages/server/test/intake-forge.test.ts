@@ -256,8 +256,15 @@ test('a comment carries its author by stable id, a desk post is known only by it
   forge.permissions.set('someone-else', { id: 99, permission: 'read' })
   const reader = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
   assert.equal(reader.facts.find((fact) => fact.url?.endsWith('-2'))?.authorWrites, false, 'can read, cannot write')
-  forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'HTTP 502' } : null
-  const failing = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
-  assert.ok(failing.complete, 'a permission that cannot be read does not stop the source')
-  assert.ok(failing.facts.every((fact) => fact.authorWrites === null), 'it is unknown, never yes')
+  // A read that cannot be made now is no answer: the whole read throws and keeps its cursor, never a skip (review #898).
+  forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'gh: HTTP 502 Bad Gateway' } : null
+  await assert.rejects(source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true }), /could not be reached/)
+  // An answer nobody can read is unknown, never yes; the forge saying there is no such collaborator is a no.
+  forge.fail = (path) => path.includes('/collaborators/') ? 'malformed' : null
+  const garbled = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
+  assert.ok(garbled.facts.every((fact) => fact.authorWrites === null))
+  forge.fail = null
+  forge.permissions.delete('someone-else')
+  const missing = await source(forge, ARMED + 2 * MINUTE).poll(PROJECT, baseline, never, { permissions: true })
+  assert.equal(missing.facts.find((fact) => fact.url?.endsWith('-2'))?.authorWrites, false)
 })

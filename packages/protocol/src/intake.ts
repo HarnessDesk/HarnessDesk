@@ -146,7 +146,8 @@ export interface TriggerFiring {
   readonly source: TriggerSource
   readonly subject: string
   readonly at: number
-  readonly outcome: 'fired' | 'recorded' | 'skipped' | 'duplicate' | 'pending'
+  /** `set-aside`: it fired, and its effects were then set aside for the person — never run on their own. */
+  readonly outcome: 'fired' | 'recorded' | 'skipped' | 'duplicate' | 'pending' | 'set-aside'
   readonly reason: string | null
   readonly goal: string | null
   readonly run: string | null

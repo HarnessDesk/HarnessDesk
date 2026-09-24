@@ -245,3 +245,18 @@ it('a source that is watching offers no gap control', async () => {
   await settle()
   expect(container.textContent).not.toContain('Watch from now')
 })
+
+it('a firing set aside says so in history, and links no Goal it never made', async () => {
+  mount({
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView()] })),
+    triggerHistory: vi.fn(async () => triggerHistoryPage({ items: [triggerFiring({
+      id: 'f9', subject: '9', outcome: 'set-aside', goal: null, run: null, round: null,
+      reason: 'A firing could not be finished after 3 tries (The project folder moved), so it was set aside for you and will not run on its own.',
+    })], next: null })),
+  })
+  await settle()
+  act(() => button('History').click())
+  await settle()
+  expect(container.textContent).toContain('so it was set aside for you and will not run on its own')
+  expect([...container.querySelectorAll('button')].some((one) => one.textContent?.startsWith('#9'))).toBe(false)
+})

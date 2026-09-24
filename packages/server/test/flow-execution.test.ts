@@ -480,3 +480,21 @@ rules: []
   await rig.flows.flush()
   assert.equal(rig.events.filter((one) => one === 'check:pnpm test').length, 1)
 })
+
+test('a hold set when one Seat’s turn ends interrupts every other Seat still in a turn', async (t) => {
+  const rig = await goalRig(t)
+  const run = await rig.startTriggered(TWO_REVIEWERS, TWO_AGENTS)
+  await rig.flows.resumeTriggered(run.id)
+  await rig.flows.flush()
+  assert.deepEqual(orders(rig.events), ['order:seat-1', 'order:seat-2'])
+  // Both at work; then the pause lands, and the first Seat's turn happens to end before any sweep.
+  rig.busySeats.add('seat-2')
+  rig.triggerGate = () => ({ reason: 'Every trigger is paused. Resume triggers to continue.', transient: true })
+  const first = rig.sessionOf('seat-1')
+  await rig.flows.reArm(first.runtime, first.sessionId)
+  await rig.flows.flush()
+  assert.ok(rig.flows.executionsFor(run.goal)[0]!.intake?.heldFor, 'held by the turn that ended')
+  assert.ok(rig.events.includes('interrupt:seat-2'), 'the Seat still inside its turn is interrupted, not left working through the pause')
+  assert.equal(rig.busySeats.has('seat-2'), false)
+  assert.ok(!rig.events.includes('release:seat-2'), 'held, not let go')
+})

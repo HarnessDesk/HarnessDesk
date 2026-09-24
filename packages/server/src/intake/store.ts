@@ -119,6 +119,8 @@ export interface IntakeFiring {
   readonly mode?: 'start' | 'again' | 'record' | null
   /** Why its round did not open or its dispatch waited, kept once the operation itself is released. */
   readonly attention?: string | null
+  /** Its effects were set aside for the person — failed past their bound, or no seat can ever take them — and never run on their own. */
+  readonly setAside?: boolean
 }
 
 /** One trigger Goal generation's money and time: made with its first firing, never reset by a later one. */
@@ -255,7 +257,8 @@ const historyFits = (firing: Record<string, unknown>): boolean => {
     absentOr('repository', (value) => value === null || (text(value, 200) && REPO.test(value as string))) &&
     absentOr('run', (value) => value === null || RUN_ID.test(String(value))) &&
     absentOr('mode', (value) => value === null || ['start', 'again', 'record'].includes(value as string)) &&
-    absentOr('attention', (value) => value === null || text(value))
+    absentOr('attention', (value) => value === null || text(value)) &&
+    absentOr('setAside', (value) => typeof value === 'boolean')
 }
 
 /** The whole snapshot, read strictly: any part it cannot read refuses all of it. */

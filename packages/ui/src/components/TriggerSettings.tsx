@@ -81,7 +81,7 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
           <Rows>
             <Row
               title="Pause every trigger"
-              desc="Stops watching every source and holds the work triggers started, interrupting what runs now. Resuming continues it and reads what arrived meanwhile."
+              desc="Stops watching every source and holds the work triggers started, interrupting what runs now. Resuming continues it and reads what arrived meanwhile; a check stopped part-way waits for you to run it again."
               control={(
                 <Switch
                   checked={prefs.paused}

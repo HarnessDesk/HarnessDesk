@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { prepareAdmission, SKIP_CHANGED, SKIP_FORK } from '../src/intake/admission.js'
+import { committedToday, utcDay } from '../src/intake/budget.js'
 import { INTAKE_LANDING } from '../src/goals/plane.js'
 import { Gate, settle } from './fixtures/intake-forge.js'
 import { definition, desk, onDisk, prFact, sha } from './fixtures/intake-restart.js'
@@ -296,4 +297,45 @@ test('a firing whose effects keep failing holds only its own project, then goes 
   await d.settle()
   assert.equal(next.outcome, 'fired')
   assert.deepEqual(d.store.read().operations, [])
+})
+
+test('a firing set aside before its Goal was made gives back its reservation and its slot, and says it was set aside', async () => {
+  const home = tempDir('hd-intake-aside-')
+  let broken = true
+  const d = await desk(home, { beforeGoal: async () => { if (broken) throw new Error('The project folder moved.') } })
+  const first = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+  assert.equal(first.outcome, 'fired')
+  const reserved = d.store.read().budgets[first.goal!]!.reservedMicros
+  assert.ok(reserved > 0, 'it reserved with its firing')
+  await d.admission.recover()
+  await d.admission.recover()
+  const snapshot = d.store.read()
+  assert.equal(snapshot.operations.length, 0, 'set aside')
+  assert.equal(snapshot.firings[first.firing]?.setAside, true, 'its tombstone says it was set aside, not fired')
+  assert.deepEqual([snapshot.budgets[first.goal!]?.reservedMicros, snapshot.budgets[first.goal!]?.settled], [0, true], 'no Goal, nothing ran: its reservation is released at zero')
+  assert.equal(committedToday(snapshot, utcDay(Date.now())), 0, 'the daily cap is not eaten')
+  // Its concurrency slot is free: the next pull request opens a Goal rather than being skipped for the limit.
+  broken = false
+  const next = await d.admission.offer(d.arm, prFact(2, sha('b'), 'opened'))
+  await d.settle()
+  assert.equal(next.outcome, 'fired')
+  assert.equal((await onDisk(home)).goals.length, 1)
+})
+
+test('a later firing set aside lets its run go of the hold it took, and the run waits on the person with why', async () => {
+  const home = tempDir('hd-intake-aside-again-')
+  let broken = false
+  const d = await desk(home, { beforeRound: async () => { if (broken) throw new Error('The project folder moved.') } })
+  const opened = await d.admission.offer(d.arm, prFact(1, sha('a'), 'opened'))
+  await d.settle()
+  broken = true
+  // A new head: its supersede holds the run, then its round cannot be opened.
+  await d.admission.offer(d.arm, prFact(1, sha('b'), 'pushed'))
+  await d.admission.recover()
+  await d.admission.recover()
+  await d.settle()
+  const run = d.flows.executionsFor(opened.goal!)[0]!
+  assert.equal(run.intake?.dispatchHeld, false, 'never left held on a firing that will not come')
+  assert.equal(run.state, 'stalled')
+  assert.match(run.reason ?? '', /set aside for you/)
 })

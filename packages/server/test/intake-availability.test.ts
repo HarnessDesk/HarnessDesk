@@ -134,3 +134,29 @@ test('the arming preview seats as unattended work is seated: refuse by default, 
   const [held] = await until(async () => { const found = await triggerGoals(holds); return found.length === 1 ? found : null }, 'the Goal')
   await until(async () => (await claimed(holds, held!.goal.id)) === 1 ? true : null, 'seated under the default')
 })
+
+test('a firing no seat can ever take as things stand is set aside with the change it needs, its slot and reservation given back', E2E, async (t) => {
+  // Armed while this Mac seated unattended work on an asked ceiling; then the person went back to refusing it.
+  const d = await intakeDesk({ runtime: 'asks' })
+  t.after(() => d.stop())
+  await d.host.call('app/state/set', { patch: { unheldCeilings: { unattended: 'seat' } } })
+  await arm(d)
+  await d.host.call('app/state/set', { patch: { unheldCeilings: { unattended: 'refuse' } } })
+  pushPull(d, 1, 'a')
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const first = await history(d)
+  assert.deepEqual(first.items.map((one) => one.outcome), ['set-aside'], 'not a wait that says it starts on its own')
+  assert.match(first.items[0]!.reason ?? '', /No seat can ever be opened for “reviewer” as things stand.*Permissions › Ceilings/)
+  assert.doesNotMatch(first.items[0]!.reason ?? '', /starts on its own/)
+  assert.equal((await d.host.call('trigger/preferences', {})).reservedUsd, 0, 'its reservation is given back')
+  const run = await d.host.call('flow/execution', { run: first.items[0]!.run! }) as FlowExecution
+  assert.deepEqual([run.state, run.intake?.dispatchHeld], ['stalled', false], 'its run waits on the person, not held on nothing')
+  // Its concurrency slot is given back: the next pull request is answered, not skipped for the limit.
+  pushPull(d, 2, 'b')
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const second = (await history(d)).items.find((one) => one.subject === '2')
+  assert.equal(second?.outcome, 'set-aside')
+  assert.doesNotMatch(second?.reason ?? '', /its limit/)
+})

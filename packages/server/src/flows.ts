@@ -373,6 +373,12 @@ export class Flows implements TeamFlows {
     return this.#executions.holdTriggered(run, why)
   }
 
+  /** Phase 8, host-only: a firing of a trigger's run was set aside for the person. See `FlowExecutions.setAsideTriggered`. */
+  setAsideTriggered(run: string, why: string): Promise<void> {
+    if (!this.#executions) throw new Error('Trigger runs are not available on this desk.')
+    return this.#executions.setAsideTriggered(run, why)
+  }
+
   /** Stops every check running on a Goal now, each left uncertain for a person. See `FlowExecutions.interruptChecks`. */
   interruptChecks(goal: string): void {
     this.#executions?.interruptChecks(goal)

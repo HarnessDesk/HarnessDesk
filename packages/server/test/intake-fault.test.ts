@@ -59,6 +59,8 @@ test('a firing whose run will not start is named, tried a bounded number of time
   assert.ok(attention().some((one) => one.id === named.id && one.resolvedAt !== null), 'the retry wait ended')
   const page = await d.host.call('trigger/history', { root, id: 'review' }) as TriggerHistoryPage
   assert.equal(page.items.length, 1)
+  assert.equal(page.items[0]!.outcome, 'set-aside', 'history says it was set aside, not that it fired')
+  assert.ok(page.items[0]!.goal, 'the Goal it made is linked, since it exists')
   assert.match(page.items[0]!.reason ?? '', /set aside for you/, 'the tombstone keeps why')
   assert.equal(d.host.intakePlane.journal.read().operations.length, 0, 'nothing of it is retried again')
   assert.equal((await d.host.call('trigger/list', { root }) as TriggerProjectView).triggers[0]!.reason, null, 'its project admits again')

@@ -66,6 +66,7 @@ export const triggerSkipWords = (firing: TriggerFiring): string => {
   if (firing.outcome === 'pending') return 'Still being applied…'
   if (firing.outcome === 'recorded') return firing.reason ?? 'Recorded — joined its open Goal without a new round.'
   if (firing.outcome === 'skipped') return firing.reason ?? 'Skipped.'
+  if (firing.outcome === 'set-aside') return firing.reason ?? 'Set aside for you; it does not run on its own.'
   return firing.reason ?? 'Fired.'
 }
 

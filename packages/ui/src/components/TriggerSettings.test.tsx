@@ -107,3 +107,9 @@ it('an unknown charged amount is said as unknown, never a silent zero', async ()
   expect(container.textContent).toContain('Unknown')
   expect(container.textContent).toContain('could not be vouched for')
 })
+
+it('the pause says a check it stopped part-way waits for a person', async () => {
+  mount()
+  await act(async () => {})
+  expect(container.textContent).toContain('a check stopped part-way waits for you to run it again')
+})

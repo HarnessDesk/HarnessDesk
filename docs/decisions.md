@@ -509,6 +509,9 @@ are compared by the forge's numeric account id, digested the same way the
 arm binds the signed-in account; a login or a display name is never trusted,
 and an author or a permission that cannot be read never fires. The desk
 posts to the forge as that same account, so a comment it posted itself would
-pass `me` and fire again, a loop: any comment whose first line is exactly a
-marker the desk writes — the reconciliation rule, never a looser match —
-is skipped in every mode.
+pass `me` and fire again, a loop: everything the desk posts — a tool's
+comment, review or description, and every finding publication — opens with a
+marker line of the desk's own, any comment whose first line is exactly such a
+marker (the reconciliation rule, never a looser match) is skipped in every
+mode, and the id of every comment the desk posts is remembered across a
+restart, so a comment whose marker was edited away is still the desk's.

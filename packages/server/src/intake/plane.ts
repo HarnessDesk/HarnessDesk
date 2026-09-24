@@ -101,6 +101,8 @@ export interface IntakeHostPort {
     holdTriggered(run: string, why: string): Promise<void>
     /** Stops every check running on the Goal now, without waiting for the run's queue; each is left for a person. */
     interruptChecks?(goal: string): void
+    /** A firing of the run was set aside for the person: any hold on it is let go, and it waits on them with why. */
+    setAsideTriggered(run: string, why: string): Promise<void>
   }
   readonly evidence: IntakeObservationPort
   /** The Seat book. */
@@ -261,6 +263,10 @@ export class IntakePlane {
       },
       supersede: (operation) => this.#supersede(operation),
       releaseHeld: () => this.#releaseHeld(),
+      setAside: async (operation, reason) => {
+        if (port.flows.execution(operation.run)) await port.flows.setAsideTriggered(operation.run, reason)
+        this.#schedule()
+      },
     }), {
       onStep: () => this.#schedule(),
       onFault: (fault) => { void this.#track(this.#faulted(fault)).catch(() => {}) },
@@ -515,7 +521,7 @@ export class IntakePlane {
    * down or signed out holds the firing with a named wait, never stalls or
    * consumes it; the next pass releases it once a seat can be taken.
    */
-  async #seatsNow(operation: IntakeOperation): Promise<string | null> {
+  async #seatsNow(operation: IntakeOperation): Promise<string | { readonly reason: string; readonly final: true } | null> {
     const payload = operation.payload
     if (!payload) return null
     let closure: TriggerClosure
@@ -526,7 +532,20 @@ export class IntakePlane {
     }
     if (closure.availability.length === 0) return null
     const seat = closure.preview.seats.find((one) => one.plan.blocked === null && one.plan.winner === null)
-    return `No seat can be opened for ${seat ? `“${seat.agent}”` : 'its Agent'} right now, so this firing waits. It starts on its own once one can.`
+    const who = seat ? `“${seat.agent}”` : 'its Agent'
+    /* Every candidate passed over for a reason that does not lift on its own
+       — this Mac refuses an unattended seat whose ceiling is only asked, or
+       the runtime is one nothing here can run — is not a wait: nothing will
+       ever let it go, so it is the person's now, with the change it needs,
+       and its slot and reservation are given back. */
+    const reasons = seat?.plan.candidates.map((one) => one.reason?.kind ?? null) ?? []
+    if (reasons.length > 0 && reasons.every((kind) => kind === 'unheld' || kind === 'unknownRuntime')) {
+      const fix = reasons.includes('unheld')
+        ? 'This Mac refuses an unattended Seat whose ceiling can only be asked; choose to seat it in Permissions › Ceilings, or prefer a runtime that holds it, then arm the trigger again.'
+        : 'None of the runtimes it prefers can run here; change the Agent’s seats, then arm the trigger again.'
+      return { reason: `No seat can ever be opened for ${who} as things stand, so this firing was set aside. ${fix}`, final: true }
+    }
+    return `No seat can be opened for ${who} right now, so this firing waits. It starts on its own once one can.`
   }
 
   /** The runs a pause or the cap holds now, and whether any firing is still waiting for its release. */
@@ -729,12 +748,14 @@ export class IntakePlane {
     const pending = operations.find((one) => one.key === key && !one.dispatched)
     const run = firing.run ? this.#port.flows.execution(firing.run) : null
     const round = run?.rounds.find((one) => one.cause === `cause:intake:${key}`)?.n ?? (firing.mode === 'start' && run?.rounds[0] ? run.rounds[0].n : null)
-    const outcome: TriggerFiring['outcome'] = firing.outcome === 'skipped' ? 'skipped' : pending ? 'pending' : firing.mode === 'record' ? 'recorded' : 'fired'
+    const outcome: TriggerFiring['outcome'] = firing.outcome === 'skipped' ? 'skipped' : firing.setAside ? 'set-aside' : pending ? 'pending' : firing.mode === 'record' ? 'recorded' : 'fired'
+    // A Goal that was never made — its firing set aside before — is never linked.
+    const made = firing.goal !== null && this.#port.goals.lifecycle(firing.goal) !== 'missing'
     return {
       id: key, trigger: firing.trigger, source: firing.source ?? fallback ?? 'pull-request', subject: firing.subject ?? '',
       at: firing.at, outcome,
       reason: firing.outcome === 'skipped' ? firing.reason : pending?.attention ?? firing.attention ?? firing.reason,
-      goal: firing.goal, run: firing.run ?? null, round, head: firing.head ?? null,
+      goal: made ? firing.goal : null, run: made ? firing.run ?? null : null, round: made ? round : null, head: firing.head ?? null,
     }
   }
 

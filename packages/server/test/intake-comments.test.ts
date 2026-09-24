@@ -86,7 +86,8 @@ test('collaborators: the arming account and anyone who can write fire it; a read
   assert.equal(seen.get('1')?.[0], 'fired')
   assert.equal(seen.get('2')?.[0], 'fired')
   assert.deepEqual(seen.get('3'), ['skipped', 'Only comments by people who can write to the repository fire this trigger, and this one’s author cannot.'])
-  assert.deepEqual(seen.get('4'), ['skipped', 'Whether this comment’s author can write to the repository could not be read, so it did not fire.'])
+  // The forge says there is no such collaborator: a no, not an unknown.
+  assert.deepEqual(seen.get('4'), ['skipped', 'Only comments by people who can write to the repository fire this trigger, and this one’s author cannot.'])
   assert.deepEqual(seen.get('5'), ['skipped', 'This comment was posted by this desk, so it does not fire a trigger.'])
   assert.equal(d.forge.calls.filter((path) => path.includes('/collaborators/')).length, 4, 'one read per comment with a readable author, none for the desk’s post')
 })
@@ -119,4 +120,17 @@ test('a review the desk publishes on a watched pull request fires nothing', E2E,
   await d.host.intakePlane.tick()
   const page = await d.host.call('trigger/history', { root: d.repo.dir, id: 'review' }) as TriggerHistoryPage
   assert.deepEqual(page.items.map((one) => one.outcome), ['fired'], 'only the opening fired: a review is never a pull-request event')
+})
+
+test('collaborators: a permission read that fails now keeps the comment and fires it once the forge answers', E2E, async (t) => {
+  const d = await desk(t, 'collaborators')
+  d.forge.permissions.set(WRITER.login, { id: WRITER.id, permission: 'write' })
+  d.forge.fail = (path) => path.includes('/collaborators/') ? { exitCode: 1, stderr: 'gh: HTTP 503 Service Unavailable' } : null
+  const seen = await comment(d, [{ body: 'A maintainer asks.', user: WRITER }])
+  assert.equal(seen.size, 0, 'no answer, so nothing consumed')
+  d.forge.fail = null
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const page = await d.host.call('trigger/history', { root: d.repo.dir, id: 'talk' }) as TriggerHistoryPage
+  assert.deepEqual(page.items.map((one) => one.outcome), ['fired'], 'replayed once the forge answers')
 })

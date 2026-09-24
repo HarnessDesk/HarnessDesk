@@ -758,9 +758,11 @@ reads comments also says whose comments fire it — `from: me` (the default: onl
 the forge account it is armed with), `from: collaborators` (anyone the forge
 says can write to the repository, asked once per comment), or `from: anyone` —
 compared by the forge's stable account id, never a display name; a comment
-whose author or permission cannot be read never fires, and a comment the desk
-itself posted (its first line exactly one of the desk's own markers) never
-fires whatever the trigger says. The vocabulary is
+whose author or permission cannot be read never fires (a permission read
+that fails for now keeps the comment and reads it again), and a comment the
+desk itself posted never fires whatever the trigger says: everything the desk
+posts to the forge opens with its own marker line, and the desk remembers the
+id of every comment it posted, across a restart. The vocabulary is
 closed on purpose: nothing in the file names a command, an environment
 variable, or a ceiling, and outside text — a PR title, an issue body, a
 comment — is bounded, untrusted prose that can never become one. It arrives
@@ -806,8 +808,12 @@ changed than one read can cover) is resumed from its trigger's row with
 *Watch from now*, which skips the gap rather than replaying it. A firing whose
 effects keep failing — a project folder that moved, a run that will not start
 — holds only its own project while it is tried again, named as a wait, and
-after three tries is set aside for the person with why; every other project
-keeps running.
+after three tries is set aside for the person with why — shown as set aside
+in its history, its run let go of any hold, and when no Goal was made its
+reservation and slot given back; every other project keeps running. A firing
+no seat can ever take as things stand — this Mac refuses an unattended Seat
+whose ceiling can only be asked, say — is set aside the same way, naming the
+change it needs, rather than waiting on something that will not come.
 
 **Budgets, the daily cap, and unattended ceilings.** Each Goal a trigger opens
 reserves its whole USD budget against the machine's daily cap the moment it
@@ -822,7 +828,8 @@ meanwhile is read then. A daily cap lowered below what is already committed
 holds work the same way, and raising it continues it. A budget reached is a
 stop: recorded, the run stopped and every Seat it lets go interrupted, so no
 turn outlives it; a check stopped part-way is left for a person, never run
-again on its own. Money here is an observed stop threshold, never an
+again on its own, so a check round a pause stopped waits for a person after
+resuming. Money here is an observed stop threshold, never an
 invoice: a turn already running can spend past the limit before its meter
 reports and the stop takes effect. Permissions › Ceilings carries a second,
 independent policy for exactly this case — what a Goal a trigger opened does

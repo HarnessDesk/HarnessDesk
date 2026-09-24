@@ -1523,6 +1523,7 @@ export class Host {
         execution: (run) => this.#flows.executionOf(run),
         stopRun: async (run, why) => { await this.#flows.stopRun(run, why) },
         holdTriggered: (run, why) => this.#flows.holdTriggered(run, why),
+        setAsideTriggered: (run, why) => this.#flows.setAsideTriggered(run, why),
         interruptChecks: (goal) => this.#flows.interruptChecks(goal),
       },
       evidence: { observeTrigger: (firing, goal, fact) => this.#evidence.observeTrigger(firing, goal, fact) },

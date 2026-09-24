@@ -84,6 +84,8 @@ export interface DeskOptions {
   readonly now?: () => number
   /** Held before admission reads the arm again: where a race is staged. */
   readonly beforeBinding?: () => Promise<void>
+  /** Run before a firing's Goal is made, with its project: throw to fail that effect. */
+  readonly beforeGoal?: (project: string) => Promise<void>
   /** Held before a firing's round is opened, with the project it opens in: throw to fail that effect. */
   readonly beforeRound?: (project: string) => Promise<void>
   /** Held when a wrap stops the Goal's runs. */
@@ -321,7 +323,9 @@ export const desk = async (home: string, options: DeskOptions = {}) => {
   const arm: ArmedTrigger = { project: PROJECT, id: trigger.id, definition: trigger, binding, baseline: 0, armedAt: 0 }
 
   const targets: IntakeTargets = {
-    goals: { ensureTriggerGoal: async (request) => { const view = await goals.ensureTriggerGoal(request); log(`goal:${request.id}`); crash('goal'); return view } },
+    goals: { ensureTriggerGoal: async (request) => { await options.beforeGoal?.(request.input.root); const view = await goals.ensureTriggerGoal(request); log(`goal:${request.id}`); crash('goal'); return view } },
+    // As the plane does it: a firing set aside lets its run go of any hold, waiting on the person.
+    setAside: async (operation, reason) => { if (flows.executionOf(operation.run)) await flows.setAsideTriggered(operation.run, reason) },
     evidence: { observeTrigger: async (firing, goal, fact) => { const ids = await evidence.observeTrigger(firing, goal, fact); crash('evidence'); return ids } },
     flows: {
       startTriggered: async (request) => {
