@@ -81,8 +81,7 @@ test('an armed trigger opens a Goal, stops stale work and its budget, survives a
   let d = first
   t.after(() => d.stop())
   const root = repo.dir
-  // A person lets an unattended Seat sit on a runtime that can only ask its ceiling.
-  await d.host.call('app/state/set', { patch: { unheldCeilings: { unattended: 'seat' } } })
+  // The shipped unattended policy — refuse an asked ceiling — over a runtime that holds it.
   assert.equal(d.timers.live.size, 0, 'nothing is watched before an arm')
 
   // 1. Arm both triggers, each with its own one-use preview.
@@ -219,7 +218,6 @@ test('a trigger Goal’s approval and question are named waits the moment they a
   const d = await intakeDesk({ repo })
   t.after(() => d.stop())
   const root = repo.dir
-  await d.host.call('app/state/set', { patch: { unheldCeilings: { unattended: 'seat' } } })
   const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
   await d.host.call('trigger/arm', { root, id: 'triage', token: preview.token! })
   const at = d.clocks.wall + 1000
@@ -268,7 +266,6 @@ test('pausing stops watching and every live trigger run; resuming watches again'
   const d = await intakeDesk({ repo })
   t.after(() => d.stop())
   const root = repo.dir
-  await d.host.call('app/state/set', { patch: { unheldCeilings: { unattended: 'seat' } } })
   const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
   await d.host.call('trigger/arm', { root, id: 'triage', token: preview.token! })
   const at = d.clocks.wall + 1000

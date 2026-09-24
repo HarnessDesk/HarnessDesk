@@ -1,12 +1,13 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-import type { WireNotification } from '@harnessdesk/protocol'
+import type { RuntimeInfo, WireNotification } from '@harnessdesk/protocol'
 
 import { Host, StateStore } from '../../src/index.js'
 import type { IntakeTimers } from '../../src/intake/plane.js'
 import { makeRepo, type Repo } from './evidence-desk.js'
 import { FakeRuntime } from './fake-runtime.js'
+import { HoldFake } from './hold-runtime.js'
 import { silent } from './harness.js'
 import { Clocks, FakeForge } from './intake-forge.js'
 import { tempDir } from '../scratch.js'
@@ -81,6 +82,13 @@ export const intakeDesk = async (options: {
   readonly forge?: FakeForge
   readonly clocks?: Clocks
   readonly triggers?: string | null
+  /**
+   * Whether the agent's runtime holds the ceiling a Seat needs (`holds`, the
+   * default) or can only ask it (`asks`). Unattended seating refuses an asked
+   * ceiling unless a person chose otherwise, so `holds` is what lets the
+   * shipped default seat anyone at all.
+   */
+  readonly runtime?: 'holds' | 'asks'
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
   if (!options.repo && options.triggers !== null) await commitTriggers(repo, options.triggers ?? TRIGGERS)
@@ -104,7 +112,7 @@ export const intakeDesk = async (options: {
       usage: async () => ({ samples: [], complete: true }),
     },
   })
-  const runtime = new FakeRuntime({ capabilities: { metered: true } })
+  const runtime = options.runtime === 'asks' ? new FakeRuntime({ capabilities: { metered: true } }) : holding()
   host.register(runtime)
   const pushed: WireNotification[] = []
   host.addBroadcaster((notification) => { pushed.push(notification) })
@@ -119,6 +127,14 @@ export const intakeDesk = async (options: {
       await host.dispose()
     },
   }
+}
+
+/** The fake agent, under the id the Agent prefers, able to hold the read and edit ceilings a Seat asks for. */
+const holding = (): FakeRuntime => {
+  const runtime = new HoldFake('fake')
+  const info = runtime.info
+  ;(runtime as { info: RuntimeInfo }).info = { ...info, capabilities: { ...info.capabilities, metered: true } }
+  return runtime
 }
 
 /** Waits for a state of the desk, read again every few milliseconds; says what it waited for when it gives up. */

@@ -209,7 +209,54 @@ test('copied or corrupt consent is not authority', async () => {
   const unsigned = await state()
   assert.equal(unsigned?.state, 'refused')
   assert.equal(unsigned?.fix, 'Sign in to the forge.')
+  // A sign-in that cannot be read now is no answer: the fact waits rather than being consumed (review #898).
+  await assert.rejects(r.consent.binding(r.world.project, 'review'), /not signed in/)
+})
+
+test('an arm binds what runs, never whether it can run right now', async () => {
+  const r = rig()
+  await armed(r)
+  await armed(r, 'nightly')
+  const baseline = await r.consent.binding(r.world.project, 'review')
+  assert.ok(baseline)
+  assert.ok(r.world.unattended.length > 0 && r.world.unattended.every(Boolean), 'every seat plan is read as unattended work is seated')
+
+  // Its runtime is down: the arm still stands, and a firing's dispatch rechecks it.
+  r.world.available = false
+  assert.deepEqual(await r.consent.binding(r.world.project, 'review'), baseline, 'no seat right now is not a changed arm')
+  assert.deepEqual(await r.consent.binding(r.world.project, 'nightly'), await r.consent.binding(r.world.project, 'nightly'))
+  const listed = (await r.consent.list(r.world.project)).triggers.find((one) => one.id === 'review')
+  assert.equal(listed?.state, 'armed', 'the list does not call it refused or changed')
+  // A new preview still says so, and arms nothing until a seat can be taken.
+  const now = await r.consent.preview(r.world.project, 'review')
+  assert.equal(now.token, null)
+  assert.match(now.problems.map((one) => one.text).join('\n'), /No seat could be opened/)
+  const closure = await r.port.closure.freeze(r.world.project, now.definition!)
+  assert.equal(closure.digest, baseline.closure, 'the closure digest is the same with or without a seat')
+  assert.deepEqual(closure.problems, [], 'what only the preview says binds nothing')
+  r.world.available = true
+
+  // A read that fails now is not an answer: binding throws, so the fact is kept and offered again.
+  r.world.previewFails = true
+  await assert.rejects(r.consent.binding(r.world.project, 'review'), /could not be asked/)
+  r.world.previewFails = false
+  r.world.repository = null
+  await assert.rejects(r.consent.binding(r.world.project, 'review'), /No forge repository/)
+  r.world.repository = 'acme/widgets'
+  r.world.account = null
+  await assert.rejects(r.consent.binding(r.world.project, 'review'), /not signed in/)
+  assert.ok(await r.consent.binding(r.world.project, 'nightly'), 'a schedule reads no forge')
+  r.world.account = 'account-digest-1'
+  assert.deepEqual(await r.consent.binding(r.world.project, 'review'), baseline, 'recovered: the same arm')
+
+  // Content still moves it: another signed-in account, or a flow that is gone.
+  r.world.account = 'account-digest-2'
   assert.equal(await r.consent.binding(r.world.project, 'review'), null)
+  r.world.account = 'account-digest-1'
+  r.world.flows = {}
+  assert.equal(await r.consent.binding(r.world.project, 'review'), null, 'a flow that is gone is a changed arm')
+  r.world.flows = { 'review-pr': reviewFlow() }
+  assert.deepEqual(await r.consent.binding(r.world.project, 'review'), baseline)
 })
 
 test('changing a trigger’s label takes its arm away', async () => {

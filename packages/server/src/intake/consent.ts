@@ -14,6 +14,7 @@ import type {
 
 import type { CredentialCipher } from '../credentials.js'
 import { Serial } from '../goals/assignments.js'
+import { ceilingWithin } from '../agent-seating.js'
 import { atomicJson, syncDirectory } from '../goals/store.js'
 import { agentFlowSource, parseTriggers } from './definition.js'
 import { TRIGGERS_PATH, type TriggerSourceFile } from './source.js'
@@ -82,8 +83,14 @@ export interface TriggerClosure {
   readonly digest: string
   readonly preview: FlowPreview
   readonly bindings: readonly { readonly kind: 'flow' | 'agent' | 'command' | 'seating'; readonly id: string; readonly digest: string }[]
-  /** What refuses arming this shape, beyond the flow's own problems. */
+  /** What refuses arming this shape, beyond the flow's own problems: all about what it says, none about this moment. */
   readonly problems: readonly TriggerProblem[]
+  /**
+   * What refuses arming *now* without changing what would run — no seat can
+   * be taken while a runtime is down. A preview shows it; an arm binds none
+   * of it, and a firing's dispatch reads it again (plan decision 4).
+   */
+  readonly availability: readonly TriggerProblem[]
 }
 
 /** The host-only port on the flow preview owner that freezes what a trigger would run. */
@@ -94,6 +101,15 @@ export interface TriggerPreviewPort {
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex')
 
 const CLOSURE_FIX = 'Correct the flow or its Agents, commit them, and preview again.'
+const SEAT_FIX = 'Its Seats below say why each one was passed over and what fixes it; then preview again.'
+
+/** The flow a trigger opens could not be resolved: what the project says now, not a read to try again. */
+export class ClosureMissingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ClosureMissingError'
+  }
+}
 
 /** The two reads a closure is frozen from, both owned elsewhere. */
 export interface TriggerClosureReads {
@@ -120,7 +136,12 @@ export class TriggerClosures implements TriggerPreviewPort {
     let text: string
     let flow: { readonly id: string; readonly origin: string; readonly path: string | null }
     if ('flow' in definition.opens) {
-      const resolved = await this.#port.flowSource(root, definition.opens.flow)
+      let resolved: Awaited<ReturnType<TriggerClosureReads['flowSource']>>
+      try {
+        resolved = await this.#port.flowSource(root, definition.opens.flow)
+      } catch (error) {
+        throw new ClosureMissingError(error instanceof Error ? error.message : String(error))
+      }
       text = resolved.source
       flow = { id: definition.opens.flow, origin: resolved.origin, path: resolved.path }
     } else {
@@ -128,8 +149,11 @@ export class TriggerClosures implements TriggerPreviewPort {
       flow = { id: `agent:${definition.opens.agent}`, origin: 'trigger', path: null }
     }
     const preview = await this.#port.preview(root, text)
+    const availability: TriggerProblem[] = []
     for (const problem of preview.problems) {
-      if (problem.level === 'error') problems.push({ at: `flow.${problem.at}`, text: problem.text, fix: CLOSURE_FIX })
+      if (problem.level !== 'error') continue
+      if (problem.availability) availability.push({ at: `flow.${problem.at}`, text: problem.text, fix: SEAT_FIX })
+      else problems.push({ at: `flow.${problem.at}`, text: problem.text, fix: CLOSURE_FIX })
     }
     const compiled = preview.compiled
     const bindings: TriggerClosure['bindings'][number][] = [{ kind: 'flow', id: flow.id, digest: sha256(text) }]
@@ -150,9 +174,18 @@ export class TriggerClosures implements TriggerPreviewPort {
       }
     }
     for (const seat of preview.seats) {
+      /*
+       * What seating would try, never what it would get: the candidates in
+       * order and the level the need declares, from the Agent's own ceiling
+       * and the role's grant. Which candidate wins, and whether the winner
+       * holds its ceiling, is this machine at this moment — read again at
+       * dispatch, never bound (review #898).
+       */
+      const binding = compiled.bindings.find((one) => one.role === seat.role && one.index === seat.index)
+      const level = binding?.agent.ceiling ? ceilingWithin(binding.agent.ceiling, binding.grant) : binding?.grant ?? null
       bindings.push({
         kind: 'seating', id: `${seat.role}[${seat.index}]`,
-        digest: sha256(JSON.stringify({ agent: seat.agent, from: seat.plan.from, candidates: seat.plan.candidates.map((one) => one.seat), level: seat.plan.ceiling?.level ?? null, isolate: seat.isolate })),
+        digest: sha256(JSON.stringify({ agent: seat.agent, from: seat.plan.from, blocked: seat.plan.blocked, candidates: seat.plan.candidates.map((one) => one.seat), level, isolate: seat.isolate })),
       })
     }
     if (bindings.length > CLOSURE_ENTRY_LIMIT || executable > CLOSURE_SOURCE_LIMIT) {
@@ -176,7 +209,7 @@ export class TriggerClosures implements TriggerPreviewPort {
       bindings,
       messaging: preview.messaging,
     }))
-    return { source: text, digest, preview, bindings, problems }
+    return { source: text, digest, preview, bindings, problems, availability }
   }
 }
 
@@ -384,13 +417,24 @@ export class TriggerConsent {
 
   // ------------------------------------------------------------- reads
 
-  /** Every bound input, read now. Never throws for what the project says. */
-  async #current(root: string, id: string): Promise<Current> {
+  /**
+   * Every bound input, read now. Never throws for what the project says.
+   *
+   * - `preview`: everything that would refuse arming now, availability too.
+   * - `view`: what an arm stands on — its content and its forge — and not
+   *   whether a seat can be taken this moment, which a dispatch rechecks.
+   * - `offer`: the content only, for a fact being answered. A read that
+   *   cannot be made now — the file, a seat plan, who is signed in, which
+   *   repository — throws: that is no answer, so the fact is kept and offered
+   *   again (review #898), never consumed as a changed arm.
+   */
+  async #current(root: string, id: string, mode: 'preview' | 'view' | 'offer' = 'preview'): Promise<Current> {
     const canonical = await this.#port.confine(root)
     let file: TriggerSourceFile
     try {
       file = await this.#port.source(canonical)
     } catch (error) {
+      if (mode === 'offer') throw error
       const empty: TriggerSourceFile = { project: canonical, incarnation: '', revision: null, sourceDigest: null, text: null, workingCopyChanged: false }
       return { file: empty, problems: [{ at: 'file', text: (error as Error).message, fix: 'Commit .harnessdesk/triggers.yml as a regular text file in a real folder.' }], definition: null, closure: null, binding: null, fix: null }
     }
@@ -407,20 +451,27 @@ export class TriggerConsent {
     try {
       closure = await this.#port.closure.freeze(file.project, definition)
     } catch (error) {
+      // A flow that is gone is what the project says now: a changed arm. Any other failed read is no answer.
+      if (mode === 'offer' && !(error instanceof ClosureMissingError)) throw error
       return refuse([{ at: 'opens', text: (error as Error).message, fix: CLOSURE_FIX }], definition)
     }
-    const problems: TriggerProblem[] = [...closure.problems]
+    const problems: TriggerProblem[] = [...closure.problems, ...(mode === 'preview' ? closure.availability : [])]
     let account = 'none'
     let repository: string | null = null
     if (definition.on.kind !== 'schedule') {
       const signedIn = await this.#port.account(file.project)
-      if ('refused' in signedIn) problems.push({ at: 'account', text: signedIn.refused, fix: signedIn.fix })
-      else account = signedIn.account
+      if ('refused' in signedIn) {
+        if (mode === 'offer') throw coded(signedIn.refused, 'HD_TRIGGER_UNREAD')
+        problems.push({ at: 'account', text: signedIn.refused, fix: signedIn.fix })
+      } else account = signedIn.account
       const repo = await this.#port.repository(file.project)
-      if ('refused' in repo) problems.push({ at: 'repository', text: repo.refused, fix: repo.fix })
-      else repository = repo.repository
+      if ('refused' in repo) {
+        if (mode === 'offer') throw coded(repo.refused, 'HD_TRIGGER_UNREAD')
+        problems.push({ at: 'repository', text: repo.refused, fix: repo.fix })
+      } else repository = repo.repository
     }
-    if (problems.length > 0) return refuse(problems, definition, closure)
+    // Answering a fact compares content alone: a problem the same content always has was refused at arming.
+    if (problems.length > 0 && mode !== 'offer') return refuse(problems, definition, closure)
     return {
       file, problems: [], definition, closure, fix: null,
       binding: { project: file.project, incarnation: file.incarnation, source: file.sourceDigest, closure: closure.digest, account, repository },
@@ -506,9 +557,13 @@ export class TriggerConsent {
     await atomicJson(join(this.#home, MACHINE_FILE), { version: 1, revision, arms })
   }
 
-  /** The current binding when this trigger is armed here and nothing it is bound to moved; null otherwise. */
+  /**
+   * The current binding when this trigger is armed here and nothing it is
+   * bound to moved; null otherwise. Content only: throws — no answer yet —
+   * when something it reads cannot be read now.
+   */
   async binding(root: string, id: string): Promise<ArmBinding | null> {
-    const current = await this.#current(root, id)
+    const current = await this.#current(root, id, 'offer')
     if (!current.binding) return null
     const recorded = await this.#recorded(current.binding.project, id)
     if (!recorded.arm || !recorded.verified || !recorded.arm.enabled) return null
@@ -530,7 +585,7 @@ export class TriggerConsent {
   }
 
   async #view(root: string, id: string, known?: Current): Promise<TriggerView> {
-    const current = known ?? await this.#current(root, id)
+    const current = known ?? await this.#current(root, id, 'view')
     const project = current.binding?.project ?? current.file.project
     const recorded = await this.#recorded(project, id)
     const base = { id, definition: current.definition, last: null, openGoals: 0 }

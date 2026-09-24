@@ -1235,7 +1235,7 @@ export class Host {
       agents: (root) => this.#agents.list(root),
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
-      previewAgent: (root, agent, seats, grant) => previewAgent(this.#context, root, agent, seats, grant),
+      previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
       storedRun: async (run) => this.#flows.storedRun(run),
       now: () => Date.now(),
     })
@@ -1491,7 +1491,8 @@ export class Host {
       cipher: options.credentialCipher ?? plainCipher,
       confine: (root) => this.#confineGitRoot(root),
       flowSource: (root, id) => intakeCatalog.resolve(root, id),
-      preview: (root, source) => this.#flowPreviews.freeze(root, source),
+      // A trigger's closure is read as its Goal will be seated: unattended.
+      preview: (root, source) => this.#flowPreviews.freeze(root, source, { unattended: true }),
       goals: {
         ensureTriggerGoal: (request) => this.#goals.ensureTriggerGoal(request),
         lifecycle: (goal) => this.#goals.lifecycle(goal),

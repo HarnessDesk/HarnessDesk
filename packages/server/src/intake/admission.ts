@@ -117,7 +117,11 @@ export function prepareAdmission(state: TriggerJournal, input: AdmissionInput): 
 export type GoalLifecycle = 'open' | 'closing' | 'wrapped' | 'missing'
 
 export interface AdmissionPort {
-  /** The arm as it reads now (`TriggerConsent.binding`), or null when it no longer stands. */
+  /**
+   * The arm as it reads now (`TriggerConsent.binding`), or null when it no
+   * longer stands. Throws when something it reads cannot be read now — which
+   * is no answer: the offer throws too, and the fact is offered again.
+   */
   binding(arm: ArmedTrigger): Promise<ArmBinding | null>
   /** The machine is paused: nothing is admitted, and facts wait. */
   paused(): boolean
@@ -235,7 +239,7 @@ export class Admission {
    * be answered durably yet: an unreadable journal, a pause, an unfinished
    * earlier firing, or a save that failed.
    */
-  offer(arm: ArmedTrigger, fact: TriggerFact): Promise<OfferAnswer> {
+  offer(arm: ArmedTrigger, fact: TriggerFact, options: { readonly binding?: () => Promise<ArmBinding | null> } = {}): Promise<OfferAnswer> {
     return this.#serial.run(async () => {
       if (this.#store.problem) throw new Error(this.#store.problem)
       if (this.#fault) await this.#recover()
@@ -253,7 +257,8 @@ export class Admission {
         return this.#skip(arm, key, SKIP_MISMATCH, fact)
       }
       if (fact.fork && definition.forks !== 'allow') return this.#skip(arm, key, SKIP_FORK, fact)
-      const binding = await this.#port.binding(arm)
+      // Throws when the arm cannot be read now: no answer, so the fact is kept and offered again.
+      const binding = await (options.binding ? options.binding() : this.#port.binding(arm))
       if (!binding || !consentMatches(arm.binding, binding)) return this.#skip(arm, key, SKIP_CHANGED, fact)
 
       // Read again after the awaits above: only this queue writes the journal, and what is decided is what is on disk now.

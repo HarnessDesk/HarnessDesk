@@ -1074,13 +1074,16 @@ export const previewAgent = async (
   agent: string,
   seats: readonly FlowSeat[],
   grant: CeilingLevel,
+  options: { readonly unattended?: boolean } = {},
 ): Promise<SeatPlan> => {
   const project = await projectOf(ctx, root)
   const entry = await ctx.agents.read(agent, project)
   if (!entry) return blockedPlan(agent, `No Agent called “${agent}”.`)
   if (!entry.definition || entry.digest === null) return blockedPlan(agent, unusable(entry))
   const machine = await ctx.seating.read()
-  const unheld = unheldPolicy(ctx.state.state.preferences)
+  // A trigger's arm previews its Seats exactly as its Goal will seat them: under the unattended policy.
+  const preferences = ctx.state.state.preferences
+  const unheld = options.unattended ? unattendedPolicy(preferences) : unheldPolicy(preferences)
   const list = candidatesFor(entry.definition, machine, seats.length ? seats : undefined)
   const need: CeilingNeed = { level: ceilingWithin(entry.definition.ceiling, grant), unheld }
   if ('refused' in list) return blockedPlan(agent, list.refused, 'machine')

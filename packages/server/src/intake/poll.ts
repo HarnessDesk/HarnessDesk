@@ -169,6 +169,15 @@ const SENTENCES: Readonly<Record<Exclude<TriggerSourceStatus['state'], 'watching
   gap: { reason: 'More changed than one read can cover, so watching this source stopped.', fix: 'Resume it to watch from now: what changed in the gap is skipped, not replayed.' },
 }
 const UNSAVED = { reason: 'The desk could not save how far this source was read.', fix: 'Free some disk space; nothing is lost, and it is read again on its own.' }
+const UNANSWERED_FIX = 'Nothing is lost: what it read is offered again on its own once this can be answered.'
+
+/** A fact admission could not answer yet — a sign-in, a repository or a seat plan it could not read now. */
+class UnansweredError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnansweredError'
+  }
+}
 
 interface GroupState {
   project: string
@@ -189,8 +198,12 @@ export interface IntakeMonitorOptions {
   readonly armed: () => Promise<readonly ArmedTrigger[]>
   readonly sources: IntakeSources
   readonly cursors: SourceCursors
-  /** Admission: resolves only once the fact has a durable fired, skipped or duplicate answer. */
-  readonly offer: (arm: ArmedTrigger, fact: TriggerFact) => Promise<void>
+  /**
+   * Admission: resolves only once the fact has a durable fired, skipped or
+   * duplicate answer. `batch` is the same object for every fact of one read,
+   * so what an answer reads about an arm is read once per read, not per fact.
+   */
+  readonly offer: (arm: ArmedTrigger, fact: TriggerFact, batch: object) => Promise<void>
   readonly wall: () => number
   readonly monotonic: () => number
   readonly timers?: { every(fn: () => void, ms: number): unknown; clear(handle: unknown): void }
@@ -374,11 +387,17 @@ export class IntakeMonitor {
       // Who to offer to is read now, not before the read: an arm removed meanwhile gets nothing.
       const before = new Set(group.arms.map((arm) => arm.id))
       const current = (await this.#options.armed()).filter((arm) => groupOf(arm).key === group.key && before.has(arm.id))
+      const once = {}
       for (const fact of batch.facts) {
         for (const arm of current) {
           if (!accepts(arm, fact)) continue
           if (signal.aborted) return
-          await this.#options.offer(arm, fact)
+          try {
+            await this.#options.offer(arm, fact, once)
+          } catch (error) {
+            // No answer yet: the cursor stays, and this read is offered again once it can be answered.
+            throw new UnansweredError(error instanceof Error ? error.message : String(error))
+          }
         }
       }
       if (signal.aborted) return
@@ -389,6 +408,7 @@ export class IntakeMonitor {
       state.failures += 1
       state.nextAt = this.#options.monotonic() + BACKOFF_S[Math.min(state.failures, BACKOFF_S.length) - 1]! * 1000
       if (error instanceof ForgeReadError) this.#say(state, error.kind)
+      else if (error instanceof UnansweredError) this.#say(state, 'unreadable', { reason: `${error.message}`, fix: UNANSWERED_FIX })
       else this.#say(state, 'unreadable', UNSAVED)
     } finally {
       state.lastPolledAt = this.#options.wall()

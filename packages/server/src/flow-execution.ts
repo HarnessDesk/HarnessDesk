@@ -1353,7 +1353,8 @@ export class FlowExecutions {
       const compiled = closure.preview.compiled
       if (compiled.document.format !== 'agents') throw new TriggerRefusal('Only a flow in the Agent format runs from a trigger.')
       const policy = compiled.document.flow
-      const errors = [...compiled.problems, ...closure.preview.problems].filter((one) => one.level === 'error')
+      // Whether a seat can be taken right now is read again when the run seats, never taken for a changed closure.
+      const errors = [...compiled.problems, ...closure.preview.problems].filter((one) => one.level === 'error' && !one.availability)
       const reason = closure.digest !== request.closureDigest || closure.problems.length > 0 || errors.length > 0 ? TRIGGER_CLOSURE_CHANGED : null
       const vars: Record<string, string> = {}
       // Only the flow's own defaults: no title, body or comment from outside becomes a variable.

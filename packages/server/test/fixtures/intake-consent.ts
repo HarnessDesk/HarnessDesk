@@ -60,6 +60,12 @@ export interface World {
   baselines: number
   /** Runs while the first observation is in flight: the gate a race is staged through. */
   duringBaseline: (() => void) | null
+  /** Whether a seat can be taken right now: false passes every candidate over, as a runtime that is down does. */
+  available: boolean
+  /** The seat plan's read fails, as a runtime that cannot be asked right now does. */
+  previewFails: boolean
+  /** The unattended flag every seat plan was asked with, in order. */
+  unattended: boolean[]
 }
 
 export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) => {
@@ -77,14 +83,27 @@ export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) 
     baselineFails: false,
     baselines: 0,
     duringBaseline: null,
+    available: true,
+    previewFails: false,
+    unattended: [],
   }
   const previews = new FlowPreviews({
     confine: async () => {},
     agents: async () => world.agents,
-    previewAgent: async (_root, id, _seats, grant: CeilingLevel): Promise<SeatPlan> => ({
-      id, from: world.seating, winner: 0, blocked: null, ceiling: { level: grant, hold: 'held' },
-      candidates: world.seats.map((seat, index) => ({ seat, label: seat.runtime, runtimeName: seat.runtime, state: index === 0 ? 'taken' : 'untried', reason: null, fix: null })),
-    }),
+    previewAgent: async (_root, id, _seats, grant: CeilingLevel, options): Promise<SeatPlan> => {
+      world.unattended.push(options?.unattended === true)
+      if (world.previewFails) throw new Error('The runtime could not be asked which seats it has.')
+      if (!world.available) {
+        return {
+          id, from: world.seating, winner: null, blocked: null, ceiling: null,
+          candidates: world.seats.map((seat) => ({ seat, label: seat.runtime, runtimeName: seat.runtime, state: 'passed', reason: { kind: 'unavailable', detail: 'crashed' } as never, fix: null })),
+        }
+      }
+      return {
+        id, from: world.seating, winner: 0, blocked: null, ceiling: { level: grant, hold: 'held' },
+        candidates: world.seats.map((seat, index) => ({ seat, label: seat.runtime, runtimeName: seat.runtime, state: index === 0 ? 'taken' : 'untried', reason: null, fix: null })),
+      }
+    },
     now: () => world.now,
   })
   const port: TriggerConsentPort = {
@@ -102,7 +121,8 @@ export const rig = (options: { home?: string; cipher?: CredentialCipher } = {}) 
         if (source === undefined) throw new Error(`There is no flow called "${id}".`)
         return { source, origin: 'project', path: `.harnessdesk/flows/${id}.yml` }
       },
-      preview: (root, source) => previews.freeze(root, source),
+      // As the host wires it: a trigger's closure is always read as unattended work would be seated.
+      preview: (root, source) => previews.freeze(root, source, { unattended: true }),
     }),
     account: async () => world.account ? { account: world.account } : { refused: 'The forge is not signed in.', fix: 'Sign in to the forge.' },
     repository: async () => world.repository ? { repository: world.repository } : { refused: 'No forge repository.', fix: 'Add a GitHub remote.' },

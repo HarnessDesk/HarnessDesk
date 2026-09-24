@@ -20,7 +20,7 @@ import { Admission, AGAIN_MISSING, SKIP_CHANGED, type GoalLifecycle, type OfferA
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
 import { BudgetWatch, TriggerBudgets, utcDay } from './budget.js'
-import { TriggerClosures, TriggerConsent, type ArmedTrigger, type TriggerClosure } from './consent.js'
+import { TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
 import { goalWaits, type HostWaits } from './waits.js'
@@ -173,6 +173,8 @@ export class IntakePlane {
   readonly #early = new Map<string, { started?: number; ended?: number }>()
   /** The source groups a status has named, so a source back to watching resolves its wait. */
   readonly #sources = new Map<string, TriggerSourceStatus>()
+  /** What each source read learned of its arms, by the read: gone with it. */
+  readonly #batches = new WeakMap<object, Map<string, Promise<ArmBinding | null>>>()
 
   constructor(port: IntakeHostPort) {
     this.#port = port
@@ -194,7 +196,7 @@ export class IntakePlane {
       armed: () => this.#consent.armed(),
       sources: intakeSources(this.#forge),
       cursors: new SourceCursors(port.home),
-      offer: async (arm, fact) => { await this.#offer(arm, fact) },
+      offer: async (arm, fact, batch) => { await this.#offer(arm, fact, batch) },
       wall: () => port.now(),
       monotonic: () => port.monotonic(),
       timers: this.#timers,
@@ -232,7 +234,8 @@ export class IntakePlane {
         const run = port.flows.execution(operation.run)
         if (!run) return 'This firing’s run is missing, so nothing of it was sent.'
         const verdict = this.#budgets.check(run)
-        return verdict.ok ? null : verdict.reason
+        if (!verdict.ok) return verdict.reason
+        return this.#seatsNow(operation)
       },
       supersede: (operation) => this.#supersede(operation),
     }), {
@@ -303,7 +306,12 @@ export class IntakePlane {
     const want = !this.#closed && !this.#prefs.paused && this.#problem === null && (armed > 0 || this.#budgets.live().length > 0)
     if (want) {
       this.#watch.start()
-      if (this.#meterTimer === null) this.#meterTimer = this.#timers.every(() => { void this.meter().catch(() => {}) }, METER_MS)
+      if (this.#meterTimer === null) {
+        this.#meterTimer = this.#timers.every(() => {
+          void this.meter().catch(() => {})
+          void this.#track(this.#retryHeld())
+        }, METER_MS)
+      }
     } else {
       this.#watch.close()
       if (this.#meterTimer !== null) {
@@ -362,9 +370,9 @@ export class IntakePlane {
 
   // ------------------------------------------------------------ admission
 
-  async #offer(arm: ArmedTrigger, fact: TriggerFact): Promise<OfferAnswer> {
+  async #offer(arm: ArmedTrigger, fact: TriggerFact, batch?: object): Promise<OfferAnswer> {
     if (this.#closed) throw new Error('The desk is closing.')
-    const answer = await this.#admission.offer(arm, fact)
+    const answer = await this.#admission.offer(arm, fact, batch ? { binding: () => this.#bindingOnce(batch, arm) } : {})
     this.#changed(arm.project)
     if (answer.outcome === 'fired') await this.#syncTimers()
     if (answer.outcome === 'skipped' && answer.reason !== null) {
@@ -381,6 +389,20 @@ export class IntakePlane {
     return answer
   }
 
+  /**
+   * The arm as it reads now, read once per source read: a backlog of facts
+   * asks who is signed in and which repository once, not once each. A read
+   * that failed fails every offer of that batch the same way — no answer.
+   */
+  #bindingOnce(batch: object, arm: ArmedTrigger): Promise<ArmBinding | null> {
+    let reads = this.#batches.get(batch)
+    if (!reads) this.#batches.set(batch, (reads = new Map()))
+    const key = JSON.stringify([arm.project, arm.id])
+    let read = reads.get(key)
+    if (!read) reads.set(key, (read = this.#consent.binding(arm.project, arm.id)))
+    return read
+  }
+
   /** A new head reached an open Goal: its old work stops, through the host's own interrupt. */
   async #supersede(operation: IntakeOperation): Promise<void> {
     const run = this.#port.flows.execution(operation.run)
@@ -388,6 +410,45 @@ export class IntakePlane {
     const next = operation.mode === 'again' ? 'round' : 'person'
     await this.#port.flows.supersedeTriggered(operation.run, AGAIN_MISSING, next)
     await this.#port.interrupt(operation.goal)
+  }
+
+  /**
+   * Whether this firing's Seats can be taken now — the availability an arm
+   * never binds, read again at dispatch (plan decision 4). A runtime that is
+   * down or signed out holds the firing with a named wait, never stalls or
+   * consumes it; the next pass releases it once a seat can be taken.
+   */
+  async #seatsNow(operation: IntakeOperation): Promise<string | null> {
+    const payload = operation.payload
+    if (!payload) return null
+    let closure: TriggerClosure
+    try {
+      closure = await this.#closures.freeze(operation.project, payload.definition)
+    } catch (error) {
+      return `Its Seats could not be read now (${error instanceof Error ? error.message : String(error)}), so nothing was sent. It starts on its own once they can.`
+    }
+    if (closure.availability.length === 0) return null
+    const seat = closure.preview.seats.find((one) => one.plan.blocked === null && one.plan.winner === null)
+    return `No seat can be opened for ${seat ? `“${seat.agent}”` : 'its Agent'} right now, so this firing waits. It starts on its own once one can.`
+  }
+
+  /**
+   * Firings applied and not yet let go — waiting on a seat, a pause or the
+   * cap — are offered their release again: what a pass of the timers does,
+   * so a runtime coming back or a raised cap needs nobody to press anything.
+   */
+  async #retryHeld(): Promise<void> {
+    if (this.#closed || this.#prefs.paused || !this.#dispatchReady || this.#problem !== null) return
+    let waiting: boolean
+    try {
+      waiting = this.#store.read().operations.length > 0
+    } catch {
+      return
+    }
+    if (!waiting) return
+    await this.#admission.recover().catch((error: unknown) => {
+      this.#port.log('a held trigger firing could not be released', { error: error instanceof Error ? error.message : String(error) })
+    })
   }
 
   /** What a trigger would run, frozen from the same reads its arm consented to: a run's start re-reads it. */
@@ -743,6 +804,7 @@ export class IntakePlane {
     await this.#monitor.tick(this.#port.now())
     await this.meter()
     await this.#watch.tick()
+    await this.#retryHeld()
     await this.reconcile()
   }
 

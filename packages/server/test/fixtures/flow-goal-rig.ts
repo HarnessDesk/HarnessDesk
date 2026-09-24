@@ -342,7 +342,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
           if (!frozen) throw new Error('No trigger closure was staged.')
           const compiled = rig.compile(frozen.source, frozen.agents)
           return {
-            source: frozen.source, digest: sourceDigest(`${frozen.source}${frozen.changed ? '#changed' : ''}`), bindings: [], problems: [],
+            source: frozen.source, digest: sourceDigest(`${frozen.source}${frozen.changed ? '#changed' : ''}`), bindings: [], problems: [], availability: [],
             preview: { token: null, compiled, seats: [], commands: [], guards: [], messaging: 'board-only', problems: [] },
           }
         },
