@@ -20,6 +20,7 @@ const agent = (id: string, ceiling: 'read' | 'edit' | 'publish' | 'merge' = 'edi
     answers: ['done'],
     produces: [],
     skills: [],
+    mcp: [],
     prefer: [{ runtime: 'fixture' }],
     brief: `${id} brief`,
   },

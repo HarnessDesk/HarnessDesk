@@ -52,7 +52,7 @@ export const agent = (id: string, answers: readonly string[], runtime = 'alpha',
   shadows: [],
   problems: [],
   definition: {
-    id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: [...answers], produces: [], skills: [],
+    id, name: id, ceiling: 'edit', ceilingFrom: 'ceiling', answers: [...answers], produces: [], skills: [], mcp: [],
     prefer: [{ runtime }], brief: `${id} brief`,
   },
 })
