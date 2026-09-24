@@ -197,7 +197,7 @@ it('shows the run’s status and a Decide control once a stopped run is cached, 
   const findingRuns = new Map([['run-1', {
     run: 'run-1', goal: 'g1', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
     reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
-    reviewersFinished: null, reviewersTotal: null,
+    reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   } as never]])
   const { store } = rig(state, { flowExecutions, findingRuns })
   await render(store)

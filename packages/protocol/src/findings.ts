@@ -312,6 +312,19 @@ export interface RepairPacket {
 }
 
 /**
+ * A later round's repair delta for one reviewed series, as a review card's
+ * lead — ids and revisions only, the same frozen reference `RepairPacket`
+ * carries, never a finding's own body copied into a second place.
+ */
+export interface RepairLead {
+  readonly series: string
+  readonly from: string
+  readonly to: string
+  readonly claimed: readonly FindingId[]
+  readonly unresolved: readonly FindingId[]
+}
+
+/**
  * A person's bounded decision on a stopped or stoppable run. Only `adjudicate`
  * changes a finding's lifecycle; the rest change the run's own bookkeeping or
  * hand off to an existing action (merge, drop) that this never performs
@@ -350,4 +363,8 @@ export interface FindingRunView {
    */
   readonly reviewersFinished: number | null
   readonly reviewersTotal: number | null
+  /** Later regression or security findings currently waiting on a person to admit or decline them. */
+  readonly pendingExceptions: readonly FindingId[]
+  /** This round's repair delta, one entry per reviewed series; null for a first review or a round with no packet. */
+  readonly repair: readonly RepairLead[] | null
 }

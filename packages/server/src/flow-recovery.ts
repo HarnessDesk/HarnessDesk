@@ -146,6 +146,11 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
     for (const [round, pin] of Object.entries(raw['reviewPackets'] as Record<string, unknown>)) {
       if (!/^[1-9][0-9]*$/.test(round) || !object(pin) || !text(pin['text']) || !Array.isArray(pin['pinned']) ||
         !(pin['pinned'] as unknown[]).every((one) => object(one) && text(one['cwd']) && text(one['at']))) bad('has a review packet it cannot describe')
+      // Absent on a packet pinned before repair leads existed; that packet still renders its text as it always did.
+      const packet = pin as Record<string, unknown>
+      if (packet['leads'] !== undefined && (!Array.isArray(packet['leads']) || !(packet['leads'] as unknown[]).every((one) =>
+        object(one) && text(one['series']) && text(one['from']) && text(one['to']) && texts(one['claimed']) && texts(one['unresolved']))))
+        bad('has a repair lead it cannot describe')
     }
   }
   if (raw['findings'] !== undefined) {

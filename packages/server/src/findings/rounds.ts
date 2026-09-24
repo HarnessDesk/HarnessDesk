@@ -178,6 +178,10 @@ export function closeSeries(
 export const admittedOf = (series: readonly FindingSeries[]): ReadonlySet<FindingId> =>
   new Set(series.flatMap((one) => [...one.initial, ...one.exceptions]))
 
+/** The findings currently waiting on a person to admit or decline them as exceptions. */
+export const pendingOf = (series: readonly FindingSeries[]): ReadonlySet<FindingId> =>
+  new Set(series.flatMap((one) => one.pending))
+
 // -------------------------------------------------------------- questions
 
 /** What a run records when an unattended Seat asks a question nobody is there to answer. */

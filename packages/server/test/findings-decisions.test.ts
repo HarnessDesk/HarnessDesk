@@ -71,7 +71,7 @@ const rig = async (findingsOver: Partial<FindingRunState> = {}): Promise<Rig> =>
     snapshot: {
       id: RUN, goal: GOAL, state: 'stalled', findings: startingFindings(findingsOver),
       rounds: [{ n: 1, role: 'reviewer', cards: [1], seats: ['seat-r'], evidence: [], state: 'closed', cause: 'seed', reviews: true }],
-      slots: {}, pendingFindings: 0, pinned: {},
+      slots: {}, pendingFindings: 0, pinned: {}, leads: {},
     },
     calls: { authorizeExtraRound: [], recordExceptionDecision: [], recordOverride: [], stopRun: [] },
   } as unknown as Rig
@@ -253,6 +253,71 @@ test('exception admission is explicit and scoped to currently pending ids', asyn
   assert.deepEqual(state.snapshot.findings!.series[0]!.pending, [])
   // The baseline set from before is unchanged by an exception decision.
   assert.deepEqual(state.snapshot.findings!.series[0]!.initial, ['finding-0001'])
+})
+
+test('exception admission surfaces the currently pending ids on the view, and clears them once decided', async () => {
+  const state = await rig({
+    series: [{
+      id: `reviewer@${ROOT}`, role: 'reviewer', checkout: { cwd: ROOT, branch: 'fix' }, reviewedAt: A, reviewRounds: [1],
+      initial: ['finding-0001'], exceptions: [], pending: ['finding-0002'],
+    }],
+  })
+  const before = await currentView(state)
+  assert.deepEqual(before.pendingExceptions, ['finding-0002'])
+  await state.plane.decideRun({
+    goal: GOAL, run: RUN, round: 1, stamp: before.stamp,
+    action: { kind: 'admit-exceptions', findings: ['finding-0002'] }, reason: 'reviewed and it is real',
+  })
+  const after = await currentView(state)
+  assert.deepEqual(after.pendingExceptions, [])
+})
+
+test('an exception decision naming an id that is not currently pending refuses the whole action', async () => {
+  const state = await rig({
+    series: [{
+      id: `reviewer@${ROOT}`, role: 'reviewer', checkout: { cwd: ROOT, branch: 'fix' }, reviewedAt: A, reviewRounds: [1],
+      initial: ['finding-0001'], exceptions: [], pending: ['finding-0002'],
+    }],
+  })
+  const view = await currentView(state)
+  await assert.rejects(
+    state.plane.decideRun({
+      goal: GOAL, run: RUN, round: 1, stamp: view.stamp,
+      action: { kind: 'admit-exceptions', findings: ['finding-0002', 'finding-9999'] }, reason: 'reviewed and it is real',
+    }),
+    /pending exception/,
+  )
+  // A partly-valid request is refused whole. The genuinely pending id is not admitted either.
+  assert.deepEqual(state.calls.recordExceptionDecision, [])
+  assert.deepEqual(state.snapshot.findings!.series[0]!.pending, ['finding-0002'])
+})
+
+test('a run with nothing pending refuses any exception decision, naming that there is nothing to decide', async () => {
+  const state = await rig()
+  const view = await currentView(state)
+  assert.deepEqual(view.pendingExceptions, [])
+  await assert.rejects(
+    state.plane.decideRun({
+      goal: GOAL, run: RUN, round: 1, stamp: view.stamp,
+      action: { kind: 'admit-exceptions', findings: ['finding-0001'] }, reason: 'reviewed and it is real',
+    }),
+    /pending exception/,
+  )
+  assert.deepEqual(state.calls.recordExceptionDecision, [])
+})
+
+test('a later round exposes its repair lead: from/to and the exact claimed/unresolved ids', async () => {
+  const state = await rig()
+  const lead = { series: `reviewer@${ROOT}`, from: A, to: B, claimed: ['finding-0001'], unresolved: ['finding-0003'] }
+  state.snapshot = { ...state.snapshot, leads: { '1': [lead] } }
+  const view = await currentView(state)
+  assert.deepEqual(view.repair, [lead])
+})
+
+test('a first review round, or one with no packet pinned, exposes no repair lead', async () => {
+  const state = await rig()
+  const view = await currentView(state)
+  assert.equal(view.repair, null)
 })
 
 test('a bare reason is required, and an empty or oversize one refuses before any port call', async () => {

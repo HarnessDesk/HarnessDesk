@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   sessionKey,
   type BoardEvidence,
+  type FindingRunView,
   type RuntimeInfo,
   type Session,
   type TeamState,
@@ -1143,4 +1144,43 @@ it("a card an earlier run left open is not the person's step because a new run r
   const labels = (await menuItems(1)).map((one) => one.textContent?.trim())
   expect(labels).not.toContain('Answer approve')
   expect(labels).toContain('Mark done')
+})
+
+it('repair context leads a review card: its ids and from/to come before other detail, never a stale full transcript', async () => {
+  const from = 'a'.repeat(40)
+  const to = 'b'.repeat(40)
+  const reviewCard = intent({
+    id: 7, title: 'Review the checkout fix', dispatch: 'run-9:2:0',
+    detail: 'a stale full transcript of the earlier round that should not lead the card',
+  })
+  const { store, snapshot } = rig([reviewCard])
+  const runView: FindingRunView = {
+    run: 'run-9', goal: ROOM, round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: null, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    pendingExceptions: [],
+    repair: [{ series: `reviewer@/repo`, from, to, claimed: ['finding-0001'], unresolved: ['finding-0003'] }],
+  }
+  Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })
+  await render(store)
+
+  const text = card('Review the checkout fix').textContent ?? ''
+  expect(text.indexOf('finding-0001')).toBeGreaterThan(-1)
+  expect(text).toContain(from.slice(0, 7))
+  expect(text).toContain(to.slice(0, 7))
+  expect(text).toContain('finding-0003')
+  // The repair lead is what the card's one note line shows; the card's own stale detail never appears at all.
+  expect(text).not.toContain('a stale full transcript')
+})
+
+it('a card with no repair lead pinned for its round shows its own detail as before', async () => {
+  const plainCard = intent({ id: 8, title: 'Fix the flaky test', dispatch: 'run-9:1:0', detail: 'known flaky under load' })
+  const { store, snapshot } = rig([plainCard])
+  const runView: FindingRunView = {
+    run: 'run-9', goal: ROOM, round: 1, finished: 0, total: 3, embargoed: false, open: 1, blocking: 1,
+    reason: null, stamp: 'stamp-1', publication: 'posted', reviewersFinished: null, reviewersTotal: null,
+    pendingExceptions: [], repair: null,
+  }
+  Object.assign(snapshot, { findingRuns: new Map([['run-9', runView]]) })
+  await render(store)
+  expect(card('Fix the flaky test').textContent).toContain('known flaky under load')
 })

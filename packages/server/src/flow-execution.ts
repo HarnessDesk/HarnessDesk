@@ -24,6 +24,7 @@ import type {
   GoalSeatRequest,
   Intent,
   Lane,
+  RepairLead,
   SeatRecord,
 } from '@harnessdesk/protocol'
 
@@ -75,6 +76,8 @@ export type StoredFlowExecution = FlowExecution & {
 export interface ReviewPacketPin {
   readonly text: string
   readonly pinned: readonly { readonly cwd: string; readonly at: string }[]
+  /** The same delta as `text`, as ids and revisions only — what a board card leads with, never the rendered prose. */
+  readonly leads: readonly RepairLead[]
 }
 
 /**
@@ -285,6 +288,8 @@ export interface FindingRunSnapshot {
   readonly pendingFindings: number
   /** Each later review round's pinned subject revisions: a finding or verdict there judges exactly these. */
   readonly pinned: Readonly<Record<string, readonly { readonly cwd: string; readonly at: string }[]>>
+  /** Each later review round's repair lead, by round: absent for a first review, which has no packet. */
+  readonly leads: Readonly<Record<string, readonly RepairLead[]>>
 }
 
 const policyOf = (run: StoredFlowExecution): FlowPolicy => {
@@ -479,7 +484,9 @@ export class FlowExecutions {
     })
     const pendingFindings = Object.values(run.findingOps ?? {}).filter((entry) => entry.state === 'prepared').length
     const pinned = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.pinned]))
-    return { id: run.id, goal: run.goal, state: run.state, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned }
+    // `?? []`: absent on a packet pinned before repair leads existed; that packet has no lead to show, not a crash reading it back.
+    const leads = Object.fromEntries(Object.entries(run.reviewPackets ?? {}).map(([round, pin]) => [round, pin.leads ?? []]))
+    return { id: run.id, goal: run.goal, state: run.state, findings: run.findings ?? null, rounds, slots, pendingFindings, pinned, leads }
   }
 
   /**

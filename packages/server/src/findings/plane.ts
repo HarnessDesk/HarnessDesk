@@ -42,7 +42,7 @@ import { canonical, foldFindings, isResolved, liveBlockers } from './model.js'
 import { repairPacket } from './packet.js'
 import { boundPullRequest } from './publication.js'
 import type { Publications } from './publication.js'
-import { admittedOf, advanceProgress, closeSeries, decideLoop, progressKeys, rejectedRepairs } from './rounds.js'
+import { admittedOf, advanceProgress, closeSeries, decideLoop, pendingOf, progressKeys, rejectedRepairs } from './rounds.js'
 
 /**
  * The findings plane: the one writer of the findings ledger.
@@ -955,7 +955,14 @@ export class FindingsPlane {
         evidence,
       }))
     }
-    return { text: packets.map(renderPacket).join('\n\n'), pinned: later.map(({ subject }) => ({ cwd: subject.checkout.cwd, at: subject.at })) }
+    return {
+      text: packets.map(renderPacket).join('\n\n'),
+      pinned: later.map(({ subject }) => ({ cwd: subject.checkout.cwd, at: subject.at })),
+      // Ids and revisions only, the same frozen reference the rendered text carries — never a finding's own body.
+      leads: packets.map((packet) => ({
+        series: packet.series, from: packet.from, to: packet.to, claimed: packet.claimed, unresolved: packet.unresolved,
+      })),
+    }
   }
 
   /** What a ready rule of this run also needs: its admitted blockers, a pending exception, a readable ledger. */
@@ -1014,6 +1021,8 @@ export class FindingsPlane {
       reason: snapshot.findings?.stopped?.reason ?? publication.reason,
       publication: publication.publication,
       reviewersFinished, reviewersTotal,
+      pendingExceptions: [...pendingOf(series)],
+      repair: last ? (snapshot.leads[String(last.n)] ?? null) : null,
     }
     const cwds = [...new Set(series.map((one) => one.checkout.cwd))].sort()
     const heads = await Promise.all(cwds.map(async (cwd) => ({ cwd, ...(await this.#port.headOf(cwd)) })))
@@ -1074,6 +1083,10 @@ export class FindingsPlane {
       case 'admit-exceptions':
       case 'decline-exceptions': {
         if (!this.#port.flows.recordExceptionDecision) throw new Error('This desk cannot decide a pending exception.')
+        const known = pendingOf(series)
+        if (input.action.findings.length === 0 || input.action.findings.some((id) => !known.has(id))) {
+          throw new Error('One or more of these findings are no longer a pending exception. Read the run again.')
+        }
         await this.#port.flows.recordExceptionDecision(input.run, input.action.findings, input.action.kind === 'admit-exceptions')
         break
       }

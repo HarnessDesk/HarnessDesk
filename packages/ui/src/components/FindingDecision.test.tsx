@@ -15,7 +15,7 @@ afterEach(() => { act(() => root.unmount()); container.remove() })
 const view = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
   reason: 'Round 2 ended with 1 open finding.', stamp: 'stamp-1', publication: 'posted',
-  reviewersFinished: null, reviewersTotal: null,
+  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   ...over,
 })
 
@@ -76,4 +76,44 @@ it('a local-only Goal greys Merge anyway with its reason, and Drop remains avail
   expect(merge.title).toContain('Publish a pull request')
   const drop = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Drop')! as HTMLButtonElement
   expect(drop.disabled).toBe(false)
+})
+
+it('a run with nothing pending greys both exception buttons with their reason', () => {
+  const store = rig((async () => view()) as never)
+  render(store, { goal: 'g1', view: view({ pendingExceptions: [] }), onClose: () => {} })
+  expect(document.body.textContent).toContain('No exceptions are pending.')
+  const admit = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Admit selected')! as HTMLButtonElement
+  const decline = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Decline selected')! as HTMLButtonElement
+  expect(admit.disabled).toBe(true)
+  expect(admit.title).toBe('No exceptions are pending.')
+  expect(decline.disabled).toBe(true)
+  expect(decline.title).toBe('No exceptions are pending.')
+})
+
+it('admitting a selected pending exception dispatches exactly that id, reachable from the dialog', async () => {
+  const decideFindingRun = vi.fn(async () => view())
+  const store = rig(decideFindingRun as never)
+  const onClose = vi.fn()
+  render(store, { goal: 'g1', view: view({ pendingExceptions: ['finding-0002', 'finding-0005'] }), onClose })
+
+  const admit = [...document.querySelectorAll('button')].find((one) => one.textContent === 'Admit selected')! as HTMLButtonElement
+  expect(admit.disabled).toBe(true) // nothing selected yet
+
+  const switches = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+  expect(switches).toHaveLength(2)
+  act(() => switches[0]!.click())
+  expect(admit.disabled).toBe(false)
+
+  const textarea = document.querySelector('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'reviewed and it is real')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => { admit.click() })
+  expect(decideFindingRun).toHaveBeenCalledTimes(1)
+  expect(decideFindingRun).toHaveBeenCalledWith({
+    goal: 'g1', run: 'run-1', round: 2, stamp: 'stamp-1',
+    action: { kind: 'admit-exceptions', findings: ['finding-0002'] }, reason: 'reviewed and it is real',
+  })
+  expect(onClose).toHaveBeenCalledTimes(1)
 })

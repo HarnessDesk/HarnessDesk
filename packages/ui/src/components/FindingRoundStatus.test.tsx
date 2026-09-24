@@ -12,6 +12,7 @@ afterEach(() => { act(() => root.unmount()); container.remove() })
 const view = (over: Partial<FindingRunView> = {}): FindingRunView => ({
   run: 'run-1', goal: 'g1', round: 2, finished: 1, total: 3, embargoed: false, open: 1, blocking: 1,
   reason: null, stamp: 'stamp-1', publication: 'local', reviewersFinished: null, reviewersTotal: null,
+  pendingExceptions: [], repair: null,
   ...over,
 })
 
