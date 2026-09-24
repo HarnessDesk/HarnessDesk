@@ -64,6 +64,13 @@ export interface ForgeEngine {
   identity(scope: ForgeScope): Promise<ForgeIdentity>
   /** Records what the calling conversation published, into its transcript. */
   publish(reference: ForgeReference, scope: ForgeScope): Promise<void>
+  /**
+   * Whether the calling conversation may put words on the forge now: an
+   * embargo decided by the host — a blind review round still open — in
+   * addition to, never instead of, the permission and ceiling gates. Asked
+   * before every forge mutation, with the same trusted invocation scope.
+   */
+  publicationAllowed(scope: ForgeScope): Promise<{ ok: true } | { ok: false; reason: string }>
 }
 
 const state: { engine: ForgeEngine | null } = { engine: null }
@@ -116,5 +123,10 @@ export class ForgeService extends Service {
   async publish(reference: ForgeReference, scope?: ScopeQuery): Promise<void> {
     const plugin = this.gate()
     await engine().publish(reference, asForgeScope(scope, plugin))
+  }
+
+  async publicationAllowed(scope?: ScopeQuery): Promise<{ ok: true } | { ok: false; reason: string }> {
+    const plugin = this.gate()
+    return engine().publicationAllowed(asForgeScope(scope, plugin))
   }
 }

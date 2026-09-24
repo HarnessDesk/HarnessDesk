@@ -314,3 +314,43 @@ test('when.evidence must be a list: a scalar, a map or null is a parse error, ne
   const listed = parseFlowPolicy(source('    kind: agent\n    uses: writer').replace('when: { every: done }', 'when: { every: done, evidence: [{ check: verify }] }'))
   assert.equal(listed.problems.filter((one) => one.level === 'error').length, 0)
 })
+
+// ------------------------------------------------------------- findings (phase 7)
+/*
+ * Named addition for the findings ledger: a flow's budget. YAML spells the
+ * second key `without-progress`; each is a whole number from 1 to 100; a file
+ * that names none keeps no budget in its document — a run started from it
+ * freezes the default — and a save writes the budget out explicitly.
+ */
+test('budget spelling and strict bounds', () => {
+  const withBudget = (budget: string) => `${source('    kind: agent\n    uses: writer')}${budget}\n`
+  const parsed = parseFlowPolicy(withBudget('budget: { rounds: 5, without-progress: 4 }'))
+  assert.equal(parsed.document?.format, 'agents')
+  assert.deepEqual(parsed.document!.format === 'agents' ? parsed.document!.flow.budget : null, { rounds: 5, withoutProgress: 4 })
+  // Absent: the document says nothing, so a run saved before budgets existed still reads as it was written.
+  const plain = parseFlowPolicy(source('    kind: agent\n    uses: writer'))
+  assert.equal(plain.document!.format === 'agents' && 'budget' in plain.document!.flow, false)
+  // Saved, the budget is written out — the file's own, or the default.
+  const saved = serializeFlowPolicy(parsed.document!.format === 'agents' ? parsed.document!.flow : (null as never))
+  assert.match(saved, /budget: \{ rounds: 5, without-progress: 4 \}/)
+  const defaulted = serializeFlowPolicy(plain.document!.format === 'agents' ? plain.document!.flow : (null as never))
+  assert.match(defaulted, /budget: \{ rounds: 3, without-progress: 2 \}/)
+  const reread = parseFlowPolicy(defaulted)
+  assert.deepEqual(reread.document!.format === 'agents' ? reread.document!.flow.budget : null, { rounds: 3, withoutProgress: 2 })
+  // Each bad value is refused at its own key.
+  for (const [budget, at] of [
+    ['budget: { rounds: 0, without-progress: 2 }', 'budget.rounds'],
+    ['budget: { rounds: 1.5, without-progress: 2 }', 'budget.rounds'],
+    ['budget: { rounds: 101, without-progress: 2 }', 'budget.rounds'],
+    ['budget: { rounds: "3", without-progress: 2 }', 'budget.rounds'],
+    ['budget: { rounds: 3, without-progress: 0 }', 'budget.without-progress'],
+    ['budget: { rounds: 3, without-progress: 101 }', 'budget.without-progress'],
+    ['budget: { rounds: 3, withoutProgress: 2 }', 'budget.withoutProgress'],
+    ['budget: { rounds: 3 }', 'budget.without-progress'],
+    ['budget: 3', 'budget'],
+  ] as const) {
+    const refused = errors(withBudget(budget))
+    assert.ok(refused.some((one) => one.startsWith(`${at}:`)), `${budget} → ${refused.join(' | ')}`)
+    assert.equal(parseFlowPolicy(withBudget(budget)).document, null)
+  }
+})

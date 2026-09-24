@@ -90,6 +90,7 @@ import { FlowPreviews } from './flow-preview.js'
 import { FlowUpdates } from './flow-update.js'
 import { previewAgent } from './methods/agents.js'
 import { PERSON, type TurnCause } from './ceilings/cause.js'
+import { DEFAULT_REVIEW_SIGNATURE } from '@harnessdesk/plugins'
 import { CeilingGate, type Conversation, type HeldQuestion } from './ceilings/gate.js'
 import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
@@ -110,6 +111,10 @@ import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } fr
 import { StateStore } from './state.js'
 import { EditorPlane } from './editor-plane.js'
 import { EvidencePlane } from './evidence/plane.js'
+import { GhFindingForge } from './findings/forge.js'
+import { FindingsPlane } from './findings/plane.js'
+import { Publications, type FindingForgePort } from './findings/publication.js'
+import { QuestionDeadline } from './findings/rounds.js'
 import { ProvenancePlane } from './provenance/plane.js'
 import type { GhInCheckout } from './evidence/forge.js'
 import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
@@ -322,6 +327,12 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export interface HostOptions {
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
+  /**
+   * The forge a closed round's findings are posted through. Constructor
+   * injection for tests only — a scripted transport — and absent everywhere
+   * else, where the desk's own `gh` adapter is composed.
+   */
+  readonly findingForge?: FindingForgePort
   /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
   readonly evidence?: { readonly gh?: GhInCheckout }
   readonly logger: Logger
@@ -459,6 +470,20 @@ export type Broadcast = (notification: WireNotification) => void
  */
 const REOPEN_REFUSALS_TO_LET_GO = 2
 
+/** Why a Goal takes no person decision on its findings now, or null while it is open. A snapshot read of the Goal store. */
+const findingDecisionRefusal = (store: GoalStore, goal: string): string | null => {
+  let document: ReturnType<GoalStore['read']>
+  try {
+    document = store.read(goal)
+  } catch {
+    return 'There is no such Goal on this desk.'
+  }
+  if (document.restored) return 'This Goal came from a backup. Its findings are history here; start a new Goal to decide them.'
+  if (document.goal.state === 'wrapped') return 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
+  if (document.goal.state !== 'open') return 'This Goal is being wrapped, so nothing more is decided on it.'
+  return null
+}
+
 export class Host {
   /** Desktop may restore only a persisted, unreleased lane's opaque profile. */
   browserProfileAllowed(profile: string): boolean {
@@ -540,6 +565,12 @@ export class Host {
   readonly #goalStore: GoalStore
   readonly #goalSerial = new Serial()
   readonly #goals: GoalPlane
+  /** The findings ledger's one writer: every finding event is appended through it, one project at a time. */
+  readonly #findings: FindingsPlane
+  /** The closed-round publisher: one operation at a time, journaled in each run's own file. */
+  readonly #publications: Publications
+  /** Deadlines on questions unattended flow Seats ask. */
+  readonly #questions: QuestionDeadline
   /** Historical usage is lazy and read-only until an explicitly stamped order apply. */
   readonly #insight: InsightPlane
   readonly #turnInsight = new InsightContexts()
@@ -760,6 +791,7 @@ export class Host {
         record: (runtime, sessionId, item) => this.#recordPublication(runtime, sessionId, item),
         toolsOffered: () =>
           this.options.extensions?.list('tool', {}).some((tool) => tool.name === 'pr_create') ?? false,
+        embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
       },
       options.forge ?? {},
     )
@@ -982,6 +1014,135 @@ export class Host {
       },
     }), review)
     this.#team.attachFlows(this.#flows)
+    /*
+     * Lock order. Five queues order the desk's writes; a holder may only ask
+     * for a queue to its right, and never waits on one to its left:
+     *
+     *   publication  →  run  →  Team  →  Goal  →  project
+     *
+     * - publication (`Publications`, one desk-wide queue of forge operations):
+     *   takes a run queue for each journal transition and the project queue
+     *   for a ledger read or a post event, holding neither across a remote call.
+     * - run (`FlowExecutions`' `SerialRun`, one per flow run): may seat or
+     *   release a Seat and create a Goal (the Goal queue), write the board
+     *   (Team), and run a finding command, gate, packet or publication decision
+     *   (the project queue). Never the publication queue: a closed round's
+     *   batch is decided in the run queue but sent from its own.
+     * - Team (the board's write chain): a board save runs in the Goal queue.
+     * - Goal (the host's `#goalSerial`): may read the ledger and append a
+     *   carry (the project queue). Everything it reads of a run — its state,
+     *   its overrides, what posting left unsettled — is a snapshot that takes
+     *   no queue (`Publications.gaps`, `status`); a wrap waits for posting to
+     *   settle (`settledFor`) before it takes this queue, never inside it.
+     * - project (`FindingsPlane`'s queue, one per canonical project): the
+     *   evidence store only. It asks for nothing.
+     *
+     * A run seating a card holds run → Goal; a wrap preview holds Goal and
+     * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
+     * and `goal-wrap.test.ts` hold both sides at once.
+     */
+    /* Read lazily, like the review wiring above: nothing here runs until a
+       Seat calls a finding tool or a person carries findings, well after the
+       constructor has made every plane it names. */
+    this.#findings = new FindingsPlane({
+      store: this.#evidence.store,
+      seats: this.#evidence.seats,
+      flows: {
+        binding: (goal, card, caller) => this.#flows.findingBinding(goal, card, caller),
+        candidate: (id, card, scope) => this.#flows.heldCandidate(id, card, scope),
+        journal: (run, step) => this.#flows.withFindingJournal(run, step),
+        pending: () => this.#flows.pendingFindings(),
+        run: (run) => this.#flows.findingRun(run),
+        subjects: (goal, round) => this.#flows.subjectsOf(goal, round),
+        recordClose: (run, round, next) => this.#flows.recordRoundClose(run, round, next),
+        blindRounds: (goal) => this.#flows.blindRounds(goal),
+        facts: async (goal) => {
+          const state = this.#goalState(goal)
+          return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+        },
+        seriesOfGoal: (goal) => this.#flows.seriesOfGoal(goal),
+        overridesOfGoal: (goal) => this.#flows.overridesOfGoal(goal),
+        authorizeExtraRound: (run, round, reason) => this.#flows.authorizeExtraRound(run, round, reason),
+        recordExceptionDecision: (run, findings, admit) => this.#flows.recordExceptionDecision(run, findings, admit),
+        recordOverride: (run, override) => this.#flows.recordOverride(run, override),
+        stopRun: (run, reason) => this.#flows.stopRun(run, reason),
+        recordDecisionStamp: (run, stamp, key) => this.#flows.recordDecisionStamp(run, stamp, key),
+        decide: (run, step) => this.#flows.withDecision(run, step),
+      },
+      goals: { carry: (input, prepare) => this.#goals.carryFindings(input, prepare) },
+      goalClosed: (goal) => findingDecisionRefusal(this.#goalStore, goal),
+      projectOf: async (goal) => {
+        const state = this.#goalState(goal)
+        return projectOf(state.cwd ?? state.root)
+      },
+      headOf: async (cwd) => {
+        const revision = await revisionOf(cwd)
+        return revision ? { at: revision.head, dirty: revision.dirty } : { at: null, dirty: false }
+      },
+      now: () => Date.now(),
+      changed: (goal) => {
+        this.#evidence.announce(goal)
+        this.#push({ method: 'finding/changed', params: { goal, revision: Date.now() } })
+      },
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#team.attachFindings(this.#findings)
+    this.#publications = new Publications({
+      journal: (run, step) => this.#flows.withPublicationJournal(run, step),
+      runs: () => this.#flows.publicationRuns(),
+      run: (run) => {
+        const snapshot = this.#flows.findingRun(run)
+        return snapshot ? { goal: snapshot.goal, rounds: snapshot.rounds, pendingFindings: snapshot.pendingFindings } : null
+      },
+      entry: (key) => this.#flows.publicationEntry(key),
+      snapshot: (run) => this.#flows.publicationOf(run),
+      roundClosed: (run, round) => this.#flows.roundClosed(run, round),
+      goal: (goal) => {
+        try {
+          const document = this.#goalStore.read(goal)
+          return { open: document.goal.state === 'open', preference: document.goal.findingPublication }
+        } catch {
+          return null
+        }
+      },
+      projectOf: async (goal) => {
+        const state = this.#goalState(goal)
+        return projectOf(state.cwd ?? state.root)
+      },
+      facts: async (goal) => {
+        const state = this.#goalState(goal)
+        return this.#evidence.factsForGoal(goal, await projectOf(state.cwd ?? state.root))
+      },
+      ledger: (project) => this.#findings.ledgerOf(project),
+      seat: (id) => this.#evidence.seats.byId(id),
+      template: () => this.#reviewSignature(),
+      appendPost: (input) => this.#findings.appendPost(input),
+      forge: options.findingForge ?? new GhFindingForge(),
+      now: () => Date.now(),
+      log: (message, details) => this.#logger.warn(message, details ?? {}),
+    })
+    this.#findings.attachPublisher(this.#publications)
+    this.#flows.onRunStopped((run) => this.#publications.cancel(run, 'The run was stopped before this was posted, so it stays on the desk.'))
+    // Every round close of a run with findings bookkeeping is processed by the ledger's writer before the run goes on.
+    this.#flows.onRoundClosed((run, round) => this.#findings.roundClosed(run, round))
+    this.#flows.attachFindingsGate((run) => this.#findings.gate(run))
+    this.#flows.attachReviewPackets((run, round, role, subjects) => this.#findings.packetFor(run, round, role, subjects))
+    /* An unattended Seat's question: nobody is there to answer it, so after
+       twenty seconds its turn is interrupted once — what it already said is
+       kept — and its run stops for a person with the reason. It is never
+       answered on anyone's behalf. */
+    this.#questions = new QuestionDeadline({
+      setTimer: (fire, ms) => { const timer = setTimeout(fire, ms); timer.unref?.(); return timer },
+      clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+      interrupt: async (key) => {
+        const [runtime, sessionId] = splitQuestionKey(key)
+        await this.registry.get(runtimeId(runtime), makeSessionId(sessionId))?.live?.interrupt()
+      },
+      stop: async (key, reason) => {
+        const [runtime, sessionId] = splitQuestionKey(key)
+        await this.#flows.stopForQuestion(runtime, sessionId, reason)
+      },
+    })
     this.#flowPreviews = new FlowPreviews({
       confine: (root) => this.#confineRoom(root),
       // `root` here is already a confined, real project path — the same one
@@ -1067,7 +1228,11 @@ export class Host {
       waits: () => false,
       stranded: (goal: string, card: number) => this.#goalStranded(goal, card),
       held: (goal: string) => this.#goalState(goal).channel.some((entry) => entry.kind === 'message' && entry.state === 'held'),
-      settledFor: (goal: string) => this.#evidence.settledFor(goal),
+      settledFor: async (goal: string) => {
+        await this.#evidence.settledFor(goal)
+        // A wrap waits for its findings' posting to end: posted, skipped, or a gap a person records.
+        await this.#publications.settleForWrap(goal)
+      },
       answer: (seat: SeatRecord) => this.#goalAnswer(seat),
       revision: async (cwd: string) => {
         const revision = await revisionOf(cwd)
@@ -1162,8 +1327,18 @@ export class Host {
       holdBoard: (goal: string, reason: string) => this.#team.holdBoard(goal, reason),
       finish: (goal: string, operation: string) => this.#finishGoalOperation(goal, operation),
       finishWrap: (operation) => this.#finishGoalWrap(operation),
+      findings: async (goal: string) => {
+        const { receipt, gaps } = await this.#findings.receiptWithGaps(goal)
+        return {
+          receipt,
+          // What a person skipped is recorded as it is; what is still unsettled asks the person at the wrap.
+          gaps: [...gaps, ...this.#publications.recordedGaps(goal)],
+          publication: await this.#publications.gaps(goal),
+        }
+      },
     } satisfies GoalPlanePort
     this.#goals = new GoalPlane(this.#goalStore, goalPort, this.#goalSerial)
+    this.#goals.attachFindings((records) => this.#findings.appendCarry(records))
     this.#goals.attachLanes(this.#lanes, () => this.#lanePreferences())
     this.#catalogs = new CatalogRefresher({
       ...(options.catalogRefreshMs !== undefined ? { intervalMs: options.catalogRefreshMs } : {}),
@@ -1241,6 +1416,12 @@ export class Host {
    * so that key is still read for team — an install made before this keeps
    * the board rules it was left with.
    */
+  /** The person's review signature template, as the Git plugin's stored settings hold it; the shipped one otherwise. */
+  #reviewSignature(): string {
+    const stored = this.#storedPluginSettings('git')?.['reviewSignature']
+    return typeof stored === 'string' ? stored : DEFAULT_REVIEW_SIGNATURE
+  }
+
   #storedPluginSettings(id: string): Record<string, unknown> | null {
     const preferences = this.#state.state.preferences
     const all = preferences['pluginSettings']
@@ -1469,6 +1650,13 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    // After the runs: a finding command a stop left part-way is settled from
+    // its run's own journal, before any Seat can ask for another.
+    await this.#findings.recover()
+    // Then posting: a send a stop interrupted is read back from the forge, never sent again.
+    await this.#publications.recover().catch((error: unknown) => {
+      this.#logger.warn('closed rounds could not be queued for posting again', { error: error instanceof Error ? error.message : String(error) })
+    })
     // Both room and flow recovery can change a Goal's activity. Seed the
     // in-memory comparison point only after they have settled, so the first
     // later change can cross the notification boundary normally.
@@ -1624,7 +1812,10 @@ export class Host {
        held tool call across a quit is a turn that never ends. */
     this.#team.stopWaiting('the desk is closing')
     for (const answer of [...this.#heldAnswers.values()]) answer('unanswered')
+    this.#questions.close()
     await this.#flows.flush()
+    await this.#publications.idle()
+    await this.#findings.close()
     await this.#team.flush()
     await this.#provenanceStart
     await this.#provenance.close().catch(() => {
@@ -2269,6 +2460,16 @@ export class Host {
       agents: this.#agents,
       seating: this.#machineSeating,
       evidence: this.#evidence,
+      findings: {
+        list: (input) => this.#findings.list(input),
+        read: (input) => this.#findings.read(input),
+        carry: (input) => this.#findings.carry(input),
+        setPublication: (goal, revision, enabled) => this.#goals.update(goal, revision, { findingPublication: enabled }),
+        run: (input) => this.#findings.runView(input.run),
+        decide: (input) => this.#findings.decideRun(input),
+        publications: (input) => this.#findings.publications(input),
+        publish: (input) => this.#findings.publish(input),
+      },
       provenance: {
         read: (root, shas) => this.#provenance.read(root, shas),
         status: (root) => this.#provenance.status(root),
@@ -3129,6 +3330,7 @@ export class Host {
     nameOf: (runtime, sessionId) => this.#conversationName(runtime, sessionId),
     say: (runtime, sessionId, text) => void this.#say(runtime, sessionId, text),
     askPerson: (runtime, sessionId, question) => this.#askPerson(runtime, sessionId, question),
+    embargoOf: (runtime, sessionId) => this.#findings?.embargoOf(runtime, sessionId) ?? null,
   })
 
   /** A reported child conversation to the conversation that delegated it. */
@@ -4340,6 +4542,14 @@ export class Host {
     if (event.type === 'approval/requested') {
       const verdict = this.#applyPolicy(runtime, event.approval)
       if (verdict) return
+      // A question, not a yes/no: from a Seat nobody watches, it gets a deadline.
+      if ((event.approval.type === 'userInput' || event.approval.type === 'elicitation') &&
+        this.#flows.unattended(String(runtime), String(event.approval.sessionId))) {
+        this.#questions.asked(questionKey(String(runtime), String(event.approval.sessionId)), String(event.approval.id))
+      }
+    }
+    if (event.type === 'approval/resolved') {
+      this.#questions.answered(questionKey(String(runtime), String(event.sessionId)), String(event.approvalId))
     }
     // A denial, noticed while the original approval is still in the
     // registry (`registry.apply` below deletes it). The team plane holds
@@ -5391,3 +5601,10 @@ export const isDirectory = async (path: string): Promise<boolean> => {
  * Worded from the runtime's own presentation, so the message is true for
  * whichever runtime was asked and never names one the host has not met.
  */
+
+/** One conversation, as a question deadline keys it. */
+const questionKey = (runtime: string, sessionId: string): string => `${runtime}\u0000${sessionId}`
+const splitQuestionKey = (key: string): [string, string] => {
+  const at = key.indexOf('\u0000')
+  return [key.slice(0, at), key.slice(at + 1)]
+}

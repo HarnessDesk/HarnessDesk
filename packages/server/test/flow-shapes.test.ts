@@ -11,21 +11,21 @@ import { compileFlowPolicy, parseFlowPolicy } from '../src/flow-policy.js'
 import { tempDir } from './scratch.js'
 
 /**
- * Eight shapes, over the same three step kinds — agent, check, person — none
- * of it read by an engine that branches on which shape a file is. The seven
+ * Nine shapes, over the same three step kinds — agent, check, person — none
+ * of it read by an engine that branches on which shape a file is. The eight
  * shipped starting points parse and compile clean against the real Agents
  * that ship, and renaming every role and reordering equivalent declarations
  * changes nothing about what a shape expands or transitions to: shape is
  * data, never an id the engine inspects.
  *
- * The eighth — "unattended" — is not a shipped catalogue entry: it is a
+ * The ninth — "unattended" — is not a shipped catalogue entry: it is a
  * topology this phase can only start by hand, with the trigger a later phase
  * would add recorded here as a comment and a piece of test metadata, never
  * as a switch this engine reads. Phase 8 owns the trigger; this owns proving
  * the shape itself is ordinary data today.
  */
 
-const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest']
+const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr']
 
 /** What a later phase would need to actually start this shape unattended — recorded, not implemented. */
 const FUTURE_TRIGGER_REQUIREMENTS: Readonly<Record<string, string>> = {
@@ -53,10 +53,10 @@ const compileShape = (source: string, agents: readonly AgentEntry[]) => {
   return compiled
 }
 
-test('the seven shipped flows parse, and name only Agents that actually ship', async () => {
+test('the eight shipped flows parse, and name only Agents that actually ship', async () => {
   const agents = await agentsOf()
   const files = (await readdir(builtinFlowRoot())).filter((name) => /\.ya?ml$/i.test(name)).map((name) => name.replace(/\.ya?ml$/i, ''))
-  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the seven named shapes ship, nothing else')
+  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the eight named shapes ship, nothing else')
   for (const id of SHIPPED) {
     const source = await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8')
     const compiled = compileShape(source, agents)

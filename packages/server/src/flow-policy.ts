@@ -1,8 +1,10 @@
 import {
+  DEFAULT_FLOW_BUDGET,
   isCeilingLevel,
   type AgentEntry,
   type CompiledFlow,
   type FlowAgentRole,
+  type FlowBudget,
   type FlowCheck,
   type FlowDocument,
   type FlowEvidenceGuard,
@@ -28,7 +30,10 @@ const DEFAULT_TIMEOUT = 900
 const DEFAULT_REARM = 3
 const REARM_LIMIT = 120
 
-const ROOT_FIELDS = new Set(['version', 'name', 'description', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'layout'])
+const ROOT_FIELDS = new Set(['version', 'name', 'description', 'inputs', 'roles', 'rules', 'seed', 'messaging', 'wait', 'rearm', 'budget', 'layout'])
+const BUDGET_FIELDS = new Set(['rounds', 'without-progress'])
+/** The most rounds a budget may name, either key. */
+const BUDGET_LIMIT = 100
 const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf'])
 const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd'])
 const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd'])
@@ -170,6 +175,36 @@ const readEvidence = (value: unknown, at: string, problems: FlowProblem[]): Flow
   return out
 }
 
+/**
+ * A run's budget: `rounds` closed rounds in all and `without-progress`
+ * closed rounds in a row with no new evidence, each a whole number from 1 to
+ * 100, both named. Only those two keys: anything else — including the
+ * internal spelling `withoutProgress` — is refused at its own key.
+ */
+const readBudget = (value: unknown, problems: FlowProblem[]): FlowBudget | undefined => {
+  const record = asRecord(value)
+  if (!record) {
+    problems.push(problem('error', 'budget', 'budget is a map: { rounds: 3, without-progress: 2 }'))
+    return undefined
+  }
+  unknownKeys(record, BUDGET_FIELDS, 'budget', problems)
+  const bound = (key: 'rounds' | 'without-progress'): number | null => {
+    const raw = record[key]
+    if (raw === undefined || raw === null) {
+      problems.push(problem('error', `budget.${key}`, `say "${key}" as a whole number from 1 to ${BUDGET_LIMIT}`))
+      return null
+    }
+    if (typeof raw !== 'number' || !Number.isSafeInteger(raw) || raw < 1 || raw > BUDGET_LIMIT) {
+      problems.push(problem('error', `budget.${key}`, `"${key}" must be a whole number from 1 to ${BUDGET_LIMIT}`))
+      return null
+    }
+    return raw
+  }
+  const rounds = bound('rounds')
+  const withoutProgress = bound('without-progress')
+  return rounds === null || withoutProgress === null ? undefined : { rounds, withoutProgress }
+}
+
 const readInputs = (value: unknown, problems: FlowProblem[]): FlowInput[] => {
   if (value === undefined || value === null) return []
   const input = asRecord(value)
@@ -263,11 +298,13 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
   const seed = readThen(root['seed'], 'seed', problems)
   const wait = integer(root['wait'], 'wait', problems, DEFAULT_WAIT, 1, DEFAULT_TIMEOUT)
   const rearm = root['rearm'] === undefined ? undefined : integer(root['rearm'], 'rearm', problems, DEFAULT_REARM, 0, REARM_LIMIT)
+  // Absent stays absent: a document read back from a run saved before budgets must read exactly as it was written.
+  const budget = root['budget'] === undefined ? undefined : readBudget(root['budget'], problems)
   const messaging = root['messaging'] === undefined ? 'board-only' : root['messaging']
   if (messaging !== 'board-only' && messaging !== 'members') problems.push(problem('error', 'messaging', 'messaging is board-only or members'))
   const inputs = readInputs(root['inputs'], problems)
   if (!seed || problems.some((one) => one.level === 'error')) return null
-  const policy: FlowPolicy = { version: 2, name: asText(root['name'])?.trim() || 'Flow', ...(asText(root['description'])?.trim() ? { description: asText(root['description'])!.trim() } : {}), inputs, roles, rules, seed, messaging: messaging === 'members' ? 'members' : 'board-only', wait, ...(rearm === undefined ? {} : { rearm }), ...(root['layout'] === undefined ? {} : { layout: root['layout'] }) }
+  const policy: FlowPolicy = { version: 2, name: asText(root['name'])?.trim() || 'Flow', ...(asText(root['description'])?.trim() ? { description: asText(root['description'])!.trim() } : {}), inputs, roles, rules, seed, messaging: messaging === 'members' ? 'members' : 'board-only', wait, ...(rearm === undefined ? {} : { rearm }), ...(budget === undefined ? {} : { budget }), ...(root['layout'] === undefined ? {} : { layout: root['layout'] }) }
   validatePolicy(policy, problems)
   return problems.some((one) => one.level === 'error') ? null : policy
 }
@@ -436,6 +473,9 @@ export const serializeFlowPolicy = (policy: FlowPolicy): string => {
   }
   lines.push(`messaging: ${policy.messaging}`, `wait: ${policy.wait}`)
   if (policy.rearm !== undefined) lines.push(`rearm: ${policy.rearm}`)
+  // Written out on every save, the default included: the file then says what its runs will stop at.
+  const budget = policy.budget ?? DEFAULT_FLOW_BUDGET
+  lines.push(`budget: { rounds: ${budget.rounds}, without-progress: ${budget.withoutProgress} }`)
   if (policy.layout !== undefined) lines.push(`layout: ${JSON.stringify(policy.layout)}`)
   return `${lines.join('\n')}\n`
 }

@@ -407,6 +407,38 @@ it('Board opens in the right half, not as a second pane', async () => {
   expect(store.openTeamBoard).not.toHaveBeenCalled()
 })
 
+const GOAL: GoalView = {
+  goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'open', revision: 1, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: null },
+  activity: 'working', waitingOn: [], members: [], board: state, receipt: null, problem: null,
+} as unknown as GoalView
+
+it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  const loadFindings = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { loadFindings })
+  await render(store)
+
+  act(() => row('Findings').click())
+  await act(async () => {})
+  expect(container.textContent).toContain('Findings')
+  expect(loadFindings).toHaveBeenCalledWith(ROOM, 'all')
+
+  // Board and Chat, the rail's other two destinations, are unaffected.
+  act(() => row('Board').click())
+  await act(async () => {})
+  expect(container.textContent).toContain('Migrate auth callers')
+})
+
+it('a plain conversation room shows no Findings row and never asks for one', async () => {
+  const { store } = rig(undefined, undefined, {}, null)
+  const loadFindings = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { loadFindings })
+  await render(store)
+
+  expect([...container.querySelectorAll('[data-slot="list-row"]')].some((one) => one.textContent?.includes('Findings'))).toBe(false)
+  expect(loadFindings).not.toHaveBeenCalled()
+})
+
 it('a post goes to the conversation the audience names', async () => {
   const { store } = rig()
   await render(store)
@@ -1732,4 +1764,35 @@ it('a name or a mode set in another view is drawn here when the room’s state a
   expect(row('Mender').textContent).toContain('messages held')
   // From the push alone: the roster was not asked for again.
   expect(store.teamPeers).toHaveBeenCalledTimes(1)
+})
+
+/*
+ * A wrapped Goal's receipt is where its unresolved findings are carried
+ * from, and where each is opened: the carry action and the finding's own
+ * history are reached from there, not from anywhere a live Goal draws.
+ */
+it('a wrapped Goal’s receipt offers to carry its unresolved findings and opens a finding’s history', async () => {
+  const A = 'a'.repeat(40)
+  const unresolved = {
+    id: 'finding-open', origin: { goal: ROOM, run: 'run-1', round: 2, card: 1, seat: 'seat-1', at: A }, ownerGoal: ROOM,
+    title: 'Still open', body: '', category: 'ordinary', blocking: true, related: null, anchor: null,
+    lifecycle: { state: 'open', confirmed: false, repairs: [] }, sequence: 1, evidence: [], posted: [], restored: false, problem: null,
+  }
+  const receipt = {
+    version: 1, id: 'receipt-1', goal: ROOM, sentence: 'Checkout rewrite', wrappedAt: 1, summary: 'Done.',
+    cards: [], seats: [], evidence: [], answers: [], lanes: [], citations: [], gaps: [], revisions: [],
+    findings: { version: 1, evidence: [], overrides: [], findings: [unresolved] },
+  }
+  const goal = {
+    goal: { id: ROOM, root: '/repo', cwd: '/repo', sentence: 'Checkout rewrite', state: 'wrapped', revision: 5, checkout: 'shared', dependsOn: [], origin: { kind: 'person' }, createdAt: 1, updatedAt: 1, receipt: 'receipt-1' },
+    activity: null, waitingOn: [], members: [], board: state, receipt, problem: null,
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, goal)
+  Object.assign(store, { readFinding: vi.fn(async () => ({ finding: unresolved, records: [], seat: null, next: null, problem: null })) })
+  await render(store)
+  const carry = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Carry unresolved findings…')
+  expect(carry).toBeDefined()
+  const opener = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('finding-open'))!
+  await act(async () => { opener.click() })
+  expect(store.readFinding).toHaveBeenCalledWith(ROOM, 'finding-open')
 })

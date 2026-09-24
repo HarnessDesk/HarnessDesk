@@ -2,6 +2,8 @@ import { isCeilingLevel, type FlowRun, type FlowSeatRecord, type Intent, type Se
 
 import { parseFlowPolicy } from './flow-policy.js'
 import { sourceDigest, type StoredFlowExecution } from './flow-execution.js'
+import { findingJournalOf } from './findings/journal.js'
+import { publicationOf } from './findings/publication.js'
 
 /**
  * What a run read back at launch may do next, and why not when it may not.
@@ -137,6 +139,48 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
       if (!/^[1-9][0-9]*$/.test(round) || !object(plan) || !text(plan['context']) || !(plan['refused'] === null || text(plan['refused'])) ||
         !Array.isArray(plan['targets']) || !(plan['targets'] as unknown[]).every((target) =>
           object(target) && text(target['cwd']) && (target['at'] === null || text(target['at'])))) bad('has a check plan it cannot describe')
+    }
+  }
+  if (raw['reviewPackets'] !== undefined) {
+    if (!object(raw['reviewPackets'])) bad('has unreadable review packets')
+    for (const [round, pin] of Object.entries(raw['reviewPackets'] as Record<string, unknown>)) {
+      if (!/^[1-9][0-9]*$/.test(round) || !object(pin) || !text(pin['text']) || !Array.isArray(pin['pinned']) ||
+        !(pin['pinned'] as unknown[]).every((one) => object(one) && text(one['cwd']) && text(one['at']))) bad('has a review packet it cannot describe')
+      // Absent on a packet pinned before repair leads existed; that packet still renders its text as it always did.
+      const packet = pin as Record<string, unknown>
+      if (packet['leads'] !== undefined && (!Array.isArray(packet['leads']) || !(packet['leads'] as unknown[]).every((one) =>
+        object(one) && text(one['series']) && text(one['from']) && text(one['to']) && texts(one['claimed']) && texts(one['unresolved']))))
+        bad('has a repair lead it cannot describe')
+    }
+  }
+  if (raw['findings'] !== undefined) {
+    const findings = raw['findings'] as Record<string, unknown>
+    if (!object(findings) || findings['version'] !== 1 || !object(findings['budget']) || !integer((findings['budget'] as Record<string, unknown>)['rounds']) ||
+      !integer((findings['budget'] as Record<string, unknown>)['withoutProgress']) || !Array.isArray(findings['closedRounds']) ||
+      !(findings['closedRounds'] as unknown[]).every(integer) || !integer(findings['idleRounds']) || !texts(findings['progress']) ||
+      !Array.isArray(findings['series']) || !(findings['stopped'] === null || object(findings['stopped'])) ||
+      !(findings['extraRound'] === null || object(findings['extraRound'])) || !Array.isArray(findings['overrides']) ||
+      // Absent on a run saved before this field existed; that run keeps its old behaviour, per phase 7 decision 7.
+      !(findings['lastDecision'] === undefined || findings['lastDecision'] === null || object(findings['lastDecision'])))
+      bad('has findings bookkeeping it cannot describe')
+    for (const series of findings['series'] as unknown[]) {
+      if (!object(series) || !text(series['id']) || !text(series['role']) || !object(series['checkout']) ||
+        !(series['reviewedAt'] === null || text(series['reviewedAt'])) || !Array.isArray(series['reviewRounds']) ||
+        !texts(series['initial']) || !texts(series['exceptions']) || !texts(series['pending'])) bad('has a review series it cannot describe')
+    }
+  }
+  if (raw['publication'] !== undefined) {
+    try {
+      publicationOf(raw['publication'])
+    } catch (error) {
+      bad(error instanceof Error ? error.message : String(error))
+    }
+  }
+  if (raw['findingOps'] !== undefined) {
+    try {
+      findingJournalOf(raw['findingOps'])
+    } catch (error) {
+      bad(error instanceof Error ? error.message : String(error))
     }
   }
   const compiled = raw['compiled']

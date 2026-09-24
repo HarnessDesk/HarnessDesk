@@ -44,6 +44,15 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
        separately-ceilinged step (a merge role's own `grant: merge`). */
     review_candidates: 'read',
     record_review: 'read',
+    /* Structured speech about a review, like `record_review`: a finding is a
+       claim the ledger records, not a publication. Which card, Seat and
+       revision it may speak for comes from the claim binding the host
+       resolves, never from this level; posting a finding is a separate,
+       host-owned step a person's Goal preference authorizes. */
+    raise_finding: 'read',
+    repair_finding: 'read',
+    decide_finding: 'read',
+    list_findings: 'read',
   },
   checkpoint: { create_checkpoint: 'edit', list_checkpoints: 'read' },
   web: { fetch_url: 'read' },
@@ -84,6 +93,22 @@ export const DESK_TOOLS: Readonly<Record<string, Readonly<Record<string, Ceiling
     ].map((name) => [name, 'read' as const]),
   ),
 }
+
+/**
+ * The desk tools that put words on a forge where other people read them. A
+ * Seat reviewing in a blind round that has not closed may call none of them —
+ * nor may a conversation it delegated to — whatever its ceiling: its
+ * findings are posted with the round, together, once every reviewer has
+ * finished. A ceiling says what a Seat may ever do; this says what it may not
+ * do yet.
+ */
+export const EMBARGOED_TOOLS: Readonly<Record<string, readonly string[]>> = {
+  git: ['pr_review', 'pr_comment', 'issue_comment'],
+}
+
+/** Whether a tool is one a blind round's embargo holds back: only a shipped plugin's, by its own identity. */
+export const publishesToForge = (tool: Pick<ToolContribution, 'name'>, plugin: PluginInstance | undefined): boolean =>
+  plugin?.identity.source.kind === 'builtin' && (EMBARGOED_TOOLS[plugin.identity.id]?.includes(tool.name) ?? false)
 
 /** What a desk tool above read does, in the words its refusal uses. */
 export const TOOL_WORDS: Readonly<Record<string, { readonly doing: string; readonly ask: string }>> = {

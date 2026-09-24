@@ -35,6 +35,8 @@ const baseEngine = (): Omit<TeamEngine, 'reviewCandidates' | 'recordReview'> => 
   handoff: async () => 'x',
   status: async () => 'x',
   send: async () => 'x',
+  // Phase 7's finding verbs: present on every engine, unused here.
+  raiseFinding: async () => { throw new Error('not used here') }, repairFinding: async () => { throw new Error('not used here') }, decideFinding: async () => { throw new Error('not used here') }, listFindings: async () => [],
 })
 
 test('review_candidates and record_review ride their own invocation or are refused: the child cannot impersonate', async () => {

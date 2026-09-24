@@ -65,7 +65,12 @@ import {
   type FlowStartRequest,
   type FlowUpdatePreview,
   type FlowUpdateResult,
+  type CarryFindingsInput,
   type CeilingLevel,
+  type FindingDetailPage,
+  type FindingRunView,
+  type FindingPublicationsView,
+  type FindingView,
   type FlowRun,
   type FlowSeat,
   type GoalCreateInput,
@@ -73,6 +78,7 @@ import {
   type GoalReceipt,
   type GoalSeatRequest,
   type GoalView,
+  type HostParams,
   type Lane,
   type LanePreferences,
   type SessionPointer,
@@ -95,6 +101,7 @@ import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
 import { coalesce } from '../lib/coalesce'
+import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOf, splitContext, wrapContext } from '../lib/context-envelope'
 import { readEditorPrefs } from '../lib/editor-prefs'
@@ -512,6 +519,10 @@ export class AppStore {
         if (notification.method === 'goal/changed') {
           this.#goalEvents += 1
           this.#keepGoal(notification.params.view)
+        }
+        if (notification.method === 'finding/changed') {
+          // Invalidation only, never a claim's body: reload the affected Goal, coalesced against a burst of these.
+          this.#findingsRefresh(notification.params.goal)
         }
         if (notification.method === 'flow/changed') {
           // Whole, for the reason the board is: a round opening changes what
@@ -3814,6 +3825,125 @@ export class AppStore {
 
   openGoal(goal: string): void {
     this.openDefaultView({ kind: 'room', room: goal })
+  }
+
+  // ---------------------------------------------------------------- findings
+
+  /** Late-request discarding: the last call for a Goal wins, by generation rather than arrival order. */
+  #findingsLoads = new Map<string, number>()
+  /** One coalesced reload per Goal, built lazily: several `finding/changed` in one burst reload it once. */
+  #findingsRefreshers = new Map<string, () => void>()
+
+  #findingsRefresh(goal: GoalId): void {
+    let trigger = this.#findingsRefreshers.get(goal)
+    if (!trigger) {
+      trigger = coalesce(() => {
+        const current = this.#snapshot.findings.get(goal)
+        if (current) void this.loadFindings(goal, current.filter)
+        for (const run of this.#snapshot.findingRuns.values()) {
+          if (run.goal === goal) void this.loadFindingRun(goal, run.run)
+        }
+      })
+      this.#findingsRefreshers.set(goal, trigger)
+    }
+    if (this.#snapshot.findings.has(goal) || [...this.#snapshot.findingRuns.values()].some((run) => run.goal === goal)) trigger()
+  }
+
+  #withFindings(goal: GoalId, state: FindingsListState): void {
+    const findings = new Map(this.#snapshot.findings)
+    findings.set(goal, state)
+    this.#patch({ findings })
+  }
+
+  /**
+   * A page of a Goal's findings. With no cursor this is a fresh first page —
+   * a filter change is a fresh read, never a slice of what is cached — and
+   * the previous rows stay on screen, marked loading, until it lands. With a
+   * cursor this appends to the cached rows of that same filter. A response
+   * from a superseded call — the filter changed again, or a newer read for
+   * this Goal is already in flight — is discarded rather than shown.
+   */
+  async loadFindings(goal: GoalId, filter: FindingFilter = 'all', cursor?: string): Promise<void> {
+    const generation = (this.#findingsLoads.get(goal) ?? 0) + 1
+    this.#findingsLoads.set(goal, generation)
+    const previous = this.#snapshot.findings.get(goal)
+    const appending = cursor !== undefined && previous !== undefined && previous.filter === filter
+    const base = appending ? previous! : (previous?.filter === filter ? previous : emptyFindingsState(filter))
+    this.#withFindings(goal, { ...base, loading: !appending, loadingMore: appending, error: null })
+    try {
+      const page = await this.transport.request('finding/list', {
+        goal, filter, ...(cursor !== undefined ? { cursor } : {}),
+      })
+      if (this.#findingsLoads.get(goal) !== generation) return
+      const onto = appending ? this.#snapshot.findings.get(goal) : undefined
+      this.#withFindings(goal, {
+        filter, rows: appending ? [...(onto?.rows ?? []), ...page.rows] : page.rows,
+        next: page.next, totals: page.totals, problem: page.problem,
+        loading: false, loadingMore: false, error: null, stale: false,
+      })
+    } catch (error) {
+      if (this.#findingsLoads.get(goal) !== generation) return
+      const kept = this.#snapshot.findings.get(goal) ?? emptyFindingsState(filter)
+      this.#withFindings(goal, { ...kept, loading: false, loadingMore: false, error: describe(error), stale: true })
+    }
+  }
+
+  /** One finding's history. Not cached in the snapshot: the detail panel owns its own request and its own paging. */
+  async readFinding(goal: GoalId, finding: string, cursor?: string): Promise<FindingDetailPage> {
+    return this.transport.request('finding/read', { goal, finding, ...(cursor !== undefined ? { cursor } : {}) })
+  }
+
+  async carryFindings(input: CarryFindingsInput): Promise<readonly FindingView[]> {
+    const views = await this.transport.request('finding/carry', input)
+    // The target's cache, if any, is of a ledger that just gained rows it did not read: drop it rather than patch it.
+    this.#findingsLoads.set(input.goal, (this.#findingsLoads.get(input.goal) ?? 0) + 1)
+    if (this.#snapshot.findings.has(input.goal)) {
+      const findings = new Map(this.#snapshot.findings)
+      findings.delete(input.goal)
+      this.#patch({ findings })
+    }
+    return views
+  }
+
+  /**
+   * The Goal's publication preference. Never written optimistically: the
+   * cached Goal only ever reflects a confirmed value, so a refusal here
+   * leaves the last confirmed one in place for the Switch to fall back to.
+   */
+  async setFindingPublication(goal: GoalId, revision: number, enabled: boolean): Promise<GoalView> {
+    const view = await this.transport.request('finding/publication', { goal, revision, enabled })
+    this.#keepGoal(view)
+    return view
+  }
+
+  /** A run's findings, as a person reads and decides them. */
+  async loadFindingRun(goal: GoalId, run: string): Promise<void> {
+    const view = await this.transport.request('finding/run', { goal, run })
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(run, view)
+    this.#patch({ findingRuns })
+  }
+
+  async decideFindingRun(input: HostParams<'finding/decide'>): Promise<FindingRunView> {
+    const view = await this.transport.request('finding/decide', input)
+    const findingRuns = new Map(this.#snapshot.findingRuns)
+    findingRuns.set(input.run, view)
+    this.#patch({ findingRuns })
+    return view
+  }
+
+  /** A run's postings that need a person, and the rounds kept on the desk. Not cached: the panel owns its request. */
+  async readFindingPublications(goal: GoalId, run: string): Promise<FindingPublicationsView> {
+    return this.transport.request('finding/publications', { goal, run })
+  }
+
+  /** Post again, skip or backfill; the run's own view is read again after, since its publication state moved. */
+  async publishFinding(input: HostParams<'finding/publish'>): Promise<FindingPublicationsView> {
+    try {
+      return await this.transport.request('finding/publish', input)
+    } finally {
+      void this.loadFindingRun(input.goal, input.run).catch(() => {})
+    }
   }
 
   // ------------------------------------------------------------------- flows

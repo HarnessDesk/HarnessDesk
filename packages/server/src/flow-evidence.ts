@@ -329,6 +329,42 @@ export function evidenceGuard(guards: readonly FlowEvidenceGuard[], context: Flo
   return { state: 'matched', evidence: [...evidence], subjects }
 }
 
+// ------------------------------------------------------------ ready and findings
+
+/**
+ * What the findings ledger says about a run, for a ready rule: how many of
+ * its admitted blocking findings are still unresolved, whether a regression
+ * or security claim is waiting for a person, and whether the ledger could be
+ * read whole. Missing evidence is never an empty blocking set.
+ */
+export interface FindingsGate {
+  readonly blockers: number
+  readonly pending: boolean
+  readonly unreadable: boolean
+}
+
+export const WAITING_FINDINGS = (count: number): string =>
+  `Waiting for ${count} open blocking finding${count === 1 ? '' : 's'} to be confirmed resolved.`
+export const WAITING_EXCEPTION = 'Waiting for a person to review a new regression or security finding.'
+export const WAITING_LEDGER = 'Some findings could not be read, so this cannot be ready. A person has to look.'
+
+/**
+ * A rule's evidence, with the findings ledger's say for a run that keeps one.
+ * A ready rule — one with evidence guards — also needs zero unresolved
+ * admitted blockers and no pending exception; with those clear, its guards
+ * are judged exactly as before, so clearing findings never stands in for a
+ * fresh check, CI or review. `findings` undefined is a run saved before the
+ * ledger, judged as it always was.
+ */
+export function readyGuard(guards: readonly FlowEvidenceGuard[], context: FlowEvidenceContext, findings?: FindingsGate | null): FlowGuardResult {
+  if (guards.length > 0 && findings !== undefined) {
+    if (findings === null || findings.unreadable) return { state: 'waiting', reason: WAITING_LEDGER }
+    if (findings.pending) return { state: 'waiting', reason: WAITING_EXCEPTION }
+    if (findings.blockers > 0) return { state: 'waiting', reason: WAITING_FINDINGS(findings.blockers) }
+  }
+  return evidenceGuard(guards, context)
+}
+
 // ------------------------------------------------------------------- review
 
 /**
@@ -392,9 +428,10 @@ export interface FlowReviewPort {
  * bound to the frozen subject snapshot they were read from — never an
  * arbitrary Git revision a caller could name directly.
  *
- * Findings, publishing and forge posting are absent by design: these records
- * stay local, judged by a claim and a candidate this process itself minted,
- * never by parsing what an agent said.
+ * Publishing and forge posting are absent by design: these records stay
+ * local, judged by a claim and a candidate this process itself minted, never
+ * by parsing what an agent said. The findings ledger (`findings/plane.ts`)
+ * raises and decides against the same held candidates (`held`).
  */
 export class FlowReview implements FlowReviewPort {
   readonly #port: ReviewSubjectPort
@@ -464,6 +501,29 @@ export class FlowReview implements FlowReviewPort {
       out.push(candidate)
     }
     return out
+  }
+
+  /**
+   * A candidate this process minted for this caller's own card, still
+   * offered, and still one of the card's current subjects — read again now,
+   * so a head that moved since it was offered is no longer this candidate.
+   * Null otherwise. The findings ledger raises and decides against exactly
+   * what `record` would: never a revision a caller names.
+   */
+  async held(candidate: string, intent: number, scope: TeamCallScope): Promise<{
+    readonly candidate: ReviewCandidate
+    readonly checkout: FlowSubject['checkout']
+    readonly goal: string
+    readonly round: number
+    readonly seat: SeatId
+  } | null> {
+    this.#sweep()
+    const bound = await this.#port.bindingFor(intent, scope)
+    if (!bound) return null
+    const held = this.#candidates.get(candidate)
+    if (!held || held.goal !== bound.goal || held.card !== intent || held.seat !== bound.seat) return null
+    if (!bound.subjects.some((one) => one.card === held.candidate.card && one.at === held.candidate.at)) return null
+    return { candidate: held.candidate, checkout: held.checkout, goal: held.goal, round: held.round, seat: held.seat }
   }
 
   /**

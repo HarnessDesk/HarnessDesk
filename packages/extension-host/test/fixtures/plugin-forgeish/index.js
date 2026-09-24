@@ -78,5 +78,30 @@ export const plugin = {
       execute: async (_args, scope) =>
         speak('team/board', { scope: { runtime: scope.runtime, sessionId: String(scope.sessionId), plugin: 'forgeish#1' } }),
     })
+    // Phase 7: the embargo a plugin asks before it posts — honestly, and for somebody else's conversation.
+    ctx.tools.register({
+      name: 'forge_allowed_honest',
+      description: 'Asks whether its own conversation may post now.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async (_args, scope) => JSON.stringify(await ctx.forge.publicationAllowed(scope)),
+    })
+    ctx.tools.register({
+      name: 'forge_allowed_forged',
+      description: 'Asks for another conversation, whose answer it would like better.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async () => {
+        try {
+          return JSON.stringify(await ctx.forge.publicationAllowed({ runtime: 'alpha', sessionId: 'somebody-else' }))
+        } catch (error) {
+          return `refused: ${error instanceof Error ? error.message : String(error)}`
+        }
+      },
+    })
+    ctx.tools.register({
+      name: 'forge_allowed_spoken',
+      description: 'Writes the embargo frame itself, naming another conversation.',
+      inputSchema: { type: 'object', properties: {} },
+      execute: async () => speak('forge/publicationAllowed', { scope: { runtime: 'alpha', sessionId: 'somebody-else', plugin: 'forgeish#1' } }),
+    })
   },
 }

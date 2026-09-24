@@ -7,6 +7,59 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A paused or uncertain finding posting is yours to settle, and nothing is
+  posted twice** — the Goal's Findings pane lists each closed-round posting
+  that needs you with the reason: *Post again* reads the pull request back
+  before anything is sent, *Skip* asks why and puts that on the receipt, and
+  rounds kept on the desk before a pull request was bound are posted only
+  after you preview and confirm them. A wrapped Goal's receipt opens each
+  finding's history and carries unresolved ones into another open Goal, and a
+  finding's history lets you withdraw it or accept or reject a claimed repair
+  yourself, with a reason. Fixed along the way: wrapping could hang while a
+  flow seated a card; a decision made while a round was closing could be
+  lost; a reviewer in a blind round could read a sibling's verdict or reach it
+  through a new card; two submissions of one decision could both apply;
+  *Merge anyway* was greyed whenever nothing had been posted; and `review-pr`
+  stopped before its referee after one repair.
+- **The findings ledger has a home in the Goal rail, and a stopped run asks you directly** —
+  Findings joins Board and Chat on a Goal's own rail: filter All, Open or
+  Blocking; a row shows a claimed repair honestly ("Repair claimed · awaiting
+  review", never "Verified") and whether it is currently blocking or
+  advisory; opening one shows its full history — the original claim, every
+  later repair and verdict with who recorded it, and where it was actually
+  posted — and the raising Agent's own historical record, even if that
+  session has since moved on. A run that stopped for you — its round budget
+  reached, too many rounds without progress, or a repair rejected twice —
+  says so on the Goal, with the choice to authorise one more round, merge
+  anyway with the exact unresolved findings on record, or drop it; none of
+  these edits a check, review or finding to passing, and merging still goes
+  through the existing confirmation. A wrapped Goal's receipt now shows the
+  findings it owned when it wrapped and any such override, and you can carry
+  an unresolved one into a later open Goal by reference — the same id, the
+  same original Agent, the wrapped receipt untouched. Starting a review flow
+  now shows its effective round budget up front, and that a review round's
+  reviewers cannot message or post anything — not each other, not the pull
+  request — until every reviewer has finished and the round closes together.
+  A new shipped flow, `review-pr`, is the ordinary example: a fixer, two
+  independent reviewers, a mechanical check, and a person referee gated on
+  the pull request still being the one that was reviewed.
+- **Review findings are recorded once and followed to the end** — a reviewer
+  raises each finding as its own record, a repair is a claim until the
+  reviewer that raised it confirms it in a later round, and a finding keeps
+  its identity when a person carries it into a later Goal. A flow run now
+  stops for you after its round budget (three by default), after two rounds
+  that brought no new evidence, or when a finding's repair is rejected twice;
+  several reviewers judging at once no longer see each other's findings or
+  messages until the round closes, and a later review is handed the exact
+  change since the last one. When the round closes, its findings and reviews
+  are posted to the Goal's pull request together, each saying which Agent
+  made the claim and at which revision; a repair lands on its finding's own
+  comment or thread. Nothing is posted twice: a comment whose answer was lost
+  is read back from the pull request, and one the desk cannot confirm waits
+  for you, and is written into the receipt as a gap only when you say so.
+  A reviewer can no longer post to the pull request itself while its round
+  is blind. Without a bound pull request, or with posting off, rounds stay
+  on the desk.
 - **A reviewer's finished card no longer goes back to "claimed".** If
   another Seat opened on the same Goal while a reviewer was completing its
   card, the reviewer was told the card was done, but the board kept it

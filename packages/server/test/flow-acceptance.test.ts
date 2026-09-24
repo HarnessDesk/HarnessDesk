@@ -52,6 +52,7 @@ rules:
   - { id: to-referee, on: judge, when: { every: [picked], evidence: [{ review: picked }] }, then: { role: referee, title: "Merge the picked change" } }
 messaging: board-only
 wait: 240
+budget: { rounds: 4, without-progress: 2 }
 `
 
 test('UC2 keeps two lanes and carries the chosen revision', async (t) => {

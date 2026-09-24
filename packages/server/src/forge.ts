@@ -43,6 +43,8 @@ export interface ForgePort {
   record(runtime: string, sessionId: string, item: PublicationItem): boolean
   /** Whether the `pr_*` tools are registered right now — the instruction names them. */
   toolsOffered(): boolean
+  /** Why a conversation may not publish to a forge yet — a blind review round still open — or null. Absent: never embargoed. */
+  embargoOf?(runtime: string, sessionId: string): string | null
 }
 
 export interface ForgePlaneOptions {
@@ -154,6 +156,19 @@ export class ForgePlane implements ForgeEngine {
   /** Forgets the cached identity — after a sign-in the desk drove, say. */
   forgetIdentity(): void {
     this.#identity = null
+  }
+
+  /**
+   * Whether the calling conversation may put words on the forge now. An
+   * embargo, in addition to every permission and ceiling: a Seat reviewing in
+   * a blind round that has not closed publishes nothing — its findings go out
+   * with the round, together. A call that names no conversation cannot be a
+   * blind reviewer's, and is answered by the gates that already hold it.
+   */
+  async publicationAllowed(scope: ForgeScope): Promise<{ ok: true } | { ok: false; reason: string }> {
+    if (!scope.runtime || !scope.sessionId) return { ok: true }
+    const reason = this.port.embargoOf?.(scope.runtime, scope.sessionId) ?? null
+    return reason === null ? { ok: true } : { ok: false, reason }
   }
 
   async publish(reference: ForgeReference, scope: ForgeScope): Promise<void> {

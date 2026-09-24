@@ -15,7 +15,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import type { TurnCause } from './cause.js'
-import { TOOL_WORDS, toolCeiling } from './tools.js'
+import { publishesToForge, TOOL_WORDS, toolCeiling } from './tools.js'
 
 /** What the tool gate needs from the host. */
 export interface CeilingGatePort {
@@ -26,6 +26,8 @@ export interface CeilingGatePort {
   nameOf(runtime: string, sessionId: string): string
   say(runtime: string, sessionId: string, text: string): void
   askPerson(runtime: string, sessionId: string, question: HeldQuestion): Promise<'allowed' | 'refused' | 'unanswered'>
+  /** Why a conversation may not publish to a forge yet — a blind review round still open — or null. */
+  embargoOf?(runtime: string, sessionId: string): string | null
 }
 
 export interface Conversation {
@@ -42,6 +44,8 @@ export interface GatedCall {
   readonly tool: string
   readonly needs: CeilingLevel
   readonly scope: ScopeQuery
+  /** True for a desk tool that posts to a forge: a blind round's embargo holds it back, for the caller and its root. */
+  readonly publishes?: boolean
 }
 
 export type Admission = { readonly admitted: true } | { readonly admitted: false; readonly refusal: string }
@@ -80,6 +84,14 @@ export class CeilingGate {
     if (runtime === undefined || sessionId === undefined) return { admitted: true }
     const root = this.port.rootOf(String(runtime), String(sessionId))
     if (root === null) return { admitted: false, refusal: unresolvedDelegationRefusal }
+    if (call.publishes) {
+      // A delegated call is held to its root's embargo too: a blind reviewer cannot publish through a helper.
+      const embargo = this.port.embargoOf?.(String(runtime), String(sessionId)) ?? this.port.embargoOf?.(root.runtime, root.sessionId) ?? null
+      if (embargo) {
+        this.port.say(root.runtime, root.sessionId, embargo)
+        return { admitted: false, refusal: embargo }
+      }
+    }
     const ceiling = this.port.ceilingOf(root.runtime, root.sessionId)
     if (ceiling && !reaches(ceiling.level, call.needs)) {
       const refusal = refusalOf(call.tool, call.needs, ceiling.level)
@@ -125,7 +137,7 @@ export class GatedRegistry implements CapabilityRegistry {
       const tool = this.inner.list('tool', scope).find((one) => one.id === id)
       if (tool) {
         const plugin = this.inner.plugins().find((one) => one.instanceId === tool.owner)
-        const admitted = await gate.admit({ tool: tool.name, needs: toolCeiling(tool, plugin), scope })
+        const admitted = await gate.admit({ tool: tool.name, needs: toolCeiling(tool, plugin), scope, publishes: publishesToForge(tool, plugin) })
         if (!admitted.admitted) return { ok: false, error: admitted.refusal }
       }
     }

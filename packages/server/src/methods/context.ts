@@ -7,7 +7,18 @@ import type {
   ArchiveFilter,
   BackupFile,
   BackupReport,
+  CarryFindingsInput,
+  FindingDecisionAction,
+  FindingDetailPage,
+  FindingId,
+  FindingPage,
+  FindingRunView,
+  FindingPublicationsView,
+  FindingPublishAction,
+  FindingView,
   FlowSeat,
+  GoalId,
+  GoalView,
   HostMethodName,
   HostParams,
   HostResult,
@@ -118,6 +129,31 @@ export interface HostContext {
    * the usage ledger (`ledger()`).
    */
   readonly evidence: EvidencePlane
+  /**
+   * The findings ledger, read and decided by a person. Narrower than the
+   * findings plane itself: a Seat's own scoped read and its raise/repair/
+   * verdict tools stay behind the Team capability (`Team.attachFindings`),
+   * never reachable through a wire method.
+   */
+  readonly findings: {
+    list(input: { readonly goal: GoalId; readonly cursor?: string; readonly filter?: 'all' | 'open' | 'blocking' }): Promise<FindingPage>
+    read(input: { readonly goal: GoalId; readonly finding: FindingId; readonly cursor?: string }): Promise<FindingDetailPage>
+    carry(input: CarryFindingsInput): Promise<readonly FindingView[]>
+    setPublication(goal: GoalId, revision: number, enabled: boolean): Promise<GoalView>
+    run(input: { readonly goal: GoalId; readonly run: string }): Promise<FindingRunView>
+    decide(input: {
+      readonly goal: GoalId
+      readonly run: string
+      readonly round: number
+      readonly stamp: string
+      readonly action: FindingDecisionAction
+      readonly reason: string
+    }): Promise<FindingRunView>
+    /** A run's postings a person has to look at, and what a backfill would post now. */
+    publications(input: { readonly goal: GoalId; readonly run: string }): Promise<FindingPublicationsView>
+    /** Post again, skip or backfill, on a run of this Goal. */
+    publish(input: { readonly goal: GoalId; readonly run: string; readonly action: FindingPublishAction }): Promise<FindingPublicationsView>
+  }
   readonly provenance: Pick<ProvenancePlane, 'read' | 'status' | 'setCapture' | 'retry' | 'seat'>
   readonly editor: EditorPlane
   readonly gateways: GatewaySupervisor
