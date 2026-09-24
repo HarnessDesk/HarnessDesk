@@ -3525,15 +3525,26 @@ export class Host {
     if (!seat) return null
     const prepared = await this.#attachments.reapply(seat, { build: runtime.info.version ?? '' })
     if (prepared) return { seat, prepared }
-    // No frozen filter to re-apply. That is the plain path — a Seat that
-    // never declared anything — only when nothing says otherwise: a frozen
-    // file there but unreadable, receipts with no filter beside them, or an
-    // Agent that declares skills or servers all mean a filter this reopen
-    // cannot honour, and it fails closed rather than open on defaults.
-    if ((await this.#attachments.lostFilter(seat.id)) || (await this.#agentDeclaresAttachments(seat))) {
-      throw new Error(
-        `This conversation's approved attachments cannot be re-applied — its record of them is missing or damaged — so it was not reopened on the agent's own defaults. Seat the Agent again instead.`,
-      )
+    const refusal = await this.#unreadableFilter(seat)
+    if (refusal) throw new Error(refusal)
+    return null
+  }
+
+  /**
+   * Why a Seat with no readable frozen filter may not be reopened or forked,
+   * or null when it simply never carried one. That is the plain path — a Seat
+   * that never declared anything — only when nothing says otherwise: a frozen
+   * file there but unreadable, or receipts with no filter beside them, mean a
+   * damaged record; no record at all while its Agent now declares skills or
+   * servers means the conversation predates attachments. Either way it fails
+   * closed rather than open on the agent's own defaults.
+   */
+  async #unreadableFilter(seat: SeatRecord): Promise<string | null> {
+    if (await this.#attachments.lostFilter(seat.id)) {
+      return 'This conversation’s record of its Agent’s approved attachments is missing or damaged, so it is not reopened or forked on the agent’s own defaults. Seat the Agent again to carry them.'
+    }
+    if (await this.#agentDeclaresAttachments(seat)) {
+      return 'This conversation was seated before Agents carried attachments, and its Agent now declares skills or servers this conversation never loaded — so it is not reopened or forked on the agent’s own defaults. Seat the Agent afresh to carry them.'
     }
     return null
   }
@@ -3568,8 +3579,13 @@ export class Host {
   /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
   async #forkRefusal(runtime: RuntimeId, id: SessionId): Promise<string | null> {
     const seat = this.#evidence.seats.latestKeptOf(runtime, id)
-    if (!seat || !(await this.#attachments.frozen(seat.id))) return null
-    return 'This conversation carries an Agent’s approved attachments, and a fork of it would run without them. Seat the Agent again instead.'
+    if (!seat) return null
+    if (await this.#attachments.frozen(seat.id)) {
+      return 'This conversation carries an Agent’s approved attachments, and a fork of it would run without them. Seat the Agent again instead.'
+    }
+    // The same checks a reopen makes: a record that cannot be read back is
+    // no licence to run a copy of the conversation unfiltered.
+    return this.#unreadableFilter(seat)
   }
 
   readonly #ceilingGate = new CeilingGate({

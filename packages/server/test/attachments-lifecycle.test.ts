@@ -392,8 +392,58 @@ for (const [what, damage, emptyAgent] of [
     await client.call('workspace/open', { path: desk.work })
     await assert.rejects(
       client.call('session/resume', { runtime: 'fake', sessionId: String(session.id) }),
-      /approved attachments cannot be re-applied/,
+      emptyAgent ? /record of its Agent’s approved attachments is missing or damaged/ : /seated before Agents carried attachments/,
     )
     assert.equal(runtime.resumes, 0, 'the runtime was never asked to reopen it')
   })
 }
+
+for (const [what, damage] of [
+  ['a damaged record', (frozen: string) => writeFile(frozen, '{"version":1,"seat":')],
+  ['receipts but no frozen record', (frozen: string) => rm(frozen)],
+] as const) {
+  test(`a fork of a Seat with ${what} is refused: it would run on the runtime’s own defaults`, async (t) => {
+    const desk = await deskWithMergeAgent(t)
+    await reviewAndApprove(desk)
+    const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work })) as Session
+    const seat = desk.harness.host.registry.attachmentSeatOf(session.runtime, session.id)!
+    // The Agent's file no longer declares anything: only the Seat's own record can refuse this.
+    await writeFile(join(desk.harness.stateDir, 'agents', 'reviewer', 'AGENT.md'), '---\nname: Reviewer\nceiling: merge\nprefer: [fake=fake-1]\n---\nRead the diff.\n')
+    await damage(join(desk.harness.stateDir, 'attachments', 'frozen', `${encodeURIComponent(seat)}.json`))
+    await assert.rejects(
+      desk.client.call('session/fork', { runtime: 'fake', sessionId: String(session.id) }),
+      /record of its Agent’s approved attachments is missing or damaged/,
+    )
+    assert.equal(desk.runtime.lastForkOptions, null, 'the runtime was never asked to fork it')
+  })
+}
+
+test('a conversation seated before its Agent declared attachments is refused in words that say so, and how to go on', async (t) => {
+  const desk = await deskWithMergeAgent(t)
+  const agentFile = join(desk.harness.stateDir, 'agents', 'reviewer', 'AGENT.md')
+  // Seated with nothing declared: no frozen record and no receipts, exactly
+  // what a conversation from before phase 12 leaves behind.
+  await writeFile(agentFile, '---\nname: Reviewer\nceiling: merge\nprefer: [fake=fake-1]\n---\nRead the diff.\n')
+  const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work })) as Session
+  await desk.halt()
+  await writeFile(agentFile, '---\nname: Reviewer\nceiling: merge\nprefer: [fake=fake-1]\nskills: [demo]\n---\nRead the diff.\n')
+
+  const runtime = capableRuntime()
+  const again = await start({ libraryHome: tempDir('hd-attach-life-predates-home-') }, desk.harness.stateDir, runtime)
+  t.after(() => stop(again))
+  const client = await Client.connect(again.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: desk.work })
+  for (const method of ['session/resume', 'session/fork'] as const) {
+    const refusal = await client.call(method, { runtime: 'fake', sessionId: String(session.id) }).then(
+      () => null,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+    assert.ok(refusal, `${method} is refused`)
+    assert.match(refusal, /seated before Agents carried attachments/, 'it names what is actually true: the record predates attachments')
+    assert.doesNotMatch(refusal, /missing or damaged/)
+    assert.match(refusal, /Seat the Agent afresh/)
+  }
+  assert.equal(runtime.resumes, 0)
+  assert.equal(runtime.lastForkOptions, null)
+})
