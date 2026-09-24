@@ -244,6 +244,10 @@ const AttachmentReviewDialog = ({
     <ConfirmDialog
       title={`Approve what ${runtimeName} would load?`}
       confirmLabel="Approve"
+      // Approving is not destroying anything, and nothing can be approved
+      // before the exact content it approves has been read and shown.
+      tone="default"
+      pending={!review}
       busy={busy}
       onCancel={onClose}
       onConfirm={() => {

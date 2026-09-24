@@ -386,6 +386,11 @@ body {
   --hd-composer-line: 20px; /* desk: 22 → 20, the interface line */
   --hd-composer-radius: 28px;
 
+  /* The tallest a dialog is ever drawn: the window, less the same gutter a
+     dialog keeps at its sides. A dialog taller than what it holds gives the
+     difference to its body, which scrolls; its question and its answers stay. */
+  --hd-dialog-max-height: calc(100dvh - 2 * var(--hd-space-6));
+
   /* Native-looking scrollbar geometry and paint. The global adapter consumes
      only these public names; the private platform palette ends here. */
   --hd-scrollbar-width: 8px;

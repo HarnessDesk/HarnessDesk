@@ -177,3 +177,32 @@ it('review asks the host for the Seat’s own runtime and names it by its presen
   expect(text).not.toContain('seat-runtime-id')
   expect(text).not.toContain('First Agent')
 })
+
+it('the review is not a destructive confirm, and Approve waits for the review it approves', async () => {
+  const view: AgentAttachmentsView = {
+    ...emptyView,
+    skillsMode: 'allowlist',
+    declarations: [{ kind: 'skill', name: 'review-checklist', identity: { kind: 'skill', name: 'review-checklist', digest: 'd'.repeat(64), source: 'library', pathLabel: '~/review-checklist' }, problem: null }],
+    support: [{ runtime: 'seat-runtime-id', build: '2', skills: 'scoped', mcp: 'scoped-gated', suppressUnapproved: true, reason: null }],
+  }
+  const snapshot = { ...SNAPSHOT, workspace: { name: 'demo', path: '/work/demo' }, runtimes: [{ id: 'seat-runtime-id', presentation: { name: 'Seat Agent' } }] } as unknown as AppSnapshot
+  let answer: (review: unknown) => void = () => {}
+  const reviewAttachments = vi.fn(() => new Promise((resolve) => { answer = resolve }))
+  const approveAttachments = vi.fn(async () => {})
+  const store = { ...storeFor(view, { reviewAttachments, approveAttachments }), getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><AgentAttachments entry={ENTRY} /></StoreProvider>))
+  await settle()
+  act(() => [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('Review'))!.click())
+  await settle()
+
+  const surface = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+  const approve = () => [...surface.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Approve')!
+  expect(approve().disabled).toBe(true)
+  act(() => approve().click())
+  expect(approveAttachments).not.toHaveBeenCalled()
+  expect(surface.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBeNull()
+  expect(approve().getAttribute('data-variant')).not.toBe('destructive')
+
+  await act(async () => { answer({ token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c' }) })
+  expect(approve().disabled).toBe(false)
+})
