@@ -4,6 +4,7 @@ import { test } from 'node:test'
 import type { AgentEntry, CeilingLevel, FlowSeat, SeatPlan } from '@harnessdesk/protocol'
 
 import { CHANGED_PREVIEW, FlowPreviews, LEGACY_START, type FlowPreviewPort } from '../src/flow-preview.js'
+import { rig as consentRig } from './fixtures/intake-consent.js'
 
 /*
  * A dry run spends nothing and opens nothing; its token authorizes exactly
@@ -145,4 +146,32 @@ test('an old-format flow mints no start token, and says to update it', async () 
   assert.equal(preview.compiled.document.format, 'legacy')
   assert.equal(preview.token, null, 'flow/start-goal starts only the Agent format, so nothing here may authorize it')
   assert.deepEqual(preview.problems.filter((one) => one.level === 'error').map((one) => one.text), [LEGACY_START])
+})
+
+// ------------------------------------------------------------ intake (phase 8)
+/*
+ * Named addition for trigger arming: a person's one-shot start token and a
+ * trigger's arm token are two different authorities, minted and redeemed by
+ * two different owners. Neither redeems the other, and the frozen preview an
+ * arm is built on mints no start token at all.
+ */
+test('trigger preview cannot reuse a person start token', async () => {
+  const intake = consentRig()
+  const flow = intake.world.flows['review-pr']!
+  // An ordinary preview's start token offered to arming: refused, nothing armed.
+  const person = await intake.previews.preview(intake.world.project, flow, {})
+  assert.ok(person.token)
+  await assert.rejects(intake.consent.arm(intake.world.project, 'review', person.token!), /Preview it again/)
+  assert.equal(await intake.consent.binding(intake.world.project, 'review'), null)
+  // An arm token offered to a public flow start: not a start token.
+  const arm = await intake.consent.preview(intake.world.project, 'review')
+  assert.ok(arm.token)
+  assert.equal(await intake.previews.redeem(arm.token!, intake.world.project, flow, {}), null)
+  // The frozen preview behind an arm is the same statement with no token, and leaves none behind.
+  const frozen = await intake.previews.freeze(intake.world.project, flow)
+  assert.equal(frozen.token, null)
+  assert.deepEqual(frozen.commands, person.commands)
+  assert.deepEqual(frozen.seats, person.seats)
+  // The person's token is still the person's: it redeems once for its own start.
+  assert.ok(await intake.previews.redeem(person.token!, intake.world.project, flow, {}))
 })

@@ -1037,6 +1037,12 @@ export class Host {
      * - project (`FindingsPlane`'s queue, one per canonical project): the
      *   evidence store only. It asks for nothing.
      *
+     * Intake adds a leaf beside project, and nothing to its left yet:
+     *
+     * - intake consent (`TriggerConsent`, one per desk): `triggers-machine.json`
+     *   and its sealed key only. It asks for nothing; an arm observes the
+     *   source before it takes this queue and re-reads what it binds inside it.
+     *
      * A run seating a card holds run → Goal; a wrap preview holds Goal and
      * reads runs only as snapshots: no cycle. `findings-publication.test.ts`
      * and `goal-wrap.test.ts` hold both sides at once.

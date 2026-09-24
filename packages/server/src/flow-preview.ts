@@ -124,7 +124,6 @@ export class FlowPreviews {
     await this.#port.confine(root)
     let actualSource = source
     let actualVars = vars
-    const problems: FlowProblem[] = []
     if (retry) {
       const saved = (await this.#port.storedRun?.(retry.run)) ?? null
       if (!saved) return emptyPreview([{ level: 'error', at: 'run', text: CHANGED_PREVIEW }])
@@ -134,9 +133,41 @@ export class FlowPreviews {
       actualSource = saved.source
       actualVars = saved.vars
     }
-    const parsed = parseFlowPolicy(actualSource)
+    const built = await this.#build(root, actualSource)
+    const errors = built.problems.filter((one) => one.level === 'error')
+    let token: string | null = null
+    // An unparsed document is the empty legacy placeholder: never a token.
+    if (errors.length === 0 && built.compiled.document.format === 'agents') {
+      token = randomUUID()
+      this.#tokens.set(token, {
+        root, source: actualSource, vars: actualVars, compiled: built.compiled, seats: built.seats, commands: built.commands,
+        expires: this.#port.now() + TOKEN_TTL_MS, ...(retry ? { retryOf: retry } : {}), consumed: false,
+      })
+    }
+    return { ...built, token }
+  }
+
+  /**
+   * The same statement a person's dry run makes, for arming a trigger: every
+   * Seat, command, guard and problem, and **no start token**. A trigger's
+   * consent is a different, durable authority owned by `TriggerConsent`; the
+   * one-shot token a person presses Start with is never minted for it, so
+   * neither can be redeemed as the other.
+   */
+  async freeze(root: string, source: string): Promise<FlowPreview> {
+    await this.#port.confine(root)
+    return { ...(await this.#build(root, source)), token: null }
+  }
+
+  /** Everything a preview says, read once; mints nothing. */
+  async #build(root: string, source: string): Promise<Omit<FlowPreview, 'token'>> {
+    const problems: FlowProblem[] = []
+    const parsed = parseFlowPolicy(source)
     problems.push(...parsed.problems)
-    if (!parsed.document) return emptyPreview(problems)
+    if (!parsed.document) {
+      const { token: _none, ...empty } = emptyPreview(problems)
+      return empty
+    }
     const agents = await this.#port.agents(root)
     const compiled = compileFlowPolicy(parsed.document, agents)
     problems.push(...compiled.problems)
@@ -160,16 +191,7 @@ export class FlowPreviews {
     const commands = commandsOf(root, compiled)
     const guards = guardsOf(compiled)
     const messaging = compiled.document.format === 'agents' ? compiled.document.flow.messaging : 'board-only'
-    const errors = problems.filter((one) => one.level === 'error')
-    let token: string | null = null
-    if (errors.length === 0) {
-      token = randomUUID()
-      this.#tokens.set(token, {
-        root, source: actualSource, vars: actualVars, compiled, seats, commands, expires: this.#port.now() + TOKEN_TTL_MS,
-        ...(retry ? { retryOf: retry } : {}), consumed: false,
-      })
-    }
-    return { token, compiled, seats, commands, guards, messaging, problems }
+    return { compiled, seats, commands, guards, messaging, problems }
   }
 
   /**

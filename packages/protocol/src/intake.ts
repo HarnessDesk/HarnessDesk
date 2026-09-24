@@ -1,4 +1,5 @@
 import type { FlowThen } from './flow.js'
+import type { FlowPreview } from './flow-policy.js'
 
 /**
  * Intake: what a project declares may open work on its own.
@@ -95,5 +96,66 @@ export interface TriggerProblem {
  */
 export interface TriggerDocument {
   readonly definitions: readonly TriggerDefinition[]
+  readonly problems: readonly TriggerProblem[]
+}
+
+// ------------------------------------------------------------------ arming
+
+/**
+ * One firing, as history shows it: which trigger, when, and what became of
+ * it. A public row, never raw event bytes. Admission (phase 8, task 4) and
+ * the history surface complete it; until then no row is ever produced.
+ */
+export interface TriggerFiring {
+  readonly id: string
+  readonly trigger: string
+  readonly at: number
+  readonly outcome: 'fired' | 'skipped' | 'duplicate'
+  readonly goal: string | null
+  readonly reason: string | null
+}
+
+/**
+ * What arming a trigger would consent to: the committed declaration, the
+ * whole flow it opens with every Seat, command, grant and messaging rule, and
+ * everything wrong with it. `token` is one-use and short-lived, and is null
+ * whenever anything would refuse. It carries no account, signature or key.
+ */
+export interface TriggerArmPreview {
+  readonly id: string
+  readonly token: string | null
+  readonly expiresAt: number | null
+  /** The file a person opens to change this: `.harnessdesk/triggers.yml`. */
+  readonly sourcePath: string
+  /** The working copy differs from what is committed; only what is committed is armed. */
+  readonly workingCopyChanged: boolean
+  readonly definition: TriggerDefinition | null
+  readonly flow: FlowPreview | null
+  readonly problems: readonly TriggerProblem[]
+  /** Money is an observed stop threshold: a turn in flight may spend past it before it stops. */
+  readonly moneyPolicy: 'observed-stop'
+}
+
+/** One declared trigger on this machine: whether it is armed, and if it cannot run, why and what fixes it. */
+export interface TriggerView {
+  readonly id: string
+  readonly definition: TriggerDefinition | null
+  readonly armed: boolean
+  readonly state: 'off' | 'armed' | 'changed' | 'refused' | 'paused'
+  readonly reason: string | null
+  readonly fix: string | null
+  readonly last: TriggerFiring | null
+  readonly openGoals: number
+}
+
+/** A project's triggers file and every trigger it declares, as this machine stands on each. */
+export interface TriggerProjectView {
+  readonly project: string
+  /** This machine's consent revision: it only grows. */
+  readonly revision: number
+  readonly path: string
+  readonly exists: boolean
+  readonly workingCopyChanged: boolean
+  readonly triggers: readonly TriggerView[]
   readonly problems: readonly TriggerProblem[]
 }
