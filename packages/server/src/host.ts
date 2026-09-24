@@ -1258,7 +1258,7 @@ export class Host {
         if (!agent) return null
         const id = makeSessionId(session)
         const record = this.registry.get(runtime as RuntimeId, id)
-        const held = record?.live ? record.session : await agent.readSession(id).catch(() => null)
+        const held = record?.live ? record.session : await this.#hostRead(agent, id).catch(() => null)
         if (!held) return null
         const project = await this.#boardRootOf(held.cwd)
         return project ? { project, busy: isBusy(held) } : null
@@ -1282,7 +1282,7 @@ export class Host {
         const runtime = this.#runtimes.get(session.runtime)
         const held = this.registry.get(session.runtime as RuntimeId, makeSessionId(session.sessionId))
         const known = held?.live ? held.session :
-          await runtime?.readSession(makeSessionId(session.sessionId)).catch(() => null)
+          runtime ? await this.#hostRead(runtime, makeSessionId(session.sessionId)).catch(() => null) : null
         if (!known) throw new Error('Choose a conversation its runtime can still open.')
         const revision = await revisionOf(known.cwd)
         const document = this.#goalStore.read(goal)
@@ -3576,6 +3576,42 @@ export class Host {
     }
   }
 
+  /**
+   * A read of a conversation whose Seat carries — or should carry — a filter,
+   * when it is not live here: never a bare `readSession`, which over ACP is a
+   * `session/load` with no filter, and an agent may start its ambient and
+   * project servers the moment a session opens, turn or no turn.
+   *
+   * Served from the transcript this host kept (rule 3: the host keeps its
+   * own). When it kept none, the conversation is opened the one way it may
+   * be — on its frozen, revalidated filter, through the same reopen a resume
+   * takes, refused exactly as that reopen refuses. `null` for a conversation
+   * that is live here already (it opened on its filter), or whose Seat never
+   * carried one: the ordinary read serves those.
+   */
+  async #scopedRead(runtime: AgentRuntime, id: SessionId): Promise<Session | null> {
+    if (this.registry.get(runtime.info.id, id)?.live) return null
+    // Being reopened right now, on its filter: the reopen's own read of what
+    // it just opened is an ordinary one (the runtime holds it live, filtered).
+    if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
+    const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
+    if (!seat) return null
+    const scoped =
+      (await this.#attachments.frozen(seat.id)) ||
+      (await this.#attachments.lostFilter(seat.id)) ||
+      (await this.#agentDeclaresAttachments(seat))
+    if (!scoped) return null
+    const kept = await this.#transcripts.recover(runtime.info.id, id)
+    if (kept) return kept
+    const live = await this.#liveFor(runtime.info.id, id)
+    return this.#transcripts.enrich(await runtime.readSession(live.id))
+  }
+
+  /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
+  async #hostRead(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+    return (await this.#scopedRead(runtime, id)) ?? runtime.readSession(id)
+  }
+
   /** Why a fork of this conversation is refused, or null: a fork would run with no filter, and a fork is not the Seat. */
   async #forkRefusal(runtime: RuntimeId, id: SessionId): Promise<string | null> {
     const seat = this.#evidence.seats.latestKeptOf(runtime, id)
@@ -4095,6 +4131,8 @@ export class Host {
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
+    const scoped = await this.#scopedRead(runtime, id)
+    if (scoped) return scoped
     try {
       return await this.#transcripts.enrich(await runtime.readSession(id))
     } catch (error) {

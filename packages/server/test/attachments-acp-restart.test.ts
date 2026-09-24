@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -24,17 +24,26 @@ import { tempDir } from './scratch.js'
 const PEER = fileURLToPath(new URL('../../../adapter-acp/dist/test/fixtures/fake-acp-agent.mjs', import.meta.url))
 const MCP = fileURLToPath(new URL('./fixtures/fake-mcp-server.mjs', import.meta.url))
 
-const peer = (store: string, version: string | null): AcpRuntime =>
+const peer = (store: string, version: string | null, opens?: string): AcpRuntime =>
   new AcpRuntime({
     id: 'rig-agent',
     name: 'Rig Agent',
     brand: 'claudecode',
     command: process.execPath,
     args: [PEER],
-    env: { FAKE_ACP_ATTACHMENTS: '1', FAKE_ACP_STORE: store, ...(version ? { FAKE_ACP_AGENT_VERSION: version } : {}) },
+    env: {
+      FAKE_ACP_ATTACHMENTS: '1',
+      FAKE_ACP_STORE: store,
+      ...(version ? { FAKE_ACP_AGENT_VERSION: version } : {}),
+      ...(opens ? { FAKE_ACP_OPENS: opens } : {}),
+    },
   })
 
-const deskAt = async (t: { after(fn: () => unknown): void }, version: string | null) => {
+const deskAt = async (
+  t: { after(fn: () => unknown): void },
+  version: string | null,
+  options: { readonly opens?: string; readonly forgetTranscripts?: boolean } = {},
+) => {
   const home = tempDir('hd-acp-restart-home-')
   const store = join(tempDir('hd-acp-restart-store-'), 'sessions.json')
   const work = tempDir('hd-acp-restart-work-')
@@ -61,8 +70,9 @@ const deskAt = async (t: { after(fn: () => unknown): void }, version: string | n
   }
   client.close()
   await halt(first)
+  if (options.forgetTranscripts) await rm(join(first.stateDir, 'transcripts'), { recursive: true, force: true })
 
-  const again = await start({ libraryHome: home }, first.stateDir, peer(store, version) as unknown as FakeRuntime)
+  const again = await start({ libraryHome: home }, first.stateDir, peer(store, version, options.opens) as unknown as FakeRuntime)
   t.after(() => stop(again))
   const reopened = await Client.connect(again.server)
   t.after(() => reopened.close())
@@ -97,3 +107,28 @@ test('a restart onto a different build says the approval no longer covers it, an
     assert.doesNotMatch(one.reason ?? '', /Loading failed/)
   }
 })
+
+const loadsOf = async (opens: string, sessionId: string) =>
+  (await readFile(opens, 'utf8').catch(() => ''))
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as { method: string; sessionId: string; filtered?: boolean })
+    .filter((one) => one.method === 'session/load' && one.sessionId === sessionId)
+
+for (const [how, forgetTranscripts] of [
+  ['from the transcript this desk kept', false],
+  ['when this desk kept no transcript of it', true],
+] as const) {
+  test(`after a restart, reading a filtered Seat’s conversation never opens it on the agent unfiltered — ${how}`, async (t) => {
+    const opens = join(tempDir('hd-acp-restart-opens-'), 'opens.ndjson')
+    const { again, client, session, seat } = await deskAt(t, '1.0.0', { opens, forgetTranscripts })
+    const read = (await client.call('session/read', { runtime: 'rig-agent', sessionId: String(session.id) })) as Session
+    assert.ok(read.turns.length > 0, 'the read still shows the conversation')
+    const afterRead = await loadsOf(opens, String(session.id))
+    assert.deepEqual(afterRead.filter((one) => !one.filtered), [], 'the peer never saw an unfiltered load of this Seat’s conversation')
+    await client.call('session/resume', { runtime: 'rig-agent', sessionId: String(session.id) })
+    const loads = await loadsOf(opens, String(session.id))
+    assert.ok(loads.length > 0 && loads.every((one) => one.filtered), JSON.stringify(loads))
+    assert.deepEqual(statuses(await again.host.attachmentsPlane.read(seat))?.slice(-2), ['skill:loaded', 'mcp:loaded'])
+  })
+}

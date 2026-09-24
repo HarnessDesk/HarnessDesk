@@ -51,9 +51,12 @@ const STORE = process.env.FAKE_ACP_STORE ?? null
 const UNLISTED = new Set((process.env.FAKE_ACP_UNLISTED ?? '').split(',').filter(Boolean))
 const LIST_PAGE = Number(process.env.FAKE_ACP_LIST_PAGE ?? 0)
 const NO_LIST = process.env.FAKE_ACP_NO_LIST === '1'
-const recordOpen = (method, sessionId, cwd) => {
+const recordOpen = (method, sessionId, cwd, meta) => {
   if (process.env.FAKE_ACP_OPENS) {
-    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd })}\n`)
+    // With the attachment extension on, each line also says whether the open
+    // carried a Seat's filter — the one fact a test of "never unfiltered" needs.
+    const filtered = process.env.FAKE_ACP_ATTACHMENTS === '1' ? { filtered: Boolean(meta?.harnessdesk?.attachments) } : {}
+    appendFileSync(process.env.FAKE_ACP_OPENS, `${JSON.stringify({ method, sessionId, cwd, ...filtered })}\n`)
   }
 }
 const CONFIG_MODEL_ONLY = process.env.FAKE_ACP_CONFIG_MODEL_ONLY === '1'
@@ -889,7 +892,7 @@ const handlers = {
       } catch {}
     }
     const state = newSession(undefined, params?.cwd)
-    recordOpen('session/new', state.id, params?.cwd)
+    recordOpen('session/new', state.id, params?.cwd, params?._meta)
     if (ATTACHMENTS && params?._meta?.harnessdesk?.attachments) {
       attachmentsBySession.set(state.id, params._meta.harnessdesk.attachments.input)
     }
@@ -1017,7 +1020,7 @@ const handlers = {
     reply(id, { sessions: rows.slice(from, from + LIST_PAGE), ...(next !== null ? { nextCursor: next } : {}) })
   },
   'session/load': (id, params) => {
-    recordOpen('session/load', params.sessionId, params.cwd)
+    recordOpen('session/load', params.sessionId, params.cwd, params?._meta)
     const store = readStore()
     const entry = store[params.sessionId]
     if (!entry) return fail(id, `no stored session ${params.sessionId}`, { details: 'the store has no such id' })
