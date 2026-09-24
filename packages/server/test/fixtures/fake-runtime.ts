@@ -724,6 +724,9 @@ export class FakeRuntime implements AgentRuntime {
     if (this.resumeFailure) throw this.resumeFailure
     const existing = this.sessions.get(id)
     if (existing) return existing
+    // What a real adapter does with a reopen's filter: remembers it as what
+    // this session was given, so its receipt answers for the reopen.
+    if (options?.attachments) this.attachmentsGiven.set(String(id), options.attachments)
     const session = new FakeSession(this, id, SETTINGS, defaultValues())
     this.sessions.set(id, session)
     if (!this.minted.has(String(id))) this.minted.set(String(id), SETTINGS.cwd)
@@ -731,7 +734,10 @@ export class FakeRuntime implements AgentRuntime {
     return session
   }
 
+  lastForkOptions: Partial<SessionOptions> | null = null
+
   async forkSession(id: SessionId, options: Partial<SessionOptions> = {}): Promise<AgentSession> {
+    this.lastForkOptions = options
     return this.createSession({
       cwd: options.cwd ?? this.sessions.get(id)?.settings().cwd ?? '/w',
       ...(options.model ? { model: options.model } : {}),

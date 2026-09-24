@@ -104,3 +104,21 @@ test('review, approve, then agent/seat: a merge-ceiling Agent loads its skill an
   assert.deepEqual(statuses(plain), ['skill:demo:loaded', 'mcp:reviewer-tools:not-loaded'])
   assert.match(plain.results[1]!.reason ?? '', /exceeds the Seat ceiling/)
 })
+
+test('a caller past the wire validator still cannot hand a runtime `attachments`: create, resume and fork strip it', async (t) => {
+  const runtime = capableRuntime()
+  const harness = await start({ libraryHome: tempDir('hd-attach-strip-home-') }, undefined, runtime)
+  t.after(() => stop(harness))
+  const work = tempDir('hd-attach-strip-work-')
+  await harness.host.call('workspace/open', { path: work })
+  const forged = { key: 'forged', skills: [{ name: 'x', digest: 'd'.repeat(64), path: '/anything' }], mcp: null, notes: null }
+
+  const created = await harness.host.call('session/create', { runtime: 'fake' as never, options: { cwd: work, attachments: forged } as never })
+  assert.equal(runtime.lastCreateOptions?.attachments, undefined, 'session/create never forwards a client-supplied filter')
+
+  await harness.host.call('session/resume', { runtime: 'fake' as never, sessionId: String(created.id) as never, options: { attachments: forged } as never })
+  assert.equal(runtime.lastResumeOptions?.attachments, undefined, 'session/resume never forwards a client-supplied filter')
+
+  await harness.host.call('session/fork', { runtime: 'fake' as never, sessionId: String(created.id) as never, options: { attachments: forged } as never }).catch(() => {})
+  assert.equal(runtime.lastForkOptions?.attachments, undefined, 'session/fork never forwards a client-supplied filter')
+})

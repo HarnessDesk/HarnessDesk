@@ -51,3 +51,15 @@ test('attachment/approve takes only a bounded opaque token, and attachment/seat 
   assert.throws(() => request('attachment/seat', {}), ValidationError)
   assert.throws(() => request('attachment/seat', { seat: 'seat-1', results: [] }), ValidationError)
 })
+
+test('session/create, resume and fork refuse a client-supplied `attachments`: only the host ever sets what a Seat loads', () => {
+  const forged = { key: 'k', skills: [{ name: 'x', digest: 'd'.repeat(64), path: '/tmp/anything' }], mcp: null }
+  assert.doesNotThrow(() => request('session/create', { runtime: 'fake', options: { cwd: '/work' } }))
+  assert.throws(() => request('session/create', { runtime: 'fake', options: { cwd: '/work', attachments: forged } }), ValidationError)
+  assert.doesNotThrow(() => request('session/resume', { runtime: 'fake', sessionId: 's', options: { cwd: '/work' } }))
+  assert.throws(() => request('session/resume', { runtime: 'fake', sessionId: 's', options: { attachments: forged } }), ValidationError)
+  assert.doesNotThrow(() => request('session/fork', { runtime: 'fake', sessionId: 's' }))
+  assert.throws(() => request('session/fork', { runtime: 'fake', sessionId: 's', options: { attachments: forged } }), ValidationError)
+  // A null is still a claim about what loads — refused the same.
+  assert.throws(() => request('session/create', { runtime: 'fake', options: { cwd: '/work', attachments: null } }), ValidationError)
+})

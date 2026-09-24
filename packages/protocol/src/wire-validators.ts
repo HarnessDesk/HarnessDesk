@@ -244,6 +244,20 @@ const goalShape = <T extends Record<string, unknown>>(
   }
 }
 
+/**
+ * A session's options with the one field only the host may set refused
+ * outright, before any handler runs: `attachments` is a Seat's frozen,
+ * approved filter (phase 12), computed from trust and ceiling by the host
+ * and never accepted from a client — present at all, even `null`, it is a
+ * claim about what a conversation loads, so it is refused rather than
+ * ignored. The handlers strip it as well, for a caller that is not the wire.
+ */
+const withoutHostOnly = <T>(read: Validator<T>): Validator<T> => (value: unknown, path = '') => {
+  const object = isObject(value, path)
+  if (Object.hasOwn(object, 'attachments')) throw new ValidationError(`${path}.attachments`, 'set by the host only')
+  return read(value, path)
+}
+
 const goalId = atMost(4096, isFilled)
 const goalIdentifier = atMost(200, isFilled)
 const goalSentence: Validator<string> = (value, path = '') => atMost(2000, isFilled)(isString(value, path).trim(), path)
@@ -554,9 +568,9 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
-  'session/create': shape({ runtime: isString, options: shape({ cwd: isString }) }),
-  'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(isObject) }),
-  'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(isObject) }),
+  'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: isString })) }),
+  'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
+  'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/archive': shape({ runtime: isString, sessionId: isString, archived: isBoolean }),
   'session/delete': shape({ runtime: isString, sessionId: isString }),
   'session/close': shape({ runtime: isString, sessionId: isString }),

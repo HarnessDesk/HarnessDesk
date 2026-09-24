@@ -69,7 +69,9 @@ export const sessionMethods = {
     // discarded: the wire names a route by id, the host exchanges the
     // stored credential for a loopback gateway, and only the resolved
     // gateway address reaches the adapter.
-    const { route: _clientRoute, routeId, ...rest } = params.options as typeof params.options & {
+    // `attachments` is the host's own, like `route`: a Seat's approved filter
+    // is set by `agent/seat` alone, never by whoever calls this.
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = params.options as typeof params.options & {
       routeId?: string
     }
     let options = rest as typeof params.options
@@ -85,7 +87,7 @@ export const sessionMethods = {
   'session/resume': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
@@ -134,7 +136,7 @@ export const sessionMethods = {
   'session/fork': async (ctx, params) => {
     assertAbsoluteCwd(params.options)
     const runtime = ctx.runtimes.resolve(params)
-    const { route: _clientRoute, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
+    const { route: _clientRoute, attachments: _clientAttachments, routeId, ...rest } = (params.options ?? {}) as typeof params.options & {
       routeId?: string
     }
     let options = rest as NonNullable<typeof params.options>
