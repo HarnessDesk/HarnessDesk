@@ -375,6 +375,13 @@ export class AppStore {
     return view
   }
 
+  /** A trigger's source stopped at a gap watches from now: what changed in the gap is skipped, never replayed. */
+  async rebaselineTrigger(root: string, id: string): Promise<TriggerView> {
+    const view = await this.transport.request('trigger/rebaseline', { root, id })
+    this.#keepTriggerRevision(root, (this.#snapshot.triggerRevisions[root] ?? 0) + 1)
+    return view
+  }
+
   triggerHistory(root: string, id: string, cursor?: string): Promise<TriggerHistoryPage> {
     return this.transport.request('trigger/history', cursor === undefined ? { root, id } : { root, id, cursor })
   }

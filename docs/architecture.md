@@ -182,8 +182,12 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   — a project's committed trigger declarations, this machine's per-trigger
   consent, bounded polling of the signed-in person's own forge, and a durable
   admission journal that opens a Goal and a round through `GoalPlane` and
-  `Flows` exactly once per firing. Machine consent and its signing key are
-  excluded from backup; the declaration itself is an ordinary project file.
+  `Flows` exactly once per firing. An arm binds content only; whether a seat
+  can be taken is read again at dispatch, a pause or the daily cap holds a
+  trigger's run (`FlowIntake.heldFor`) rather than stopping it, and a firing
+  whose effects keep failing holds only its own project. Machine consent and
+  its signing key are excluded from backup; the declaration itself is an
+  ordinary project file.
 - **Background tasks** ([background-tasks.md](background-tasks.md)) — the
   agent's own long-running work, relayed from whichever runtime keeps a
   registry of it and held here so a reload does not lose sight of a job that

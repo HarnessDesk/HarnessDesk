@@ -753,7 +753,14 @@ slots). Each names what it opens — a flow or a single Agent — how firings
 group into one Goal (by pull request, issue or slot), what a later firing at
 the same head does (open a new round, or record the fact and ask a person),
 how many Goals it may have open at once, whether a fork is ever read, and a
-budget in USD, rounds, hours and rounds-without-progress. The vocabulary is
+budget in USD, rounds, hours and rounds-without-progress. An issue trigger that
+reads comments also says whose comments fire it — `from: me` (the default: only
+the forge account it is armed with), `from: collaborators` (anyone the forge
+says can write to the repository, asked once per comment), or `from: anyone` —
+compared by the forge's stable account id, never a display name; a comment
+whose author or permission cannot be read never fires, and a comment the desk
+itself posted (its first line exactly one of the desk's own markers) never
+fires whatever the trigger says. The vocabulary is
 closed on purpose: nothing in the file names a command, an environment
 variable, or a ceiling, and outside text — a PR title, an issue body, a
 comment — is bounded, untrusted prose that can never become one. It arrives
@@ -767,11 +774,20 @@ working copy differs from it, every Seat the resolved flow would open and
 every candidate passed over with why, each trusted command verbatim with its
 folder and timeout, the grouping and again behavior, whether forks are
 allowed (read-only, no command ever runs against one), the total budget, and
-what arming reserves against the machine's daily cap. That review's token is
-one-time and bound to the exact file bytes, flow, Seats, commands and forge
-account; anything about them changing invalidates it before the next review
-even lands. Arming is per machine — a declaration a project ships is not an
-arm, and disarming stops new firings without touching a Goal already open.
+what arming reserves against the machine's daily cap, and the forge
+repository it binds. The review seats each role exactly as an unattended Goal
+would be seated, so a runtime that can only ask its ceiling shows as refused
+there under the default policy, and nothing is armed that every firing would
+refuse. That review's token is one-time and bound to the exact file bytes,
+flow, Agents, commands, the Seats each role would try and the ceiling it needs,
+and the forge account; anything about them changing invalidates it before the
+next review even lands. Whether a seat can be taken this minute is not part of
+it: a runtime that is down or signed out never turns an arm into "changed" —
+the firing waits at dispatch, named, and starts once a seat can be taken.
+Arming is per machine — a declaration a project ships is not an arm, and
+disarming stops new firings without touching a Goal already open; an arm that
+changed or was refused can be switched off from the same row, or reviewed and
+armed again.
 
 **Monitoring and admission.** Once armed, the desk polls the forge as the
 signed-in person, at most once a minute per project and source, using durable
@@ -783,7 +799,15 @@ visible line in that trigger's history, newest first, and an exact duplicate
 is always named as such rather than a second round. A later push to a Goal's
 existing head stops its stale work — interrupting every live turn — before
 either opening one new round (when the trigger says `again`) or recording the
-fact and asking a person (when it does not).
+fact and asking a person (when it does not). A read the desk cannot make now
+— who is signed in, the repository, a seat plan — is no answer: the fact is
+kept and offered again, never consumed. A source that stopped at a gap (more
+changed than one read can cover) is resumed from its trigger's row with
+*Watch from now*, which skips the gap rather than replaying it. A firing whose
+effects keep failing — a project folder that moved, a run that will not start
+— holds only its own project while it is tried again, named as a wait, and
+after three tries is set aside for the person with why; every other project
+keeps running.
 
 **Budgets, the daily cap, and unattended ceilings.** Each Goal a trigger opens
 reserves its whole USD budget against the machine's daily cap the moment it
@@ -791,8 +815,14 @@ opens; the cap is set in Settings › Workspaces under "Triggers on this Mac,"
 in UTC days, alongside what is reserved and charged today — an unreadable
 charge reads as unknown, never zero, and unknown or stale spend refuses
 further unattended dispatch rather than guessing. "Pause every trigger" stops
-watching every source and interrupts every live run this started, with why;
-resuming replays nothing. Money here is an observed stop threshold, never an
+watching every source and holds the work triggers started — its turns and
+checks interrupted, nothing recorded as a stop, nothing new posted — and
+resuming continues it: a held Seat is handed its card again and what arrived
+meanwhile is read then. A daily cap lowered below what is already committed
+holds work the same way, and raising it continues it. A budget reached is a
+stop: recorded, the run stopped and every Seat it lets go interrupted, so no
+turn outlives it; a check stopped part-way is left for a person, never run
+again on its own. Money here is an observed stop threshold, never an
 invoice: a turn already running can spend past the limit before its meter
 reports and the stop takes effect. Permissions › Ceilings carries a second,
 independent policy for exactly this case — what a Goal a trigger opened does

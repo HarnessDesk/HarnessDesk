@@ -203,3 +203,12 @@ it('reconnecting leaves recorded trigger attention and revisions as they were', 
   transport.handlers.onStatus('open')
   expect(store.getSnapshot().triggerRevisions[ROOT]).toBe(3)
 })
+
+it('watching a gapped source from now calls its own host route and nudges the project to read again', async () => {
+  const view = triggerView({ armed: true, state: 'armed' })
+  request.mockResolvedValueOnce(view)
+  const before = store.getSnapshot().triggerRevisions[ROOT] ?? 0
+  await expect(store.rebaselineTrigger(ROOT, 'review-pr')).resolves.toBe(view)
+  expect(request).toHaveBeenLastCalledWith('trigger/rebaseline', { root: ROOT, id: 'review-pr' })
+  expect(store.getSnapshot().triggerRevisions[ROOT]).toBeGreaterThan(before)
+})

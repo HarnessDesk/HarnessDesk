@@ -124,6 +124,7 @@ export const triggerArmPreview = (over: Partial<TriggerArmPreview> = {}): Trigge
   flow: FIX_PREVIEW,
   problems: [],
   moneyPolicy: 'observed-stop',
+  repository: 'acme/widgets',
   ...over,
 })
 

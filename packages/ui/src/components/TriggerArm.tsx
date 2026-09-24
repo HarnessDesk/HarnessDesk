@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { AgentEntry, TriggerArmPreview, TriggerDefinition, TriggerView } from '@harnessdesk/protocol'
 
-import { Banner, Button, Chip, ConfirmDialog, KeyValue, KeyValueRow, Note, NoteList } from '../design'
-import { triggerBudgetWords, triggerSentence } from '../lib/intake'
+import { Banner, Button, ConfirmDialog, KeyValue, KeyValueRow, Note, NoteList } from '../design'
+import {
+  triggerAgainLabel, triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerProblemPlace, triggerSentence,
+} from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
@@ -18,7 +20,7 @@ export interface TriggerArmProps {
 const AGAIN_WORDS = (definition: TriggerDefinition): string =>
   definition.again === null
     ? 'Records the fact and needs a person — no new round opens on its own.'
-    : `Opens a new round: ${definition.again.title}.`
+    : `Stops the work on the old one and opens a new round: ${definition.again.title}.`
 
 const FORK_WORDS = (definition: TriggerDefinition): string =>
   definition.forks === 'allow'
@@ -66,6 +68,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
   const flowErrors = (preview?.flow?.problems ?? []).filter((one) => one.level === 'error')
   const flowWarnings = (preview?.flow?.problems ?? []).filter((one) => one.level === 'warning')
   const armable = preview !== null && preview.token !== null
+  const againLabel = preview?.definition ? triggerAgainLabel(preview.definition.on.kind) : null
 
   const arm = async (): Promise<void> => {
     if (!preview || preview.token === null || busy) return
@@ -106,7 +109,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
           <NoteList>
             {errors.map((one) => (
               <li key={`${one.at}-${one.text}`}>
-                <code>{one.at}</code> — {one.text} {one.fix}
+                <span title={one.at}>{triggerProblemPlace(one.at)}</span>: {one.text} {one.fix}
               </li>
             ))}
           </NoteList>
@@ -118,7 +121,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
           <NoteList>
             {flowErrors.map((one) => (
               <li key={`${one.at}-${one.text}`}>
-                <code>{one.at}</code> — {one.text}
+                <span title={one.at}>{triggerProblemPlace(`flow.${one.at}`)}</span>: {one.text}
               </li>
             ))}
           </NoteList>
@@ -135,9 +138,17 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
               </KeyValueRow>
             )}
             <KeyValueRow label="Declares">{triggerSentence(preview.definition)}</KeyValueRow>
-            <KeyValueRow label="Groups by">{preview.definition.goal.join(', ')}</KeyValueRow>
-            <KeyValueRow label="A new event at the same head">{AGAIN_WORDS(preview.definition)}</KeyValueRow>
-            <KeyValueRow label="Forks">{FORK_WORDS(preview.definition)}</KeyValueRow>
+            {preview.repository && <KeyValueRow label="Repository">{preview.repository}</KeyValueRow>}
+            <KeyValueRow label="Goals">{triggerGroupingWords(preview.definition.goal)}</KeyValueRow>
+            {againLabel && <KeyValueRow label={againLabel}>{AGAIN_WORDS(preview.definition)}</KeyValueRow>}
+            {preview.definition.from && (
+              <KeyValueRow label="Comments that fire it">
+                {triggerCommentWords(preview.definition.from)} Posts this desk makes never fire it.
+              </KeyValueRow>
+            )}
+            {preview.definition.on.kind === 'pull-request' && (
+              <KeyValueRow label="Forks">{FORK_WORDS(preview.definition)}</KeyValueRow>
+            )}
             <KeyValueRow label="Concurrency">
               {preview.definition.concurrency === 1 ? 'One open Goal at a time' : `Up to ${preview.definition.concurrency} open Goals at once`}
             </KeyValueRow>
@@ -146,6 +157,9 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
               Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac.
             </KeyValueRow>
           </KeyValue>
+          {preview.definition.from === 'anyone' && (
+            <Note tone="warn">Anyone who can comment on this repository will start unattended work.</Note>
+          )}
           <Note tone="warn">
             Stops when reported spend reaches the limit. Work already running can cost more before it stops.
           </Note>
@@ -161,7 +175,10 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
       )}
 
       {preview && preview.token === null && errors.length === 0 && flowErrors.length === 0 && (
-        <Chip tone="warning">This preview has expired — review it again.</Chip>
+        <Banner tone="warning" title="This preview has expired">
+          Review it again before arming.
+          <Button variant="outline" size="sm" onClick={load}>Review again</Button>
+        </Banner>
       )}
     </ConfirmDialog>
   )

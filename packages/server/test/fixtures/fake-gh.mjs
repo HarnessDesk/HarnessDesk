@@ -113,6 +113,8 @@ const answer = (state, path) => {
       created_at: iso(one.created),
       updated_at: iso(one.updated),
       html_url: `https://github.com/${state.repo}/issues/${parts[4]}#issuecomment-${one.id}`,
+      // Who wrote it: the signed-in account unless the state names someone else, nobody readable when null.
+      ...(one.user === null ? {} : { user: one.user ?? state.user }),
     }))
   }
   throw new Error(`unexpected path ${path}`)

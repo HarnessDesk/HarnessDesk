@@ -706,7 +706,10 @@ The first four rungs exist. A project names them in `triggers.yml`, in its
 `.harnessdesk` folder — a pull request, an issue, or an interval, what each
 firing opens, how firings group into one Goal, and a bounded budget — and
 that declaration runs nowhere until a person arms it on their own machine,
-with the exact flow, Seats and commands it would run shown first. Arming,
+with the exact flow, Seats and commands it would run shown first. An issue
+trigger that reads comments says whose count with `from: me | collaborators |
+anyone` (only the armed account's, by default), and a comment the desk posted
+itself never fires one. Arming,
 history and the machine's own pause and daily cap are covered in
 `docs/multi-agent.md`'s Intake section; nothing here changes how a person-started
 flow works. A webhook or an inbound message source is still undecided: Intake

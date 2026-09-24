@@ -19,7 +19,7 @@ import type { UsageSample } from '../ledger/insight.js'
 import { Admission, AGAIN_MISSING, SKIP_CHANGED, type AdmissionOptions, type GoalLifecycle, type OfferAnswer } from './admission.js'
 import { IntakeEffects, type IntakeObservationPort, type TriggerExecutionPort, type TriggerGoalPort } from './apply.js'
 import { AttentionOutbox, type AttentionInput } from './attention.js'
-import { BudgetWatch, TriggerBudgets, utcDay } from './budget.js'
+import { BudgetWatch, TriggerBudgets, utcDay, type BudgetVerdict } from './budget.js'
 import { TriggerClosures, TriggerConsent, type ArmBinding, type ArmedTrigger, type TriggerClosure } from './consent.js'
 import { usdMicros } from './definition.js'
 import { ForgeSource } from './forge.js'
@@ -546,7 +546,7 @@ export class IntakePlane {
   }
 
   /** The gate every dispatch of a trigger's run passes: its budget, read from the journal alone. */
-  gate(run: FlowExecution): { readonly ok: true } | { readonly ok: false; readonly reason: string } {
+  gate(run: FlowExecution): BudgetVerdict {
     if (this.#closed) return { ok: false, reason: 'The desk is closing, so nothing more is sent.' }
     return this.#budgets.check(run)
   }

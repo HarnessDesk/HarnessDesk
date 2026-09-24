@@ -471,3 +471,44 @@ number this design cannot back.
 **The rule:** nothing a trigger declares can become a command, a path, an
 environment key or a ceiling, and no dependency an arm was shown — file
 bytes, flow, Seats, commands, account — may change without invalidating it.
+
+## An arm binds what runs, not whether it can run now; a pause holds, a budget stops
+
+An arm is consent to content: the file, the flow, each Agent, each command,
+the seats each role would try and the ceiling it needs, and the forge
+account and repository. It is not a promise that a seat can be taken this
+minute. The first cut bound the seat plan's outcome — which candidate won
+and whether it held its ceiling — so a runtime that was down for a minute,
+or a sign-in that blinked, turned every firing in that minute into "changed
+since armed" and consumed it for good. Availability is now read again at
+dispatch (the firing waits, named, until a seat can be taken), and a read
+that cannot be made while answering a fact is no answer at all: the fact is
+kept and offered again.
+
+The same split decides pause and the daily cap. A pause, or a cap lowered
+below what is already committed, is a gate that lifts on its own, so it
+holds work — turns and checks interrupted, nothing recorded — and lifting it
+continues that work. A reached budget is not a gate: it is recorded, and a
+run it stops lets go of and interrupts every Seat, so nothing started under
+it keeps spending unmetered. The arming preview seats roles under the
+unattended policy for the same reason the binding excludes availability:
+consent has to describe what will actually run.
+
+**The rule:** bind content, recheck the world at dispatch; hold for what
+lifts on its own, stop for what does not.
+
+## Whose comment fires a trigger is the project's to say, and never the desk's own
+
+A trigger that reads issue comments started work for anyone who could
+comment, which on a public repository is anyone. The owner's decision
+(2026-09-24) is a closed, bounded `from:` — `me` by default, the account the
+arm is bound to; `collaborators`, anyone the forge says can write to the
+repository; or `anyone`, which the arming review warns about in plain words
+— because it is a product setting every user needs, not a constant. Authors
+are compared by the forge's numeric account id, digested the same way the
+arm binds the signed-in account; a login or a display name is never trusted,
+and an author or a permission that cannot be read never fires. The desk
+posts to the forge as that same account, so a comment it posted itself would
+pass `me` and fire again, a loop: any comment whose first line is exactly a
+marker the desk writes — the reconciliation rule, never a looser match —
+is skipped in every mode.

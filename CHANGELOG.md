@@ -20,11 +20,16 @@ move is real work and is not news to a person weighing an upgrade.
   reservation it would take — closable only by an explicit Arm or Cancel,
   never by a stray click or a held Return. History pages every firing, newest
   first, and always names an exact duplicate rather than a second round.
-  Settings › Workspaces adds "Triggers on this Mac": pause every trigger on
-  this machine at once — which stops watching and interrupts every live run,
-  with why — and a daily cap in USD, shown against what is reserved and
-  charged today; zero means no new paid work, and an unreadable charge reads
-  as unknown, never zero. Permissions › Ceilings adds a second policy,
+  An issue trigger that reads comments fires only on the armed account's own
+  comments unless it says `from: collaborators` or `from: anyone` (which the
+  review warns about), and nothing the desk posts itself ever fires one. A
+  runtime that is down or a sign-in that blinks never consumes a firing: it
+  waits and starts once it can. Settings › Workspaces adds "Triggers on this
+  Mac": pause every trigger on this machine at once — which stops watching
+  and holds the work triggers started, and resuming continues it — and a
+  daily cap in USD, shown against what is reserved and charged today; zero
+  means no new paid work, and an unreadable charge reads as unknown, never
+  zero. Permissions › Ceilings adds a second policy,
   answering what a Goal a trigger opened does when a runtime cannot hold a
   ceiling — refuse by default, or an explicit choice to seat it and say so —
   kept apart from the existing choice for a conversation you are watching. A

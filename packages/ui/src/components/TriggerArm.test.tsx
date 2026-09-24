@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { TriggerArmPreview, TriggerView } from '@harnessdesk/protocol'
 
 import { FLOW_SEATS, FIX_PREVIEW } from '../preview/flow-fixture'
-import { prDefinition, sceneArmPreview, triggerArmPreview, triggerView } from '../preview/intake-fixture'
+import { issueDefinition, prDefinition, sceneArmPreview, triggerArmPreview, triggerView } from '../preview/intake-fixture'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TriggerArm } from './TriggerArm'
@@ -118,7 +118,8 @@ it('shows the source path, working-copy mismatch, grouping, again behaviour, for
   expect(text).toContain('.harnessdesk/triggers.yml')
   expect(text).toContain('Changed since committed')
   expect(text).toContain('When a pull request opens or is pushed')
-  expect(text).toContain('pr')
+  expect(text).toContain('One Goal per pull request.')
+  expect(text).toContain('A new head on an open pull request')
   expect(text).toContain('Records the fact and needs a person')
   expect(text).toContain('Allowed — read-only')
   expect(text).toContain('Up to 2 open Goals at once')
@@ -137,4 +138,46 @@ it('a busy arm disables the button so a second click or a held Enter cannot arm 
   expect(armTrigger).toHaveBeenCalledTimes(1)
   await act(async () => { resolveArm(triggerView({ armed: true })) })
   expect(onArmed).toHaveBeenCalledTimes(1)
+})
+
+it('names the repository it binds, and says what a later firing does in words, not field ids', async () => {
+  await rig(triggerArmPreview({ repository: 'acme/widgets', definition: prDefinition({ again: { role: 'reviewer', title: 'Continue this work', detail: null } }) }))
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('Repository')
+  expect(text).toContain('acme/widgets')
+  expect(text).toContain('A new head on an open pull request')
+  expect(text).toContain('Stops the work on the old one and opens a new round: Continue this work.')
+  expect(text).not.toContain('A new event at the same head')
+})
+
+it('an issue trigger that reads comments says whose count, and warns when anyone’s do', async () => {
+  await rig(triggerArmPreview({ definition: issueDefinition({ on: { kind: 'issue', events: ['commented'] }, label: undefined, from: 'me' }) }))
+  let text = document.body.textContent ?? ''
+  expect(text).toContain('Comments that fire it')
+  expect(text).toContain('Only yours: comments by the forge account this trigger is armed with. Posts this desk makes never fire it.')
+  expect(text).toContain('A later event on an open issue')
+  expect(text).not.toContain('Forks')
+  expect(text).not.toContain('will start unattended work')
+  act(() => root.unmount())
+  root = createRoot(container)
+  await rig(triggerArmPreview({ definition: issueDefinition({ on: { kind: 'issue', events: ['commented'] }, label: undefined, from: 'anyone' }) }))
+  text = document.body.textContent ?? ''
+  expect(text).toContain('Anyone who can comment on the repository.')
+  expect(text).toContain('Anyone who can comment on this repository will start unattended work.')
+})
+
+it('refusals say where in words, keeping the exact path on hover', async () => {
+  await rig(sceneArmPreview('refused'))
+  expect(document.body.textContent).toContain('Trigger 1, its budget: A budget must be a positive number.')
+  expect(document.querySelector('[title="[0].budget.usd"]')).not.toBeNull()
+})
+
+it('an expired preview says so in a banner with a way to read it again, never a sentence in a chip', async () => {
+  const previewTrigger = vi.fn(async () => triggerArmPreview({ token: null, problems: [], flow: null }))
+  await rig(previewTrigger)
+  expect(document.body.textContent).toContain('This preview has expired')
+  // A chip is a word on the label's line (data-size and data-variant are what one renders): never this sentence.
+  expect([...document.querySelectorAll('[data-size][data-variant]')].some((one) => /expired/.test(one.textContent ?? ''))).toBe(false)
+  await act(async () => button('Review again')!.click())
+  expect(previewTrigger).toHaveBeenCalledTimes(2)
 })

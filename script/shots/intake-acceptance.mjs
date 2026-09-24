@@ -116,6 +116,13 @@ writeFileSync(
     '    rounds: 1',
     '    hours: 1',
     '    without-progress: 1',
+    // Comments on an issue: by default only the armed account's own, never the desk's own posts.
+    '- id: talk',
+    '  on: issue',
+    '  events: [commented]',
+    '  opens:',
+    '    agent: triager',
+    '  concurrency: 4',
     '',
   ].join('\n'),
 )
@@ -142,6 +149,9 @@ const environment = {
   HARNESSDESK_NO_UPDATE_CHECK: '1',
   HARNESSDESK_CODEX_BINARY: join(root, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
   CODEX_HOME: codexHome,
+  // The fake agent reports its plan's rolling windows, as a signed-in Codex does: unattended work refuses
+  // to dispatch against an allowance nobody can read, so without them every trigger run waits on a person.
+  FAKE_CODEX_WINDOWS: '1',
   FAKE_GH_STATE: ghState,
   FAKE_GH_TRACE: ghTrace,
 }
@@ -201,6 +211,27 @@ try {
   await shoot(cdp, 'armed')
   say('armed the trigger through the real dialog')
 
+  // The comment trigger: its review says whose comments count, and names the repository it binds.
+  await click(cdp, `document.querySelector('[role="switch"][aria-label="Arm talk"]')`)
+  await waitForSnapshot(
+    () => cdp.eval(`[...document.querySelectorAll('[role="alertdialog"] button')].find(b => b.textContent.trim() === 'Arm')?.disabled === false`),
+    Boolean,
+    { attempts: 200 },
+  )
+  const review = await cdp.eval(`document.querySelector('[role="alertdialog"]')?.textContent ?? ''`)
+  const says = (text) => { if (!review.includes(text)) throw new Error(`the comment trigger's review does not say: ${text}`) }
+  says('Comments that fire it')
+  says('Only yours: comments by the forge account this trigger is armed with. Posts this desk makes never fire it.')
+  says('acme/widgets')
+  await shoot(cdp, 'arm-review-comments')
+  await click(cdp, `[...document.querySelectorAll('[role="alertdialog"] button')].find(b => b.textContent.trim() === 'Arm')`)
+  await waitForSnapshot(
+    () => cdp.eval(`document.querySelectorAll('[aria-label="Triggers"] [role="switch"][aria-checked="true"]').length === 2`),
+    Boolean,
+    { attempts: 150 },
+  )
+  say('armed the comment trigger; its review said only the armed account’s comments count, and named acme/widgets')
+
   // A labelled issue appears on the (fake) forge.
   const state = JSON.parse(readFileSync(ghState, 'utf8'))
   state.issues.push({
@@ -213,8 +244,18 @@ try {
     events: [{ id: 1, event: 'labeled', created: Date.now(), label: 'needs-triage' }],
     comments: [],
   })
+  // Three comments on issue #43: the armed account's own, a stranger's, and one the desk itself posted.
+  const marker = `<!-- harnessdesk:finding-op pub-${'c'.repeat(48)} -->`
+  state.issues.push({
+    number: 43, state: 'open', created: Date.now(), updated: Date.now(), title: 'A question', body: '', events: [],
+    comments: [
+      { id: 4301, body: 'Please look into this.', created: Date.now(), updated: Date.now() },
+      { id: 4302, body: 'Me too.', created: Date.now(), updated: Date.now(), user: { id: 99, login: 'someone-else' } },
+      { id: 4303, body: `${marker}\n**Review round 1**`, created: Date.now(), updated: Date.now() },
+    ],
+  })
   writeFileSync(ghState, JSON.stringify(state, null, 2))
-  say('seeded a labelled issue on the fake forge; waiting for the poll to open a Goal')
+  say('seeded a labelled issue and three comments on the fake forge; waiting for the poll to open a Goal')
 
   // Intake polls at most once a minute; arming baselines the source, so the
   // newly seeded issue is only seen on the poll after this one. Generous, not
@@ -257,6 +298,32 @@ try {
     say('no Goal opened within the wait window — recorded, not faked; see app.log')
   }
 
+  // The comment rule, read back from the host: one firing for the armed account's comment, and two skips with why.
+  const talk = await waitForSnapshot(
+    () => cdp.eval(`${STORE}.triggerHistory(${q(project)}, 'talk').then((page) => page.items.length >= 3 ? page.items.map((one) => [one.outcome, one.reason]) : null)`),
+    Boolean,
+    { attempts: 900 },
+  ).catch(() => null)
+  if (!talk) throw new Error('the comment trigger answered fewer than three comments — see app.log')
+  const outcomes = talk.map(([outcome]) => outcome).sort()
+  say(`comment trigger history: ${JSON.stringify(talk)}`)
+  if (JSON.stringify(outcomes) !== JSON.stringify(['fired', 'skipped', 'skipped'])) throw new Error(`the comment rule answered ${JSON.stringify(outcomes)}`)
+  for (const why of ['someone else wrote this one', 'posted by this desk']) {
+    if (!talk.some(([, reason]) => reason?.includes(why))) throw new Error(`no skip said: ${why}`)
+  }
+  say('only the armed account’s own comment fired; the stranger’s and the desk’s own post were skipped, with why')
+
+  // Paused is a hold, not a stop: the triage Goal's run is held with why, nothing recorded as a stop.
+  const statusOf = async () => {
+    const goal = await cdp.eval(`[...${STORE}.getSnapshot().goals.values()].find(g => g.goal.origin.kind === 'trigger' && g.goal.origin.trigger === 'triage-issue')?.goal.id ?? null`)
+    if (!goal) return null
+    return cdp.eval(`${STORE}.transport.request('trigger/goal', { goal: ${q(goal)} }).then(async (status) => {
+      const page = await ${STORE}.triggerHistory(${q(project)}, 'triage-issue')
+      const run = page.items.find((one) => one.goal === ${q(goal)} && one.run)?.run
+      const execution = run ? await ${STORE}.transport.request('flow/execution', { run }) : null
+      return { stop: status?.budget?.stop ?? null, waits: (status?.waits ?? []).map((one) => one.sentence), state: execution?.state ?? null, held: execution?.intake?.heldFor ?? null, rounds: execution?.rounds.length ?? 0 }
+    })`)
+  }
   // Settings > Workspaces > Triggers on this Mac: pause every trigger.
   await cdp.eval(`${STORE}.askSettings('workspaces', 'triggers')`)
   await waitForSnapshot(
@@ -266,6 +333,8 @@ try {
   )
   await sleep(300)
   await shoot(cdp, 'machine-settings')
+  const before = goalOpened ? await statusOf() : null
+  say(`before pausing: ${JSON.stringify(before)}`)
   await click(cdp, `document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')`)
   await waitForSnapshot(
     () =>
@@ -278,6 +347,31 @@ try {
   await shoot(cdp, 'paused')
   say('paused every trigger on this machine, read back before the switch showed it')
 
+  if (goalOpened) {
+    // Only a run that is going can show a pause holding it: a run already waiting on a person proves nothing here.
+    if (before?.state !== 'running') throw new Error(`the triage run was not running before the pause: ${JSON.stringify(before)}`)
+    const held = await waitForSnapshot(async () => { const one = await statusOf(); return one?.held ? one : null }, Boolean, { attempts: 150 }).catch(() => null)
+    say(`while paused: ${JSON.stringify(held)}`)
+    if (!held) throw new Error('pausing did not hold the running work')
+    if (held.stop || held.state !== 'running') throw new Error('pausing stopped the work rather than holding it')
+    if (!held.waits.some((one) => one.includes('Every trigger is paused'))) throw new Error('the hold is not named as a wait')
+    await click(cdp, `document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')`)
+    await waitForSnapshot(
+      () => cdp.eval(`document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')?.getAttribute('aria-checked') === 'false'`),
+      Boolean,
+      { attempts: 150 },
+    )
+    const resumed = await waitForSnapshot(async () => { const one = await statusOf(); return one && !one.held ? one : null }, Boolean, { attempts: 150 }).catch(() => null)
+    say(`after resuming: ${JSON.stringify(resumed)}`)
+    if (!resumed || resumed.stop || resumed.held || !['running', 'settled'].includes(resumed.state)) throw new Error('resuming did not continue the held work')
+    if (resumed.waits.some((one) => one.includes('Every trigger is paused'))) throw new Error('the pause’s wait outlived the resume')
+    await shoot(cdp, 'resumed')
+    say('resuming let the held run go: no stop recorded, the pause’s wait resolved')
+    // Pause again for the history frame, as before.
+    await click(cdp, `document.querySelector('[aria-label="Triggers on this Mac"] [role="switch"]')`)
+    await sleep(500)
+  }
+
   // Back to the project's history.
   await cdp.eval(`${STORE}.askSettings('workspaces', ${q(project)})`)
   await waitForSnapshot(() => cdp.eval(`document.querySelector('[aria-label="Triggers"]') !== null`), Boolean, { attempts: 150 })
@@ -288,5 +382,7 @@ try {
   say(`frames saved under ${OUT} (not published)`)
 } finally {
   if (desk) await closeDesk(desk)
+  // The app's own output, kept for reading after the rig is gone.
+  if (process.env['HD_INTAKE_APP_LOG'] && existsSync(logPath)) copyFileSync(logPath, process.env['HD_INTAKE_APP_LOG'])
   rmSync(rig, { recursive: true, force: true })
 }

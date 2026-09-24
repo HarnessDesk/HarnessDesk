@@ -129,7 +129,10 @@ it('a broken declaration is listed with where and why, never hidden', async () =
     })),
   })
   await settle()
-  expect(container.textContent).toContain('[0].budget.usd')
+  // Where, in words; the exact path only on hover (review #898).
+  expect(container.textContent).toContain('Trigger 1, its budget')
+  expect(container.textContent).not.toContain('[0].budget.usd')
+  expect(container.querySelector('[title="[0].budget.usd"]')?.textContent).toBe('Trigger 1, its budget')
   expect(container.textContent).toContain('A budget must be a positive number.')
   expect(container.textContent).toContain('Will not run')
 })
@@ -191,4 +194,54 @@ it('History pages a trigger’s firings and always names an exact duplicate', as
   act(() => button('History').click())
   await settle()
   expect(container.textContent).toContain('Already recorded')
+})
+
+it('a changed or refused arm is still switched on, so it can be switched off — and reviewed to arm it again', async () => {
+  const disarmTrigger = vi.fn(async () => triggerView({ armed: false, state: 'off' }))
+  mount({
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [
+      triggerView({ state: 'changed', reason: 'The triggers file changed since it was armed.', fix: 'Review the preview and arm it again.' }),
+      triggerView({ id: 'triage-issue', definition: issueDefinition(), state: 'refused', reason: 'This machine cannot verify how this trigger was armed, so it does not run.', fix: 'Preview it and arm it again on this machine.' }),
+    ] })),
+    disarmTrigger: disarmTrigger as never,
+  })
+  await settle()
+  const toggles = [...container.querySelectorAll<HTMLElement>('[role="switch"]')]
+  expect(toggles.map((one) => one.getAttribute('aria-checked'))).toEqual(['true', 'true'])
+  act(() => toggles[0]!.click())
+  expect(disarmTrigger).toHaveBeenCalledWith(ROOT, 'review-pr')
+  await settle()
+  act(() => toggles[1]!.click())
+  expect(disarmTrigger).toHaveBeenCalledWith(ROOT, 'triage-issue')
+  await settle()
+  act(() => button('Review').click())
+  await settle()
+  expect(document.body.textContent).toContain('Arm this trigger')
+})
+
+it('a source stopped at a gap offers Watch from now, and it asks the host to watch from now', async () => {
+  const rebaselineTrigger = vi.fn(async () => triggerView({ armed: true, state: 'armed' }))
+  const store = mount({
+    projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({
+      armed: true, state: 'armed',
+      source: {
+        project: ROOT, source: 'pull-request', state: 'gap', lastPolledAt: 1, skipped: 0,
+        reason: 'More changed than one read can cover, so watching this source stopped.',
+        fix: 'Resume it to watch from now: what changed in the gap is skipped, not replayed.',
+      },
+    })] })),
+    rebaselineTrigger: rebaselineTrigger as never,
+  })
+  await settle()
+  expect(container.textContent).toContain('Its source stopped at a gap')
+  expect(container.textContent).toContain('what changed in the gap is skipped, not replayed')
+  await act(async () => button('Watch from now').click())
+  expect(rebaselineTrigger).toHaveBeenCalledWith(ROOT, 'review-pr')
+  expect(store.projectTriggers).toHaveBeenCalledTimes(2)
+})
+
+it('a source that is watching offers no gap control', async () => {
+  mount({ projectTriggers: vi.fn(async () => triggerProjectView({ triggers: [triggerView({ armed: true, state: 'armed', source: { project: ROOT, source: 'pull-request', state: 'watching', reason: null, fix: null, lastPolledAt: 1, skipped: 0 } })] })) })
+  await settle()
+  expect(container.textContent).not.toContain('Watch from now')
 })

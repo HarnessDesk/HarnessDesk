@@ -2,9 +2,12 @@ import type {
   IssueEvent,
   PullRequestEvent,
   TriggerBudget,
+  TriggerCommentFrom,
   TriggerDefinition,
+  TriggerField,
   TriggerFiring,
   TriggerGoalStatus,
+  TriggerSource,
   TriggerStopReason,
 } from '@harnessdesk/protocol'
 
@@ -96,4 +99,66 @@ export const intakeStopWords = (reason: TriggerStopReason): string => {
     default:
       return reason
   }
+}
+
+const FIELD_WORDS: Readonly<Record<TriggerField, string>> = {
+  pr: 'pull request',
+  head: 'head commit',
+  event: 'event',
+  issue: 'issue',
+  slot: 'scheduled time',
+}
+
+const joinBoth = (words: readonly string[]): string =>
+  words.length <= 1 ? words[0] ?? '' : `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+
+/** How a trigger's firings share Goals, in words rather than its field ids: "One Goal per pull request." */
+export const triggerGroupingWords = (fields: readonly TriggerField[]): string =>
+  `One Goal per ${joinBoth(fields.map((field) => FIELD_WORDS[field]))}.`
+
+/** What a later firing on an open Goal is, as the row that says what it does: a new head, a later issue event. */
+export const triggerAgainLabel = (source: TriggerSource): string | null =>
+  source === 'pull-request' ? 'A new head on an open pull request' : source === 'issue' ? 'A later event on an open issue' : null
+
+/** Whose comments fire a trigger, for the review that arms it. */
+export const triggerCommentWords = (from: TriggerCommentFrom): string => {
+  switch (from) {
+    case 'me':
+      return 'Only yours: comments by the forge account this trigger is armed with.'
+    case 'collaborators':
+      return 'Yours, and anyone the forge says can write to the repository.'
+    case 'anyone':
+      return 'Anyone who can comment on the repository.'
+  }
+}
+
+const KEY_WORDS: Readonly<Record<string, string>> = {
+  id: 'its id', on: 'its source', events: 'its events', label: 'its label', from: 'whose comments count',
+  opens: 'what it opens', goal: 'how it groups Goals', again: 'its later rounds', dedupe: 'what makes a firing new',
+  concurrency: 'how many run at once', forks: 'forks', budget: 'its budget', every: 'its interval',
+}
+
+/**
+ * Where a problem in a triggers file is, in words — "Trigger 1, its budget",
+ * "Line 7", "Forge sign-in" — rather than the wire path it arrives as
+ * (`[0].budget.usd`), which a surface keeps only as a hover title.
+ */
+export const triggerProblemPlace = (at: string): string => {
+  if (at === '' || at === 'file') return 'The file'
+  const line = /^line (\d+)$/.exec(at)
+  if (line) return `Line ${line[1]}`
+  const entry = /^\[(\d+)\](?:\.([a-z-]+))?/.exec(at)
+  if (entry) {
+    const words = entry[2] ? KEY_WORDS[entry[2]] : undefined
+    return `Trigger ${Number(entry[1]) + 1}${words ? `, ${words}` : ''}`
+  }
+  if (at === 'account') return 'Forge sign-in'
+  if (at === 'repository') return 'Forge repository'
+  if (at === 'id') return 'This trigger'
+  if (at === 'opens') return 'What it opens'
+  if (at === 'forks') return 'Forks'
+  const role = /^(?:flow\.)?roles\.([^.]+)/.exec(at)
+  if (role) return `Its role ${role[1]}`
+  if (at === 'flow' || at.startsWith('flow.')) return 'Its flow'
+  return 'This trigger'
 }

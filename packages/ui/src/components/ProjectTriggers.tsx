@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
 import { Button, Chip, Note, Row, RowButton, Rows, SectionHead, Switch } from '../design'
-import { triggerSentence, triggerSkipWords } from '../lib/intake'
+import { triggerProblemPlace, triggerSentence, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { TriggerArm } from './TriggerArm'
@@ -86,6 +86,23 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
     else void disarm(id)
   }
 
+  const watchFromNow = async (id: string): Promise<void> => {
+    setPending((current) => new Set(current).add(id))
+    setRowProblem(null)
+    try {
+      await store.rebaselineTrigger(root, id)
+      load()
+    } catch (error) {
+      setRowProblem({ id, message: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setPending((current) => {
+        const next = new Set(current)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
   if (!read || read.root !== root) return null
 
   if ('problem' in read) {
@@ -130,7 +147,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
         {view.problems.map((problem) => (
           <Row
             key={`${problem.at}:${problem.text}`}
-            title={problem.at === '' || problem.at === 'file' ? 'The file' : problem.at}
+            title={<span title={problem.at}>{triggerProblemPlace(problem.at)}</span>}
             wrapDesc
             desc={`${problem.text} ${problem.fix}`}
             control={<Chip tone="danger">Will not run</Chip>}
@@ -153,6 +170,8 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
               })
             }
             onSwitch={(checked) => toggle(trigger.id, checked)}
+            onRearm={() => setDialog(trigger.id)}
+            onWatchFromNow={() => void watchFromNow(trigger.id)}
           />
         ))}
       </Rows>
@@ -179,7 +198,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
 }
 
 const TriggerRowGroup = ({
-  trigger, root, busy, rowProblem, expanded, onToggleHistory, onSwitch,
+  trigger, root, busy, rowProblem, expanded, onToggleHistory, onSwitch, onRearm, onWatchFromNow,
 }: {
   readonly trigger: TriggerView
   readonly root: string
@@ -188,12 +207,18 @@ const TriggerRowGroup = ({
   readonly expanded: boolean
   readonly onToggleHistory: () => void
   readonly onSwitch: (checked: boolean) => void
+  readonly onRearm: () => void
+  readonly onWatchFromNow: () => void
 }) => {
   const words = STATE_WORDS[trigger.state]
   const title = trigger.definition ? triggerSentence(trigger.definition) : trigger.id
   const desc = rowProblem
     ?? (trigger.reason ? `${trigger.reason}${trigger.fix ? ` ${trigger.fix}` : ''}` : null)
     ?? (trigger.last ? triggerSkipWords(trigger.last) : null)
+  // On is anything this machine has not switched off: a changed or refused arm is switched off here too.
+  const on = trigger.state !== 'off'
+  const stale = trigger.state === 'changed' || trigger.state === 'refused'
+  const gap = trigger.source?.state === 'gap' ? trigger.source : null
   return (
     <>
       <Row
@@ -203,19 +228,36 @@ const TriggerRowGroup = ({
         control={(
           <span className="inline-flex items-center gap-(--hd-space-2)">
             <Chip tone={words.tone}>{words.label}</Chip>
+            {stale && trigger.definition && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onRearm} title="Review what it runs now, and arm it again">
+                Review
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={onToggleHistory} aria-expanded={expanded}>
               History
             </Button>
             <Switch
               id={switchId(trigger.id)}
-              checked={trigger.armed}
-              disabled={busy || !trigger.definition}
+              checked={on}
+              disabled={busy || (!on && !trigger.definition)}
               aria-label={`Arm ${trigger.id}`}
               onCheckedChange={onSwitch}
             />
           </span>
         )}
       />
+      {gap && (
+        <Row
+          title="Its source stopped at a gap"
+          wrapDesc
+          desc={`${gap.reason ?? ''} ${gap.fix ?? ''}`.trim()}
+          control={(
+            <Button variant="secondary" size="sm" disabled={busy} onClick={onWatchFromNow}>
+              Watch from now
+            </Button>
+          )}
+        />
+      )}
       {expanded && <TriggerHistory root={root} id={trigger.id} />}
     </>
   )

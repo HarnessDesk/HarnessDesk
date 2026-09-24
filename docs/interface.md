@@ -601,9 +601,13 @@ lists the project's own Agents, its checks, its flows, its Triggers and the
 folder they are read from, with *Open* and *Forget* for a project that is not
 the one open. A project's Triggers section describes each declared source as
 a sentence and its arm state; turning one on opens the exact arming review
-before anything runs. Below the folder list, "Triggers on this Mac" is this
-machine's own pause and daily cap for every armed trigger, with what is
-reserved and charged today. See
+before anything runs, which also names the forge repository it binds and,
+for an issue trigger that reads comments, whose comments fire it. An arm that
+changed or was refused stays switched on until turned off, with *Review* to
+arm it again, and a source stopped at a gap shows *Watch from now*. Below the
+folder list, "Triggers on this Mac" is this machine's own pause — which holds
+the work triggers started and continues it on resume — and daily cap for
+every armed trigger, with what is reserved and charged today. See
 [multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
 
 The runtime page also draws the controls the runtime declares for new sessions.
