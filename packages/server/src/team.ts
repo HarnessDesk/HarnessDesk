@@ -1732,6 +1732,13 @@ export class Team {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
     this.#assertMutable(board)
+    /* A card is read by every member at once, so a reviewer of an open blind
+       round adding one would hand its sibling what it found before the round
+       closes. Refused, as a message is: its findings go to the finding tools. */
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId)) {
+      this.#port.audit({ runtime: caller.runtime, sessionId: caller.sessionId, cwd: caller.cwd, kind: 'team/intent', decision: 'refused-blind-round' })
+      return 'Refused: your review round is still open and blind, so you cannot add work to the board until it closes. Record what you found with the finding tools. Nothing was added.'
+    }
     const title = (args.title ?? '').trim()
     if (title === '') return 'An intent needs a title. Nothing was added.'
     for (const dep of args.dependsOn ?? []) {
@@ -2129,6 +2136,9 @@ export class Team {
   async claimNext(scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId)) {
+      return 'Refused: your review round is still open and blind, so you cannot take other work until it closes. Finish your review card.'
+    }
     const ready = (intent: Intent): boolean =>
       intent.state === 'open' &&
       !intent.claim &&
@@ -2178,6 +2188,13 @@ export class Team {
     this.#assertMutable(board)
     const intent = board.intents.find((entry) => entry.id === intentId)
     if (!intent) return `There is no intent #${intentId}. ${this.#renderBoard(board, caller)}`
+    /* A reviewer of an open blind round keeps to its own card: any other card
+       it took would carry its note, context or reason to every member before
+       the round closes. Its own card is already its. */
+    if (this.#inBlindRound(board, caller.runtime, caller.sessionId) &&
+      !(intent.claim?.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId)) {
+      return 'Refused: your review round is still open and blind, so you cannot take other work until it closes. Finish your review card.'
+    }
 
     /* Canonical before anything compares them, exactly as `add_intent` does.
        Trimming alone let `src/../README.md` and `README.md` claim the same
@@ -2309,7 +2326,8 @@ export class Team {
        silent — work built against a contract nobody read. */
     const inherited = (Array.isArray(intent.dependsOn) ? intent.dependsOn : [])
       .map((id) => board.intents.find((entry) => entry.id === id))
-      .filter((entry): entry is Intent => Boolean(entry?.handoff))
+      // What a card of an open blind round left is not the caller's to read yet (`#embargoed`).
+      .filter((entry): entry is Intent => Boolean(entry?.handoff) && !this.#embargoed(board, caller).has(entry!.id))
       .map((entry) => `#${entry.id} — ${entry.title}\n${entry.handoff as string}`)
     const carried =
       inherited.length > 0

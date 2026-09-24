@@ -128,8 +128,13 @@ export interface FindingFlows {
    * bookkeeping; only the fields a close owns are taken from what it answers.
    */
   recordClose?(run: string, round: number, close: ((current: FindingRunState) => FindingRunState) | null): Promise<void>
-  /** Open blind review rounds on a Goal. */
-  blindRounds?(goal: string): readonly { readonly run: string; readonly round: number; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[]
+  /** Open blind review rounds on a Goal: their cards, and who holds each. */
+  blindRounds?(goal: string): readonly {
+    readonly run: string
+    readonly round: number
+    readonly cards?: readonly number[]
+    readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[]
+  }[]
   /** A Goal's facts in append order, each with its freshness now. */
   facts?(goal: string): Promise<readonly EvidenceView[]>
   /** Every review series this Goal has had, across every run: what "currently blocking" reads against. */
@@ -640,18 +645,51 @@ export class FindingsPlane {
     const bound = this.#port.flows.binding(caller.goal, input.intent, caller)
     if (!bound || bound.seat !== String(caller.seat.id)) throw new Error(`You do not hold card #${input.intent}, so its findings are not yours to read.`)
     const project = await this.#port.projectOf(caller.goal)
-    const ledger = await this.#serial(project, () => this.#ledger(project))
-    // A finding raised in a blind round still open is its raiser's alone until the round closes.
-    const blind = (this.#port.flows.blindRounds?.(caller.goal) ?? [])
-    const embargoed = (view: FindingView): boolean => view.origin.seat !== String(caller.seat.id) &&
-      blind.some((round) => round.run === view.origin.run && round.round === view.origin.round)
-    const owned = ledger.views.filter((one) => one.ownerGoal === caller.goal && !embargoed(one))
+    const read = await this.#serial(project, () => this.#ledger(project))
+    // What a holder of an open blind round recorded in it is its own until the round closes: raises, repairs and verdicts alike.
+    const ledger = this.#unblinded(read, caller.goal, caller)
+    const owned = ledger.views.filter((one) => one.ownerGoal === caller.goal)
     const rows = input.filter === 'blocking' ? liveBlockers(owned) : input.filter === 'open' ? owned.filter((one) => !isResolved(one)) : owned
     if (rows.length > READ_LIMIT) throw new Error('Narrow this review before continuing: it has more findings than one card may read.')
     if (ledger.unreadable > 0 && input.filter !== 'all') {
       throw new Error('Some evidence records could not be read, so the open findings cannot be listed as complete. A person has to look.')
     }
     return rows
+  }
+
+  /**
+   * The ledger as someone outside an open blind round may read it: every
+   * event recorded on a card of such a round — a raise, a repair claim, a
+   * verdict — is left out, except on the reader's own cards, and so is every
+   * later event of a finding whose raise was left out. The views are folded
+   * again from what is left, so a verdict a sibling recorded in the round
+   * reads as though it has not happened yet; nothing about it — not its
+   * state, its sequence or its note — shows through until the round closes.
+   * `reader` null leaves out every such event (a packet for a round that has
+   * no holder yet).
+   */
+  #unblinded(ledger: Ledger, goal: string, reader: { readonly runtime: string; readonly sessionId: string } | null): Ledger {
+    const hidden = this.#blindCards(goal, reader)
+    if (hidden.size === 0) return ledger
+    const inRound = (record: EvidenceRecord): boolean => record.card?.board === goal && hidden.has(record.card.id)
+    const unraised = new Set(ledger.records.filter((record) => inRound(record) && record.finding?.event.kind === 'raise' && record.fact.kind === 'finding')
+      .map((record) => (record.fact as { readonly id: string }).id))
+    const records = ledger.records.filter((record) => !inRound(record) &&
+      !(record.fact.kind === 'finding' && unraised.has(record.fact.id)))
+    return { records, views: foldFindings(records), unreadable: ledger.unreadable }
+  }
+
+  /** The cards of this Goal's open blind rounds that are not the reader's own. */
+  #blindCards(goal: string, reader: { readonly runtime: string; readonly sessionId: string } | null): ReadonlySet<number> {
+    const hidden = new Set<number>()
+    for (const round of this.#port.flows.blindRounds?.(goal) ?? []) {
+      const cards = round.cards ?? round.holders.map((one) => one.card)
+      for (const card of cards) {
+        const holder = round.holders.find((one) => one.card === card)
+        if (!reader || holder?.runtime !== reader.runtime || holder.sessionId !== reader.sessionId) hidden.add(card)
+      }
+    }
+    return hidden
   }
 
   // ------------------------------------------------------------------- reads
@@ -942,15 +980,18 @@ export class FindingsPlane {
     })
     if (later.length === 0) return null
     const project = await this.#port.projectOf(snapshot.goal)
-    const ledger = await this.#serial(project, () => this.#ledger(project))
+    // Its reviewers are not seated yet: nothing any open blind round holds is theirs to be handed.
+    const ledger = this.#unblinded(await this.#serial(project, () => this.#ledger(project)), snapshot.goal, null)
     const facts = (await this.#port.flows.facts?.(snapshot.goal)) ?? []
+    const blind = this.#blindCards(snapshot.goal, null)
     const owned = ledger.views.filter((one) => one.ownerGoal === snapshot.goal)
     const raisedAt = (view: FindingView): string | null =>
       ledger.records.find((record) => record.fact.kind === 'finding' && record.fact.id === view.id && record.finding?.event.kind === 'raise')?.checkout?.cwd ?? null
     const read = this.#port.repairPacket ?? repairPacket
     const packets: RepairPacket[] = []
     for (const { subject, series } of later) {
-      const evidence = facts.filter((view) => !view.record.restored && view.freshness.state === 'fresh' && (
+      const evidence = facts.filter((view) => !view.record.restored && view.freshness.state === 'fresh' &&
+        !(view.record.card?.board === snapshot.goal && blind.has(view.record.card.id)) && (
         (view.record.card?.board === snapshot.goal && view.record.card.id === subject.card &&
           ['check', 'ci', 'pr', 'diff'].includes(view.record.fact.kind)) ||
         (view.record.fact.kind === 'review' && (view.record.fact.against?.length ?? 0) > 0)))
