@@ -1037,11 +1037,19 @@ export class Host {
      * - project (`FindingsPlane`'s queue, one per canonical project): the
      *   evidence store only. It asks for nothing.
      *
-     * Intake adds a leaf beside project, and nothing to its left yet:
+     * Intake adds one queue to the far left and two leaves beside project:
      *
+     *   intake source  →  (admission, phase 8 task 4)  →  publication  →  …
+     *
+     * - intake source (`IntakeMonitor`, one per project and source): reads the
+     *   forge or the clock, offers each fact to admission, then commits its
+     *   cursor. Nothing to its right ever waits on it; an arm's first
+     *   observation takes it before, never inside, the consent queue.
      * - intake consent (`TriggerConsent`, one per desk): `triggers-machine.json`
      *   and its sealed key only. It asks for nothing; an arm observes the
      *   source before it takes this queue and re-reads what it binds inside it.
+     * - intake cursors (`SourceCursors`, one per desk): `triggers-cursors.json`
+     *   only, re-read inside its own queue on every commit. It asks for nothing.
      *
      * A run seating a card holds run → Goal; a wrap preview holds Goal and
      * reads runs only as snapshots: no cycle. `findings-publication.test.ts`

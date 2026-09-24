@@ -159,3 +159,49 @@ export interface TriggerProjectView {
   readonly triggers: readonly TriggerView[]
   readonly problems: readonly TriggerProblem[]
 }
+
+// -------------------------------------------------------------- monitoring
+
+export type TriggerAction = 'opened' | 'pushed' | 'labelled' | 'closed' | 'commented' | 'tick'
+
+/**
+ * One fact a source observed, normalized. Everything in it is either
+ * host-validated (the repository the arm was bound to, positive ids, full
+ * commit ids, finite times, a URL confined to the repository) or bounded,
+ * untrusted prose (`title`, `body`) that is information, never authority,
+ * never evidence and never a command, variable, path or ceiling.
+ */
+export interface TriggerFact {
+  readonly source: TriggerSource
+  readonly project: string
+  /** `owner/name` as bound at arm time; null for a schedule. */
+  readonly repository: string | null
+  /** The pull request or issue number, or the slot's epoch milliseconds, as a string. */
+  readonly subject: string
+  /** The fact's stable identity: a framed hash of its canonical tuple, never its delivery time. */
+  readonly event: string
+  readonly action: TriggerAction
+  /** When the forge says it happened, or the slot's own instant. */
+  readonly at: number
+  /** The pull request's full head commit id; null for anything else. */
+  readonly head: string | null
+  /** The head is in another repository than the one bound. */
+  readonly fork: boolean
+  readonly title: string
+  readonly body: string
+  readonly url: string | null
+  /** The one trigger a schedule slot belongs to; null for a forge fact, which every matching arm is offered. */
+  readonly trigger: string | null
+}
+
+/** How one watched source stands, in sentences a surface can show. */
+export interface TriggerSourceStatus {
+  readonly project: string
+  readonly source: TriggerSource
+  readonly state: 'watching' | 'paused' | 'offline' | 'rate-limited' | 'signed-out' | 'unreadable' | 'gap'
+  readonly reason: string | null
+  readonly fix: string | null
+  readonly lastPolledAt: number | null
+  /** Facts the last poll saw and recorded as skipped: a stranger's head, a missed slot. */
+  readonly skipped: number
+}

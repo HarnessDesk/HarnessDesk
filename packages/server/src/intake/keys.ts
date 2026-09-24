@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 
+import type { TriggerDefinition, TriggerFact, TriggerField } from '@harnessdesk/protocol'
+
 /**
  * A firing's identity, and when a schedule is due.
  *
@@ -37,4 +39,35 @@ export function skippedSlots(slot: number, since: number, everyMinutes: number):
   const width = everyMinutes * 60000
   const first = Math.floor(since / width) * width + width
   return slot > first ? Math.floor((slot - first) / width) : 0
+}
+
+/** The host-validated value one declared field names in a fact. Never prose, never arrival time. */
+const fieldValue = (field: TriggerField, fact: TriggerFact): string | number => {
+  switch (field) {
+    case 'pr':
+    case 'issue':
+    case 'slot':
+      return Number(fact.subject)
+    case 'head':
+      return fact.head ?? ''
+    case 'event':
+      return fact.event
+  }
+}
+
+/**
+ * What makes a firing new: the project's clone, the trigger, the source, then
+ * the declared dedupe fields in order. Two facts with one key are one firing.
+ */
+export function dedupeKey(incarnation: string, trigger: Pick<TriggerDefinition, 'id' | 'dedupe'>, fact: TriggerFact): string {
+  return eventKey([incarnation, trigger.id, fact.source, ...trigger.dedupe.map((field) => fieldValue(field, fact))])
+}
+
+/**
+ * Which Goal a firing belongs to: the project's clone, the trigger, then the
+ * declared Goal fields. No file digest, so rearming changed text does not
+ * silently fork an open Goal.
+ */
+export function groupKey(incarnation: string, trigger: Pick<TriggerDefinition, 'id' | 'goal'>, fact: TriggerFact): string {
+  return eventKey([incarnation, trigger.id, ...trigger.goal.map((field) => fieldValue(field, fact))])
 }
