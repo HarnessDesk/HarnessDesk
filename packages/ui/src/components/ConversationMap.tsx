@@ -46,6 +46,8 @@ export const ConversationMap = ({
   const [overflows, setOverflows] = useState(false)
   const [fit, setFit] = useState<RailFit>(null)
   const drawn = shouldRenderMap({ marks: marks.length, overflows }) && fit !== null
+  const shownRef = useRef(false)
+  shownRef.current = fit !== null
 
   /* Whether there is anything to navigate, asked of the scroller rather than
      of the turn count: a short transcript of long answers overflows and a long
@@ -55,8 +57,11 @@ export const ConversationMap = ({
   useEffect(() => {
     const node = scroll.current
     if (!node) return
-    const measure = () => {
-      setOverflows(node.scrollHeight - node.clientHeight > 1)
+    const scrolled = () => setOverflows(node.scrollHeight - node.clientHeight > 1)
+    /* The gutter only moves when the scroller's size does, so it is measured
+       by the observer and never on a scroll. */
+    const resized = () => {
+      scrolled()
       const edge = node.getBoundingClientRect().left
       const column = [...node.querySelectorAll<HTMLElement>('[data-part] > *')]
         .map((one) => one.getBoundingClientRect())
@@ -65,7 +70,8 @@ export const ConversationMap = ({
       const tokens = getComputedStyle(node)
       const px = (name: string): number => Number.parseFloat(tokens.getPropertyValue(name)) || 0
       // Where a mark draws its dash, read off one that is drawn: its padding
-      // and its hairline, rather than a sum of what they ought to be.
+      // and its hairline, rather than a sum of what they ought to be. Until
+      // one is, `railFit` guesses the same sum from the tokens.
       const tick = rail.current?.querySelector('[data-slot="tick"]')
       const mark = tick?.parentElement
       const next = railFit({
@@ -73,17 +79,19 @@ export const ConversationMap = ({
         gap: px('--hd-space-1'),
         step: px('--hd-space-2'),
         stroke: px('--hd-space-3'),
+        hairline: px('--hd-border-width'),
+        shown: shownRef.current,
         ...(tick && mark ? { inset: tick.getBoundingClientRect().left - mark.getBoundingClientRect().left } : {}),
       })
       setFit((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next))
     }
-    measure()
-    const observer = new ResizeObserver(measure)
+    resized()
+    const observer = new ResizeObserver(resized)
     observer.observe(node)
-    node.addEventListener('scroll', measure, { passive: true })
+    node.addEventListener('scroll', scrolled, { passive: true })
     return () => {
       observer.disconnect()
-      node.removeEventListener('scroll', measure)
+      node.removeEventListener('scroll', scrolled)
     }
     // Measured again once the rail is drawn, so the inset is the drawn one.
   }, [scroll, marks.length, drawn])

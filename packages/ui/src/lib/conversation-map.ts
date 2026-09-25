@@ -127,12 +127,23 @@ export type RailFit =
   | { readonly fit: 'tight'; readonly reach: number; readonly cap: number }
   | null
 
+/**
+ * How far past the hide threshold the gutter must move before the rail
+ * appears or goes. The inset is read off a drawn mark, so a rail that is not
+ * drawn has to guess it; the guess is the drawn value, and this band means a
+ * pixel of disagreement (a hairline the theme thickens, a rounding) still
+ * cannot flip the rail on and off at every measure.
+ */
+export const RAIL_HYSTERESIS = 2
+
 export const railFit = ({
   gutter,
   gap,
   step,
   stroke,
-  inset = step,
+  hairline = 0,
+  inset = step + hairline,
+  shown = false,
 }: {
   /** From the pane's left edge to the reading column's first letter. */
   readonly gutter: number
@@ -142,12 +153,16 @@ export const railFit = ({
   readonly step: number
   /** A resting prompt, and the full push (`--hd-space-3`). */
   readonly stroke: number
-  /** From a mark's edge to its dash: its padding and hairline, as drawn. Assumed one step until the rail is drawn and can say. */
+  /** A mark's hairline (`--hd-border-width`), for the guess below. */
+  readonly hairline?: number
+  /** From a mark's edge to its dash: its padding and hairline, as drawn. Guessed as one step and a hairline until the rail is drawn and can say. */
   readonly inset?: number
+  /** Whether the rail is drawn now: it stays until the room falls a band below the threshold, and comes back only a band above it. */
+  readonly shown?: boolean
 }): RailFit => {
   const roomy = gutter - 2 * step - inset - gap
   if (roomy >= stroke + stroke) return { fit: 'roomy', reach: stroke, cap: null }
   const tight = gutter - inset - gap
-  if (tight < step) return null
+  if (tight < (shown ? step - RAIL_HYSTERESIS : step + RAIL_HYSTERESIS)) return null
   return { fit: 'tight', reach: Math.max(0, Math.min(stroke, tight - stroke)), cap: tight }
 }
