@@ -37,7 +37,7 @@ export const Panes = () => {
   const snapshot = useSnapshot()
   return (
     <div className={styles.root}>
-      <Node node={snapshot.layout.root} />
+      <Node node={snapshot.layout.root} primary={primaryPaneId(snapshot.layout.root)} />
     </div>
   )
 }
@@ -49,10 +49,21 @@ export const Panes = () => {
 const needsStrip = (view: PaneNode['view']): boolean =>
   view.kind !== 'conversation' && views.get(view.kind)?.ownsChrome !== true
 
-const Node = ({ node }: { node: LayoutNode }) =>
-  node.kind === 'pane' ? <PaneView pane={node} /> : <SplitView split={node} />
+/**
+ * The pane the app's floating notice stack confines itself to (#896):
+ * always the split tree's own first leaf, one level down at a time — never
+ * whichever pane happens to have focus, which a click into a docked browser
+ * pane would otherwise hand the marker to, moving the overlap it exists to
+ * prevent onto the conversation instead of removing it. The same leaf a
+ * fresh split's own first half already is, so opening a second pane beside
+ * the primary one never moves the marker at all.
+ */
+const primaryPaneId = (node: LayoutNode): string => (node.kind === 'pane' ? node.id : primaryPaneId(node.first))
 
-const PaneView = ({ pane }: { pane: PaneNode }) => {
+const Node = ({ node, primary }: { node: LayoutNode; primary: string }) =>
+  node.kind === 'pane' ? <PaneView pane={node} primary={primary} /> : <SplitView split={node} primary={primary} />
+
+const PaneView = ({ pane, primary }: { pane: PaneNode; primary: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const titleOf = useViewTitle()
@@ -72,6 +83,12 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
              the one that leaves room for the window buttons and the view below
              it does not. See `--titlebar-inset` in `app.css`. */
           {...(needsStrip(pane.view) ? { 'data-strip': '' } : {})}
+          /* `App.tsx` measures this box directly to confine the floating
+             notice stack (#896) — the split tree's own geometry, read live,
+             rather than reconstructed from the sizes a right or bottom panel
+             were last dragged to, which a zoom or a narrow window overrides
+             without changing. */
+          {...(pane.id === primary ? { 'data-notice-pane': '' } : {})}
           // Any interaction inside a pane makes it the target of shortcuts and
           // commands; capture phase so a click on a control counts too.
           onPointerDownCapture={() => {
@@ -121,7 +138,7 @@ const contains = (node: LayoutNode, paneId: string): boolean =>
  * until the pointer comes up; see `lib/resizing.ts` for what else a drag has
  * to hold still.
  */
-const SplitView = ({ split }: { split: Split }) => {
+const SplitView = ({ split, primary }: { split: Split; primary: string }) => {
   const store = useStore()
   const container = useRef<HTMLDivElement>(null)
   const grab = useRef<{ readonly at: number; readonly ratio: number; readonly span: number } | null>(
@@ -246,7 +263,7 @@ const SplitView = ({ split }: { split: Split }) => {
         {...(zoom === 'second' ? { 'data-hidden': '' } : {})}
         style={basis('first')}
       >
-        <Node node={split.first} />
+        <Node node={split.first} primary={primary} />
       </div>
       {/* The handle is the design system's now. The drag stays here, because
           the ratio belongs to the layout store; what the component adds is the
@@ -274,7 +291,7 @@ const SplitView = ({ split }: { split: Split }) => {
         {...(zoom === 'first' ? { 'data-hidden': '' } : {})}
         style={basis('second')}
       >
-        <Node node={split.second} />
+        <Node node={split.second} primary={primary} />
       </div>
     </div>
   )

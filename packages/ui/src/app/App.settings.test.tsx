@@ -15,11 +15,7 @@ vi.mock('../lib/desktop', () => ({
   setTraySummary: () => {},
   setWindowTitle: () => {},
 }))
-vi.mock('../panels/Workbench', () => ({
-  Workbench: () => null,
-  rightPanelDrawn: () => false,
-  noticeRightOffset: () => '0px',
-}))
+vi.mock('../panels/Workbench', () => ({ Workbench: () => null }))
 vi.mock('../components/Sidebar', () => ({ Sidebar: () => null }))
 vi.mock('../components/Notices', () => ({ Notices: () => null, StatusBanner: () => null }))
 vi.mock('../components/ImportOffer', () => ({ ImportOffer: () => null }))

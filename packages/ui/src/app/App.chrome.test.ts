@@ -8,16 +8,19 @@ import tokensCss from '../design/foundation/tokens.css?raw'
 /**
  * Global chrome still has to respect the workbench geometry.
  *
- * At the supported 1024px minimum, a full-width standing banner centred on
- * the window started inside the sidebar and cut its HarnessDesk wordmark in
- * half. The notice rail is a sibling of the workbench, so only this explicit
- * hand-off can keep it over the readable pane while the sidebar owns a
- * column.
+ * The floating notice stack reads the split tree's own primary pane
+ * (`[data-notice-pane]`, marked in `Panes.tsx`) live, rather than
+ * reconstructing its box from the sizes a right or bottom panel were last
+ * dragged to — a zoom or a narrow window overrides a saved size without
+ * changing it, so a reconstruction still let a banner spill past the real
+ * boundary and catch a click meant for the pane beside it (#896). The pure
+ * math this measurement feeds is `lib/notice-bounds.ts`'s own tests; this
+ * checks that `App.tsx` actually wires the measurement up.
  */
-it('keeps standing notices out of the sidebar column', () => {
-  expect(app).toContain("sidebarPlacement(snapshot) === 'column'")
-  expect(app).toContain("snapshot.workbench.sidebar.size")
-  expect(app).toContain('left: `${noticeLeft}px`, right: noticeRight')
+it('confines standing notices to the split tree’s own primary pane', () => {
+  expect(app).toContain("document.querySelector<HTMLElement>('[data-notice-pane]')")
+  expect(app).toContain('noticeBounds(')
+  expect(app).toContain('observer.observe(pane)')
   expect(appCss).toMatch(/\.hd-shellBody\s*{[^}]*position:\s*relative/s)
   expect(appCss).toMatch(/\.hd-floatingNotices\s*{[^}]*transition:\s*[\s\S]*left/)
 })
@@ -30,13 +33,12 @@ it('keeps standing notices out of the sidebar column', () => {
  *
  * This alone is not the guard for #896 — both z-index values already held
  * this ordering at the commit the issue was reported against, so this
- * ordering was never what broke. It is `Workbench.notice.test.ts`'s
- * `noticeRightOffset`, confining the stack away from a right panel or an
- * unrelated second pane in a split, that #896 actually needed. This test
- * stays because the invariant is real and worth keeping, not because it
- * explains the report: both read their z-index from a token rather than a
- * literal, so this reads the tokens themselves and checks the ordering
- * `--hd-z-window` is supposed to hold.
+ * ordering was never what broke. It is `lib/notice-bounds.ts`'s own
+ * confinement, read live off the primary pane's box, that #896 actually
+ * needed. This test stays because the invariant is real and worth keeping,
+ * not because it explains the report: both read their z-index from a token
+ * rather than a literal, so this reads the tokens themselves and checks the
+ * ordering `--hd-z-window` is supposed to hold.
  */
 it('keeps a full-window surface above the floating notice stack', () => {
   expect(appCss).toMatch(/\.hd-floatingNotices\s*{[^}]*z-index:\s*var\(--hd-z-notice\)/s)

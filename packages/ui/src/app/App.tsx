@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
@@ -6,7 +6,7 @@ import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySumma
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
-import { noticeRightOffset, Workbench } from '../panels/Workbench'
+import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ImportOffer } from '../components/ImportOffer'
 import { GoalMigrationBanner } from '../components/GoalMigrationBanner'
@@ -21,13 +21,13 @@ import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
 import { RaceStart } from '../components/RaceStart'
 import { projectRootOf } from '../lib/projects'
+import { noticeBounds } from '../lib/notice-bounds'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
 import { SignIn } from '../components/SignIn'
 import { Usage } from '../components/Usage'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
-import { sidebarPlacement } from '../state/workbench'
 import { useTheme } from '../state/theme'
 
 /**
@@ -107,20 +107,6 @@ export const App = () => {
   // The resolved face, for anything that needs telling rather than styling —
   // Sonner paints its own surface and takes the theme as a value.
   const theme = useTheme()
-  // A standing banner belongs to the pane being read, not to the whole
-  // window. Centring it across the window let a wide banner cover the
-  // sidebar at supported-but-small window sizes. Move the notice rail past
-  // the sidebar only while the sidebar actually owns a column; a floating or
-  // hidden sidebar deliberately leaves it centred on the page underneath.
-  const noticeLeft =
-    sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
-
-  // The same confinement, on the right: a notice is about the main content,
-  // never a right panel or an unrelated second pane beside it in a split
-  // (#896). `noticeRightOffset` is exported from `Workbench` and kept pure
-  // so it can be tested against every shape of split and dock without a DOM.
-  const noticeRight = noticeRightOffset(snapshot.workbench, noticeLeft)
-
   // One way to choose a folder per build: the desktop app uses the system
   // dialog, as Claude Code and Codex do; the browser build, which has none,
   // gets the in-app picker. The picker is also the fallback should the
@@ -355,6 +341,39 @@ export const App = () => {
     return () => observer.disconnect()
   }, [])
 
+  /*
+   * A standing banner belongs to the pane being read, never a right panel or
+   * an unrelated second pane beside it in a split — reconstructing that
+   * width from the sizes those panels were last dragged to was wrong (#896):
+   * a zoom or a narrow window overrides a saved size without changing it, so
+   * a zoomed right or bottom panel, or a right panel a narrow window widened,
+   * still took the click a card floating past the real boundary caught. This
+   * reads `[data-notice-pane]` — the split tree's own primary leaf, marked in
+   * `Panes.tsx` — directly instead, live, on whatever actually changed its
+   * box: the pane element's own `ResizeObserver` fires for a window resize,
+   * a split drag, a zoom or a panel opening alike, because every one of them
+   * changes what that box measures. The effect itself only has to run again
+   * when the marked element could be a *different* one — the layout's own
+   * identity changing is what `snapshot.layout` already means.
+   */
+  useLayoutEffect(() => {
+    const stack = notices.current
+    const area = stack?.parentElement
+    if (!stack || !area) return
+    const pane = document.querySelector<HTMLElement>('[data-notice-pane]')
+    const apply = (): void => {
+      const bounds = noticeBounds(area.getBoundingClientRect(), pane?.getBoundingClientRect() ?? null)
+      stack.style.left = `${bounds.left}px`
+      stack.style.right = `${bounds.right}px`
+    }
+    apply()
+    if (!pane) return
+    const observer = new ResizeObserver(apply)
+    observer.observe(pane)
+    observer.observe(area)
+    return () => observer.disconnect()
+  }, [snapshot.layout])
+
   return (
     /* One shell, one set of actions — including the app windows mounted
        beside the workbench. A project page lives in Settings, and its Agent
@@ -396,7 +415,6 @@ export const App = () => {
             className="hd-floatingNotices"
             data-over-conversation
             ref={notices}
-            style={{ left: `${noticeLeft}px`, right: noticeRight }}
           >
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
             <GoalMigrationBanner />

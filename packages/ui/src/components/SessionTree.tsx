@@ -22,7 +22,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as Re
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
-import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
+import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { goalName, goalWords } from '../lib/goals'
@@ -548,6 +548,18 @@ const GroupHead = ({
   // and "which project is this about" is the question every worktree, every
   // ⌘N and every terminal here is answered by.
   const current = projectGroupRootOf(snapshot.workspace) === group.root
+  /*
+   * `group.root` is a comparison key — the canonical form grouping and
+   * dedup compare by, `projectGroupRootOf`'s own answer, which for a
+   * non-git folder opened through an alias is the host's `realPath` rather
+   * than what was actually opened. Acting on it directly reopened that
+   * exact alias as a second, indistinguishable workspace the moment "+" or
+   * an action in the menu ran (#907) — the dedup this row exists to prove
+   * undone by the row's own controls. `projectRootOf` is the answer that
+   * was never meant to be corrected this way; for the project standing
+   * open, that is the spelling every action here keeps to.
+   */
+  const actualRoot = current ? (projectRootOf(snapshot.workspace) ?? group.root) : group.root
   const edge = drag.over?.root === group.root ? drag.over.edge : null
   return (
     <div
@@ -571,7 +583,7 @@ const GroupHead = ({
         {...(drag.dragging === group.root ? { 'data-dragging': '' } : {})}
         {...(current ? { 'data-current': '' } : {})}
         onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
-        title={`${current ? 'The folder this app is working in.\n' : ''}${group.root}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
+        title={`${current ? 'The folder this app is working in.\n' : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
       >
         <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
         {/* An open folder for the one you are in, a closed one for the rest:
@@ -591,7 +603,7 @@ const GroupHead = ({
         <Button
           type="button"
           variant="ghost" size="icon-sm" className={styles.groupAdd}
-          onClick={() => void store.startSessionIn(group.root)}
+          onClick={() => void store.startSessionIn(actualRoot)}
           title={`New session in ${group.name}`}
           aria-label={`New session in ${group.name}`}
         >
@@ -611,6 +623,8 @@ const GroupHead = ({
       </span>
       <WorkspaceMenu
         group={group}
+        current={current}
+        actualRoot={actualRoot}
         at={menu.at}
         onClose={menu.close}
         onNewWorktree={onNewWorktree}

@@ -294,49 +294,9 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   )
 }
 
-/**
- * Whether the right panel draws a panel at all, rather than only its drop
- * zone. Exported for `App.tsx`'s notice stack, which confines itself to the
- * pane it is about rather than a right panel beside it (#896) — the same
- * question this answers for the panel's own room.
- */
-export const rightPanelDrawn = (workbench: WorkbenchModel): boolean =>
+/** Whether the right panel draws a panel at all, rather than only its drop zone. */
+const rightPanelDrawn = (workbench: WorkbenchModel): boolean =>
   dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
-
-/**
- * How far the notice stack keeps clear of the shell's own right edge, as a
- * CSS length `App.tsx` sets directly as the stack's own `right` (#896):
- * measured live, a standing banner spanning the full remaining width landed
- * on a docked browser pane's own toolbar and caught the click meant for its
- * reload button.
- *
- * A right panel already has a pixel width from state (`workbench.right.size`,
- * the same value `--panel-right-w` reads) — the entire answer when the main
- * area is not itself split. A split of the main area has no pixel width of
- * its own, only `ratio`, a fraction of whatever `.main` is given, which is
- * `100%` of the shell minus the sidebar and the right panel's own pixels —
- * so the answer here is one `calc()` mixing those two kinds of value, rather
- * than something measured from the DOM.
- *
- * One level deep, and only a row split: a column split stacks its panes
- * rather than placing them side by side, so it draws no left-right boundary
- * to confine against, and a split nested inside a split is left to the outer
- * one. Coarse in the same way `--hd-notice-inset` is, and for the same
- * reason — this asks whether the pane a banner would spill into exists at
- * all, not the exact rectangle its own centred, capped-width card ends up
- * drawing inside whatever room that leaves.
- */
-export const noticeRightOffset = (workbench: WorkbenchModel, noticeLeftPx: number): string => {
-  const rightDockPx = rightPanelDrawn(workbench) ? workbench.right.size : 0
-  const mainRoot = workbench.main.root
-  const rowSplit =
-    mainRoot.kind === 'split' && mainRoot.direction === 'row' && workbench.main.expanded === null
-      ? mainRoot
-      : null
-  return rowSplit
-    ? `calc(${rightDockPx}px + (100% - ${noticeLeftPx}px - ${rightDockPx}px) * ${1 - rowSplit.ratio})`
-    : `${rightDockPx}px`
-}
 
 const RightPanel = () => {
   const store = useStore()
