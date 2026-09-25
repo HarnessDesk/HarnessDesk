@@ -557,7 +557,7 @@ export const AccountFooter = ({
         <AccountHoverCard
           info={here.info}
           account={here.account}
-          side="right"
+          side="top"
           align="end"
           className={styles.seatTrigger}
           onOpenUsage={onOpenUsage}
@@ -587,10 +587,14 @@ export const AccountFooter = ({
     <Bar rule="top" ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
-        side="right"
-        sideAlign="end"
-        sideOffset={8}
+        /* Opens upward from the footer and stays inside the sidebar, the row's
+           own width: the menu belongs to this row, not to the transcript it
+           would otherwise be laid over. */
+        side="top"
+        sideAlign="start"
+        sideOffset={6}
         fullWidth
+        panelWidth="trigger"
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {
@@ -660,7 +664,7 @@ export const AccountFooter = ({
                 <AccountHoverCard
                   info={seat.info}
                   account={seat.account}
-                  side="right"
+                  side="top"
                   align="start"
                   className={styles.seatTrigger}
                   /* The same verbs as the badge's card on the row below: two
@@ -717,11 +721,11 @@ export const AccountFooter = ({
               onSelect={() => {
                 if (hasUsage) setUsageOpen((value) => !value)
               }}
-            >
-              <span className={styles.accountMenuAction}>
-                <Text role="muted"><UsageIcon size={13} /></Text>
-                <span>Usage remaining</span>
-              </span>
+              /* The menu's own icon column and value slot, so the gauge and its
+                 words line up with Settings and Dashboard below. */
+              icon={<UsageIcon size={13} />}
+              label="Usage remaining"
+              value={
               <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
                 {here?.figure ?? '—'}
                 {/* The fold wears the figure's trouble, as the figure beside it does.
@@ -736,7 +740,8 @@ export const AccountFooter = ({
                   />
                 )}
               </Text>
-            </MenuItem>
+              }
+            />
             {usageOpen && usageView && (
               <div className={styles.usageDetails} data-usage-details>
                 <div className={styles.usageLanes}>

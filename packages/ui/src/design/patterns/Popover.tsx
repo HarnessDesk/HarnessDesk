@@ -101,6 +101,7 @@ export const Popover = ({
   sideOffset = 6,
   tone = 'calm',
   fullWidth = false,
+  panelWidth = 'content',
   triggerClassName,
   triggerVariant,
   triggerRef,
@@ -122,6 +123,12 @@ export const Popover = ({
   triggerRef?: Ref<HTMLButtonElement>
   /** Fill a row or column instead of shrinking the trigger to its label. */
   fullWidth?: boolean
+  /**
+   * `trigger` draws the panel exactly as wide as the row that opened it, so a
+   * menu opened from a full-width row reads as that row unfolding rather than
+   * as a card set down beside it.
+   */
+  panelWidth?: 'content' | 'trigger'
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
   tone?: 'calm' | 'warn' | 'alert'
@@ -226,6 +233,7 @@ export const Popover = ({
               ref={panel}
               aria-labelledby={triggerId}
               className={styles.panel}
+              data-width={panelWidth === 'trigger' ? 'trigger' : undefined}
               initialFocus={false}
               finalFocus={() => {
                 const requested = externalReturnFocus.current

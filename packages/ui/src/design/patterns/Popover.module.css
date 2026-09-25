@@ -80,6 +80,13 @@
   max-height: 300px;
 }
 
+/* The row that opened it, unfolded: exactly the trigger's width, which Base
+   UI's positioner measures as `--anchor-width`. */
+.panel[data-width='trigger'] {
+  width: var(--anchor-width, auto); /* desk: content width → the trigger's, for a menu opened from a full-width row */
+  min-width: 0; /* desk: 180px → 0, the row decides */
+}
+
 .groupLabel {
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
