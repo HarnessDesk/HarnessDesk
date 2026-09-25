@@ -145,6 +145,9 @@ describe('table', () => {
 
   it('sets a column the plugin aligns to the end as figures, in the cell as well as its head', () => {
     mount([{ type: 'table', columns, rows: [{ name: 'alpha', count: '12' }] }])
+    const [nameHead, countHead] = [...container.querySelectorAll('th')]
+    expect(nameHead?.getAttribute('data-align')).toBe('start')
+    expect(countHead?.getAttribute('data-align')).toBe('end')
     const [name, count] = [...container.querySelectorAll('td')]
     expect(name?.getAttribute('data-align')).toBe('start')
     expect(count?.getAttribute('data-align')).toBe('end')
