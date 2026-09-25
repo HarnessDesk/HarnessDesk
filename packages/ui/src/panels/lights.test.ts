@@ -11,6 +11,7 @@ import terminalPaneSource from '../components/TerminalPane.tsx?raw'
 import toolPaneHeaderSource from '../components/ToolPaneHeader.tsx?raw'
 import toolPanesCss from '../components/ToolPanes.module.css?raw'
 import toolPaneSystem from '../design/ui/tool-pane.tsx?raw'
+import barSystem from '../design/ui/bar.tsx?raw'
 import workbenchCss from './Workbench.module.css?raw'
 import dockPanel from '../design/patterns/DockPanel.tsx?raw'
 import appCss from '../styles/app.css?raw'
@@ -65,10 +66,10 @@ describe('the row under the macOS window buttons', () => {
     expect(toolPaneSystem).toContain("'gap-2 pr-2 pl-[max(var(--hd-space-2-5),var(--titlebar-inset,0px))]")
   })
 
-  it("the sidebar's layout-only sheet leaves its title-bar inset on the element", () => {
+  it("the sidebar's title bar leaves room for them through the shared bar's corner", () => {
     expect(sidebarCss).not.toMatch(/\.titlebar\s*{[^}]*padding/s)
-    expect(sidebarSource).toContain("height: 'var(--hd-titlebar-height)'")
-    expect(sidebarSource).toContain("padding: '0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px))'")
+    expect(sidebarSource).toMatch(/<Bar corner\b/)
+    expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]'")
   })
 
   it("a panel's tab strip leaves room for them too", () => {

@@ -73,6 +73,40 @@ export const WorkbenchRail = forwardRef<HTMLDivElement, React.ComponentProps<'di
 )
 WorkbenchRail.displayName = 'WorkbenchRail'
 
+/**
+ * The rail's two stretches between its bars: the short column of places at
+ * its head (`places`), and the long list that scrolls under it (`list`).
+ *
+ * Both hold their rows on the rail's gutter, `--hd-bar-pad` — the same side
+ * the rail's bars stand on — which is what puts a row's ink on the line the
+ * bar and the group label above it start their words at (`--hd-bar-ink` is
+ * that gutter plus a row's own inset). `places` closes with the short step
+ * that separates it from the list's label; `list` keeps a hair of air under
+ * that label and a longer one after its last row, so the last row can be
+ * scrolled clear of whatever is docked below the rail.
+ */
+export const WorkbenchRailSection = forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<'div'> & { part: 'places' | 'list'; as?: 'div' | 'nav' }
+>(({ part, as = 'div', className, ...props }, ref) => {
+  const Component = as
+  return (
+    <Component
+      ref={ref}
+      data-slot="workbench-rail-section"
+      data-part={part}
+      className={cn(
+        'px-(--hd-bar-pad)',
+        part === 'places' && 'pb-(--hd-space-1)',
+        part === 'list' && 'pt-(--hd-space-0-5) pb-(--hd-space-3)',
+        className,
+      )}
+      {...props}
+    />
+  )
+})
+WorkbenchRailSection.displayName = 'WorkbenchRailSection'
+
 /** The dim between a floating rail and the workbench it covers. */
 export const WorkbenchScrim = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div data-slot="workbench-scrim" className={cn('bg-(--hd-scrim)', className)} {...props} />
