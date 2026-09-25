@@ -13,6 +13,7 @@ import { Input } from '../ui/input'
 import { IconTile } from '../ui/icon-tile'
 import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
+import { useInPageSection } from '../ui/section'
 import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
 import styles from './Settings.module.css'
 
@@ -810,6 +811,7 @@ export const SectionHead = ({
   /* In a dialog a section is a group of the form, and its head is that
      group's legend: the label's size and weight, attached to the group it
      names instead of floating page furniture's 20px above and 8px over it. */
+  const inSection = useInPageSection()
   if (useDialogForm()) return <FieldsetLegend name={name} description={description} action={action} className={className} />
   return (
   <div className={cx(styles.sectionHead, className)} data-section-head="" {...(sticky ? { 'data-sticky': '' } : {})}>
@@ -817,7 +819,7 @@ export const SectionHead = ({
       {level === 'heading' ? (
         <h2 className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</h2>
       ) : (
-        <GroupLabel as="h2" className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
+        <GroupLabel as={inSection ? 'h3' : 'h2'} className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
       )}
       {description != null && (
         <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
@@ -1243,8 +1245,13 @@ export const PageDescription = ({ children }: { children: ReactNode }) => (
   <p className={styles.pageBlurb}>{children}</p>
 )
 
-export const RowValue = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.rowFixed, className)}>{children}</span>
+/**
+ * A row's answer in words. A wrapped text answer takes its line under the
+ * title; a `numeric` one — money, a count — is compact: it keeps the row's
+ * end on tabular figures, where a column of them lines up by place.
+ */
+export const RowValue = ({ children, className, numeric = false }: { children: ReactNode; className?: string; numeric?: boolean }) => (
+  <span className={cx(styles.rowFixed, numeric && 'tabular-nums', className)} {...(numeric ? { 'data-numeric': '' } : {})}>{children}</span>
 )
 
 export const RowMark = ({ children, className }: { children: ReactNode; className?: string }) => (

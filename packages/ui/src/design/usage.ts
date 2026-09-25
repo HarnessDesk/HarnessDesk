@@ -312,7 +312,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'row',
     variant: 'wrapped control',
-    when: 'A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select — keeps the row\'s end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.',
+    when: 'A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the row\'s end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.',
     never: 'A sentence pushed to the row\'s end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.',
     because:
       'A row button\'s control travels with a chevron that cannot leave the end, and a card\'s trailing edge is the column every control is found in. Words are read from the left, so words that have their own line start at the left.',
@@ -320,7 +320,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'section',
     variant: 'sub-head',
-    when: 'Groups inside one section — one runtime\'s approvals among twelve, one layer of flows: a `SectionHead` among a `Section`\'s children, 24px above it and 8px over its card.',
+    when: 'Groups inside one section — one runtime\'s approvals among twelve, one layer of flows: a `SectionHead` among a `Section`\'s children, 24px above it and 8px over its card, and an h3 under the section\'s h2.',
     never: 'A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.',
     because:
       'The step between a section (32px) and a label-to-card (8px) is what says "part of the section above".',

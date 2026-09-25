@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
+import { createContext, useContext } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -114,6 +115,14 @@ type SectionProps = PageSectionProps | RegionProps
 
 const isPageSection = (props: SectionProps): props is PageSectionProps => typeof props.title === 'string'
 
+/*
+ * Whether this is inside a titled Section. A section label is an h2; a
+ * `SectionHead` among a Section's children heads a group of that section, so
+ * it asks here and is an h3 — the outline follows the page's shape.
+ */
+const InPageSection = createContext(false)
+const useInPageSection = (): boolean => useContext(InPageSection)
+
 const Section = (props: SectionProps) => {
   if (isPageSection(props)) {
     const { className, title, description, action, children, ...rest } = props
@@ -143,7 +152,7 @@ const Section = (props: SectionProps) => {
             </div>
           )}
         </div>
-        {children}
+        <InPageSection.Provider value>{children}</InPageSection.Provider>
       </section>
     )
   }
@@ -272,4 +281,5 @@ export {
   Toolbar,
   ToolbarGap,
   sectionVariants,
+  useInPageSection,
 }

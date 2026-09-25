@@ -934,11 +934,12 @@
    Where a wrapped control lands depends on what it is, and the row reads that
    from the control itself, so no caller has to say:
 
-   - A compact control — a switch, a button, a chip, a select — keeps the
+   - A compact control — a switch, a button, a chip, a select, a `numeric`
+     value — keeps the
      row's end. A row button's control travels with its chevron, which cannot
      leave the end, and a card's trailing edge is the column the eye runs down
      to find every control on it.
-   - A text answer (`RowValue`) that wraps takes its whole line and starts
+   - A text answer (`RowValue`, not `numeric`) that wraps takes its whole line and starts
      where the title starts. Pushed to the end, a sentence narrower than the
      row began at whatever indent its length left, lining up with nothing
      (#911's review). Beside the title it still ends the row, because the
@@ -953,7 +954,7 @@
   gap: 8px;
 }
 
-.rowCtl:has(> .rowFixed:only-child) {
+.rowCtl:has(> .rowFixed:only-child:not([data-numeric])) {
   flex-grow: 1; /* desk: 0 → 1, a wrapped text answer takes its line */
   margin-inline-start: 0; /* desk: auto → 0, and starts under the title */
 }
@@ -974,7 +975,7 @@
 
 /* A row button whose control is a text answer: the answer takes the line and
    the chevron keeps the end, as in a plain row. */
-.rowEnd:has(> .rowCtl > .rowFixed:only-child) {
+.rowEnd:has(> .rowCtl > .rowFixed:only-child:not([data-numeric])) {
   flex-grow: 1; /* desk: 0 → 1, a wrapped text answer takes its line */
   margin-inline-start: 0; /* desk: auto → 0, and starts under the title */
 }
@@ -1095,8 +1096,12 @@
 }
 
 .detailOwner[data-owner='text'] {
-  flex: 0 1 auto;
-  min-width: 0;
+  /* It gives way before the name wraps: it starts from nothing and takes only
+     the room the whole name leaves (a basis of 0 that grows), down to a few
+     words' floor, and 60% of the line is its ceiling. As a shrinking item it
+     kept its capped width and the name wrapped instead. */
+  flex: 1 1 0%;
+  min-width: min(6em, 100%);
   max-width: 60%;
   overflow: hidden;
   white-space: nowrap;

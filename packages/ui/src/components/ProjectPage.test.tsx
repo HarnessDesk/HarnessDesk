@@ -291,16 +291,17 @@ it('plain project stays plain: no explicit memory use, no Memory section, no mem
   // Memory is a section of its own even closed, so it never hangs off the
   // card above it, but closed it holds only the row that opens it.
   const memory = container.querySelector('section[aria-label="Memory"]')
-  expect([...(memory?.querySelectorAll('button') ?? [])].map((one) => one.textContent)).toEqual(['Project memoryCommitted notes a Goal can cite.'])
+  expect([...(memory?.querySelectorAll('button') ?? [])].map((one) => one.textContent)).toEqual(['Committed notesWhat a Goal in this project can cite.'])
   expect(memory?.querySelector('select')).toBeNull()
-  expect(container.textContent).toContain('Project memory')
+  // The section's label names it once; the row does not say "memory" again.
+  expect(memory?.textContent).not.toMatch(/Project memory/)
   expect((store as unknown as { transport?: { request: unknown } }).transport).toBeUndefined()
 })
 
 it('opening project memory reads it lazily, and an empty project says so honestly', async () => {
   const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
-  const memoryRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Project memory'))
+  const memoryRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Committed notes'))
   expect(memoryRow).toBeTruthy()
   ;(store as unknown as { transport: { request: ReturnType<typeof vi.fn> } }).transport = {
     request: vi.fn(async (method: string) =>

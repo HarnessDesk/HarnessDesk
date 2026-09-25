@@ -688,7 +688,7 @@ having written the judgement down.
 
 ### `wrapped control`
 
-**Use** — A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select — keeps the row's end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.
+**Use** — A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the row's end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.
 
 **Not** — A sentence pushed to the row's end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.
 
@@ -696,7 +696,7 @@ having written the judgement down.
 
 ### `sub-head`
 
-**Use** — Groups inside one section — one runtime's approvals among twelve, one layer of flows: a `SectionHead` among a `Section`'s children, 24px above it and 8px over its card.
+**Use** — Groups inside one section — one runtime's approvals among twelve, one layer of flows: a `SectionHead` among a `Section`'s children, 24px above it and 8px over its card, and an h3 under the section's h2.
 
 **Not** — A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.
 
@@ -1493,6 +1493,14 @@ reading and hides the tooltip of whatever holds it (the seat's "New
 sessions run as …"), so the title is decided as the pointer arrives, from
 whether the text overflows its box right then. The ellipsis is the
 caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+
+### `RowValue`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A row's answer in words. A wrapped text answer takes its line under the
+title; a `numeric` one — money, a count — is compact: it keeps the row's
+end on tabular figures, where a column of them lines up by place.
 
 ### `Monogram`
 

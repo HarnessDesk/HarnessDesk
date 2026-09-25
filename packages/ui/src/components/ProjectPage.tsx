@@ -183,8 +183,8 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
         <Section title="Memory">
           <Rows>
             <RowButton
-              title="Project memory"
-              desc="Committed notes a Goal can cite."
+              title="Committed notes"
+              desc="What a Goal in this project can cite."
               onClick={() => setMemoryOpen(true)}
             />
           </Rows>

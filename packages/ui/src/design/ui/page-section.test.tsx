@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { Button } from './button'
 import { GroupLabel } from './group-label'
 import { KeyValueRow, SummaryItem, SummaryList } from './key-value'
+import { SectionHead } from '../patterns/Settings'
 import { Section } from './section'
 
 /*
@@ -166,4 +167,20 @@ it('a SummaryList composes inside a Section with no margin of its own', () => {
   const wrap = section.querySelector('[data-slot="summary-list"]')
   expect(wrap?.parentElement).toBe(section)
   expect(classes(wrap).some((one) => /^-?m[tbyxlr]?-/.test(one))).toBe(false)
+})
+
+it('a SectionHead inside a titled Section heads a group of it: an h3, where alone it is an h2', () => {
+  const page = draw(
+    <div>
+      <SectionHead name="Rules" />
+      <Section title="Approvals">
+        <SectionHead name="Alpha" />
+        <p>card</p>
+      </Section>
+    </div>,
+  )
+  const [alone, grouped] = [...page.querySelectorAll('[data-slot="section-name"]')]
+  expect(alone?.tagName).toBe('H2')
+  expect(grouped?.tagName).toBe('H3')
+  expect(page.querySelector('section[aria-label="Approvals"] [data-slot="group-label"]')?.tagName).toBe('H2')
 })

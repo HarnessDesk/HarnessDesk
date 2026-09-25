@@ -51,6 +51,9 @@ const mount = async (page: Page, width: number) => {
           h('div', { style: { marginTop: '48px' }, 'data-testid': 'goal-head' },
             h(DetailHead, { name: 'Make checkout retries survive a gateway restart without charging twice', owner: h(Chip, { tone: 'warning' }, 'Needs you'), blurb: '~/work/storefront' }),
           ),
+          h('div', { style: { marginTop: '48px' }, 'data-testid': 'path-head' },
+            h(DetailHead, { name: 'Checkout payments and retries', owner: '~/work/storefront/packages/checkout-service/src/payments/retry/gateway', blurb: 'A project.' }),
+          ),
           h(Section, { title: 'Approvals', description: 'What a new session starts with.', 'data-testid': 'approvals' },
             h(SectionHead, { name: 'Alpha' }),
             h(Rows, { 'data-testid': 'alpha' }, h(Row, { title: 'Sandbox' })),
@@ -223,6 +226,28 @@ for (const width of [720, 420]) {
   })
 }
 
+/* A text owner gives way before the name wraps: the path is cut while the
+   name stays on one line, and 60% of the line is its ceiling. */
+test('a long path owner gives way before the name wraps, at 720px', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await mount(page, 720)
+  const reading = await page.getByTestId('path-head').evaluate(node => {
+    const title = node.querySelector('h1')!
+    const owner = node.querySelector('[data-owner]') as HTMLElement
+    const line = parseFloat(getComputedStyle(title).lineHeight)
+    return {
+      kind: owner.dataset['owner'],
+      titleLines: Math.round(title.getBoundingClientRect().height / line),
+      cut: owner.scrollWidth > owner.clientWidth + 1,
+      share: owner.getBoundingClientRect().width / owner.parentElement!.getBoundingClientRect().width,
+    }
+  })
+  expect(reading.kind).toBe('text')
+  expect(reading.titleLines).toBe(1)
+  expect(reading.cut).toBe(true)
+  expect(reading.share).toBeLessThanOrEqual(0.6)
+})
+
 test('page and detail titles are h1, and every section label is an h2', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 })
   await mount(page, 640)
@@ -230,12 +255,16 @@ test('page and detail titles are h1, and every section label is an h2', async ({
     pageTitle: node.querySelector('[data-slot="page-title"]')!.tagName,
     detailTitles: [...node.querySelectorAll('[data-slot="detail-title"]')].map(one => one.tagName),
     sectionLabels: [...node.querySelectorAll('section[data-variant="page"] > [data-slot="section-head"] [data-slot="group-label"]')].map(one => one.tagName),
-    headLabels: [...node.querySelectorAll('[data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
+    groupLabels: [...node.querySelectorAll('section[data-variant="page"] [data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
+    pageLabels: [...node.querySelectorAll('[data-slot="app-window-page"] > [data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
   }))
   expect(tags.pageTitle).toBe('H1')
   expect(new Set(tags.detailTitles)).toEqual(new Set(['H1']))
   expect(new Set(tags.sectionLabels)).toEqual(new Set(['H2']))
-  expect(new Set(tags.headLabels)).toEqual(new Set(['H2']))
+  // A SectionHead heading a group inside a titled Section is an h3; on the
+  // page itself it is an h2, beside the Sections.
+  expect(tags.groupLabels).toEqual(['H3', 'H3'])
+  expect(tags.pageLabels).toEqual(['H2'])
 })
 
 /* Inside a Section, a SectionHead is a sub-head: 24px above it, 8px to its

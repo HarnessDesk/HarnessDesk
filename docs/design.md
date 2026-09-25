@@ -659,7 +659,8 @@ file, ceiling, skills, servers and brief.
 
 **A wrapped control lands by what it is.** When a row is too narrow for its
 control beside the title, the control drops under it. A compact control — a
-switch, a button, a chip, a select — keeps the row's end, in a plain `Row`
+switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the
+row's end, in a plain `Row`
 exactly as in a `RowButton`, whose control travels with a chevron that cannot
 leave the end. A text answer (`RowValue`) takes its whole line and starts
 where the title starts: pushed to the end, a sentence narrower than the row
@@ -673,7 +674,8 @@ read as groups of Approvals, and a project's flows as its own, yours and the
 built-in ones, each under one label instead of a chip on every row.
 
 **The outline is real.** A page's title and a detail page's title are h1s;
-every section label, `Section` or `SectionHead`, is an h2. A detail head's
+every section label, `Section` or `SectionHead`, is an h2, and a sub-head
+inside a `Section` is an h3. A detail head's
 owner is either text — a place, a path — that gives way at its end, or a mark
 such as a status chip that stays whole while the name wraps.
 
