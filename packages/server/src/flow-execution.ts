@@ -2333,21 +2333,32 @@ export class FlowExecutions {
       return
     }
     const seat = this.#port.seatOf(operation.seat!)
-    if (!seat || seat.closed) return
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
+    /* After a relaunch nothing else will ever hand this card out, so a Seat
+       that is gone is a run that has stopped, said as such — never a run
+       left reading as running over nobody. */
+    if (!seat || seat.closed) {
+      if (why === 'relaunched') await this.#stall(id, `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back after the desk restarted.`)
+      return
+    }
     // Inside a turn is where a working Seat lives: there is nothing to hand it until that turn ends.
     if (this.#port.busy?.(seat)) return
     const round = run.rounds.find((one) => one.cards.includes(card.id))!
     const index = round.cards.indexOf(card.id)
     const binding = bindingsFor(run, round.role)[index]
-    if (!binding) return
-    /* After a relaunch the conversation is reopened first, in `reseat`: the
-       agent that held it went with the desk, and it comes back on its own
-       default model unless it is put back. One that cannot be reopened is a
-       run that has stopped, and it says so rather than reading as running. */
+    if (!binding) {
+      if (why === 'relaunched') await this.#stall(id, `Card #${card.id} no longer matches a Seat of its round, so it was not handed back after the desk restarted.`)
+      return
+    }
+    /* A card going back after a quit or a hold reopens the conversation
+       first, in `reseat`: the agent that held it may have gone with the desk
+       (a hold can outlast a relaunch), and it comes back on its own default
+       model unless it is put back — and in its own lane, or not at all. One
+       that cannot be reopened is a run that has stopped, and it says so
+       rather than reading as running. */
     const again = why === 'relaunched' ? ' after the desk restarted' : ''
-    if (why === 'relaunched' && !await this.#sameSeat(id, seat, card.id, round.role, why)) return
+    if (why !== 'turn-ended' && !await this.#sameSeat(id, seat, card.id, round.role, why)) return
     /* The order its round decided on and left for the end of the Seat's
        brief turn: delivered now, as the round's own first order, not
        counted against the budget for a Seat whose turn ended early. */
@@ -2364,6 +2375,13 @@ export class FlowExecutions {
       const key = `${prefix}${run.operations.filter((one) => one.key.startsWith(prefix)).length + 1}`
       const refused = await this.#handOver(id, key, seat, card.id, binding)
       if (refused !== null) await this.#stall(id, `Card #${card.id} could not be handed back to its Seat${again}: ${refused}`)
+      /* Left `prepared` because the Seat turned busy while it was reopened: a
+         turn is running, and its own end re-arms the card. This hand-back
+         will never be sent, so it is not kept as one that might be. */
+      const left = this.#get(id)
+      if (left.operations.find((one) => one.key === key)?.state === 'prepared') {
+        await this.#put({ ...left, operations: left.operations.filter((one) => one.key !== key) })
+      }
       return
     }
     const budget = policyOf(run).rearm ?? 3
@@ -2383,7 +2401,8 @@ export class FlowExecutions {
    * The same environment and the same model before the same card, or not at
    * all: false once the run is stalled with why. `reseat` is also what
    * reopens a conversation a relaunch left closed, so a refusal to reopen it
-   * then stalls the run too, rather than leaving it running over nothing.
+   * for a card going back after a quit or a hold stalls the run too, rather
+   * than leaving it running over nothing.
    */
   async #sameSeat(id: string, seat: SeatRecord, cardId: number, roleId: string, why: 'turn-ended' | 'released' | 'relaunched'): Promise<boolean> {
     const role = policyOf(this.#get(id)).roles.find((one) => one.id === roleId)
@@ -2398,8 +2417,8 @@ export class FlowExecutions {
     try {
       running = await this.#port.reseat(seat)
     } catch (error) {
-      if (why !== 'relaunched') throw error
-      await this.#stall(id, `Card #${cardId} could not be handed back to its Seat after the desk restarted: ${error instanceof Error ? error.message : String(error)}`)
+      if (why === 'turn-ended') throw error
+      await this.#stall(id, `Card #${cardId} could not be handed back to its Seat${why === 'relaunched' ? ' after the desk restarted' : ''}: ${error instanceof Error ? error.message : String(error)}`)
       return false
     }
     if (running !== seat.seatLabel) {
@@ -2521,9 +2540,11 @@ export class FlowExecutions {
    * budget: a quit is not a Seat that stopped early. A Seat that cannot be
    * reopened stalls the run with the reason.
    */
-  async resume(): Promise<void> {
+  async resume(which: 'all' | 'person' | 'triggered' = 'all'): Promise<void> {
     for (const run of [...this.#runs.values()]) {
       if (run.state !== 'running') continue
+      // A trigger's run waits for its budget's fresh read and its firing's release; anyone else's does not wait on either.
+      if (which !== 'all' && (which === 'triggered') !== Boolean(run.intake)) continue
       await this.#queue.within(run.id, async () => {
         /* Read before advancing: a card the advance itself hands out — a
            round it opens, an order a crash left unsent — is handed out by

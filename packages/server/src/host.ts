@@ -2007,18 +2007,22 @@ export class Host {
     /* Held firings are released through their gates, and only then is any
        source read: a trigger's run never dispatches before its runtime is up. */
     /* In the documented order: held firings released through their gates
-       first, then flows resume — a trigger's run never advances on a resume
-       that overtook its firing's release. Not awaited by start itself. */
+       first, then triggers' runs resume — a trigger's run never advances on a
+       resume that overtook its firing's release, or on a budget nobody has
+       read yet this launch. A run a person started has neither to wait for,
+       so it resumes at once, beside them. Not awaited by start itself. */
+    const resumeFailed = (error: unknown): void => {
+      this.#logger.warn('flows could not resume', { error: error instanceof Error ? error.message : String(error) })
+    }
+    void this.#flows.resume('person').catch(resumeFailed)
     void (async () => {
       if (!this.#disposed) {
         await this.#intake.ready().catch((error: unknown) => {
           this.#logger.warn('triggers could not start watching', { error: error instanceof Error ? error.message : String(error) })
         })
       }
-      await this.#flows.resume()
-    })().catch((error: unknown) => {
-      this.#logger.warn('flows could not resume', { error: error instanceof Error ? error.message : String(error) })
-    })
+      await this.#flows.resume('triggered')
+    })().catch(resumeFailed)
     if ((this.options.catalogRefreshMs ?? 1) > 0) this.#catalogs.start()
   }
 

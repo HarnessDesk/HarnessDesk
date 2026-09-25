@@ -1,4 +1,4 @@
-import type { BoardEvidence, FindingPost, FindingView, FlowExecution, GoalView } from '@harnessdesk/protocol'
+import type { BoardEvidence, FindingPost, FindingView } from '@harnessdesk/protocol'
 
 /**
  * Words and state for the findings ledger, kept beside the components that
@@ -88,29 +88,3 @@ export const findingLabel = (id: string): string => id
 export const goalHasBoundPr = (evidence: BoardEvidence | undefined): boolean =>
   (evidence?.cards ?? []).some((card) => card.facts.some((view) =>
     !view.record.restored && view.record.fact.kind === 'pr' && view.record.fact.state === 'open'))
-
-/**
- * The run a Goal's findings pane reads, out of the runs this window has cached.
- *
- * A Goal can hold more than one flow run — a new one starts after an earlier
- * one stopped or was dropped — so the first cached run that merely shares the
- * Goal's id can be an old one, greyed out as undecidable while the run that
- * is actually going on is never shown (#890). So, in order: the run reserved
- * on the Goal (`reservation.run`, the one the room's own header reads), the
- * run going on now (running, or stalled on a person), the run whose flow
- * opened the Goal, and only then the latest one this window heard of.
- */
-export const findingRunOf = (
-  goal: string,
-  view: GoalView | undefined,
-  executions: ReadonlyMap<string, FlowExecution>,
-): FlowExecution | null => {
-  const mine = [...executions.values()].filter((one) => one.goal === goal && one.findings)
-  const byId = (id: string | null | undefined): FlowExecution | undefined => (id ? mine.find((one) => one.id === id) : undefined)
-  const origin = view?.goal.origin.kind === 'flow' ? view.goal.origin.run : null
-  return byId(view?.reservation?.run)
-    ?? mine.find((one) => one.state === 'running' || one.state === 'stalled')
-    ?? byId(origin)
-    ?? mine.at(-1)
-    ?? null
-}

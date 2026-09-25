@@ -344,6 +344,59 @@ test('a relaunch whose Seat cannot be reopened stops reading as running and says
   assert.deepEqual(running(d), [], 'and nothing is running')
 })
 
+test('a run held by a pause across a relaunch reopens its Seat on its own model when the pause lifts (#915)', E2E, async (t) => {
+  const repo = await makeRepo('hd-intake-relaunch-held-')
+  await commitTriggers(repo, TRIAGE)
+  // Seated on a model of its own choosing, which a reopened conversation does not come back on by itself.
+  const first = await intakeDesk({ repo, prefer: 'fake=fake-1' })
+  let d = first
+  t.after(() => d.stop())
+  const root = repo.dir
+  const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
+  await d.host.call('trigger/arm', { root, id: 'triage', token: preview.token! })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 14, state: 'open', created: at, updated: at, events: [{ id: 14, event: 'labeled', created: at, label: 'ready' }], comments: [] })
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const [view] = await until(async () => { const found = await triggerGoals(d); return found.length === 1 ? found : null }, 'the trigger Goal')
+  const goal = view!.goal.id
+  const [card] = await until(async () => { const cards = await claimedCards(d, goal); return cards.length === 1 && running(d).length === 1 ? cards : null }, 'its Seat at work')
+  const seated = d.host.registry.all().find((one) => String(one.session.id) === card!.session)!.live!.options().find((one) => one.id === 'model')!.currentValue
+  const run = await runOn(d, root, 'triage', goal)
+  const prefs = await d.host.call('trigger/preferences', {})
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: 20 })
+  await until(() => running(d).length === 0 ? true : null, 'its turn interrupted by the pause')
+
+  // Quit while paused. The agent comes back on its own default — not the model the Seat was seated with.
+  await d.stop()
+  d = await intakeDesk({
+    repo, stateDir: first.stateDir, forge: first.forge, clocks: first.clocks, prefer: 'fake=fake-1',
+    before: (runtime) => {
+      const resume = runtime.resumeSession.bind(runtime)
+      runtime.resumeSession = async (id, options) => {
+        const session = await resume(id, options)
+        await session.setOption('model', seated === 'fake-2' ? 'fake-1' : 'fake-2')
+        return session
+      }
+    },
+  })
+  await d.host.intakePlane.tick()
+  assert.deepEqual(running(d), [], 'nothing runs while paused')
+  assert.equal((await execution(d, run.id)).state, 'running', 'held, not stopped')
+
+  const paused = await d.host.call('trigger/preferences', {})
+  await d.host.call('trigger/preferences/set', { revision: paused.revision, paused: false, dailyUsd: 20 })
+  const back = await until(async () => {
+    const now = await execution(d, run.id)
+    return running(d).includes(card!.session) || now.state !== 'running' ? now : null
+  }, 'the held Seat back at work')
+  assert.deepEqual([back.state, back.reason, back.intake?.heldFor ?? null], ['running', null, null], 'running again, nothing held')
+  assert.ok(running(d).includes(card!.session), 'the held Seat back at work')
+  assert.ok(d.runtime.resumes > 0, 'its own conversation was reopened')
+  const reopened = d.host.registry.all().find((one) => String(one.session.id) === card!.session)!
+  assert.equal(reopened.live!.options().find((one) => one.id === 'model')!.currentValue, seated, 'on the model it was seated with')
+})
+
 test('pausing stops watching and holds every live trigger run; resuming continues it', E2E, async (t) => {
   const repo = await makeRepo('hd-intake-pause-')
   await commitTriggers(repo, `- id: triage
