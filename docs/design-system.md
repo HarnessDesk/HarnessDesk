@@ -49,8 +49,9 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-font-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
 | `--hdp-font-family` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hdp-font-family-code` | `ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC', 'Microsoft YaHei'` |
-| `--hd-font-display` | `'Geist Mono', ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei'` |
-| `--hd-tracking-display` | `-0.03em` |
+| `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-font-heading` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
+| `--hd-tracking-heading` | `-0.01em` |
 | `--hd-title-rule` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-title-rule-width` | `1px` |
 | `--hd-title-rule-gap` | `16px` |

@@ -33,17 +33,10 @@ somebody happened to install it. Neither stack ends in a bare `monospace`:
 Windows CJK falls back to
 SimSun from there.
 
-`--hd-font-display` is **Geist Mono**, bundled beside Geist by the same script
-and drawn by the same hands, set with `--hd-tracking-display` (−0.03em). It is
-HarnessDesk's signature, and it is spent on very little: the names of places
-and the figures that fill a card — the `wordmark`, `page` and detail titles,
-and the `figure` and `metric` roles. A screen carries one or two display lines;
-every other word is in the interface sans. Nothing at the reading size or
-below wears it, because a dialog's question and a row's title are read, not
-posted on a door. Pulled in by three hundredths of an em, a mono title reads as
-drawn rather than typed. A foundation answers the question for itself —
-Editorial sets the same token to macOS's serif — and every title follows,
-because each one reads the token rather than naming a face.
+`--hd-font-heading` is the face a place's name is set in — the `wordmark`, `page`
+and detail titles — with `--hd-tracking-heading` (−0.01em). Both default to the
+interface sans; the tokens exist so a foundation that wants its own voice for a
+place's name changes one line rather than three patterns.
 
 ### The title block
 
@@ -154,8 +147,8 @@ are doing; screens do not invent a new spelling for the same job:
 
 | role | spelling | what wears it |
 | --- | --- | --- |
-| wordmark | 20 / semibold, display face | the product name beside its mark |
-| page | 20 / semibold, display face | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| wordmark | 20 / semibold | the product name beside its mark |
+| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
 | group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |

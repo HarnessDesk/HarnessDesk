@@ -72,7 +72,7 @@ them in `docs/decisions.md`.
 10. **Type comes from the scale, not from the component.** Four sizes — 12, 13,
    14 and 16 — carry nearly all of the interface and 14px is the default
    answer; the few steps above them each name one thing (a page's title, a
-   figure) and are set in the display face. Ink has three levels and
+   figure). Ink has three levels and
    the faintest one is for facts, not for text. `docs/design.md`
    is the guideline, `packages/ui/src/design/foundation/tokens.css` the tokens. A raw
    `font-size` in a component is how an app ends up with ten sizes.

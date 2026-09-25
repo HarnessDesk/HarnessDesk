@@ -777,9 +777,9 @@
   margin: 0; /* desk: new — it is an h1 now, and keeps the box the div had */
   font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, a page title matches the wordmark rather than outsizing it */
   line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, a page title matches the wordmark rather than outsizing it */
-  font-family: var(--hd-font-display);
+  font-family: var(--hd-font-heading);
   font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, a page title matches the wordmark rather than outsizing it */
-  letter-spacing: var(--hd-tracking-display); /* desk: -0.01em → -0.03em, the display face's own tracking */
+  letter-spacing: var(--hd-tracking-heading);
 }
 
 /* One sentence, in the support size, on a reading measure. The blurb ran the
@@ -1195,9 +1195,9 @@
   min-width: 0; /* desk: auto → 0, the name wraps inside the head rather than widening it */
   font-size: var(--hd-heading); /* desk: --hd-title → --hd-heading, one title step for every page head (24 → 20) */
   line-height: var(--hd-line-heading); /* desk: --hd-line-title → --hd-line-heading, with the size (30 → 28) */
-  font-family: var(--hd-font-display);
+  font-family: var(--hd-font-heading);
   font-weight: var(--hd-weight-semibold); /* desk: --hd-weight-normal → --hd-weight-semibold, the page title's weight */
-  letter-spacing: var(--hd-tracking-display); /* desk: -0.01em → -0.03em, the display face's own tracking */
+  letter-spacing: var(--hd-tracking-heading);
 }
 
 /* The name is the h1 and the item that gives way first: it wraps. */

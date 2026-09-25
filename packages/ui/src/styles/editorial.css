@@ -29,7 +29,6 @@ body[data-hd-palette='editorial'] {
      vendored. Corners sit two steps rounder, the softer geometry of the
      paper-and-clay family. */
   --hd-font-display: ui-serif, 'New York', 'Iowan Old Style', 'Palatino', Georgia, serif;
-  --hd-tracking-display: -0.01em;
   --hd-radius-sm: 8px;
   --hd-radius: 12px;
   --hd-radius-lg: 16px;

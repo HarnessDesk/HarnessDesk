@@ -57,29 +57,22 @@ body {
     'Liberation Mono', 'PingFang SC', 'Microsoft YaHei';
   --hdp-font-family: var(--hd-font-family);
   --hdp-font-family-code: var(--hd-font-code);
-  /* The display face: the names of places and the figures that fill a card —
-     the wordmark, a page's title, a detail page's name, a dashboard figure
-     and a metric. Geist Mono, bundled beside Geist and drawn by the
-     same hands, so the two sit on one set of proportions and the title reads
-     as the same voice set on a drafting grid rather than a second brand.
+  /* Display face for the few surfaces that greet rather than inform — the
+     conversation's empty-state title. The default foundation keeps it in the
+     interface sans; a foundation may answer differently (Editorial reaches
+     for macOS's own serif). */
+  --hd-font-display: var(--hd-font-family);
 
-     It is HarnessDesk's signature, and it is spent sparingly on purpose: a
-     screen carries one or two display lines and every other word stays in
-     the interface sans. Nothing at the reading size or below wears it: a
-     dialog's question and a row's title are read, and read in the sans. A foundation may answer differently — Editorial
-     reaches for macOS's own serif — and every title follows, because each
-     one reads this token rather than naming a face.
-
-     Tracking is part of the face, not of the component: a mono set at its
-     own spacing looks typed; pulled in, it looks drawn. */
-  --hd-font-display: 'Geist Mono', ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo,
-    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei';
-  --hd-tracking-display: -0.03em;
+  /* The heading face: the names of places — the wordmark, a page's title and
+     a detail page's name. It is the interface sans by default, pulled in a
+     hundredth of an em; the token exists so a foundation that wants its own
+     voice for a place's name changes one line rather than three patterns. */
+  --hd-font-heading: var(--hd-font-family);
+  --hd-tracking-heading: -0.01em;
 
   /* The title block: the hairline a page head closes on, and the short mark
-     in the accent at its start (Settings.module.css `.pageHead`). The second
-     half of the signature — the display face names the place, the rule sets
-     it off from what is on it. A foundation that wants no mark sets its
+     in the accent at its start (Settings.module.css `.pageHead`). The title
+     names the place; the rule sets it off from what is on it. A foundation that wants no mark sets its
      width to 0. */
   --hd-title-rule: var(--hd-border);
   --hd-title-rule-width: var(--hd-space-px);
