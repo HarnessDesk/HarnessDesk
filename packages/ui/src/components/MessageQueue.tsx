@@ -104,7 +104,7 @@ export const MessageQueue = () => {
     is a toolbar and its list the sortable list, both set on the alert's own
     inset. A row takes no hover ground: pressing it does nothing, and a row
     that lights up promises that it would (`ListRow`'s rule). Its actions
-    still come up with the pointer.
+    are the sortable item's to reveal, with the pointer or the focus.
   */
   return (
     <Alert
@@ -159,7 +159,7 @@ export const MessageQueue = () => {
             <Carried message={message} />
             <When paused={paused} index={index} state={message.state} />
             {message.state === 'queued' && (
-              <span className="flex shrink-0 items-center gap-px opacity-0 group-hover/sortable-row:opacity-100 focus-within:opacity-100">
+              <span data-slot="sortable-actions" className="flex shrink-0 items-center gap-px">
                 <Button
                   type="button"
                   variant="ghost" size="icon-sm"

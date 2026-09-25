@@ -679,7 +679,7 @@ const QueueRows = () => {
             <Text role="meta">{index + 1}</Text>
             <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
             {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
-            <span className="flex shrink-0 items-center opacity-0 group-hover/sortable-row:opacity-100 focus-within:opacity-100">
+            <span data-slot="sortable-actions" className="flex shrink-0 items-center">
               <Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button>
             </span>
           </li>

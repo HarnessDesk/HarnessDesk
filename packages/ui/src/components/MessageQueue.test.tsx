@@ -290,7 +290,14 @@ describe('MessageQueue', () => {
     expect(frame.querySelector(':scope > [data-slot="toolbar"]')?.textContent).toContain('2 messages waiting')
     const list = frame.querySelector('ol[aria-label="Waiting messages"]')
     expect(list?.querySelectorAll(':scope > li[data-slot="sortable-row"]')).toHaveLength(2)
-    for (const row of rows()) expect(row.className).not.toMatch(/hover:bg-/)
+    for (const row of rows()) {
+      expect(row.className).not.toMatch(/hover:bg-/)
+      // Its actions are the sortable item's to reveal, with the pointer or the keyboard's focus.
+      expect(row.className).toContain('focus-within:[&_[data-slot=sortable-actions]]:opacity-100')
+      const actions = row.querySelector('[data-slot="sortable-actions"]')
+      expect(actions?.querySelector('[aria-label="Remove"]')).not.toBeNull()
+      expect(actions?.className).not.toMatch(/opacity|group-hover|focus-within/)
+    }
     expect(frame.querySelector('[data-slot="sortable-announcer"]')).not.toBeNull()
 
     mount({ ...waiting('the follow-up'), status: 'paused', reason: 'Stopped.' })

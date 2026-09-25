@@ -329,10 +329,18 @@ const SortableAnnouncer = ({ message }: { message: string }) => (
  * How any item of a sortable order draws its part in a move — a row in a
  * list, a tab in a strip: dimmed while it is the one being dragged, and a
  * line on the side a drop would land. One drawing, whatever the item is.
+ *
+ * It also owns when an item's own actions show. Whatever the item marks
+ * `data-slot="sortable-actions"` — a row's edit and remove — is drawn only
+ * while the item is under the pointer or holds the focus anywhere in it, the
+ * way its grip is, so a keyboard that reaches the grip also finds the actions
+ * beside it. The caller lays the actions out; it never spells their reveal.
  */
 const sortableItemClass = (orientation: 'vertical' | 'horizontal' = 'vertical'): string =>
   cn(
     'group/sortable-row relative data-[dragging]:opacity-40',
+    // Spelled whole, so the stylesheet generator finds every one of them.
+    '[&_[data-slot=sortable-actions]]:opacity-0 hover:[&_[data-slot=sortable-actions]]:opacity-100 focus-within:[&_[data-slot=sortable-actions]]:opacity-100',
     "data-[drop]:before:absolute data-[drop]:before:rounded-(--hd-radius-2xs) data-[drop]:before:bg-(--hd-primary) data-[drop]:before:content-['']",
     orientation === 'vertical'
       ? 'data-[drop]:before:right-2 data-[drop]:before:left-1 data-[drop]:before:h-0.5 data-[drop=before]:before:-top-px data-[drop=after]:before:-bottom-px'
