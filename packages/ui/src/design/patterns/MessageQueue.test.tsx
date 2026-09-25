@@ -32,8 +32,8 @@ it('owns the queued-message frame, rows and state marks', () => {
     <MessageQueueFrame paused>
       <MessageQueueHeader>Two messages waiting</MessageQueueHeader>
       <MessageQueueList announcement="Moved it to position 1 of 1">
-        <MessageQueueRow sending dragging drop>
-          <SortableHandle ref={() => {}} onPointerDown={() => {}} onMouseDown={() => {}} onPointerUp={() => {}} aria-label="Move it" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" title="" disabled={false} />
+        <MessageQueueRow sending data-dragging="" data-drop="before">
+          <SortableHandle aria-label="Move it" />
           <MessageQueueActions><button>Remove</button></MessageQueueActions>
         </MessageQueueRow>
       </MessageQueueList>

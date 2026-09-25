@@ -2,6 +2,8 @@ import * as React from 'react'
 
 import { CrossIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
+
+import { sortableItemClass } from './sortable-list'
 import { Text } from '../patterns/Settings'
 import { TabsList, TabsTrigger } from './tabs'
 
@@ -299,7 +301,8 @@ const ToolPaneDocumentTab = ({ className, ...props }: React.ComponentProps<'span
       'flex h-(--hd-control-h) shrink-0 cursor-pointer items-center gap-1.5 rounded-(--hd-radius-sm) py-0 pr-1 pl-2 text-base leading-(--hd-line) whitespace-nowrap text-(--hd-secondary-foreground)',
       'hover:bg-(--hd-hover) hover:text-(--hd-foreground)',
       'data-[active]:bg-(--hd-muted) data-[active]:text-(--hd-foreground) data-[active]:shadow-[inset_0_0_0_1px_var(--hd-border)]',
-      'data-[dragging]:opacity-40 data-[drop]:shadow-[inset_2px_0_0_var(--hd-accent)]',
+      // A tab in a strip the person orders draws its move the way every sortable item does.
+      sortableItemClass('horizontal'),
       className,
     )}
     {...props}

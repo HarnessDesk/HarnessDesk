@@ -2,7 +2,7 @@ import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { SortableAnnouncer, SortableHandle, SortableRow, useSortable } from './sortable-list'
+import { SortableAnnouncer, SortableHandle, sortableItemClass, useSortable } from './sortable-list'
 
 /**
  * The sortable list, through the DOM: order shown by position; a move is a
@@ -28,7 +28,7 @@ afterEach(() => {
 })
 
 /** An owner that answers every request, or (`answer: false`) never does. */
-const List = ({ onMove, answer = true, locked = [] }: { onMove: (id: string, to: number) => void; answer?: boolean; locked?: string[] }) => {
+const List = ({ onMove, answer = true, refuse = false, withField = false, locked = [] }: { onMove: (id: string, to: number) => void; answer?: boolean; refuse?: boolean; withField?: boolean; locked?: string[] }) => {
   const [ids, setIds] = useState(['alpha', 'beta', 'gamma'])
   const sortable = useSortable({
     ids,
@@ -37,6 +37,8 @@ const List = ({ onMove, answer = true, locked = [] }: { onMove: (id: string, to:
     onMove: (id, to) => {
       onMove(id, to)
       if (!answer) return
+      // A refusal is an answer too: the order changes, but not as asked.
+      if (refuse) return setIds(['beta', 'alpha', 'gamma'])
       setIds((was) => {
         const rest = was.filter((one) => one !== id)
         return [...rest.slice(0, to), id, ...rest.slice(to)]
@@ -47,11 +49,12 @@ const List = ({ onMove, answer = true, locked = [] }: { onMove: (id: string, to:
     <>
       <ol>
         {ids.map((id, index) => (
-          <SortableRow key={id} {...sortable.row(id, index)}>
+          <li key={id} data-slot="sortable-row" className={sortableItemClass()} {...sortable.row(id, index)}>
             <SortableHandle {...sortable.handle(id)} />
             <span>{id}</span>
+            {withField ? <input aria-label={`Note on ${id}`} /> : null}
             <button type="button">Remove {id}</button>
-          </SortableRow>
+          </li>
         ))}
       </ol>
       <SortableAnnouncer message={sortable.announcement} />
@@ -85,14 +88,77 @@ describe('SortableList', () => {
     expect(order()).toEqual(['beta', 'gamma', 'alpha'])
   })
 
-  it('leaves a plain arrow alone, and says so at either end rather than asking', () => {
+  it('leaves a plain arrow to the row, and says so at either end rather than asking — every time', () => {
     const onMove = vi.fn()
     act(() => root.render(<List onMove={onMove} />))
-    expect(press(handle('beta'), 'ArrowUp', false).defaultPrevented).toBe(false)
+    const remove = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Remove beta') as HTMLButtonElement
+    expect(press(remove, 'ArrowUp', false).defaultPrevented).toBe(false)
     press(handle('alpha'), 'ArrowUp')
     press(handle('gamma'), 'ArrowDown')
     expect(onMove).not.toHaveBeenCalled()
     expect(said()).toBe('gamma is already last')
+    // The same sentence again is still a change a live region speaks.
+    press(handle('gamma'), 'ArrowDown')
+    expect(said()).not.toBe('gamma is already last')
+    expect(said().trim()).toBe('gamma is already last')
+  })
+
+  it('takes no Alt+arrow with another modifier, and none typed in a text field', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<List onMove={onMove} withField />))
+    for (const modifier of ['shiftKey', 'metaKey', 'ctrlKey'] as const) {
+      const event = new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, [modifier]: true, bubbles: true, cancelable: true })
+      act(() => { handle('beta').dispatchEvent(event) })
+      expect(event.defaultPrevented).toBe(false)
+    }
+    const field = container.querySelector('input') as HTMLInputElement
+    expect(press(field, 'ArrowUp').defaultPrevented).toBe(false)
+    expect(onMove).not.toHaveBeenCalled()
+  })
+
+  it('does not announce a move the owner refused', () => {
+    act(() => root.render(<List onMove={() => {}} refuse />))
+    press(handle('gamma'), 'ArrowUp')
+    // The owner answered with a new order that leaves gamma where it was.
+    expect(order()).toEqual(['beta', 'alpha', 'gamma'])
+    expect(said()).toBe('')
+  })
+
+  it('makes the handles one tab stop, walked with the arrows', () => {
+    act(() => root.render(<List onMove={() => {}} />))
+    expect([handle('alpha'), handle('beta'), handle('gamma')].map((one) => one.tabIndex)).toEqual([0, -1, -1])
+    handle('alpha').focus()
+    press(handle('alpha'), 'ArrowDown', false)
+    expect(document.activeElement).toBe(handle('beta'))
+    expect([handle('alpha'), handle('beta'), handle('gamma')].map((one) => one.tabIndex)).toEqual([-1, 0, -1])
+  })
+
+  it('picks a row up with Space, carries it with the arrows, and Escape puts it back', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<List onMove={onMove} />))
+    handle('alpha').focus()
+    press(handle('alpha'), ' ', false)
+    expect(handle('alpha').getAttribute('aria-pressed')).toBe('true')
+    expect(said()).toContain('Picked up alpha')
+    press(handle('alpha'), 'ArrowDown', false)
+    press(document.activeElement as HTMLElement, 'ArrowDown', false)
+    expect(order()).toEqual(['beta', 'gamma', 'alpha'])
+    const escape = press(document.activeElement as HTMLElement, 'Escape', false)
+    expect(escape.defaultPrevented).toBe(true)
+    expect(order()).toEqual(['alpha', 'beta', 'gamma'])
+    expect(onMove).toHaveBeenLastCalledWith('alpha', 0)
+    expect(handle('alpha').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('puts a lifted row down where it is with Enter', () => {
+    act(() => root.render(<List onMove={() => {}} />))
+    handle('beta').focus()
+    press(handle('beta'), 'Enter', false)
+    press(handle('beta'), 'ArrowUp', false)
+    press(document.activeElement as HTMLElement, 'Enter', false)
+    expect(order()).toEqual(['beta', 'alpha', 'gamma'])
+    expect(said()).toBe('Dropped beta at position 1 of 3')
+    expect(handle('beta').getAttribute('aria-pressed')).toBe('false')
   })
 
   it('announces a move when the owner answers, in the one sentence every reorder uses', () => {
@@ -137,11 +203,42 @@ describe('SortableList', () => {
 describe('dragging a sortable row', () => {
   const transfer = (): DataTransfer =>
     ({ effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: () => '' }) as unknown as DataTransfer
-  const dragEvent = (type: string, dataTransfer: DataTransfer): Event => {
+  /** A drag event over a row's upper or lower half (jsdom's rows have no size, so the sign says which). */
+  const dragEvent = (type: string, dataTransfer: DataTransfer, half: 'upper' | 'lower' = 'lower'): Event => {
     const event = new Event(type, { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    const at = half === 'upper' ? -1 : 1
+    Object.defineProperties(event, { dataTransfer: { value: dataTransfer }, clientX: { value: at }, clientY: { value: at } })
     return event
   }
+
+  it('marks the true landing place: above a row for its upper half, below it for its lower, nothing where nothing would change', () => {
+    const onMove = vi.fn()
+    act(() => root.render(<List onMove={onMove} answer={false} />))
+    const data = transfer()
+    act(() => {
+      handle('alpha').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      rows()[0]?.dispatchEvent(dragEvent('dragstart', data))
+    })
+    const marks = (): (string | null)[] => rows().map((row) => row.getAttribute('data-drop'))
+    // Over beta's upper half: straight back where alpha is — no mark.
+    act(() => { rows()[1]?.dispatchEvent(dragEvent('dragover', data, 'upper')) })
+    expect(marks()).toEqual([null, null, null])
+    // Over beta's lower half: between beta and gamma, drawn above gamma.
+    act(() => { rows()[1]?.dispatchEvent(dragEvent('dragover', data, 'lower')) })
+    expect(marks()).toEqual([null, null, 'before'])
+    act(() => { rows()[1]?.dispatchEvent(dragEvent('drop', data, 'lower')) })
+    expect(onMove).toHaveBeenLastCalledWith('alpha', 1)
+
+    // Up: gamma over beta's upper half lands at index 1.
+    act(() => {
+      handle('gamma').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+      rows()[2]?.dispatchEvent(dragEvent('dragstart', data))
+    })
+    act(() => { rows()[1]?.dispatchEvent(dragEvent('dragover', data, 'upper')) })
+    expect(marks()).toEqual([null, 'before', null])
+    act(() => { rows()[1]?.dispatchEvent(dragEvent('drop', data, 'upper')) })
+    expect(onMove).toHaveBeenLastCalledWith('gamma', 1)
+  })
 
   it('drops onto the index of the row it lands on, and marks where it will land', () => {
     const onMove = vi.fn()
@@ -155,7 +252,7 @@ describe('dragging a sortable row', () => {
       rows()[2]?.dispatchEvent(dragEvent('dragover', data))
     })
     expect(rows()[0]?.hasAttribute('data-dragging')).toBe(true)
-    expect(rows()[2]?.hasAttribute('data-drop')).toBe(true)
+    expect(rows()[2]?.getAttribute('data-drop')).toBe('after')
     act(() => {
       rows()[2]?.dispatchEvent(dragEvent('drop', data))
     })
@@ -214,9 +311,8 @@ const Strip = ({ onMove }: { onMove: (id: string, to: number) => void }) => {
     <>
       <div role="tablist">
         {ids.map((id, index) => {
-          const { dragging, drop, ...order } = sortable.row(id, index)
           return (
-            <span key={id} role="tab" tabIndex={0} aria-keyshortcuts={sortable.keys} data-dragging={dragging || undefined} data-drop={drop || undefined} {...order}>
+            <span key={id} role="tab" tabIndex={0} aria-keyshortcuts={sortable.keys} {...sortable.row(id, index)}>
               {id}
             </span>
           )
@@ -249,15 +345,16 @@ describe('a horizontal strip whose items are their own grip', () => {
     const onMove = vi.fn()
     act(() => root.render(<Strip onMove={onMove} />))
     const data = { effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: () => '' } as unknown as DataTransfer
-    const fire = (node: Element, type: string): Event => {
+    const fire = (node: Element, type: string, x = 1): Event => {
       const event = new Event(type, { bubbles: true, cancelable: true })
-      Object.defineProperty(event, 'dataTransfer', { value: data })
+      Object.defineProperties(event, { dataTransfer: { value: data }, clientX: { value: x }, clientY: { value: 1 } })
       act(() => { node.dispatchEvent(event) })
       return event
     }
     expect(fire(tabs()[2]!, 'dragstart').defaultPrevented).toBe(false)
-    fire(tabs()[0]!, 'dragover')
-    fire(tabs()[0]!, 'drop')
+    fire(tabs()[0]!, 'dragover', -1)
+    expect(tabs()[0]?.getAttribute('data-drop')).toBe('before')
+    fire(tabs()[0]!, 'drop', -1)
     expect(onMove).toHaveBeenCalledWith('three', 0)
   })
 

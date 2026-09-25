@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   SEAT_PREFERENCE_LIMIT,
@@ -36,7 +36,7 @@ import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { BriefIcon, MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
+import { BriefIcon, PlusIcon, TrashIcon } from './Icons'
 import {
   BackLink,
   Banner,
@@ -50,7 +50,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
   Field,
   NativeSelect,
@@ -61,9 +60,13 @@ import {
   Rows,
   Section,
   SectionHead,
+  SortableAnnouncer,
+  SortableHandle,
   SummaryItem,
   SummaryList,
   Switch,
+  sortableItemClass,
+  useSortable,
 } from '../design'
 import styles from './AgentPage.module.css'
 import { AgentAttachments } from './AgentAttachments'
@@ -630,6 +633,30 @@ const MachineSeats = ({
     if (seat) next.splice(to, 0, seat)
     set(next)
   }
+  /*
+   * The list is a sortable order: a drag from a seat's handle, ⌥↑/⌥↓ from its
+   * row, or Space on its handle to pick it up. Each move is the same write,
+   * and it is announced once the list on disk says so. A seat has no id of its
+   * own, so it is named by what it is, and by which of its twins it is.
+   */
+  const seatIds = useMemo(() => {
+    const seen = new Map<string, number>()
+    return (mine?.seats ?? []).map((seat) => {
+      const base = JSON.stringify([seat.runtime, seat.model ?? null, seat.effort ?? null, seat.thinking ?? null])
+      const twin = seen.get(base) ?? 0
+      seen.set(base, twin + 1)
+      return `${base}#${twin}`
+    })
+  }, [mine?.seats])
+  const sortable = useSortable({
+    ids: seatIds,
+    onMove: (id, to) => move(seatIds.indexOf(id), to),
+    name: (id) => {
+      const at = seatIds.indexOf(id)
+      return weighed?.[at]?.label ?? `seat ${at + 1}`
+    },
+    movable: () => !busy && !unreadable,
+  })
   const remove = (index: number): void => {
     if (!mine) return
     const next = mine.seats.filter((_, at) => at !== index)
@@ -685,38 +712,36 @@ const MachineSeats = ({
             desc="Seats added here replace its own list on this Mac. They are not added to it."
           />
         )}
-        {mine?.seats.map((seat, index) => {
+        {mine?.seats.map((_seat, index) => {
           const candidate = weighed?.[index]
+          const id = seatIds[index]!
           return (
             <Row
-              key={`${index}-${seat.runtime}-${seat.model ?? ''}-${seat.effort ?? ''}`}
+              key={id}
+              {...sortable.row(id, index)}
+              className={sortableItemClass()}
               {...(candidate ? { mark: <RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} /> } : {})}
               title={candidate?.label ?? 'Checking…'}
               {...(candidate ? { desc: stateWords(candidate) } : {})}
               control={(
-                <DropdownMenu>
-                  <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} disabled={busy} />} />
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem disabled={index === 0} onClick={() => move(index, index - 1)}>
-                      <MoveUpIcon size={14} />
-                      Move up
-                    </DropdownMenuItem>
-                    <DropdownMenuItem disabled={index === mine.seats.length - 1} onClick={() => move(index, index + 1)}>
-                      <MoveDownIcon size={14} />
-                      Move down
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
-                      <TrashIcon size={14} />
-                      Remove seat
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <>
+                  <SortableHandle {...sortable.handle(id)} />
+                  <DropdownMenu>
+                    <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} disabled={busy} />} />
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
+                        <TrashIcon size={14} />
+                        Remove seat
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </>
               )}
             />
           )
         })}
       </Rows>
+      <SortableAnnouncer message={sortable.announcement} />
       <Note>
         {`Kept in ${seating ? shortPath(seating.path, snapshot.home) : 'seating.json'}, on this Mac only — never committed.`}
       </Note>

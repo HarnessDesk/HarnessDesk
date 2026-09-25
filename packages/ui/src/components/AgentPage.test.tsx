@@ -493,7 +493,7 @@ const summaryItem = (label: string): HTMLElement | null =>
   [...container.querySelectorAll('[data-slot="summary-item"]')].find((one) => one.querySelector('dt')?.textContent === label) as HTMLElement | null
 const section = (label: string): string =>
   container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? summaryItem(label)?.textContent ?? ''
-/** Move up/down/remove live behind each "On this Mac" row's own "… actions" menu, in row order. */
+/** Remove lives behind each "On this Mac" row's own "… actions" menu, in row order; moving is the row's own. */
 const seatMenus = (): HTMLButtonElement[] => [
   ...container.querySelectorAll<HTMLButtonElement>('section[aria-label="On this Mac"] [aria-label$=" actions"]'),
 ]
@@ -502,6 +502,15 @@ const menuItem = (label: string): HTMLElement => {
   const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
   if (!found) throw new Error(`no menu item “${label}”`)
   return found as HTMLElement
+}
+/** Each seat's grip: a drag handle, and ⌥↑/⌥↓ from anywhere in the row. */
+const seatHandles = (scope: ParentNode = container): HTMLButtonElement[] => [
+  ...scope.querySelectorAll<HTMLButtonElement>('[data-slot="sortable-handle"]'),
+]
+const altKey = (node: Element, key: 'ArrowUp' | 'ArrowDown'): void => {
+  act(() => {
+    node.dispatchEvent(new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true }))
+  })
 }
 const choose = (label: string, value: string): void => {
   const tag = [...document.body.querySelectorAll('label')].find((one) => one.textContent === label)
@@ -530,6 +539,8 @@ it('no bare per-row Move up, Move down or remove button sits on "On this Mac" �
   expect([...here.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move down')).toBe(false)
   expect([...here.querySelectorAll('button[aria-label="Remove this seat"]')]).toHaveLength(0)
   expect(seatMenus().length).toBeGreaterThan(0)
+  // Order is the row's: a grip that names its keys, not a menu row.
+  expect(seatHandles()[0]?.getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowUp Alt+ArrowDown')
 })
 
 it('a seat moves, or goes, and Clear gives the Agent its own list back', async () => {
@@ -537,10 +548,9 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', async (
   const expected = [{ runtime: 'codex' }, { runtime: 'claude-code' }]
   expect(seatMenus()).toHaveLength(2)
 
-  act(() => seatMenus()[0]!.click())
-  await settle()
-  expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
-  act(() => menuItem('Move down').click())
+  altKey(seatHandles()[0]!, 'ArrowUp')
+  expect(store.setSeating).not.toHaveBeenCalled()
+  altKey(seatHandles()[0]!, 'ArrowDown')
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith(
     'code-reviewer',
@@ -550,13 +560,42 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', async (
 
   act(() => seatMenus()[1]!.click())
   await settle()
-  expect(menuItem('Move down').getAttribute('aria-disabled')).toBe('true')
+  expect([...document.body.querySelectorAll('[role="menuitem"]')].map((one) => one.textContent?.trim())).toEqual(['Remove seat'])
   act(() => menuItem('Remove seat').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }], expected)
   act(() => button('Clear').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, expected)
+})
+
+it('a seat keeps its model and effort when it moves, and a move never empties the list', async () => {
+  const seats = [
+    { runtime: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+    { runtime: 'claude-code', model: 'opus-5', effort: 'medium', thinking: true },
+    { runtime: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+  ]
+  const { store } = mount({
+    focus: 'code-reviewer',
+    seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats }] },
+  })
+  // Twins are still two seats: three rows, three grips.
+  expect(seatHandles()).toHaveLength(3)
+  altKey(seatHandles()[2]!, 'ArrowUp')
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [seats[0], seats[2], seats[1]], seats)
+  // Moving off either end asks nothing: no write, and never a shorter or empty list.
+  vi.mocked(store.setSeating).mockClear()
+  altKey(seatHandles()[0]!, 'ArrowUp')
+  altKey(seatHandles()[2]!, 'ArrowDown')
+  expect(store.setSeating).not.toHaveBeenCalled()
+  // Picked up and carried from the keyboard, too: the same seats, reordered, all there.
+  act(() => seatHandles()[0]!.focus())
+  act(() => { seatHandles()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })) })
+  act(() => { seatHandles()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
+  await settle()
+  const written = vi.mocked(store.setSeating).mock.calls.at(-1)?.[1] as readonly unknown[] | null
+  expect(written).toEqual([seats[1], seats[0], seats[2]])
 })
 
 it('the last seat removed gives the Agent its own list back too', async () => {
@@ -575,11 +614,11 @@ it('disables every seat edit while a move is in flight, so a quick remove cannot
   const write = deferred<void>()
   store.setSeating = vi.fn(() => write.promise)
 
-  act(() => seatMenus()[0]!.click())
-  await settle()
-  act(() => menuItem('Move down').click())
-  // Every seat's own "… actions" trigger is disabled while the move is in flight.
+  altKey(seatHandles()[0]!, 'ArrowDown')
+  // Every seat's own "… actions" trigger and grip is disabled while the move is in flight.
   expect(seatMenus().every((one) => one.disabled)).toBe(true)
+  expect(seatHandles().every((one) => one.disabled)).toBe(true)
+  altKey(seatHandles()[1]!, 'ArrowUp')
   expect(button('Clear').disabled).toBe(true)
   expect(button('Add a seat…').disabled).toBe(true)
 
@@ -642,9 +681,7 @@ it('two pages editing one Agent refuse the stale page, reload it, and show the r
     ...scope.querySelectorAll<HTMLButtonElement>('[aria-label$=" actions"]'),
   ]
 
-  act(() => menusIn(first)[0]!.click())
-  await settle()
-  act(() => menuItem('Move down').click())
+  altKey(seatHandles(first)[0]!, 'ArrowDown')
   await settle()
   expect(hostSeats).toEqual([{ runtime: 'claude-code' }, { runtime: 'codex' }])
 

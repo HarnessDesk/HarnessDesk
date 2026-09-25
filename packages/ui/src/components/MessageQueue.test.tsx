@@ -303,9 +303,11 @@ describe('dragging a queued message', () => {
   const transfer = (): DataTransfer =>
     ({ effectAllowed: '', dropEffect: '', setData: vi.fn(), getData: () => '' }) as unknown as DataTransfer
 
-  const dragEvent = (type: string, dataTransfer: DataTransfer): Event => {
+  /** A drag event over a row's upper or lower half (jsdom's rows have no size, so the sign says which). */
+  const dragEvent = (type: string, dataTransfer: DataTransfer, half: 'upper' | 'lower' = 'lower'): Event => {
     const event = new Event(type, { bubbles: true, cancelable: true })
-    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    const at = half === 'upper' ? -1 : 1
+    Object.defineProperties(event, { dataTransfer: { value: dataTransfer }, clientX: { value: at }, clientY: { value: at } })
     return event
   }
 
@@ -317,8 +319,8 @@ describe('dragging a queued message', () => {
       rows()[2]?.dispatchEvent(dragEvent('dragstart', data))
     })
     act(() => {
-      rows()[0]?.dispatchEvent(dragEvent('dragover', data))
-      rows()[0]?.dispatchEvent(dragEvent('drop', data))
+      rows()[0]?.dispatchEvent(dragEvent('dragover', data, 'upper'))
+      rows()[0]?.dispatchEvent(dragEvent('drop', data, 'upper'))
     })
     expect(calls.moveQueued).toHaveBeenCalledWith('q2', 0, KEY)
     // The rows are still in the order the host last gave.
@@ -354,8 +356,8 @@ describe('dragging a queued message', () => {
     act(() => {
       grip(2).dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
       rows()[2]?.dispatchEvent(dragEvent('dragstart', data))
-      rows()[0]?.dispatchEvent(dragEvent('dragover', data))
-      rows()[0]?.dispatchEvent(dragEvent('drop', data))
+      rows()[0]?.dispatchEvent(dragEvent('dragover', data, 'upper'))
+      rows()[0]?.dispatchEvent(dragEvent('drop', data, 'upper'))
     })
     expect(calls.moveQueued).toHaveBeenCalledWith('q2', 0, KEY)
   })

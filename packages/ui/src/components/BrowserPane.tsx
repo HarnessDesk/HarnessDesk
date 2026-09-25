@@ -1343,7 +1343,7 @@ export const BrowserPane = () => {
                 const isActive = entry.id === view.active
                 const name = tabName(entry)
                 const icon = icons[entry.id]
-                const { dragging, drop, onKeyDown: moveByKey, ...order } = sortable.row(entry.id, index)
+                const { onKeyDown: moveByKey, ...order } = sortable.row(entry.id, index)
                 return (
                   <ToolPaneDocumentTab
                     key={entry.id}
@@ -1356,8 +1356,6 @@ export const BrowserPane = () => {
                     {...order}
                     aria-keyshortcuts={sortable.keys}
                     {...(isActive ? { 'data-active': '' } : {})}
-                    {...(dragging ? { 'data-dragging': '' } : {})}
-                    {...(drop ? { 'data-drop': '' } : {})}
                     onClick={() => store.selectBrowserTab(paneId, entry.id)}
                     onKeyDown={(event) => {
                       moveByKey?.(event)

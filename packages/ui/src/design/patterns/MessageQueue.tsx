@@ -3,7 +3,7 @@ import type { ComponentProps, HTMLAttributes } from 'react'
 import { cn } from '@/lib/utils'
 
 import { Toolbar } from '../ui/section'
-import { SortableAnnouncer, SortableRow } from '../ui/sortable-list'
+import { SortableAnnouncer, sortableItemClass } from '../ui/sortable-list'
 
 /** The messages held between the transcript and the composer. */
 export const MessageQueueFrame = ({
@@ -58,11 +58,12 @@ export const MessageQueueRow = ({
   sending = false,
   className,
   ...props
-}: ComponentProps<typeof SortableRow> & { sending?: boolean }) => (
-  <SortableRow
+}: ComponentProps<'li'> & { sending?: boolean }) => (
+  <li
     {...props}
+    data-slot="sortable-row"
     {...(sending ? { 'data-sending': '' } : {})}
-    className={cn('flex items-center gap-2 py-1 pr-2 pl-1 hover:bg-(--hd-hover)', className)}
+    className={cn(sortableItemClass(), 'flex items-center gap-2 py-1 pr-2 pl-1 hover:bg-(--hd-hover)', className)}
   />
 )
 

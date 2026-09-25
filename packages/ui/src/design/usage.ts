@@ -191,8 +191,8 @@ export const ELEMENTS: readonly UsageRule[] = [
   },
   {
     family: 'order',
-    variant: 'useSortable · SortableRow · SortableHandle',
-    when: 'Rows whose order the person sets — a queue, seats, steps. Order is shown by position; a row moves by a drag from the handle that appears on hover, or ⌥↑/⌥↓ from anywhere in it, and every move is announced. Removal is the row\'s own `⋯` menu or hover ×.',
+    variant: 'useSortable · sortableItemClass · SortableHandle',
+    when: 'Items whose order the person sets — a queue, seats, tabs. Order is shown by position; an item moves by a drag from the handle that appears on hover (a tab is its own handle), by ⌥↑/⌥↓ from anywhere in it but a text field, or by Space on its handle to pick it up and the arrows to carry it; the line shows where it will land, and every move is announced once the owner of the order has answered. Removal is the row\'s own `⋯` menu or hover ×. Every item draws its move with `sortableItemClass`.',
     never: '"Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.',
     because:
       'Reordering is silent by nature and the order often belongs to the host: one part that asks, waits for the answer, then says where the row went keeps the keyboard, the drag and a reader on the same list.',
