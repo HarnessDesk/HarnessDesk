@@ -12,7 +12,9 @@ move is real work and is not news to a person weighing an upgrade.
   name. Agents still waiting for a sign-in step behind **Add an account…**
   instead of filling the list, the **Local** tag on your profile is gone
   (every profile is local), and **Usage remaining** no longer takes a row to
-  say "—" when nothing is metered.
+  say "—" when nothing is metered. The current account is marked by its
+  filled row rather than a tick, so every figure ends at the same edge, and
+  Dashboard — already in the sidebar's nav — is no longer repeated here.
 
 - **A standing notice stays in its own pane.** The floating banner stack (a
   Library import offer, an account warning) used to span the whole workbench,

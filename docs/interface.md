@@ -261,8 +261,9 @@ tooltip and its card; the agent's name joins the line only when two accounts
 share one. An agent waiting for a sign-in is not listed (choosing it would
 start nothing) unless it is the default; it waits behind **Add an account**,
 whose chooser is where signing in happens. **Usage remaining** appears only
-where something is metered, and then come Settings, Dashboard, and signing out
-of the default agent.
+where something is metered — its windows and when each resets, nothing else —
+and then come Settings and signing out of the default agent. Dashboard is not
+in this menu; it is in the sidebar's nav, a row above.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every

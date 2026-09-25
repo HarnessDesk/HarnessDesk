@@ -265,7 +265,7 @@ export const MenuItem = ({
       role={selected === undefined ? 'menuitem' : 'menuitemradio'}
       {...(selected === undefined ? {} : { 'aria-checked': selected })}
       {...(danger ? { 'data-danger': '' } : {})}
-      {...(current ? { 'data-current': '' } : {})}
+      {...(current ? { 'data-current': '', 'aria-current': true } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
       {...(reason ? { 'aria-describedby': reasonId } : {})}
       data-layout={layout}

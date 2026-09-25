@@ -22,7 +22,6 @@
 .groupPin,
 .roomIcon,
 .seatFigure,
-.seatTick,
 .accountMeta {
   flex: none;
 }
@@ -363,12 +362,6 @@
 .seatTrigger {
   flex: none;
   display: flex;
-}
-
-.seatTick {
-  display: inline-grid;
-  place-items: center;
-  width: 16px;
 }
 
 .accountMenuCaret {

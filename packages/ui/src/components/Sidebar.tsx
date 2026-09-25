@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CheckIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -719,9 +719,6 @@ export const AccountFooter = ({
                     {READINESS_LABEL[seat.state]}
                   </Text>
                 ) : null}
-                <Text role="meta" tone="brand" className={styles.seatTick}>
-                  {seat.current ? <CheckIcon size={14} /> : null}
-                </Text>
               </MenuItem>
             ))}
             <MenuItem
@@ -749,7 +746,9 @@ export const AccountFooter = ({
                 setUsageOpen((value) => !value)
               }}
               /* The menu's own icon column and value slot, so the gauge and its
-                 words line up with Settings and Dashboard below. */
+                 words line up with Settings below. Dashboard is not in this
+                 menu: it is in the sidebar's own nav, always, with this gauge,
+                 and a second door here wore the same mark for another verb. */
               icon={<UsageIcon size={13} />}
               label="Usage remaining"
               value={
@@ -794,14 +793,6 @@ export const AccountFooter = ({
               shortcut="⌘,"
               onSelect={() => {
                 onOpenSettings()
-              }}
-            />
-            <MenuItem
-              icon={<UsageIcon size={13} />}
-              label="Dashboard"
-              shortcut="⌘U"
-              onSelect={() => {
-                onOpenUsage()
               }}
             />
             {signedIn && !confirmingSignOut && (

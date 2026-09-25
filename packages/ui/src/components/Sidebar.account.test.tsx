@@ -229,7 +229,7 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   expect(mark()?.hasAttribute('data-open')).toBe(true)
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
-  // The fold is the windows only; Dashboard is its own row just below.
+  // The fold is the windows only; Dashboard is the sidebar nav's.
   expect(document.querySelector('[data-usage-details] [role="menuitem"]')).toBeNull()
 })
 
@@ -282,10 +282,9 @@ it('resets expanded account and usage state when the trigger closes and reopens 
 
 it.each([
   ['Settings', 'settings'],
-  ['Dashboard', 'usage'],
   ['Add an account…', 'signIn'],
 ] as const)('resets expanded state when %s closes the menu', (_label, callback) => {
-  const { onOpenSettings, onOpenUsage, onSignIn } = mount({
+  const { onOpenSettings, onSignIn } = mount({
     usage: [
       usageReport(CLAUDE, [
         lane({ id: 'session', label: 'Session', usedPercent: 52, windowMinutes: 300 }),
@@ -327,7 +326,6 @@ it.each([
   click(item)
   expect(document.querySelector('[role="menu"]')).toBeNull()
   if (callback === 'settings') expect(onOpenSettings).toHaveBeenCalled()
-  if (callback === 'usage') expect(onOpenUsage).toHaveBeenCalled()
   if (callback === 'signIn') expect(onSignIn).toHaveBeenCalled()
   reopenCollapsed()
 })
@@ -489,8 +487,8 @@ it('a seat inside the menu offers Usage too, on the same account as the badge be
      has opened the dashboard scoped to its agent since it was built; the
      seats in the menu — the same accounts, one card each — were handed no
      `onOpenUsage` at all, so their Do band had nothing but the switch (#131).
-     The menu's own Dashboard row opens the dashboard on everything, which is
-     a different question from "this seat". */
+     The sidebar's Dashboard opens the dashboard on everything, which is a
+     different question from "this seat". */
   vi.useFakeTimers()
   const onOpenUsage = vi.fn()
   const claudeAccount = signedIn('olivia@acme.dev')
@@ -642,7 +640,9 @@ it('draws no usage row where nothing is metered', () => {
   click(row())
   const rows = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent ?? '')
   expect(rows.some((text) => text.includes('Usage remaining'))).toBe(false)
-  expect(rows.some((text) => text.includes('Dashboard'))).toBe(true)
+  expect(rows.some((text) => text.includes('Settings'))).toBe(true)
+  // Dashboard is the sidebar nav's, not a second door in this menu.
+  expect(rows.some((text) => text.includes('Dashboard'))).toBe(false)
 })
 
 it('names the agent only where two chairs share a name', () => {
@@ -656,4 +656,16 @@ it('names the agent only where two chairs share a name', () => {
   click(current)
   const seats = [...document.querySelectorAll('[role="menuitem"][data-layout="account"]')]
   expect(seats.map((seat) => seat.textContent?.trim())).toEqual(['janeCodex', 'janeClaude'])
+})
+
+it('marks the default by its filled row, not a tick, so every figure ends at the edge', () => {
+  mount()
+  click(row())
+  const current = document.querySelector('[role="menuitem"][data-current]')
+  if (!current) throw new Error('no current seat')
+  expect(current.getAttribute('aria-current')).toBe('true')
+  click(current)
+  for (const seat of document.querySelectorAll('[role="menuitem"][data-layout="account"]')) {
+    expect(seat.querySelector('.lucide-check')).toBeNull()
+  }
 })
