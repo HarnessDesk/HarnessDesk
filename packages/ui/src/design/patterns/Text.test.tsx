@@ -123,3 +123,17 @@ it('sets a line mark in its label\'s role, one of that label\'s lines tall, the 
   expect(nav?.className).toContain('items-center')
   expect(nav?.getAttribute('aria-hidden')).toBe('true')
 })
+
+it('sets a sentence at the reading size without the tabular figures a value lines up by', () => {
+  act(() => root.render(<><Text role="prose">A reason, in words.</Text><Text role="value">12</Text></>))
+  const [prose, value] = [...container.querySelectorAll<HTMLElement>('[data-slot="text"]')]
+  expect(prose?.dataset['role']).toBe('prose')
+  // The same step and weight as a value…
+  for (const step of ['text-base', 'leading-(--hd-line)', 'font-normal']) {
+    expect(prose?.className).toContain(step)
+    expect(value?.className).toContain(step)
+  }
+  // …and only the value's figures are tabular.
+  expect(prose?.className).not.toContain('tabular-nums')
+  expect(value?.className).toContain('tabular-nums')
+})

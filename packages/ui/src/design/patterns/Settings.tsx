@@ -32,8 +32,35 @@ const cx = (...parts: readonly (string | false | undefined)[]): string =>
 
 /* --- readiness ----------------------------------------------------------- */
 
-export const Dot = ({ state, pulse = false, variant = 'default', className, ...props }: HTMLAttributes<HTMLSpanElement> & { state: Readiness; pulse?: boolean; variant?: 'default' | 'navigation' }) => (
-  <span {...props} className={cx(styles.dot, className)} data-slot="dot" data-state={state} data-variant={variant} {...(pulse ? { 'data-pulse': '' } : {})} />
+/**
+ * A state as a light. `presence` is a member's light on the corner of its
+ * tile — place the dot inside the tile's own positioned wrapper — ringed in
+ * the `ground` the tile stands on, so it reads as cut out of the tile rather
+ * than stuck on it.
+ */
+export const Dot = ({
+  state,
+  pulse = false,
+  variant = 'default',
+  ground = 'background',
+  className,
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & {
+  state: Readiness
+  pulse?: boolean
+  variant?: 'default' | 'navigation' | 'presence'
+  /** The surface a presence light's tile stands on. */
+  ground?: 'background' | 'popover'
+}) => (
+  <span
+    {...props}
+    className={cx(styles.dot, className)}
+    data-slot="dot"
+    data-state={state}
+    data-variant={variant}
+    {...(variant === 'presence' ? { 'data-ground': ground } : {})}
+    {...(pulse ? { 'data-pulse': '' } : {})}
+  />
 )
 
 const SPINNER_TONE: Record<Tone, string> = {
@@ -839,6 +866,9 @@ const TEXT_ROLE = {
     'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums',
   metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums',
   value: 'text-base leading-(--hd-line) font-normal tabular-nums',
+  /* A sentence at the reading size: `value`'s step and weight, without the
+     tabular figures a value lines up by — a reason, a summary, a notice. */
+  prose: 'text-base leading-(--hd-line) font-normal',
 } as const
 
 const TEXT_ROLE_INK = {
@@ -852,6 +882,7 @@ const TEXT_ROLE_INK = {
   figure: 'text-(--hd-foreground)',
   metric: 'text-(--hd-foreground)',
   value: 'text-(--hd-foreground)',
+  prose: 'text-(--hd-foreground)',
 } as const
 
 const TEXT_INK = {

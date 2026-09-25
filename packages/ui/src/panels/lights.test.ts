@@ -50,10 +50,10 @@ describe('the row under the macOS window buttons', () => {
     expect(conversationTsx).toMatch(/var\(--titlebar-inset/)
   })
 
-  it('a room’s top row leaves room for the window buttons (from the TSX)', () => {
-    // The bar’s padding is composed at the element, and the inset stays
-    // explicit because it is geometry rather than an appearance role.
-    expect(teamRoomTsx).toContain('var(--titlebar-inset')
+  it('a room’s top row leaves room for the window buttons through the shared bar’s corner', () => {
+    // The window's bar, on the rows' ink line like a conversation's header.
+    expect(teamRoomTsx).toMatch(/<Bar as="header" corner inset="ink"/)
+    expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 
   it("a tool's header leaves room for them through the shared corner role", () => {

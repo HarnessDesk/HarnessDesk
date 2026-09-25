@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
 import { PopoverGroupLabel } from './Popover'
-import { Segmented } from './Settings'
+import { Dot, Segmented } from './Settings'
 import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { Progress } from '../ui/progress'
@@ -245,12 +245,7 @@ export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
           {/* Working is a light, not a word — the same dot the rail draws, in
               the same corner. Announced in words on the name, where a screen
               reader gets a sentence rather than a colour. */}
-          {subject.working && (
-            <span
-              aria-hidden
-              className="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full bg-(--hd-success) ring-2 ring-(--hd-popover)"
-            />
-          )}
+          {subject.working && <Dot state="ready" variant="presence" ground="popover" aria-hidden />}
         </span>
         <span className="min-w-0 flex-1 pt-px">
           {/* The whole of a name that does not fit.

@@ -118,7 +118,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
           }
         >
           <div className="flex flex-col gap-2">
-            <Text as="p" role="value">
+            <Text as="p" role="prose">
               It is not posted, and the Goal’s receipt says so with your reason. If it reached the pull request after all, where it landed is recorded instead.
             </Text>
             <Textarea aria-label="Reason" value={why} onChange={(event) => setWhy(event.target.value)} placeholder="Say why it is not posted." />
@@ -139,7 +139,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
         >
           <div className="flex flex-col gap-1">
             {view.backfill.rounds.map((one) => (
-              <Text key={one.round} as="p" role="value">
+              <Text key={one.round} as="p" role="prose">
                 {`Round ${one.round}: ${plural(one.findings, 'finding', 'findings')} and ${plural(one.reviews, 'review', 'reviews')}`}
               </Text>
             ))}

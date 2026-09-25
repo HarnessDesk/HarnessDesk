@@ -18,7 +18,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
-import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, Section } from '../design'
+import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, Section, Text } from '../design'
 import styles from './AgentRoster.module.css'
 
 /**
@@ -148,7 +148,9 @@ export const AgentsRosterSection = ({
                   key={path}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
-                  control={<RowValue className="text-(--hd-warning-ink)">Shadowed</RowValue>}
+                  /* A copy that is not used, said as a fact rather than a
+                     warning — the way a superseded plugin's row says it. */
+                  control={<RowValue>Shadowed</RowValue>}
                 />
               ))}
             </Rows>
@@ -199,7 +201,7 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
       title={definition.name}
       {...(desc ? { desc } : {})}
       control={
-        <span className={`${styles.facts} text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-secondary-foreground)`}>
+        <Text role="muted" className={styles.facts}>
           {/* The declared ceiling, always through the one chip every governed
               seat reads it through — held plan or none. A plan with no seat
               (every candidate passed) and no plan at all are the same fact
@@ -209,18 +211,18 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
               row in the roster that did not read like the others. */}
           <CeilingChip ceiling={plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' }} />
           {seat ? (
-            <span className={`${styles.seat} text-(--hd-foreground)`}>
+            <Text role="muted" ink="primary" className={styles.seat}>
               <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />
               {seat.label}
-            </span>
+            </Text>
           ) : plan ? (
-            <span className="text-(--hd-warning-ink)">Can't seat here{reason ? ` · ${reason}` : ''}</span>
+            <Text role="muted" tone="warning">Can't seat here{reason ? ` · ${reason}` : ''}</Text>
           ) : snapshot.agentPlansFailed ? (
-            <span className="text-(--hd-warning-ink)">Its seats could not be checked</span>
+            <Text role="muted" tone="warning">Its seats could not be checked</Text>
           ) : (
             <span>Checking seats…</span>
           )}
-        </span>
+        </Text>
       }
       onClick={onOpen}
     />

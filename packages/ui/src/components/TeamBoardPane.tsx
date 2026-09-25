@@ -10,7 +10,7 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { Dialog, Input } from '../design'
+import { Dialog, Field, Input, Note, Text } from '../design'
 import { runtimeTint } from '../lib/accounts'
 import { FACT_COLUMNS, flowStepOf, placeCard, type FactColumn, type Placement } from '../lib/board-facts'
 import { brandForRuntime } from '../lib/brands'
@@ -445,7 +445,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        whatever the room's rail left over. The header's tally is the first
        thing to go — the columns are counted anyway — and the button that adds
        work keeps its label to the last. */
-    <ToolPane className="@container/board size-full rounded-none border-0">
+    <ToolPane variant="integrated" className="@container/board">
       <ToolPaneHeader
         icon={<PlanIcon />}
         title="Board"
@@ -519,11 +519,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         }
       />
       <ToolPaneBody>
-        {trouble && (
-          <p className="mb-2 text-xs text-(--hd-danger-ink)" role="alert">
-            {trouble}
-          </p>
-        )}
+        {trouble && <Note tone="bad">{trouble}</Note>}
         {waitingForEvidence && (
           <Banner
             tone={evidenceFailed ? 'danger' : 'info'}
@@ -688,31 +684,34 @@ const StopWork = ({
         </>
       }
     >
-      <div className="flex flex-col gap-2">
-        <p className="text-sm text-(--hd-muted-foreground)">
-          “{intent.title}” goes to Blocked. Any claim on it is released, and a finished dependency
-          will not start it again — only a deliberate reopen will.
-        </p>
-        <Input
-          autoFocus
-          aria-label="Why it is stopped"
-          value={reason}
-          placeholder="Waiting on the rename"
-          onChange={(event) => setReason(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onStop(reason)
-          }}
-        />
-        {/* Allowed through empty, and told what that costs. Refusing would put
-            a modal between a person and a board they are allowed to change;
-            saying nothing about it would produce the silent card this field
-            exists to prevent. */}
-        <p className="text-xs text-(--hd-muted-foreground)">
-          {reason.trim()
-            ? 'The card will say this, and so will the room.'
-            : 'Without a reason the card says only that you stopped it.'}
-        </p>
-      </div>
+      <p>
+        “{intent.title}” goes to Blocked. Any claim on it is released, and a finished dependency
+        will not start it again — only a deliberate reopen will.
+      </p>
+      {/* Allowed through empty, and told what that costs. Refusing would put
+          a modal between a person and a board they are allowed to change;
+          saying nothing about it would produce the silent card this field
+          exists to prevent. */}
+      <Field
+        label="Why it is stopped"
+        optional
+        hint={reason.trim()
+          ? 'The card will say this, and so will the room.'
+          : 'Without a reason the card says only that you stopped it.'}
+      >
+        {(control) => (
+          <Input
+            {...control}
+            autoFocus
+            value={reason}
+            placeholder="Waiting on the rename"
+            onChange={(event) => setReason(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onStop(reason)
+            }}
+          />
+        )}
+      </Field>
     </Dialog>
   )
 }
@@ -919,9 +918,7 @@ const IntentCard = ({
     <BoardCard
       title={
         <>
-          <span className="text-xs text-(--hd-muted-foreground)">
-            #{intent.id}
-          </span>{' '}
+          <Text role="meta">#{intent.id}</Text>{' '}
           {intent.title}
         </>
       }
@@ -979,9 +976,11 @@ const IntentCard = ({
                   the only split that cannot produce that: when either is short
                   the other takes the slack, and when both are long they lose
                   the same amount. */}
-              <span className="min-w-0 flex-1 basis-1/2 truncate text-xs font-medium">
+              {/* The card's key fact — who holds it — in a row's name role,
+                  the weight a name on a row is set in. */}
+              <Text role="row" truncate className="min-w-0 flex-1 basis-1/2">
                 {holderName}
-              </span>
+              </Text>
               {/* The conversation's own title, when it is not already the name
                   on the left. Compared against what is *drawn*, not against the
                   nickname: with no nickname the left falls back to the title,
@@ -1000,11 +999,14 @@ const IntentCard = ({
                    neither of the two things it was trying to say. The column is
                    the container that decides, because the pane's width is not
                    the card's width on a board of five. */
-                <span
-                  className="hidden min-w-0 flex-1 basis-1/2 truncate text-right text-xs text-(--hd-muted-foreground) @[13rem]/board-column:inline"
+                <Text
+                  role="meta"
+                  align="end"
+                  truncate
+                  className="hidden min-w-0 flex-1 basis-1/2 @[13rem]/board-column:inline"
                 >
                   {session.title}
-                </span>
+                </Text>
               )}
               {holderCeiling && <CeilingChip ceiling={holderCeiling.ceiling} note={holderCeiling.note} />}
             </SessionHoverCard>
@@ -1041,15 +1043,15 @@ const IntentCard = ({
               actually after on a board is "how long has that been sitting
               there", and until now the card could not answer it at all. */}
           <span
-            className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+            className="inline-flex items-center gap-1"
             title={`Last changed ${new Date(intent.updatedAt).toLocaleString()}`}
           >
-            <ClockIcon />
-            <span className="tabular-nums">{describeAge(now - intent.updatedAt)}</span>
+            <ClockIcon size={14} />
+            <Text role="meta" numeric>{describeAge(now - intent.updatedAt)}</Text>
           </span>
           {intent.role && intent.files.length > 0 && (
             <span
-              className="inline-flex min-w-0 items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex min-w-0 items-center gap-1"
               title={`Owns ${intent.files.join(', ')} while claimed`}
             >
               <span className="truncate">{intent.files.join(', ')}</span>
@@ -1057,11 +1059,11 @@ const IntentCard = ({
           )}
           {intent.dependsOn.length > 0 && (
             <span
-              className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex items-center gap-1"
               title={`Waits for ${intent.dependsOn.map((one) => `#${one}`).join(', ')}`}
             >
-              <BranchIcon />
-              <span className="tabular-nums">{intent.dependsOn.length}</span>
+              <BranchIcon size={14} />
+              <Text role="meta" numeric>{intent.dependsOn.length}</Text>
             </span>
           )}
           {/* A finished job that left a context package says so, because the
@@ -1069,10 +1071,10 @@ const IntentCard = ({
               next agent reads instead of asking. */}
           {intent.handoff && (
             <span
-              className="inline-flex items-center gap-1 [&_svg]:size-3.5"
+              className="inline-flex items-center gap-1"
               title={intent.handoff}
             >
-              <HandoffIcon />
+              <HandoffIcon size={14} />
               <span>handoff</span>
             </span>
           )}

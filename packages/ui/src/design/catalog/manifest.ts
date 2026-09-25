@@ -56,7 +56,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
-  badge: 'packages/ui/src/components/Channel.tsx',
+  badge: 'packages/ui/src/components/GitPane.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
   bar: 'packages/ui/src/components/Sidebar.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
@@ -128,7 +128,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'GitHistory', 'TurnWork',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -213,7 +213,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
   ConversationEmptyState: ['default'],
-  GitHistory: ['default'],
   TurnWork: ['default'],
 }
 
@@ -294,7 +293,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
   ConversationEmptyState: ['empty'],
-  GitHistory: ['default', 'selected', 'expanded'],
   TurnWork: ['default', 'expanded'],
 }
 
@@ -337,7 +335,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
-  GitHistory: 'packages/ui/src/components/GitPane.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
@@ -363,7 +360,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
-  GitHistory: 'packages/ui/src/components/GitPane.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
@@ -417,7 +413,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 export const CANONICAL_UI_MODULES = [
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
-  ['avatar', 'face', 'Identity image primitive'],
+  ['avatar', 'list', 'Identity image primitive'],
   ['attachment', 'adopted', 'File attachment states'],
   ['avatar-stack', 'adopted', 'Overlapping identity group'],
   ['badge', 'badge', 'Compact categorical state'],
@@ -491,7 +487,6 @@ export const CANONICAL_PATTERN_MODULES = [
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
-  ['GitHistory', 'git', 'Repository history controls and detail anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
 ] as const satisfies readonly ModuleSeed[]
 
