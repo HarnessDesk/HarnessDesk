@@ -89,6 +89,7 @@ export {
   WireText,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'
+export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'
 export { Switch } from './ui/switch'
