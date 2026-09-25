@@ -557,6 +557,10 @@ it('draws the conversation’s title beside the holder without a tooltip of its 
   expect([...holder.querySelectorAll('span')].some((one) => one.textContent === 'API migration')).toBe(true)
   const tooltips = [holder, ...holder.querySelectorAll('*')].filter((one) => one.hasAttribute('title'))
   expect(tooltips.map((one) => one.getAttribute('title'))).toEqual([])
+  // Who holds the card is its key fact: named in a row's name role, the
+  // title beside it in meta.
+  expect(holder.querySelector('[data-slot="text"][data-role="row"]')?.textContent).toBe('Gemini')
+  expect(holder.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('API migration')
 })
 
 it('separates work waiting on its dependencies from work somebody stopped', async () => {

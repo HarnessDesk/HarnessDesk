@@ -976,7 +976,9 @@ const IntentCard = ({
                   the only split that cannot produce that: when either is short
                   the other takes the slack, and when both are long they lose
                   the same amount. */}
-              <Text role="meta" ink="primary" truncate className="min-w-0 flex-1 basis-1/2">
+              {/* The card's key fact — who holds it — in a row's name role,
+                  the weight a name on a row is set in. */}
+              <Text role="row" truncate className="min-w-0 flex-1 basis-1/2">
                 {holderName}
               </Text>
               {/* The conversation's own title, when it is not already the name
