@@ -708,6 +708,18 @@ The full-window destination shell shared by Settings and Dashboard.
 Base UI still owns focus and modality; this pattern owns the window ground
 and the two plates that meet inside it.
 
+### `AppWindowRailTop`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The window rail's head, under the window buttons: the system's rail section.
+
+### `AppWindowRailScroll`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The window rail's scrolling list: the system's rail section.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -915,20 +927,27 @@ The grounded canvas the split tree and docks share.
 
 The navigation plate down the workbench's side.
 
-### `WorkbenchRailSection`
+### `RailSection`
 
 `packages/ui/src/design/patterns/DockPanel.tsx`
 
-The rail's two stretches between its bars: the short column of places at
-its head (`places`), and the long list that scrolls under it (`list`).
+A navigation rail's two stretches: the short column of places at its head,
+and the long list that scrolls under it.
 
-Both hold their rows on the rail's gutter, `--hd-bar-pad` — the same side
-the rail's bars stand on — which is what puts a row's ink on the line the
-bar and the group label above it start their words at (`--hd-bar-ink` is
-that gutter plus a row's own inset). `places` closes with the short step
-that separates it from the list's label; `list` keeps a hair of air under
-that label and a longer one after its last row, so the last row can be
-scrolled clear of whatever is docked below the rail.
+One part for both rails the app has — the workbench's sidebar and the
+rail down the side of a full window (Settings, the dashboard, Agents). Both
+hold their rows on a gutter, close the head with a short step before the
+list's first label, keep a hair of air under that label, and leave a longer
+step after the last row so it can be scrolled clear of what sits below.
+
+`density` is the one way they differ, and it is the rail's own density, the
+word the window rail already carries as `data-hd-density`: `compact` is the
+sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
+lines up with the bars above them; `comfortable` is the window rail, whose
+rows carry a second line and take a wider gutter and longer steps.
+
+`corner` puts the head below the band the native window buttons sit in,
+for a rail that owns the window's top-left corner with no bar of its own.
 
 ### `WorkbenchScrim`
 
@@ -1496,6 +1515,16 @@ sessions run as …"), so the title is decided as the pointer arrives, from
 whether the text overflows its box right then. The ellipsis is the
 caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
 
+### `CodeText`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Code and output in the code face.
+
+`block` is a file's text set as a block — laid out line for line, at the
+code step and its leading, inset from the box it fills — for text that
+stands in a card where an editor or a patch would otherwise be.
+
 ### `Monogram`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1520,7 +1549,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 496 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `screenAppearance` | 491 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
