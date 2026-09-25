@@ -371,6 +371,18 @@ const startLogin = (type) => {
 const deletedThreads = new Set()
 
 /**
+ * The three purely canned rows below are never started or resumed by
+ * anything, so nothing in the per-thread bookkeeping above ever sets a
+ * folder of their own — without this, `thread()`'s fallback to
+ * `settingsState.cwd` would have them silently follow whatever thread this
+ * process most recently handled, in a listing of conversations that never
+ * happened in this process at all. Pinned to `/w`, the same folder
+ * `thread()`'s old, process-wide default always gave every thread, so they
+ * read exactly as they always have: a fixed history, not a live one.
+ */
+for (const id of ['thread-2', 'thread-3', 'thread-4']) cwdByThread.set(id, '/w')
+
+/**
  * What Codex has stored: what `thread/list` returns, and what `thread/read`
  * answers for each of them.
  */
@@ -1438,6 +1450,10 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
+      // A `cwd` change here is this thread's own from now on — a later
+      // thread/read for it must answer with what this update actually set,
+      // not whatever it was given at thread/start.
+      cwdByThread.set(params.threadId, settingsState.cwd)
       /* FAKE_CODEX_QUIET_NOOP=1 is real Codex's way, measured on 0.149.0: an
          update that changes nothing is answered `{}` and never announced. */
       if (process.env['FAKE_CODEX_QUIET_NOOP'] === '1' && JSON.stringify(threadSettings()) === was) {
