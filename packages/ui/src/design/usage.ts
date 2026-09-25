@@ -78,10 +78,10 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'secondary',
-    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Alone in a footer it keeps its fill.',
+    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Never alone in a footer: a lone footer button is the act, `default`.',
     never: 'In a page or section head. It is the same grey as the surfaces around it and disappears into them.',
     because:
-      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out; a lone Close keeps its frame.',
+      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out. A lone footer button is the act and is filled, which the audit holds.',
   },
   {
     family: 'button',
@@ -349,6 +349,6 @@ export const SLOTS: readonly {
     allow: ['default', 'primary', 'secondary', 'quiet', 'danger', 'outline'],
     size: 'full',
     oneInk: true,
-    why: 'A footer of two or more buttons has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is exempt: a sheet with only Close has nothing to act. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page\'s remove action, not a confirm\'s act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`.',
+    why: 'Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page\'s remove action, not a confirm\'s act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`.',
   },
 ]

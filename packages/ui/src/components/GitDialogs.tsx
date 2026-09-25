@@ -841,7 +841,7 @@ export const DiffRangeDialog = ({
       tall
       flush
       onClose={onDone}
-      footer={<Button variant="secondary" onClick={onDone}>Close</Button>}
+      footer={<Button variant="default" onClick={onDone}>Close</Button>}
     >
       {error ? (
         <ActionError>{error}</ActionError>

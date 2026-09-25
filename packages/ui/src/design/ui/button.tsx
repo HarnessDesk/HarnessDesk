@@ -85,8 +85,9 @@ const VARIANTS = {
      filled button, so the ordinary action beside it — Cancel, Close — is
      drawn quiet: no fill, the secondary ink, the hover fill. The screen still
      writes `secondary`; the footer decides, and only when a filled act
-     (`data-filled`, below) stands in it — a lone Close keeps its frame, or it
-     would read as a caption. */
+     (`data-filled`, below) stands in it. A footer is never a lone
+     `secondary` — its one button is the act, filled, which the design audit
+     holds — because a secondary's grey is the footer's own ground. */
   secondary:
     'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:bg-transparent [[data-slot=dialog-footer]:has([data-filled])_&]:text-(--hd-secondary-foreground) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:text-(--hd-foreground)',
   ghost:

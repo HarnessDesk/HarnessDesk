@@ -250,28 +250,35 @@ Two rules keep red meaning something:
    (`destructive`), because a column of filled red buttons is a column nobody
    reads.
 
-**A dialog footer has one filled button.** A footer of two or more buttons
-has exactly one filled act: the confirm, `default`, or `danger` when it
-destroys — never none (three text buttons with no default) and never two. A
-lone button is exempt: a sheet with only Close has nothing to act, and its
-Close keeps its frame. Beside a filled act, `secondary` is drawn quiet (no
+**A dialog footer has one filled button.** Every footer has exactly one
+filled act: the confirm, `default`, or `danger` when it destroys — never none
+(three text buttons with no default) and never two. A lone button is that
+act, filled: a lone Close or Done in `secondary` was a frame the grey of the
+footer it stood on (245 on 245, 49 on 49 in dark) and read as a caption.
+Beside a filled act, `secondary` is drawn quiet (no
 fill, secondary ink; the footer reads the act's `data-filled`), or write
 `quiet` itself. `destructive` never stands in a footer. Write the proceeding
 action first: the footer is `row-reverse`, so it paints rightmost and is the
 first a Tab reaches.
 
 A disabled filled act — ink or red — is drawn one way: its fill kept at 16%
-over the footer's ground and its label in its own ink at 60%
-(`--hd-btn-disabled-*-share`, `--hd-btn-{primary,danger}-disabled-*`). It
-stays the act, in its own hue, and is clearly weaker than enabled: measured,
-the label goes from 17.2:1 to 3.2:1 on the ink button in light (10.5 → 3.1
-dark) and from 4.9:1 to 2.1:1 on the red one (2.3 dark). Half opacity mixed
-the button into whatever lay under it — a mid-grey slab on the grey footer.
+over the footer's ground and its label in its own ink mixed into that ground,
+solved so both land just over 3:1 (`--hd-btn-disabled-*-share`,
+`--hd-btn-danger-disabled-ink-share`, `--hd-btn-{primary,danger}-disabled-*`).
+The red ink loses contrast on its pale fill faster than the ink does on grey,
+so it keeps 85% of itself where the ink keeps 60%. It stays the act, in its own
+hue, and is clearly weaker than enabled: measured, the label goes from 17.2:1
+to 3.2:1 on the ink button in light (10.5 → 3.1 dark) and from 4.9:1 to 3.2:1
+on the red one (4.9 → 3.3 dark). Half opacity mixed the button into whatever
+lay under it — a mid-grey slab on the grey footer.
 
 The design audit reads every `Dialog` footer as a syntax tree: both arms of
-each `?:`, with and without each `&&`, the `footerAside`, a hoisted `const`,
-and a control drawn with `buttonVariants(...)`. All 54 footers in the app are
-read; one it cannot read is reported, not passed.
+each `?:`, with and without each `&&`, the `footerAside`, a hoisted `const`, a
+component written in the same file (read through to what it returns), and a
+control drawn with `buttonVariants(...)`. A component it cannot see into, a
+spread child, or a spread that can set a button's variant is reported as
+unread — never counted as an empty footer. All 54 footers in the app are
+read.
 
 ### Dialog forms
 

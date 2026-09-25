@@ -3,7 +3,9 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { Input } from '../ui/input'
-import { Popover, PopoverContent } from '../ui/popover'
+import { AlertDialog, AlertDialogContent } from '../ui/alert-dialog'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuPopup, DropdownMenuPortal, DropdownMenuPositioner } from '../ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverPopup, PopoverPortal, PopoverPositioner } from '../ui/popover'
 import formSheet from './DialogForm.module.css?raw'
 import { ChoiceList, DialogFormScope, Fieldset } from './DialogForm'
 import { Dialog } from './ModalDialog'
@@ -143,6 +145,27 @@ describe('inside a dialog', () => {
     ))
     expect(document.querySelector('[data-slot="fieldset-legend"]')).toBeNull()
     expect(document.querySelector('[data-slot="modal-dialog-body"]')?.className).not.toMatch(/stack/)
+  })
+
+  it.each([
+    ['DropdownMenuContent', () => <DropdownMenu open><DropdownMenuContent><SectionHead name="Held" /></DropdownMenuContent></DropdownMenu>],
+    ['DropdownMenuPopup', () => (
+      <DropdownMenu open>
+        <DropdownMenuPortal><DropdownMenuPositioner><DropdownMenuPopup><SectionHead name="Held" /></DropdownMenuPopup></DropdownMenuPositioner></DropdownMenuPortal>
+      </DropdownMenu>
+    )],
+    ['PopoverPopup', () => (
+      <Popover open>
+        <PopoverPortal><PopoverPositioner><PopoverPopup><SectionHead name="Held" /></PopoverPopup></PopoverPositioner></PopoverPortal>
+      </Popover>
+    )],
+    ['AlertDialogContent', () => <AlertDialog open><AlertDialogContent><SectionHead name="Held" /></AlertDialogContent></AlertDialog>],
+  ] as const)('%s starts what it holds outside the dialog’s form', async (_name, Surface) => {
+    await render(<DialogFormScope><Surface /></DialogFormScope>)
+    // The guard on the guard: the surface opened and drew what it holds.
+    expect(document.body.textContent).toContain('Held')
+    expect(document.querySelector('[data-slot="section-name"]')).not.toBeNull()
+    expect(document.querySelector('[data-slot="fieldset-legend"]')).toBeNull()
   })
 
   it('a dialog opened from a dialog body starts outside its form', async () => {

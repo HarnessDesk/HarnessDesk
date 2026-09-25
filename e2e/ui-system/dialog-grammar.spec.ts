@@ -49,7 +49,8 @@ const mount = async (page: Page) => {
           return h('div', null,
             open === 'pair' && h(Dialog, { title: 'Pair', onClose: close,
               footer: h(gramReact.Fragment, null, h(Button, null, 'Save'), h(Button, { variant: 'secondary' }, 'Cancel')) }, 'Body'),
-            open === 'lone' && h(Dialog, { title: 'Lone', onClose: close, footer: h(Button, { variant: 'secondary' }, 'Close') }, 'Body'),
+            open === 'lone' && h(Dialog, { title: 'Lone', onClose: close, footer: h(Button, null, 'Done') }, 'Body'),
+            open === 'tall' && h(Dialog, { title: 'Tall', onClose: close }, h('div', { style: { height: '2000px' } }, 'A long body')),
             open === 'disabled' && h(Dialog, { title: 'Disabled', onClose: close,
               footer: h(gramReact.Fragment, null,
                 h(Button, { 'data-testid': 'on-default' }, 'Save'),
@@ -113,14 +114,34 @@ test.beforeEach(async ({ page }) => {
   await mount(page)
 })
 
-test('a footer quiets Cancel beside a filled act, and leaves a lone Close its frame', async ({ page }) => {
-  let dialog = await open(page, 'pair')
-  const ground = (name: string) => dialog.locator('[data-slot="dialog-footer"]').getByRole('button', { name, exact: true }).evaluate((node) => getComputedStyle(node).backgroundColor)
-  expect(await ground('Cancel')).toBe('rgba(0, 0, 0, 0)')
-  expect(await ground('Save')).not.toBe('rgba(0, 0, 0, 0)')
-  await page.keyboard.press('Escape')
-  dialog = await open(page, 'lone')
-  expect(await ground('Close'), 'a lone Close keeps its fill').not.toBe('rgba(0, 0, 0, 0)')
+for (const theme of ['light', 'dark'] as const) {
+  test(`a footer quiets Cancel beside a filled act, and its one button stands off the footer (${theme})`, async ({ page }) => {
+    if (theme === 'dark') await page.evaluate(() => document.body.setAttribute('data-hd-dark-theme', ''))
+    let dialog = await open(page, 'pair')
+    const footerOf = (title: string) => `[aria-label="${title}"] [data-slot="dialog-footer"]`
+    const button = (title: string, name: string) => `${footerOf(title)} button:text-is("${name}")`
+    expect(await dialog.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Cancel', exact: true }).evaluate((node) => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+    const pairFooter = await painted(page, footerOf('Pair'), 'backgroundColor')
+    expect(contrast(await painted(page, button('Pair', 'Save'), 'backgroundColor'), pairFooter)).toBeGreaterThanOrEqual(3)
+    await page.keyboard.press('Escape')
+    dialog = await open(page, 'lone')
+    // A lone footer button is the act, filled — measured against the footer
+    // it stands on, not merely "has a colour": a secondary there was 245 on
+    // 245 in light and 49 on 49 in dark, a frame the colour of its ground.
+    const loneFooter = await painted(page, footerOf('Lone'), 'backgroundColor')
+    const done = await painted(page, button('Lone', 'Done'), 'backgroundColor')
+    expect(contrast(done, loneFooter), 'the lone button stands off the footer').toBeGreaterThanOrEqual(3)
+  })
+}
+
+test('a dialog stands 80% of the window high at most, and 720px above that', async ({ page }) => {
+  for (const [height, expected] of [[900, 720], [800, 640], [1200, 720]] as const) {
+    await page.setViewportSize({ width: 1440, height })
+    const dialog = await open(page, 'tall')
+    expect(Math.round((await dialog.boundingBox())!.height), `at ${height}px`).toBe(expected)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+  }
 })
 
 for (const theme of ['light', 'dark'] as const) {
@@ -141,7 +162,9 @@ for (const theme of ['light', 'dark'] as const) {
       expect(opacity, 'no half-opacity outlier').toBe('1')
       // Still a shape on the footer, still a label you can make out…
       expect(line.disabledShape).toBeGreaterThan(1.05)
-      expect(line.disabledLabel).toBeGreaterThan(1.7)
+      // A disabled label is still read: 3:1, the floor for a large or
+      // non-text mark, and the one both acts are solved to reach.
+      expect(line.disabledLabel).toBeGreaterThanOrEqual(3)
       // …and clearly weaker than the enabled act.
       expect(line.disabledLabel).toBeLessThan(line.enabledLabel * 0.7)
       expect(line.disabledShape).toBeLessThan(line.enabledShape)

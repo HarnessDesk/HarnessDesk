@@ -466,11 +466,11 @@ having written the judgement down.
 
 ### `secondary`
 
-**Use** — An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Alone in a footer it keeps its fill.
+**Use** — An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Never alone in a footer: a lone footer button is the act, `default`.
 
 **Not** — In a page or section head. It is the same grey as the surfaces around it and disappears into them.
 
-**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out; a lone Close keeps its frame.
+**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out. A lone footer button is the act and is filled, which the audit holds.
 
 ### `quiet`
 
@@ -685,7 +685,7 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 | --- | --- | --- | --- | --- | --- |
 | `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
 | `sectionAction` | the `action` of a `SectionHead` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
-| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `danger`, `outline` | `--hd-btn-h` | one | A footer of two or more buttons has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is exempt: a sheet with only Close has nothing to act. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page's remove action, not a confirm's act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`. |
+| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `danger`, `outline` | `--hd-btn-h` | one | Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page's remove action, not a confirm's act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`. |
 
 ## Primitives
 
