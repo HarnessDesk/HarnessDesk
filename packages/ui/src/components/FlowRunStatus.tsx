@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import type { FlowExecution, FlowOperation, FlowPreview, FlowStartTarget } from '@harnessdesk/protocol'
+import type { FlowExecution, FlowOperation, FlowPreview } from '@harnessdesk/protocol'
 
-import { Banner, Button, CodeText, ConfirmDialog, Note, Text } from '../design'
-import { shortSha } from '../lib/evidence'
+import { Banner, Button, CodeText, ConfirmDialog, Note } from '../design'
 import { useStore } from '../state/context'
 
 export interface FlowRunStatusProps {
@@ -17,42 +16,26 @@ const uncertainCheck = (execution: FlowExecution): FlowOperation | null =>
     : null
 
 /**
- * The pinned revision a review run works at, in the words its own target
- * already carries — "branch feature at a1b2c3d" — since nowhere else shows
- * `FlowExecution.target` or the `Goal.at` it comes from. The diff kind's own
- * label already names both ends of the range, so the short head is not
- * repeated after it.
- */
-const targetWords = (target: FlowStartTarget): string => {
-  const head = target.head && target.kind !== 'diff' ? shortSha(target.head) : null
-  return head ? `Reviews ${target.label} at ${head}` : `Reviews ${target.label}`
-}
-
-/**
  * A flow run's own recovery action, when it has one — reviewing and
- * re-consenting to an interrupted check, a banner for a run still on the
- * old format, and the pinned revision a review run works at. The run's own state used to draw a second chip here, under the
+ * re-consenting to an interrupted check, and a banner for a run still on the
+ * old format. The run's own state used to draw a second chip here, under the
  * header's own — one row saying "Running" over another saying "Working",
  * never disagreeing, never adding a fact the header did not already carry.
  * The header now reads this run's own state directly (`TeamRoomPane`'s own
- * `roomRunState`), and the room's chat carries the live line for whichever
- * member is on it — so this component's only job left is the one action and
- * the one banner nothing else says.
+ * `roomRunState`), the room's chat carries the live line for whichever
+ * member is on it, and the header's own meta line names the pinned revision
+ * (`TeamRoomPane`'s `pinnedAt`) — so this component's only job left is the
+ * one action and the one banner nothing else says.
  */
 export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
   const legacy = execution.document.format === 'legacy'
   const stalledCheck = uncertainCheck(execution)
   const [reviewing, setReviewing] = useState(false)
 
-  if (!legacy && !stalledCheck && !execution.target) return null
+  if (!legacy && !stalledCheck) return null
 
   return (
     <div className="flex flex-col gap-(--hd-space-2)">
-      {execution.target && (
-        <Text role="muted" {...(execution.target.head ? { title: execution.target.head } : {})}>
-          {targetWords(execution.target)}
-        </Text>
-      )}
       {legacy && (
         <Banner tone="warning" title="This run uses the old format">
           It runs with its original answer routing and permissions.

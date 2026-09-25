@@ -32,8 +32,8 @@ export const FindingRoundStatus = ({ view }: FindingRoundStatusProps) => {
     <div className="flex flex-col gap-3">
       <KeyValue>
         <KeyValueRow label="Round">{`${view.finished} of ${view.total}`}</KeyValueRow>
-        <KeyValueRow label="Open findings">{view.open}</KeyValueRow>
-        <KeyValueRow label="Blocking">{view.blocking}</KeyValueRow>
+        <KeyValueRow label="Open findings" numeric>{view.open}</KeyValueRow>
+        <KeyValueRow label="Blocking" numeric>{view.blocking}</KeyValueRow>
         <KeyValueRow label="Publication"><Chip tone={PUBLICATION_TONE[view.publication]}>{PUBLICATION_WORDS[view.publication]}</Chip></KeyValueRow>
       </KeyValue>
       {blindWords && (

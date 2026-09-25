@@ -32,13 +32,12 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, Dot, EmptyState, FileState, GitHistoryActionBar, GitHistoryCommitDetail, GitHistoryCommitDetailHeader, GitHistoryCommitFileList, GitHistoryDiffViewport, GitHistoryFilters, GitHistoryInlinePatch, GitHistoryTableHeader, KeyValue, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, GitHistoryActionBar, GitHistoryCommitDetail, GitHistoryCommitDetailHeader, GitHistoryCommitFileList, GitHistoryDiffViewport, GitHistoryFilters, GitHistoryInlinePatch, GitHistoryTableHeader, KeyValue, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text } from '../design'
 import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
   AgentIcon,
   BranchIcon,
-  ChevronIcon,
   CommitIcon,
   CopyIcon,
   CrossIcon,
@@ -948,11 +947,14 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             aria-label="Commits"
           >
             {total === 0 && !loading ? (
-              <Note>
-                {searching
-                  ? 'Nothing in the history matches that search.'
-                  : 'No commits yet — the history starts with the first one.'}
-              </Note>
+              <EmptyState
+                variant="inline"
+                title={
+                  searching
+                    ? 'Nothing in the history matches that search.'
+                    : 'No commits yet — the history starts with the first one.'
+                }
+              />
             ) : (
               <div style={{ height: total * ROW, position: 'relative' }}>
                 {commits.slice(first, last).map((commit, offset) => {
@@ -1858,7 +1860,7 @@ const RefsRail = ({
           ) : (
             <div key={`folder-${entry.name}`}>
               <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`b:${entry.name}`)}>
-                <ChevronIcon size={11} style={{ transform: closed.has(`b:${entry.name}`) ? undefined : 'rotate(90deg)' }} />
+                <DisclosureChevron open={!closed.has(`b:${entry.name}`)} size="xs" />
                 {entry.name}
                 <Text role="meta" numeric className={styles.railCount}>{entry.branches.length}</Text>
               </Button>
@@ -1871,7 +1873,7 @@ const RefsRail = ({
         {[...remotes.entries()].map(([remote, list]) => (
           <div key={`remote-${remote}`}>
             <Button type="button" variant="quiet" size="content" className={styles.railFolder} onClick={() => toggle(`r:${remote}`)}>
-              <ChevronIcon size={11} style={{ transform: closed.has(`r:${remote}`) ? undefined : 'rotate(90deg)' }} />
+              <DisclosureChevron open={!closed.has(`r:${remote}`)} size="xs" />
               {remote}
               <Text role="meta" numeric className={styles.railCount}>{list.length}</Text>
             </Button>

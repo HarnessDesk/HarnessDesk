@@ -95,12 +95,18 @@ describe('an opened tool step', () => {
 
     const row = byClass('row')[0]
     const body = byClass('rowBody')[0]
-    expect(row?.className).toContain('bg-(--hd-card)')
-    expect(row?.className).toContain('shadow-(--hd-hairline)')
+    // The row itself is the shared `Card variant="plate"` surface, with its
+    // default gap/padding zeroed: this is a dense conversation row, not a
+    // section's boxed content, so the row's own header rung (30px) and the
+    // body's own `pt` supply the only spacing.
+    expect(row?.getAttribute('data-slot')).toBe('card')
+    expect(row?.getAttribute('data-variant')).toBe('plate')
+    expect(row?.className).toContain('!gap-0')
+    expect(row?.className).toContain('!py-0')
+    expect(body?.className).toContain('px-(--hd-space-3)')
     expect(body?.className).toContain('pt-(--hd-space-2)')
+    expect(body?.getAttribute('data-slot')).not.toBe('card')
     expect(body?.className).not.toContain('rounded-(--hd-radius)')
-    expect(body?.className).not.toContain('bg-(--hd-card)')
-    expect(body?.className).not.toContain('shadow-(--hd-hairline)')
   })
 
   it('keeps a normal bare command body aligned under its disclosure title', () => {

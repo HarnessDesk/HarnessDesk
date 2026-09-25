@@ -276,6 +276,14 @@ it('opens from its roster row, names its file, and opens or reveals it', () => {
   expect(onLeave).toHaveBeenCalled()
 })
 
+it('names a project Agent’s File relative to the project, since the header already says which one, with the full path on hover', () => {
+  mount({ focus: 'code-reviewer' })
+  const file = summaryItem('File')!
+  expect(file.textContent).toContain('.harnessdesk/agents/code-reviewer/AGENT.md')
+  expect(file.textContent).not.toContain('/w/storefront')
+  expect(file.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents/code-reviewer/AGENT.md')
+})
+
 it('opens on the Agent Settings was asked for, and goes back to the roster', () => {
   mount({ focus: 'scout' })
   expect(container.textContent).toContain('Scout does the work.')
@@ -475,7 +483,16 @@ it('shows Remove’s own refusal in its dialog on a server-only host, and stays 
 
 /* --- On this Mac (Task 16) ------------------------------------------------ */
 
-const section = (label: string): string => container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? ''
+/**
+ * A named region's own text — a real `<section aria-label>` for most of the
+ * page, or, for a fact folded into the page-grammar batch's "Agent"
+ * `SummaryList` (File, Ceiling), the `SummaryItem` whose own `<dt>` reads
+ * this label exactly.
+ */
+const summaryItem = (label: string): HTMLElement | null =>
+  [...container.querySelectorAll('[data-slot="summary-item"]')].find((one) => one.querySelector('dt')?.textContent === label) as HTMLElement | null
+const section = (label: string): string =>
+  container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? summaryItem(label)?.textContent ?? ''
 /** Move up/down/remove live behind each "On this Mac" row's own "… actions" menu, in row order. */
 const seatMenus = (): HTMLButtonElement[] => [
   ...container.querySelectorAll<HTMLButtonElement>('section[aria-label="On this Mac"] [aria-label$=" actions"]'),
@@ -736,7 +753,7 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
     diff: `--- a/AGENT.md\n+++ b/AGENT.md\n@@ -3 +3 @@\n-permission: read\n+ceiling: ${level}\n`,
   }))
   project.store.writeCeiling = vi.fn(async (entry) => entry)
-  expect(section('Ceiling')).toContain('Written with permission,')
+  expect(section('Ceiling')).toContain("this file's older permission line")
   act(() => button('Update…').click())
   await settle()
   expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Update Code reviewer')
@@ -756,7 +773,7 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
 
 it('a legacy Agent’s Ceiling row offers one action, never both Update… and an always-refusing Edit…', () => {
   mount({ focus: 'code-reviewer' })
-  const ceiling = container.querySelector('section[aria-label="Ceiling"]')!
+  const ceiling = summaryItem('Ceiling')!
   const labels = [...ceiling.querySelectorAll('button')].map((one) => one.textContent?.trim())
   expect(labels).toContain('Update…')
   expect(labels).not.toContain('Edit…')
@@ -799,7 +816,7 @@ it('a successful update removes the flag, and project navigation closes an old p
   await vi.waitFor(() => expect(button('Write this line').disabled).toBe(false))
   act(() => button('Write this line').click())
   await settle()
-  expect(section('Ceiling')).not.toContain('Written with permission,')
+  expect(section('Ceiling')).not.toContain("this file's older permission line")
   expect(section('Ceiling')).not.toContain('Update…')
 
   act(() => {
@@ -845,7 +862,7 @@ it('a migrated Agent’s ceiling offers Edit… beside the legacy Update…, thr
 
   // Nothing to update: this Agent already reads `ceiling:`.
   expect(section('Ceiling')).not.toContain('Update…')
-  const edit = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Ceiling"] button')].find((one) => one.textContent?.trim() === 'Edit…')
+  const edit = [...(summaryItem('Ceiling')?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((one) => one.textContent?.trim() === 'Edit…')
   if (!edit) throw new Error('no Edit… on the Ceiling row')
   // Disabled until its document is read — the digest an edit previews against.
   await vi.waitFor(() => expect(edit.hasAttribute('disabled')).toBe(false))

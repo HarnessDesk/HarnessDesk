@@ -4,10 +4,7 @@
   gap: var(--hd-space-1);
 }
 
-/* The checkbox and its words, under Remove's confirm text. */
+/* Under Remove's confirm text; the box and its words are Checkbox's own label. */
 .clearSeats {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
   margin-top: var(--hd-space-3);
 }

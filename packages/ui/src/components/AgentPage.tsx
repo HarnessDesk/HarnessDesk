@@ -31,7 +31,7 @@ import {
   stateWords,
   wordList,
 } from '../lib/agents'
-import { shortPath } from '../lib/paths'
+import { relativeTo, shortPath } from '../lib/paths'
 import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -43,7 +43,6 @@ import {
   BoardMenuButton,
   Button,
   Checkbox,
-  CodeText,
   ConfirmDialog,
   DetailHead,
   DetailMark,
@@ -60,7 +59,10 @@ import {
   RowChoice,
   RowValue,
   Rows,
+  Section,
   SectionHead,
+  SummaryItem,
+  SummaryList,
   Switch,
 } from '../design'
 import styles from './AgentPage.module.css'
@@ -120,6 +122,7 @@ export const AgentPage = ({
   const [documentProblem, setDocumentProblem] = useState<string | null>(null)
   const [fieldsBusy, setFieldsBusy] = useState(false)
   const [everyTime, setEveryTime] = useState(false)
+  const [attachmentsProblem, setAttachmentsProblem] = useState<string | null>(null)
   const definition = entry.definition
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
@@ -130,6 +133,12 @@ export const AgentPage = ({
   const shadows = shadowWords(entry)
   const plan = snapshot.agentPlans.get(entry.id)
   const ceilingFlag = definition ? flagWords(definition) : null
+  // Relative to the project's own root when there is one to be relative to —
+  // the header above already says "In storefront", so a project Agent's file
+  // repeats nothing by starting from `.harnessdesk/agents/...` rather than
+  // the whole checkout path. The absolute path still rides along in `title`.
+  const fileLabel =
+    entry.origin === 'project' && snapshot.agentsProject ? relativeTo(entry.path, snapshot.agentsProject) : fileWords(entry, snapshot.home)
   const canUpdateCeiling = ceilingFlag !== null && (entry.origin === 'user' || entry.origin === 'project')
   /** Builtins are read-only until Customize copies them, exactly like the fields below. */
   const editable = entry.origin !== 'builtin'
@@ -260,27 +269,71 @@ export const AgentPage = ({
         </span>
       )}
 
-      {folder ? (
-        <>
-          <SectionHead name="File" />
-          <Rows>
-            <Row
-              title={<CodeText>{fileWords(entry, snapshot.home)}</CodeText>}
-              {...(shadows ? { desc: shadows } : {})}
-              control={
-                <span className={styles.actions}>
+      {(folder || definition) && (
+        <Section title="Agent">
+          <SummaryList>
+            {folder && (
+              <SummaryItem
+                label="File"
+                kind="path"
+                title={entry.path}
+                {...(shadows ? { note: shadows } : {})}
+                action={
+                  <span className={styles.actions}>
+                    <Button size="sm" variant="outline" onClick={openFile}>
+                      Open file
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => void store.revealAgent(entry.id, entry.origin)}>
+                      Reveal
+                    </Button>
+                  </span>
+                }
+              >
+                {fileLabel}
+              </SummaryItem>
+            )}
+            {definition && (
+              <SummaryItem
+                label="Ceiling"
+                note={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
+                {...(editable ? {
+                  action: canUpdateCeiling ? (
+                    // A legacy `permission:` Agent needs Update first — Edit…
+                    // would only reach the same preview and be told, every
+                    // time, to come back here. One action, not a second that
+                    // always refuses.
+                    <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
+                  ) : (
+                    // Same `authoring/*` preview/save path as name, description, answers and
+                    // produces below — disabled until that document is read, since it needs
+                    // the digest to preview against.
+                    <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
+                  ),
+                } : {})}
+              >
+                {ceilingWords(definition.ceiling)}
+              </SummaryItem>
+            )}
+            {definition && <AgentAttachments entry={entry} onProblem={setAttachmentsProblem} />}
+            {definition && (
+              <SummaryItem
+                label="Brief"
+                action={
                   <Button size="sm" variant="outline" onClick={openFile}>
-                    Open file
+                    Open in editor
                   </Button>
-                  <Button size="sm" variant="outline" onClick={() => void store.revealAgent(entry.id, entry.origin)}>
-                    Reveal
-                  </Button>
-                </span>
-              }
-            />
-          </Rows>
-        </>
-      ) : null}
+                }
+              >
+                {firstParagraph(definition.brief) || 'It has no brief yet.'}
+              </SummaryItem>
+            )}
+          </SummaryList>
+        </Section>
+      )}
+      {/* The Skills/Servers read-failure: a `<dl>`'s subgrid has no room for a
+          Banner among its rows, so `AgentAttachments` hands it up here rather
+          than drawing it in place of the row it would otherwise be. */}
+      {attachmentsProblem && <Banner tone="danger" title="Attachments could not be read">{attachmentsProblem}</Banner>}
 
       {errors.length > 0 && (
         <>
@@ -305,30 +358,6 @@ export const AgentPage = ({
 
       {definition && (
         <>
-          <section aria-label="Ceiling">
-            <SectionHead name="Ceiling" />
-            <Rows>
-              <Row
-                title={ceilingWords(definition.ceiling)}
-                desc={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
-                {...(editable ? {
-                  control: canUpdateCeiling ? (
-                    // A legacy `permission:` Agent needs Update first — Edit…
-                    // would only reach the same preview and be told, every
-                    // time, to come back here. One action, not a second that
-                    // always refuses.
-                    <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
-                  ) : (
-                    // Same `authoring/*` preview/save path as name, description, answers and
-                    // produces below — disabled until that document is read, since it needs
-                    // the digest to preview against.
-                    <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
-                  ),
-                } : {})}
-              />
-            </Rows>
-          </section>
-
           <OwnSeats
             entry={entry}
             onEditSeats={() => setAdding(true)}
@@ -363,22 +392,9 @@ export const AgentPage = ({
             </>
           )}
 
-          <AgentAttachments entry={entry} />
           <AgentNotes entry={entry} />
 
           <AgentPageSections entry={entry}>{null}</AgentPageSections>
-
-          <SectionHead name="Brief" />
-          <Rows>
-            <Row
-              title={firstParagraph(definition.brief) || 'It has no brief yet.'}
-              control={
-                <Button size="sm" variant="outline" onClick={openFile}>
-                  Open in editor
-                </Button>
-              }
-            />
-          </Rows>
         </>
       )}
 
@@ -979,10 +995,12 @@ const RemoveDialog = ({
       {entry.shadows.length > 0 ? ' The one it came first over takes its place.' : ''}
       {entry.origin === 'project' ? ' The project’s checkout changes; commit it for everyone else.' : ''}
       {hasMachineSeat && (
-        <label className={styles.clearSeats}>
-          <Checkbox checked={clearSeats} onCheckedChange={(next) => setClearSeats(next === true)} />
-          Also clear this Mac’s seats for “{name}”
-        </label>
+        <Checkbox
+          className={styles.clearSeats}
+          checked={clearSeats}
+          onCheckedChange={(next) => setClearSeats(next === true)}
+          label={`Also clear this Mac’s seats for “${name}”`}
+        />
       )}
       {problem && <Note tone="bad">{problem}</Note>}
     </ConfirmDialog>

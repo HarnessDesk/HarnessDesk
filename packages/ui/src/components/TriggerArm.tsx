@@ -134,7 +134,7 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
       {preview && preview.definition && (
         <>
           <KeyValue>
-            <KeyValueRow label="Source">{shortPath(preview.sourcePath, snapshot.home)}</KeyValueRow>
+            <KeyValueRow label="Source" kind="path">{shortPath(preview.sourcePath, snapshot.home)}</KeyValueRow>
             {preview.workingCopyChanged && (
               <KeyValueRow label="Working copy">
                 Changed since committed — only what is committed is armed.

@@ -43,9 +43,11 @@ export const ProvenanceDialog = ({ root, seat, onClose }: { readonly root: strin
       : !current ? <Note>Reading Seat record…</Note>
       : current.failed ? <Note>The Seat record could not be read.</Note>
       : current.value?.seat ? <SeatRecordView seat={current.value.seat} />
+      // The specific reason, when the host gave one, said once — never
+      // followed by the generic sentence it already answers.
+      : current.value?.unavailable ? <Note>{current.value.unavailable}</Note>
       : <Note>The historical Seat record is unavailable.</Note>}
     {current?.value?.seat && <Note>The recorded brief has an identity, but its text is not retained. The Agent may have changed since this Seat was kept.</Note>}
-    {current?.value?.unavailable && <Note>{current.value.unavailable}</Note>}
     {openFailed && <Note>The original conversation could not be opened.</Note>}
   </Dialog>
 }

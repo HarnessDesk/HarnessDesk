@@ -132,7 +132,7 @@ export const AddWork = ({
           )}
         </Field>
 
-        <Field label={<>Detail <Text role="muted" ink="muted">optional</Text></>}>
+        <Field label="Detail" optional>
           {(control) => (
             <Textarea
               {...control}
@@ -167,7 +167,8 @@ export const AddWork = ({
 
         <div className={styles.pair}>
           <Field
-            label={<>Ask someone <Text role="muted" ink="muted">optional</Text></>}
+            label="Ask someone"
+            optional
             hint={peers.length === 0
               ? 'Nobody is in the room yet.'
               : 'Posts a message. The claim is still theirs to take.'}
@@ -193,7 +194,8 @@ export const AddWork = ({
 
         {blockers.length > 0 && (
           <Field
-            label={<>Waits for <Text role="muted" ink="muted">optional</Text></>}
+            label="Waits for"
+            optional
             hint="It sits in Waiting until those are done, then opens on its own."
           >
             {(control) => <Card {...control} spacing="compact" radius="sm" className={styles.deps}>
