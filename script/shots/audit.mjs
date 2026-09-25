@@ -59,6 +59,40 @@ import { CAST, rigRuntimeId } from './cast.mjs'
 export const USER = homedir().split('/').filter(Boolean).pop() ?? ''
 
 /**
+ * Escaped for literal use inside a `RegExp` source string — every character
+ * `RegExp` would otherwise read as a metacharacter, neutralized.
+ */
+const escapeForRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * A path starts here, and a path ends there — read off what a bare name is
+ * made of, not off a fixed list of what may sit next to one.
+ *
+ * The first attempt (#904) listed the characters allowed before a path
+ * (whitespace, a quote, an opening bracket) and after one (a slash, the end
+ * of the string). Real frames carry a home in shapes that list never
+ * anticipated: a `file://` URL, where the boundary is the third slash; a
+ * `cwd=` prefix; a second `PATH`-style entry after `:`; a name followed by a
+ * sentence's closing period or a bare space (#909 review, P2-1). Every one of
+ * those was shortened by the plain `split(home).join('~')` this replaced, so
+ * the narrower rule was a real regression, not only an incomplete one — a
+ * frame that used to publish clean now failed on a raw path.
+ *
+ * So the rule is inverted: a path starts wherever the character before it
+ * could *not* be part of a bare name (`(?<![A-Za-z0-9._~-])`), and it ends
+ * wherever the character after it could not continue one, including a
+ * dotted continuation like an extension (`(?![A-Za-z0-9_~-]|\.[A-Za-z0-9])`).
+ * That is also what keeps a shorter candidate out of the middle of a longer
+ * one — `/var` is never read out of `/private/var`, and `home` is never read
+ * out of `homework`, because in both the character right before the match
+ * would have to be a letter, which the rule refuses.
+ */
+const NOT_BEFORE_A_PATH = '(?<![A-Za-z0-9._~-])'
+const NOT_CONTINUING_A_NAME = '(?![A-Za-z0-9_~-]|\\.[A-Za-z0-9])'
+
+const prefixPattern = (home) => `${NOT_BEFORE_A_PATH}${escapeForRegExp(home)}${NOT_CONTINUING_A_NAME}`
+
+/**
  * Write this machine's home as `~`, the way the app writes it elsewhere.
  *
  * `shortPath` is applied in the Library, the skill sheet and every diff label,
@@ -78,20 +112,38 @@ export const USER = homedir().split('/').filter(Boolean).pop() ?? ''
  * the real home was substituted before a photograph and left standing through
  * a recording — the recording being the take that cannot be audited frame by
  * frame. One copy, and the drift cannot come back.
+ *
+ * **It only redacts a whole path prefix.** macOS resolves `/var` and `/tmp`
+ * to `/private/var` and `/private/tmp`, so a rig home built from the
+ * as-given, pre-resolution path never carried the leading `/private` the
+ * window actually showed. A plain `split(home).join('~')` found the as-given
+ * string in the *middle* of the resolved one and replaced only that, leaving
+ * `/private~/storefront` standing — a corrupted path published in its place
+ * (#904). `config.mjs` now resolves `HOME`/`WORK` before anything reads them,
+ * which is the actual fix for that; the anchor below is what stops the same
+ * class of mistake happening again from any other unresolved candidate,
+ * without needing to know about more than the one home every driver passes.
  */
-export const TILDIFY = (home) => `(() => {
-  const home = ${JSON.stringify(home)}
-  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-  let node
-  while ((node = walk.nextNode())) {
-    if (node.nodeValue?.includes(home)) node.nodeValue = node.nodeValue.split(home).join('~')
-  }
-  for (const element of document.querySelectorAll('[title]')) {
-    const title = element.getAttribute('title')
-    if (title?.includes(home)) element.setAttribute('title', title.split(home).join('~'))
-  }
-  return true
-})()`
+export const TILDIFY = (home) => {
+  const pattern = home ? prefixPattern(home) : null
+  return `(() => {
+    const pattern = ${JSON.stringify(pattern)}
+    const regex = pattern ? new RegExp(pattern, 'g') : null
+    const shorten = (value) => (typeof value === 'string' && regex ? value.replace(regex, '~') : value)
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    let node
+    while ((node = walk.nextNode())) {
+      const shortened = shorten(node.nodeValue)
+      if (shortened !== node.nodeValue) node.nodeValue = shortened
+    }
+    for (const element of document.querySelectorAll('[title]')) {
+      const title = element.getAttribute('title')
+      const shortened = shorten(title)
+      if (shortened !== title) element.setAttribute('title', shortened)
+    }
+    return true
+  })()`
+}
 
 /**
  * Every string the window is showing, collected in the renderer.
