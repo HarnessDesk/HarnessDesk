@@ -558,34 +558,37 @@ export const ImportDialog = ({
               const on = !excluded.has(key)
               return (
                 <div key={key} role="listitem">
-                  <div className={styles.candidate}>
-                    {/* A checkbox, not a switch. A switch says "this setting is
-                        on now"; nothing here is on until Preview is confirmed,
-                        and every one of these rows is an item being picked out
-                        of a list. The two controls are not interchangeable and
-                        the app has both. */}
-                    <Checkbox
-                      checked={on}
-                      aria-label={`Import ${entry.name}`}
-                      onCheckedChange={() =>
-                        setExcluded((current) => {
-                          const next = new Set(current)
-                          if (on) next.add(key)
-                          else next.delete(key)
-                          return next
-                        })
-                      }
-                    />
-                    <Text role="navigation">{entry.title ?? entry.name}</Text>
-                    {entry.kind === 'mcp' && (
-                      <Chip tone="neutral" size="sm" variant="outline">MCP</Chip>
-                    )}
-                    {entry.description && (
-                      <Text role="meta" truncate className={styles.candidateDesc}>
-                        {entry.description}
-                      </Text>
-                    )}
-                  </div>
+                  {/* A checkbox, not a switch. A switch says "this setting is
+                      on now"; nothing here is on until Preview is confirmed,
+                      and every one of these rows is an item being picked out
+                      of a list. The two controls are not interchangeable and
+                      the app has both. */}
+                  <Checkbox
+                    className={`${styles.candidate} flex`}
+                    checked={on}
+                    aria-label={`Import ${entry.name}`}
+                    onCheckedChange={() =>
+                      setExcluded((current) => {
+                        const next = new Set(current)
+                        if (on) next.add(key)
+                        else next.delete(key)
+                        return next
+                      })
+                    }
+                    label={
+                      <>
+                        <Text role="navigation">{entry.title ?? entry.name}</Text>
+                        {entry.kind === 'mcp' && (
+                          <Chip tone="neutral" size="sm" variant="outline">MCP</Chip>
+                        )}
+                        {entry.description && (
+                          <Text role="meta" truncate className={styles.candidateDesc}>
+                            {entry.description}
+                          </Text>
+                        )}
+                      </>
+                    }
+                  />
                   {index < candidates.length - 1 && <Separator />}
                 </div>
               )
@@ -679,16 +682,19 @@ export const ResolveDialog = ({
         ))}
       </div>
       {hollow.length > 0 && (
-        <Text as="label" role="muted" className={styles.hollowLine}>
-          {/* A checkbox for the same reason the import candidates are: this
-              is part of a plan being composed, not a setting taking effect. */}
-          <Checkbox
-            checked={cleanHollow}
-            aria-label="Also remove the empty copies"
-            onCheckedChange={(next) => setCleanHollow(next === true)}
-          />
-          Also remove {hollow.length} empty {hollow.length === 1 ? 'copy' : 'copies'} of this name
-        </Text>
+        /* A checkbox for the same reason the import candidates are: this
+           is part of a plan being composed, not a setting taking effect. */
+        <Checkbox
+          className={`${styles.hollowLine} flex`}
+          checked={cleanHollow}
+          aria-label="Also remove the empty copies"
+          onCheckedChange={(next) => setCleanHollow(next === true)}
+          label={
+            <Text role="muted">
+              Also remove {hollow.length} empty {hollow.length === 1 ? 'copy' : 'copies'} of this name
+            </Text>
+          }
+        />
       )}
     </Dialog>
   )
@@ -795,20 +801,23 @@ export const AuthorDialog = ({
         <Fieldset legend="Install for">
           <div className={styles.targets}>
             {columns.map((column) => (
-              <label key={column.id} className={styles.target}>
-                <Checkbox
-                  checked={targets.has(column.id)}
-                  aria-label={`Install for ${column.label}`}
-                  onCheckedChange={(next) => {
-                    const after = new Set(targets)
-                    if (next === true) after.add(column.id)
-                    else after.delete(column.id)
-                    setTargets(after)
-                  }}
-                />
-                {column.info && <RuntimeMark runtime={column.info} size={13} />}
-                <Text role="navigation">{column.label}</Text>
-              </label>
+              <Checkbox
+                key={column.id}
+                checked={targets.has(column.id)}
+                aria-label={`Install for ${column.label}`}
+                onCheckedChange={(next) => {
+                  const after = new Set(targets)
+                  if (next === true) after.add(column.id)
+                  else after.delete(column.id)
+                  setTargets(after)
+                }}
+                label={
+                  <>
+                    {column.info && <RuntimeMark runtime={column.info} size={13} />}
+                    <Text role="navigation">{column.label}</Text>
+                  </>
+                }
+              />
             ))}
           </div>
         </Fieldset>

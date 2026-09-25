@@ -198,15 +198,18 @@ export const AddWork = ({
           >
             {(control) => <Card {...control} spacing="compact" radius="sm" className={styles.deps}>
               {blockers.map((one) => (
-                <label key={one.id} className={styles.dep}>
-                  <Checkbox
-                    aria-label={`Waits for #${one.id}`}
-                    checked={dependsOn.includes(one.id)}
-                    onCheckedChange={() => toggle(one.id)}
-                  />
-                  <Text role="meta" numeric>#{one.id}</Text>
-                  <Text role="muted" ink="secondary" truncate className={styles.depTitle}>{one.title}</Text>
-                </label>
+                <Checkbox
+                  key={one.id}
+                  aria-label={`Waits for #${one.id}`}
+                  checked={dependsOn.includes(one.id)}
+                  onCheckedChange={() => toggle(one.id)}
+                  label={
+                    <>
+                      <Text role="meta" numeric>#{one.id}</Text>
+                      <Text role="muted" ink="secondary" truncate className={styles.depTitle}>{one.title}</Text>
+                    </>
+                  }
+                />
               ))}
             </Card>}
           </Field>

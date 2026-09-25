@@ -64,16 +64,16 @@
   flex-direction: column;
 }
 
-.candidate,
+/* An import candidate and the empty-copies line are labelled checkboxes: the
+   `Checkbox` label lays out the box and its words, and only their place in
+   the dialog is said here. */
 .choice,
-.hollowLine,
 .historyRow,
 .historyWhat {
   display: flex;
   align-items: baseline;
 }
 
-.candidate,
 .choice,
 .historyRow,
 .historyWhat {
@@ -106,8 +106,6 @@
 }
 
 .hollowLine {
-  align-items: center;
-  gap: var(--hd-space-2);
   margin-top: var(--hd-space-3);
 }
 
@@ -139,10 +137,4 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--hd-space-2) var(--hd-space-4);
-}
-
-.target {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1-5);
 }
