@@ -754,6 +754,14 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
   expect(section('Ceiling')).not.toContain('Update…')
 })
 
+it('a legacy Agent’s Ceiling row offers one action, never both Update… and an always-refusing Edit…', () => {
+  mount({ focus: 'code-reviewer' })
+  const ceiling = container.querySelector('section[aria-label="Ceiling"]')!
+  const labels = [...ceiling.querySelectorAll('button')].map((one) => one.textContent?.trim())
+  expect(labels).toContain('Update…')
+  expect(labels).not.toContain('Edit…')
+})
+
 it('a successful update removes the flag, and project navigation closes an old preview', async () => {
   let snapshot = snapshotFor(SEATING)
   const listeners = new Set<() => void>()

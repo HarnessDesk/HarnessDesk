@@ -313,18 +313,17 @@ export const AgentPage = ({
                 title={ceilingWords(definition.ceiling)}
                 desc={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
                 {...(editable ? {
-                  control: (
-                    <span className="flex gap-(--hd-space-2)">
-                      {canUpdateCeiling && (
-                        <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
-                      )}
-                      {/* Same `authoring/*` preview/save path as name, description, answers and
-                          produces below — disabled until that document is read, since it needs
-                          the digest to preview against. A legacy `permission:` Agent still needs
-                          Update first: the preview itself refuses and says so, in the host's own
-                          words, rather than this row re-deciding that beforehand. */}
-                      <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
-                    </span>
+                  control: canUpdateCeiling ? (
+                    // A legacy `permission:` Agent needs Update first — Edit…
+                    // would only reach the same preview and be told, every
+                    // time, to come back here. One action, not a second that
+                    // always refuses.
+                    <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
+                  ) : (
+                    // Same `authoring/*` preview/save path as name, description, answers and
+                    // produces below — disabled until that document is read, since it needs
+                    // the digest to preview against.
+                    <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
                   ),
                 } : {})}
               />
