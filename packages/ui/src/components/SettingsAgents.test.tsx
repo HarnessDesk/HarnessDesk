@@ -597,7 +597,7 @@ it('a pin on a copy that has gone says so, and names the copy that runs (#219)',
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const open = [...document.body.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as HTMLButtonElement
+  const open = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as HTMLButtonElement
   await act(async () => open.click())
   expect(document.body.textContent).toContain('Running 1.18.29 · via Homebrew')
   expect(document.body.textContent).not.toContain('Pinned to')
@@ -622,7 +622,7 @@ const openInstall = async (install: InstallInfo): Promise<void> => {
     accountsByRuntime: { opencode: signedIn([], []) },
     store: { installsFor: vi.fn(async () => install), useInstall: vi.fn(async () => install), updateAgent: vi.fn(async () => true) },
   })
-  const head = [...document.body.querySelectorAll('button')].find((node) => node.className.includes('headOpen')) as
+  const head = [...document.body.querySelectorAll('button')].find((node) => node.querySelector('[data-slot="text"][data-role="subject"]')) as
     | HTMLButtonElement
     | undefined
   if (head) await act(async () => head.click())

@@ -1266,6 +1266,15 @@
   height: 44px;
 }
 
+/* A mark that is a control — one ring of a picker — is the same plate: the
+   platform's button edge and inset are not part of it, and a screen used to
+   take them off itself. */
+.avatarButton {
+  padding: 0; /* desk: 1px 6px (the platform's) → 0, the plate has no inset */
+  border: 0; /* desk: 2px outset (the platform's) → 0, the plate's edge is its inset ring */
+  cursor: pointer;
+}
+
 .avatarSm {
   width: 22px;
   height: 22px;

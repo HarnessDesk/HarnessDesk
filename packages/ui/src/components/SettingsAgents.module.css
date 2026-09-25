@@ -14,7 +14,16 @@
 .head {
   display: flex;
   align-items: center;
-  gap: var(--hd-space-3); /* desk: 12 → var(--hd-space-3), on the scale */
+  gap: 0; /* desk: var(--hd-space-3) → 0, the name's row keeps its own inset and the fold meets it */
+}
+
+/* The name's row, alone in a cell of its own so it is its row's last child:
+   a settings row draws its rule under itself unless it is last, and here the
+   card draws the one rule under an open head. */
+.headOpenCell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
 }
 
 /* The name half of the header. It is a button because it opens a page — the
@@ -51,17 +60,10 @@
   flex: none;
   display: inline-grid;
   place-items: center;
-  width: 26px;
-
-}
-
-.headToggleIcon {
-  display: inline-flex;
-  transition: transform var(--hd-duration-fast) var(--hd-ease);
-}
-
-.agent[data-open] .headToggleIcon {
-  transform: rotate(180deg);
+  /* Its mark stands where a row button's chevron does — on the card's inset,
+     centred in the chevron's width — so the fold and the account rows' own
+     chevrons under it make one column. */
+  width: calc(var(--hd-card-padding) * 2 + 15px); /* desk: 26px → 47px, the fold's cell reaches the card's edge and centres on the chevron column */
 }
 
 /* The account rows. Not a `Rows` card — the card is the agent, and a second
@@ -95,8 +97,6 @@
 }
 
 .ring {
-  width: 26px;
-  cursor: pointer;
   opacity: 0.55;
   transition: opacity 0.1s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -132,27 +132,21 @@
 
 /* --- the ACP registry grid ----------------------------------------------- */
 
-/* The two numbers the cell's height is built from live here, so the line box
-   and the room made for it cannot drift apart. */
-.registryGrid {
-  --registry-line-h: 16px;
-  --registry-lines: 2;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: var(--hd-space-2); /* desk: 8 → var(--hd-space-2), on the scale */
-}
-
 /* One height for every cell, whatever its sentence runs to.
 
    Registry descriptions are their authors' own prose and run from four words
    to a paragraph: left to wrap, forty of them made six different cell heights
    down one page, and a catalogue that is read by scanning cannot afford that.
+   Every row of the grid is one share of the tallest, so a cell's height is
+   the grid's decision, not its sentence's; each cell is a plate card. */
+.registryGrid {
+  --registry-lines: 2;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-auto-rows: 1fr; /* desk: auto → 1fr, every row as tall as the tallest, which the cell's min-height used to promise */
+  gap: var(--hd-space-2); /* desk: 8 → var(--hd-space-2), on the scale */
+}
 
-   Every read of the grid's two numbers carries its value as a fallback. Not
-   ceremony: an undefined custom property makes the whole `calc()` invalid at
-   computed-value time, and an invalid `min-height` is not a smaller cell, it
-   is no `min-height` at all — a cell rendered anywhere but inside the grid
-   would go quietly back to being sized by its own text. */
 .registryCell {
   display: flex;
   align-items: center;
@@ -174,12 +168,8 @@
 }
 
 /* A sentence, so it wraps — the second-line rule truncates names and paths,
-   never the words that say why. Two of them, and the cell's height is drawn
-   around that.
-
-   The line box keeps its literal as the var's fallback, as the cell's height
-   does: the interface-drift check resolves it to see that Desk did not move,
-   and a mark rendered outside the grid still clamps to two. */
+   never the words that say why. Two of them at most; a mark rendered outside
+   the grid still clamps to two. */
 .registryCellLine {
   display: -webkit-box;
   -webkit-box-orient: vertical;

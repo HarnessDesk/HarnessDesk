@@ -44,7 +44,6 @@ import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import {
   AgentIcon,
-  CaretIcon,
   CheckIcon,
   PlusIcon,
   SignInIcon,
@@ -53,11 +52,15 @@ import {
 import {
   AccountMark,
   BackLink,
+  Bar,
   Button,
+  Card,
+  CardViewport,
   Chip,
   CodeText,
   DetailMark,
   DetailHead,
+  DisclosureChevron,
   Dot,
   Field,
   FormStack,
@@ -67,6 +70,7 @@ import {
   NativeSelect,
   Textarea,
   PageHead,
+  Progress,
   Row,
   RowButton,
   RowMark,
@@ -75,6 +79,7 @@ import {
   Section,
   SectionHead,
   Segmented,
+  Separator,
   SummaryItem,
   SummaryList,
   Switch,
@@ -223,16 +228,14 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
       )}
       {/* One card: the windows and the balance are one section's rows. Two
           cards under one heading read as a second section that forgot its
-          name (review of #216). */}
+          name (review of #216). Each window is a row of it, as the balance
+          is — the name, when it refills, and the meter with its figure at the
+          row's end — so the windows' meters line up in one column. */}
       {view && (view.windows.length > 0 || view.credits) ? (
         <Rows>
-          {view.windows.length > 0 && (
-            <div className={`flex flex-col gap-4 p-4${view.credits ? ' border-b border-[var(--hd-card-divider,var(--hd-border))]' : ''}`}>
-              {view.windows.map((window) => (
-                <UsageMeter key={window.label} window={window} />
-              ))}
-            </div>
-          )}
+          {view.windows.map((window) => (
+            <UsageMeter key={window.label} window={window} />
+          ))}
           {view.credits && (
             <Row
               title="Credits"
@@ -257,36 +260,39 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
   )
 }
 
-/** One rolling allowance as a bar: how much of the window is left, and when it refills. */
+/**
+ * One rolling allowance as a row of the usage card: its name, when it refills,
+ * and a meter of what is left.
+ *
+ * The meter is the app's one remaining-budget meter (`Progress` measuring
+ * what is left), so it fills with what is LEFT and grades itself the way the
+ * Dashboard's and the plan strip's do — neutral while there is room, amber
+ * under a fifth, red when spent. The figure is said, not implied: a bare
+ * "48%" reads as spent to half the people who see it.
+ */
 export const UsageMeter = ({ window }: { window: UsageWindow }) => {
   const remaining = Math.max(0, Math.round(100 - window.usedPercent))
-  const tone = remaining <= 0 ? 'bad' : remaining < 20 ? 'warn' : 'good'
   const reset = formatReset(window.resetsAt)
-  const fillClass =
-    tone === 'bad' ? 'bg-(--hd-danger)' : tone === 'warn' ? 'bg-(--hd-warning)' : 'bg-(--hd-success)'
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-baseline gap-2.5">
-        <span className="flex-1 text-base">{window.label}</span>
-        <Text role="muted" numeric>
-          {remaining}% left
-          {reset && <Text ink="muted"> · resets {reset}</Text>}
-        </Text>
-      </div>
-      {/* Filled with what is LEFT, like every other meter in the app. It used
-          to fill with what had been spent under a figure reading "48% left",
-          so the bar and its own number moved in opposite directions. */}
-      <div
-        className="h-1 rounded-(--hd-radius-2xs) bg-(--hd-muted) overflow-hidden"
-        role="progressbar"
-        aria-valuenow={remaining}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={`${window.label} remaining`}
-      >
-        <div className={`h-full rounded-(--hd-radius-2xs) ${fillClass}`} style={{ width: `${remaining}%` }} />
-      </div>
-    </div>
+    <Row
+      title={window.label}
+      {...(reset ? { desc: `Resets ${reset}` } : {})}
+      control={
+        <>
+          <Progress
+            className="w-40"
+            value={remaining}
+            measure="remaining"
+            size="sm"
+            label={false}
+            aria-label={`${window.label} remaining`}
+          />
+          <Text role="muted" numeric align="end" className="min-w-16">
+            {remaining}% left
+          </Text>
+        </>
+      }
+    />
   )
 }
 
@@ -308,7 +314,7 @@ const RingPicker = ({
         role="radio"
         aria-checked={tint === value}
         aria-label={tint}
-        className={`${styles.ring} h-[26px] border-0`}
+        className={styles.ring}
         data-tint={tint}
         {...(tint === value ? { 'data-on': '' } : {})}
         onClick={() => onChange(tint)}
@@ -345,25 +351,41 @@ const Prose = ({ text }: { text: string }) => (
  *
  * There is no state marker here. The block is the state; a red dot floating
  * beside six lines of it was pointing at something already said.
+ *
+ * It is a row of the card it stands in: the sentence is the row's title and
+ * the output and the repair are its description, whole rather than clamped.
  */
 const HealthBlock = ({ health }: { health: Unavailable }) => {
   const { lead, detail, remediation } = splitHealth(health)
   return (
-    <div className="flex flex-col gap-2 py-4 px-(--hd-card-padding)">
-      <Text as="p" role="muted" ink="primary" className="m-0">
-        <Prose text={lead} />
-      </Text>
-      {detail && (
-        <CodeText as="pre" block ground="muted" className="max-h-[170px] overflow-auto">
-          {detail}
-        </CodeText>
-      )}
-      {remediation && (
-        <Text role="muted" as="p" className="m-0">
-          <Prose text={remediation} />
-        </Text>
-      )}
-    </div>
+    <Row
+      title={<Prose text={lead} />}
+      wrapDesc
+      {...(detail || remediation
+        ? {
+            desc: (
+              <span className="mt-1.5 flex flex-col gap-2">
+                {/* Bounded, as a panel's code block is: the card keeps its
+                    corners while the lines scroll inside it. */}
+                {detail && (
+                  <Card variant="flush" radius="sm">
+                    <CardViewport size="lines" maxHeight={170}>
+                      <CodeText as="pre" block ground="muted">
+                        {detail}
+                      </CodeText>
+                    </CardViewport>
+                  </Card>
+                )}
+                {remediation && (
+                  <span>
+                    <Prose text={remediation} />
+                  </span>
+                )}
+              </span>
+            ),
+          }
+        : {})}
+    />
   )
 }
 
@@ -468,13 +490,16 @@ const AgentBlock = ({
           runtime — health, version, behaviour — and the caret only decides
           whether its accounts are on screen. Nesting them would make one of
           the two unreachable. */}
-      <div className={`${styles.head} pr-2`}>
+      <div className={styles.head}>
         {/* The tagline rides on hover here. This card is about an agent you
             already chose and installed; a definition of it cannot change what
             you do on a page for managing its accounts, and the one line it had
             was set to nowrap, so a longer one arrived cut. It still shows in
             full where choosing is the actual task — the Add a runtime list
             below, first run, and sign-in. */}
+        {/* Wrapped so it is its row's last child: the card draws the one
+            rule under an open head, and a closed card ends on its own edge. */}
+        <span className={styles.headOpenCell}>
         <RowButton
           className={styles.headOpen}
           onClick={onOpenAgent}
@@ -482,7 +507,7 @@ const AgentBlock = ({
           mark={<RuntimeMark runtime={info} size={17} />}
           title={
             <span className={styles.headName} title={info.presentation.tagline}>
-              <Text role="subject" className="text-lg">{info.presentation.name}</Text>
+              <Text role="subject">{info.presentation.name}</Text>
               {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
               {connection && <Chip tone="neutral" size="sm">{connection}</Chip>}
             </span>
@@ -500,19 +525,25 @@ const AgentBlock = ({
             {state !== 'ready' && <Chip state={state} />}
           </span>}
         />
-        <Button
-          type="button"
-          variant="quiet" size="content" className={styles.headToggle}
-          aria-expanded={open}
-          aria-label={`${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`}
-          onClick={onToggle}
-        >
-          <span className={styles.headToggleIcon} aria-hidden="true"><CaretIcon size={15} /></span>
-        </Button>
+        </span>
+        {/* The fold is the head's other target, and its mark stands in the
+            column the chevrons of the account rows under it stand in. */}
+        <span className={styles.headToggle}>
+          <Button
+            type="button"
+            variant="quiet" size="icon"
+            aria-expanded={open}
+            aria-label={`${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`}
+            onClick={onToggle}
+          >
+            <DisclosureChevron open={open} size="lg" />
+          </Button>
+        </span>
       </div>
 
       {open && (
-      <div className="border-t border-(--hd-border)">
+      <>
+      <Separator />
       <div className={styles.list}>
         {rows.map(({ entry, account }) => {
           const key = accountKey(entry.id, account)
@@ -539,10 +570,7 @@ const AgentBlock = ({
               key={key}
               onClick={() => onOpenAccount(entry.id, key)}
               mark={
-                <AccountMark
-                  className="size-[30px]"
-                  data-tint={tintOf(key, snapshot.accountPrefs)}
-                >
+                <AccountMark data-tint={tintOf(key, snapshot.accountPrefs)}>
                   <RuntimeMark runtime={info} size={14} />
                 </AccountMark>
               }
@@ -585,7 +613,7 @@ const AgentBlock = ({
           <Row
             key={entry.id}
             mark={
-              <AccountMark className="size-[30px]">
+              <AccountMark>
                 <RuntimeMark runtime={info} size={14} />
               </AccountMark>
             }
@@ -685,7 +713,7 @@ const AgentBlock = ({
       {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
 
       {(info.slot?.canAdd || (rows.length > 0 && info.capabilities.account && canSignIn)) && (
-        <div className="flex items-center gap-2.5 py-2 px-3 border-t border-(--hd-border)">
+        <Bar rule="top">
           {info.capabilities.account && canSignIn && (
             <Button
               size="sm"
@@ -717,9 +745,9 @@ const AgentBlock = ({
               Add gateway account…
             </Button>
           )}
-        </div>
+        </Bar>
       )}
-      </div>
+      </>
       )}
     </Rows>
   )
@@ -1077,9 +1105,11 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           {registryListed.map((agent) => {
             const line = registrySentence(agent)
             return (
-              <div
+              <Card
                 key={agent.id}
-                className={`${styles.registryCell} min-h-[calc(var(--hd-line-sm)+var(--registry-line-h,16px)*var(--registry-lines,2)+var(--hd-space-2)*2)] py-2 px-2.5 rounded-(--hd-radius) bg-(--hd-card) shadow-[inset_0_0_0_1px_var(--hd-border-strong)]`}
+                variant="plate"
+                spacing="compact"
+                className={`${styles.registryCell} flex-row`}
                 {...(agent.available ? {} : { 'data-blocked': '' })}
               >
                 <RowMark>
@@ -1099,7 +1129,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                       </Chip>
                     )}
                   </Text>
-                  {line && <Text role="meta" className={`${styles.registryCellLine} leading-[var(--registry-line-h,16px)]`}>{line}</Text>}
+                  {line && <Text role="meta" className={styles.registryCellLine}>{line}</Text>}
                 </span>
                 {agent.registered ? (
                   <Chip state="ready" label="Added" />
@@ -1114,7 +1144,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
                     {registryAddLabel(agent, busy === agent.id)}
                   </Button>
                 ) : null}
-              </div>
+              </Card>
             )
           })}
         </div>

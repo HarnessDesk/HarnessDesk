@@ -1373,7 +1373,7 @@ export const AccountMark = ({
 }) => createElement(as, {
   ...props,
   ...(as === 'button' ? { type: 'button' } : {}),
-  className: cx(styles.avatar, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, className),
+  className: cx(styles.avatar, as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, className),
 }, children)
 
 export const FileButton = ({
