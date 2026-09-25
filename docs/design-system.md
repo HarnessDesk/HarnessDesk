@@ -54,7 +54,7 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-tracking-heading` | `-0.01em` |
 | `--hd-title-rule` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-title-rule-width` | `1px` |
-| `--hd-title-rule-gap` | `16px` |
+| `--hd-title-rule-gap` | `12px` |
 | `--hd-title-rule-mark` | `rgb(52, 88, 240)` |
 | `--hd-title-rule-mark-width` | `24px` |
 | `--hd-title-rule-mark-height` | `2px` |

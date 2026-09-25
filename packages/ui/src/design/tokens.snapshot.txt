@@ -258,7 +258,7 @@
 --hd-tint-violet-ink = rgb(133, 77, 187)
 --hd-title = 24px
 --hd-title-rule = rgba(9, 12, 17, 0.05)
---hd-title-rule-gap = 16px
+--hd-title-rule-gap = 12px
 --hd-title-rule-mark = rgb(52, 88, 240)
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
@@ -718,7 +718,7 @@
 --hd-tint-violet-ink = rgb(184, 132, 240)
 --hd-title = 24px
 --hd-title-rule = rgba(255, 255, 255, 0.05)
---hd-title-rule-gap = 16px
+--hd-title-rule-gap = 12px
 --hd-title-rule-mark = rgb(52, 88, 240)
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
@@ -1190,7 +1190,7 @@
 --hd-tint-violet-ink = rgb(133, 77, 187)
 --hd-title = 24px
 --hd-title-rule = rgba(9, 12, 17, 0.05)
---hd-title-rule-gap = 16px
+--hd-title-rule-gap = 12px
 --hd-title-rule-mark = rgb(52, 88, 240)
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
@@ -1662,7 +1662,7 @@
 --hd-tint-violet-ink = rgb(184, 132, 240)
 --hd-title = 24px
 --hd-title-rule = rgba(255, 255, 255, 0.05)
---hd-title-rule-gap = 16px
+--hd-title-rule-gap = 12px
 --hd-title-rule-mark = rgb(52, 88, 240)
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
