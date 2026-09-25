@@ -99,3 +99,55 @@ export const buildMarks = (turns: readonly Turn[]): readonly ConversationMark[] 
   }
   return marks
 }
+
+/**
+ * How far the rail may reach before it touches what it is a picture of.
+ *
+ * The rail lives in the gutter the reading column leaves, and that gutter is
+ * wide in a full window and a few dozen pixels in a narrow pane — a 1440
+ * window with the sidebar and the dock open leaves about the same as a 640
+ * one. A dash at rest is two steps long for a prompt, and the pointer pushes
+ * the nearest one out by as much again; unmeasured, that push drew the dash
+ * across the first letters of the transcript.
+ *
+ * So the rail asks, in the pane's own tokens:
+ *
+ *   roomy   the dashes start where they always have — the rail's inset, the
+ *           mark's inset and the mark's own padding in from the pane's edge —
+ *           and there is room for the full push and a gap before the text.
+ *   tight   not enough room for that, so the rail moves to the pane's edge
+ *           (the dash still starts inside its 24px target), and the push is
+ *           cut to what fits, with `cap` holding even a resting dash short of
+ *           the gap.
+ *   none    not even a resting answer-dash fits; the rail is not drawn,
+ *           because a map written over the text it maps helps nobody.
+ */
+export type RailFit =
+  | { readonly fit: 'roomy'; readonly reach: number; readonly cap: null }
+  | { readonly fit: 'tight'; readonly reach: number; readonly cap: number }
+  | null
+
+export const railFit = ({
+  gutter,
+  gap,
+  step,
+  stroke,
+  inset = step,
+}: {
+  /** From the pane's left edge to the reading column's first letter. */
+  readonly gutter: number
+  /** The least air between the longest dash and the text (`--hd-space-1`). */
+  readonly gap: number
+  /** The rail's inset and the mark's inset (`--hd-space-2`); also a resting answer. */
+  readonly step: number
+  /** A resting prompt, and the full push (`--hd-space-3`). */
+  readonly stroke: number
+  /** From a mark's edge to its dash: its padding and hairline, as drawn. Assumed one step until the rail is drawn and can say. */
+  readonly inset?: number
+}): RailFit => {
+  const roomy = gutter - 2 * step - inset - gap
+  if (roomy >= stroke + stroke) return { fit: 'roomy', reach: stroke, cap: null }
+  const tight = gutter - inset - gap
+  if (tight < step) return null
+  return { fit: 'tight', reach: Math.max(0, Math.min(stroke, tight - stroke)), cap: tight }
+}

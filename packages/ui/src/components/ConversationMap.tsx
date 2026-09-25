@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type { Turn } from '@harnessdesk/protocol'
 
 import { Button, ChartTip, Tick } from '../design'
-import { buildMarks, shouldRenderMap } from '../lib/conversation-map'
+import { buildMarks, railFit, shouldRenderMap, type RailFit } from '../lib/conversation-map'
 import styles from './ConversationMap.module.css'
 
 /**
@@ -44,14 +44,39 @@ export const ConversationMap = ({
   const rail = useRef<HTMLElement>(null)
   const [pointer, setPointer] = useState<number | null>(null)
   const [overflows, setOverflows] = useState(false)
+  const [fit, setFit] = useState<RailFit>(null)
+  const drawn = shouldRenderMap({ marks: marks.length, overflows }) && fit !== null
 
   /* Whether there is anything to navigate, asked of the scroller rather than
      of the turn count: a short transcript of long answers overflows and a long
-     one of one-word replies may not. */
+     one of one-word replies may not. And how much of the gutter the rail may
+     use, asked of the same scroller: where its reading column starts, in the
+     pane's own spacing tokens (see `railFit`). */
   useEffect(() => {
     const node = scroll.current
     if (!node) return
-    const measure = () => setOverflows(node.scrollHeight - node.clientHeight > 1)
+    const measure = () => {
+      setOverflows(node.scrollHeight - node.clientHeight > 1)
+      const edge = node.getBoundingClientRect().left
+      const column = [...node.querySelectorAll<HTMLElement>('[data-part] > *')]
+        .map((one) => one.getBoundingClientRect())
+        .filter((box) => box.width > 0)
+      if (column.length === 0) return
+      const tokens = getComputedStyle(node)
+      const px = (name: string): number => Number.parseFloat(tokens.getPropertyValue(name)) || 0
+      // Where a mark draws its dash, read off one that is drawn: its padding
+      // and its hairline, rather than a sum of what they ought to be.
+      const tick = rail.current?.querySelector('[data-slot="tick"]')
+      const mark = tick?.parentElement
+      const next = railFit({
+        gutter: Math.min(...column.map((box) => box.left)) - edge,
+        gap: px('--hd-space-1'),
+        step: px('--hd-space-2'),
+        stroke: px('--hd-space-3'),
+        ...(tick && mark ? { inset: tick.getBoundingClientRect().left - mark.getBoundingClientRect().left } : {}),
+      })
+      setFit((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next))
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(node)
@@ -60,7 +85,8 @@ export const ConversationMap = ({
       observer.disconnect()
       node.removeEventListener('scroll', measure)
     }
-  }, [scroll, marks.length])
+    // Measured again once the rail is drawn, so the inset is the drawn one.
+  }, [scroll, marks.length, drawn])
 
   /* The half of the turn the mark previewed, not the turn around it: a dash
      showing the answer that lands on the prompt has taken the reader somewhere
@@ -77,7 +103,7 @@ export const ConversationMap = ({
     [scroll],
   )
 
-  if (!shouldRenderMap({ marks: marks.length, overflows })) return null
+  if (!drawn || fit === null) return null
 
   /* The dock falloff. `near` is 1 under the pointer and 0 at the edge of its
      reach; cosine rather than the raw distance so the run reads as a surface
@@ -93,6 +119,10 @@ export const ConversationMap = ({
     <nav
       ref={rail}
       className={styles.rail}
+      data-fit={fit.fit}
+      /* The push, and in a tight pane the longest a dash may be, as measured
+         against the column: custom properties only the dash's width reads. */
+      style={{ '--reach': `${fit.reach}px`, ...(fit.cap === null ? {} : { '--cap': `${fit.cap}px` }) } as React.CSSProperties}
       aria-label="Jump to a message"
       onPointerMove={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
