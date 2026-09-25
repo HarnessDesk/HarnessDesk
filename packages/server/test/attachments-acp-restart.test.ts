@@ -174,3 +174,28 @@ test('a turn a reconnect started survives a session/resume that arrives while th
   assert.ok(live?.running.size, 'the turn the reconnect started is still running — nothing cancelled it')
   await client.call('turn/interrupt', { runtime: 'rig-agent', sessionId: id }).catch(() => {})
 })
+
+/*
+ * #895. When this desk has let a conversation's handle go but the agent still
+ * holds it, a reopen is answered with that same session — still on the
+ * filter an earlier reopen gave it. Its receipt answers for that earlier key,
+ * and used to be taken as "nothing loaded": the Seat's new epoch said every
+ * attachment failed, and the Seat lost its servers at the gateway.
+ */
+test('a resume the agent answers with the conversation it still held records what it loaded, and keeps the Seat’s servers', async (t) => {
+  const { again, client, session, seat } = await deskAt(t, '1.0.0')
+  const id = String(session.id)
+  await client.call('session/read', { runtime: 'rig-agent', sessionId: id })
+  await client.call('session/resume', { runtime: 'rig-agent', sessionId: id })
+  assert.equal((await again.host.attachmentsPlane.read(seat))?.epoch, 1)
+  assert.equal(again.host.attachmentsPlane.liveServersFor(seat)?.length, 1)
+  // The desk lets the handle go; the agent keeps the session open.
+  const record = again.host.registry.get('rig-agent' as never, id as never)
+  assert.ok(record?.live)
+  record.live = null
+  await client.call('session/resume', { runtime: 'rig-agent', sessionId: id })
+  const latest = await again.host.attachmentsPlane.read(seat)
+  assert.equal(latest?.epoch, 2)
+  assert.deepEqual(statuses(latest), ['skill:loaded', 'mcp:loaded'])
+  assert.equal(again.host.attachmentsPlane.liveServersFor(seat)?.length, 1, 'and the Seat still reaches its server')
+})

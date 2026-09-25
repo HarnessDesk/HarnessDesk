@@ -59,6 +59,20 @@ export class InsightBudgetExceededError extends Error {
   }
 }
 
+/**
+ * A source read, then refused because it changed between its size check and
+ * the end of the read. Its content is not trusted, but its bytes were read
+ * off disk all the same, so `bytesRead` still counts against the shared
+ * Insight budget — otherwise a source that keeps changing could be read over
+ * and over for free. Reported like any other unreadable source otherwise.
+ */
+export class InsightSourceChangedError extends Error {
+  constructor(message: string, readonly bytesRead: number) {
+    super(message)
+    this.name = 'InsightSourceChangedError'
+  }
+}
+
 export const unknownMeasure = (): Measure => ({ value: null, quality: 'unknown' })
 export const exactMeasure = (value: number): Measure => ({ value, quality: 'exact' })
 export type { InsightQuery }

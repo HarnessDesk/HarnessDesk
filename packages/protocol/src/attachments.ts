@@ -65,6 +65,14 @@ export interface AttachmentReview {
   readonly runtime: string
   readonly effectiveCeiling: CeilingLevel
   readonly consequence: string
+  /**
+   * Every value this review shows only as set — a server's environment value
+   * or header whose name marks it a credential — as `<server>: <NAME>`. A
+   * value that changes what a server does can hide behind such a name, so an
+   * approval of a review with any of these has to acknowledge them
+   * (`attachment/approve`'s `acknowledgeHidden`).
+   */
+  readonly hidden: readonly string[]
 }
 
 /** An Agent's declarations and what a Seat would find loadable, for the Agent page and the Library. */

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
 import type { McpServerSpec } from '@harnessdesk/agent-inventory'
@@ -71,6 +71,13 @@ export interface AttachmentsPlanePort {
   support(subject: AttachmentSubject): AttachmentSupport
   /** Whether this runtime's own auto-loading of unapproved repository content can be suppressed for one Seat. */
   suppressUnapproved(subject: AttachmentSubject): Promise<boolean>
+  /**
+   * When this identity is not approved for the Seat's runtime but is for
+   * another, the names to say so in — the one it was reviewed for, and the
+   * one this Seat runs on — each as its runtime presents itself. Only ever
+   * words for a refusal; never a permission.
+   */
+  reviewedElsewhere?(subject: AttachmentSubject, identity: AttachmentIdentity): Promise<{ readonly reviewed: string; readonly seated: string } | null>
 }
 
 export interface PreparedAttachments {
@@ -104,16 +111,48 @@ export async function receiptFrom(
   runtime: { attachmentReceipt?(session: SessionId): Promise<SessionAttachmentReceipt> } | undefined,
   session: SessionId,
   key: string,
+  options: {
+    readonly reopen?: PreparedAttachments
+    /** Every key this Seat's own filter was handed under in this process (`AttachmentsPlane.keysOf`). */
+    readonly seatKeys?: ReadonlySet<string>
+  } = {},
 ): Promise<SessionAttachmentReceipt> {
   const empty: SessionAttachmentReceipt = { key, loaded: [], refused: [] }
   if (!runtime?.attachmentReceipt) return empty
+  let observed: SessionAttachmentReceipt
   try {
-    const observed = await runtime.attachmentReceipt(session)
-    return observed.key === key ? observed : empty
+    observed = await runtime.attachmentReceipt(session)
   } catch {
     return empty
   }
+  if (observed.key === key) return observed
+  /* A reopen the runtime answered with the conversation it still held —
+     the registry had let the handle go, the adapter had not (#895). That
+     session is still on the filter it was opened with, an earlier reopen of
+     this same Seat's frozen declarations, and its receipt answers for that
+     key. Taken as this reopen's only when everything it says is loaded is
+     something this reopen would load too, identity for identity; anything
+     more is `HeldBeyondFilterError`, and the caller closes the session rather
+     than keep it on content this Seat may no longer load. What it names is
+     then checked against the frozen identities by `record`, never taken as more. */
+  const reopen = options.reopen
+  /* Only a session this Seat's own filter was handed to: its key is one this
+     process recorded for this Seat. Any other key — another Seat's input, or
+     none this desk gave — is nothing loaded (review P3-1 on #940). */
+  if (!reopen || !options.seatKeys?.has(observed.key)) return empty
+  const allowed = new Set(
+    reopen.declarations
+      .filter((one) => one.identity !== null && one.problem === null)
+      .map((one) => `${one.kind}:${one.name}:${one.identity!.digest}`),
+  )
+  if (observed.loaded.some((one) => !allowed.has(`${one.kind}:${one.name}:${one.digest}`))) {
+    throw new HeldBeyondFilterError('The agent still held this conversation with attachments this Seat may no longer load.')
+  }
+  return { ...observed, key }
 }
+
+/** Thrown by `receiptFrom` for a held session that loaded more than its reopen allows. */
+export class HeldBeyondFilterError extends Error {}
 
 /** Thrown by `prepare`/`reapply` when the runtime cannot be trusted not to auto-load unapproved repository content on its own. */
 export class UnsuppressedAutoLoadError extends Error {}
@@ -163,6 +202,15 @@ const frozenOf = (value: unknown): FrozenAttachments | null => {
 
 const endpointOf = (identity: AttachmentIdentity): string => `mcp:${identity.name}:${identity.digest}`
 
+/** Every digest a prepared Seat was handed a staged copy of. */
+const stagedDigests = (prepared: PreparedAttachments): string[] => [
+  ...(prepared.input.skills ?? []).map((one) => one.digest),
+  ...(prepared.input.mcp ?? []).map((one) => one.digest),
+]
+
+/** `waiting`: queued behind another staging or collection of the same digest. `writing`: no verified copy was there, so one is being written. */
+export type StagingStep = 'waiting' | 'writing'
+
 type Staged = { readonly path: string } | { readonly endpoint: string; readonly spec: McpServerSpec } | { readonly problem: string }
 
 export class AttachmentsPlane {
@@ -176,15 +224,113 @@ export class AttachmentsPlane {
    * spec left to dial.
    */
   readonly #live = new Map<SeatId, { readonly servers: readonly LiveServer[] }>()
+  /**
+   * One queue per staged digest (#895). Two Seats staging the same digest
+   * took turns only by luck: one could find the copy missing mid-write, remove
+   * the target the other had just placed, and leave the other's bridge reading
+   * a folder that was going away. Staging, and collecting, a digest now waits
+   * for whatever else is doing either to it.
+   */
+  readonly #digestQueues = new Map<string, Promise<unknown>>()
+  /** Digests a `prepare` staged that no Seat has frozen yet, counted: never collected while a Seat is opening on one. */
+  readonly #opening = new Map<string, number>()
+  /** The prepared Seats that pinned their digests in `#opening`, so only their own `record` lets go. */
+  readonly #pinned = new WeakSet<PreparedAttachments>()
+  readonly #onStaging: ((digest: string, step: StagingStep) => Promise<void> | void) | undefined
+  /**
+   * The key of every input a Seat's filter was handed under and recorded, in
+   * this process. An adapter holds a session no longer than this process
+   * lives, so a held session's key is here exactly when this Seat's own
+   * filter opened it.
+   */
+  readonly #keys = new Map<SeatId, Set<string>>()
 
   constructor(
     folder: string,
     private readonly port: AttachmentsPlanePort,
-    options: { readonly staging?: string; readonly frozen?: string } = {},
+    options: {
+      readonly staging?: string
+      readonly frozen?: string
+      /** Told each step a skill's staging takes; for a test's barrier, never a decision. */
+      readonly onStaging?: (digest: string, step: StagingStep) => Promise<void> | void
+    } = {},
   ) {
     this.#receipts = new AttachmentReceipts(folder)
     this.#staging = options.staging ?? join(folder, '.staged')
     this.#frozen = options.frozen ?? join(folder, '.frozen')
+    this.#onStaging = options.onStaging
+  }
+
+  /** Runs `work` alone for one digest: after, and before, anything else staging or collecting it. */
+  #forDigest<T>(digest: string, work: () => Promise<T>): Promise<T> {
+    const before = this.#digestQueues.get(digest)
+    if (before) void this.#onStaging?.(digest, 'waiting')
+    const run = (before ?? Promise.resolve()).then(work, work)
+    const tail = run.then(() => undefined, () => undefined)
+    this.#digestQueues.set(digest, tail)
+    void tail.then(() => { if (this.#digestQueues.get(digest) === tail) this.#digestQueues.delete(digest) })
+    return run
+  }
+
+  /**
+   * Removes every staged copy no Seat and no approval references (#895):
+   * `staged/skill/<digest>/` and `staged/mcp/<digest>.json` whose digest no
+   * frozen filter names — an ended Seat's too, since its conversation reopens
+   * on it — is not in `approved` (every digest the trust store holds a grant
+   * for), and no Seat is opening on right now; and any half-written copy a
+   * crash left behind. Each removal waits its digest's turn. Answers how many
+   * it removed. A frozen file that cannot be read keeps everything: what it
+   * might name is unknown, so nothing is collected on a guess.
+   */
+  async collectStaged(approved: ReadonlySet<string>): Promise<number> {
+    const kept = new Set<string>(approved)
+    let names: string[]
+    try {
+      names = await readdir(this.#frozen)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return 0
+      names = []
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      const text = await this.#readBounded(join(this.#frozen, name), MAX_FROZEN_BYTES)
+      const frozen = text === null ? null : (() => { try { return frozenOf(JSON.parse(text)) } catch { return null } })()
+      if (!frozen) return 0
+      for (const one of frozen.declarations) if (one.identity) kept.add(one.identity.digest)
+    }
+    const digest = /^[0-9a-f]{64}$/
+    let removed = 0
+    const collect = async (path: string, id: string | null): Promise<void> => {
+      if (id === null) {
+        await rm(path, { recursive: true, force: true })
+        removed += 1
+        return
+      }
+      await this.#forDigest(id, async () => {
+        if (kept.has(id) || (this.#opening.get(id) ?? 0) > 0) return
+        await rm(path, { recursive: true, force: true })
+        removed += 1
+      })
+    }
+    // A real folder, never a link swapped in for one: listing through a link
+    // would collect in whatever folder it points at (review P3-2 on #940).
+    const realFolder = async (path: string): Promise<boolean> => (await lstat(path).catch(() => null))?.isDirectory() === true
+    if (!(await realFolder(this.#staging))) return 0
+    for (const [kind, parse] of [
+      ['skill', (name: string) => (digest.test(name) ? name : null)],
+      ['mcp', (name: string) => (name.endsWith('.json') && digest.test(name.slice(0, -5)) ? name.slice(0, -5) : null)],
+    ] as const) {
+      const folder = join(this.#staging, kind)
+      if (!(await realFolder(folder))) continue
+      const entries = await readdir(folder).catch(() => [] as string[])
+      for (const name of entries) {
+        const id = parse(name)
+        if (id !== null) await collect(join(folder, name), id)
+        // A copy a crash left half-written, never renamed into place.
+        else if (name.endsWith('.tmp')) await collect(join(folder, name), null)
+      }
+    }
+    return removed
   }
 
   /**
@@ -206,11 +352,15 @@ export class AttachmentsPlane {
           one.identity.name === declaration.name &&
           one.identity.digest === declaration.identity?.digest,
       )
-    return this.#decide(subject, found, null, async (declaration) => {
+    const prepared = await this.#decide(subject, found, null, async (declaration) => {
       const read = content(declaration)
       if (!read) return { problem: 'This content was not read, so it cannot be loaded.' }
       return declaration.kind === 'skill' ? this.#stageSkill(declaration.identity!, read.files) : this.#stageServer(declaration.identity!, read.server)
     })
+    // Opening on these until `record` freezes them: never collected in between.
+    for (const digest of stagedDigests(prepared)) this.#opening.set(digest, (this.#opening.get(digest) ?? 0) + 1)
+    this.#pinned.add(prepared)
+    return prepared
   }
 
   /**
@@ -304,11 +454,15 @@ export class AttachmentsPlane {
         // never a generic failure, and never "review" as if nobody had.
         const otherBuild =
           frozenAs !== null && frozenAs.build !== subject.build && (await this.port.permits(frozenAs, identity))
+        // A fresh Seat whose seating fell back to another candidate: the review was for the first choice (#895).
+        const elsewhere = !otherBuild && fresh ? await this.port.reviewedElsewhere?.(subject, identity).catch(() => null) ?? null : null
         finalized.push({
           ...declaration,
           problem: otherBuild
             ? `This was approved for another build of this agent (${frozenAs.build || 'unknown'}), and it now runs ${subject.build || 'an unknown build'}; review it again on the Agent page, then seat the Agent again.`
-            : 'Review this content before loading it.',
+            : elsewhere
+              ? `This was approved for ${elsewhere.reviewed}, but this Seat runs on ${elsewhere.seated} instead, and an approval covers only the agent it was given for.`
+              : 'Review this content before loading it.',
         })
         continue
       }
@@ -360,8 +514,13 @@ export class AttachmentsPlane {
    */
   async #stageSkill(identity: AttachmentIdentity, files: readonly BundleFile[]): Promise<Staged> {
     if (bundleDigest(files) !== identity.digest) return { problem: 'The content read is not the content that was approved; review it again.' }
+    return this.#forDigest(identity.digest, () => this.#placeSkill(identity, files))
+  }
+
+  async #placeSkill(identity: AttachmentIdentity, files: readonly BundleFile[]): Promise<Staged> {
     const existing = await this.#restagedSkill(identity)
     if ('path' in existing) return existing
+    await this.#onStaging?.(identity.digest, 'writing')
     const root = await this.#skillRoot()
     const target = join(root, identity.digest)
     await rm(target, { recursive: true, force: true })
@@ -411,14 +570,16 @@ export class AttachmentsPlane {
       return { problem: 'This server’s configuration is not the one that was approved; review it again.' }
     }
     const target = join(this.#staging, 'mcp', `${identity.digest}.json`)
-    await mkdir(dirname(target), { recursive: true, mode: 0o700 })
-    const temporary = `${target}.${randomUUID()}.tmp`
-    try {
-      await writeFile(temporary, JSON.stringify(spec), { mode: 0o600, flag: 'wx' })
-      await rename(temporary, target)
-    } finally {
-      await rm(temporary, { force: true })
-    }
+    await this.#forDigest(identity.digest, async () => {
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 })
+      const temporary = `${target}.${randomUUID()}.tmp`
+      try {
+        await writeFile(temporary, JSON.stringify(spec), { mode: 0o600, flag: 'wx' })
+        await rename(temporary, target)
+      } finally {
+        await rm(temporary, { force: true })
+      }
+    })
     return { endpoint: endpointOf(identity), spec }
   }
 
@@ -547,7 +708,15 @@ export class AttachmentsPlane {
       restored: false,
     }
     await this.#writeFrozen(seat.id, prepared)
+    if (this.#pinned.delete(prepared)) for (const digest of stagedDigests(prepared)) {
+      const left = (this.#opening.get(digest) ?? 0) - 1
+      if (left > 0) this.#opening.set(digest, left)
+      else this.#opening.delete(digest)
+    }
     await this.#receipts.append(record)
+    const keys = this.#keys.get(seat.id) ?? new Set<string>()
+    keys.add(prepared.input.key)
+    this.#keys.set(seat.id, keys)
     if (prepared.input.mcp && seat.closed === null) {
       // Matched on kind *and* name, never name alone: a skill and a server
       // may share a name, and a skill that loaded must never make a server
@@ -563,6 +732,11 @@ export class AttachmentsPlane {
       })
     }
     return record
+  }
+
+  /** The keys this Seat's filter was handed under in this process. */
+  keysOf(seat: SeatId): ReadonlySet<string> {
+    return this.#keys.get(seat) ?? new Set()
   }
 
   async read(seat: SeatId): Promise<SeatAttachmentsRecord | null> {

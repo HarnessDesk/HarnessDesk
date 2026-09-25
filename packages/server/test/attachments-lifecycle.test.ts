@@ -447,3 +447,45 @@ test('a conversation seated before its Agent declared attachments is refused in 
   assert.equal(runtime.resumes, 0)
   assert.equal(runtime.lastForkOptions, null)
 })
+
+/*
+ * #895 (a follow-up comment). With neither a frozen filter nor a receipt —
+ * a crash right after the session opened leaves exactly that — the reopen
+ * asked the Agent's file whether it declares anything. A file that is gone
+ * answered "no", and the reopen went ahead on the agent's own defaults.
+ */
+test('a conversation seated as an Agent whose file is gone, with no record of its filter, is refused on reopen', async (t) => {
+  const desk = await deskWithMergeAgent(t)
+  const agentDir = join(desk.harness.stateDir, 'agents', 'reviewer')
+  await writeFile(join(agentDir, 'AGENT.md'), '---\nname: Reviewer\nceiling: merge\nprefer: [fake=fake-1]\n---\nRead the diff.\n')
+  const session = (await desk.client.call('agent/seat', { id: 'reviewer', cwd: desk.work, project: desk.work })) as Session
+  await desk.halt()
+  await rm(agentDir, { recursive: true, force: true })
+  // And no transcript kept here either: a read has to go to the agent.
+  await rm(join(desk.harness.stateDir, 'transcripts'), { recursive: true, force: true })
+
+  const runtime = capableRuntime()
+  const again = await start({ libraryHome: tempDir('hd-attach-life-gone-home-') }, desk.harness.stateDir, runtime)
+  t.after(() => stop(again))
+  const client = await Client.connect(again.server)
+  t.after(() => client.close())
+  await client.call('workspace/open', { path: desk.work })
+  for (const method of ['session/resume', 'session/fork'] as const) {
+    await assert.rejects(
+      client.call(method, { runtime: 'fake', sessionId: String(session.id) }),
+      /seated as an Agent whose file can no longer be read/,
+    )
+  }
+  assert.equal(runtime.resumes, 0, 'the runtime was never asked to reopen it')
+  assert.equal(runtime.lastForkOptions, null)
+  // Reading it is not reopening it: an old conversation stays readable (review P3-3 on #940).
+  // The read goes to the agent (this rig's fresh fake runtime keeps nothing
+  // across the restart, so it answers that it has no record) — it is never
+  // refused for the unreadable Agent file.
+  const read = await client.call('session/read', { runtime: 'fake', sessionId: String(session.id) }).then(
+    (value) => (value as Session).id as string,
+    (error: unknown) => (error instanceof Error ? error.message : String(error)),
+  )
+  assert.doesNotMatch(read, /can no longer be read/)
+  assert.ok(read === String(session.id) || /has no record of conversation/.test(read), read)
+})

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 
 import type { McpServerSpec } from '@harnessdesk/agent-inventory'
 
@@ -98,6 +98,34 @@ interface PendingReply {
 type Requester = (method: string, params: unknown, timeoutMs: number) => Promise<unknown>
 
 /**
+ * Every server child that has not exited yet. A quit that ends this process
+ * sooner than `KILL_GRACE_MS` never runs the escalation timer, so a server
+ * that shrugs off SIGTERM would outlive the desk (#895): the process's own
+ * `exit` kills whatever is still here outright, synchronously, on the way out.
+ */
+const unexited = new Set<ChildProcess>()
+let exitHooked = false
+
+const tracked = (child: ChildProcess): void => {
+  unexited.add(child)
+  child.once('exit', () => unexited.delete(child))
+  if (exitHooked) return
+  exitHooked = true
+  process.once('exit', killRunningMcpServers)
+}
+
+/** Kills every server child still running, outright, on the process's own `exit`. */
+function killRunningMcpServers(): void {
+  for (const child of unexited) {
+    try {
+      child.kill('SIGKILL')
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+/**
  * Spawns the child, wires the newline-delimited JSON-RPC framing every
  * exchange in this file shares, completes the one handshake MCP requires
  * (`initialize` then `notifications/initialized`), then hands the caller's
@@ -124,6 +152,7 @@ async function withStdioMcpServer<T>(
     // No shell: argument arrays reach the executable exactly as given, the
     // same rule every other process this desk starts already follows.
   })
+  tracked(child)
 
   const pending = new Map<number, PendingReply>()
   let nextId = 1

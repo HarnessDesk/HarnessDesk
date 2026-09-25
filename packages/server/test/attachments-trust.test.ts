@@ -336,3 +336,60 @@ test('a server’s review shows exactly what will run — command, arguments and
   assert.doesNotMatch(review.consequence, /the moment this Seat opens/, 'a server does not start when the Seat opens')
   assert.match(review.consequence, /only when the Seat lists or calls its tools/)
 })
+
+/*
+ * #895. A review is for the runtime a seating chooses by default. When the
+ * seating falls back to another candidate, nothing is approved for it; this
+ * is what lets that Seat say the approval was for another agent, rather than
+ * just ask for a review again. Never a permission.
+ */
+test('the runtimes an identity was approved on besides the Seat’s own are listed, and permit nothing', async () => {
+  const trust = new AttachmentTrust(join(tempDir('hd-attach-trust-elsewhere-'), 'attachment-trust.json'))
+  const id = identity({ digest: 'digest-elsewhere' })
+  const reviewed = subject({ runtime: 'codex' })
+  await trust.approve((await trust.preview(reviewed, [resolvedOf(id)])).token)
+  const seated = subject({ runtime: 'claude' })
+  assert.equal(await trust.permits(seated, id), false)
+  assert.deepEqual(await trust.approvedOnOtherRuntimes(seated, id), ['codex'])
+  assert.deepEqual(await trust.approvedOnOtherRuntimes(reviewed, id), [], 'the Seat’s own runtime is not "another"')
+  assert.deepEqual(await trust.approvedOnOtherRuntimes(subject({ runtime: 'claude', agent: 'someone-else' }), id), [], 'only for this same Agent')
+  assert.deepEqual(await trust.approvedOnOtherRuntimes(seated, identity({ digest: 'digest-other' })), [], 'and these exact bytes')
+})
+
+/*
+ * #895. A server value whose name looks like a credential is shown only as
+ * set — and the pattern takes in names like `SESSION_MODE`, whose value can
+ * change what the server does. The review lists every such value, and an
+ * approval that does not acknowledge them is refused, leaving the same review
+ * approvable once the person says they know them.
+ */
+test('a server review with values shown only as set lists them, and is approved only with an acknowledgement', async () => {
+  const trust = new AttachmentTrust(join(tempDir('hd-attach-trust-hidden-'), 'attachment-trust.json'))
+  const id = identity({ kind: 'mcp', name: 'tools', digest: 'digest-hidden' })
+  const server = { name: 'tools', transport: 'stdio' as const, command: 'node', args: ['server.js'], env: { SESSION_MODE: 'unsafe', LOG_LEVEL: 'info' }, headers: { Authorization: 'x' } }
+  const review = await trust.preview(subject({ ceiling: 'merge' }), [{ identity: id, files: [], server }])
+  assert.deepEqual(review.hidden, ['tools: Authorization', 'tools: SESSION_MODE'])
+  assert.match(review.files[0]!.text, /LOG_LEVEL=info/, 'a value with an ordinary name is shown as it is')
+  await assert.rejects(trust.approve(review.token), /Confirm you know what they are/)
+  assert.equal(await trust.permits(subject({ ceiling: 'merge' }), id), false)
+  await trust.approve(review.token, { acknowledgeHidden: true })
+  assert.equal(await trust.permits(subject({ ceiling: 'merge' }), id), true)
+
+  const plain = await trust.preview(subject(), [resolvedOf(identity({ digest: 'digest-plain' }))])
+  assert.deepEqual(plain.hidden, [])
+  await trust.approve(plain.token)
+})
+
+test('the digests a collection keeps are null — keep everything — when the grants file cannot be read truthfully', async () => {
+  const dir = tempDir('hd-attach-trust-digests-')
+  const file = join(dir, 'attachment-trust.json')
+  const trust = new AttachmentTrust(file)
+  assert.deepEqual(await trust.digests(), new Set(), 'no file yet: nothing approved')
+  const review = await trust.preview(subject(), [resolvedOf(identity({ digest: 'digest-kept' }))])
+  await trust.approve(review.token)
+  assert.deepEqual(await trust.digests(), new Set(['digest-kept']))
+  await writeFile(file, JSON.stringify({ version: 99, grants: [] }))
+  assert.equal(await trust.digests(), null, 'a newer format')
+  await writeFile(file, '{"version":1,')
+  assert.equal(await trust.digests(), null, 'not JSON')
+})

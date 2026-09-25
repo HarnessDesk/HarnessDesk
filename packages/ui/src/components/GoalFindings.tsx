@@ -8,6 +8,7 @@ import {
   Chip,
   CodeText,
   MetaList,
+  NativeSelect,
   Note,
   RowButton,
   Rows,
@@ -23,7 +24,7 @@ import {
 } from '../design'
 import { ReviewIcon } from './Icons'
 import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
-import { goalRunOf } from '../lib/goal-run'
+import { goalRunLabel, goalRunOf, goalRunsOf } from '../lib/goal-run'
 import { useSnapshot, useStore } from '../state/context'
 import { FindingDecision } from './FindingDecision'
 import { FindingDetail } from './FindingDetail'
@@ -56,9 +57,21 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const [publicationError, setPublicationError] = useState<string | null>(null)
 
   const goalView = snapshot.goals.get(goal)
-  /* The same run the room's header reads, among those keeping findings (#890). */
-  const run = goalRunOf(goal, goalView, snapshot.flowExecutions, (one) => Boolean(one.findings))
+  /* The same run the room's header reads, among those keeping findings (#890),
+     unless the person chose an earlier one to read as history. */
+  const live = goalRunOf(goal, goalView, snapshot.flowExecutions, (one) => Boolean(one.findings))
+  const runs = goalRunsOf(goal, snapshot.flowExecutions)
+  const [chosen, setChosen] = useState<string | null>(null)
+  const run = (chosen ? runs.find((one) => one.id === chosen) : undefined) ?? live
   const runView = run ? snapshot.findingRuns.get(run.id) : undefined
+  // A finding a run of this Goal raised is decided against that run, whichever one is shown.
+  const openedRow = opened ? (state?.rows ?? []).find((one) => one.id === opened) : undefined
+  const originRun = openedRow && openedRow.origin.goal === goal && runs.some((one) => one.id === openedRow.origin.run)
+    ? openedRow.origin.run
+    : null
+  const decideView = originRun ? snapshot.findingRuns.get(originRun) : runView
+  // A verdict on a finding outlives the run that raised it while its Goal is open; the host refuses once it is not (or came from a backup).
+  const goalOpen = goalView !== undefined && goalView.goal.state === 'open'
 
   useEffect(() => {
     void store.loadFindings(goal, 'all')
@@ -67,6 +80,10 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   useEffect(() => {
     if (run) void store.loadFindingRun(goal, run.id)
   }, [store, goal, run?.id])
+
+  useEffect(() => {
+    if (originRun && originRun !== run?.id) void store.loadFindingRun(goal, originRun)
+  }, [store, goal, originRun, run?.id])
 
   const filter = state?.filter ?? 'all'
   const setFilter = (next: FindingFilter): void => {
@@ -93,6 +110,11 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
 
   const rows = state?.rows ?? []
   const loadingFirstPage = !state || (state.loading && rows.length === 0)
+  // Where an earlier run's open findings went: here, still decidable, each against its own run.
+  const fromEarlier = run
+    ? rows.filter((one) => one.origin.goal === goal && one.origin.run !== run.id && runs.some((other) => other.id === one.origin.run) &&
+      one.lifecycle.state === 'open' && !one.lifecycle.confirmed).length
+    : 0
 
   return (
     <ToolPane variant="integrated" aria-label="Findings">
@@ -112,6 +134,13 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
         }
       />
       <ToolPaneBody className="flex flex-col gap-3">
+        {runs.length > 1 && run && (
+          <NativeSelect aria-label="Run" value={run.id} onChange={(event) => setChosen(event.target.value)}>
+            {runs.map((one, index) => (
+              <option key={one.id} value={one.id}>{goalRunLabel(one, index, runs.length)}</option>
+            ))}
+          </NativeSelect>
+        )}
         {runView && (
           <>
             <FindingRoundStatus view={runView} />
@@ -147,6 +176,11 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
         )}
         {publicationError && (
           <Banner tone="danger" title="This preference could not be saved">{publicationError}</Banner>
+        )}
+        {fromEarlier > 0 && (
+          <Note>
+            {`${fromEarlier} open finding${fromEarlier === 1 ? ' here was' : 's here were'} raised by an earlier run of this Goal. Open one to decide it yourself; it is decided against the run that raised it.`}
+          </Note>
         )}
         {state?.stale && state.error && (
           <Banner tone="danger" title="These findings could not be reloaded">{state.error}</Banner>
@@ -186,7 +220,14 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
           </Button>
         )}
       </ToolPaneBody>
-      {opened && <FindingDetail goal={goal} finding={opened} onClose={() => setOpened(null)} {...(runView ? { decide: runView } : {})} />}
+      {opened && (
+        <FindingDetail
+          goal={goal}
+          finding={opened}
+          onClose={() => setOpened(null)}
+          {...(decideView ? { decide: decideView, verdictAfterRun: goalOpen } : {})}
+        />
+      )}
       {deciding && runView && <FindingDecision goal={goal} view={runView} onClose={() => setDeciding(false)} />}
     </ToolPane>
   )
