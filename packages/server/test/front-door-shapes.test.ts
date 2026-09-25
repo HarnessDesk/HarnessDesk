@@ -27,7 +27,7 @@ const ORDERED: Readonly<Record<string, number>> = {
   'independent-review': 1, 'fan-out': 2, comparison: 3, 'staged-relay': 4, investigation: 5, alignment: 6,
 }
 const UNORDERED_BUT_LISTED = ['mechanical-contest']
-const NO_FRONT_DOOR_METADATA = ['review-pr']
+const PROJECT_ONLY_UNORDERED = ['review-pr']
 
 const agentsOf = async (): Promise<readonly AgentEntry[]> => {
   const agents = new Agents({ user: tempDir('hd-front-door-shapes-user-'), builtin: builtinAgentRoot() })
@@ -63,11 +63,13 @@ test('the six labelled starting points carry a distinct order, and mechanical-co
     assert.equal(layout.layout.frontDoor?.order, undefined, `${id} names no order — a custom starting point, not one of the six`)
   }
 
-  for (const id of NO_FRONT_DOOR_METADATA) {
+  for (const id of PROJECT_ONLY_UNORDERED) {
     const source = await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8')
     const parsed = parseFlowPolicy(source)
+    assert.equal(parsed.document?.format, 'agents')
     if (parsed.document?.format === 'agents') {
-      assert.equal(readShapeLayout(parsed.document.flow).layout.frontDoor, undefined, `${id} carries no front-door metadata`)
+      // Not one of the six, and — opening with an edit step — never offered for a change.
+      assert.deepEqual(readShapeLayout(parsed.document.flow).layout.frontDoor, { contexts: ['project'] }, `${id} starts from a plain project only`)
     }
   }
 })
@@ -103,8 +105,8 @@ test('flow/catalog itself surfaces the packaged order and contexts for a real pr
 
 const NOT_A_PROJECT = ['branch', 'pull-request', 'diff', 'working-diff'] as const
 
-test('a start from a branch, a pull request or a diff is offered only shapes that read: the edit-first shapes start from a plain project alone', async () => {
-  for (const id of ['independent-review', 'fan-out']) {
+test('a start from a branch, a pull request or a diff is offered only shapes that read: every edit-first shape starts from a plain project alone', async () => {
+  for (const id of ['independent-review', 'fan-out', 'review-pr']) {
     const parsed = parseFlowPolicy(await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8'))
     assert.equal(parsed.document?.format, 'agents')
     if (parsed.document?.format !== 'agents') continue
@@ -114,7 +116,8 @@ test('a start from a branch, a pull request or a diff is offered only shapes tha
   for (const name of (await readdir(builtinFlowRoot())).filter((one) => one.endsWith('.yml'))) {
     const parsed = parseFlowPolicy(await readFile(join(builtinFlowRoot(), name), 'utf8'))
     if (parsed.document?.format !== 'agents') continue
-    const contexts = readShapeLayout(parsed.document.flow).layout.frontDoor?.contexts ?? []
+    // No contexts at all is offered for every start, a change included, so it is held to the same rule.
+    const contexts = readShapeLayout(parsed.document.flow).layout.frontDoor?.contexts ?? NOT_A_PROJECT
     if (!contexts.some((one) => (NOT_A_PROJECT as readonly string[]).includes(one))) continue
     for (const role of parsed.document.flow.roles) {
       if (role.kind === 'agent') assert.equal(role.grant, 'read', `${name}: ${role.id} starts from a change it must only read`)

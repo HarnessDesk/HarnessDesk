@@ -467,7 +467,8 @@ places a shape among the shipped choices, and `contexts` names which starts
 accepts — absence of either is never a refusal, only the absence of an
 opinion. `packages/server/flows/` sets `order: 1`–`6` on
 `independent-review`, `fan-out`, `comparison`, `staged-relay`, `investigation`
-and `alignment`, each of which starts from a plain project only;
+and `alignment`, each of which starts from a plain project only, as does
+`review-pr`;
 `mechanical-contest` stays an unordered custom starting point. A branch, a
 pull request, a diff or the working tree is offered `review`: three
 read-only specialists, and nothing that opens with an edit step. Its
