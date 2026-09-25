@@ -27,6 +27,7 @@ import {
   NAMED_ROOTS,
   parseScreenSource,
   patternExportAppearanceOf,
+  resolveFamilies,
   resolvedConsumersOf,
   screenAppearanceOf,
   screenAreaOf,
@@ -120,13 +121,12 @@ test('single-screen pattern accounting follows a pattern consumer into its scree
   const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
   const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
   const importers = new Map([[approval, [room, builtins]]])
-  // The registry (excluded) also mounts Approvals beside Conversation, but
-  // that is not a screen import the family closure ever sees; Approvals'
-  // one real, non-registry importer is TeamRoomPane.tsx, so the closure
-  // folds it into `room` — screenAreaOf(approval) already says `room` before
-  // this call ever walks its passed-in `importers`, which is why a pattern
-  // used only by [approval] now reads as `room` rather than cross-area.
-  assert.equal(singleScreenAreaOf([approval], importers), 'room')
+  // The registry mounts Approvals in the session view beside Conversation,
+  // and TeamRoomPane docks it too — two different places, not one, so the
+  // registry counts as its own area alongside `room` rather than being
+  // dropped, and a pattern used only by [approval] reads as cross-area
+  // (#925 review round 2, P1).
+  assert.equal(singleScreenAreaOf([approval], importers), null)
 })
 
 test('the pane registry mounts a screen without making its patterns shared', () => {
@@ -494,6 +494,242 @@ test('the workbench dock chrome is a named exemption, not a pattern match (#914 
 })
 
 /*
+ * #925 review round 2, P3: an otherwise-uniform module (every export the
+ * same single area) with a named exemption must not take the whole-module
+ * fast path — that reads the whole file's text, which would charge an
+ * exempt export's own utilities right along with an unlisted sibling's. One
+ * unlisted export charges only itself.
+ */
+test('the dock exemption is a per-export skip: one unlisted export in an otherwise-uniform module still charges (#925 review round 2, P3)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const source = [
+    'export const WorkbenchRail = () => <div className="tabular-nums" />',
+    'export const NotYetExempt = () => <div className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'NotYetExempt', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, source, null, null, exportsAndConsumers), [
+    'design/patterns/DockPanel.tsx [workbench screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #925 review round 2, item 5: the primitive ledger and a pattern moved into
+ * ui/ as gates tests, not only caught by --strict — `isPatternModule` is the
+ * one switch between the two ceilings, both of which are real SECTIONS
+ * entries with their own recorded baseline.
+ */
+test('isPatternModule is the one switch between screenAppearance and singleAreaPrimitive, both real ceilings (#925 review round 2, item 5)', () => {
+  assert.ok(SECTIONS.some(([key]) => key === 'singleAreaPrimitive'))
+  const asPattern = path.join(repoRoot, 'packages/ui/src/design/patterns/Widget.tsx')
+  const asPrimitive = path.join(repoRoot, 'packages/ui/src/design/ui/widget.tsx')
+  assert.equal(isPatternModule(asPattern), true)
+  assert.equal(isPatternModule(asPrimitive), false)
+
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = 'export const Solo = () => <span className="tabular-nums" />\n'
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  // Charged under screenAppearance as a pattern...
+  assert.deepEqual(patternExportAppearanceOf(asPattern, source, null, null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+  // ...but the real audit loop never calls patternExportAppearanceOf for a
+  // ui/ module at all — isPatternModule routes it to singleAreaPrimitive
+  // instead, using the same singleScreenAreaOf check patternExportAppearanceOf
+  // itself uses internally to decide an export's own area.
+  assert.equal(singleScreenAreaOf([onlyConsumer]), 'git')
+})
+
+/*
+ * #925 review round 2, P1: `Approvals.tsx` is mounted by the registry's own
+ * session view (beside Conversation) *and* docked by TeamRoomPane — two
+ * different places. `GitPane.tsx` is mounted by the registry alone (no
+ * other screen), and stays exactly one screen's own. The distinction is
+ * whether a real screen host was found *alongside* the registry/app mount,
+ * not whether one exists at all.
+ */
+test('a registry mount alongside a real screen import is a host with its own area (#925 review round 2, P1)', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // GitPane's only importer is the registry, alone — unaffected.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+
+  // The real shape review found: Approvals is drawn in the registry's own
+  // ConversationView (beside Conversation.tsx) and docked by TeamRoomPane.
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')))
+})
+
+test('a file mounted by app/ and by one screen does not fold into that screen\'s family (#925 review round 2, P1)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const root = path.join(uiSrc, 'components', 'Root.tsx')
+  const child = path.join(uiSrc, 'components', 'Child.tsx')
+  const appFile = path.join(uiSrc, 'app', 'App.tsx')
+  const namedRoots = new Map([[root, 'lobby']])
+
+  // Without the app/ mount, Child has exactly one host and folds into it.
+  const onlyScreen = new Map([[child, [root]]])
+  assert.equal(resolveFamilies([root, child], onlyScreen, namedRoots).get(child), 'lobby')
+
+  // The same screen host, plus an app/ mount: reachable from two places, so
+  // Child keeps its own name instead.
+  const withAppMount = new Map([[child, [root, appFile]]])
+  assert.equal(resolveFamilies([root, child], withAppMount, namedRoots).get(child), 'child')
+
+  // An app/ mount alone (no other screen) changes nothing, the same as a
+  // bare registry mount.
+  const solo = path.join(uiSrc, 'components', 'Solo.tsx')
+  const onlyApp = new Map([[solo, [appFile]]])
+  assert.equal(resolveFamilies([solo], onlyApp, new Map()).get(solo), 'solo')
+})
+
+/*
+ * #925 review round 2, P1: `Dialog` composes `DialogBody`/`DialogSubhead` in
+ * the same file, with no import at all — an import scanner can never see
+ * this. Replicated the way the audit's own loop builds a same-module edge:
+ * for each of a module's own exports, which sibling export's own body
+ * references it.
+ */
+test('same-module composition: an export composed by a sibling inherits its consumers (#925 review round 2, P1)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-same-module-'))
+  try {
+    const modulePath = path.join(dir, 'IntraShell.tsx')
+    fs.writeFileSync(modulePath, ['export const IntraBody = () => <div />', 'export const IntraShell = () => <IntraBody />', ''].join('\n'))
+    const ast = parseScreenSource(modulePath, fs.readFileSync(modulePath, 'utf8'))
+    const exported = exportedNamesOf(modulePath)
+    const designUsers = new Map()
+    for (const [, ref] of exported) {
+      if (ref.file !== modulePath) continue
+      for (const composerName of exportsReferencing(ast, ref.localName)) {
+        if (composerName === ref.localName) continue
+        const key = `${modulePath}::${ref.localName}`
+        const entry = designUsers.get(key) ?? { file: modulePath, localName: ref.localName, users: [] }
+        entry.users.push({ file: modulePath, localName: composerName })
+        designUsers.set(key, entry)
+      }
+    }
+    assert.deepEqual(designUsers.get(`${modulePath}::IntraBody`)?.users, [{ file: modulePath, localName: 'IntraShell' }])
+
+    const areaA = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const areaB = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+    const directConsumers = new Map([
+      [`${modulePath}::IntraShell`, { file: modulePath, localName: 'IntraShell', consumers: [areaA, areaB] }],
+    ])
+    // IntraBody has no direct screen importer of its own — its whole reach
+    // is IntraShell's, which two different areas use, so IntraBody is
+    // cross-area too and would not be charged.
+    const reach = resolvedConsumersOf(modulePath, 'IntraBody', directConsumers, designUsers)
+    assert.deepEqual(reach.slice().sort(), [areaA, areaB].sort())
+    assert.equal(singleScreenAreaOf(reach), null)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, P3: the DFS this replaced memoized a *partial* result
+ * the moment it hit a cycle, so which of two mutually-importing files "won"
+ * a shared name could depend on which was visited first. The fixed point
+ * must give the same answer regardless of the order files are handed in.
+ */
+test('cycle resolution in the family closure is order-independent (#925 review round 2, P3)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const a = path.join(uiSrc, 'components', 'CycleA.tsx')
+  const b = path.join(uiSrc, 'components', 'CycleB.tsx')
+  const importers = new Map([
+    [a, [b]],
+    [b, [a]],
+  ])
+  const forward = resolveFamilies([a, b], importers, new Map())
+  const backward = resolveFamilies([b, a], importers, new Map())
+  assert.deepEqual([forward.get(a), forward.get(b)], [backward.get(a), backward.get(b)])
+  assert.equal(forward.get(a), 'cyclea')
+  assert.equal(forward.get(b), 'cycleb')
+})
+
+/*
+ * #925 review round 2, P3: an anonymous default export (no name of its own)
+ * must still map to something `directDeclarationIn` can scope into — the
+ * literal sentinel `default`, resolved to the export assignment's own
+ * expression rather than a named declaration.
+ */
+test('exportedNamesOf maps an anonymous default export to its module\'s own default (#925 review round 2, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-anonymous-default-'))
+  try {
+    const arrowPath = path.join(dir, 'ArrowDefault.tsx')
+    fs.writeFileSync(arrowPath, 'export default () => null\n')
+    assert.deepEqual(exportedNamesOf(arrowPath).get('default'), { file: arrowPath, localName: 'default' })
+
+    const module = patternTsx('Widget.tsx')
+    const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const source = 'export default () => <span className="tabular-nums" />\n'
+    const exportsAndConsumers = [{ localName: 'default', consumers: [onlyConsumer] }]
+    assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+      'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    ])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: end-to-end wiring, not only the unit that
+ * finds a dynamic import — a screen file's own `lazy(() => import(...))`
+ * must register as a real design consumer through `designImportsOf`'s
+ * sibling mechanism, the same conservative way a design file's already does.
+ */
+test('a screen\'s dynamic import is read too, not only a design file\'s (#925 review round 2, P3/item 5)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(screenPath, 'export const Lazied = () => { import("./Target"); return null }\n')
+    const ast = parseScreenSource(screenPath, fs.readFileSync(screenPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses, [{ exportName: 'Lazied', target: targetPath }])
+    // Every export of the target is reached, conservatively — the same
+    // wiring the audit's own screen loop uses to call `addConsumer`.
+    assert.deepEqual([...exportedNamesOf(targetPath).keys()].sort(), ['A', 'B'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: the export function branch survives a
+ * mutation unless both directions are pinned — charged when its own
+ * consumers are single-area, uncharged when a sibling export function
+ * shares the same module but a different (or no) area.
+ */
+test('an export function is charged only when its own consumers are single-area, not merely present (#925 review round 2, item 5)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    'export function Shared() {',
+    '  return <span className="line-through" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Solo', consumers: [onlyConsumer] },
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
  * #914 review, P3: a `const` export was the only shape `directDeclarationIn`
  * and `exportsReferencing` could scope into. An `export function` composer
  * lost its design-to-design reach entirely — neither shape existed in the
@@ -582,59 +818,56 @@ test('a type-only import does not register as a real screen import (#914 review,
 })
 
 /*
- * #914 review, P2: the reviewer's own gate — a screen file whose only real
- * importer already has a resolved family must sit inside that family too.
- * Rebuilt independently from `importsIn` and the real tree, rather than
- * inspecting the audit's own internal map, so a regression in either the
- * closure or this check would still be caught.
+ * #925 review round 2, P2: the previous version of this gate reimplemented
+ * the closure it checks — including the registry skip — so it could not
+ * catch the very bug this round found (Approvals folded into `room` because
+ * the registry mount was dropped instead of counted). Hand-written
+ * expectations for known real cases instead: they describe what a reader
+ * would expect from the real import graph, not from re-deriving it.
  */
-test('every single-host screen file sits inside its host\'s family (#914 review, P2 gate)', () => {
-  const uiSrc = path.join(repoRoot, 'packages/ui/src')
-  const isScreen = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
-  const walk = (dir) =>
-    fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-      const full = path.join(dir, entry.name)
-      if (entry.isDirectory()) return walk(full)
-      return entry.name.endsWith('.tsx') && !entry.name.includes('.test.') ? [full] : []
-    })
-  const screens = new Set(['components', 'slots', 'panels'].flatMap((dir) => walk(path.join(uiSrc, dir))).filter(isScreen))
-  const registry = path.join(uiSrc, 'panels', 'builtins.tsx')
-  const importersOf = new Map()
-  for (const importer of screens) {
-    if (importer === registry) continue
-    for (const { spec, bindings } of importsIn(fs.readFileSync(importer, 'utf8'))) {
-      if (bindings.length === 0 || (!spec.startsWith('.') && !spec.startsWith('@/'))) continue
-      const base = spec.startsWith('@/') ? path.join(uiSrc, spec.slice(2)) : path.resolve(path.dirname(importer), spec)
-      const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
-      if (!screens.has(imported)) continue
-      importersOf.set(imported, [...(importersOf.get(imported) ?? []), importer])
-    }
-  }
-  const violations = []
-  for (const file of screens) {
-    if (NAMED_ROOTS.has(file)) continue // a root's family is a fixed seed, not derived from its own host
-    const hosts = importersOf.get(file) ?? []
-    if (hosts.length !== 1) continue
-    const hostArea = screenAreaOf(hosts[0])
-    const ownArea = screenAreaOf(file)
-    if (ownArea !== hostArea) {
-      violations.push(`${path.relative(uiSrc, file)}: reads ${ownArea}, single host ${path.relative(uiSrc, hosts[0])} reads ${hostArea}`)
-    }
-  }
-  assert.deepEqual(violations, [])
+test('screen families read correctly for known real cases, including the ones the closure gets subtle (#925 review round 2, P2)', () => {
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  // Approvals is drawn in the registry's own session view (beside
+  // Conversation) and docked by TeamRoomPane — two different places — so it
+  // is multi-area, not `room`.
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(teamRoomPane))
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+
+  // Trajectory's real host is Details.tsx (its only value importer), not
+  // Conversation — Details is itself unhosted, so both read `details`.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.equal(screenAreaOf(trajectory), screenAreaOf(details))
+  assert.equal(screenAreaOf(trajectory), 'details')
+
+  // Library.tsx is imported only by Settings.tsx, directly — one hop, not
+  // through ProjectPage or any other intermediary.
+  const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
+  assert.equal(screenAreaOf(library), 'settings')
+
+  // Two more single-host files, named so a future reader can check them by
+  // hand against the real tree the same way: GitDialogs.tsx's only real
+  // importer is GitPane.tsx, and BranchSwitcher.tsx's is Conversation.tsx —
+  // a branch switcher in the transcript's own header, not Git's.
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const branchSwitcherFile = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(gitDialogs), 'git')
+  assert.equal(screenAreaOf(branchSwitcherFile), 'conversation')
 })
 
 /*
  * #914 review, item 7: families have live effect, not just a one-hop
- * assertion that happened to already be true — Library.tsx is folded into
- * `settings` two hops deep (Settings.tsx -> ProjectPage.tsx -> Library.tsx),
- * and BranchSwitcher.tsx into `conversation` (Conversation.tsx's own header),
- * which the closure only finds by iterating to a fixed point.
+ * assertion that happened to already be true — AppearancePreview.tsx is
+ * folded into `settings` two hops deep (Settings.tsx -> SettingsYou.tsx ->
+ * AppearancePreview.tsx), and BranchSwitcher.tsx into `conversation`
+ * (Conversation.tsx's own header), which the closure only finds by iterating
+ * to a fixed point.
  */
 test('the family closure iterates more than one hop, with a real effect on real files (#914 review, item 7)', () => {
-  const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
+  const appearancePreview = path.join(repoRoot, 'packages/ui/src/components/AppearancePreview.tsx')
   const branchSwitcher = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
-  assert.equal(screenAreaOf(library), 'settings')
+  assert.equal(screenAreaOf(appearancePreview), 'settings')
   assert.equal(screenAreaOf(branchSwitcher), 'conversation')
 })
 

@@ -1815,16 +1815,24 @@ export const importsIn = (code) => {
 const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
 
 /**
- * The pane registry mounts screens; it is not a screen family of its own, and
- * it never hosts one. Every pane is registered in `panels/builtins.tsx`, so
- * treating it as a real importer made every pane's pattern cross-area — and,
- * later, would have folded every registered screen into one family (#912:
- * GitHistory's only consumer is GitPane, and it read as shared with the
- * registry). Its imports are skipped outright when the family graph below is
- * built, rather than filtered back out at every query site.
+ * The pane registry mounts screens; it is not a screen family of its own.
+ * `app/` (the app shell, `App.tsx`) is the same shape one level up: it mounts
+ * whole screens too, and is not a screen source itself (`isScreenSheet`
+ * excludes it). Neither is skipped as an importer any more — a file mounted
+ * by one of these *and* by a real screen is genuinely reachable from two
+ * different places, and silently dropping the registry/app edge folded that
+ * file into the screen's family anyway (#925 review round 2, P1: Approvals
+ * is drawn in the registry's own session view, composed beside Conversation,
+ * *and* docked by TeamRoomPane — two places, not one). What is skipped is
+ * treating a *bare* registry/app mount — nothing else imports the file — as
+ * meaning anything: GitPane's only importer is the registry, and a view
+ * mounted nowhere else is still exactly one screen's own. See
+ * `resolveFamilies` and `singleScreenAreaOf` below for where the distinction
+ * is made.
  */
 const PANE_REGISTRIES = new Set(['panels/builtins.tsx'])
 const isPaneRegistry = (file) => PANE_REGISTRIES.has(path.relative(UI_SRC, file).split(path.sep).join('/'))
+const isAppMount = (file) => /^app\//.test(path.relative(UI_SRC, file).split(path.sep).join('/'))
 
 /**
  * A screen file's own name, lowercased — the family every screen falls back
@@ -1837,15 +1845,17 @@ const defaultAreaOf = (file) => {
 }
 
 /**
- * Every screen file that value-imports another screen file, excluding the
- * pane registry as a source (see `isPaneRegistry` above) — the graph the
- * closure below walks, and the same graph `singleScreenAreaOf` walks one hop
- * at a time for a pattern's own consumers.
+ * Every screen or `app/` file that value-imports a screen file — the graph
+ * the closure below walks, and the same graph `singleScreenAreaOf` walks one
+ * hop at a time for a pattern's own consumers. The registry (`panels/
+ * builtins.tsx`) is itself a screen source (it lives under `panels/`) and is
+ * scanned like any other; `app/App.tsx` is added alongside it because
+ * `isScreenSheet` would otherwise never see it at all.
  */
 const screenSources = tsxFiles().filter((candidate) => isScreenSheet(candidate))
+const appSources = tsxFiles().filter((candidate) => isAppMount(candidate))
 export const importersByFile = new Map()
-for (const importer of screenSources) {
-  if (isPaneRegistry(importer)) continue
+for (const importer of [...screenSources, ...appSources]) {
   for (const { spec, bindings } of importsIn(codeOf(importer))) {
     if (bindings.length === 0) continue
     if (!spec.startsWith('.') && !spec.startsWith('@/')) continue
@@ -1857,35 +1867,25 @@ for (const importer of screenSources) {
 }
 
 /**
- * The screen family a source belongs to.
- *
  * A handful of screens are named roots: not because their file is special,
  * but because they are the one screen a reader would actually call this
- * family, and a closure has to start somewhere. Every other screen's family
- * is the closure of single-host files: a screen file whose value importers
- * (in `importersByFile` above) all already resolve to the *same* one family
- * belongs to it too, iterated to a fixed point (#914 review, P2) — so a file
- * hosted only by a root's own child inherits the root two hops later, and a
- * file with no host, or with hosts that disagree, keeps its own name
- * (`defaultAreaOf`). `familyOf` memoizes every screen file once; `visiting`
- * only guards one resolution's own recursion against a cycle, returning the
- * file's own name rather than looping forever (none exists in the tree
- * today, but a graph should not assume its input has none).
+ * family, and a closure has to start somewhere.
  *
- * Deriving this from the import graph, rather than asserting membership by
- * hand, is what caught two wrong assumptions the first pass made: Trajectory
- * is not reachable from Conversation.tsx at all — its one real importer is
- * Details.tsx, which is itself unhosted, so Trajectory (and Activity.tsx and
- * the inspector's own Agents.tsx, Details's other two children) fold into
- * `details`, not `conversation`. And Branch/Changes/NewWorktree were never
- * Git's: `BranchSwitcher.tsx`'s one real importer is Conversation.tsx (a
- * branch switcher lives in the transcript's own header), and
- * `ChangesReview.tsx`/`NewWorktree.tsx` are reached only from `app/App.tsx`,
- * which is not a screen source at all, so they stay their own areas.
- * `GitDialogs`, `GitAskAgent`, `GitGraph`, `GitWorktrees` and
- * `CommitProvenance` are GitPane's real children and close onto `git`
- * correctly. `LaneSettings` and `TriggerSettings` are imported only by
- * Settings.tsx and close onto `settings` the same way.
+ * Deriving every other screen's family from the import graph, rather than
+ * asserting membership by hand, is what caught two wrong assumptions the
+ * first pass made: Trajectory is not reachable from Conversation.tsx at
+ * all — its one real importer is Details.tsx, which is itself unhosted, so
+ * Trajectory (and Activity.tsx and the inspector's own Agents.tsx, Details's
+ * other two children) fold into `details`, not `conversation`. And Branch/
+ * Changes/NewWorktree were never Git's: `BranchSwitcher.tsx`'s one real
+ * importer is Conversation.tsx (a branch switcher lives in the transcript's
+ * own header), and `ChangesReview.tsx`/`NewWorktree.tsx` are reached only
+ * from `app/App.tsx`. `GitDialogs`, `GitAskAgent`, `GitGraph`,
+ * `GitWorktrees` and `CommitProvenance` are GitPane's real children and
+ * close onto `git` correctly. `LaneSettings`, `TriggerSettings` and
+ * `Library.tsx` are each imported only by Settings.tsx (directly — Library
+ * is not reached through ProjectPage or any other intermediary) and close
+ * onto `settings` the same way.
  */
 export const NAMED_ROOTS = new Map([
   [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
@@ -1897,38 +1897,92 @@ export const NAMED_ROOTS = new Map([
   [path.join(UI_SRC, 'panels', 'Workbench.tsx'), 'workbench'],
 ])
 
-const familyOf = new Map()
-const resolveFamily = (file, visiting) => {
-  if (familyOf.has(file)) return familyOf.get(file)
-  if (NAMED_ROOTS.has(file)) {
-    const area = NAMED_ROOTS.get(file)
-    familyOf.set(file, area)
-    return area
+/**
+ * Every screen file's family, as a monotone fixed point: a file joins
+ * `resolved` only once *every one* of its own real (non-registry, non-`app/`)
+ * importers is itself already in `resolved`, so the answer never depends on
+ * which file happens to be visited first — the DFS this replaced memoized a
+ * *partial* result the moment recursion hit a cycle, so the family a file in
+ * one landed in could depend on iteration order (#925 review round 2, P3).
+ * Whatever is left once a full pass makes no progress is a genuine cycle, or
+ * depends on one, and every remaining file falls back to its own name in one
+ * pass together, rather than one arbitrarily borrowing a neighbor's still-
+ * tentative name.
+ *
+ * A registry or `app/` mount joins the set of families a file's real
+ * importers resolve to, rather than being skipped, but only when there is at
+ * least one real importer to join *against* — a file the registry (or
+ * `app/`) is the *only* importer of has exactly one host, and stays whatever
+ * that host's own resolution says (#925 review round 2, P1).
+ *
+ * A pure function of its three arguments so a fixture can hand it a small
+ * graph of its own, in either file order, and get the same map back.
+ */
+export const resolveFamilies = (files, importersByFile, namedRoots) => {
+  const resolved = new Map(namedRoots)
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const file of files) {
+      if (resolved.has(file)) continue
+      const importers = importersByFile.get(file) ?? []
+      let hasRegistryMount = false
+      let hasAppMount = false
+      const realImporters = []
+      for (const importer of importers) {
+        if (isPaneRegistry(importer)) hasRegistryMount = true
+        else if (isAppMount(importer)) hasAppMount = true
+        else realImporters.push(importer)
+      }
+      if (realImporters.length === 0) {
+        resolved.set(file, defaultAreaOf(file))
+        changed = true
+        continue
+      }
+      if (!realImporters.every((importer) => resolved.has(importer))) continue
+      const families = new Set(realImporters.map((importer) => resolved.get(importer)))
+      if (hasRegistryMount) families.add('registry')
+      if (hasAppMount) families.add('app')
+      resolved.set(file, families.size === 1 ? [...families][0] : defaultAreaOf(file))
+      changed = true
+    }
   }
-  if (visiting.has(file)) return defaultAreaOf(file)
-  visiting.add(file)
-  const importers = importersByFile.get(file) ?? []
-  const area = importers.length === 0
-    ? defaultAreaOf(file)
-    : (() => {
-        const families = new Set(importers.map((importer) => resolveFamily(importer, visiting)))
-        return families.size === 1 ? [...families][0] : defaultAreaOf(file)
-      })()
-  visiting.delete(file)
-  familyOf.set(file, area)
-  return area
+  for (const file of files) {
+    if (!resolved.has(file)) resolved.set(file, defaultAreaOf(file))
+  }
+  return resolved
 }
-for (const file of screenSources) resolveFamily(file, new Set())
+
+const familyOf = resolveFamilies(screenSources, importersByFile, NAMED_ROOTS)
 
 export const screenAreaOf = (file) => familyOf.get(file) ?? defaultAreaOf(file)
 
-/** One owning screen area, or `null` when a pattern is genuinely cross-area. */
+/**
+ * One owning screen area, or `null` when a pattern is genuinely cross-area.
+ * A registry or `app/` mount counts as its own area (`registry`/`app`), but
+ * only once the one-hop walk has also added a *real* screen host — the same
+ * "alongside one screen" condition `resolveFamilies` applies, needed here
+ * too because this walks from a pattern's own direct consumers, not from the
+ * consumer's precomputed family alone (#925 review round 2, P1).
+ */
 export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
   const screens = new Set(files)
+  let addedRealHost = false
+  let hasRegistryMount = false
+  let hasAppMount = false
   for (const file of files) {
-    for (const importer of importersByFile.get(file) ?? []) if (!isPaneRegistry(importer)) screens.add(importer)
+    for (const importer of importersByFile.get(file) ?? []) {
+      if (isPaneRegistry(importer)) { hasRegistryMount = true; continue }
+      if (isAppMount(importer)) { hasAppMount = true; continue }
+      if (!screens.has(importer)) addedRealHost = true
+      screens.add(importer)
+    }
   }
   const areas = new Set([...screens].map(screenAreaOf))
+  if (addedRealHost) {
+    if (hasRegistryMount) areas.add('registry')
+    if (hasAppMount) areas.add('app')
+  }
   return areas.size === 1 && !areas.has(null) ? [...areas][0] : null
 }
 
@@ -2382,6 +2436,13 @@ const directDeclarationIn = (scope, name) => {
       }
     } else if (ts.isFunctionDeclaration(statement) && statement.name?.text === name && statement.body) {
       return { initializer: statement.body, pos: statement.pos, parent: null }
+    } else if (name === 'default' && ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      // The anonymous-default sentinel `exportedNamesOf` sets when
+      // `export default …` names nothing: the assignment's own expression is
+      // the subtree, whatever shape it is (an arrow, a function, a class) —
+      // read the same way any other export's initializer already is (#925
+      // review round 2, P3).
+      return { initializer: statement.expression, pos: statement.pos, parent: null }
     }
   }
   return null
@@ -3509,7 +3570,17 @@ export const exportedNamesOf = (file, seen = new Set()) => {
   const defaultFunction = /^export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/m.exec(code)
   const defaultIdentifier = /^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$/m.exec(code)
   const defaultName = defaultFunction?.[1] ?? defaultIdentifier?.[1]
-  if (defaultName) byName.set('default', { file, localName: defaultName })
+  if (defaultName) {
+    byName.set('default', { file, localName: defaultName })
+  } else if (/^export\s+default\s+/m.test(code)) {
+    // An anonymous default (`export default () => …`, `export default
+    // function () {…}`, `export default class {…}`) has no name of its own
+    // to point at — the literal name `default` below tells
+    // `directDeclarationIn` to read the export assignment's own expression
+    // instead of looking for a declaration called "default" (#925 review
+    // round 2, P3).
+    byName.set('default', { file, localName: 'default' })
+  }
   // A footer re-export with no `from` — InspectorPanel.tsx declares Counts,
   // GroupLine, PanelRow and the rest as local `const`s and exports them all
   // together at the bottom. The lookahead excludes the "from" shape above so
@@ -3715,25 +3786,31 @@ export const exportsReferencing = (ast, localName) => {
 export const dynamicImportUsesOf = (ast, fromDir) => {
   const found = []
   const isDynamicImportCall = (node) => ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
-  const visit = (node, exportName) => {
+  const visit = (node, name) => {
     if (isDynamicImportCall(node)) {
       const argument = node.arguments[0]
       if (argument && ts.isStringLiteral(argument)) {
         const target = moduleFileFor(argument.text, fromDir)
-        if (target) found.push({ exportName, target })
+        if (target) found.push({ exportName: name, target })
       }
     }
-    ts.forEachChild(node, (child) => visit(child, exportName))
+    ts.forEachChild(node, (child) => visit(child, name))
   }
+  // Every top-level EXPORTED declaration: `exportName` becomes the identity
+  // a caller attributes the reach to (a design-to-design composer, or the
+  // screen file itself), so it has to name something real — a private local
+  // helper's own dynamic import is still found through it the way any other
+  // local helper reference is, by `exportsReferencing`, not by this function
+  // guessing which export eventually calls the helper.
+  const isExported = (modifiers) => modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
   for (const statement of ast.statements) {
     if (ts.isVariableStatement(statement)) {
-      const exported = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
-      if (!exported) continue
+      if (!isExported(statement.modifiers)) continue
       for (const declaration of statement.declarationList.declarations) {
         if (ts.isIdentifier(declaration.name) && declaration.initializer) visit(declaration.initializer, declaration.name.text)
       }
     } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
-      if (statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) visit(statement.body, statement.name.text)
+      if (isExported(statement.modifiers)) visit(statement.body, statement.name.text)
     }
   }
   return found
@@ -3859,11 +3936,13 @@ export const patternExportAppearanceOf = (
     }
   }
 
-  if (module === WORKBENCH_DOCK_MODULE && withAreas.every(({ localName }) => isWorkbenchDockExempt(module, localName))) {
-    return findings
-  }
-
-  if (areas.size === 1 && !areas.has(null)) {
+  // A module with any named exemption never takes the whole-module path,
+  // uniform or not: that charge reads the *entire* file's text, which would
+  // charge an exempt export's own utilities right along with everything
+  // else. It always goes export by export below instead, where the
+  // per-export skip actually applies (#925 review round 2, P3).
+  const hasExemptExport = exportsAndConsumers.some(({ localName }) => isWorkbenchDockExempt(module, localName))
+  if (!hasExemptExport && areas.size === 1 && !areas.has(null)) {
     const [area] = areas
     chargeWholeSheet(area)
     if (ast) {
@@ -3917,15 +3996,26 @@ export const patternExportAppearanceOf = (
 /** Direct screen consumers only — a design export's own importers among
  * `components/slots/panels`, before a design-to-design use is followed. */
 const consumersByExport = new Map()
+const addConsumer = (targetFile, targetName, consumer) => {
+  const key = `${targetFile}::${targetName}`
+  let entry = consumersByExport.get(key)
+  if (!entry) {
+    entry = { file: targetFile, localName: targetName, consumers: [] }
+    consumersByExport.set(key, entry)
+  }
+  entry.consumers.push(consumer)
+}
 for (const file of screenSources) {
-  for (const ref of designImportsOf(file)) {
-    const key = `${ref.file}::${ref.localName}`
-    let entry = consumersByExport.get(key)
-    if (!entry) {
-      entry = { file: ref.file, localName: ref.localName, consumers: [] }
-      consumersByExport.set(key, entry)
-    }
-    entry.consumers.push(file)
+  for (const ref of designImportsOf(file)) addConsumer(ref.file, ref.localName, file)
+  // A screen's own `lazy(() => import('../design'))` (or a bare dynamic
+  // `import(...)`) is a real consumer too, read the same conservative way a
+  // design file's dynamic import already is: every export of the target
+  // counts as reached, because which name is actually destructured from it
+  // is not visible here (#925 review round 2, P3).
+  const screenAst = parseScreenSource(file, codeOf(file))
+  for (const { target } of dynamicImportUsesOf(screenAst, path.dirname(file))) {
+    if (!target.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) continue
+    for (const [targetName] of exportedNamesOf(target)) addConsumer(target, targetName, file)
   }
 }
 
@@ -3956,10 +4046,7 @@ const addComposer = (targetFile, targetName, designFile, localName) => {
 }
 for (const designFile of designSources) {
   const uses = designImportsOf(designFile)
-  const designSourceCode = read(designFile)
-  const designAst = uses.length > 0 || /\bimport\s*\(/.test(designSourceCode)
-    ? parseScreenSource(designFile, designSourceCode)
-    : null
+  const designAst = parseScreenSource(designFile, read(designFile))
   for (const ref of uses) {
     for (const localName of exportsReferencing(designAst, ref.localBinding)) {
       addComposer(ref.file, ref.localName, designFile, localName)
@@ -3968,10 +4055,21 @@ for (const designFile of designSources) {
   // A dynamic import's target might not even be a named design import above
   // (it may be the only way the module is reached), so every export it
   // conservatively reaches for is added the same way.
-  if (designAst) {
-    for (const { exportName, target } of dynamicImportUsesOf(designAst, path.dirname(designFile))) {
-      if (!target.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) continue
-      for (const [targetName] of exportedNamesOf(target)) addComposer(target, targetName, designFile, exportName)
+  for (const { exportName, target } of dynamicImportUsesOf(designAst, path.dirname(designFile))) {
+    if (!target.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) continue
+    for (const [targetName] of exportedNamesOf(target)) addComposer(target, targetName, designFile, exportName)
+  }
+  // Same-module composition: `Dialog` composes `DialogBody`/`DialogSubhead`
+  // in its own body, in the same file, with no import at all — they are
+  // already in scope. `designImportsOf` is an *import* scanner and can never
+  // see this, so `DialogBody`'s only screen importer (SkillSheet.tsx) looked
+  // like its whole reach, when `Dialog`'s own ~46-screen reach is exactly as
+  // much this export's own (#925 review round 2, P1).
+  for (const [, ref] of exportedNamesOf(designFile)) {
+    if (ref.file !== designFile) continue
+    for (const composerName of exportsReferencing(designAst, ref.localName)) {
+      if (composerName === ref.localName) continue
+      addComposer(designFile, ref.localName, designFile, composerName)
     }
   }
 }

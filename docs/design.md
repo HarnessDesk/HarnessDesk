@@ -857,10 +857,21 @@ grown a second caller, the way a design system's own vocabulary always does,
 and charging one under `screenAppearance` for that would make that strict
 zero unreachable without inventing a pointless second caller. That does not
 make it nothing, though: `singleAreaPrimitive` is a burn-down ceiling of its
-own (57), so a single-area primitive is still held to "may only fall," and
-moving a genuine screen composition into `design/ui/` to dodge the
-`screenAppearance` charge just raises this one instead. `pnpm design:audit
---verbose` lists each one by name.
+own, so a single-area primitive is still held to "may only fall," and moving
+a genuine screen composition into `design/ui/` to dodge the
+`screenAppearance` charge just raises this one instead — it never zeroes the
+move out. `pnpm design:audit --verbose` lists each one by name.
+
+Both ledgers count *exports*, not declarations, which prices a move unevenly
+on purpose: `screenAppearance` charges every appearance-side declaration a
+single-area pattern's exports draw (a large composition can cost dozens),
+while `singleAreaPrimitive` charges one line per single-area export
+regardless of how much it draws (`ChannelMessage.tsx`'s ninety-nine
+declarations would cost `design/ui/` all of seven — one per export). A move
+that looks cheap by this count is not a loophole: the ceiling still moves,
+`--strict` still fails until it is re-recorded, and a reviewer reading
+`--verbose`'s named list sees exactly which export moved and can still ask
+whether it belongs there.
 
 The workbench dock is the one deliberate exception to all of this: there is
 exactly one workbench, by design, so `panels/Workbench.tsx`'s thirteen own
