@@ -190,6 +190,14 @@ export const ELEMENTS: readonly UsageRule[] = [
       'Settings › Workspaces once held two 715px number inputs and a 715px black Save bar under three switches that applied instantly — the heaviest object on any Settings page, for a five-digit port, and a page with two rules for when a change takes effect.',
   },
   {
+    family: 'order',
+    variant: 'SortableList · useSortable',
+    when: 'Rows whose order the person sets — a queue, seats, steps. Order is shown by position; a row moves by a drag from the handle that appears on hover, or ⌥↑/⌥↓ from anywhere in it, and every move is announced. Removal is the row\'s own `⋯` menu or hover ×.',
+    never: '"Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.',
+    because:
+      'Reordering is silent by nature and the order often belongs to the host: one part that asks, waits for the answer, then says where the row went keeps the keyboard, the drag and a reader on the same list.',
+  },
+  {
     family: 'surface',
     variant: '--hd-surface-*',
     when: 'A dialog, a command palette, a sheet — something that takes the window.',

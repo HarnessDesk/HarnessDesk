@@ -193,7 +193,6 @@ export {
 export {
   MessageQueueActions,
   MessageQueueFrame,
-  MessageQueueGrip,
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,

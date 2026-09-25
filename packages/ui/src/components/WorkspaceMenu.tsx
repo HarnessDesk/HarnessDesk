@@ -18,7 +18,18 @@ import {
   TrashIcon,
   UnpinIcon,
 } from './Icons'
-import { Button, ContextMenu, MenuItem, MenuNote, MenuSeparator, PopoverGroupLabel, useMenuClose, type MenuPoint } from '../design'
+import {
+  Button,
+  ContextMenu,
+  MenuItem,
+  MenuNote,
+  MenuSeparator,
+  PopoverGroupLabel,
+  SortableAnnouncer,
+  sortableMoveMessage,
+  useMenuClose,
+  type MenuPoint,
+} from '../design'
 import styles from './WorkspaceMenu.module.css'
 
 /**
@@ -47,18 +58,30 @@ export const WorkspaceMenu = ({
   onClose: () => void
   /** Raises the new-worktree dialog; it belongs to the list, not to a row. */
   onNewWorktree: (root: string) => void
-}) => (
-  <ContextMenu at={at} label={`Actions for ${group.name}`} onClose={onClose}>
-    <WorkspaceRows group={group} onNewWorktree={onNewWorktree} />
-  </ContextMenu>
-)
+}) => {
+  /* A move made from this menu is said out loud in the sortable list's own
+     words, the way a drag or ⌥↑/⌥↓ on a sortable row is. The announcer sits
+     beside the menu rather than in it: a menu holds menu items, and the
+     sentence has to outlive the menu closing. */
+  const [said, setSaid] = useState('')
+  return (
+    <>
+      <ContextMenu at={at} label={`Actions for ${group.name}`} onClose={onClose}>
+        <WorkspaceRows group={group} onNewWorktree={onNewWorktree} onMoved={setSaid} />
+      </ContextMenu>
+      <SortableAnnouncer message={said} />
+    </>
+  )
+}
 
 const WorkspaceRows = ({
   group,
   onNewWorktree,
+  onMoved,
 }: {
   group: ProjectGroup
   onNewWorktree: (root: string) => void
+  onMoved: (sentence: string) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -81,6 +104,16 @@ const WorkspaceRows = ({
     : group.sessions.some((summary) => Boolean(summary.git?.branch))
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
+
+  /* Past the end of the arranged run is back into the sort; anywhere in it is
+     a place in the run, counted the way the sidebar shows it. */
+  const move = (to: number): void => {
+    const rest = order.filter((entry) => entry !== group.root)
+    store.moveProject(group.root, to)
+    onMoved(to < 0 || to > rest.length
+      ? `${group.name} is back in automatic order`
+      : sortableMoveMessage(group.name, to + 1, rest.length + 1))
+  }
 
   const run = async (work: () => Promise<void>): Promise<void> => {
     setBusy(true)
@@ -204,14 +237,14 @@ const WorkspaceRows = ({
         label="Move up"
         keepOpen
         disabled={place === 0 ? 'Already first.' : false}
-        onSelect={() => store.moveProject(group.root, place === -1 ? order.length : place - 1)}
+        onSelect={() => move(place === -1 ? order.length : place - 1)}
       />
       <MenuItem
         icon={<MoveDownIcon size={14} />}
         label="Move down"
         keepOpen
         hint={place === order.length - 1 ? 'Back into automatic order.' : undefined}
-        onSelect={() => store.moveProject(group.root, place === -1 ? order.length : place + 1)}
+        onSelect={() => move(place === -1 ? order.length : place + 1)}
       />
       <MenuItem
         icon={pinned ? <UnpinIcon size={14} /> : <PinIcon size={14} />}

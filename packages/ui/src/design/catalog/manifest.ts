@@ -80,6 +80,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'radio-group': 'packages/ui/src/components/AddMember.tsx',
   'resize-handle': 'packages/ui/src/components/Panes.tsx',
   separator: 'packages/ui/src/components/Channel.tsx',
+  'sortable-list': 'packages/ui/src/components/MessageQueue.tsx',
   spark: 'packages/ui/src/components/Usage.tsx',
   switch: 'packages/ui/src/components/PluginsSection.tsx',
   tabs: 'packages/ui/src/components/Extensions.tsx',
@@ -97,6 +98,8 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature — so the handle was documented against a drawing of
      the thing it drags. */
   'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  /* Its example is the queue's own rows, which are a sortable list. */
+  'sortable-list': 'packages/ui/src/design/explorer/boards.tsx',
   /* The catalogue's own rail heads its groups with it. */
   'group-label': 'packages/ui/src/design/explorer/Explorer.tsx',
   badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -121,7 +124,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
-  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
+  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
@@ -174,6 +177,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
+  'sortable-list': ['default'],
   bar: ['default'],
   spark: ['default'],
   stat: ['plain', 'bordered', 'tinted'],
@@ -254,6 +258,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   section: ['expanded', 'collapsed'],
   select: ['closed', 'open', 'selected', 'disabled'],
   separator: ['default'],
+  'sortable-list': ['default', 'hover', 'focus-visible', 'active'],
   bar: ['default'],
   spark: ['default', 'success', 'warning', 'error'],
   stat: ['default', 'loading', 'error'],
@@ -448,6 +453,7 @@ export const CANONICAL_UI_MODULES = [
   ['section', 'section', 'Titled content region, and the page section that owns its spacing'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
+  ['sortable-list', 'queue', 'Rows the person orders: drag handle, ⌥↑/⌥↓, announced moves'],
   ['bar', 'panels', 'Bar-height row: title bars, filter rows, facts lines'],
   ['spark', 'spark', 'Inline quantitative marks'],
   ['stat', 'stat', 'Primary reading tile'],

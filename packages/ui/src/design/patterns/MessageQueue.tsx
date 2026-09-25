@@ -1,6 +1,8 @@
-import type { HTMLAttributes, LiHTMLAttributes, OlHTMLAttributes } from 'react'
+import type { ComponentProps, HTMLAttributes } from 'react'
 
 import { cn } from '@/lib/utils'
+
+import { SortableList, SortableRow } from '../ui/sortable-list'
 
 /** The messages held between the transcript and the composer. */
 export const MessageQueueFrame = ({
@@ -33,47 +35,27 @@ export const MessageQueueHeader = ({ className, ...props }: HTMLAttributes<HTMLD
   />
 )
 
-export const MessageQueueList = ({ className, ...props }: OlHTMLAttributes<HTMLOListElement>) => (
-  <ol
-    {...props}
-    data-slot="message-queue-list"
-    className={cn('m-0 list-none pt-0 pr-0 pb-1 pl-0', className)}
-  />
+/**
+ * The queue is a sortable list (`design/ui/sortable-list`): its order, its
+ * handle, its drop line, its keys and its announcement are that part's. What
+ * is the queue's own is only its row's inset, its hover ground and the look
+ * of a message on its way out.
+ */
+export const MessageQueueList = ({ className, ...props }: ComponentProps<typeof SortableList>) => (
+  <SortableList {...props} className={cn('pb-1', className)} />
 )
 
 export const MessageQueueRow = ({
   sending = false,
-  dragging = false,
-  drop = false,
   className,
   ...props
-}: LiHTMLAttributes<HTMLLIElement> & {
-  sending?: boolean
-  dragging?: boolean
-  drop?: boolean
-}) => (
-  <li
+}: ComponentProps<typeof SortableRow> & { sending?: boolean }) => (
+  <SortableRow
     {...props}
-    data-slot="message-queue-row"
     {...(sending ? { 'data-sending': '' } : {})}
-    {...(dragging ? { 'data-dragging': '' } : {})}
-    {...(drop ? { 'data-drop': '' } : {})}
     className={cn(
-      'group/queue-row relative flex items-center gap-2 py-1 pr-2 pl-1 text-sm leading-(--hd-line-sm)',
-      'hover:bg-(--hd-hover) data-[sending]:text-(--hd-muted-foreground) data-[dragging]:opacity-40',
-      "data-[drop]:before:absolute data-[drop]:before:top-[-1px] data-[drop]:before:right-2 data-[drop]:before:left-1 data-[drop]:before:h-0.5 data-[drop]:before:rounded-(--hd-radius-2xs) data-[drop]:before:bg-(--hd-primary) data-[drop]:before:content-['']",
-      className,
-    )}
-  />
-)
-
-export const MessageQueueGrip = ({ className, ...props }: HTMLAttributes<HTMLSpanElement>) => (
-  <span
-    {...props}
-    data-slot="message-queue-grip"
-    className={cn(
-      'inline-grid w-3.5 shrink-0 cursor-grab place-items-center text-(--hd-muted-foreground) opacity-0',
-      'group-hover/queue-row:opacity-100 active:cursor-grabbing',
+      'flex items-center gap-2 py-1 pr-2 pl-1 text-sm leading-(--hd-line-sm)',
+      'hover:bg-(--hd-hover) data-[sending]:text-(--hd-muted-foreground)',
       className,
     )}
   />
@@ -84,7 +66,7 @@ export const MessageQueueActions = ({ className, ...props }: HTMLAttributes<HTML
     {...props}
     data-slot="message-queue-actions"
     className={cn(
-      'flex shrink-0 items-center gap-px opacity-0 group-hover/queue-row:opacity-100 focus-within:opacity-100',
+      'flex shrink-0 items-center gap-px opacity-0 group-hover/sortable-row:opacity-100 focus-within:opacity-100',
       className,
     )}
   />
