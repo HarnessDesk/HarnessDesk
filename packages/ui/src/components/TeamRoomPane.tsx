@@ -2239,7 +2239,6 @@ const Room = ({
                 entries={entries}
                 room={room}
                 onTrouble={setTrouble}
-                density="room"
                 /* The same member card the rail draws, off the same roster —
                    so the chat and the rail can never disagree about whether an
                    agent can take a job. A speaker who has since left the room

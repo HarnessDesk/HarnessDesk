@@ -243,23 +243,16 @@
   border-radius: var(--hd-radius-sm);
 }
 
-/* The channel board: a panel-width column, so the message rows are measured
-   against the width they actually get in the Team tab rather than the page. */
+/* The channel board: the room's reading column, so the message rows are
+   measured against the width they actually get. */
 .channel {
   display: flex;
   flex-direction: column;
-  max-width: 420px;
-  padding: var(--hd-space-2) 0;
+  max-width: var(--hd-column);
+  padding: var(--hd-space-2) var(--hd-space-4);
   border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius);
   background: var(--hd-card);
-}
-
-/* The room's width, so the second density is shown at the size it is for.
-   Reading it at 420px would be reading the panel with bigger type. */
-.channelRoom {
-  composes: channel;
-  max-width: 720px;
 }
 
 /* --- the icon set ---------------------------------------------------------

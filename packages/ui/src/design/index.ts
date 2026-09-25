@@ -193,7 +193,6 @@ export {
   ChannelMessage,
   ChannelNotice,
   ChannelSignal,
-  type ChannelDensity,
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
