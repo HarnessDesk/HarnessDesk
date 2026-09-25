@@ -466,11 +466,19 @@ having written the judgement down.
 
 ### `secondary`
 
-**Use** — An ordinary action inside something that already encloses it — a dialog footer, a card, a row.
+**Use** — An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet so the confirm is the one filled button.
 
 **Not** — In a page or section head. It is the same grey as the surfaces around it and disappears into them.
 
-**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn.
+**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn. In a footer the footer decides its look (`in-data-[slot=dialog-footer]`), so a screen writes `secondary` and gets the quiet way out.
+
+### `quiet`
+
+**Use** — The way out of a question — Keep, Cancel, Close — when the act beside it is filled.
+
+**Not** — As the only action on a surface, or for the act itself: a quiet button is the answer that changes nothing.
+
+**Why** — A footer with two equally weighted buttons has no default. The quiet one is still a button — it takes the hover fill and the ring — but the eye lands on the filled one first.
 
 ### `ghost`
 
@@ -482,11 +490,19 @@ having written the judgement down.
 
 ### `destructive`
 
-**Use** — An action that removes something a person cannot get back.
+**Use** — A remove action set among others on a page or in a row — the door to a confirm, not the confirm.
 
-**Not** — For an action that merely closes, cancels or hides. Those are ordinary.
+**Not** — For an action that merely closes, cancels or hides (those are ordinary), and never as the act of a destructive confirm: that is `danger`, filled.
 
-**Why** — It is soft in this app — danger ink on nothing, filling on hover — rather than a solid red. A red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.
+**Why** — It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.
+
+### `danger`
+
+**Use** — The act of a destructive confirm: Delete, Remove worktree, Discard — the one filled button in that footer. `ConfirmDialog tone="destructive"` draws it.
+
+**Not** — Beside another filled button, or on a page. Anywhere but the answer to "are you sure?" it is `destructive`.
+
+**Why** — In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.
 
 ### Everything else with a rule
 
@@ -565,7 +581,7 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 | --- | --- | --- | --- | --- | --- |
 | `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
 | `sectionAction` | the `action` of a `SectionHead` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
-| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `destructive`, `danger`, `outline` | `--hd-btn-h` | one | The dialog encloses them, so `secondary` is the ordinary answer and the confirm is the one `default`. `ghost` is not: a footer button with no edge reads as a link in a place where every choice should look equally pressable. |
+| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `destructive`, `danger`, `outline` | `--hd-btn-h` | one | Exactly one filled button: the confirm, `default` — or `danger` when it destroys. Cancel and Close are `secondary`, which the footer draws quiet, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled confirm keeps its own hue, dimmed, rather than fading into a grey slab. `ghost` is not allowed: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. |
 
 ## Primitives
 

@@ -98,7 +98,9 @@ export const Dialog = ({
           </div>
         )}
         {(footer || footerAside) && (
-          <div className={styles.footer}>
+          /* `dialog-footer` is what the button reads to draw an ordinary
+             action quiet here, so the confirm is the one filled button. */
+          <div className={styles.footer} data-slot="dialog-footer">
             {footer}
             {footerAside && <span className={styles.footerAside}>{footerAside}</span>}
           </div>

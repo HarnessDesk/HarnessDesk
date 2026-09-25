@@ -78,10 +78,18 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'secondary',
-    when: 'An ordinary action inside something that already encloses it — a dialog footer, a card, a row.',
+    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet so the confirm is the one filled button.',
     never: 'In a page or section head. It is the same grey as the surfaces around it and disappears into them.',
     because:
-      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn.',
+      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer the footer decides its look (`in-data-[slot=dialog-footer]`), so a screen writes `secondary` and gets the quiet way out.',
+  },
+  {
+    family: 'button',
+    variant: 'quiet',
+    when: 'The way out of a question — Keep, Cancel, Close — when the act beside it is filled.',
+    never: 'As the only action on a surface, or for the act itself: a quiet button is the answer that changes nothing.',
+    because:
+      'A footer with two equally weighted buttons has no default. The quiet one is still a button — it takes the hover fill and the ring — but the eye lands on the filled one first.',
   },
   {
     family: 'button',
@@ -94,10 +102,18 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'destructive',
-    when: 'An action that removes something a person cannot get back.',
-    never: 'For an action that merely closes, cancels or hides. Those are ordinary.',
+    when: 'A remove action set among others on a page or in a row — the door to a confirm, not the confirm.',
+    never: 'For an action that merely closes, cancels or hides (those are ordinary), and never as the act of a destructive confirm: that is `danger`, filled.',
     because:
-      'It is soft in this app — danger ink on nothing, filling on hover — rather than a solid red. A red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
+      'It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
+  },
+  {
+    family: 'button',
+    variant: 'danger',
+    when: 'The act of a destructive confirm: Delete, Remove worktree, Discard — the one filled button in that footer. `ConfirmDialog tone="destructive"` draws it.',
+    never: 'Beside another filled button, or on a page. Anywhere but the answer to "are you sure?" it is `destructive`.',
+    because:
+      'In the confirm the question has already been asked, so the red is no longer competing with what you came to do — it is what you came to do. A red-text act beside a plain-text Keep was two equal ghosts with no default.',
   },
 ]
 
@@ -196,12 +212,14 @@ export const SLOTS: readonly {
   /** `full` is `--hd-btn-h`; `sm` is the rung below it. */
   readonly size: 'full' | 'sm'
   /**
-   * Whether the slot may hold more than one ink action.
+   * Whether the slot may hold more than one filled action (`default`,
+   * `primary`, `danger`).
    *
    * "At most one per screen" is the loudest claim the button vocabulary makes
    * and the one a machine can least often check, because a screen is not a
-   * syntactic thing. A slot is, so the part that *can* be checked is: two ink
-   * buttons in one header is two primaries, which is none.
+   * syntactic thing. A slot is, so the part that *can* be checked is: two
+   * filled buttons in one header or one footer is two primaries, which is
+   * none.
    */
   readonly oneInk?: true
   readonly why: string
@@ -224,9 +242,9 @@ export const SLOTS: readonly {
   {
     slot: 'dialogFooter',
     what: 'the `footer` of a `Dialog`',
-    allow: ['default', 'primary', 'secondary', 'destructive', 'danger', 'outline'],
+    allow: ['default', 'primary', 'secondary', 'quiet', 'destructive', 'danger', 'outline'],
     size: 'full',
     oneInk: true,
-    why: 'The dialog encloses them, so `secondary` is the ordinary answer and the confirm is the one `default`. `ghost` is not: a footer button with no edge reads as a link in a place where every choice should look equally pressable.',
+    why: 'Exactly one filled button: the confirm, `default` — or `danger` when it destroys. Cancel and Close are `secondary`, which the footer draws quiet, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled confirm keeps its own hue, dimmed, rather than fading into a grey slab. `ghost` is not allowed: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight.',
   },
 ]

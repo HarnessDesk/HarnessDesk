@@ -134,8 +134,13 @@ const SLOT_RULES = new Map(
   SLOTS.map((rule) => [rule.slot, { allow: new Set(rule.allow), size: rule.size, oneInk: rule.oneInk === true }]),
 )
 
-/** The variants that paint the ink, under either spelling. */
-const INK = new Set(['default', 'primary'])
+/**
+ * The variants that fill their button, under either spelling: the ink, its
+ * tinted `primary`, and the filled red `danger`. A slot that holds one holds
+ * one of these; `secondary` is not counted, because the one slot where it sits
+ * beside a confirm — a dialog's footer — draws it quiet.
+ */
+const INK = new Set(['default', 'primary', 'danger'])
 
 /**
  * One JSX element's own attributes, as written: name → value including its
@@ -356,7 +361,7 @@ export const slotOffenders = (source, name) => {
         // this cannot be sure, it says nothing rather than guessing.
         if (rule.oneInk && !region.includes('?')) {
           const ink = found.filter((one) => INK.has(one.variant)).length
-          if (ink > 1) out.push(`${name}: ${ink} ink actions in ${site.where}, which holds one`)
+          if (ink > 1) out.push(`${name}: ${ink} filled actions in ${site.where}, which holds one`)
         }
       }
     }

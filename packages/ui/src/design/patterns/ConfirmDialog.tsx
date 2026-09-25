@@ -54,7 +54,7 @@ export const ConfirmDialog = ({
   /** The verb for leaving things alone. Only override with a better verb. */
   cancelLabel?: string
   /**
-   * `destructive` — the trash glyph and the red verb — only for a confirm that
+   * `destructive` — the trash glyph and the filled red verb — only for a confirm that
    * really destroys something: delete, remove, discard, forget, sign out. A
    * consent, an approval or a run asks in the ordinary tone, which is why it
    * is the default: the red look is chosen, never inherited.
@@ -126,14 +126,17 @@ export const ConfirmDialog = ({
           every confirm in the app put the verb for leaving things alone where
           the pointer goes to proceed, and a Tab and a Return confirmed. */}
       <AlertDialogFooter className={cn(styles.footer, 'shrink-0')}>
+        {/* One filled button: the act, red when it destroys. The way to keep
+            things as they are is quiet — it is the answer that changes
+            nothing, and it should not compete with the one that does. */}
         <Button
-          variant={tone === 'destructive' ? 'destructive' : 'default'}
+          variant={tone === 'destructive' ? 'danger' : 'default'}
           onClick={onConfirm}
           disabled={busy || pending}
         >
           {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
         </Button>
-        <Button variant="ghost" onClick={onCancel} disabled={busy}>
+        <Button variant="quiet" onClick={onCancel} disabled={busy}>
           {cancelLabel}
         </Button>
       </AlertDialogFooter>

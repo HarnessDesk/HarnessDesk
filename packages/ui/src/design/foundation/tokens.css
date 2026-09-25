@@ -801,6 +801,21 @@ body {
      readable step rather than the fill colour — see the state-ink block. */
   --hd-btn-danger-ink: var(--hd-danger-ink);
   --hd-btn-danger-hover: var(--hd-danger-dim);
+  /* The one filled red button: the act of a destructive confirm. It is the
+     footer's only filled button, so it is as loud as a primary and no louder.
+     The fill is the 600 step rather than the danger colour itself because
+     white on the 500 step reads at 4.0:1; the 600 holds 4.9:1 in both
+     themes, and the hover darkens toward the 900. */
+  --hd-btn-danger-fill: var(--hdp-static-red-600);
+  --hd-btn-danger-fill-hover: color-mix(in srgb, var(--hdp-static-red-600) 84%, var(--hdp-static-red-900));
+  --hd-btn-danger-foreground: var(--hd-destructive-foreground);
+  /* A primary that cannot be pressed yet stays the primary: its own fill,
+     softened toward the ground, and its label faded into that fill. Half
+     opacity on the whole button mixed the ink with whatever ground it stood
+     on, and on a dialog's grey footer that is a mid-grey slab that reads as
+     the secondary button beside it. */
+  --hd-btn-primary-disabled-fill: color-mix(in srgb, var(--hd-btn-primary-fill) 70%, var(--hd-background));
+  --hd-btn-primary-disabled-foreground: color-mix(in srgb, var(--hd-btn-primary-foreground) 50%, var(--hd-btn-primary-disabled-fill));
 
   /* --- density scopes ------------------------------------------------------
    *

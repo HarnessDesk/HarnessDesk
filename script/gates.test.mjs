@@ -376,10 +376,25 @@ test('a rung it cannot read is not called full', () => {
   )
 })
 
-test('two ink actions is two primaries, and a conditional slot is left alone', () => {
+test('two filled actions is two primaries, and a conditional slot is left alone', () => {
   assert.deepEqual(
     usage.slotOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
-    ["F.tsx: 2 ink actions in a dialog's footer, which holds one"],
+    ["F.tsx: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // A filled red act is a filled button: beside the ink confirm it is a
+  // second default, and the footer has no answer to lean on.
+  assert.deepEqual(
+    usage.slotOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button>Save</Button></>} />', 'F.tsx'),
+    ["F.tsx: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // The footer's own grammar passes: one filled confirm, a quiet way out.
+  assert.deepEqual(
+    usage.slotOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button variant="secondary">Cancel</Button></>} />', 'F.tsx'),
+    [],
+  )
+  assert.deepEqual(
+    usage.slotOffenders('<Dialog footer={<><Button>Save</Button><Button variant="quiet">Close</Button></>} />', 'F.tsx'),
+    [],
   )
   // Both of these are correct code that earlier versions of this rule
   // reported. The library's apply dialog writes two ink buttons in two

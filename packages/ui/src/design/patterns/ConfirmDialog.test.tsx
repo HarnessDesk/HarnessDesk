@@ -183,7 +183,7 @@ it('asks in the ordinary tone unless the caller says it destroys something', () 
 
   const removal = open({ tone: 'destructive' })
   expect(removal.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBe('destructive')
-  expect(button(removal, 'Delete').getAttribute('data-variant')).toBe('destructive')
+  expect(button(removal, 'Delete').getAttribute('data-variant')).toBe('danger')
 })
 
 it('proceeds from the right-hand button and keeps from the left-hand one', () => {
