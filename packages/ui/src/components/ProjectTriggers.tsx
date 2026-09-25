@@ -186,7 +186,6 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           <Row
             key={`${problem.at}:${problem.text}`}
             title={<span title={problem.at}>{triggerProblemPlace(problem.at)}</span>}
-            wrapDesc
             desc={`${problem.text} ${problem.fix}`}
             control={<Chip tone="danger">Will not run</Chip>}
           />
@@ -322,7 +321,6 @@ const TriggerRowGroup = ({
     <>
       <Row
         title={title}
-        wrapDesc
         {...(desc ? { desc } : {})}
         control={(
           <span className="inline-flex items-center gap-(--hd-space-2)">
@@ -348,7 +346,6 @@ const TriggerRowGroup = ({
       {gap && (
         <Row
           title="Its source stopped at a gap"
-          wrapDesc
           desc={`${gap.reason ?? ''} ${gap.fix ?? ''}`.trim()}
           control={(
             <Button variant="secondary" size="sm" disabled={busy} onClick={onWatchFromNow}>
@@ -412,8 +409,8 @@ const TriggerHistory = ({ root, id }: { readonly root: string; readonly id: stri
 const FiringRow = ({ firing, onOpen }: { readonly firing: TriggerFiring; readonly onOpen: () => void }) => {
   const words = triggerSkipWords(firing)
   return firing.goal ? (
-    <RowButton title={`#${firing.subject}`} desc={words} wrapDesc onClick={onOpen} />
+    <RowButton title={`#${firing.subject}`} desc={words} onClick={onOpen} />
   ) : (
-    <Row title={`#${firing.subject}`} desc={words} wrapDesc />
+    <Row title={`#${firing.subject}`} desc={words} />
   )
 }

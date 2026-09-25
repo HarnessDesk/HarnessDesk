@@ -72,7 +72,6 @@ export const AgentFields = ({ document, entry, busy, onEdit, onOpenFile }: Agent
     <Row
       key={key}
       title={LABEL[key]}
-      wrapDesc
       desc={value || '—'}
       control={editable ? (
         <Button size="sm" variant="outline" disabled={busy} onClick={() => setEditing(key)}>

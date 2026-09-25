@@ -833,6 +833,23 @@ it does not. A description written for a richer picture than the tab renders is
 the same misleading a drawing was, in words. The only check that has caught
 these is opening every tab in a browser.
 
+### What the engine checks
+
+Some of the rules here are about the words a screen happens to hold, not
+about a declaration, and the audit cannot read them from source.
+`e2e/ui-system/taste.spec.ts` lays out every frame of the preview harness and
+a confirm from the catalogue, and fails on four of them:
+
+- **A sentence cut off by an ellipsis.** Names and paths truncate; sentences
+  wrap. A `Row`'s description wraps by default, and `truncateDesc` is the
+  opt-in for one that is a name or a path.
+- **A page, section or dialog title that wraps** at 1440px.
+- **A one-word last line** in a description, a blurb, a confirm's body or a
+  message. `app.css` sets `text-wrap: pretty` on everything read as a
+  sentence and `balance` on titles, so this should not need a hand.
+- **A second line every row of a group repeats**, which belongs to the group
+  as one note.
+
 ### What the audit refuses
 
 `pnpm design:audit --strict` holds nineteen categories at a baseline.

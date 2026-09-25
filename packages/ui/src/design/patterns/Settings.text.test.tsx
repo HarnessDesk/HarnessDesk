@@ -59,7 +59,7 @@ it('can preserve the end of a truncated path', () => {
 
 it('lets a narrow choice deliver its consequence whole', () => {
   act(() => root.render(
-    <RowChoice title="Summary" desc="The goal, exchanges, files and tasks." wrapDesc selected onClick={() => {}} />,
+    <RowChoice title="Summary" desc="The goal, exchanges, files and tasks." selected onClick={() => {}} />,
   ))
   expect(container.querySelector('[data-wrap="true"]')?.textContent).toContain('files and tasks')
 })

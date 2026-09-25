@@ -241,6 +241,27 @@ a:hover {
   }
 }
 
+/*
+ * How words break onto lines, said once for the whole app.
+ *
+ * A title balances its lines, so a heading that must wrap splits into two
+ * halves rather than a full line over a stray word. Everything that is read
+ * as a sentence — a paragraph, a list item, a description under a title or a
+ * control, a dialog's body — avoids a one-word last line: "It will not be in
+ * either window afterwards." used to leave "afterwards." standing alone under
+ * a confirm's question. Both are `:where()`, so any component that decides its
+ * own wrapping (a code block, a truncated name) still wins without a fight.
+ * The bodies are named rather than matched by a `-body` suffix: `text-wrap`
+ * inherits, and a code block's or a table's body is not prose.
+ */
+:where(h1, h2, h3, [data-slot$='-title']) {
+  text-wrap: balance;
+}
+
+:where(p, li, dd, [data-slot$='-description'], [data-slot$='-blurb'], [data-slot='confirm-body'], [data-slot='channel-body']) {
+  text-wrap: pretty;
+}
+
 /* The status strip sits above the frame and must not overlay it, so the shell
    is a column and the frame takes the remaining height. */
 .hd-shell {

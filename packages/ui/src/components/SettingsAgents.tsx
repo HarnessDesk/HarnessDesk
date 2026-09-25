@@ -326,7 +326,6 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
   return (
     <Row
       title={<Prose text={lead} />}
-      wrapDesc
       {...(detail || remediation
         ? {
             desc: (

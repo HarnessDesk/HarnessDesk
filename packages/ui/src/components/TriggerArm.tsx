@@ -154,11 +154,10 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
            */}
           {(againLabel || preview.definition.from) && (
             <Rows>
-              {againLabel && <Row title={againLabel} wrapDesc desc={AGAIN_WORDS(preview.definition)} />}
+              {againLabel && <Row title={againLabel} desc={AGAIN_WORDS(preview.definition)} />}
               {preview.definition.from && (
                 <Row
                   title="Comments that fire it"
-                  wrapDesc
                   desc={`${triggerCommentWords(preview.definition.from)} Posts this desk makes never fire it.`}
                 />
               )}
@@ -173,10 +172,9 @@ export const TriggerArm = ({ root, id, onClose, onArmed }: TriggerArmProps) => {
             </KeyValueRow>
           </KeyValue>
           <Rows>
-            <Row title="Budget" wrapDesc desc={triggerBudgetWords(preview.definition.budget)} />
+            <Row title="Budget" desc={triggerBudgetWords(preview.definition.budget)} />
             <Row
               title="Daily cap"
-              wrapDesc
               desc="Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac."
             />
           </Rows>

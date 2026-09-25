@@ -1037,19 +1037,18 @@
    plugin's page has room for the paragraph. */
 .rowDesc {
   margin-top: var(--hd-space-0-5); /* desk: 1 → 2, a step of the scale */
-  overflow: hidden;
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   color: var(--hd-secondary-foreground);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
-.rowDescWrap {
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
-  overflow-wrap: anywhere;
+/* A name or a path gives way at its end, on one line. A sentence never does. */
+.rowDescTruncate {
+  overflow: hidden; /* desk: the opt-in flips — wrapping was the exception (.rowDescWrap), truncating is now (a name or a path) */
+  text-overflow: ellipsis; /* desk: as above, the opt-in flips to the one-line case */
+  white-space: nowrap;
 }
 
 /* Beside the title the control keeps its own width, as before: the title

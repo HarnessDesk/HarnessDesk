@@ -202,7 +202,7 @@ it('keeps each sentence-length explanation in its wrapped description, never squ
     'Arming reserves this Goal’s whole budget against today’s cap the moment it opens, in Settings › Triggers on this Mac.',
   ]
   // `data-wrap` is what the stylesheet keys on to let a sentence run to a
-  // second line instead of being ellipsised — see Row's `wrapDesc`.
+  // second line instead of being ellipsised — see Row's description, which wraps unless it is a name or a path (`truncateDesc`).
   const wrapped = [...document.querySelectorAll('[data-wrap]')].map((el) => el.textContent)
   for (const sentence of sentences) expect(wrapped).toContain(sentence)
   // None of them are sitting in a KeyValueRow's right-aligned value slot.
