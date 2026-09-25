@@ -34,7 +34,7 @@ import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } 
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable, refuseUnvouchedAccounts } from './audit.mjs'
 import { REPOS } from './cast.mjs'
-import { HOME, WORK, SHOT_ENV } from './config.mjs'
+import { HOME, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 const run = promisify(execFile)
@@ -57,6 +57,8 @@ const REPO = join(WORK, REPOS[0].dir)
 const FRAMES = join(HOME, 'frames')
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const q = (value) => JSON.stringify(value)
+
+requireSeeded()
 
 const busy = await deskInUse(HOME)
 if (busy) {

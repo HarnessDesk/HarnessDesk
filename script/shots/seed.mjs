@@ -20,7 +20,7 @@
  *   node script/shots/seed.mjs --clean    # tear it down and stage it again
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -127,9 +127,13 @@ const RESIDUE = [
  * raises what a mistaken `HD_SHOTS_HOME` costs: pointed at a real desk's
  * `~/.harnessdesk`, or at `$HOME` itself, either one would now delete real
  * credentials, real Goals and real git worktrees rather than a rig's own
- * (#909 review, P3-3). The default path is trusted outright, the same way it
- * always implicitly was. Anything else has to prove it is this rig's own
- * folder, which it does by carrying the marker an earlier seed wrote.
+ * (#909 review, P3-3). Anything has to prove it is this rig's own folder,
+ * which it does by carrying the marker an earlier seed wrote, or by being
+ * empty. That includes the default path: it earned no special trust here —
+ * `config.mjs` already refuses to hand back a default that is a symlink
+ * rather than a real folder, but a real folder holding somebody else's
+ * files is a mistake this guard exists to catch regardless of whether the
+ * path came from an override or was never asked for at all.
  *
  * A first version of this guard skipped the deletions on an unmarked folder
  * but still wrote the marker and then went on to overwrite `agents.json`,
@@ -143,16 +147,47 @@ const RESIDUE = [
  */
 const MARKER_NAME = '.rig-home.json'
 const MARKER = join(HOME, MARKER_NAME)
-const usingDefaultHome = !process.env['HD_SHOTS_HOME']
 const empty = !existsSync(HOME) || readdirSync(HOME).length === 0
-const rigOwnsHome = usingDefaultHome || existsSync(MARKER)
+const rigOwnsHome = empty || existsSync(MARKER)
 
-if (!rigOwnsHome && !empty) {
+if (!rigOwnsHome) {
   process.stderr.write(
     `\n  HD_SHOTS_HOME (${HOME}) is not empty and carries no ${MARKER_NAME} from an earlier seed, so this rig cannot tell it apart from a real desk's home. Refusing to write anything here.\n` +
       `  Point HD_SHOTS_HOME at an empty folder, the default (a fixed folder under the OS temp directory), or one seed.mjs has already staged.\n\n`,
   )
   process.exit(1)
+}
+
+/**
+ * Refuses the whole run, before a single deletion, if any entry `RESIDUE` is
+ * about to clear is a symlink rather than a real file or folder this rig
+ * staged.
+ *
+ * `rmSync(recursive: true)` never follows a symlink it is handed directly —
+ * given one, it unlinks the link itself and leaves whatever it points to
+ * alone, proven in this file's own tests — so a link left in `RESIDUE`'s
+ * place is not a deletion hazard by itself. It is still refused: a link
+ * standing where this rig's own file belongs means something other than a
+ * normal take put it there, and continuing would seed a fresh file or folder
+ * right beside a stranger's link rather than say so. Checked as one pass
+ * over every entry before any of them is touched, so a link found on entry
+ * twelve does not leave the first eleven already deleted.
+ */
+for (const name of RESIDUE) {
+  let info
+  try {
+    info = lstatSync(join(HOME, name))
+  } catch (error) {
+    if (error.code === 'ENOENT') continue
+    throw error
+  }
+  if (info.isSymbolicLink()) {
+    process.stderr.write(
+      `\n  ${join(HOME, name)} is a symlink, not a file or folder this rig staged. Refusing to delete through it.\n` +
+        `  Remove it by hand if you put it there on purpose, then reseed.\n\n`,
+    )
+    process.exit(1)
+  }
 }
 
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
