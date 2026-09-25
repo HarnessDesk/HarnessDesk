@@ -3369,9 +3369,37 @@ const writeProjectReviewer = async (project: string, prefer: string): Promise<vo
   await writeFile(join(project, PROJECT_AGENT_DIR, 'reviewer', 'AGENT.md'), agentFile(prefer), 'utf8')
 }
 
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * A barrier, not a sleep: waits for `check` to become true, polling rather
+ * than trusting a fixed delay to have been enough. Used below to wait out the
+ * roster watch's own settle for `writeProjectReviewer`'s write — a real event
+ * on a real timer, never awaited by the write itself — before a test starts
+ * counting `machineNotices`, so that settle's own notice can never land
+ * later, mid-count, however long it takes under load. See #899.
+ */
+const until = async (check: () => boolean, what: string, ms = 5_000): Promise<void> => {
+  const end = Date.now() + ms
+  while (!check()) {
+    if (Date.now() > end) throw new Error(`timed out waiting for ${what}`)
+    await pause(10)
+  }
+}
+
 test("through the host: this Mac's seats are set and cleared by one verb, and every window is told of each", async (t) => {
   const { harness, client, work } = await desk(t)
   await writeProjectReviewer(work, 'seatfake=big/high')
+  // This write is watched too, and told on its own settle timer — a real
+  // background race against everything below, on a loaded machine most of
+  // all. Waiting here for its own `project: work` notice (never counted by
+  // `machineNotices`) means that settle is always spent before the machine's
+  // own notices start being counted, so it can never land in the middle of
+  // one of those counts instead.
+  await until(
+    () => client.notifications.some((one) => 'method' in one && one.method === 'agent/changed' && one.params.project === work),
+    'agent/changed for the project reviewer written above',
+  )
   const set = (await client.call('agent/seating/set', {
     id: 'reviewer',
     seats: [{ runtime: 'seatfake', model: 'small' }],
