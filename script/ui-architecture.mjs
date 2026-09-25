@@ -268,17 +268,7 @@ const cssClassControlOverrides = (source, className) => {
   return [...new Set(overrides)]
 }
 
-/**
- * Exported for `design-audit.mjs`'s screen appearance ceiling, which asks the
- * identical question of a `className` (or a `cn`/`clsx`/`cx` call feeding
- * one): what whitespace-separated tokens does this attribute's value hold,
- * however many ternaries, calls or template interpolations sit between the
- * attribute and the literal. `attribute` only needs an `.initializer` —
- * passing `{ initializer: someNode }` walks any node this way, which is how
- * the audit reuses this for a bare `cn(...)` call that is not itself a JSX
- * attribute.
- */
-export const staticClassTokens = (attribute, ast) => {
+const staticClassTokens = (attribute, ast) => {
   if (!attribute?.initializer) return []
   const found = []
   const visit = (node) => {

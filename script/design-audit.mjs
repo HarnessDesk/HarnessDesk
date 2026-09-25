@@ -25,7 +25,7 @@ import { attributes, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
 import { repositoryFiles } from './lib/repository-files.mjs'
-import { overlayViolations, staticClassTokens, utilityBase } from './ui-architecture.mjs'
+import { overlayViolations, utilityBase } from './ui-architecture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -1884,7 +1884,7 @@ const LAYOUT_BEHAVIOUR_PROPERTIES = {
 const inPropertyTable = (name, table) =>
   table.exact.has(name) || table.families.some((family) => name === family || name.startsWith(`${family}-`))
 
-const screenPropertySideOf = (property, value) => {
+export const screenPropertySideOf = (property, value) => {
   if (property.startsWith('--')) return 'custom'
   const name = unprefixedProperty(property)
   if (inPropertyTable(name, APPEARANCE_PROPERTIES)) {
@@ -2001,11 +2001,23 @@ const isScreenTsx = (file) =>
  * template literal. */
 const CLASS_COMBINERS = new Set(['cn', 'clsx', 'cx'])
 
-/** Comments gone before the parser sees the file, the same reason `codeOf`
- * strips them for every other rule here: a `className` sitting in a doc
- * comment must not read as though it renders (review of #229, #123). */
-const parseScreenSource = (file, source) =>
-  ts.createSourceFile(file, withoutComments(source, file, { strict: true }), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+/**
+ * A real parser never reads a comment as code, so there is nothing here for a
+ * pre-pass to strip: a commented-out `className="…"` was never a token
+ * `ts.createSourceFile` produced, with or without one. (An earlier version
+ * ran the file through `withoutComments` first anyway, out of habit from the
+ * regex-based rules elsewhere in this file — round 1 review found the habit
+ * carried no effect and the fixture that claimed to prove it was vacuous.)
+ * `strict` parsing is kept: a file the parser could not read fails by name,
+ * the same contract `codeOf` and `ui-architecture.mjs`'s own `parseSource`
+ * hold elsewhere.
+ */
+const parseScreenSource = (file, source) => {
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const problem = ast.parseDiagnostics?.[0]
+  if (problem) throw new Error(`${file}: TypeScript could not parse this file (${ts.flattenDiagnosticMessageText(problem.messageText, ' ')})`)
+  return ast
+}
 
 /* Tailwind's named type scale. `2xl` through `9xl` share one shape, so they
    are matched by pattern instead of listed one at a time. */
@@ -2048,15 +2060,22 @@ const PADDING_SIDE_PROPERTY = {
   p: 'padding', px: 'padding-inline', py: 'padding-block',
   pt: 'padding-top', pr: 'padding-right', pb: 'padding-bottom', pl: 'padding-left',
   ps: 'padding-inline-start', pe: 'padding-inline-end',
+  pbs: 'padding-block-start', pbe: 'padding-block-end',
 }
 
-/** A whole utility with no suffix — the class name itself is the declaration. */
+/** A whole utility with no suffix — the class name itself is the declaration.
+ * The numeric-variant family (`tabular-nums` and its siblings) all toggle
+ * `font-variant-numeric`, the same property a stylesheet's own declaration of
+ * it already counts under the `font` family match. */
 const LITERAL_UTILITY_PROPERTY = {
   italic: 'font-style', 'not-italic': 'font-style',
   underline: 'text-decoration', 'line-through': 'text-decoration', 'no-underline': 'text-decoration',
   uppercase: 'text-transform', lowercase: 'text-transform', capitalize: 'text-transform', 'normal-case': 'text-transform',
   truncate: 'text-overflow', 'text-ellipsis': 'text-overflow', 'text-clip': 'text-overflow',
   border: 'border', rounded: 'border-radius', shadow: 'box-shadow', ring: 'box-shadow', outline: 'outline',
+  'normal-nums': 'font-variant-numeric', ordinal: 'font-variant-numeric', 'slashed-zero': 'font-variant-numeric',
+  'lining-nums': 'font-variant-numeric', 'oldstyle-nums': 'font-variant-numeric', 'proportional-nums': 'font-variant-numeric',
+  'tabular-nums': 'font-variant-numeric', 'diagonal-fractions': 'font-variant-numeric', 'stacked-fractions': 'font-variant-numeric',
 }
 
 /**
@@ -2071,9 +2090,22 @@ const LITERAL_UTILITY_PROPERTY = {
  * as "layout" — it is "not counted, and not claimed to be understood either".
  */
 export const screenUtilityDeclarationOf = (token) => {
+  // `[prop:value]` names its own property outright — Tailwind's escape hatch
+  // for a property no utility covers. No prefix table applies; the bracket
+  // contents are read directly and handed to the same boundary function.
+  const arbitrary = /^\[([a-zA-Z-]+):(.+)\]$/.exec(token)
+  if (arbitrary) return { property: arbitrary[1].toLowerCase(), value: arbitrary[2] }
+
   if (Object.hasOwn(LITERAL_UTILITY_PROPERTY, token)) return { property: LITERAL_UTILITY_PROPERTY[token], value: '' }
 
-  const height = /^(h|min-h|max-h|size)-(.+)$/.exec(token)
+  // `h-`/`min-h-`/`max-h-`/`size-` with nothing after the hyphen is what a
+  // template literal (`` `h-${n}` ``) leaves behind once its interpolation is
+  // read separately: the prefix alone still names the role. An empty value
+  // is neither `ZERO_HEIGHT` nor `LAYOUT_HEIGHT`, so it counts as a metric —
+  // the same way `text-${x}` already fell through to a colour below. This is
+  // the utility side only; an unknown *inline `style`* height is the opposite
+  // decision, right below `screenInlineStyleAppearanceOf`.
+  const height = /^(h|min-h|max-h|size)-(.*)$/.exec(token)
   if (height) {
     const [, key, rest] = height
     const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
@@ -2081,6 +2113,12 @@ export const screenUtilityDeclarationOf = (token) => {
     const value = bracket ?? paren ?? heightSuffixValue(rest)
     return { property: HEIGHT_PROPERTY_OF[key], value }
   }
+
+  // `text-shadow-*` (Tailwind's own type shadow) shares the `text-` prefix
+  // with the size/colour family below and must be pulled out first, or
+  // `shadow-md` reads as its "rest" and falls through to the colour default.
+  if (token.startsWith('text-shadow-')) return { property: 'text-shadow', value: '' }
+  if (token.startsWith('underline-offset-')) return { property: 'text-underline-offset', value: '' }
 
   if (token.startsWith('text-')) {
     const rest = token.slice('text-'.length)
@@ -2096,6 +2134,7 @@ export const screenUtilityDeclarationOf = (token) => {
 
   if (token.startsWith('font-')) {
     const rest = token.slice('font-'.length)
+    if (rest.startsWith('stretch-')) return { property: 'font-stretch', value: '' }
     if (/^[[(]/.test(rest)) return { property: 'font-family', value: '' }
     if (FONT_WEIGHT_SUFFIX.has(rest)) return { property: 'font-weight', value: '' }
     if (FONT_FAMILY_SUFFIX.has(rest)) return { property: 'font-family', value: '' }
@@ -2103,7 +2142,10 @@ export const screenUtilityDeclarationOf = (token) => {
   }
 
   if (token.startsWith('leading-')) return { property: 'line-height', value: '' }
-  if (token.startsWith('tracking-')) return { property: 'letter-spacing', value: '' }
+  // Tailwind negates an arbitrary/bracket value with a leading `-` rather
+  // than a different utility name (`-tracking-[2px]`), so the family is
+  // checked with the sign stripped, not as a second prefix.
+  if (token.startsWith('tracking-') || token.startsWith('-tracking-')) return { property: 'letter-spacing', value: '' }
   if (token.startsWith('decoration-')) return { property: 'text-decoration', value: '' }
 
   if (token.startsWith('bg-')) {
@@ -2112,6 +2154,17 @@ export const screenUtilityDeclarationOf = (token) => {
     if (rest.startsWith('origin-')) return { property: 'background-origin', value: '' }
     return { property: 'background', value: '' }
   }
+
+  // `inset-shadow-*`/`inset-ring-*` before the plain `shadow-`/`ring-` check:
+  // they do not share its prefix, so order does not matter for correctness,
+  // only for reading the two rings of the same family next to each other.
+  if (token.startsWith('inset-shadow-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('inset-ring-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('mix-blend-')) return { property: 'mix-blend-mode', value: '' }
+  // Every `mask-*` sub-property (image, size, position, repeat, clip, origin,
+  // type, mode, composite) is counted as one, the same approximation
+  // `bg-clip-`/`bg-origin-` already makes for `background`.
+  if (token.startsWith('mask-')) return { property: 'mask-image', value: '' }
 
   if (token.startsWith('border-')) return { property: 'border', value: '' }
   if (token.startsWith('rounded-')) return { property: 'border-radius', value: '' }
@@ -2122,7 +2175,10 @@ export const screenUtilityDeclarationOf = (token) => {
   if (token.startsWith('stroke-')) return { property: 'stroke', value: '' }
   if (token.startsWith('opacity-')) return { property: 'opacity', value: '' }
 
-  const padding = /^(p|px|py|pt|pr|pb|pl|ps|pe)-(.+)$/.exec(token)
+  // As with height above, an empty suffix is what `` `px-${n}` `` leaves
+  // once its interpolation is read separately — padding has no value-based
+  // rule, so the property alone is enough to count it.
+  const padding = /^(pbs|pbe|p|px|py|pt|pr|pb|pl|ps|pe)-(.*)$/.exec(token)
   if (padding) return { property: PADDING_SIDE_PROPERTY[padding[1]], value: '' }
 
   return null
@@ -2130,12 +2186,15 @@ export const screenUtilityDeclarationOf = (token) => {
 
 /**
  * A Tailwind namespace this rule knows is appearance but has not mapped —
- * `caret-red-500`, `from-black` — reported only under `--verbose`, on
- * `unmappedScreenUtility`, and never counted. Extending
+ * `caret-red-500`, `from-black`, bare `antialiased` — reported only under
+ * `--verbose`, on `unmappedScreenUtility`, and never counted. Extending
  * `screenUtilityDeclarationOf` is the fix; adding a name here is not — this
  * is a hint, not a second strict category.
  */
-const UNMAPPED_APPEARANCE_UTILITY = /^(?:caret|accent|placeholder|divide|from|via|to|selection|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-(?:blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia))-/
+const UNMAPPED_APPEARANCE_LITERAL = new Set(['antialiased', 'subpixel-antialiased'])
+const UNMAPPED_APPEARANCE_PREFIX = /^(?:caret|accent|placeholder|divide|from|via|to|selection|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-(?:blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia))-/
+export const looksLikeUnmappedAppearanceUtility = (token) =>
+  UNMAPPED_APPEARANCE_LITERAL.has(token) || UNMAPPED_APPEARANCE_PREFIX.test(token)
 
 /** Tailwind v4 moved the important marker to the end of a token
  * (`bg-red-500!`); a v3 source may still carry it at the front
@@ -2143,74 +2202,242 @@ const UNMAPPED_APPEARANCE_UTILITY = /^(?:caret|accent|placeholder|divide|from|vi
 const withoutImportantMarker = (token) => token.replace(/^!/, '').replace(/!$/, '')
 
 /**
- * Every class-bearing site in a screen `.tsx`: a `className` — string,
- * template literal, or any expression built from one, a ternary, an array, a
- * nested `cn`/`clsx`/`cx` call — and a bare `cn`/`clsx`/`cx` call reached some
- * other way, such as a class list built once and assigned to a variable
- * before it reaches `className`.
- *
- * Scoped to these two shapes rather than every string literal in the file on
- * purpose: a screen's own prop values — `variant="outline"`, `tone="border"`
- * — are not Tailwind, and happen to spell some of its shortest utility names.
- *
- * A `className` attribute is not walked again once its tokens are collected:
- * `staticClassTokens` already reaches into a `cn(...)` nested inside it, so
- * visiting that same call a second time as a bare `CallExpression` would
- * count it twice.
+ * Every `const NAME = …` in a file, however deep its scope — a screen's
+ * shared class string is as often a component-local `const` (`SettingsAgents.tsx`'s
+ * `fillClass`) as a module-level export. Scope is not tracked: the first
+ * declaration of a name wins, which only differs from real JS scoping for a
+ * shadowed name, a case this audit has not met.
  */
-const screenClassTokens = (ast) => {
-  const tokens = []
+const constDeclarationsIn = (ast) => {
+  const consts = new Map()
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer
+      && ts.isVariableDeclarationList(node.parent) && (node.parent.flags & ts.NodeFlags.Const) !== 0
+      && !consts.has(node.name.text)
+    ) {
+      consts.set(node.name.text, node.initializer)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return consts
+}
+
+/** A named import's binding in one file → the name it was exported under and
+ * the specifier it came from. Only `import { a, b as c } from '…'` — a
+ * default or namespace import cannot be *the* constant a class site named. */
+const namedImportSpec = (ast, localName) => {
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const bindings = statement.importClause.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    for (const element of bindings.elements) {
+      if (element.name.text === localName) {
+        return { exportedName: (element.propertyName ?? element.name).text, spec: statement.moduleSpecifier.text }
+      }
+    }
+  }
+  return null
+}
+
+/** A relative or `@/`-aliased specifier → the `.tsx`/`.ts` file it names, the
+ * same two resolutions `publicDesignImports` and `resolveStylesheet` already
+ * make for their own imports. A bare package specifier resolves to nothing:
+ * a screen's own constants are never published from `node_modules`. */
+const resolveConstModule = (fromFile, spec) => {
+  if (!spec.startsWith('.') && !spec.startsWith('@/')) return null
+  const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(path.dirname(fromFile), spec)
+  for (const ext of ['.tsx', '.ts']) {
+    const candidate = base.endsWith(ext) ? base : `${base}${ext}`
+    if (sourceOf(candidate) !== null) return candidate
+  }
+  return null
+}
+
+/** Parsed once per file and kept: a constant several screens import —
+ * `LibraryActions.tsx`'s `SWITCH_TRACK`, read by `Library.tsx` too — would
+ * otherwise be re-parsed by every consumer that reaches for it. */
+const constFileCache = new Map()
+const constsOfFile = (file) => {
+  if (!constFileCache.has(file)) {
+    const source = sourceOf(file)
+    const parsed = source === null ? null : { ast: parseScreenSource(file, source), consts: null }
+    if (parsed) parsed.consts = constDeclarationsIn(parsed.ast)
+    constFileCache.set(file, parsed)
+  }
+  return constFileCache.get(file)
+}
+
+/**
+ * A name used at a class site → the `const` it names, wherever that is: the
+ * same file first, then one hop through a named import to the file that
+ * exports it. A definition outside the screen boundary (`design/`, a test
+ * file) is not followed — the boundary this whole rule enforces would
+ * otherwise credit a screen's reference for the design system's own choice.
+ */
+const resolveClassConst = (name, file, ast, localConsts) => {
+  if (localConsts.has(name)) return { file, name, node: localConsts.get(name), ast, consts: localConsts }
+  const imported = namedImportSpec(ast, name)
+  if (!imported) return null
+  const modulePath = resolveConstModule(file, imported.spec)
+  if (!modulePath || !isScreenTsx(modulePath)) return null
+  const parsed = constsOfFile(modulePath)
+  if (!parsed) return null
+  const node = parsed.consts.get(imported.exportedName)
+  if (!node) return null
+  return { file: modulePath, name: imported.exportedName, node, ast: parsed.ast, consts: parsed.consts }
+}
+
+/**
+ * Every class-bearing site in a screen `.tsx`, resolved through however many
+ * layers separate it from the literal: a `className` — string, template
+ * literal, ternary, array, a nested `cn`/`clsx`/`cx` call, or a name that
+ * only leads to one of those through its own `const`; a `className:` key in
+ * an object literal (`BrowserPane.tsx`'s `createElement('webview', {
+ * className: … })`); and a bare `cn`/`clsx`/`cx` call reached some other way,
+ * such as a class list built once and assigned to a variable.
+ *
+ * The recursion has exactly one special case — resolving a name — because a
+ * generic walk already reaches everything else a class site can be built
+ * from: `ts.forEachChild` on a ternary visits both branches, on an array
+ * every element, on a call every argument, on a template every span. Keeping
+ * that generic fallback (rather than only recognizing the shapes named
+ * above) means a shape nobody wrote a case for — a wrapping call this does
+ * not recognize, say — still yields whatever plain string or template
+ * literal sits inside it, exactly as it did before a name could be resolved
+ * at all.
+ *
+ * A name is counted once, at its `const`, however many times or files use
+ * it: `countedDefs` is a set of `file::name` already resolved, shared across
+ * every class site this walks in one audit run, so `EMPTY_TITLE_CLASSES`
+ * used four times in `Conversation.tsx`, or `SWITCH_TRACK` used in both
+ * `LibraryActions.tsx` and the `Library.tsx` that imports it, contributes its
+ * declared utilities exactly once — the same thing a CSS class already does
+ * by being declared once and applied many times. Every *direct* literal
+ * (typed at the class site itself, not reached through a name) is still
+ * counted at every occurrence: two screens copying the same string by hand
+ * is two copies, not one shared declaration.
+ *
+ * `file` on each result names where its token's declaration actually lives —
+ * the current file for a direct literal or a same-file `const`, the imported
+ * module for one resolved across files — so the caller can label the finding
+ * at its definition rather than at whichever site happened to trigger it.
+ *
+ * `visitedCalls` guards the one way a `cn`/`clsx`/`cx` call can otherwise be
+ * read twice: `classSiteEntries` finds it directly, wherever it sits in the
+ * file, and a `className` that names the `const` it was assigned to reaches
+ * the identical call node a second time by resolving that name. The set
+ * remembers a call node once either path has read its arguments, so a
+ * `const rowClass = cn('rounded-full')` used as `className={rowClass}`
+ * counts `rounded-full` once, not twice.
+ */
+const classSiteTokens = (node, file, ast, localConsts, countedDefs, out, visitedCalls) => {
+  if (
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+    || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)
+  ) {
+    for (const piece of node.text.split(/\s+/)) if (piece) out.push({ text: piece, file })
+    return
+  }
+  if (ts.isIdentifier(node)) {
+    const resolved = resolveClassConst(node.text, file, ast, localConsts)
+    if (!resolved) return
+    const key = `${resolved.file}::${resolved.name}`
+    if (countedDefs.has(key)) return
+    countedDefs.add(key)
+    classSiteTokens(resolved.node, resolved.file, resolved.ast, resolved.consts, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
+    if (visitedCalls.has(node)) return
+    visitedCalls.add(node)
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, localConsts, countedDefs, out, visitedCalls)
+    return
+  }
+  ts.forEachChild(node, (child) => classSiteTokens(child, file, ast, localConsts, countedDefs, out, visitedCalls))
+}
+
+/** Every class site's entries, `{ text, file }`, across a whole screen file. */
+const classSiteEntries = (ast, file, localConsts, countedDefs) => {
+  const out = []
+  const visitedCalls = new Set()
   const visit = (node) => {
     if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'className') {
-      tokens.push(...staticClassTokens(node, ast))
+      let expr = node.initializer
+      if (expr && ts.isJsxExpression(expr)) expr = expr.expression
+      if (expr) classSiteTokens(expr, file, ast, localConsts, countedDefs, out, visitedCalls)
       return
     }
+    if (ts.isPropertyAssignment(node)) {
+      const keyText = ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : null
+      if (keyText === 'className') {
+        classSiteTokens(node.initializer, file, ast, localConsts, countedDefs, out, visitedCalls)
+        return
+      }
+    }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
-      tokens.push(...staticClassTokens({ initializer: node }, ast))
+      classSiteTokens(node, file, ast, localConsts, countedDefs, out, visitedCalls)
       return
     }
     ts.forEachChild(node, visit)
   }
   visit(ast)
-  return tokens
+  return out
 }
 
 /**
  * Appearance a screen draws with a Tailwind utility instead of composing it —
  * the `className` half of the split the module comment above describes.
+ *
+ * `ast` may be a tree already parsed for this file — the caller shares one
+ * parse across this, `screenInlineStyleAppearanceOf` and
+ * `screenUnmappedUtilityOf` — and `countedDefs` may be a set shared across
+ * every file in one audit run, so a name resolved while scanning one screen
+ * is not counted again reached from another. Fixtures pass neither: each
+ * gets its own parse and its own empty set, so one test's resolutions never
+ * leak into the next.
  */
-export const screenUtilityAppearanceOf = (file, source) => {
+export const screenUtilityAppearanceOf = (file, source, ast, countedDefs = new Set()) => {
   if (!isScreenTsx(file)) return []
-  const ast = parseScreenSource(file, source)
+  const tree = ast ?? parseScreenSource(file, source)
+  const localConsts = constDeclarationsIn(tree)
   const findings = []
-  for (const rawToken of screenClassTokens(ast)) {
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, localConsts, countedDefs)) {
     const token = withoutImportantMarker(utilityBase(rawToken))
     if (!token) continue
     const declaration = screenUtilityDeclarationOf(token)
     if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'appearance') {
-      findings.push(`${rawToken} (${declaration.property})`)
+      findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
     }
   }
   return findings
 }
 
 /** The utilities `screenUtilityAppearanceOf` saw but could not classify,
- * worth a human's attention without being counted. See `--verbose`. */
-export const screenUnmappedUtilityOf = (file, source) => {
+ * worth a human's attention without being counted. See `--verbose`. Not
+ * deduplicated by definition the way the counted list is: a hint repeated
+ * from more than one call site is still worth seeing at each. */
+export const screenUnmappedUtilityOf = (file, source, ast) => {
   if (!isScreenTsx(file)) return []
-  const ast = parseScreenSource(file, source)
+  const tree = ast ?? parseScreenSource(file, source)
+  const localConsts = constDeclarationsIn(tree)
   const findings = []
-  for (const rawToken of screenClassTokens(ast)) {
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, localConsts, new Set())) {
     const token = withoutImportantMarker(utilityBase(rawToken))
     if (!token || screenUtilityDeclarationOf(token)) continue
-    if (UNMAPPED_APPEARANCE_UTILITY.test(token)) findings.push(rawToken)
+    if (looksLikeUnmappedAppearanceUtility(token)) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
   }
   return findings
 }
 
 const unwrapStyleExpression = (node) => {
   let current = node
-  while (current && (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current))) {
+  while (
+    current
+    && (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current) || ts.isSatisfiesExpression(current))
+  ) {
     current = current.expression
   }
   return current
@@ -2223,41 +2450,77 @@ const unwrapStyleExpression = (node) => {
  * returned as written. */
 const cssPropertyOfStyleKey = (key) => (key.startsWith('--') ? key : key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`))
 
+/** A style object's own properties: a plain `key: value`, a `{ color }`
+ * shorthand (the value is a variable this does not chase — the property
+ * alone still says which side of the boundary it is on), and `['color']`, a
+ * computed key that is itself a literal. A truly dynamic computed key
+ * (`[someVar]`) names nothing this can read and is skipped, the same as a
+ * dynamic `className` reference. */
+const styleObjectFindings = (object) => {
+  const findings = []
+  for (const property of object.properties) {
+    let key = null
+    let valueNode = null
+    if (ts.isPropertyAssignment(property)) {
+      const keyNode = property.name
+      key = ts.isIdentifier(keyNode) ? keyNode.text
+        : ts.isStringLiteral(keyNode) ? keyNode.text
+        : ts.isComputedPropertyName(keyNode) && ts.isStringLiteral(keyNode.expression) ? keyNode.expression.text
+        : null
+      valueNode = property.initializer
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      key = property.name.text
+    }
+    if (key === null) continue
+    const cssProperty = cssPropertyOfStyleKey(key)
+    // A dynamic height-family value (not a literal this can read) is decided
+    // explicitly as layout, not left to fall through the empty-string path:
+    // `GitPane.tsx`'s `height: total * ROW` is a virtual list doing its own
+    // scroll-height arithmetic, not a control's metric, and the value rule
+    // that tells a real metric from a reset or a share has nothing to read
+    // when there is no literal at all. This is the opposite default from a
+    // utility's `` `h-${n}` `` above, where the prefix itself still names a
+    // metric even with an unknown suffix; a `style` key has no such prefix.
+    const literal = valueNode && ts.isStringLiteral(valueNode) ? valueNode.text
+      : valueNode && ts.isNumericLiteral(valueNode) ? valueNode.text
+      : null
+    if (literal === null && (cssProperty === 'height' || cssProperty === 'min-height' || cssProperty === 'max-height')) continue
+    if (screenPropertySideOf(cssProperty, literal ?? '') === 'appearance') findings.push(`style ${cssProperty}`)
+  }
+  return findings
+}
+
 /**
  * Appearance a screen draws with an inline `style` object instead of
- * composing it — the third spelling of the same boundary. Only a literal
- * `style={{ … }}` is legible this way: `style={obj}` names a value this
- * cannot see into, and is not counted, the same way a dynamic `className`
- * reference is not (`classNameIsStatic` in `ui-architecture.mjs` draws the
- * identical line for the same reason).
+ * composing it — the third spelling of the same boundary. A literal
+ * `style={{ … }}` is legible this way, including through a `satisfies
+ * CSSProperties` assertion and a `c ? {…} : {…}` conditional (both branches
+ * read, whichever the ternary resolves to at runtime). `style={obj}` names a
+ * value this cannot see into and is not counted, the same way a dynamic
+ * `className` reference is not (`classNameIsStatic` in `ui-architecture.mjs`
+ * draws the identical line for the same reason).
  */
-export const screenInlineStyleAppearanceOf = (file, source) => {
+export const screenInlineStyleAppearanceOf = (file, source, ast) => {
   if (!isScreenTsx(file)) return []
-  const ast = parseScreenSource(file, source)
+  const tree = ast ?? parseScreenSource(file, source)
   const findings = []
+  const stylesIn = (expression) => {
+    const resolved = unwrapStyleExpression(expression)
+    if (!resolved) return
+    if (ts.isObjectLiteralExpression(resolved)) { findings.push(...styleObjectFindings(resolved)); return }
+    if (ts.isConditionalExpression(resolved)) { stylesIn(resolved.whenTrue); stylesIn(resolved.whenFalse) }
+  }
   const visit = (node) => {
     if (
       ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'style'
       && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression
     ) {
-      const object = unwrapStyleExpression(node.initializer.expression)
-      if (object && ts.isObjectLiteralExpression(object)) {
-        for (const property of object.properties) {
-          if (!ts.isPropertyAssignment(property)) continue
-          const keyNode = property.name
-          const key = ts.isIdentifier(keyNode) ? keyNode.text : ts.isStringLiteral(keyNode) ? keyNode.text : null
-          if (key === null) continue
-          const cssProperty = cssPropertyOfStyleKey(key)
-          const valueNode = property.initializer
-          const value = ts.isStringLiteral(valueNode) ? valueNode.text : ts.isNumericLiteral(valueNode) ? valueNode.text : ''
-          if (screenPropertySideOf(cssProperty, value) === 'appearance') findings.push(`style ${cssProperty}`)
-        }
-      }
+      stylesIn(node.initializer.expression)
       return
     }
     ts.forEachChild(node, visit)
   }
-  visit(ast)
+  visit(tree)
   return findings
 }
 
@@ -2685,6 +2948,13 @@ for (const [module, consumers] of consumersByModule) {
   }
 }
 
+// Shared across the whole run so a class constant resolved while scanning
+// one screen file is not counted again when another screen imports it —
+// see `classSiteTokens`. A fixture never touches this: each of
+// `screenUtilityAppearanceOf` and `screenUnmappedUtilityOf` defaults to a
+// set of its own when the caller does not share one.
+const screenClassConstDefs = new Set()
+
 for (const file of tsxFiles()) {
   const name = label(file)
   const dir = path.dirname(file)
@@ -2715,9 +2985,19 @@ for (const file of tsxFiles()) {
   // instead of its `.module.css` — the other two spellings of the same
   // boundary `screenAppearanceOf` reads a stylesheet for. One ceiling: both
   // land on `findings.screenAppearance` beside the CSS-declared kind.
-  for (const detail of screenUtilityAppearanceOf(file, source)) findings.screenAppearance.push(`${name}: ${detail}`)
-  for (const detail of screenInlineStyleAppearanceOf(file, source)) findings.screenAppearance.push(`${name}: ${detail}`)
-  for (const token of screenUnmappedUtilityOf(file, source)) findings.unmappedScreenUtility.push(`${name}: ${token}`)
+  //
+  // Parsed once and shared across all three: each independently defaulted to
+  // parsing the file itself, so every screen file was read into a tree three
+  // separate times for no reason three different walks needed their own.
+  // `screenUtilityAppearanceOf` and `screenUnmappedUtilityOf` already carry
+  // the file a resolved token's declaration lives in, so they push a fully
+  // labelled line themselves; `screenInlineStyleAppearanceOf` never crosses a
+  // file (a `style` object is not resolved across an import) and still
+  // returns the bare detail for `name` to prefix here.
+  const screenAst = isScreenTsx(file) ? parseScreenSource(file, source) : undefined
+  findings.screenAppearance.push(...screenUtilityAppearanceOf(file, source, screenAst, screenClassConstDefs))
+  for (const detail of screenInlineStyleAppearanceOf(file, source, screenAst)) findings.screenAppearance.push(`${name}: ${detail}`)
+  findings.unmappedScreenUtility.push(...screenUnmappedUtilityOf(file, source, screenAst))
 
   // A glyph control drawn smaller than a finger.
   //
