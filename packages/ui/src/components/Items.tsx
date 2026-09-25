@@ -47,7 +47,6 @@ import {
   KeyValueRow,
   Lightbox,
   Note,
-  PatchSection,
   Separator,
   Spinner,
   Text,
@@ -782,11 +781,12 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
         <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
       ) : (
         <div className={styles.fileList}>
-          {item.changes.map((change) => (
+          {item.changes.map((change, index) => (
             <FileEntry
               key={change.path}
               change={change}
               root={root}
+              divider={index > 0}
             />
           ))}
         </div>
@@ -798,9 +798,13 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
 const FileEntry = ({
   change,
   root,
+  divider,
 }: {
   change: FileChangeItem['changes'][number]
   root?: string
+  /* Hunks and files alike are told apart by the app's one hairline, never
+     drawn above the first (`ChangesReview`'s own file list keeps the rule). */
+  divider: boolean
 }) => {
   const [open, setOpen] = useState(false)
   // The rule the view below draws by — the whole file, added or removed, unless
@@ -809,7 +813,8 @@ const FileEntry = ({
   const added = counts.added
 
   return (
-    <PatchSection>
+    <section>
+      {divider && <Separator />}
       <Button type="button" variant="quiet" size="content" className={styles.fileHeader} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <DisclosureChevron open={open} size="sm" />
         <Text role="muted" className={styles.filePath} title={change.path}>
@@ -818,7 +823,7 @@ const FileEntry = ({
         <ChangeStats added={added} removed={counts.removed} />
       </Button>
       {open && <DiffView diff={change.diff} wholeFile={wholeFileOf(change.kind.type)} inline />}
-    </PatchSection>
+    </section>
   )
 }
 
