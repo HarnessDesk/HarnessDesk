@@ -216,6 +216,7 @@
 --hd-surface-fill = rgb(255, 255, 255)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
+--hd-table-row-h = 26px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(107, 107, 107)
 --hd-text = 14px
@@ -663,6 +664,7 @@
 --hd-surface-fill = rgb(33, 33, 33)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
+--hd-table-row-h = 26px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(177, 177, 177)
 --hd-text = 14px
@@ -1122,6 +1124,7 @@
 --hd-surface-fill = rgb(255, 255, 255)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
+--hd-table-row-h = 26px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(107, 107, 107)
 --hd-text = 14px
@@ -1581,6 +1584,7 @@
 --hd-surface-fill = rgb(33, 33, 33)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
+--hd-table-row-h = 26px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(177, 177, 177)
 --hd-text = 14px
