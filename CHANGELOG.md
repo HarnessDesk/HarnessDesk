@@ -11,9 +11,9 @@ move is real work and is not news to a person weighing an upgrade.
   An Agent whose ceiling is publish or merge was always seated at edit from
   the app, so an MCP server it declared — which needs a Seat that may merge
   — never loaded. Its page now offers **Start at a higher ceiling…**: the
-  levels up to its own ceiling that the runtime taking the seat can hold,
-  each in the Ceiling row's words, with merge saying it loads the Agent's
-  servers. The plain Start still seats at edit. Approving a server whose
+  levels up to its own ceiling, each saying whether the runtime taking the
+  seat holds it or can only be asked to, with merge saying it loads the
+  Agent's servers. The plain Start still seats at edit. Approving a server whose
   review shows a value only as set now asks you to confirm you know what
   that value is, since a value that changes what the server does can hide
   behind a name that looks like a credential. A Seat that falls back to

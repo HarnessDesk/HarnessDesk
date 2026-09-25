@@ -33,7 +33,7 @@ import {
   wordList,
 } from '../lib/agents'
 import { relativeTo, shortPath } from '../lib/paths'
-import { flagWords, runtimeHolds } from '../lib/ceilings'
+import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
@@ -1070,13 +1070,15 @@ const RemoveDialog = ({
 
 /**
  * Starting an Agent above the default ceiling (#897): a person's explicit
- * choice, up to the Agent's own ceiling and never past it, and only at a
- * level the runtime that would take the seat here holds — `edit` stays the
- * default, and the plain *Start* never asks. A consent, not a destruction, so
- * it asks in the ordinary tone, and each level says what it means in the
- * same words the page's Ceiling row uses. An Agent that declares MCP servers
- * says at `merge` that this is what loads them (decision 13: an external
- * server needs a Seat that may merge).
+ * choice, up to the Agent's own ceiling and never past it — `edit` stays the
+ * default, and the plain *Start* never asks. Each level says what it means
+ * and how the runtime that would take the seat here keeps to it, in the same
+ * words a seat's ceiling chip uses (`ceilingTitle`): held by its runtime, or
+ * asked, not held. A level this Mac's own setting refuses when its runtime
+ * cannot hold it is shown and not offered, rather than chosen and then
+ * refused. A consent, not a destruction, so it asks in the ordinary tone. An
+ * Agent that declares MCP servers says at `merge` that this is what loads
+ * them (decision 13: an external server needs a Seat that may merge).
  */
 const StartHigher = ({
   entry,
@@ -1091,18 +1093,27 @@ const StartHigher = ({
   const snapshot = useSnapshot()
   const [level, setLevel] = useState<'edit' | 'publish' | 'merge'>('edit')
   const [busy, setBusy] = useState(false)
+  // What this Mac does with a watched seat its runtime cannot hold: read once, before anything is offered.
+  const [unheld, setUnheld] = useState<'seat' | 'refuse' | null>(null)
+  useEffect(() => {
+    let live = true
+    void store.loadUnheldCeilings().then((value) => { if (live) setUnheld(value) })
+    return () => { live = false }
+  }, [store])
   const definition = entry.definition
   if (!definition) return null
   const plan = snapshot.agentPlans.get(entry.id)
   const winner = plan && plan.winner !== null ? plan.candidates[plan.winner] : undefined
   const runtime = winner ? snapshot.runtimes.find((one) => String(one.id) === winner.seat.runtime) : undefined
-  const holds = new Map(runtime ? runtimeHolds(runtime).map((one) => [one.level, one.held]) : [])
+  const holds = new Map(runtime ? runtimeHolds(runtime).map((one) => [one.level, one]) : [])
   const levels = (['edit', 'publish', 'merge'] as const).filter((one) => one === 'edit' || reaches(definition.ceiling, one))
   const servers = definition.mcp.length
-  const why = (one: 'edit' | 'publish' | 'merge'): string | null => {
+  const refusal = (one: 'edit' | 'publish' | 'merge'): string | null => {
     if (one === 'edit') return null
     if (!winner) return 'No seat can be taken here now.'
-    if (!holds.get(one)) return `${winner.runtimeName} cannot hold this ceiling, so it is not offered.`
+    if (!holds.get(one)?.held && unheld !== 'seat') {
+      return `${winner.runtimeName} cannot hold this ceiling, and this Mac does not seat a ceiling its runtime cannot hold.`
+    }
     return null
   }
   const start = (): void => {
@@ -1120,6 +1131,7 @@ const StartHigher = ({
       confirmLabel={`Start at ${ceilingWords(level)}`}
       tone="default"
       busy={busy}
+      pending={unheld === null}
       onConfirm={start}
       onCancel={onClose}
     >
@@ -1128,15 +1140,17 @@ const StartHigher = ({
       </Note>
       <Rows role="radiogroup" aria-label="Ceiling to start at">
         {levels.map((one) => {
-          const refused = why(one)
+          const refused = refusal(one)
+          const hold = holds.get(one)
           const loads = one === 'merge' && servers > 0 ? ` Seat at ${ceilingWords('merge')} to load its MCP server${servers === 1 ? '' : 's'}.` : ''
+          const how = one === 'edit' ? ceilingMeaning(one) : ceilingTitle({ level: one, hold: hold?.held ? 'held' : 'asked' }, hold?.how ?? null)
           return (
             <RowChoice
               key={one}
               title={ceilingWords(one)}
-              desc={<span className="whitespace-normal">{refused ?? `${ceilingMeaning(one)}${loads}`}</span>}
+              desc={<span className="whitespace-normal">{refused ?? `${how}${loads}`}</span>}
               selected={level === one}
-              disabled={busy || refused !== null}
+              disabled={busy || unheld === null || refused !== null}
               onClick={() => setLevel(one)}
             />
           )

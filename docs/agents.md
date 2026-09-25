@@ -197,10 +197,13 @@ from it.
 - **⌘K** offers *Start as <Agent>* and *Open <Agent>*.
 - **An Agent's page** offers *Start a conversation as <name>*. That seats it
   at `edit`, whatever its ceiling. An Agent whose ceiling is `publish` or
-  `merge` also offers **Start at a higher ceiling…**: a choice, up to its own
-  ceiling, of only the levels the runtime that would take the seat here
-  holds, each said in the words of the page's Ceiling row. It is the app's
-  path to a Seat that loads an Agent's MCP servers, which need `merge`.
+  `merge` also offers **Start at a higher ceiling…**: a choice of level, up
+  to its own ceiling, each saying what it allows and whether the runtime
+  that would take the seat here holds it or can only be asked to — the words
+  a seat's ceiling chip uses. A level its runtime can only be asked to keep
+  is offered only while this Mac seats such a ceiling for a watched
+  conversation (the `unheldCeilings` setting). It is the app's path to a
+  Seat that loads an Agent's MCP servers, which need `merge`.
 - **A room's +** offers the project's Agents first; one seated there joins
   under the Agent's name.
 
