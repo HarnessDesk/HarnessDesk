@@ -1471,7 +1471,7 @@ export class Flows implements TeamFlows {
         ...(then.files && then.files.length > 0 ? { files: then.files } : {}),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
         role: role.id,
-      })
+      }, { kind: 'user' })
       intents.push(card.id)
     }
     const round: FlowRound = {

@@ -91,6 +91,15 @@
   margin-left: auto;
 }
 
+.groupCount {
+  /* A count that carries a glyph (the room row's own "N conversations",
+     beside its icon) lays out beside it rather than under it; a bare count
+     with no glyph is a single child either way, so this is free for it. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+}
+
 .navSecondary {
   flex: none;
   width: 26px;
@@ -162,12 +171,35 @@
   margin-right: calc(var(--hd-btn-h-sm) * 2);
 }
 
-.groupName,
-.rowTitle {
+/* A name's usual floor: shrinkable, no minimum. `fade` (the `Text` prop
+   every caller of `.rowTitle` and `.groupName` already passes) is what
+   actually draws the overflow — `overflow: hidden; white-space: nowrap;
+   mask-image: var(--hd-fade)` — so nothing here needs to repeat it. It once
+   did (`text-overflow: ellipsis` stacked on top of the same fade), and a
+   name that gave way read with a hard "…" cut sitting inside a soft
+   gradient it already had, doing the same job twice, worse (a review of
+   #905 caught it). A Goal's row is held to the same floor: its chip and
+   counts keep their width and the name alone fades — a floor of its own
+   there pushed the chip out over the counts. */
+.rowTitle,
+.roomTitle {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
+}
+
+/* A project row's own name. `1 1 auto` starts it at its own full content
+   width, and it gives way first — its pin and its count keep theirs, and
+   stay clear of the hover controls that step in beside them. Only beside a
+   state chip does it keep a floor, because a chip that does not shrink
+   crushed the name to a few letters ("stor" beside "Capture stopped");
+   everywhere else a floor only pushed the count under the ⋯. */
+.groupName {
+  flex: 1 1 auto; /* desk: 1 → 1 1 auto, a state chip alone crushed the name to two letters */
+  min-width: 0;
+}
+
+.groupBody:has([data-slot='chip']) .groupName {
+  min-width: min(60%, 100% - var(--hd-space-8)); /* desk: 0 → a 60% floor beside a state chip, the crush it caused */
 }
 
 .roomClaimed {

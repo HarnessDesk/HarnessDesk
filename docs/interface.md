@@ -363,8 +363,10 @@ took, and the name card adds an *Agent* band: what it is for, its ceiling
 
 The same ceiling vocabulary appears on six governed-seat surfaces: the
 conversation header, Agent name card, room rail, board holder, flow dry run and
-Agent roster. A held limit is neutral and an asked limit uses the warning tone;
-the words *held* and *asked* and a hover explanation make colour unnecessary.
+Agent roster. The chip is neutral whether the limit is held or asked — most
+runtimes have no control that holds one, so `asked` is the ordinary state, not
+a warning; the words *held* and *asked* and a hover explanation make colour
+unnecessary either way.
 The roster keeps two facts distinct: the Agent file's declared level and the
 effective would-be seat after the seating grant narrows it. A plain conversation
 has no ceiling chip.

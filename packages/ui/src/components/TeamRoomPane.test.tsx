@@ -20,6 +20,7 @@ import '../panels/builtins'
 import { StoreProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
+import styles from './TeamRoomPane.module.css'
 
 /**
  * The team room: a list of agents, then the conversations you can have with
@@ -387,6 +388,34 @@ it('the rail is the roster: who is here, and what each of them is holding', asyn
   expect(unnamed.textContent).not.toContain('Claude Code')
 })
 
+/**
+ * A trigger seats an agent under its own name, so an untitled conversation's
+ * nickname and its title are the same word — "Triager" the agent, "Triager"
+ * the conversation nobody renamed. The row used to print both: "Triager
+ * Triager", the name and the role read back as if they were two facts.
+ */
+it('does not repeat the conversation’s title when it is the same word as the agent’s own nickname', async () => {
+  const TRIAGER: TeamPeerInfo = {
+    runtime: 'codex' as never,
+    // Not 'c1': the rig's own live session carries that id with a title of
+    // its own ('API migration'), which — since a live conversation's title
+    // wins over the roster's — would mask the exact case this pins: no live
+    // session yet, so the roster's own answer is all there is.
+    sessionId: 't1',
+    title: 'Triager',
+    agent: 'Triager',
+    busy: false,
+    nickname: 'Triager',
+    here: true,
+    inbound: 'accept',
+  }
+  const { store } = rig([TRIAGER])
+  await render(store)
+
+  const named = row('Triager')
+  expect(named.textContent?.match(/Triager/g)?.length, 'said once, not "Triager Triager"').toBe(1)
+})
+
 it('pressing an agent shows that agent’s own conversation, scoped to its session', async () => {
   const { store } = rig()
   await render(store)
@@ -568,9 +597,7 @@ it('board-only is one press from the room’s header, and says which way it is s
   const { store } = rig()
   await render(store)
 
-  const toggle = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'messaging on',
-  )
+  const toggle = container.querySelector('[aria-label="Hold messages at the board"]') as HTMLButtonElement | null
   if (!toggle) throw new Error('no messaging switch')
   act(() => toggle.click())
   expect(store.teamMessaging).toHaveBeenCalledWith(ROOM, false)
@@ -1149,14 +1176,19 @@ it('counts one broadcast once, and does not call a signal a message', async () =
  *
  * The old row spent its one grey line joining three facts with a middle dot
  * and then truncated, so whether an agent was mid-turn survived only when it
- * happened to be the shortest of the three. It is a light now — and the head
- * counts the same fact, from the same list, so the two cannot disagree.
+ * happened to be the shortest of the three. It is a light now. The head used
+ * to count the same fact beside two others ("1 working · 2 here · 1
+ * claimed"); it keeps one — who is here — since who is working is the
+ * thread's own live line and what is claimed is the board's.
  */
-it('says which members are working, and counts them in the head', async () => {
+it('says which members are working on their rows, and keeps one presence fact in the head', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(container.textContent).toContain('1 working')
+  const bar = container.querySelector('header')!
+  expect(bar.textContent).toContain('2 here')
+  expect(bar.textContent).not.toContain('working')
+  expect(bar.textContent).not.toContain('claimed')
   /* Read as text, not as a class: the CSS module is stubbed to nothing in this
      environment, so asserting on the light's class name would pass whether or
      not the light was drawn. What is asserted is the half that has to be right
@@ -1240,8 +1272,9 @@ it('names the room once, on a row that is also the window’s handle', async () 
   if (!bar) throw new Error('no top row')
   // The room's name, its live counts and the switch, all on one row.
   expect(bar.textContent).toContain('Checkout rewrite')
-  expect(bar.textContent).toContain('1 working')
-  expect(bar.textContent).toContain('messaging on')
+  expect(bar.textContent).toContain('2 here')
+  const toggle = bar.querySelector('[aria-label="Hold messages at the board"]')
+  expect(toggle, 'the messaging toggle is on this row').not.toBeNull()
   // Said once. The name used to be printed by the strip above and the rail
   // head below it, so a room called "Checkout rewrite" said so twice before
   // anything in it had been read.
@@ -1252,10 +1285,651 @@ it('names the room once, on a row that is also the window’s handle', async () 
   // property is Electron's and jsdom has never heard of it.
   expect(bar.className).toContain('hd-drag')
   // And its controls opt back out, or the press is eaten by the drag.
-  const toggle = [...bar.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'messaging on',
-  )
   expect(toggle?.closest('.hd-no-drag'), 'the switch is out of the drag region').not.toBeNull()
+})
+
+/**
+ * A Goal or room page used to stack two headers: a `DetailHead` naming the
+ * Goal, its state and its full folder — the folder run across two visible
+ * lines — directly over this row naming the room again with its own facts.
+ * Redesigned into the one row above: this pins that the page now renders
+ * exactly one `<header>`, that it names the Goal once, and that no absolute
+ * folder path ever appears as visible text — the project's own short name is
+ * what shows, and its home-shortened path is one hover away.
+ */
+it('renders exactly one header, naming the Goal once, with the project’s short name and no absolute path as visible text', async () => {
+  const { store } = rig(undefined, undefined, { root: '/Users/dev/work/widgets' }, GOAL)
+  // `useSyncExternalStore` needs a stable reference back for an unchanged
+  // snapshot, so this is computed once rather than on every read.
+  const withHome = { ...store.getSnapshot(), home: '/Users/dev' }
+  Object.assign(store, { getSnapshot: () => withHome })
+  await render(store)
+
+  const headers = container.querySelectorAll('header')
+  expect(headers.length, 'exactly one header').toBe(1)
+  const bar = headers[0]!
+  expect(container.textContent?.split('Checkout rewrite').length ?? 1, 'named once').toBe(2)
+  // The state, on the header's own line, as a chip.
+  expect(bar.textContent).toContain('Running')
+  // The project's short name is visible; its absolute path is not, anywhere.
+  expect(bar.textContent).toContain('widgets')
+  expect(container.textContent).not.toContain('/Users/dev/work/widgets')
+  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'widgets')
+  expect(projectMark?.getAttribute('title'), 'the full path is one hover away').toBe('/Users/dev/work/widgets')
+})
+
+it('a trigger Goal’s header is named by its subject and carries its origin as a chip, its hover card naming the source in full', async () => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, sentence: 'Issue #43, from trigger triage-issue', origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43',
+    url: 'https://github.com/acme/widgets/issues/43', budget: null, waits: [],
+  }))
+  Object.assign(store, { triggerGoal })
+  await render(store)
+  await act(async () => {})
+
+  const bar = container.querySelector('header')!
+  // The title is the Goal's subject — never the trigger's own id, which is
+  // the desk's bookkeeping, and the origin is the chip's to say, not the
+  // title's to repeat.
+  const name = bar.querySelector('[title="Issue #43"]')
+  expect(name?.textContent).toBe('Issue #43')
+  expect(bar.textContent).not.toContain('triage-issue')
+  expect(bar.textContent).not.toContain('from trigger')
+  // The bare number, on the chip itself — the full sentence is one hover away.
+  expect(bar.textContent).toContain('#43')
+  expect(bar.textContent).not.toContain('Opened from issue #43')
+  expect(triggerGoal).toHaveBeenCalledWith(ROOM)
+
+  // Hovering the chip opens the full sentence and an Open link.
+  const trigger = bar.querySelector('[data-slot="hover-card-trigger"]') as HTMLElement
+  expect(trigger).toBeTruthy()
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
+  const card = document.body.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('Started this Goal')
+  // The heading names the source; the line under it does not say it again.
+  expect(card.textContent?.split('Issue #43').length).toBe(2)
+  const open = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Open')!
+  expect(open).toBeTruthy()
+})
+
+/**
+ * One chip, one vocabulary: `FlowRunStatus` used to draw a second chip in
+ * the body, in different words, that never actually disagreed with this
+ * one. A pending approval for any member of the room pulses it — the same
+ * fact the composer's own approval card and the room's live line both read.
+ */
+it('the header\'s one state chip reads "Needs you" and pulses while a member\'s approval is pending', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  const withApproval = {
+    ...store.getSnapshot(),
+    approvals: [{ key: sessionKey('codex', 'c1'), approval: { id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo' } }] as never,
+  }
+  Object.assign(store, { getSnapshot: () => withApproval })
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const chip = [...bar.querySelectorAll('[data-slot="chip"]')].find((one) => one.textContent?.includes('Needs you'))
+  expect(chip, 'the one state chip reads Needs you').toBeTruthy()
+  expect(chip?.querySelector('[data-pulse]'), 'and it pulses').toBeTruthy()
+})
+
+/**
+ * The thread's own tail, at the room's default (plain-chat) view: one live
+ * line, naming whoever is on it and for how long — or what it is waiting on
+ * a person for, which outranks merely working (the header's own rule,
+ * repeated here for the one line under the chat that reads the same fact).
+ */
+it("the room's own live line names who is working, with the elapsed time once there is a turn to read it from", async () => {
+  // The default rig's Codex session is already `status: 'active'`, so the
+  // roster already reads it as busy; a turn is what the elapsed reading
+  // needs, and this session starts with none.
+  const { store } = rig()
+  const base = store.getSnapshot()
+  const withTurn = {
+    ...base,
+    sessions: new Map(base.sessions).set(sessionKey('codex', 'c1'), {
+      ...base.sessions.get(sessionKey('codex', 'c1')),
+      turns: [{ id: 't1', status: 'inProgress', startedAt: Date.now() - 42_000, items: [] }],
+    } as never),
+  }
+  Object.assign(store, { getSnapshot: () => withTurn })
+  await render(store)
+
+  expect(container.textContent).toContain('Codex is working')
+  expect(container.textContent).toMatch(/Codex is working · \d+(\.\d+)?s/)
+})
+
+it("the room's own live line names who is waiting for your approval, ahead of anyone merely working", async () => {
+  const { store } = rig()
+  const withApproval = {
+    ...store.getSnapshot(),
+    approvals: [{ key: sessionKey('codex', 'c1'), approval: { id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo' } }] as never,
+  }
+  Object.assign(store, { getSnapshot: () => withApproval })
+  await render(store)
+
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe('Codex is waiting for your approval')
+})
+
+/**
+ * The owner's own design for #905's four body elements: nothing sits between
+ * the one-row header and the conversation — the origin line, the budget
+ * sentence and the "Needs you" card are gone from the page body outright.
+ */
+it('has no body elements between the header and the conversation — the origin, budget and Needs-you card are gone', async () => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #42',
+    url: 'https://github.com/acme/widgets/issues/42',
+    budget: {
+      goal: ROOM, startedAt: Date.now() - 12 * 60_000, deadline: Date.now() + 48 * 60_000,
+      budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
+      spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
+      closedRounds: [], idleRounds: 0, stop: null,
+    },
+    waits: [{
+      id: 'wait-1', goal: ROOM, trigger: 'triage-issue', kind: 'approval' as const,
+      waitingOn: { kind: 'person' as const, label: 'you' }, sentence: 'Codex is waiting for your approval: run ls -la',
+      action: 'open-goal' as const, createdAt: 1, resolvedAt: null, notification: 'delivered' as const,
+    }],
+  }))
+  Object.assign(store, { triggerGoal })
+  await render(store)
+  await act(async () => {})
+
+  const header = container.querySelector('header')!
+  const afterHeader = header.nextElementSibling
+  expect(afterHeader, 'nothing between the header and the split view').toBe(container.querySelector(`.${styles.split}`))
+  expect(container.textContent).not.toContain('Opened from issue #42')
+  expect(container.textContent).not.toContain('Up to $5')
+  // The wait is named once, at the thread's tail — its live line — not in a
+  // card between the header and the conversation.
+  expect(container.querySelector('[data-slot="room-live-line"]')?.textContent).toBe('Codex is waiting for your approval: run ls -la')
+  expect(container.textContent?.split('is waiting for your approval: run ls -la').length).toBe(2)
+})
+
+/**
+ * The composer's own footer meter: filled with what is left, and its hover
+ * card carries the exact numbers the ring itself rounds away — spend,
+ * rounds and time, each read as used of its own total.
+ */
+it("the composer's own budget meter reads what is left, and its hover card has the exact rows", async () => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #42',
+    url: 'https://github.com/acme/widgets/issues/42',
+    budget: {
+      goal: ROOM, startedAt: Date.now() - 12 * 60_000, deadline: Date.now() + 48 * 60_000,
+      budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
+      spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
+      closedRounds: [], idleRounds: 0, stop: null,
+    },
+    waits: [],
+  }))
+  Object.assign(store, { triggerGoal })
+  await render(store)
+  await act(async () => {})
+
+  expect(container.textContent).toContain('$3.80 left')
+
+  const trigger = [...container.querySelectorAll('[data-slot="hover-card-trigger"]')].find((one) => one.textContent?.includes('$3.80 left'))!
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
+
+  expect(document.body.textContent).toContain('$1.20 of $5')
+  // The same meaning as the footer's own "Round 1 of 1": the round being
+  // worked, never a count of rounds used beside it.
+  const rows = [...document.body.querySelectorAll('[data-slot="key-value-row"]')].map((one) => one.textContent)
+  expect(rows).toContain('Round1 of 1')
+  expect(rows.some((one) => one?.startsWith('Rounds'))).toBe(false)
+  expect(document.body.textContent).toContain('12 of 60 min')
+  expect(document.body.textContent).toContain('Stops after a round with no progress.')
+})
+
+/**
+ * The composer's own slot: a pending approval takes it, the same live
+ * `Approvals` surface a conversation's own pane draws — numbered choices
+ * answer to keys 1, 2 and 3 pressed in the card, and answering any of them
+ * clears the approval and brings the composer back. Focus is not handed to
+ * it: nobody was in it when the card arrived (see the mid-sentence test).
+ */
+it("the composer's own slot is a pending approval; a numbered choice answers it, and the composer comes back", async () => {
+  const { store } = rig()
+  const base = store.getSnapshot()
+  const pendingApprovals = [{
+    key: sessionKey('codex', 'c1'),
+    approval: {
+      id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo',
+      options: [
+        { id: 'yes', label: 'Yes', intent: 'approve' },
+        { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+        { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+      ],
+    },
+  }]
+  // `useSyncExternalStore` needs a stable reference back for an unchanged
+  // snapshot, so the object is cached and only replaced when `approvals`
+  // itself changes — a fresh literal on every read is an infinite loop.
+  let snapshot: typeof base = { ...base, approvals: pendingApprovals as never }
+  // Every component that calls `useSnapshot()` subscribes independently —
+  // `TeamRoomPane`, `Room` and `Approvals` all have their own listener. A
+  // mock that only remembers the *last* one silently drops the others, so
+  // only the deepest subscriber ever re-renders and its ancestors' own
+  // props (`pendingApproval`) go stale — exactly the bug this test exists
+  // to catch, so the mock itself must not reproduce a smaller version of it.
+  const listeners = new Set<() => void>()
+  const respondToApproval = vi.fn(() => {
+    snapshot = { ...snapshot, approvals: [] as never }
+    for (const listener of listeners) listener()
+  })
+  Object.assign(store, {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+    getSnapshot: () => snapshot,
+    respondToApproval,
+  })
+  await render(store)
+
+  expect(container.textContent).toContain('Run this command?')
+  expect(container.querySelector('textarea')!.closest('[hidden]')).not.toBeNull()
+
+  const three = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('No, tell it instead'))!
+  expect(three.textContent).toContain('3')
+  act(() => three.click())
+  expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'no' })
+
+  // Answered — the approval clears, and the composer is back.
+  await act(async () => {})
+  expect(container.textContent).not.toContain('Run this command?')
+  const textarea = container.querySelector('textarea')
+  expect(textarea).not.toBeNull()
+  expect(textarea!.closest('[hidden]')).toBeNull()
+})
+
+/** A pending command approval for Codex's member, with three numbered answers. */
+const PENDING = [{
+  key: sessionKey('codex', 'c1'),
+  approval: {
+    id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo',
+    options: [
+      { id: 'yes', label: 'Yes', intent: 'approve' },
+      { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+      { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+    ],
+  },
+}]
+
+/** A trigger's Goal with a live budget, and a store whose approvals can be answered. */
+const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknown> = {}, waits: readonly unknown[] = []) => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const base = store.getSnapshot()
+  let snapshot: typeof base = { ...base, approvals: approvals as never }
+  const listeners = new Set<() => void>()
+  const respondToApproval = vi.fn(() => {
+    snapshot = { ...snapshot, approvals: [] as never }
+    for (const listener of listeners) listener()
+  })
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #42',
+    url: 'https://github.com/acme/widgets/issues/42',
+    budget: {
+      goal: ROOM, startedAt: Date.now() - 12 * 60_000, deadline: Date.now() + 48 * 60_000,
+      budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
+      spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
+      closedRounds: [], idleRounds: 0, stop: null,
+      ...budget,
+    },
+    waits: waits as never,
+  }))
+  Object.assign(store, {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+    getSnapshot: () => snapshot,
+    respondToApproval,
+    triggerGoal,
+  })
+  /** A member's approval arriving while the room is already open. */
+  const raise = (next: readonly unknown[]): void => {
+    snapshot = { ...snapshot, approvals: next as never }
+    for (const listener of listeners) listener()
+  }
+  return { store, respondToApproval, raise }
+}
+
+/** A key pressed where focus actually is — the event starts at that element and bubbles, as a real keystroke does. */
+const press = (at: Element, key: string): void => {
+  act(() => { at.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+}
+
+/** An editable field somewhere else in the window — another pane's box, the sidebar's search. */
+const elsewhere = (): HTMLInputElement => {
+  const input = document.createElement('input')
+  document.body.append(input)
+  input.focus()
+  return input
+}
+
+/**
+ * The approval takes the composer's slot, not the pane: a card in normal
+ * flow where the composer stood, with the thread above it whole — no scrim,
+ * no dialog, nothing inert or hidden from a screen reader. A room is
+ * everyone's conversation; one member's question does not cover it.
+ */
+it('draws a pending approval in flow, in the composer’s slot — not a dialog, no scrim, the thread still readable', async () => {
+  const { store } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')
+  expect(card, 'the approval is drawn as a docked card').not.toBeNull()
+  expect(card?.getAttribute('role')).not.toBe('dialog')
+  expect(card?.getAttribute('aria-modal')).toBeNull()
+  // In the room's own tree, where the composer stood — never portalled.
+  expect(container.contains(card)).toBe(true)
+  // The composer gives up its slot, but stays mounted — hidden, so what was
+  // being written survives the approval.
+  const box = container.querySelector('textarea')
+  expect(box, 'the composer stays mounted').not.toBeNull()
+  expect(box!.closest('[hidden]'), 'and is hidden while the card holds the slot').not.toBeNull()
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
+  expect(document.querySelector('[data-slot="dialog-overlay"], [data-slot="approval-dialog-scope"]')).toBeNull()
+  // The thread above it stays in the accessibility tree, and interactive.
+  const stream = container.querySelector<HTMLElement>('[data-slot="room-stream"]')!
+  expect(stream.closest('[inert]')).toBeNull()
+  expect(stream.closest('[aria-hidden="true"]')).toBeNull()
+  // Its choices are numbered, and exactly one is the filled act.
+  const choices = [...card!.querySelectorAll<HTMLElement>('[data-slot="approval-choices"] button')]
+  expect(choices.map((one) => one.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['No, tell it instead3', 'Yes, always2', 'Yes1'])
+  expect(choices.filter((one) => one.hasAttribute('data-filled'))).toHaveLength(1)
+  // The folder is named like any other folder: the project's short name,
+  // the full path on hover.
+  const folder = card!.querySelector('[data-slot="approval-meta"][data-kind="folder"]')
+  expect(folder?.textContent).toBe('inrepo')
+  expect(folder?.getAttribute('title')).toBe('/repo')
+})
+
+it.each([
+  ['1', 'yes'],
+  ['2', 'always'],
+  ['3', 'no'],
+])('key %s pressed in the docked card answers it with its numbered choice', async (key, optionId) => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  act(() => card.focus())
+  press(card, key)
+  expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId })
+  await act(async () => {})
+  expect(container.querySelector('[data-slot="approval-card"]')).toBeNull()
+})
+
+/**
+ * The docked card is not a dialog and traps nothing, so its keys are its own:
+ * a digit or an Escape typed in any other field in the window — the rail's
+ * filter, the sidebar's search, another pane's composer — is that field's.
+ * A denial cannot be taken back.
+ */
+it.each(['1', '2', '3', 'Escape'])('key %s typed in a field outside the docked card never answers it', async (key) => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const input = elsewhere()
+  press(input, key)
+  expect(respondToApproval).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-slot="approval-card"]')).not.toBeNull()
+  input.remove()
+})
+
+it('a key on the room’s own thread, outside the card, does not answer it either', async () => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+  press(container.querySelector('[data-slot="room-stream"]')!, '1')
+  press(document.body, '1')
+  expect(respondToApproval).not.toHaveBeenCalled()
+})
+
+/**
+ * An approval arriving mid-sentence neither throws the sentence away nor
+ * lets the next keystroke of it answer a command nobody has read. Focus moves
+ * to the card only because it was in the composer the card replaced, a digit
+ * typed straight after is still the sentence's, and answering puts the
+ * person back in the composer with every word where it was.
+ */
+it('an approval arriving mid-sentence keeps the draft, swallows the keystroke in flight, and returns to the composer', async () => {
+  const { store, respondToApproval, raise } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+
+  const box = container.querySelector<HTMLTextAreaElement>('textarea')!
+  act(() => box.focus())
+  act(() => type(box, 'half a thought about step 3'))
+  raise(PENDING)
+  await act(async () => {})
+
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  expect(document.activeElement, 'focus was in the composer, so it follows the slot').toBe(card)
+  press(card, '3')
+  expect(respondToApproval, 'a digit already on its way is not an answer').not.toHaveBeenCalled()
+
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)) })
+  press(card, '1')
+  expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'yes' })
+  await act(async () => {})
+
+  const back = container.querySelector<HTMLTextAreaElement>('textarea')!
+  expect(back).toBe(box)
+  expect(back.value).toBe('half a thought about step 3')
+  expect(back.closest('[hidden]')).toBeNull()
+  expect(document.activeElement).toBe(back)
+})
+
+it('an approval arriving while the person works elsewhere takes no focus, and gives none back to the composer', async () => {
+  const { store, raise } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+
+  const input = elsewhere()
+  raise(PENDING)
+  await act(async () => {})
+  expect(document.activeElement, 'the card does not steal focus').toBe(input)
+
+  const allow = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-choices"] button')].find((one) => one.textContent?.startsWith('Yes1'))!
+  act(() => allow.click())
+  await act(async () => {})
+  expect(document.activeElement, 'nor hand it to the composer on the way out').toBe(input)
+  input.remove()
+})
+
+/**
+ * The composer's footer strip carries the budget, and stays put under
+ * whichever of the two holds the slot: what a run has left is as true while
+ * it waits on a person as while it works.
+ */
+it('keeps the budget in the footer strip with and without a pending approval', async () => {
+  const { store } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const waiting = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
+  expect(waiting?.textContent).toBe('$3.80 left · Round 1 of 1')
+  // The ring fills with what is left — $3.80 of $5 is 76% — in the ink a
+  // meter with plenty left wears, so a full ring never reads as an empty one.
+  const ring = waiting!.querySelector<HTMLElement>('[data-slot="progress-ring"]')!
+  expect(ring.getAttribute('aria-valuenow')).toBe('76')
+  expect(ring.style.getPropertyValue('--progress-ring-fill')).toBe('76%')
+  expect(ring.getAttribute('data-tone')).toBe('brand')
+  // Under the card, not above it.
+  const card = container.querySelector('[data-slot="approval-card"]')!
+  expect(card.compareDocumentPosition(waiting!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  const card2 = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  act(() => card2.focus())
+  press(card2, '1')
+  await act(async () => {})
+  const working = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
+  expect(working?.textContent).toBe('$3.80 left · Round 1 of 1')
+  expect(container.querySelector('textarea')!.compareDocumentPosition(working!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+const wait = (over: Record<string, unknown>) => ({
+  id: 'w1', goal: ROOM, trigger: 'triage-issue', kind: 'message', waitingOn: { kind: 'person', label: 'you' },
+  sentence: 'A message is held for your review before it sends.', action: 'open-goal',
+  createdAt: 1, resolvedAt: null, notification: 'delivered', ...over,
+})
+
+/**
+ * A trigger's own named waits — a held message, a held action, a question
+ * nobody answered — have one home in the new design: the thread's live line
+ * says which, and the header's one chip reads Needs you for it. A wait
+ * already resolved is history and says nothing.
+ */
+it.each([
+  ['a held message', wait({}), 'A message is held for your review before it sends.'],
+  ['a held action', wait({ id: 'w2', kind: 'approval', sentence: 'An action is held for your approval.' }), 'An action is held for your approval.'],
+  ['a question nobody answered', wait({ id: 'w3', kind: 'question', sentence: 'A Seat asked a question and nobody answered in time.' }), 'A Seat asked a question and nobody answered in time.'],
+])('%s reads Needs you in the header and names itself on the live line', async (_name, one, sentence) => {
+  const { store } = triggerRig([], {}, [one, wait({ id: 'old', sentence: 'Answered long ago.', resolvedAt: 5 })])
+  await render(store)
+  await act(async () => {})
+
+  const chip = [...container.querySelector('header')!.querySelectorAll('[data-slot="chip"]')].find((c) => c.textContent?.includes('Needs you'))
+  expect(chip).toBeTruthy()
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe(sentence)
+  expect(container.textContent).not.toContain('Answered long ago.')
+})
+
+/**
+ * A budget stop names its exact reason where the run's state is read — the
+ * live line, and "Stopped" in the header — and the footer keeps what was
+ * spent: the partial work stands, the meter says what it cost.
+ */
+it('a budget stop names its exact reason on the live line, reads Stopped, and keeps the meter', async () => {
+  const { store } = triggerRig([], { stop: { reason: 'out of budget', detail: 'The daily cap was reached before this round closed.', at: Date.now() } }, [
+    wait({ id: 'wb', kind: 'budget', waitingOn: { kind: 'service', label: 'the daily cap' }, sentence: 'This Goal stopped: out of budget.', action: 'open-usage' }),
+  ])
+  await render(store)
+  await act(async () => {})
+
+  expect(container.querySelector('header')!.textContent).toContain('Stopped')
+  expect(container.querySelector('[data-slot="room-live-line"]')!.textContent).toBe('Out of budget. The daily cap was reached before this round closed.')
+  expect(container.querySelector('[data-slot="room-budget"]')!.textContent).toContain('$3.80 left')
+})
+
+/**
+ * The host stops a run whose spend it cannot read (`budgetRefusal`: "Spend is
+ * unknown"), so a meter that read an unknown spend as nothing spent — a full
+ * ring and "$5.00 left" — said the opposite of what the run was about to do.
+ */
+it('says spend is unknown, with an unfilled ring, when the host cannot read it', async () => {
+  const { store } = triggerRig([], { spentMicros: null })
+  await render(store)
+  await act(async () => {})
+
+  const footer = container.querySelector<HTMLElement>('[data-slot="room-budget"]')!
+  expect(footer.textContent).toBe('Spend unknown · Round 1 of 1')
+  expect(footer.textContent).not.toContain('left')
+  const ring = footer.querySelector<HTMLElement>('[data-slot="progress-ring"]')!
+  expect(ring.hasAttribute('data-unknown')).toBe(true)
+  expect(ring.getAttribute('aria-valuenow')).toBeNull()
+
+  const trigger = footer.querySelector('[data-slot="hover-card-trigger"]')!
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
+  const card = document.body.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('Unknown of $5.00')
+  expect(card.textContent).toContain('The run stops while its spend cannot be read.')
+})
+
+/**
+ * The removed `DetailHead` used to show `goal.cwd` directly; folded into one
+ * header row, that fact had nowhere left until a review of #905 asked for it
+ * back — an own checkout or a subfolder is a different folder than the
+ * project's own root, and a person working in one needs to be able to tell.
+ */
+it('names the Goal\'s own working folder on the project fact\'s hover, when it differs from the Goal\'s root', async () => {
+  const OWN_CHECKOUT: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, root: '/repo', cwd: '/repo/.harnessdesk/agents/reviewer/checkout' },
+  }
+  const { store } = rig(undefined, undefined, { root: '/repo' }, OWN_CHECKOUT)
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'repo')
+  expect(projectMark?.getAttribute('title')).toBe('/repo — working in /repo/.harnessdesk/agents/reviewer/checkout')
+})
+
+it('says nothing extra on the hover when the Goal works at its own root, unchanged from before', async () => {
+  const { store } = rig(undefined, undefined, { root: '/repo' }, GOAL)
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'repo')
+  expect(projectMark?.getAttribute('title')).toBe('/repo')
+})
+
+/**
+ * The bar's own Wrap button used to be tested only for its presence; a
+ * review of #905 pointed out nothing pinned when it is refused — wrapped,
+ * still wrapping, or the board could not be saved (the one case
+ * `goalActions` itself does not cover, read straight off `problem`).
+ */
+it('disables the bar\'s Wrap for a Goal that is wrapped, wrapping, or has a problem — and only then', async () => {
+  const wrapButton = (): HTMLButtonElement => {
+    const found = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
+    if (!found) throw new Error('no Wrap button')
+    return found
+  }
+
+  const { store: open } = rig(undefined, undefined, {}, GOAL)
+  await render(open)
+  expect(wrapButton().disabled).toBe(false)
+
+  const { store: wrapped } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' } })
+  await render(wrapped)
+  expect(wrapButton().disabled).toBe(true)
+
+  const { store: wrapping } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapping' } })
+  await render(wrapping)
+  expect(wrapButton().disabled).toBe(true)
+
+  const { store: problem } = rig(undefined, undefined, {}, { ...GOAL, problem: 'The board could not be saved.' })
+  await render(problem)
+  expect(wrapButton().disabled).toBe(true)
 })
 
 it('draws the chat with no header of its own', async () => {
@@ -1311,9 +1985,7 @@ it('says so when the host will not take the board-only switch', async () => {
   } as unknown as AppStore
   await render(refusing)
 
-  const toggle = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'messaging on',
-  )
+  const toggle = container.querySelector('[aria-label="Hold messages at the board"]') as HTMLButtonElement | null
   if (!toggle) throw new Error('no messaging switch')
   await act(async () => {
     toggle.click()
@@ -1323,7 +1995,7 @@ it('says so when the host will not take the board-only switch', async () => {
   const alert = container.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('The host did not take the change')
   // And the switch still reads as it really is, rather than as it was pressed.
-  expect(container.textContent).toContain('messaging on')
+  expect(container.querySelector('[aria-label="Hold messages at the board"]')).not.toBeNull()
 })
 
 /**

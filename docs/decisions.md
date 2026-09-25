@@ -738,3 +738,16 @@ this desk registered itself.
 **The rule:** retention happens before the Goal mutation that references it,
 a citation is data a person carries on purpose, and no archived or restored
 record may authorize dispatch, membership or tools by itself.
+
+---
+
+## A ceiling chip's tone is a report, not a warning
+
+Most runtimes have no control that holds a ceiling at all, so `asked` is the
+ordinary state for nearly every seat and every built-in Agent — not a
+warning about this particular one. `ceilingTone` returns neutral, always;
+`held` and `asked` are told apart in the chip's own words and its hover
+explanation, never in its colour.
+
+**The rule:** a ceiling chip's colour never carries a fact its words do not
+already say.

@@ -235,6 +235,8 @@ export const triggerGoalStatus = (over: Partial<TriggerGoalStatus> = {}): Trigge
 
 export const GOAL_INTAKE_SCENES = [
   'pull-request', 'issue', 'schedule', 'held-message', 'held-action', 'question', 'person-step', 'stopped', 'unknown-budget',
+  // A member's own approval pending: the room's composer slot holds it (`main.tsx` raises it on the store).
+  'approval',
 ] as const
 export type GoalIntakeScene = (typeof GOAL_INTAKE_SCENES)[number]
 

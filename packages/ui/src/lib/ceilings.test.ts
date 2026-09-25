@@ -20,9 +20,19 @@ const definition = (over: Partial<AgentDefinition>): AgentDefinition => ({
 })
 
 describe('ceilings in words and tones', () => {
-  it('draws asked in the warning tone and held in the neutral one — never a colour alone', () => {
-    expect(ceilingTone({ level: 'read', hold: 'asked' })).toBe('warning')
-    expect(ceilingTone({ level: 'read', hold: 'held' })).toBe('neutral')
+  /*
+   * `asked` used to draw in the warning tone: correct for the rare seat whose
+   * runtime genuinely could not be trusted to hold its ceiling, and wrong for
+   * the ordinary case a `hold` field cannot tell apart from it — most
+   * runtimes ask rather than hold, so nearly every built-in Agent's roster
+   * row and every plain seat's chip drew amber, all the time, which is amber
+   * meaning nothing. Neutral either way, since `hold` alone is not a signal
+   * of risk: the words "held" and "asked" and the chip's own hover
+   * explanation still say which is which, and every Agent's chip now reads
+   * the same tone rule (#898).
+   */
+  it('draws every ceiling chip in the neutral tone — held or asked, the words on the chip and its hover say which', () => {
+    expect(ceilingTone()).toBe('neutral')
   })
 
   it('says what a ceiling means, and how it holds or why it is only asked', () => {

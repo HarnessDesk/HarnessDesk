@@ -1734,7 +1734,8 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
   expect(text).toContain('Edit · asked')
   const chip = openCard()?.querySelector('[data-ceiling]')
   expect(chip?.getAttribute('data-hold')).toBe('asked')
-  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
+  // Neutral: `asked` is the ordinary state, not a warning (#898).
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(text).toContain('Built in')
   expect(text).toContain('Seated on Claude · Opus 5 · High')
   expect(text).toContain('Passed over Cursor — Cursor is signed out')

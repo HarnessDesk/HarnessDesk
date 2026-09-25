@@ -385,7 +385,14 @@ test('a room made through a symlinked path is keyed the same way its sessions ar
 
   try {
     // Opened, and the room made, through the link — the path a person's
-    // shortcut or scratch directory actually hands over.
+    // shortcut or scratch directory actually hands over. `workspace/open`'s
+    // own answer (the workspace keeps the raw spelling, its `repo.root`
+    // reads the real path) is a fact about the host that has not changed
+    // here — the renderer's project grouping is what reads it, and
+    // `packages/ui/src/lib/projects.test.ts` is where that reading is
+    // pinned and provably fails without its own fix (#905's review: an
+    // assertion repeated here proved nothing, since nothing on this side of
+    // the wire moved).
     await client.call('workspace/open', { path: alias })
     const room = await createGoal(client, alias, 'Through the link')
     const started = (await client.call('session/create', {

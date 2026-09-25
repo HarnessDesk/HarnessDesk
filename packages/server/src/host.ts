@@ -159,7 +159,7 @@ import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './te
 import { TranscriptStore } from './transcripts.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
-import { NO_WAITS, type HostWaits } from './intake/waits.js'
+import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
 import type { UsageSample } from './ledger/insight.js'
 import { InsightContexts } from './insight/context.js'
 import { LocalFiles, assertAbsolute, confine, describeWorkspace } from './workspace.js'
@@ -2826,7 +2826,7 @@ export class Host {
       return NO_WAITS
     }
     const actor = (one: TeamActor | null | undefined): string =>
-      !one ? 'someone' : one.kind === 'user' ? 'you' : one.title || this.#conversationName(one.runtime, one.sessionId)
+      actorWords(one, (runtime, sessionId) => this.#conversationName(runtime, sessionId))
     const messages = board.channel.flatMap((entry) => entry.kind === 'message' && entry.state === 'held'
       ? [{ id: entry.id, from: actor(entry.from), to: entry.to ? (entry.to.nickname ?? entry.to.title) : 'everyone', reason: entry.reason ?? null }]
       : [])

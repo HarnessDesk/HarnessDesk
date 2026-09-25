@@ -1890,7 +1890,7 @@ test('restart recovers and runs interrupted seed check round (#437)', async (t) 
   const one = await rig(t)
   const flowDir = join(one.dir, 'flows')
   await mkdir(flowDir, { recursive: true })
-  const card = one.team.addIntentForFlow(one.room, { title: 'Run the gate first', role: 'tests' })
+  const card = one.team.addIntentForFlow(one.room, { title: 'Run the gate first', role: 'tests' }, { kind: 'user' })
   await writeFile(
     join(flowDir, 'seed-run.json'),
     JSON.stringify({

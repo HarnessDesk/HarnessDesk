@@ -327,6 +327,16 @@ export const browseDirectories = async (
  * resolved: `resolve` would read it against the host's working directory and
  * open whatever it led to from there. `workspace/open` and `workspace/pick`
  * both come through here.
+ *
+ * Kept at the spelling it was opened at, deliberately not `realpath`'d: a
+ * session's own reported `cwd` is not canonicalised either, and `#boardRootOf`
+ * matches a folder with no git repository against the open workspace list by
+ * that same raw spelling. Canonicalising here would resolve `/tmp/demo` to
+ * `/private/tmp/demo` and put a room made in the folder as opened in one none
+ * of its own sessions could be found under. Where two spellings of one folder
+ * genuinely need to compare as the same project — a git repository reached
+ * through a link — `repo.root` already answers that canonically; that is
+ * `projectRootOf`'s job in the renderer, not this one's.
  */
 export const describeWorkspace = async (
   path: string,

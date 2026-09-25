@@ -1,7 +1,9 @@
 import type {
   IssueEvent,
+  TriggerAttention,
   PullRequestEvent,
   TriggerBudget,
+  TriggerBudgetState,
   TriggerCommentFrom,
   TriggerDefinition,
   TriggerField,
@@ -72,6 +74,95 @@ export const triggerSkipWords = (firing: TriggerFiring): string => {
 
 /** A trigger Goal's origin, from the host's own label: "Opened from PR #12." */
 export const intakeOriginWords = (status: TriggerGoalStatus): string => `Opened ${status.label}`
+
+/**
+ * The bare "#42" a trigger Goal's origin chip shows beside its forge icon —
+ * pulled from the host's own URL rather than re-parsed from `label`'s prose,
+ * since a URL's trailing path segment is a number the host already resolved,
+ * never guessed at. `null` for a schedule, or a source whose subject or
+ * repository the host could not resolve — the chip has nothing to show then.
+ */
+export const originSubject = (status: TriggerGoalStatus): string | null => {
+  if (!status.url) return null
+  const match = /\/(\d+)(?:[/?#]|$)/.exec(status.url)
+  return match ? `#${match[1]}` : null
+}
+
+/**
+ * The fact line under a trigger Goal's name in its origin hover card: the
+ * source and its number, then what it did — "Issue #42 · started this Goal",
+ * or only what it did when the card's heading is already that source.
+ * The forge's own state (open, closed) is not here because the host keeps no
+ * copy of it; a line that guessed would be wrong the moment the issue moved.
+ */
+export const originHoverWords = (status: TriggerGoalStatus, heading?: string): string => {
+  const subject = originSubject(status)
+  if (!subject) return 'A scheduled run started this Goal.'
+  const kind = status.source === 'pull-request' ? 'Pull request' : 'Issue'
+  // Under a heading that already is the source ("Issue #42"), the line says
+  // only what it did — never the same name twice, one line apart.
+  return heading === `${kind} ${subject}` ? 'Started this Goal' : `${kind} ${subject} · started this Goal`
+}
+
+/**
+ * A trigger Goal's live budget, read for its meter: what is left to spend,
+ * rounds and time both used and left. The meter itself fills with what
+ * remains — the app's own convention — so this is the number every reading
+ * of it starts from.
+ */
+export interface BudgetMeterWords {
+  /** Null when the host cannot read the spend — which is not nothing spent: the host stops the run on it. */
+  readonly spentUsd: number | null
+  readonly totalUsd: number
+  readonly leftUsd: number | null
+  /** 0–100, floored at 0 and capped at 100 — what the ring itself fills to; null while the spend is unknown. */
+  readonly percentLeft: number | null
+  readonly roundsUsed: number
+  /** The round being worked, 1-based ("Round 1", never "Round 0"); null when the budget allows no round at all. */
+  readonly roundNow: number | null
+  readonly roundsTotal: number
+  readonly minutesUsed: number
+  readonly minutesTotal: number
+  readonly minutesLeft: number
+}
+
+export const budgetMeterWords = (state: TriggerBudgetState, now: number): BudgetMeterWords => {
+  const spentUsd = state.spentMicros === null ? null : state.spentMicros / 1_000_000
+  const totalUsd = state.budget.usd
+  const leftUsd = spentUsd === null ? null : Math.max(0, totalUsd - spentUsd)
+  const percentLeft = leftUsd === null ? null : totalUsd > 0 ? Math.max(0, Math.min(100, Math.round((leftUsd / totalUsd) * 100))) : 0
+  // The host's own window — `startedAt` to `deadline` — and a clock that
+  // stops where the run stopped, rather than counting on after it.
+  const until = Math.min(now, state.stop?.at ?? now, state.deadline)
+  const minutesUsed = Math.max(0, Math.round((until - state.startedAt) / 60_000))
+  const minutesTotal = Math.max(0, Math.round((state.deadline - state.startedAt) / 60_000))
+  const rounds = state.budget.rounds
+  return {
+    spentUsd,
+    totalUsd,
+    leftUsd,
+    percentLeft,
+    roundsUsed: state.closedRounds.length,
+    roundNow: rounds > 0 ? Math.max(1, Math.min(rounds, state.closedRounds.length + 1)) : null,
+    roundsTotal: rounds,
+    minutesUsed,
+    minutesTotal,
+    minutesLeft: Math.max(0, minutesTotal - minutesUsed),
+  }
+}
+
+/**
+ * A trigger Goal's waits that are still open, a person's first — what the
+ * room's live line names and the header's state counts. Resolved waits are
+ * history, not something anyone is waiting on.
+ */
+export const openTriggerWaits = (status: TriggerGoalStatus | null): readonly TriggerAttention[] => {
+  const open = (status?.waits ?? []).filter((wait) => wait.resolvedAt === null)
+  return [...open.filter((wait) => wait.waitingOn.kind === 'person'), ...open.filter((wait) => wait.waitingOn.kind !== 'person')]
+}
+
+/** A dollar figure the meter or its hover card shows — always two places, since a spend is rarely a whole dollar. */
+export const formatMeterUsd = (amount: number): string => `$${amount.toFixed(2)}`
 
 /**
  * Why unattended work on a trigger's Goal stopped, as a full sentence — the

@@ -726,6 +726,10 @@ Verbatim command, input or schema text inside an approval.
 
 A compact labelled value that locates an approved action.
 
+`kind="folder"` is a place, not something a shell reads: it is set in the
+interface's own type, the way every other branch, folder and file name in
+the app is (`docs/design.md`), and only a command keeps the code face.
+
 ### `ApprovalFilePath`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -757,6 +761,14 @@ The consequence that earns a second line under an approval choice.
 The pane-local approval surface. Base UI owns focus containment, Escape,
 dismissal semantics, and screen-reader dialog behavior; this pattern keeps
 the safety policy explicit and keeps the portal inside its conversation.
+
+`placement="docked"` is the same question in a composer's slot instead: a
+card in normal flow, as wide as the composer it stands in for, with the
+thread above it left fully readable — no scrim, no blur, no portal, not a
+dialog. A room is where this happens: a member waiting on a person takes
+the room's composer rather than covering the conversation everyone else in
+it is reading. It has exactly one filled act, the plain approve, like any
+footer in the app; every other answer is quiet, and its number still works.
 
 ### `ChannelSignal`
 
@@ -1493,7 +1505,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 565 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `screenAppearance` | 560 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

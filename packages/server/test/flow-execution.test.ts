@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
+import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
+
 import { BRIEF_CHANGED, INDEPENDENT } from '../src/flow-execution.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
+
+const addedSignal = (channel: readonly TeamEntry[]): TeamSignal | undefined =>
+  channel.find((entry): entry is TeamSignal => entry.kind === 'signal' && entry.signal === 'added')
 
 const THREE_STAGES = `
 version: 2
@@ -344,6 +349,36 @@ rules:
   await rig.flows.flush()
   assert.equal(rig.flows.executionsFor(held.goal)[0]!.intake?.dispatchHeld, true)
   assert.deepEqual(opens(rig.events), ['open:seat-1', 'open:seat-2'])
+})
+
+/**
+ * A card a trigger's own run opens names the trigger, never the person: the
+ * trigger fired unattended, and nobody read a dry run or pressed anything.
+ * `addIntentForFlow` used to attribute every card it opened to `{ kind: 'user' }`
+ * unconditionally — right for a flow a person started (they read the dry run
+ * and pressed Start), wrong for one a trigger opened on its own. The room's
+ * channel showed "You added #1 — …" for a card admission opened while nobody
+ * was at the keyboard (#898).
+ */
+test('a card a trigger’s run opens names the trigger, and a card a person’s run opens still names the person', async (t) => {
+  const rig = await goalRig(t)
+  const SEED_ONLY = `
+version: 2
+name: Review a change
+roles:
+  reviewer: { kind: agent, uses: reviewer }
+seed: { role: reviewer, title: Review it }
+rules: []
+`
+  const agents = [agent('reviewer', ['approve'])]
+
+  const triggered = await rig.startTriggered(SEED_ONLY, agents)
+  const triggeredAdd = addedSignal(rig.board(triggered.goal).channel)
+  assert.deepEqual(triggeredAdd?.by, { kind: 'trigger', trigger: 'review' })
+
+  const started = await rig.start(SEED_ONLY, agents)
+  const startedAdd = addedSignal(rig.board(started.goal).channel)
+  assert.deepEqual(startedAdd?.by, { kind: 'user' })
 })
 
 const TWO_REVIEWERS = `
