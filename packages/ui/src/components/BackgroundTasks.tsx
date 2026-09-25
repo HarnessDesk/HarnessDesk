@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
 
-import { Button, EmptyState } from '../design'
-import { cn } from '../lib/utils'
+import { Button, CodeBlock, EmptyState, Spinner, Text } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
-import { PanelBody, PanelFrame, PanelTools } from './Panel'
+import { PanelBody, PanelFrame, PanelRow, PanelTools } from './Panel'
 
 /**
  * What the agent has running in the background — as a panel.
@@ -73,9 +72,9 @@ export const BackgroundTasksView = () => {
   return (
     <PanelFrame testId="background-tasks-panel">
       <PanelTools>
-        <span className="min-w-0 flex-1 truncate text-xs text-(--hd-muted-foreground)">
+        <Text role="meta" truncate className="min-w-0 flex-1">
           {tasks.length > 0 ? tasksCount(split) : 'Background tasks'}
-        </span>
+        </Text>
         {finished.length > 0 && (
           <Button
             variant="ghost"
@@ -115,7 +114,7 @@ export const BackgroundTasksView = () => {
             />
           )
         ) : (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             {running.map((task) => (
               <TaskCard
                 key={task.id}
@@ -136,29 +135,29 @@ export const BackgroundTasksView = () => {
 
 /** The mark that says how a task is going: turning, done, or news. */
 const StateMark = ({ task }: { task: BackgroundTask }) => {
-  if (!isFinishedTask(task)) {
-    return (
-      <span
-        aria-hidden
-        data-slot="task-spinner"
-        className="mt-0.5 inline-block size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-(--hd-border-strong) border-t-(--hd-success)"
-      />
-    )
-  }
-  if (task.state === 'completed') {
-    return <CheckIcon size={13} className="mt-0.5 shrink-0 text-(--hd-muted-foreground)" />
-  }
+  if (!isFinishedTask(task)) return <Spinner size="sm" tone="success" aria-hidden />
+  // Done is the row's own quiet ink; the inspector row's mark slot owns it.
+  if (task.state === 'completed') return <CheckIcon size={13} />
   // Amber, not red: a task that failed or was stopped is news, not an error
   // in the app.
-  return <AlertIcon size={13} className="mt-0.5 shrink-0 text-(--hd-warning-ink)" />
+  return (
+    <Text role="meta" tone="warning">
+      <AlertIcon size={13} />
+    </Text>
+  )
 }
 
 /**
  * One task: what it was called, how it is going, what it ran, what it said.
  *
- * The output block draws only when there is something to put in it — a
- * command, or output — so a task the runtime knows only by name is a header
- * and nothing else, rather than a header over an empty box.
+ * The inspector's row, then the command plate the transcript draws for a
+ * command and what it printed — the same object in the same two parts it has
+ * in a turn, so a task that outlived its turn reads as that turn's command.
+ *
+ * The plate draws only when there is something to put in it — a command, or
+ * output — so a task the runtime knows only by name is a row and nothing
+ * else, rather than a row over an empty box. What is known about output that
+ * has not arrived is said in the plate, a step quieter than output.
  */
 const TaskCard = ({
   task,
@@ -175,67 +174,49 @@ const TaskCard = ({
   const hasBlock = Boolean(task.command) || task.output !== undefined || !done
 
   return (
-    <article
-      data-slot="task-card"
-      data-state={task.state}
-      className="overflow-hidden rounded-(--hd-radius) border border-(--hd-border) bg-(--hd-card)"
-      title={taskTooltip(task)}
-    >
-      <header className="flex items-start gap-2 px-3 py-2">
-        <StateMark task={task} />
-        <div className="min-w-0 flex-1">
-          <div className={cn('truncate text-sm font-medium', done && 'text-(--hd-secondary-foreground)')}>
-            {task.label}
-          </div>
-          <div className="text-xs text-(--hd-muted-foreground) tabular-nums">{meta}</div>
-        </div>
-        {onStop && task.stoppable && (
-          <Button
-            variant="ghost"
-            size="xs"
-            aria-label={`Stop ${task.label}`}
-            title="Stop this task"
-            onClick={onStop}
-          >
-            <StopIcon size={11} />
-          </Button>
-        )}
-      </header>
-      {hasBlock && (
-        <div className="max-h-[360px] overflow-auto border-t border-(--hd-border) bg-(--hd-muted) font-mono text-xs leading-(--hd-line-xs)">
-          {task.command && (
-            <div className="flex gap-2 px-3 pt-2 text-(--hd-foreground)">
-              <span aria-hidden className="shrink-0 text-(--hd-muted-foreground)">
-                $
-              </span>
-              <code className="min-w-0 whitespace-pre-wrap break-all">{task.command}</code>
-            </div>
-          )}
-          {task.output !== undefined ? (
-            <pre
-              data-slot="task-output"
-              className="m-0 whitespace-pre-wrap break-words px-3 py-2 text-(--hd-secondary-foreground)"
+    <article data-slot="task-card" data-state={task.state} className="flex flex-col gap-1">
+      <PanelRow
+        mark={<StateMark task={task} />}
+        title={done ? <Text role="navigation" ink="secondary">{task.label}</Text> : task.label}
+        meta={meta}
+        tooltip={taskTooltip(task)}
+        trail={
+          onStop && task.stoppable ? (
+            <Button
+              variant="ghost"
+              size="xs"
+              aria-label={`Stop ${task.label}`}
+              title="Stop this task"
+              onClick={onStop}
             >
-              {task.output.length > 0 ? task.output : '(no output)'}
-            </pre>
-          ) : (
-            /* Three things "no output" can mean, and the card says which:
+              <StopIcon size={11} />
+            </Button>
+          ) : undefined
+        }
+      />
+      {hasBlock && (
+        <CodeBlock
+          {...(task.command ? { command: task.command } : {})}
+          {...(task.output !== undefined ? { output: task.output.length > 0 ? task.output : '(no output)' } : {})}
+        >
+          {task.output === undefined && (
+            /* Three things "no output" can mean, and the plate says which:
                still running, so nothing yet; over, and the runtime is still
                fetching what it printed; over, and the runtime looked and the
                file was never there. The middle one used to read like the
                last, which left a person unable to tell a race from a loss. */
-            <div className="px-3 py-2 text-(--hd-muted-foreground)" data-slot="task-output-note">
+            <Text role="meta">
               {!done
                 ? 'Nothing printed yet.'
                 : task.outputMissing
                   ? 'Its output was never found.'
                   : 'Fetching what it printed…'}
-            </div>
+            </Text>
           )}
           {task.outputTruncated && (
-            <div className="px-3 pb-2 text-(--hd-muted-foreground)">Showing the end of a longer log.</div>
+            <Text role="meta" className="mt-2 block">Showing the end of a longer log.</Text>
           )}
-        </div>
+        </CodeBlock>
       )}
     </article>
   )

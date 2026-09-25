@@ -159,7 +159,7 @@ describe('BackgroundTasksView', () => {
     // nowhere to go but a notice in the transcript.
     mount([done('t1', 'Run the test suite', { command: 'node --test test/', output: 'ℹ tests 1\nℹ pass 1\n' })])
     expect(container.textContent).toContain('node --test test/')
-    expect(container.querySelector('[data-slot="task-output"]')?.textContent).toContain('ℹ pass 1')
+    expect(container.querySelector('[data-slot="task-card"] [data-slot="code-block-body"]')?.textContent).toContain('ℹ pass 1')
   })
 
   it('says the kind and the state in words, with the duration', () => {
@@ -170,7 +170,9 @@ describe('BackgroundTasksView', () => {
   it('does not pretend a running task printed nothing yet is silence', () => {
     mount([running('t1', 'Watch the tests', { command: 'pnpm test --watch' })])
     expect(container.textContent).toContain('Nothing printed yet')
-    expect(container.querySelector('[data-slot="task-output"]')).toBeNull()
+    // The plate says so a step quieter than output, and prints nothing that
+    // could be read as what the task wrote.
+    expect(container.querySelector('[data-slot="code-block-body"]')?.textContent).toBe('Nothing printed yet.')
   })
 
   it('tells "still fetching" from "never found" on a finished task with no output', () => {
