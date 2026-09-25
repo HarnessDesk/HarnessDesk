@@ -187,13 +187,19 @@
   min-width: 0;
 }
 
-/* A project row's own name, which the ordinary floor above starves beside its
-   state chip: `1 1 auto` starts the name at its own full content width, and
-   the floor keeps it from being crushed to a few letters before the chip
-   gives way. */
+/* A project row's own name. `1 1 auto` starts it at its own full content
+   width, and it gives way first — its pin and its count keep theirs, and
+   stay clear of the hover controls that step in beside them. Only beside a
+   state chip does it keep a floor, because a chip that does not shrink
+   crushed the name to a few letters ("stor" beside "Capture stopped");
+   everywhere else a floor only pushed the count under the ⋯. */
 .groupName {
   flex: 1 1 auto; /* desk: 1 → 1 1 auto, a state chip alone crushed the name to two letters */
-  min-width: min(60%, 100% - var(--hd-space-8)); /* desk: 0 → a 60% floor, the same crush with two chips and two counters */
+  min-width: 0;
+}
+
+.groupBody:has([data-slot='chip']) .groupName {
+  min-width: min(60%, 100% - var(--hd-space-8)); /* desk: 0 → a 60% floor beside a state chip, the crush it caused */
 }
 
 .roomClaimed {

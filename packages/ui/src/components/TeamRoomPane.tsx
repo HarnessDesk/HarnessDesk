@@ -22,7 +22,7 @@ import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
-import { budgetMeterWords, formatMeterUsd, originHoverWords, originSubject } from '../lib/intake'
+import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
 import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
@@ -750,13 +750,17 @@ export const TeamRoomPane = ({
    * a wordier vocabulary that never actually disagreed with it; it draws
    * neither now.
    */
+  /* A trigger's own named waits count as a person being needed exactly as a
+     member's approval does — a held message, a held action, a question —
+     and a budget stop is a stop, whatever the run's own record says yet. */
+  const personWaits = openTriggerWaits(originStatus).filter((wait) => wait.waitingOn.kind === 'person')
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
-    : pendingApproval || goal.activity === 'needs-you' || flowExecution?.state === 'stalled'
+    : pendingApproval || personWaits.length > 0 || goal.activity === 'needs-you' || flowExecution?.state === 'stalled'
       ? { label: 'Needs you', tone: 'warning', pulse: true }
       : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
         ? { label: 'Done', tone: 'success', pulse: false }
-        : flowExecution?.state === 'stopped'
+        : flowExecution?.state === 'stopped' || originStatus?.budget?.stop
           ? { label: 'Stopped', tone: 'neutral', pulse: false }
           : { label: 'Running', tone: 'info', pulse: false }
   /* Matched on everything a person might type: the room name, the harness, the
@@ -854,6 +858,11 @@ export const TeamRoomPane = ({
             {runState.label}
           </Chip>
         )}
+        {/* Where a trigger's Goal came from, beside its state rather than
+            among the muted facts: those are the first thing a narrow room
+            gives up, and the origin is the one fact this page's name does
+            not already carry. */}
+        {originStatus && <OriginChip status={originStatus} name={title} />}
         {/* The project, who is here, and — for a Goal a trigger opened — where
             it came from: muted facts, joined by `·` and only between segments
             that both have something to say. This gives way before the name
@@ -878,12 +887,6 @@ export const TeamRoomPane = ({
               >
                 {folderName(root)}
               </span>
-              {(originStatus || peers !== null) && ' · '}
-            </>
-          )}
-          {originStatus && (
-            <>
-              <OriginChip status={originStatus} name={title} />
               {peers !== null && ' · '}
             </>
           )}
@@ -1719,12 +1722,54 @@ const RoomLiveLine = ({
   members,
   snapshot,
   now,
+  triggerStatus,
+  room,
 }: {
   readonly members: readonly Member[]
   readonly snapshot: AppSnapshot
   readonly now: number
+  /** A trigger Goal's own status: its named waits and its stop reason live here, on this one line. */
+  readonly triggerStatus: TriggerGoalStatus | null
+  readonly room: string
 }) => {
+  const store = useStore()
   const waiting = members.find((one) => snapshot.approvals.some((entry) => entry.key === one.key))
+  /* The order a person needs them in: a member holding a question for you
+     now; why the run stopped; what else the run is waiting on, a person
+     first; and only then who is merely working. One line — the rest of the
+     run's waits are counted on it, and named in full on its hover. */
+  const stop = triggerStatus?.budget?.stop ?? null
+  const waits = openTriggerWaits(triggerStatus)
+  if (!waiting && stop) {
+    return (
+      <div data-slot="room-live-line" data-kind="stop" className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}>
+        <Text role="meta">{intakeStopWords(stop.reason)} {stop.detail}</Text>
+      </div>
+    )
+  }
+  if (!waiting && waits.length > 0) {
+    const wait = waits[0]!
+    const open = wait.action === 'open-usage' || wait.action === 'open-trigger'
+      ? () => store.askSettings('workspaces', wait.action === 'open-trigger' ? triggerRootOf(snapshot, room) : 'triggers')
+      : wait.action === 'open-permissions'
+        ? () => store.askSettings('permissions', 'ceilings')
+        : null
+    return (
+      <div
+        data-slot="room-live-line"
+        data-kind="wait"
+        className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}
+        title={waits.length > 1 ? waits.map((one) => one.sentence).join('\n') : undefined}
+      >
+        {wait.waitingOn.kind === 'person' && <Dot state="limit" pulse />}
+        <Text role="meta">
+          {wait.sentence}
+          {waits.length > 1 && ` · ${waits.length - 1} more`}
+        </Text>
+        {open && <Button variant="link" size="inline" onClick={open}>Open</Button>}
+      </div>
+    )
+  }
   const busy = waiting ? null : members.find((one) => one.busy) ?? null
   const subject = waiting ?? busy
   if (!subject) return null
@@ -1742,6 +1787,9 @@ const RoomLiveLine = ({
   )
 }
 
+/** The project a trigger Goal's room belongs to — what "open its trigger" opens. */
+const triggerRootOf = (snapshot: AppSnapshot, room: string): string | null =>
+  snapshot.goals.get(room)?.goal.root ?? snapshot.teams.get(room)?.root ?? null
 
 /**
  * The composer's own footer: a small meter ring, filled with what is left —
@@ -2063,7 +2111,7 @@ const Room = ({
           the stream and the composer under it — `.trouble`'s own measure,
           which already answers "docked between the two, same width as
           both" for the same reason. */}
-      <RoomLiveLine members={members} snapshot={snapshot} now={now} />
+      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} room={room} />
 
       {/* Two different failures, both said out loud. `problem` is the host's:
           it could not keep the board, so what is on screen may not survive a

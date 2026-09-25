@@ -1,5 +1,6 @@
 import type {
   IssueEvent,
+  TriggerAttention,
   PullRequestEvent,
   TriggerBudget,
   TriggerBudgetState,
@@ -148,6 +149,16 @@ export const budgetMeterWords = (state: TriggerBudgetState, now: number): Budget
     minutesTotal,
     minutesLeft: Math.max(0, minutesTotal - minutesUsed),
   }
+}
+
+/**
+ * A trigger Goal's waits that are still open, a person's first — what the
+ * room's live line names and the header's state counts. Resolved waits are
+ * history, not something anyone is waiting on.
+ */
+export const openTriggerWaits = (status: TriggerGoalStatus | null): readonly TriggerAttention[] => {
+  const open = (status?.waits ?? []).filter((wait) => wait.resolvedAt === null)
+  return [...open.filter((wait) => wait.waitingOn.kind === 'person'), ...open.filter((wait) => wait.waitingOn.kind !== 'person')]
 }
 
 /** A dollar figure the meter or its hover card shows — always two places, since a spend is rarely a whole dollar. */

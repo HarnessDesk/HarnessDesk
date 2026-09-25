@@ -1457,7 +1457,10 @@ it('has no body elements between the header and the conversation — the origin,
   expect(afterHeader, 'nothing between the header and the split view').toBe(container.querySelector(`.${styles.split}`))
   expect(container.textContent).not.toContain('Opened from issue #42')
   expect(container.textContent).not.toContain('Up to $5')
-  expect(container.textContent).not.toContain('is waiting for your approval: run ls -la')
+  // The wait is named once, at the thread's tail — its live line — not in a
+  // card between the header and the conversation.
+  expect(container.querySelector('[data-slot="room-live-line"]')?.textContent).toBe('Codex is waiting for your approval: run ls -la')
+  expect(container.textContent?.split('is waiting for your approval: run ls -la').length).toBe(2)
 })
 
 /**
@@ -1579,7 +1582,7 @@ const PENDING = [{
 }]
 
 /** A trigger's Goal with a live budget, and a store whose approvals can be answered. */
-const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknown> = {}) => {
+const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknown> = {}, waits: readonly unknown[] = []) => {
   const TRIGGER_GOAL: GoalView = {
     ...GOAL,
     goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
@@ -1602,7 +1605,7 @@ const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknow
       closedRounds: [], idleRounds: 0, stop: null,
       ...budget,
     },
-    waits: [],
+    waits: waits as never,
   }))
   Object.assign(store, {
     subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
@@ -1795,6 +1798,51 @@ it('keeps the budget in the footer strip with and without a pending approval', a
   const working = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
   expect(working?.textContent).toBe('$3.80 left · Round 1 of 1')
   expect(container.querySelector('textarea')!.compareDocumentPosition(working!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+const wait = (over: Record<string, unknown>) => ({
+  id: 'w1', goal: ROOM, trigger: 'triage-issue', kind: 'message', waitingOn: { kind: 'person', label: 'you' },
+  sentence: 'A message is held for your review before it sends.', action: 'open-goal',
+  createdAt: 1, resolvedAt: null, notification: 'delivered', ...over,
+})
+
+/**
+ * A trigger's own named waits — a held message, a held action, a question
+ * nobody answered — have one home in the new design: the thread's live line
+ * says which, and the header's one chip reads Needs you for it. A wait
+ * already resolved is history and says nothing.
+ */
+it.each([
+  ['a held message', wait({}), 'A message is held for your review before it sends.'],
+  ['a held action', wait({ id: 'w2', kind: 'approval', sentence: 'An action is held for your approval.' }), 'An action is held for your approval.'],
+  ['a question nobody answered', wait({ id: 'w3', kind: 'question', sentence: 'A Seat asked a question and nobody answered in time.' }), 'A Seat asked a question and nobody answered in time.'],
+])('%s reads Needs you in the header and names itself on the live line', async (_name, one, sentence) => {
+  const { store } = triggerRig([], {}, [one, wait({ id: 'old', sentence: 'Answered long ago.', resolvedAt: 5 })])
+  await render(store)
+  await act(async () => {})
+
+  const chip = [...container.querySelector('header')!.querySelectorAll('[data-slot="chip"]')].find((c) => c.textContent?.includes('Needs you'))
+  expect(chip).toBeTruthy()
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe(sentence)
+  expect(container.textContent).not.toContain('Answered long ago.')
+})
+
+/**
+ * A budget stop names its exact reason where the run's state is read — the
+ * live line, and "Stopped" in the header — and the footer keeps what was
+ * spent: the partial work stands, the meter says what it cost.
+ */
+it('a budget stop names its exact reason on the live line, reads Stopped, and keeps the meter', async () => {
+  const { store } = triggerRig([], { stop: { reason: 'out of budget', detail: 'The daily cap was reached before this round closed.', at: Date.now() } }, [
+    wait({ id: 'wb', kind: 'budget', waitingOn: { kind: 'service', label: 'the daily cap' }, sentence: 'This Goal stopped: out of budget.', action: 'open-usage' }),
+  ])
+  await render(store)
+  await act(async () => {})
+
+  expect(container.querySelector('header')!.textContent).toContain('Stopped')
+  expect(container.querySelector('[data-slot="room-live-line"]')!.textContent).toBe('Out of budget. The daily cap was reached before this round closed.')
+  expect(container.querySelector('[data-slot="room-budget"]')!.textContent).toContain('$3.80 left')
 })
 
 /**
