@@ -17,16 +17,18 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   expect(conversationTsx).toMatch(/animate-\[hd-pulse_/)
   expect(itemsTsx).toMatch(/animate-\[hd-spin_/)
   expect(itemsTsx).toMatch(/animate-\[hd-blink_/)
-  expect(stepGroupTsx).toMatch(/animate-\[hd-spin_/)
+  // A step group's running mark is the system spinner, not a fourth drawing.
+  expect(stepGroupTsx).toMatch(/<Spinner size="sm" tone="brand" \/>/)
+  expect(stepGroupTsx).not.toMatch(/animate-\[hd-spin_/)
 })
 
 it('keeps the light work register compact and its grouped body visibly nested', () => {
   expect(itemsTsx).toContain("register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'")
-  expect(stepGroupTsx).toContain("register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'")
-  expect(stepGroupTsx).toContain('flex flex-col [&>div]:max-w-none [&>div]:py-0')
-  expect(stepGroupTsx).toContain("'pl-(--hd-space-5) pb-(--hd-space-0-5) border-t-0 gap-(--hd-space-px)'")
-  expect(stepGroupTsx).toContain("'pt-(--hd-space-0-5) px-(--hd-space-2) pb-(--hd-space-2) border-t border-(--hd-border) gap-(--hd-space-1)'")
-  expect(stepGroupTsx).toContain('[&>div]:max-w-none')
+  // The step group composes the same rhythm and body the design system owns
+  // (`TurnItem`, `StepFoldBody`), whose drawing is pinned in its own test.
+  expect(stepGroupTsx).toContain('<TurnItem register={register}')
+  expect(stepGroupTsx).toContain('<StepFoldBody register={register}>')
+  expect(stepGroupTsx).not.toContain('py-(--hd-space')
   expect(stepGroupTsx).not.toContain('styles.groupBody')
   expect(itemsCss).not.toMatch(/\.groupBody\s*\{\s*\}/)
 })

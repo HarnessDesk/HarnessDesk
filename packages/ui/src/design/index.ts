@@ -127,7 +127,16 @@ export * from './patterns/InspectorPanel'
 export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
-export { TurnWorkHeader, TurnWorkHeaderLabel } from './patterns/TurnWork'
+export {
+  StepFoldBody,
+  TurnItem,
+  TurnWorkChevron,
+  TurnWorkHeader,
+  TurnWorkHeaderLabel,
+  TurnWorkLive,
+  TurnWorkReceipt,
+  type TurnWorkState,
+} from './patterns/TurnWork'
 export {
   GitHistoryActionBar,
   GitHistoryFilters,
