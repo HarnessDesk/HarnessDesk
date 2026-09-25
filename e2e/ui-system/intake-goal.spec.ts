@@ -27,6 +27,48 @@ const stateChip = (frame: Locator): Locator => frame.locator('header [data-slot=
 const liveLine = (frame: Locator): Locator => frame.locator('[data-slot="room-live-line"]')
 const budget = (frame: Locator): Locator => frame.locator('[data-slot="room-budget"]')
 
+/**
+ * A person's own front-door start: the header's meta line names what the run
+ * reviews (a pinned revision, or a diff/working tree's own label alone), and
+ * the thread's live line carries a person's own stop, exactly as
+ * `TeamRoomPane`'s `pinnedAt`/`stopText` computations claim but nothing here
+ * had shown before this spec — the fixture drives `flowExecutions` directly
+ * (`packages/ui/src/preview/flow-fixture.ts`), the only way to reach that
+ * state without a real host's `flow/start-goal`.
+ */
+const flowFrame = (page: Page): Locator =>
+  page.locator('section', { has: page.locator('h2', { hasText: "Goal — a front-door start's pinned revision or stop line" }) })
+const flowScene = async (page: Page, name: string): Promise<void> => {
+  await page.locator('select', { has: page.locator('option', { hasText: 'working-diff' }) }).first().selectOption(name)
+}
+
+test('a front-door start pins its revision in the header, names a diff or working tree by its label alone, and a person’s own stop shows as its live line', async ({ page }) => {
+  await page.goto('/preview.html')
+  const frame = flowFrame(page)
+  await showChat(frame)
+
+  await flowScene(page, 'pinned')
+  await expect(stateChip(frame)).toHaveText('Running')
+  await expect(frame.locator('header')).toContainText('at a1b2c3d on branch feature')
+
+  await flowScene(page, 'diff')
+  // A diff's own label already carries both ends of the range, so no head is
+  // repeated beside it.
+  await expect(frame.locator('header')).toContainText('changes from abc123 to def456')
+  await expect(frame.locator('header')).not.toContainText('at ')
+
+  await flowScene(page, 'working-diff')
+  // A working tree has no committed head to pin — its label stands alone too.
+  await expect(frame.locator('header')).toContainText('the working tree')
+  await expect(frame.locator('header')).not.toContainText('at ')
+
+  await flowScene(page, 'stopped')
+  await expect(stateChip(frame)).toHaveText('Stopped')
+  await expect(liveLine(frame)).toContainText('The person stopped this flow')
+  // The pinned revision from the same target still names what was reviewed.
+  await expect(frame.locator('header')).toContainText('at a1b2c3d on branch feature')
+})
+
 test('pausing every trigger is read back before it shows paused, and the daily cap is a labelled currency field', async ({ page }) => {
   await page.goto('/preview.html')
   const section = page.locator('[aria-label="Triggers on this Mac"]').first()
@@ -111,9 +153,14 @@ test('a question that timed out and a budget stop each name their exact reason, 
   await expect(liveLine(frame)).toContainText('nobody answered in time')
 
   await scene(page, 'stopped')
-  await expect(stateChip(frame)).toHaveText('Stopped')
-  await expect(liveLine(frame)).toContainText('Out of budget.')
-  await expect(liveLine(frame)).toContainText('The daily cap was reached before this round closed.')
+  // A real host pairs every budget stop with a person-kind wait of its own,
+  // so the header reads Needs you and the live line shows that wait's
+  // sentence — the stop's own detail appears exactly once inside it, never
+  // a second time behind a generic "Out of budget." fallback label (#917).
+  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(liveLine(frame)).toContainText('Out of budget: the daily cap was reached before this round closed.')
+  const lineText = await liveLine(frame).innerText()
+  expect(lineText.match(/Out of budget/g)).toHaveLength(1)
   // What the stopped run already spent is kept and said.
   await expect(budget(frame)).toContainText('left')
 

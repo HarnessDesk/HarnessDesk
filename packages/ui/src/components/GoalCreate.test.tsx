@@ -62,7 +62,9 @@ it('creates once and retries only unfinished staffing', async () => {
   }) as unknown as AppStore['seatGoal']
   const { store, onClose } = mount(seatGoal)
   typeSentence('Ship the checkout rewrite')
-  for (const control of document.querySelectorAll<HTMLButtonElement>('[role="switch"]')) act(() => control.click())
+  // Seating is several members at once, so each row is a checkbox rather than
+  // a switch, which acts the moment it flips.
+  for (const control of document.querySelectorAll<HTMLButtonElement>('[role="checkbox"]')) act(() => control.click())
   press('Create Goal')
   await act(async () => {})
   expect(store.createGoal).toHaveBeenCalledTimes(1)

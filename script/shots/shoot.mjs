@@ -773,7 +773,7 @@ rules:
     } },
 
     /** The same room, as a room: several agents' turns side by side. */
-    room: { leaveOverlay: true, expect: 'AGENTS', run: async () => {
+    room: { leaveOverlay: true, expect: 'Agents', run: async () => {
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
       await sleep(2200)

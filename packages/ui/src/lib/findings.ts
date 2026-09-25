@@ -52,6 +52,10 @@ export const lifecycleWords = (view: FindingView): string => {
 export const lifecycleTone = (view: FindingView): LifecycleTone => {
   if (view.problem !== null) return 'danger'
   const { state, confirmed } = view.lifecycle
+  // A plain "Open" finding is the normal, default state a freshly raised
+  // finding starts in — never a warning ink, which is for a claim genuinely
+  // waiting on a person's review below.
+  if (state === 'open') return 'neutral'
   if (!confirmed) return 'warning'
   return state === 'withdrawn' ? 'neutral' : 'success'
 }

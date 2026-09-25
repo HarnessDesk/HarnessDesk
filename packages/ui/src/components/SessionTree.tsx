@@ -2,6 +2,7 @@ import {
   Button,
   Chip,
   ContextMenu,
+  DisclosureChevron,
   Dot,
   Input,
   Menu,
@@ -33,7 +34,6 @@ import type { AppSnapshot } from '../state/store'
 import {
   ArchiveIcon,
   BranchIcon,
-  ChevronIcon,
   ClockIcon,
   CollapseAllIcon,
   CopyIcon,
@@ -573,12 +573,7 @@ const GroupHead = ({
         onClick={(event) => (event.altKey ? onToggleAll() : onToggle())}
         title={`${current ? 'The folder this app is working in.\n' : ''}${group.root}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.`}
       >
-        <ChevronIcon
-          className={styles.groupChevron}
-          data-chevron=""
-          size={11}
-          {...(open ? { 'data-open': '' } : {})}
-        />
+        <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
         {/* An open folder for the one you are in, a closed one for the rest:
             the same distinction the OS file manager makes, and the one Codex
             makes in this exact list. */}
@@ -749,7 +744,7 @@ const RoomRow = ({
             onToggle()
           }}
         >
-          <ChevronIcon data-chevron="" className={styles.groupChevron} size={11} {...(open ? { 'data-open': '' } : {})} />
+          <DisclosureChevron open={open} size="xs" className={styles.groupChevron} />
         </Button>
         <Text role="meta" tint="violet" className={styles.roomIcon}>
           <TeamIcon size={12} />
@@ -1442,7 +1437,7 @@ export const SessionTree = ({ now }: { now: number }) => {
               setOver(null)
             }}
           >
-            <ChevronIcon data-chevron="" className={styles.groupChevron} size={11} {...(othersOpen ? { 'data-open': '' } : {})} />
+            <DisclosureChevron open={othersOpen} size="xs" className={styles.groupChevron} />
             <Text role="navigation">Other projects</Text>
             <Text role="meta" numeric className={styles.groupCount}>{far.length}</Text>
           </Button>

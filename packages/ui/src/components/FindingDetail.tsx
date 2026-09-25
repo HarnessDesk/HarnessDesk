@@ -112,7 +112,7 @@ export const FindingDetail = ({
               <KeyValueRow label="Raised">{`Round ${view.origin.round}, at ${view.origin.at.slice(0, 12)}`}</KeyValueRow>
               {view.restored && <KeyValueRow label="History">From a backup — history here, not live clearance.</KeyValueRow>}
               {view.anchor && (
-                <KeyValueRow label="Location"><CodeText>{`${view.anchor.path}:${view.anchor.line}`}</CodeText></KeyValueRow>
+                <KeyValueRow label="Location" kind="path">{`${view.anchor.path}:${view.anchor.line}`}</KeyValueRow>
               )}
             </KeyValue>
             <Markdown text={view.body} />

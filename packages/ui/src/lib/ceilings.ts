@@ -82,7 +82,7 @@ export const runtimeHolds = (runtime: RuntimeInfo): readonly RuntimeHold[] =>
 /** Why an Agent's row needs the migration action, or null for the current key. */
 export const flagWords = (definition: AgentDefinition): string | null =>
   definition.ceilingFrom === 'permission'
-    ? `Written with permission, so it reads as ${ceilingWords(definition.ceiling).toLowerCase()}.`
+    ? `Set by this file's older permission line, which counts as ${ceilingWords(definition.ceiling)}.`
     : definition.ceilingFrom === 'none'
       ? 'No ceiling written, so it runs as read.'
       : null

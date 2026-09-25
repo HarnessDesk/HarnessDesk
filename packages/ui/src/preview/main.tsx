@@ -48,8 +48,9 @@ import {
 import { PREVIEW_ROOT } from './sidebar-fixture'
 import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_UNSEEN } from './evidence-fixture'
 import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVENANCE_SHA } from './provenance-fixture'
-import { PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
+import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
+import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
 import '../styles/app.css'
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
@@ -66,6 +67,14 @@ Object.assign(store as unknown as Record<string, unknown>, {
   },
   retryCapture: async () => captureHealth(),
 })
+
+// The one run `goal-flow`'s own reservation names — its header reads
+// whichever of these `flowExecutions` holds, exactly as a real room does.
+previewMutable.patch({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution('pinned')]]) })
+/** Set from the "flow scene" Dial; `flowExecutions` is read synchronously off the snapshot, never fetched. */
+const setPreviewFlowExecutionScene = (scene: FlowExecutionScene): void => {
+  previewMutable.patch({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution(scene)]]) })
+}
 
 // The project's own trigger list is mutable here: arming and disarming the
 // switch in "Project — its triggers" below writes back into this state, the
@@ -283,6 +292,7 @@ const Preview = () => {
   >('off')
   const [armScene, setArmScene] = useState<TriggerArmScene>('ready')
   const [goalScene, setGoalScene] = useState<GoalIntakeScene>('pull-request')
+  const [flowScene, setFlowScene] = useState<FlowExecutionScene>('pinned')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
   const [agentsFocus, setAgentsFocus] = useState<string>('overview')
   return (
@@ -335,6 +345,12 @@ const Preview = () => {
           value={goalScene}
           options={GOAL_INTAKE_SCENES}
           onChange={(next) => { setGoalScene(next); setPreviewGoalIntakeScene(next) }}
+        />
+        <Dial
+          label="flow scene"
+          value={flowScene}
+          options={FLOW_EXECUTION_SCENES}
+          onChange={(next) => { setFlowScene(next); setPreviewFlowExecutionScene(next) }}
         />
       </div>
       {/* Sign-in is on this page's own store rather than the worktree one: it
@@ -623,6 +639,16 @@ const Preview = () => {
         <Frame title="Goal — opened by a trigger">
           <div className="h-[540px]">
             <TeamRoomPane key={goalScene} room={PREVIEW_TRIGGER_GOAL.goal.id} />
+          </div>
+        </Frame>
+        {/* A front-door start's own header meta: a pinned revision ("at
+            a1b2c3d on branch feature"), a diff or working-tree's label alone
+            (no head to repeat), or a person's own stop line — all read off
+            `flowExecutions`, never fetched, so the "flow scene" Dial above
+            is what moves this frame. */}
+        <Frame title="Goal — a front-door start's pinned revision or stop line">
+          <div className="h-[540px]">
+            <TeamRoomPane key={flowScene} room={PREVIEW_FLOW_GOAL.goal.id} />
           </div>
         </Frame>
         <div className="flex min-w-0 flex-col gap-4">

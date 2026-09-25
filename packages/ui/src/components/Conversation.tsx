@@ -52,6 +52,7 @@ import {
   PopoverOptionLabel,
   PopoverOptionLive,
   PopoverOptionMark,
+  Spinner,
   Submenu,
 } from '../design'
 import { Badge } from '../design'
@@ -456,7 +457,7 @@ const TasksChip = () => {
       }`}
       onClick={() => store.showView('tasks')}
     >
-      {live ? <span className="size-2.5 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-success) animate-[hd-spin_0.7s_linear_infinite]" aria-hidden="true" /> : <CheckIcon size={11} />}
+      {live ? <Spinner size="sm" tone="success" aria-hidden="true" /> : <CheckIcon size={11} />}
       <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
     </Button>
   )
@@ -671,7 +672,7 @@ export const Conversation = ({
         {session && <ConversationMap turns={session.turns} scroll={scroll} />}
         {loading && items.length === 0 ? (
           <div className={`${styles.loading} p-10 text-base text-(--hd-muted-foreground)`}>
-            <span className="size-[13px] rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[hd-spin_0.7s_linear_infinite]" />
+            <Spinner size="sm" tone="brand" />
             Loading transcript…
           </div>
         ) : session && items.length > 0 ? (

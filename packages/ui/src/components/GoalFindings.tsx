@@ -163,8 +163,8 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                 onClick={() => setOpened(row.id)}
                 title={
                   <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate">{row.title || 'Untitled finding'}</span>
                     <CodeText size="inherit" className="shrink-0 select-all">{row.id}</CodeText>
-                    <span className="min-w-0 truncate">{row.title || 'Untitled finding'}</span>
                   </span>
                 }
                 desc={
