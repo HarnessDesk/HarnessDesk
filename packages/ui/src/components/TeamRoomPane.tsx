@@ -1735,7 +1735,10 @@ const RoomLiveLine = ({
  */
 const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; readonly now: number }) => {
   const words = budgetMeterWords(state, now)
-  const tone: Tone = words.percentLeft <= 0 ? 'danger' : words.percentLeft < 20 ? 'warning' : 'neutral'
+  /* Brand ink while there is plenty left, like the context ring: in grey a
+     full 14px ring was the track's own colour one step darker, and read as
+     an empty outline at the very moment it was full. */
+  const tone: Tone = words.percentLeft <= 0 ? 'danger' : words.percentLeft < 20 ? 'warning' : 'brand'
   return (
     <div data-slot="room-budget" className="mt-2 flex items-center justify-end gap-(--hd-space-2)">
       <HoverCard>
@@ -1749,7 +1752,8 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
         <HoverCardContent side="top" align="end">
           <KeyValue variant="panel">
             <KeyValueRow label="Spend">{formatMeterUsd(words.spentUsd)} of {formatMeterUsd(words.totalUsd)}</KeyValueRow>
-            <KeyValueRow label="Rounds">{words.roundsUsed} of {words.roundsTotal}</KeyValueRow>
+            {/* The footer's own meaning — the round being worked — so the two never disagree. */}
+            <KeyValueRow label="Round">{words.roundNow} of {words.roundsTotal}</KeyValueRow>
             <KeyValueRow label="Time">{words.minutesUsed} of {words.minutesTotal} min</KeyValueRow>
           </KeyValue>
           <Note className="mt-2">

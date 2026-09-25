@@ -1439,7 +1439,11 @@ it("the composer's own budget meter reads what is left, and its hover card has t
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
 
   expect(document.body.textContent).toContain('$1.20 of $5')
-  expect(document.body.textContent).toContain('0 of 1')
+  // The same meaning as the footer's own "Round 1 of 1": the round being
+  // worked, never a count of rounds used beside it.
+  const rows = [...document.body.querySelectorAll('[data-slot="key-value-row"]')].map((one) => one.textContent)
+  expect(rows).toContain('Round1 of 1')
+  expect(rows.some((one) => one?.startsWith('Rounds'))).toBe(false)
   expect(document.body.textContent).toContain('12 of 60 min')
   expect(document.body.textContent).toContain('Stops after a round with no progress.')
 })
@@ -1612,6 +1616,12 @@ it('keeps the budget in the footer strip with and without a pending approval', a
 
   const waiting = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
   expect(waiting?.textContent).toBe('$3.80 left · Round 1 of 1')
+  // The ring fills with what is left — $3.80 of $5 is 76% — in the ink a
+  // meter with plenty left wears, so a full ring never reads as an empty one.
+  const ring = waiting!.querySelector<HTMLElement>('[data-slot="progress-ring"]')!
+  expect(ring.getAttribute('aria-valuenow')).toBe('76')
+  expect(ring.style.getPropertyValue('--progress-ring-fill')).toBe('76%')
+  expect(ring.getAttribute('data-tone')).toBe('brand')
   // Under the card, not above it.
   const card = container.querySelector('[data-slot="approval-card"]')!
   expect(card.compareDocumentPosition(waiting!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
