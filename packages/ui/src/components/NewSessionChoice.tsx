@@ -15,6 +15,7 @@ import {
   Text,
 } from '../design'
 import { projectRootOf } from '../lib/projects'
+import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
 import { AgentIcon, FlowIcon, GoalIcon, TeamIcon } from './Icons'
 import { FlowStart, type FlowChoice } from './FlowStart'
@@ -60,8 +61,14 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
   const [startingFrontDoor, setStartingFrontDoor] = useState(false)
 
   useEffect(() => { void store.loadAgents() }, [store])
+  const shell = useShell()
   const agents = inForce(snapshot.agents ?? [])
-  const showRunAs = kind === 'session' && agents.length > 0
+  /* What is shown is what runs. A kind that needs a folder falls back to
+     Session once the folder is gone, and an Agent that has left the roster
+     falls back to Plain session — never a Start that acts on a choice the
+     dialog no longer draws. */
+  const shownKind: Kind = kind !== 'session' && !root ? 'session' : kind
+  const showRunAs = shownKind === 'session' && agents.length > 0
   const chosenAgent = runAs === PLAIN ? null : agents.find((one) => one.id === runAs) ?? null
   const chosenInfo = chosenAgent ? runAsInfo(chosenAgent, snapshot.agentPlans) : null
 
@@ -80,35 +87,30 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
     )
   }
 
-  const needsRoot = kind !== 'session'
-  const primaryDisabled = needsRoot && !root
 
   const activate = (): void => {
-    if (primaryDisabled) return
-    if (kind === 'session') {
+    if (shownKind === 'session') {
       onClose()
-      if (runAs === PLAIN) store.newDraft()
-      else void store.startAsAgent(runAs)
+      if (chosenAgent) void store.startAsAgent(chosenAgent.id)
+      else store.newDraft()
       return
     }
-    if (kind === 'goal') setCreatingGoal(true)
-    else if (kind === 'flow') setStartingFlow(true)
+    if (shownKind === 'goal') setCreatingGoal(true)
+    else if (shownKind === 'flow') setStartingFlow(true)
     else setStartingFrontDoor(true)
   }
 
   const openAgents = (): void => {
     onClose()
-    store.showView('agents')
+    shell.openAgents()
   }
 
   /*
-   * Enter answers the dialog from anywhere in it — the plain choice is still
-   * what it starts by default, whatever else is selected above it — except
-   * inside "Run as" itself, where Enter is the platform's own way to close
-   * its list on the highlighted Agent. `capture` runs ahead of a radio row's
-   * own native Enter-activates-a-button behaviour, so pressing Enter on
-   * "Goal" proceeds to Goal rather than merely confirming it as the answer a
-   * second time.
+   * Enter does the footer's one filled act from anywhere in the dialog —
+   * Start, or Continue for the kind that is selected — except inside "Run
+   * as", where Enter is the platform's own way to close its list. `capture`
+   * runs ahead of a radio row's native Enter, so Enter on a kind proceeds
+   * rather than only selecting it again.
    */
   const onKeyDownCapture = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key !== 'Enter' || event.target instanceof HTMLSelectElement) return
@@ -126,8 +128,8 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
       onClose={onClose}
       footer={(
         <>
-          <Button variant="default" onClick={activate} disabled={primaryDisabled}>
-            {kind === 'session' ? 'Start' : 'Continue'}
+          <Button variant="default" onClick={activate}>
+            {shownKind === 'session' ? 'Start' : 'Continue'}
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
@@ -138,7 +140,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
         <FormStack>
         <ChoiceList
           label="What are you starting?"
-          value={kind}
+          value={shownKind}
           onChange={setKind}
           autoFocusSelected
           onActivate={activate}
@@ -178,13 +180,15 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
             label="Run as"
             /* Plain says nothing the Session row above has not; an Agent says what
                it does and where it would sit, or once, why it cannot. */
-            {...(chosenInfo ? { hint: chosenInfo.refused ? `Can’t start here: ${chosenInfo.reason}. Start shows every seat it would take.` : `${chosenAgent?.definition?.description ?? ''} It would sit on ${chosenInfo.seat?.label}.`.trim() } : {})}
+            {...(chosenInfo ? { hint: chosenInfo.refused
+                ? `${chosenInfo.reason ? `Can’t start here: ${chosenInfo.reason}.` : 'Can’t start here.'} Start shows every seat it would take.`
+                : [chosenAgent?.definition?.description, chosenInfo.seat ? `It would sit on ${chosenInfo.seat.label}.` : null].filter(Boolean).join(' ') || undefined } : {})}
           >
             {(control) => (
                 <NativeSelect
                   id={control.id}
                   aria-describedby={control['aria-describedby']}
-                  value={runAs}
+                  value={chosenAgent ? chosenAgent.id : PLAIN}
                   onChange={(event) => setRunAs(event.target.value)}
                 >
                   <option value={PLAIN}>Plain session</option>

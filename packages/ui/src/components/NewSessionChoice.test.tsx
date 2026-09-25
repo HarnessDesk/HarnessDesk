@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPreview, SeatPlan } from '@harnessdesk/protocol'
 
+import { ShellProvider, type ShellActions } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { NewSessionChoice } from './NewSessionChoice'
@@ -66,15 +67,32 @@ const rig = (
   return { store }
 }
 
+const shell: ShellActions = {
+  chooseProject: vi.fn(),
+  signIn: vi.fn(),
+  openUsage: vi.fn(),
+  openRuntimes: vi.fn(),
+  openAgents: vi.fn(),
+}
+
 const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {
   act(() => {
     root.render(
-      <StoreProvider store={store}>
-        <NewSessionChoice onClose={onClose} />
-      </StoreProvider>,
+      <ShellProvider actions={shell}>
+        <StoreProvider store={store}>
+          <NewSessionChoice onClose={onClose} />
+        </StoreProvider>
+      </ShellProvider>,
     )
   })
   return onClose
+}
+
+const choose = (select: HTMLSelectElement, value: string): void => {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
 }
 
 /** The kind row named `name` — "Session", "Goal", "Flow" or "Team". */
@@ -257,12 +275,79 @@ it('"Run as" stays off the page when no Agent is in force', () => {
   expect(document.querySelector('select')).toBeNull()
 })
 
-it('"Manage Agents…" closes the dialog and opens the Agents surface', () => {
+it('"Manage Agents…" closes the dialog and opens the Agents window, not a session\'s side view', () => {
+  vi.mocked(shell.openAgents).mockClear()
   const { store } = rig()
   const onClose = render(store)
   act(() => button('Manage Agents…').click())
-  expect(store.showView).toHaveBeenCalledWith('agents')
+  expect(shell.openAgents).toHaveBeenCalledTimes(1)
+  expect(store.showView).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
+})
+
+/*
+ * #870: focusing the selected kind must never scroll the dialog, and a later
+ * render must never pull focus back to it once a person has moved on.
+ */
+it('opens focused on Session without scrolling, and leaves focus where a person moved it', () => {
+  const spy = vi.spyOn(HTMLElement.prototype, 'focus')
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  expect(document.activeElement).toBe(kindRow('Session'))
+  const call = spy.mock.calls.find(([options]) => (options as FocusOptions | undefined)?.preventScroll === true)
+  expect(call, `focus() was called as: ${JSON.stringify(spy.mock.calls)}`).toBeDefined()
+  spy.mockRestore()
+
+  const select = runAsSelect()
+  act(() => select.focus())
+  render(store)
+  expect(document.activeElement).toBe(select)
+})
+
+it('Enter with Agents listed still starts a plain session while Plain session is chosen', () => {
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(store.newDraft).toHaveBeenCalledTimes(1)
+  expect(store.startAsAgent).not.toHaveBeenCalled()
+})
+
+it('an Agent that leaves the roster is not started behind the dialog\'s back', () => {
+  const agent = reviewer('code-reviewer', 'Code reviewer')
+  const first = rig({}, [agent, reviewer('judge', 'Judge')], PLANS)
+  render(first.store)
+  choose(runAsSelect(), 'code-reviewer')
+
+  const later = rig({}, [reviewer('judge', 'Judge')], PLANS)
+  render(later.store)
+  expect(runAsSelect().value).toBe('plain')
+  act(() => button('Start').click())
+  expect(later.store.startAsAgent).not.toHaveBeenCalled()
+  expect(later.store.newDraft).toHaveBeenCalledTimes(1)
+})
+
+it('an Agent whose seat check has not come back says what it does, never "undefined"', () => {
+  const { store } = rig({}, [reviewer('fresh', 'Fresh reviewer')], new Map())
+  render(store)
+  choose(runAsSelect(), 'fresh')
+  expect(document.body.textContent).toContain('Fresh reviewer.')
+  expect(document.body.textContent).not.toContain('undefined')
+  expect(document.body.textContent).not.toContain('null')
+})
+
+it('a kind that needs a folder falls back to Session when the folder goes away', () => {
+  const withFolder = rig()
+  render(withFolder.store)
+  act(() => kindRow('Goal').click())
+  expect(button('Continue')).toBeTruthy()
+
+  const noFolder = rig({ workspace: null })
+  render(noFolder.store)
+  expect(kindRow('Session').getAttribute('aria-checked')).toBe('true')
+  act(() => button('Start').click())
+  expect(noFolder.store.newDraft).toHaveBeenCalledTimes(1)
 })
 
 /*
