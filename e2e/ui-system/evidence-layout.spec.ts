@@ -1,16 +1,8 @@
 import { expect, test } from '@playwright/test'
 
-test('stale evidence wraps every readable chip inside its narrow board card', async ({ page }) => {
+test('stale evidence stays one line per chip, inside its narrow board card', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 900 })
   await page.goto('/preview.html')
-
-  /* Production bundles the Chip module after the utility sheet, while Vite's
-     development graph happens to put the utilities last. Reproduce the
-     shipped cascade: a screen-level wrapping utility has to survive Chip's
-     canonical one-line rule, not merely win in the dev server. */
-  await page.addStyleTag({
-    content: '[data-tone] { height: var(--hd-chip-h); line-height: 1; white-space: nowrap; }',
-  })
 
   const frame = page.getByRole('heading', { name: 'Board — what the desk observed' }).locator('..')
   const card = frame.locator('[data-slot="board-card"]').filter({ hasText: 'Cap the backoff and add jitter' })
@@ -18,7 +10,6 @@ test('stale evidence wraps every readable chip inside its narrow board card', as
 
   await card.scrollIntoViewIfNeeded()
   await expect(evidence).toContainText('verify ✓')
-  await expect(evidence).toContainText('2 commits since')
 
   const cardBox = await card.boundingBox()
   const evidenceBox = await evidence.boundingBox()
@@ -27,17 +18,35 @@ test('stale evidence wraps every readable chip inside its narrow board card', as
   expect(evidenceBox.x).toBeGreaterThanOrEqual(cardBox.x)
   expect(evidenceBox.x + evidenceBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 
-  for (const chip of await evidence.locator('[data-tone]').all()) {
+  const chips = await evidence.locator('[data-slot="chip"]').all()
+  expect(chips.length).toBeGreaterThan(0)
+  for (const chip of chips) {
     const chipBox = await chip.boundingBox()
-    if (!chipBox) throw new Error('a stale evidence chip was not laid out')
+    if (!chipBox) throw new Error('an evidence chip was not laid out')
     expect(chipBox.x).toBeGreaterThanOrEqual(cardBox.x)
     expect(chipBox.x + chipBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width)
 
-    const words = chip.locator('[data-slot="chip-words"]')
-    const wordsBox = await words.boundingBox()
-    if (!wordsBox) throw new Error('a stale evidence chip has no readable words')
-    expect(wordsBox.x).toBeGreaterThanOrEqual(chipBox.x)
-    expect(wordsBox.x + wordsBox.width).toBeLessThanOrEqual(chipBox.x + chipBox.width)
-    expect(await words.evaluate((node) => getComputedStyle(node.parentElement!).whiteSpace)).toBe('normal')
+    // One line: the pill is its own height, whatever the words are.
+    const drawn = await chip.evaluate((node) => {
+      const style = getComputedStyle(node)
+      const words = node.querySelector('[data-slot="chip-words"]') as HTMLElement
+      return {
+        height: node.getBoundingClientRect().height,
+        chipHeight: Number.parseFloat(style.height),
+        whiteSpace: style.whiteSpace,
+        struck: [node, words, ...words.querySelectorAll('*')].some((one) => getComputedStyle(one).textDecorationLine.includes('line-through')),
+        stale: node.hasAttribute('data-stale'),
+        glyph: node.firstElementChild?.tagName.toLowerCase() === 'svg',
+      }
+    })
+    expect(drawn.whiteSpace).toBe('nowrap')
+    expect(Math.abs(drawn.height - drawn.chipHeight)).toBeLessThanOrEqual(1)
+    expect(drawn.struck).toBe(false)
+    if (drawn.stale) expect(drawn.glyph).toBe(true)
   }
+
+  // A chip cut short says itself whole when the pointer arrives.
+  const cut = evidence.locator('[data-slot="chip"][data-stale]').first()
+  await cut.hover()
+  await expect(cut).toHaveAttribute('title', /2 commits since/)
 })
