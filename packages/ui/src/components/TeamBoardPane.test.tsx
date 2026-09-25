@@ -14,7 +14,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
-import { cardEvidence, checkView, ciView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
+import { cardEvidence, checkView, ciView, factView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
 import { ARM_MS } from './RunCheck'
 import { TeamBoardPane } from './TeamBoardPane'
 
@@ -820,10 +820,24 @@ it('a stale chip says how far behind it is', async () => {
     observed(['verify'], [cardEvidence(1, [checkView({ freshness: { state: 'behind', commits: 2 } })])]),
   )
   await render(store)
-  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d — 2 commits since (stale)')
+  // The card shows the fact whole; the distance is said aloud and in the chip's title.
+  expect(chipsOf(1)?.textContent).toBe('verify ✓ @a1b2c3d (stale)')
+  expect(chipsOf(1)?.querySelector('[data-stale]')?.getAttribute('title')).toBe('verify ✓ @a1b2c3d — 2 commits since')
   expect(chipsOf(1)?.getAttribute('aria-label')).toBe(
     'What the desk observed on #1: verify ✓ @a1b2c3d — 2 commits since (stale)',
   )
+})
+
+it('a zero diff alone says "no changes" on a done card and nothing on a working one', async () => {
+  const none = () => factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+  const { store } = rig(
+    [intent({ id: 1, state: 'done' }), intent({ id: 2, state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } })],
+    {},
+    observed([], [cardEvidence(1, [none()]), cardEvidence(2, [none()])]),
+  )
+  await render(store)
+  expect(chipsOf(1)?.textContent).toBe('no changes')
+  expect(chipsOf(2)).toBeNull()
 })
 
 it('the plain board draws no evidence', async () => {
