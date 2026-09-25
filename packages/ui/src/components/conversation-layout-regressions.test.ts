@@ -13,15 +13,19 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   for (const name of ['hd-spin', 'hd-pulse', 'hd-blink']) expect(baseCss).toContain(`@keyframes ${name}`)
   expect(conversationCss).not.toMatch(/@keyframes\s+(spin|pulse)/)
   expect(itemsCss).not.toMatch(/@keyframes\s+(spin|blink)/)
-  expect(conversationTsx).toMatch(/animate-\[hd-spin_/)
   expect(conversationTsx).toMatch(/animate-\[hd-pulse_/)
   expect(itemsTsx).toMatch(/animate-\[hd-blink_/)
   // A step's own running mark is the system spinner, not a fourth drawing —
-  // the same rule the step group's already kept.
-  expect(itemsTsx).toMatch(/<Spinner size="sm" tone="brand" \/>/)
-  expect(itemsTsx).not.toMatch(/animate-\[hd-spin_/)
-  expect(stepGroupTsx).toMatch(/<Spinner size="sm" tone="brand" \/>/)
-  expect(stepGroupTsx).not.toMatch(/animate-\[hd-spin_/)
+  // the same rule the step group's already kept. Conversation.tsx's own two
+  // running marks (the background-tasks chip, the transcript's own load)
+  // moved the same way, so hd-spin's keyframe now names no direct consumer
+  // in either file — Spinner draws with Tailwind's own animate-spin — and
+  // stays defined in base.css as a general motion utility rather than one
+  // this pass removes.
+  for (const source of [conversationTsx, itemsTsx, stepGroupTsx]) {
+    expect(source).toMatch(/<Spinner size="sm" tone="(brand|success)"/)
+    expect(source).not.toMatch(/animate-\[hd-spin_/)
+  }
 })
 
 it('keeps the light work register compact and its grouped body visibly nested', () => {
