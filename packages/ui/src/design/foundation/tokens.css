@@ -269,9 +269,8 @@ body {
   --hd-control-h: 26px;
   --hd-target-min: 24px;
   --hd-control-h-sm: 24px;
-  /* History toolbars are compact chrome rather than pointer targets. */
-  --hd-history-action-h: 34px;
-  --hd-history-filter-min-h: 36px;
+  /* The floor of the history's resizable commit detail. Its action and
+     filter bars stand on the tool pane's own bar rung now (`ToolPaneBar`). */
   --hd-history-detail-min-h: 160px;
   /*
    * The text-control rung, and why it is not `--hd-control-h`.

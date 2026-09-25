@@ -136,16 +136,6 @@ export {
   type TurnWorkState,
 } from './patterns/TurnWork'
 export {
-  GitHistoryActionBar,
-  GitHistoryFilters,
-  GitHistoryTableHeader,
-  GitHistoryCommitDetail,
-  GitHistoryCommitDetailHeader,
-  GitHistoryCommitFileList,
-  GitHistoryDiffViewport,
-  GitHistoryInlinePatch,
-} from './patterns/GitHistory'
-export {
   ApprovalChoiceHint,
   ApprovalCode,
   ApprovalDialog,

@@ -149,6 +149,18 @@ const ToolPaneHeaderDivider = () => (
   />
 )
 
+/**
+ * A bar of the tool's own controls under its header.
+ *
+ * `tools` is the one whose controls are the tool's verbs and filters rather
+ * than a single field — a repository's actions, its history's scope and
+ * search, the head of the commit it has open. It stands at the same 36px as
+ * `find`, and it is a floor rather than a height: a pane narrower than its
+ * controls lets them take a second line (the caller's layout says whether they
+ * wrap), and the bar grows with them instead of cutting the last one off. A
+ * bar that is a set of controls says so with `role="toolbar"`, the one role a
+ * bar may take.
+ */
 const ToolPaneBar = ({
   as = 'div',
   variant,
@@ -156,9 +168,17 @@ const ToolPaneBar = ({
   ...props
 }: Omit<React.ComponentProps<'div'>, 'role'> & {
   as?: 'div' | 'form'
-  variant: 'terminal' | 'address' | 'find' | 'annotate'
+  variant: 'terminal' | 'address' | 'find' | 'annotate' | 'tools'
+  role?: 'toolbar'
 }) => {
-  const height = variant === 'terminal' ? 'h-(--hd-control-h)' : variant === 'address' ? 'h-10' : 'h-9'
+  const height =
+    variant === 'terminal'
+      ? 'h-(--hd-control-h)'
+      : variant === 'address'
+        ? 'h-10'
+        : variant === 'tools'
+          ? 'min-h-9 py-0.5'
+          : 'h-9'
   return React.createElement(as, {
     ...props,
     'data-slot': 'tool-pane-bar',

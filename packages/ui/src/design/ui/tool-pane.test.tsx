@@ -122,3 +122,19 @@ it('sets a device-sized guest on the muted stage, and leaves an unframed stage b
   expect(framed).toContain('bg-(--hd-muted)')
   expect(framed).toContain('justify-center')
 })
+
+it('stands a bar of the tool’s own controls on the find bar’s rung as a floor, so a wrapped row grows instead of clipping', () => {
+  const tools = renderToStaticMarkup(<ToolPaneBar variant="tools" role="toolbar" aria-label="Repository actions">verbs</ToolPaneBar>)
+  expect(tools).toContain('role="toolbar"')
+  expect(tools).toContain('data-variant="tools"')
+  // A floor, not a height: the caller's controls may take a second line.
+  expect(tools).toContain('min-h-9')
+  expect(tools).not.toMatch(/(?<![\w-])h-9(?![\w-])/)
+  // The same rung, edge and ground as the find bar it stands beside.
+  const find = renderToStaticMarkup(<ToolPaneBar variant="find">find</ToolPaneBar>)
+  expect(find).toMatch(/(?<![\w-])h-9(?![\w-])/)
+  for (const bar of [tools, find]) {
+    expect(bar).toContain('border-b')
+    expect(bar).toContain('bg-(--hd-card)')
+  }
+})

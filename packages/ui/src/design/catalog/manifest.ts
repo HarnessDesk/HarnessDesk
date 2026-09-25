@@ -125,7 +125,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'GitHistory', 'TurnWork',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -209,7 +209,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
   ConversationEmptyState: ['default'],
-  GitHistory: ['default'],
   TurnWork: ['default'],
 }
 
@@ -289,7 +288,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
   ConversationEmptyState: ['empty'],
-  GitHistory: ['default', 'selected', 'expanded'],
   TurnWork: ['default', 'expanded'],
 }
 
@@ -332,7 +330,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
-  GitHistory: 'packages/ui/src/components/GitPane.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
@@ -358,7 +355,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
-  GitHistory: 'packages/ui/src/components/GitPane.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
@@ -485,7 +481,6 @@ export const CANONICAL_PATTERN_MODULES = [
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
-  ['GitHistory', 'git', 'Repository history controls and detail anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
 ] as const satisfies readonly ModuleSeed[]
 

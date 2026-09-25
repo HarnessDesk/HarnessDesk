@@ -118,7 +118,18 @@
 /* --- the table ----------------------------------------------------------- */
 
 /* The table's head. It sits above the list rather than inside it, so it does
-   not scroll away — the columns line up because both read the same widths. */
+   not scroll away — the columns line up because both read the same widths,
+   and because it keeps the rows' own right inset (`CommitRow`'s). A table
+   only this pane draws, so its head is this pane's, not a shared part. */
+.tableHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2-5);
+  height: var(--hd-control-h-sm); /* desk: GitHistoryTableHeader's h-(--hd-control-h-sm) → here, the head of a table only this pane has */
+  padding-right: var(--hd-space-3); /* desk: GitHistoryTableHeader's pr-3 → here, the rows' own right inset */
+}
+
 /* No `overflow: hidden` here: the handle straddles the column's right edge,
    and a clipped cell swallows the half that hangs over — the grip then looks
    grabbable and is not. The label does its own ellipsis instead. */
@@ -300,6 +311,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  min-height: var(--hd-history-detail-min-h); /* desk: GitHistoryCommitDetail's min-h → here, the floor of the one resizable detail this pane has */
 }
 
 .detailHandle {
