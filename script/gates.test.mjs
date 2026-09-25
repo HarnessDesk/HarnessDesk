@@ -17,7 +17,11 @@ import {
   rawZIndexes,
   looksLikeUnmappedAppearanceUtility,
   declarationsByClassIn,
+  exportsReferencing,
+  isPatternModule,
+  parseScreenSource,
   patternExportAppearanceOf,
+  resolvedConsumersOf,
   screenAppearanceOf,
   screenAreaOf,
   singleScreenAreaOf,
@@ -268,6 +272,7 @@ test('exported-name resolution follows a re-export shim to the file that actuall
   assert.deepEqual(found, {
     file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
     localName: 'GroupLine',
+    localBinding: 'GroupLine',
   })
 })
 
@@ -370,6 +375,83 @@ test('the CSS-module classes a single-area export reaches for are charged, readi
 test('a plain .ts design module has no stylesheet to charge (#914)', () => {
   assert.equal(stylesheetFor(patternTsx('Widget.tsx')), patternTsx('Widget.module.css'))
   assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')), null)
+})
+
+/*
+ * #914 review: charging a part as single-area because it has one *screen*
+ * importer ignored a design part composing it into something used far more
+ * widely. `RailSection` (DockPanel.tsx) has one direct screen importer
+ * (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+ * and `AppWindowRailScroll`, which `components/AppWindow.tsx` mounts for
+ * Settings, the Agents window, ChangesReview and Usage — so RailSection's
+ * true reach spans several areas, and charging it as "Sidebar's own" would
+ * have made the zero unreachable without faking a consumer away.
+ */
+test('exportsReferencing finds only the exports that actually compose an import, real file (#914)', () => {
+  const appWindow = path.join(repoRoot, 'packages/ui/src/design/patterns/AppWindow.tsx')
+  const ast = parseScreenSource(appWindow, fs.readFileSync(appWindow, 'utf8'))
+  assert.deepEqual(
+    new Set(exportsReferencing(ast, 'RailSection')),
+    new Set(['AppWindowRailTop', 'AppWindowRailScroll']),
+  )
+  // Neither of these draws RailSection at all.
+  assert.equal(exportsReferencing(ast, 'DialogPopup').includes('AppWindowRailTop'), false)
+})
+
+test('resolvedConsumersOf inherits the reach of every design export that composes one, cycles guarded (#914)', () => {
+  const part = { file: '/design/Rail.tsx', localName: 'RailSection' }
+  const wrapperA = { file: '/design/AppWindow.tsx', localName: 'AppWindowRailTop' }
+  const sidebar = '/components/Sidebar.tsx'
+  const settings = '/components/Settings.tsx'
+  const agentsWindow = '/components/AgentsWindow.tsx'
+
+  const directConsumers = new Map([
+    [`${part.file}::${part.localName}`, { file: part.file, localName: part.localName, consumers: [sidebar] }],
+    // AppWindowRailTop has no screen importer of its own in this fixture —
+    // its whole reach comes from what composes *it*.
+  ])
+  const designUsers = new Map([
+    // RailSection is composed into AppWindowRailTop.
+    [`${part.file}::${part.localName}`, { ...part, users: [wrapperA] }],
+    // AppWindowRailTop is itself composed into components/AppWindow.tsx's own
+    // exports, which Settings and AgentsWindow each mount — modelled here as
+    // a second design export so the chain is two hops, not one.
+    [`${wrapperA.file}::${wrapperA.localName}`, {
+      ...wrapperA,
+      users: [{ file: '/components/AppWindow.tsx', localName: 'AppWindowPage' }],
+    }],
+  ])
+  directConsumers.set('/components/AppWindow.tsx::AppWindowPage', {
+    file: '/components/AppWindow.tsx',
+    localName: 'AppWindowPage',
+    consumers: [settings, agentsWindow],
+  })
+
+  assert.deepEqual(
+    resolvedConsumersOf(part.file, part.localName, directConsumers, designUsers).sort(),
+    [agentsWindow, settings, sidebar].sort(),
+  )
+
+  // A cycle (A composes B, B composes A) terminates rather than looping.
+  const cyclic = new Map([
+    ['/a.tsx::A', { file: '/a.tsx', localName: 'A', users: [{ file: '/b.tsx', localName: 'B' }] }],
+    ['/b.tsx::B', { file: '/b.tsx', localName: 'B', users: [{ file: '/a.tsx', localName: 'A' }] }],
+  ])
+  assert.deepEqual(resolvedConsumersOf('/a.tsx', 'A', new Map(), cyclic), [])
+})
+
+/*
+ * #914 review: `design/ui/` holds generic, shadcn-registry-style primitives
+ * that are meant to exist before they have a second caller — charging one
+ * for having exactly one today would make the ceiling unreachable without
+ * inventing a pointless second caller. Only `design/patterns/` compositions
+ * are charged; a single-area primitive is listed under `--verbose` instead
+ * (see the audit's own `isMain` block), never counted or baselined.
+ */
+test('only design/patterns/ is a pattern module; design/ui/ primitives are not charged (#914)', () => {
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/patterns/Settings.tsx')), true)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')), false)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/board.tsx')), false)
 })
 
 test('the browser integration job builds workspace package entries before Vite', () => {

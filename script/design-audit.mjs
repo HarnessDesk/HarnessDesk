@@ -2093,7 +2093,7 @@ const CLASS_COMBINERS = new Set(['cn', 'clsx', 'cx'])
  * the same contract `codeOf` and `ui-architecture.mjs`'s own `parseSource`
  * hold elsewhere.
  */
-const parseScreenSource = (file, source) => {
+export const parseScreenSource = (file, source) => {
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const problem = ast.parseDiagnostics?.[0]
   if (problem) throw new Error(`${file}: TypeScript could not parse this file (${ts.flattenDiagnosticMessageText(problem.messageText, ' ')})`)
@@ -3435,13 +3435,20 @@ export const exportedNamesOf = (file, seen = new Set()) => {
 }
 
 /**
- * Every design export one screen file imports, resolved through however many
- * hops of `export *`, named re-export and re-export shim it takes to reach
+ * Every design export one file imports, resolved through however many hops
+ * of `export *`, named re-export and re-export shim it takes to reach
  * `design/` — the general form `publicDesignImports` used to be, which saw
  * only a direct `from '../design'` import naming design/index.ts exactly.
- * Returns `{ file, localName }` pairs, not public names: two different
- * public names that happen to share a re-exporting module are two different
- * exports below, not one shared module (#914, shape 3's precondition).
+ * Returns `{ file, localName, localBinding }`: `file`/`localName` are the
+ * concrete declaration, not public names — two different public names that
+ * happen to share a re-exporting module are two different exports below, not
+ * one shared module (#914, shape 3's precondition) — and `localBinding` is
+ * the name the *importer* actually uses (after its own `as`, if any), needed
+ * to find where in the importer's own code the import is read (below,
+ * transitive design-to-design use).
+ *
+ * `file` here is any source, not only a screen: called on a design file
+ * itself, this is how a pattern composing another design part is found.
  */
 export const designImportsOf = (file) => {
   const found = []
@@ -3450,10 +3457,12 @@ export const designImportsOf = (file) => {
     if (!target) continue
     const exported = exportedNamesOf(target)
     for (const part of match[1].split(',')) {
-      const importedName = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)[0]?.trim()
-      if (!importedName) continue
+      const words = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)
+      const importedName = words[0]?.trim()
+      const localBinding = words.at(-1)?.trim()
+      if (!importedName || !localBinding) continue
       const ref = exported.get(importedName)
-      if (ref && ref.file.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) found.push(ref)
+      if (ref && ref.file.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) found.push({ ...ref, localBinding })
     }
   }
   return found
@@ -3503,6 +3512,36 @@ export const moduleClassReferences = (root, bindingName) => {
   }
   visit(root)
   return names
+}
+
+/**
+ * Which of `ast`'s own top-level exported declarations reference `localName`
+ * anywhere in their own subtree — a JSX tag, a bare identifier, a call — not
+ * a `styles.X` property access (`moduleClassReferences`'s job, just above).
+ * Used to trace which of a design pattern's own exports actually *compose*
+ * an import, rather than crediting every export in the file just because the
+ * file imports the name somewhere: `AppWindow.tsx` imports `RailSection`
+ * once, but only `AppWindowRailTop` and `AppWindowRailScroll` draw it —
+ * `AppWindowSurface`, `AppWindowRail` and `AppWindowPage` do not (#914
+ * review, transitive design-to-design use below).
+ */
+export const exportsReferencing = (ast, localName) => {
+  const found = []
+  for (const statement of ast.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      let used = false
+      const visit = (node) => {
+        if (used) return
+        if (ts.isIdentifier(node) && node.text === localName) { used = true; return }
+        ts.forEachChild(node, visit)
+      }
+      visit(declaration.initializer)
+      if (used) found.push(declaration.name.text)
+    }
+  }
+  return found
 }
 
 /**
@@ -3614,23 +3653,84 @@ for (const importer of screenSources) {
     importersByFile.set(imported, [...(importersByFile.get(imported) ?? []), importer])
   }
 }
+/** Direct screen consumers only — a design export's own importers among
+ * `components/slots/panels`, before a design-to-design use is followed. */
 const consumersByExport = new Map()
 for (const file of screenSources) {
   for (const ref of designImportsOf(file)) {
     const key = `${ref.file}::${ref.localName}`
     let entry = consumersByExport.get(key)
     if (!entry) {
-      entry = { module: ref.file, localName: ref.localName, consumers: [] }
+      entry = { file: ref.file, localName: ref.localName, consumers: [] }
       consumersByExport.set(key, entry)
     }
     entry.consumers.push(file)
   }
 }
-const exportsByModule = new Map()
-for (const { module, localName, consumers } of consumersByExport.values()) {
-  if (!exportsByModule.has(module)) exportsByModule.set(module, [])
-  exportsByModule.get(module).push({ localName, consumers })
+
+/**
+ * Every design export another design export *composes*, keyed by the export
+ * composed — the design-to-design half of the same graph `consumersByExport`
+ * builds for screens. `RailSection` has one direct screen importer
+ * (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+ * and `AppWindowRailScroll`; those reach `components/AppWindow.tsx`, which
+ * Settings, the Agents window, ChangesReview and Usage each mount — so
+ * `RailSection`'s true reach is well past Sidebar, and charging it as
+ * "Sidebar's own" would have made the ceiling unreachable without faking a
+ * consumer out of existence (#914 review). Read from every `.tsx` under
+ * `design/`, not only patterns: a primitive can compose another primitive
+ * too (`ui/dialog.tsx`'s `Dialog` composing a lower part), and the reach has
+ * to be found wherever it starts.
+ */
+const designSources = tsxFiles().filter((file) => /[\\/]design[\\/]/.test(file))
+const designUsersByExport = new Map()
+for (const designFile of designSources) {
+  const uses = designImportsOf(designFile)
+  if (uses.length === 0) continue
+  const designAst = parseScreenSource(designFile, read(designFile))
+  for (const ref of uses) {
+    const composingExports = exportsReferencing(designAst, ref.localBinding)
+    if (composingExports.length === 0) continue
+    const key = `${ref.file}::${ref.localName}`
+    let entry = designUsersByExport.get(key)
+    if (!entry) {
+      entry = { file: ref.file, localName: ref.localName, users: [] }
+      designUsersByExport.set(key, entry)
+    }
+    for (const localName of composingExports) entry.users.push({ file: designFile, localName })
+  }
 }
+
+/**
+ * A design export's full screen reach: its own direct screen importers
+ * (`directConsumers`), plus — recursively, cycles guarded by `visited` — the
+ * reach of every design export that composes it (`designUsers`). A part
+ * reached only through composition (no screen ever imports it by name) is
+ * the reach of whatever composes it, not "no consumers". Parameterized on
+ * both maps, rather than closing over the module-level ones built below, so
+ * a fixture can hand it a small graph of its own.
+ */
+export const resolvedConsumersOf = (file, localName, directConsumers, designUsers, visited = new Set()) => {
+  const key = `${file}::${localName}`
+  if (visited.has(key)) return []
+  visited.add(key)
+  const direct = directConsumers.get(key)?.consumers ?? []
+  const downstream = (designUsers.get(key)?.users ?? []).flatMap(
+    (user) => resolvedConsumersOf(user.file, user.localName, directConsumers, designUsers, visited),
+  )
+  return [...direct, ...downstream]
+}
+
+const exportsByModule = new Map()
+for (const key of new Set([...consumersByExport.keys(), ...designUsersByExport.keys()])) {
+  const { file: module, localName } = consumersByExport.get(key) ?? designUsersByExport.get(key)
+  if (!exportsByModule.has(module)) exportsByModule.set(module, [])
+  exportsByModule.get(module).push({
+    localName,
+    consumers: resolvedConsumersOf(module, localName, consumersByExport, designUsersByExport),
+  })
+}
+
 /**
  * The `.module.css` a design module owns, or `null` for a plain `.ts` module
  * — an adapter with no JSX (`design/adapters/terminal.ts`) has no sibling
@@ -3642,8 +3742,39 @@ for (const { module, localName, consumers } of consumersByExport.values()) {
  */
 export const stylesheetFor = (module) => (module.endsWith('.tsx') ? module.replace(/\.tsx$/, '.module.css') : null)
 
+/**
+ * Charged only under `design/patterns/` — a typed, product-specific
+ * composition contract, which is what "a screen's appearance parked in the
+ * design folder" actually describes. `design/ui/` holds shadcn-registry
+ * primitives and their compositions (the chart kit, `Board`, `ToolPane`,
+ * `Card`, `Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta`…):
+ * generic vocabulary that is meant to exist before it has a second consumer,
+ * the way a design system's own primitives always are. Charging one for
+ * having one caller today would make the strict zero unreachable without
+ * inventing a second, pointless caller — the ceiling this category holds is
+ * meant to fall by composing more, not by faking use. A single-area
+ * primitive is still worth a human's attention, so it is listed under
+ * `--verbose` (below), outside `SECTIONS` and the saved baseline, the same
+ * way `unmappedScreenUtility` is a hint rather than a second strict
+ * category (#914 review).
+ */
+export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(module)
+
+/** `{ module, localName, area }` for every `design/ui/` (or other
+ * non-pattern) export whose resolved reach is single-area — reported only
+ * under `--verbose`, never counted or held to a ceiling. See
+ * `isPatternModule` just above for why. */
+const singleAreaPrimitives = []
+
 const patternCountedDefs = new Set()
 for (const [module, exportsHere] of exportsByModule) {
+  if (!isPatternModule(module)) {
+    for (const { localName, consumers } of exportsHere) {
+      const area = singleScreenAreaOf(consumers, importersByFile)
+      if (area) singleAreaPrimitives.push({ module, localName, area })
+    }
+    continue
+  }
   const sheet = stylesheetFor(module)
   const moduleSource = tracked.has(module) ? read(module) : null
   const sheetSource = sheet && tracked.has(sheet) ? read(sheet) : null
@@ -3875,6 +4006,17 @@ if (isMain) {
   if (verbose && findings.unmappedScreenUtility.length > 0) {
     console.log(`${String(findings.unmappedScreenUtility.length).padStart(4)}  Unmapped utility (not counted; looks like appearance)`)
     for (const line of findings.unmappedScreenUtility) console.log(`        ${line}`)
+    console.log('')
+  }
+  // Outside SECTIONS and the baseline on purpose — see `isPatternModule`
+  // above. A single-area design/ui/ primitive is a fact worth a human's
+  // attention, not a defect to charge: it is generic vocabulary that has not
+  // grown a second caller yet, not a screen's appearance hiding in design/.
+  if (verbose && singleAreaPrimitives.length > 0) {
+    console.log(`${String(singleAreaPrimitives.length).padStart(4)}  Single-area primitives (watch; not counted)`)
+    for (const { module, localName, area } of singleAreaPrimitives) {
+      console.log(`        ${label(module)}: ${localName} [${area} screen area]`)
+    }
     console.log('')
   }
   console.log(`${total} findings.`)
