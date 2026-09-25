@@ -778,7 +778,7 @@ these is opening every tab in a browser.
 ### What the audit refuses
 
 `pnpm design:audit --strict` holds eighteen categories at a baseline.
-Seventeen are at zero; `screenAppearance` sits at 895 declarations —
+Seventeen are at zero; `screenAppearance` sits at 840 declarations —
 appearance a screen still draws for itself instead of composing it, in
 whichever of three spellings it chose.
 
@@ -811,6 +811,20 @@ table header or a card heading, which is why `patternClass` could safely keep
 only `empty`; the declaration says what the screen actually owns. Markdown's
 prose ratio ladder and the diff viewer remain named specialized-renderer
 exemptions, in both the stylesheet and the `.tsx` that renders each.
+
+The same boundary reaches into `design/` itself. An exported part there whose
+every screen consumer sits in one screen area — one file, or a named
+multi-file family such as Git or the conversation transcript — is that
+screen's own appearance parked in the design folder rather than composed, so
+its CSS-module rules, its own Tailwind utilities and its own inline styles
+are charged to `screenAppearance` the same way a screen's are; an export two
+or more areas reach for stays uncharged, because moving it would break
+whichever area lost it. Consumers are resolved per exported name, not per
+file: one export used everywhere does not make a single-area sibling in the
+same module look shared, and a re-export — `export *`, a renamed named
+export, or a shim entirely outside `design/` forwarding a name back out —
+is followed to wherever the name is actually declared before its consumers
+are counted.
 
 Three of those categories spent a long time reporting zero while they were
 simply unable to see:
@@ -871,7 +885,24 @@ simply unable to see:
   every possibility, and reports what it cannot compute rather than assume
   it small.
 
-All three have the same shape as the line-height ratios before them: name the
+- The single-consumer half of `screenAppearance` could not see four shapes of
+  its own use. `export *` — `design/ui`, `InspectorPanel`, `DockPanel` — hid
+  every part behind it entirely, because only a named `export { X } from 'y'`
+  was read. Only the Git surface was a named multi-file screen area, so the
+  conversation transcript's own files (Items, TurnWork, StepGroup, TurnFiles,
+  Trajectory, ConversationMap) read as four separate areas and a part spread
+  across any two of them looked cross-area. A module's exports were resolved
+  as one merged list of consumers rather than one list per export, so a
+  widely used export made a genuinely single-area sibling in the same file
+  look shared too. And a re-export shim entirely outside `design/`
+  (`components/Panel.tsx`, forwarding `GroupLine` and `PanelRow` back out
+  from `'../design'`) traced no consumer to `design/` at all. Following
+  `export *` and a shim however many hops deep, naming the conversation,
+  settings, agent-roster and room families, and resolving consumers per
+  export rather than per module closed all four; the baseline rose from 480
+  to 840 (#914).
+
+All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —
 confidently, at zero. When adding a rule, the question is not "does this catch
 the case I am thinking of" but "what spelling of this would it miss".
