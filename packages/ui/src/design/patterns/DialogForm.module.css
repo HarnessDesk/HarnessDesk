@@ -1,0 +1,149 @@
+/*
+ * The form grammar of a dialog: one rhythm, so parts composed in the right
+ * order come out finished.
+ *
+ *   label → its control      6px   (`--hd-space-1-5`, the Field's own gap)
+ *   field → the next field   16px  (`--hd-space-4`, this stack's gap)
+ *   legend → its group       6px   (the same as a label: a legend is a label)
+ *
+ * The body of a `Dialog` is this stack, and so is a `FormStack` inside one, so
+ * a screen that writes Note, Field, Field, SectionHead, Rows gets the rhythm
+ * without saying a number.
+ */
+
+/* A grid rather than a flex column: a flex item with `overflow: hidden` (a
+   card of rows) may shrink below its content inside a bounded, scrolling
+   body, and a grid row never does. `minmax(0, 1fr)` keeps a long path from
+   widening the dialog. */
+.stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: var(--hd-space-4);
+}
+
+/* --- the legend ----------------------------------------------------------
+   The name over a group of controls, drawn exactly as a Field's label so a
+   form reads as one list of named things. */
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* Written before the group it names, so it is pulled onto that group: the
+   stack's 16px becomes the label's 6px. Only a direct child of a stack is
+   moved, so a legend anywhere else keeps its ordinary spacing. */
+.stack > .legend {
+  margin-bottom: calc(var(--hd-space-1-5) - var(--hd-space-4));
+}
+
+.legendText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--hd-space-0-5);
+  min-width: 0;
+}
+
+.legendName {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  font-weight: var(--hd-weight-medium);
+  color: var(--hd-secondary-foreground);
+}
+
+.legendHint {
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  color: var(--hd-secondary-foreground);
+}
+
+/* --- the fieldset --------------------------------------------------------- */
+.fieldset {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hd-space-1-5);
+  min-width: 0;
+}
+
+.fieldsetBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* --- the choice list -------------------------------------------------------
+   Rows the height of a menu item, a radio on the title's line, and no card:
+   a dialog's list of answers is part of the form, not a panel inside it. The
+   rows reach 8px past the column on either side so the radio lines up with
+   the labels above it while the hover still has a corner to round. */
+.choiceList {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-inline: calc(-1 * var(--hd-space-2));
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: var(--hd-space-4) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--hd-space-2);
+  width: 100%;
+  min-height: var(--hd-btn-h);
+  padding: var(--hd-space-1-5) var(--hd-space-2);
+  border-radius: var(--hd-radius-md);
+  text-align: left;
+}
+
+.choice:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The radio, drawn as `design/ui/radio-group` draws it: a ring at rest, the
+   accent with a knob when it is the answer. */
+.radio {
+  display: grid;
+  place-items: center;
+  width: var(--hd-space-4);
+  height: var(--hd-space-4);
+  border: var(--hd-border-width) solid var(--hd-border-strong);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-background);
+}
+
+.radio[data-checked] {
+  border-color: var(--hd-toggle-on);
+  background: var(--hd-toggle-on);
+}
+
+.radio[data-checked]::after {
+  content: '';
+  width: var(--hd-space-1-5);
+  height: var(--hd-space-1-5);
+  border-radius: var(--hd-radius-full);
+  background: var(--hd-toggle-knob-on);
+}
+
+.choiceTitle {
+  min-width: 0;
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-foreground);
+}
+
+/* Only the chosen answer explains itself, under its title and in the step a
+   hint is set in; the others keep theirs for a screen reader. */
+.choiceDesc {
+  grid-column: 2;
+  min-width: 0;
+  margin-top: var(--hd-space-0-5);
+  font-size: var(--hd-text-xs);
+  line-height: var(--hd-line-xs);
+  color: var(--hd-secondary-foreground);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

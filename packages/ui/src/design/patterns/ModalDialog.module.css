@@ -85,14 +85,15 @@
   padding: 0;
 }
 
-/* Paragraphs space themselves, so a screen never reaches for a `.blurb` class
-   to say "the sentence under the title" — that is just the body. */
+/* The body's stack spaces its paragraphs, so a screen never reaches for a
+   `.blurb` class to say "the sentence under the title" — that is just the
+   body. A flush body is a list, and a paragraph in one keeps its own step. */
 .body > p {
-  margin: 0 0 var(--hd-space-3);
+  margin: 0; /* desk: 0 0 12 → 0, the body's stack spaces its paragraphs */
 }
 
-.body > p:last-child {
-  margin-bottom: 0;
+.flush > p {
+  margin: 0 0 var(--hd-space-3);
 }
 
 /* --- the footer -----------------------------------------------------------

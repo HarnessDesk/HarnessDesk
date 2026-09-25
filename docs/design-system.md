@@ -530,6 +530,22 @@ having written the judgement down.
 
 **Why** — A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.
 
+### `Segmented · NativeSelect · ChoiceList · Checkbox`
+
+**Use** — One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — 30px radio rows, and only the chosen answer explains itself. Several members at once (which Agents to seat, which files to take): checkboxes.
+
+**Not** — A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group of `RowChoice` already draws as a `ChoiceList`.
+
+**Why** — A choice is read before it is made, and the eye reads a list of titles faster than a list of paragraphs. The description earns its line on the answer that holds, where it says what you have just agreed to; on the others it is noise until chosen, and a screen reader still hears it.
+
+### `Field · Fieldset · FormStack`
+
+**Use** — Anything a dialog asks for. A label sits 6px over its control, the next field starts 16px below, a group of controls takes a `Fieldset` legend the way a field takes a label, and a field that may be left empty says `optional` at its label's end.
+
+**Not** — Spacing a dialog's fields by hand, or a page's `SectionHead` as a group label: inside a dialog the body is already the form stack and a `SectionHead` already draws as a legend.
+
+**Why** — A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.
+
 ### `--hd-surface-*`
 
 **Use** — A dialog, a command palette, a sheet — something that takes the window.
@@ -684,6 +700,71 @@ A failure is the caller's to announce — the app does it with a notice, and
 this layer has no store — so it is handed back rather than dropped. A row
 that stays shown while the tick is up hears about it through
 `onCopiedChange`.
+
+### `DialogFormScope`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+Marks everything inside as a dialog's form. `Dialog` puts its body in one.
+
+### `useDialogForm`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+Whether this part is drawn inside a dialog's body.
+
+### `dialogStackClass`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+The class a dialog's body and an in-dialog `FormStack` share.
+
+### `FieldsetLegend`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+The name over a group, as a `Field` names its control. `SectionHead` draws
+this inside a dialog, so a group label written for a page lands attached
+to the group it names.
+
+### `Fieldset`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+A legend over a group of controls — checkboxes, a `ChoiceList`, two fields
+that belong together. The group is announced by its legend, and the legend
+sits on the group at a label's distance.
+
+### `stepRadio`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+Arrow keys, Home and End move the answer within the nearest radio group,
+the way a native radio group does: one Tab stop, and the arrows choose.
+
+### `ChoiceRow`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+One answer in a `ChoiceList`: a radio on the title's line, and the
+description only when it is the answer. The row is the target, so the
+whole line answers a click, and its height is a menu item's.
+
+### `choiceListClass`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+The container a dialog's `Rows role="radiogroup"` becomes.
+
+### `ChoiceList`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+One answer among a few that each need a line of explanation, in a dialog.
+
+Rows 30px tall, a radio beside each title, and only the chosen answer's
+description on screen. For two to four answers a word each, use `Segmented`
+or a `NativeSelect`; for several members at once, checkboxes.
 
 ### `WorkbenchCanvas`
 
@@ -858,6 +939,11 @@ The messages held between the transcript and the composer.
 The application dialog pattern: Base UI owns focus, dismissal, stacking,
 the portal and accessibility; this layer owns HarnessDesk's header, body,
 footer and measured sizes.
+
+The body is a form stack (`DialogForm`) unless it is `flush`: its children
+are 16px apart, a `SectionHead` in it is a legend on the group it names,
+and a `Rows` radio group is a compact `ChoiceList`. Nothing in the body
+needs spacing of its own.
 
 ### `useDismissOverlays`
 
@@ -1052,11 +1138,19 @@ hears with it; the caller spreads the whole object onto the control rather
 than picking the id out of it, which is how that wiring stops being a thing
 anyone has to remember.
 
+The label sits 6px over its control and the hint 6px under it, one step
+smaller than the label, so a hint never reads as large as what you type. A
+field that may be left empty says so with `optional` — a quiet word at the
+label's end — rather than a qualifier appended to the label, which read as
+one long label ("Detail optional").
+
 ### `FormStack`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
 Fields, stacked — the body of a dialog that asks for more than one thing.
+Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
+between fields, a legend 6px over its group.
 
 ### `Note`
 
@@ -1114,6 +1208,10 @@ The label line above navigation rows, including the controls that act on that li
 
 A card of rows. Every settings page is made of these and nothing else.
 
+A card with nothing in it is not drawn: an empty list left a stray 2px
+rule in the middle of a form. Inside a dialog, a card that is a radio group
+is a `ChoiceList` — no card, and each `RowChoice` in it a compact radio row.
+
 ### `RowButton`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1129,6 +1227,9 @@ A row that is one of several answers to the same question.
 The tick sits on the left, where a list of choices reads as a list rather
 than as a column of unrelated switches — and the chosen row is the only one
 carrying ink, so the answer is findable without reading all of them.
+
+Inside a dialog it is a `ChoiceList` row instead: 30px, a radio on the
+title's line, and the description only on the chosen answer.
 
 ### `BackLink`
 

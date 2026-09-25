@@ -8,6 +8,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '../ui/dialog'
+import { dialogStackClass, DialogFormScope } from './DialogForm'
 import styles from './ModalDialog.module.css'
 
 const WIDTH = {
@@ -32,6 +33,11 @@ const FIELD = [
  * The application dialog pattern: Base UI owns focus, dismissal, stacking,
  * the portal and accessibility; this layer owns HarnessDesk's header, body,
  * footer and measured sizes.
+ *
+ * The body is a form stack (`DialogForm`) unless it is `flush`: its children
+ * are 16px apart, a `SectionHead` in it is a legend on the group it names,
+ * and a `Rows` radio group is a compact `ChoiceList`. Nothing in the body
+ * needs spacing of its own.
  */
 export const Dialog = ({
   title,
@@ -86,7 +92,11 @@ export const Dialog = ({
           </DialogClose>
         </div>
         {subhead && <div className={styles.subhead}>{subhead}</div>}
-        {children && <div className={`${styles.body} ${flush ? styles.flush : ''}`} data-slot="modal-dialog-body">{children}</div>}
+        {children && (
+          <div className={`${styles.body} ${flush ? styles.flush : dialogStackClass}`} data-slot="modal-dialog-body">
+            <DialogFormScope>{children}</DialogFormScope>
+          </div>
+        )}
         {(footer || footerAside) && (
           <div className={styles.footer}>
             {footer}

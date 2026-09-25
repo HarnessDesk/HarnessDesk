@@ -39,6 +39,7 @@ import {
   ChannelMessage,
   ChannelSignal,
   Chip,
+  ChoiceList,
   ComposerChip,
   ComposerDropHint,
   ComposerShell,
@@ -48,6 +49,8 @@ import {
   ConfirmDialog,
   DetailHead,
   Face,
+  Field,
+  Fieldset,
   FileState,
   Input,
   Keycap,
@@ -741,12 +744,15 @@ const CodeBoard = () => (
 )
 
 const DialogBoard = () => {
-  const [open, setOpen] = useState<null | 'plain' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [open, setOpen] = useState<null | 'plain' | 'form' | 'confirm' | 'approval' | 'lightbox'>(null)
+  const [name, setName] = useState('')
+  const [ceiling, setCeiling] = useState<'read' | 'edit' | 'publish' | 'merge'>('read')
   return (
     <>
       <div className={styles.matrix}>
         <Case label="open one">
           <Button variant="secondary" onClick={() => setOpen('plain')}>Dialog</Button>
+          <Button variant="secondary" onClick={() => setOpen('form')}>Form dialog</Button>
           <Button variant="destructive" onClick={() => setOpen('confirm')}>
             Delete conversation
           </Button>
@@ -770,6 +776,45 @@ const DialogBoard = () => {
           footerAside="⌘⏎ to add"
         >
           Sessions you start in this folder are grouped under it, and worktrees are cut from it.
+        </Dialog>
+      )}
+      {open === 'form' && (
+        /* The form grammar: the body is the form stack, a Field's label sits
+           on its control, a Fieldset's legend on its group, and a ChoiceList
+           explains only the answer that holds. The primary stays disabled
+           until the name is written. */
+        <Dialog
+          title="Save as an Agent"
+          size="md"
+          onClose={() => setOpen(null)}
+          footer={
+            <>
+              <Button variant="default" disabled={name.trim() === ''} onClick={() => setOpen(null)}>
+                Save
+              </Button>
+              <Button variant="secondary" onClick={() => setOpen(null)}>Cancel</Button>
+            </>
+          }
+        >
+          <Field label="Name">
+            {(control) => <Input {...control} value={name} placeholder="Checkout reviewer" onChange={(event) => setName(event.target.value)} />}
+          </Field>
+          <Field label="What it is for" optional hint="One line. The roster shows it under the name.">
+            {(control) => <Input {...control} />}
+          </Field>
+          <Fieldset legend="The most it may do">
+            <ChoiceList
+              label="The most it may do"
+              value={ceiling}
+              onChange={setCeiling}
+              options={[
+                { value: 'read', title: 'Read', description: 'Changes nothing: it reads, searches and reports.' },
+                { value: 'edit', title: 'Edit', description: 'May change files and commit in its own checkout, and never push.' },
+                { value: 'publish', title: 'Publish', description: 'May push its own branch and open a pull request, and never merge.' },
+                { value: 'merge', title: 'Merge', description: 'May merge what it is asked to merge.' },
+              ]}
+            />
+          </Fieldset>
         </Dialog>
       )}
       {open === 'confirm' && (

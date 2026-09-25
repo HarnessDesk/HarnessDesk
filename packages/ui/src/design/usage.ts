@@ -150,6 +150,22 @@ export const ELEMENTS: readonly UsageRule[] = [
       'A button and the chip beside it were the same shape, so a row of controls read as a row of labels. One rung apart is what separates them.',
   },
   {
+    family: 'choice',
+    variant: 'Segmented · NativeSelect · ChoiceList · Checkbox',
+    when: 'One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — 30px radio rows, and only the chosen answer explains itself. Several members at once (which Agents to seat, which files to take): checkboxes.',
+    never: 'A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group of `RowChoice` already draws as a `ChoiceList`.',
+    because:
+      'A choice is read before it is made, and the eye reads a list of titles faster than a list of paragraphs. The description earns its line on the answer that holds, where it says what you have just agreed to; on the others it is noise until chosen, and a screen reader still hears it.',
+  },
+  {
+    family: 'form',
+    variant: 'Field · Fieldset · FormStack',
+    when: 'Anything a dialog asks for. A label sits 6px over its control, the next field starts 16px below, a group of controls takes a `Fieldset` legend the way a field takes a label, and a field that may be left empty says `optional` at its label\'s end.',
+    never: 'Spacing a dialog\'s fields by hand, or a page\'s `SectionHead` as a group label: inside a dialog the body is already the form stack and a `SectionHead` already draws as a legend.',
+    because:
+      'A form is scanned by its labels. When every label is the same distance from its control and every field the same distance from the next, the eye stops measuring and reads; the "toy dialog" was one where each of those distances was a different accident.',
+  },
+  {
     family: 'surface',
     variant: '--hd-surface-*',
     when: 'A dialog, a command palette, a sheet — something that takes the window.',
