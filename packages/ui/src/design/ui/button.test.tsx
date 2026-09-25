@@ -212,3 +212,17 @@ describe('the on-states follow the accent dial', () => {
 it('keeps the outline border stable on hover', () => {
   expect(/\boutline:\s*'([^']*)'/.exec(buttonSource)?.[1] ?? '').not.toMatch(/hover:border-/)
 })
+
+it('fills a swatch with the colour it offers and keeps it under the pointer', () => {
+  const markup = renderToStaticMarkup(<Button variant="ghost" size="icon-circle" swatch="#e5484d" aria-label="Red" />)
+  expect(markup).toContain('data-swatch')
+  expect(markup).toContain('--swatch:#e5484d')
+  expect(markup).toContain('bg-(--swatch)')
+  expect(markup).toContain('hover:bg-(--swatch)')
+  // Filled to its edge: the ring the chosen swatch wears sits outside it.
+  expect(markup).toContain('bg-clip-border')
+
+  const plain = renderToStaticMarkup(<Button variant="ghost" size="icon-circle" aria-label="Plain" />)
+  expect(plain).not.toContain('data-swatch')
+  expect(plain).not.toContain('--swatch')
+})
