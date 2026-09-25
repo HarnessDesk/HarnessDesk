@@ -244,6 +244,14 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
  * body only places what it holds, and each thing in it — a code plate, a
  * diff, a list of arguments, a line of thought — is a design part that owns
  * its own box.
+ *
+ * `inset="title"` carries no end padding of its own (see `list-row.tsx`), so
+ * every body already reaches the row's right edge without this component
+ * doing anything about it — a plate, an argument panel, a result block and a
+ * line of reasoning all end there alike. `bareBody` is purely a *vertical*
+ * choice: a plate already carries its own visible edge right under the
+ * header, so it keeps the inset's own tight step; text has none of its own,
+ * so it takes the wider one and the gap between several parts.
  */
 const Row = ({
   icon,
@@ -261,7 +269,7 @@ const Row = ({
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
-  /** The child draws its own plate, so the body supplies alignment only. */
+  /** The child draws its own plate, so the body only spaces it vertically. */
   bareBody?: boolean
   children?: ReactNode
 }) => {
@@ -289,7 +297,7 @@ const Row = ({
       {collapsible && open && (
         <ListRowDetail
           inset="title"
-          className={bareBody ? 'pe-0' : `grid gap-(--hd-space-2) pt-(--hd-space-2) pe-(--hd-space-3) pb-(--hd-space-3)`}
+          className={bareBody ? undefined : 'grid gap-(--hd-space-2) pt-(--hd-space-2) pb-(--hd-space-3)'}
         >
           {children}
         </ListRowDetail>

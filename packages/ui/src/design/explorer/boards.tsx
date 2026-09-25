@@ -711,6 +711,30 @@ const CATALOGUE_INLINE_EDIT = {
   },
 } as AgentItem
 
+/** A step whose body is an argument panel and an unwrapped text result, not a
+ * plate — the shape that showed the two-edges defect against the command
+ * step right below it. */
+const CATALOGUE_AGENT_STEP = {
+  id: 'catalogue-agent-step',
+  type: 'toolCall',
+  tool: 'Task',
+  source: { kind: 'builtin' },
+  status: 'completed',
+  args: { description: 'Summarize the failing tests', subagent_type: 'general-purpose' },
+  result: [{ type: 'json', value: [{ type: 'text', text: 'Three specs fail on the retry path.' }] }],
+} as unknown as AgentItem
+
+const CATALOGUE_COMMAND_STEP = {
+  id: 'catalogue-command-step',
+  type: 'command',
+  command: 'pnpm test',
+  cwd: '/workspace',
+  origin: 'agent',
+  actions: [{ type: 'unknown', command: 'pnpm test' }],
+  status: 'completed',
+  output: 'Tests 3 failed',
+} as unknown as AgentItem
+
 const CodeBoard = () => (
   <div className={styles.stack}>
     <Case label="command, output, and failure">
@@ -741,6 +765,14 @@ const CodeBoard = () => (
       <div className="w-full" data-testid="inline-diff-sample" data-register="light">
         <StoreProvider store={catalogueStore}>
           <ItemView item={CATALOGUE_INLINE_EDIT} root="/workspace" />
+        </StoreProvider>
+      </div>
+    </Case>
+    <Case label="an argument panel and a result, over a command — the shared step edges">
+      <div className="w-full flex flex-col" data-testid="step-edges-sample" data-register="light">
+        <StoreProvider store={catalogueStore}>
+          <ItemView item={CATALOGUE_AGENT_STEP} root="/workspace" />
+          <ItemView item={CATALOGUE_COMMAND_STEP} root="/workspace" />
         </StoreProvider>
       </div>
     </Case>

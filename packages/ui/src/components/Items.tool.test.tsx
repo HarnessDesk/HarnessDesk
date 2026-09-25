@@ -126,13 +126,29 @@ describe('an opened tool step', () => {
     const body = container.querySelector('[data-slot="list-row-detail"]')
     expect(body).toBeTruthy()
     expect(body?.getAttribute('data-inset')).toBe('title')
-    // A command's body draws its own plate (`CodeBlock`), so it keeps the
-    // step's left indent and drops the part's own right padding — its own
-    // edge is the row's, not a padded box a step further in.
-    expect(body?.className).toContain('pe-0')
+    // A command's body draws its own plate (`CodeBlock`). `inset="title"`
+    // carries no end padding of its own, so the plate's right edge is
+    // already the row's — nothing here needs to cancel a padded box a step
+    // further in.
+    expect(body?.className).not.toMatch(/(?:^|\s)pe-/)
     // Retired along with the CSS class it lived in: the shared part now
     // owns the alignment every step body used to redraw its own margin for.
     expect(itemsCss).not.toMatch(/\.rowBody\b/)
+  })
+
+  it('keeps an argument panel and a text result at the same right edge as a bare plate', () => {
+    // The defect this guards: an opened step's body that is not a plate
+    // (arguments, a result) used to add its own end padding, so it sat
+    // short of the row's right edge while a command's plate reached it.
+    open(call({
+      tool: 'search_files',
+      args: { query: 'row surface' },
+      result: [{ type: 'text', text: 'no matches' }],
+    }))
+
+    const body = container.querySelector('[data-slot="list-row-detail"]')
+    expect(body?.getAttribute('data-inset')).toBe('title')
+    expect(body?.className).not.toMatch(/(?:^|\s)pe-/)
   })
 
   it('draws a two-line Write with one marker, not a second + in the file text', () => {

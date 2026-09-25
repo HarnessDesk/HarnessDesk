@@ -71,6 +71,51 @@ test('command output and fenced prose share one code plate', async ({ page }) =>
   expect(accented).toBe(1)
 })
 
+test('an argument panel and a result share the command plate\'s edges: title-left and row-right, within 1px', async ({ page }) => {
+  // The defect this guards: an opened step's body that is not a plate — an
+  // argument panel, a text result — used to carry its own end padding, so it
+  // sat short of the row's right edge while a plate right below it, in the
+  // same column, reached it exactly.
+  await page.goto('/design.html?view=code')
+
+  const sample = page.getByTestId('step-edges-sample')
+  const rows = sample.locator('[data-slot="card"][data-variant="plate"]')
+  await rows.nth(0).getByRole('button').first().click()
+  await rows.nth(1).getByRole('button').first().click()
+
+  const title = rows.nth(0).locator('[class*="_rowTitle_"]')
+  const argsPanel = rows.nth(0).locator('[data-slot="key-value"]')
+  const result = rows.nth(0).locator('[data-slot="code-block"]')
+  const commandPlate = rows.nth(1).locator('[data-slot="code-block"]')
+
+  await expect(argsPanel).toBeVisible()
+  await expect(result).toBeVisible()
+  await expect(commandPlate).toBeVisible()
+
+  const [titleBox, argsBox, resultBox, commandBox, row0Box, row1Box] = await Promise.all([
+    title.boundingBox(),
+    argsPanel.boundingBox(),
+    result.boundingBox(),
+    commandPlate.boundingBox(),
+    rows.nth(0).boundingBox(),
+    rows.nth(1).boundingBox(),
+  ])
+  if (!titleBox || !argsBox || !resultBox || !commandBox || !row0Box || !row1Box) {
+    throw new Error('expected every box to be measurable')
+  }
+
+  // Left: every box starts under the title's own first letter, the command
+  // plate included — the same alignment `inset="title"` already gave it.
+  expect(Math.abs(argsBox.x - titleBox.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(resultBox.x - titleBox.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(commandBox.x - titleBox.x)).toBeLessThanOrEqual(1)
+
+  // Right: every box ends at its own row's right edge, whatever it holds.
+  expect(Math.abs(argsBox.x + argsBox.width - (row0Box.x + row0Box.width))).toBeLessThanOrEqual(1)
+  expect(Math.abs(resultBox.x + resultBox.width - (row0Box.x + row0Box.width))).toBeLessThanOrEqual(1)
+  expect(Math.abs(commandBox.x + commandBox.width - (row1Box.x + row1Box.width))).toBeLessThanOrEqual(1)
+})
+
 for (const theme of ['light', 'dark'] as const) {
   test(`an inline diff is one plate with neutral code and AA metadata in ${theme}`, async ({ page }) => {
     await page.goto('/design.html?view=code')
