@@ -2335,11 +2335,16 @@ export class FlowExecutions {
     const seat = this.#port.seatOf(operation.seat!)
     const card = this.#team.stateFor(run.goal).intents.find((one) => one.id === operation.card)
     if (!card || done(card)) return
-    /* After a relaunch nothing else will ever hand this card out, so a Seat
-       that is gone is a run that has stopped, said as such — never a run
-       left reading as running over nobody. */
+    const again = why === 'relaunched' ? ' after the desk restarted' : ''
+    /* Nothing but a relaunch's own resume will ever hand this card out again
+       on its own, and a release after a hold hands it out exactly once
+       (below): a Seat that is gone is a run that has stopped, said as such —
+       never a run left reading as running over nobody (#939, generalizing
+       #915's relaunch-only check to a hold's release too). A Seat still
+       inside its one turn (`why === 'turn-ended'`) is not this case: there is
+       simply nothing to hand it yet, until that turn ends. */
     if (!seat || seat.closed) {
-      if (why === 'relaunched') await this.#stall(id, `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back after the desk restarted.`)
+      if (why !== 'turn-ended') await this.#stall(id, `The Seat for card #${card.id} is ${seat ? 'closed' : 'no longer recorded'}, so its card was not handed back${again}.`)
       return
     }
     // Inside a turn is where a working Seat lives: there is nothing to hand it until that turn ends.
@@ -2357,8 +2362,19 @@ export class FlowExecutions {
        model unless it is put back — and in its own lane, or not at all. One
        that cannot be reopened is a run that has stopped, and it says so
        rather than reading as running. */
-    const again = why === 'relaunched' ? ' after the desk restarted' : ''
-    if (why !== 'turn-ended' && !await this.#sameSeat(id, seat, card.id, round.role, why)) return
+    if (why !== 'turn-ended') {
+      if (!await this.#sameSeat(id, seat, card.id, round.role, why)) return
+      /* Reopening the conversation above can take a while — spinning up a
+         runtime that was not already up — and the gate at the top of this
+         method read spend before that started. A limit reached while it was
+         reopening must still hold or stall the run instead of handing the
+         card back on spend that is no longer current (#939): read the gate
+         again now, right before the card is actually handed back. */
+      if (run.intake && !await this.#mayDispatch(id)) {
+        await this.#noteHeld(id, operation)
+        return
+      }
+    }
     /* The order its round decided on and left for the end of the Seat's
        brief turn: delivered now, as the round's own first order, not
        counted against the budget for a Seat whose turn ended early. */

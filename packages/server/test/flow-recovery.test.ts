@@ -319,6 +319,49 @@ test('a relaunch resumes a person’s run without waiting on the triggers’ bud
   assert.deepEqual([back(person.goal), back(triggered.goal)], [1, 1], 'then the trigger’s, and the person’s not twice')
 })
 
+test('a relaunch re-checks spend right before the card is handed back, not only before reopening its Seat (#939)', async (t) => {
+  const rig = await goalRig(t)
+  const triggered = await rig.startTriggered(TWO_STAGES, AGENTS)
+  await rig.flows.resumeTriggered(triggered.id)
+  await rig.flows.flush()
+  await rig.restart()
+  // Spend was fine when the relaunch's resume read the gate at the top of
+  // the re-arm; it runs out only while the Seat is being reopened (`reseat`),
+  // which can take a while — spinning up a runtime that was not already up.
+  rig.triggerGate = null
+  rig.onReseat = () => { rig.triggerGate = () => 'Today’s trigger spend cap was reached while its Seat was being reopened.' }
+  const orders = counts(rig.events).orders
+  await rig.flows.resume('triggered')
+  await rig.flows.flush()
+  const [run] = rig.flows.executionsFor(triggered.goal)
+  assert.equal(run!.state, 'stalled', 'the stale gate read at the top of #reArm must not be the only check')
+  assert.equal(run!.reason, 'Today’s trigger spend cap was reached while its Seat was being reopened.')
+  assert.equal(counts(rig.events).orders, orders, 'never handed back on spend that went stale while its Seat reopened')
+})
+
+test('a Seat closed while its run is held by a pause or the cap stalls with why on release, never reads as running over nobody (#939)', async (t) => {
+  const rig = await goalRig(t)
+  const triggered = await rig.startTriggered(TWO_STAGES, AGENTS)
+  await rig.flows.resumeTriggered(triggered.id)
+  await rig.flows.flush()
+  const card = rig.board(triggered.goal).intents[0]!
+  const seat = [...rig.seats.values()].find((one) => one.board === triggered.goal)!
+  // A pause or a lowered cap holds the run while the Seat is at work…
+  await rig.flows.holdTriggered(triggered.id, 'paused for a person')
+  // …its turn ends while held: not handed a new card while held, only queued for when it lifts.
+  await rig.flows.reArm(seat.session.runtime, seat.session.sessionId)
+  // …and its Seat closes before the hold lifts.
+  rig.seats.set(String(seat.id), { ...seat, closed: { at: Date.now(), why: 'released' } })
+  const orders = counts(rig.events).orders
+  // The hold lifts: nothing is left to hand the queued card to.
+  await rig.flows.resumeTriggered(triggered.id)
+  await rig.flows.flush()
+  const [run] = rig.flows.executionsFor(triggered.goal)
+  assert.equal(run!.state, 'stalled', 'a closed Seat must not leave the run reading Running')
+  assert.equal(run!.reason, `The Seat for card #${card.id} is closed, so its card was not handed back.`)
+  assert.equal(counts(rig.events).orders, orders, 'nothing was sent to a closed Seat')
+})
+
 test('a saved run that no longer matches its own text blocks its Goal, and one naming no Goal blocks every start', async (t) => {
   const rig = await goalRig(t)
   const started = await rig.start(TWO_STAGES, AGENTS)

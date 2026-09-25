@@ -162,6 +162,14 @@ it('ticks the default in the menu, chooses on a seat’s press, and signs out of
   expect(selectRuntime).toHaveBeenCalledWith(CODEX)
 })
 
+it('asks for its menu above the footer row, at the row’s width', () => {
+  mount()
+  click(row())
+  const panel = document.querySelector('[role="menu"]')?.closest('[data-width]')
+  expect(panel?.getAttribute('data-width')).toBe('trigger')
+  expect(panel?.closest('[data-side]')?.getAttribute('data-side')).toBe('top')
+})
+
 it('keeps the menu on the current account until the picker is opened', () => {
   const { selectRuntime } = mount()
   click(row())

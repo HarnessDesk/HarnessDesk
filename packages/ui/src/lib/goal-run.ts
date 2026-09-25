@@ -1,9 +1,9 @@
 import type { FlowExecution, GoalView } from '@harnessdesk/protocol'
 
 /**
- * Which of a Goal's flow runs a surface shows — one rule, read by the room's
- * header and by its Findings pane alike, so the two never disagree about the
- * same Goal.
+ * Which of a Goal's flow runs a surface shows by default — one rule
+ * (`goalRunOf`), read by the room's header and, unless a person picked an
+ * earlier run of their own to read as history, by its Findings pane too.
  *
  * A Goal can hold more than one run: a new one starts after an earlier one
  * stopped or was dropped, and a Goal's id is reused across incarnations, so
