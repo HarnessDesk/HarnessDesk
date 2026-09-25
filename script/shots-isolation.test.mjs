@@ -553,7 +553,7 @@ test('reseeding clears a leftover browser-pane layout, closing the leak an earli
                   id: 'm1',
                   view: {
                     kind: 'browser',
-                    tabs: [{ id: 't1', url: 'file:///Users/realuser/work/browse', title: 'browse' }],
+                    tabs: [{ id: 't1', url: 'file:///Users/someone/work/browse', title: 'browse' }],
                     active: 't1',
                     driven: 't1',
                   },
@@ -573,7 +573,7 @@ test('reseeding clears a leftover browser-pane layout, closing the leak an earli
 
   const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
   assert.deepEqual(state.preferences, {}, 'a leftover panel/dock layout survived reseeding')
-  assert.doesNotMatch(readFileSync(join(home, 'state.json'), 'utf8'), /realuser/)
+  assert.doesNotMatch(readFileSync(join(home, 'state.json'), 'utf8'), /\/Users\/someone\/work\/browse/)
 })
 
 /** Runs a one-liner against `config.mjs`'s exports, for a fixture home. */
