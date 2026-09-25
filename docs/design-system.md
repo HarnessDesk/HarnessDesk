@@ -568,9 +568,9 @@ having written the judgement down.
 
 **Why** — Settings › Workspaces once held two 715px number inputs and a 715px black Save bar under three switches that applied instantly — the heaviest object on any Settings page, for a five-digit port, and a page with two rules for when a change takes effect.
 
-### `useSortable · SortableRow · SortableHandle`
+### `useSortable · sortableItemClass · SortableHandle`
 
-**Use** — Rows whose order the person sets — a queue, seats, steps. Order is shown by position; a row moves by a drag from the handle that appears on hover, or ⌥↑/⌥↓ from anywhere in it, and every move is announced. Removal is the row's own `⋯` menu or hover ×.
+**Use** — Items whose order the person sets — a queue, seats, tabs. Order is shown by position; an item moves by a drag from the handle that appears on hover (a tab is its own handle), by ⌥↑/⌥↓ from anywhere in it but a text field, or by Space on its handle to pick it up and the arrows to carry it; the line shows where it will land, and every move is announced once the owner of the order has answered. Removal is the row's own `⋯` menu or hover ×. Every item draws its move with `sortableItemClass`.
 
 **Not** — "Move up" / "Move down" buttons on each row — three controls a row to say what its place already says — or a list that reorders itself before the owner of the order has answered.
 
@@ -1644,9 +1644,18 @@ compact as the switch beside it, and applied the way the switch is.
 
 Settings pages never show a Save button: a switch applies as it is flipped,
 and this applies when the typing is done — on Enter, or when focus leaves
-the field. Escape puts back what is stored (and only then lets Escape close
-the window around it). Nothing is sent while the text still reads as
-stored, so tabbing through the page writes nothing.
+the field for somewhere else in the window. Escape puts back what is stored
+(and only then lets Escape close the window around it), and says so with
+`onRestore`. Nothing is sent while the text still reads as stored, so
+tabbing through the page writes nothing.
+
+Leaving the window is not finishing: Cmd-Tab away mid-number blurs the
+field, and applying "1" of "10" there would be a guess. So a blur while the
+document has lost focus keeps the draft, and the next real blur or Enter
+applies it. A field that goes away mid-edit (the page closing) drops its
+draft rather than applying it on the way out: an unmount cannot show a
+refusal, and a write the person cannot see fail is worse than one they did
+not finish.
 
 The row owns the name (`aria-label` repeats the row's title for a reader),
 the field owns only the value, at the width of the value it holds: a
@@ -1695,7 +1704,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 640 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. |
-| `singleAreaPrimitive` | 50 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
+| `singleAreaPrimitive` | 49 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |

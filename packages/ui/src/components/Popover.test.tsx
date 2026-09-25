@@ -58,7 +58,7 @@ describe('Popover', () => {
   it('draws a trigger dressed as a button the way the button draws: its classes merged, so an outline keeps its edge', () => {
     act(() => {
       root.render(
-        <Popover label="Filter" title="Filter the list" triggerClassName={buttonVariants({ variant: 'outline' })}>
+        <Popover label="Filter" title="Filter the list" triggerVariant={{ variant: 'outline' }}>
           {() => null}
         </Popover>,
       )
@@ -67,6 +67,20 @@ describe('Popover', () => {
     // The base's transparent border lost to the variant's colour, as in `Button`.
     expect(classes).toContain('border-(--hd-btn-border)')
     expect(classes).not.toContain('border-transparent')
+  })
+
+  it('passes a trigger class of its own through untouched, and hands the trigger to a caller that asks', () => {
+    let node: HTMLButtonElement | null = null
+    const own = buttonVariants({ variant: 'navigation', size: 'navigation' })
+    act(() => {
+      root.render(
+        <Popover label="Seat" title="Seat" triggerClassName={own} triggerRef={(one) => { node = one }}>
+          {() => null}
+        </Popover>,
+      )
+    })
+    expect(trigger().className).toBe(own)
+    expect(node).toBe(trigger())
   })
 
   it('announces the popup role it opens and names that popup from the trigger', () => {

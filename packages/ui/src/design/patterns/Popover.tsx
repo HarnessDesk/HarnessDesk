@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -9,6 +9,8 @@ import {
   PopoverTrigger,
 } from '../ui/popover'
 import { cn } from '@/lib/utils'
+
+import { buttonVariants } from '../ui/button'
 
 import { Input } from '../ui/input'
 
@@ -102,6 +104,8 @@ export const Popover = ({
   tone = 'calm',
   fullWidth = false,
   triggerClassName,
+  triggerVariant,
+  triggerRef,
   onOpenChange,
   children,
 }: {
@@ -109,6 +113,15 @@ export const Popover = ({
   title?: string
   /** Replaces the default trigger look, for a button that already has one. */
   triggerClassName?: string
+  /**
+   * A trigger that is a button of the system's own, drawn exactly as `Button`
+   * draws that variant and size — its classes merged the way `Button` merges
+   * them, so an outline keeps its edge. `triggerClassName` passes a class
+   * through untouched, for the triggers that already carry a look of their own.
+   */
+  triggerVariant?: Parameters<typeof buttonVariants>[0]
+  /** The trigger itself, for a caller that sends focus back to it. */
+  triggerRef?: Ref<HTMLButtonElement>
   /** Fill a row or column instead of shrinking the trigger to its label. */
   fullWidth?: boolean
   onOpenChange?: (open: boolean) => void
@@ -173,13 +186,13 @@ export const Popover = ({
     >
       <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align} data-full-width={fullWidth || undefined}>
         <PopoverTrigger
-          ref={trigger}
+          ref={(node: HTMLButtonElement | null) => {
+            trigger.current = node
+            if (typeof triggerRef === 'function') triggerRef(node)
+            else if (triggerRef) triggerRef.current = node
+          }}
           id={triggerId}
-          /* Merged as `Button` merges its own classes: a trigger drawn with
-             `buttonVariants` carries the base's `border-transparent` beside the
-             variant's border colour, and unmerged the base could win — an
-             outline trigger with no outline. */
-          className={triggerClassName ? cn(triggerClassName) : styles.trigger}
+          className={triggerVariant ? cn(buttonVariants(triggerVariant)) : (triggerClassName ?? styles.trigger)}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
           title={title}

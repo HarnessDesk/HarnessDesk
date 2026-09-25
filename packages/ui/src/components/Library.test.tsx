@@ -177,7 +177,7 @@ const showMatrix = async (): Promise<void> => {
  * each row's words.
  */
 const filterTrigger = (): HTMLElement => {
-  const trigger = document.body.querySelector('[data-slot="popover-trigger"][title="Filter the library"]') as HTMLElement | null
+  const trigger = document.body.querySelector('[data-slot="popover-trigger"][title^="Filter the library"]') as HTMLElement | null
   expect(trigger, 'the toolbar should have a Filter menu').toBeTruthy()
   return trigger as HTMLElement
 }
@@ -290,6 +290,13 @@ it('the toolbar is one row: listing, search, filter and view, and a pill only fo
   expect(toolbar?.querySelector('input[aria-label="Filter the library by name"]')).toBeTruthy()
   expect(toolbar?.contains(filterTrigger())).toBe(true)
   expect(toolbar?.querySelector('[aria-label="How to show the library"]')).toBeTruthy()
+  // At rest, the menu's one piece of news is on its button: how many have a problem, in amber.
+  expect(filterTrigger().querySelector('[data-tone="warning"]')?.textContent).toBe('1')
+  expect(filterTrigger().getAttribute('title')).toBe('Filter the library — 1 with a problem')
+  // The filters and the view wrap as one group, so List | Matrix is never alone on a line.
+  const group = toolbar?.querySelector('[data-slot="toolbar"]') as HTMLElement | null
+  expect(group?.contains(filterTrigger())).toBe(true)
+  expect(group?.querySelector('[aria-label="How to show the library"]')).toBeTruthy()
   // The counts live in the menu, where a problem's number keeps its amber.
   expect(document.body.querySelector('[data-slot="library-count"]')).toBeNull()
   expect(document.body.querySelector('select[aria-label="Agent"]')).toBeNull()
@@ -304,6 +311,8 @@ it('the toolbar is one row: listing, search, filter and view, and a pill only fo
   expect(cards().length).toBe(1)
   await act(async () => pill?.click())
   expect(cards().length).toBe(2)
+  // Letting go of a filter hands the focus to Filter, where the next choice is made.
+  expect(document.activeElement).toBe(filterTrigger())
   expect([...(toolbar?.querySelectorAll('button[aria-pressed="true"]') ?? [])].some((node) => node.textContent === 'Empty on disk')).toBe(false)
 })
 
@@ -1714,6 +1723,15 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
   await chooseAgent('Agent A')
   expect(document.body.textContent).toContain('shared-skill')
   expect(document.body.textContent).not.toContain('orphan-skill')
+
+  // The Agent chosen is a pressed pill; pressing it lets go of the Agent.
+  const agentPill = [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="library-toolbar"] button[aria-pressed="true"]')].find((node) => node.textContent === 'Agent A')
+  expect(agentPill, 'the chosen Agent should be a pressed pill').toBeTruthy()
+  await act(async () => agentPill?.click())
+  expect(document.body.textContent).toContain('orphan-skill')
+  expect(document.activeElement).toBe(filterTrigger())
+
+  await chooseAgent('Agent A')
 
   await chooseAgent('Agent B')
   expect(document.body.textContent).toContain('shared-skill')

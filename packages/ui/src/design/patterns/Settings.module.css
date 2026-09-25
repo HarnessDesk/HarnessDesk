@@ -922,6 +922,16 @@
   background: transparent; /* desk: --hd-hover → transparent, the pair draws the row's hover */
 }
 
+/* Each target's focus ring is drawn inside its own box: outside it, the
+   card's clipped edge and the fold beside the opener cut the ring to a line.
+   Rounded while it shows, so the opener's square corner does not meet the
+   card's round one. */
+.rowFolding > .rowButton:focus-visible,
+.rowFolding .rowFold:focus-visible {
+  outline-offset: calc(-1 * var(--hd-ring-width)); /* desk: --hd-ring-offset → minus the ring width, the ring inside the target */
+  border-radius: var(--hd-radius-md); /* desk: 0 → --hd-radius-md, a round ring inside a round card */
+}
+
 .rowFoldEnd {
   flex: none;
   display: flex;
