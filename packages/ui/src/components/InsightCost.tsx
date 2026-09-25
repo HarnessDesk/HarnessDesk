@@ -62,7 +62,7 @@ export const InsightCost = ({ report, loading, problem, onRefresh, onSeat, onSes
       </Rows>}
       {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       <Button size="sm" variant="outline" onClick={() => setShowSources(true)}>Sources</Button>
-      {showSources && <Dialog title="Recorded usage sources" onClose={() => setShowSources(false)} footer={<Button variant="outline" onClick={() => setShowSources(false)}>Close</Button>}>
+      {showSources && <Dialog title="Recorded usage sources" onClose={() => setShowSources(false)} footer={<Button variant="default" onClick={() => setShowSources(false)}>Close</Button>}>
         <Rows>{report.sources.map((source) => <Row key={source.id} title={source.stale ? 'Stale source' : source.label} desc={sourceWords(source)} control={<Chip tone={source.problem ? 'warning' : 'neutral'}>{source.problem ? 'Problem' : 'Recorded'}</Chip>} />)}</Rows>
       </Dialog>}
     </section>

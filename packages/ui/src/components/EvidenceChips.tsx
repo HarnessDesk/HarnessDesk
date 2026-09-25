@@ -102,7 +102,7 @@ export const ObservedDialog = ({
       size="lg"
       onClose={onClose}
       footer={
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="default" onClick={onClose}>
           Done
         </Button>
       }

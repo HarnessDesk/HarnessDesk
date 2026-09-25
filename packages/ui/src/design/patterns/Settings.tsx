@@ -1,5 +1,5 @@
 import { Button } from '../ui/button'
-import { createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
+import { Children, createContext, createElement, isValidElement, useContext, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
 import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
@@ -12,6 +12,7 @@ import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
 import { IconTile } from '../ui/icon-tile'
 import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
+import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
 import styles from './Settings.module.css'
 
 /**
@@ -590,27 +591,44 @@ export interface FieldControl {
  * hears with it; the caller spreads the whole object onto the control rather
  * than picking the id out of it, which is how that wiring stops being a thing
  * anyone has to remember.
+ *
+ * The label sits 6px over its control and the hint 6px under it, one step
+ * smaller than the label, so a hint never reads as large as what you type. A
+ * field that may be left empty says so with `optional` — a quiet word at the
+ * label's end — rather than a qualifier appended to the label, which read as
+ * one long label ("Detail optional").
  */
 export const Field = ({
   label,
   hint,
   error,
+  optional = false,
   children,
 }: {
   label: ReactNode
   hint?: ReactNode
   error?: ReactNode
+  /** The field may be left empty: "Optional" at the label's end. */
+  optional?: boolean
   /** The control. Spread what it receives: `{(control) => <Input {...control} />}`. */
   children: (control: FieldControl) => ReactNode
 }) => {
   const id = useId()
   const noteId = `${id}-note`
   const note = error ?? hint
+  const name = (
+    <label className={styles.formLabel} htmlFor={id}>
+      {label}
+    </label>
+  )
   return (
     <div className={styles.formField} data-slot="form-field">
-      <label className={styles.formLabel} htmlFor={id}>
-        {label}
-      </label>
+      {optional ? (
+        <span className={styles.formLabelRow}>
+          {name}
+          <span className={styles.formOptional} data-slot="form-optional">Optional</span>
+        </span>
+      ) : name}
       {children({
         id,
         ...(note ? { 'aria-describedby': noteId } : {}),
@@ -629,10 +647,15 @@ export const Field = ({
   )
 }
 
-/** Fields, stacked — the body of a dialog that asks for more than one thing. */
-export const FormStack = ({ children }: { children: ReactNode }) => (
-  <div className={styles.formStack}>{children}</div>
-)
+/**
+ * Fields, stacked — the body of a dialog that asks for more than one thing.
+ * Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
+ * between fields, a legend 6px over its group.
+ */
+export const FormStack = ({ children }: { children: ReactNode }) => {
+  const inDialog = useDialogForm()
+  return <div className={inDialog ? dialogStackClass : styles.formStack} data-slot="form-stack">{children}</div>
+}
 
 /**
  * The short paragraph that belongs to a group of rows rather than to one of them.
@@ -655,12 +678,17 @@ export const Note = ({
   ink?: 'secondary' | 'muted'
   icon?: ReactNode
   className?: string
-}) => (
+}) => {
+  /* In a dialog the form stack spaces the note; a page's note carries its
+     own margin under it. */
+  const inDialog = useDialogForm()
+  return (
   /* A note that says something went wrong is spoken, not only shown: it
      arrives after a press, when a reader is listening for the outcome. */
   <p
     className={cx(styles.note, className)}
     data-slot="note"
+    {...(inDialog ? { 'data-context': 'dialog' } : {})}
     data-ink={ink}
     {...(icon ? { 'data-icon': '' } : {})}
     {...(tone ? { 'data-tone': tone } : {})}
@@ -670,7 +698,8 @@ export const Note = ({
     {icon}
     {icon ? <span>{children}</span> : children}
   </p>
-)
+  )
+}
 
 /** Short supporting facts that belong to a notice or note. */
 export const NoteList = ({ className, ...props }: ComponentProps<'ul'>) => (
@@ -776,7 +805,12 @@ export const SectionHead = ({
   /** Card groups are labels by default; page bands opt into a real heading. */
   level?: 'label' | 'heading'
   className?: string
-}) => (
+}) => {
+  /* In a dialog a section is a group of the form, and its head is that
+     group's legend: the label's size and weight, attached to the group it
+     names instead of floating page furniture's 20px above and 8px over it. */
+  if (useDialogForm()) return <FieldsetLegend name={name} description={description} action={action} className={className} />
+  return (
   <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
     <div className={styles.sectionHeadText}>
       {createElement(
@@ -790,7 +824,8 @@ export const SectionHead = ({
     </div>
     {action}
   </div>
-)
+  )
+}
 
 const TEXT_ROLE = {
   wordmark: 'text-(length:--hd-heading) leading-(--hd-line-heading) font-semibold tracking-[-0.01em]',
@@ -914,14 +949,37 @@ export const NavigationGroupHeader = ({
   </div>
 )
 
-/** A card of rows. Every settings page is made of these and nothing else. */
+/* Inside a card of rows: a `RowChoice` here is a settings row, whatever
+   surrounds the card, because a compact radio row reaching past its column
+   would be clipped by the card's edge. */
+const RowsCardContext = createContext(false)
+
+/**
+ * A card of rows. Every settings page is made of these and nothing else.
+ *
+ * A card with nothing in it is not drawn: an empty list left a stray 2px
+ * rule in the middle of a form. Inside a dialog, a card that is a radio group
+ * of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
+ * row a compact radio row. A radio group of anything else (a branch picker of
+ * row buttons) keeps its card, its edge and its ground.
+ */
 export const Rows = ({
   children,
   className,
   ...props
-}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string }) => (
-  <div className={cx(styles.rows, className)} {...props}>{children}</div>
-)
+}: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string }) => {
+  const inDialog = useDialogForm()
+  const rows = Children.toArray(children)
+  if (rows.length === 0) return null
+  if (inDialog && props.role === 'radiogroup' && rows.every((row) => isValidElement(row) && row.type === RowChoice)) {
+    return <div className={cx(choiceListClass, className)} data-slot="choice-list" {...props}>{children}</div>
+  }
+  return (
+    <div className={cx(styles.rows, className)} {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>
+      <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
+    </div>
+  )
+}
 
 export const Row = ({
   mark,
@@ -1012,6 +1070,11 @@ export const RowButton = ({
  * The tick sits on the left, where a list of choices reads as a list rather
  * than as a column of unrelated switches — and the chosen row is the only one
  * carrying ink, so the answer is findable without reading all of them.
+ *
+ * Inside a dialog it is a compact radio row instead (`ChoiceRow`): a radio on
+ * the title's line and the description under it in the hint step — unless it
+ * stands in a card of rows, where it stays the settings row the card is
+ * built for.
  */
 export const RowChoice = ({
   title,
@@ -1031,7 +1094,13 @@ export const RowChoice = ({
   tabStop?: boolean
   disabled?: boolean
   onClick: () => void
-}) => (
+}) => {
+  const inDialog = useDialogForm()
+  const inCard = useContext(RowsCardContext)
+  if (inDialog && !inCard) {
+    return <ChoiceRow title={title} desc={desc} selected={selected} tabStop={tabStop} disabled={disabled} onClick={onClick} />
+  }
+  return (
   <Button variant="row" size="pattern"
     type="button"
     role="radio"
@@ -1040,24 +1109,7 @@ export const RowChoice = ({
     disabled={disabled}
     className={cx(styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
-    onKeyDown={(event) => {
-      if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return
-      const group = event.currentTarget.closest('[role="radiogroup"]')
-      if (!group) return
-      const choices = Array.from(group.querySelectorAll<HTMLButtonElement>('[role="radio"]:not(:disabled)'))
-      const current = choices.indexOf(event.currentTarget)
-      if (current < 0 || choices.length === 0) return
-
-      const next = event.key === 'Home'
-        ? choices[0]
-        : event.key === 'End'
-          ? choices.at(-1)
-          : choices[(current + (event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1) + choices.length) % choices.length]
-      if (!next) return
-      event.preventDefault()
-      next.focus()
-      next.click()
-    }}
+    onKeyDown={stepRadio}
   >
     <span className={styles.choiceMark}>{selected ? <CheckIcon size={15} /> : null}</span>
     <span className={styles.rowText}>
@@ -1065,7 +1117,8 @@ export const RowChoice = ({
       {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
   </Button>
-)
+  )
+}
 
 /* --- drill-down ---------------------------------------------------------- */
 

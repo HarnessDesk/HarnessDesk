@@ -1,21 +1,10 @@
-/* Bounded by the window, with the same gutter the popup keeps at its sides:
-   a confirm is a column of header, body and footer, and only the body gives
-   way — it scrolls — when what it holds is taller than the window. */
-.content {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0;
-  max-height: var(--hd-dialog-max-height);
-  overflow: hidden;
-}
+/* The box — a column bounded by the window, the header, body and footer as
+   flex rows, their gaps, shrink and scroll — is said as utilities in
+   ConfirmDialog.tsx, where `cn` merges them with the primitive's own and
+   drops the conflict. This sheet says only what no utility on the same
+   element says, so no rule here ties with one (Dialog.box.test.tsx). */
 
 .header {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--hd-space-2);
   padding: var(--hd-space-4);
   border-bottom: var(--hd-border-width) solid var(--hd-border);
 }
@@ -33,11 +22,14 @@
 }
 
 .body {
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 0;
-  overflow-y: auto;
   padding: var(--hd-space-4);
+}
+
+/* A confirm's sentences are paragraphs, and paragraphs space themselves: the
+   reset the primitives share zeroes a `p`'s margin, so two of them ran
+   together as one block. */
+.body > p:not(:last-child) {
+  margin-bottom: var(--hd-space-3);
 }
 
 /* What a confirm holds is read in full: a long line wraps inside the body
@@ -48,12 +40,6 @@
 }
 
 .footer {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: row-reverse;
-  align-items: center;
-  gap: var(--hd-space-2);
-  margin: 0;
   padding: var(--hd-space-3) var(--hd-space-4);
   border-top: var(--hd-border-width) solid var(--hd-border);
   background: var(--hd-muted);

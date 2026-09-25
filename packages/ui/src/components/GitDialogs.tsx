@@ -546,7 +546,7 @@ export const DeleteBranchDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Button variant="destructive" onClick={() => void remove()} disabled={busy}>
+          <Button variant="danger" onClick={() => void remove()} disabled={busy}>
             {busy ? 'Deleting…' : 'Delete'}
           </Button>
           <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
@@ -698,7 +698,7 @@ export const ResetDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Button variant={mode === 'hard' ? 'destructive' : 'default'} onClick={() => void reset()} disabled={busy}>
+          <Button variant={mode === 'hard' ? 'danger' : 'default'} onClick={() => void reset()} disabled={busy}>
             {busy ? 'Resetting…' : mode === 'hard' ? 'Reset and discard' : 'Reset'}
           </Button>
           <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>
@@ -841,7 +841,7 @@ export const DiffRangeDialog = ({
       tall
       flush
       onClose={onDone}
-      footer={<Button variant="secondary" onClick={onDone}>Close</Button>}
+      footer={<Button variant="default" onClick={onDone}>Close</Button>}
     >
       {error ? (
         <ActionError>{error}</ActionError>
@@ -916,7 +916,7 @@ export const ConfirmDialog = ({
       onClose={() => onDone(false)}
       footer={
         <>
-          <Button variant={tone === 'destructive' ? 'destructive' : 'default'} onClick={() => void confirm()} disabled={busy}>
+          <Button variant={tone === 'destructive' ? 'danger' : 'default'} onClick={() => void confirm()} disabled={busy}>
             {busy ? '…' : confirmLabel}
           </Button>
           <Button variant="secondary" onClick={() => onDone(false)} disabled={busy}>

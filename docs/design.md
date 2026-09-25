@@ -42,8 +42,8 @@ furniture is smaller than a row's own title.
 
 | token | value | what it carries | rules |
 | --- | --- | --- | --- |
-| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label | 217 |
-| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
+| `--hd-text-xs` | 12px | counts, badges, tags, timestamps, per-file diff numbers, the smallest button label, the hint under a form field | 217 |
+| `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, a form field's label, notes | 215 |
 | `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
 | `--hd-text-lg` | 16px | a dialog's title | 16 |
 | `--hd-heading` | 20px | a section's own name, a page's title, the wordmark | 13 |
@@ -231,20 +231,80 @@ do not remain as a second public vocabulary:
 
 | variant | where |
 | --- | --- |
-| `secondary` | the ordinary action (grey frame) |
+| `secondary` | the ordinary action (grey frame); drawn quiet in a dialog footer beside a filled act |
 | `default` | the one action a group exists for — at most one per group (ink fill) |
 | `outline` | bordered action on a transparent ground |
 | `ghost` | no frame until hover, for an action that repeats down a list |
-| `destructive` | does the irreversible thing, red on the label only |
+| `quiet` | the way out of a question — Keep, Cancel, Close — beside a filled act |
+| `destructive` | a remove action on a page or in a row, red on the label only |
+| `danger` | the act of a destructive confirm, filled red |
 
-Two rules keep `destructive` meaning something:
+Two rules keep red meaning something:
 
 1. A button that only opens a confirmation is ordinary — the red belongs on the
    step that cannot be taken back.
-2. Red is never a fill: a column of filled red buttons is a column nobody reads,
-   the same way a column of bold is a column of shouting. It is soft danger ink
-   on a transparent ground that fills on hover (`--hd-btn-danger-ink`,
-   `--hd-btn-danger-hover`).
+2. Red is a fill in exactly one place: the act of a destructive confirm
+   (`danger`, which `ConfirmDialog tone="destructive"` draws). By then the
+   question has been asked, and the red is what you came to do. Everywhere
+   else it is soft danger ink on a transparent ground that fills on hover
+   (`destructive`), because a column of filled red buttons is a column nobody
+   reads.
+
+**A dialog footer has one filled button.** Every footer has exactly one
+filled act: the confirm, `default`, or `danger` when it destroys — never none
+(three text buttons with no default) and never two. A lone button is that
+act, filled: a lone Close or Done in `secondary` was a frame the grey of the
+footer it stood on (245 on 245, 49 on 49 in dark) and read as a caption.
+Beside a filled act, `secondary` is drawn quiet (no
+fill, secondary ink; the footer reads the act's `data-filled`), or write
+`quiet` itself. `destructive` never stands in a footer. Write the proceeding
+action first: the footer is `row-reverse`, so it paints rightmost and is the
+first a Tab reaches.
+
+A disabled filled act — ink or red — is drawn one way: its fill kept at 16%
+over the footer's ground and its label in its own ink mixed into that ground,
+solved so both land just over 3:1 (`--hd-btn-disabled-*-share`,
+`--hd-btn-danger-disabled-ink-share`, `--hd-btn-{primary,danger}-disabled-*`).
+The red ink loses contrast on its pale fill faster than the ink does on grey,
+so it keeps 85% of itself where the ink keeps 60%. It stays the act, in its own
+hue, and is clearly weaker than enabled: measured, the label goes from 17.2:1
+to 3.2:1 on the ink button in light (10.5 → 3.1 dark) and from 4.9:1 to 3.2:1
+on the red one (4.9 → 3.3 dark). Half opacity mixed the button into whatever
+lay under it — a mid-grey slab on the grey footer.
+
+The design audit reads every `Dialog` footer as a syntax tree: both arms of
+each `?:`, with and without each `&&`, the `footerAside`, a hoisted `const`, a
+component written in the same file (read through to what it returns), and a
+control drawn with `buttonVariants(...)`. A component it cannot see into, a
+spread child, or a spread that can set a button's variant is reported as
+unread — never counted as an empty footer. All 54 footers in the app are
+read.
+
+### Dialog forms
+
+A dialog that asks for more than one thing is a form, and its body is already
+one (`design/patterns/DialogForm.tsx`): children 16px apart, a `Field`'s label
+6px over its control and its hint 6px under it at 12px, a `Fieldset` legend
+6px over its group. The Settings parts read the dialog around them, so a
+screen composes them without saying a number: `SectionHead` draws a legend,
+`FormStack`, `Note` and `Rows` drop their page spacing, and a `Rows` radio
+group made only of `RowChoice` rows draws as a `ChoiceList` — compact rows, a
+radio on the title's line, and every answer's description under its title in
+the hint step, so answers can be compared and choosing moves nothing. A radio
+group of anything else (New worktree's branch picker) keeps its card. The
+scope stops where the form does: a `flush` body is a list, and dialog and
+alert content, popovers and menus start outside any form, even when opened
+from a dialog's field (React context crosses portals).
+
+Which control a choice takes: `Segmented` or a `NativeSelect` for two to four
+short answers; `ChoiceList` when answers need a line; checkboxes for several
+members at once — never switches, which act the moment they flip. A field
+that may be left empty says `optional` at its label's end rather than in the
+label.
+
+A dialog, a confirm, a menu or a popover that holds focus never wears the
+focus ring round itself; the controls inside keep theirs. A dialog focuses its
+first field when it has one, and otherwise its own surface.
 
 `Segmented` is not a button. It is a piece of a segmented control — a choice
 between two or three words, one of which is on — and using it for actions is
@@ -298,6 +358,15 @@ counted in a monospace column.
 It is **not** for names that merely came from a machine. A branch, a folder, a
 file in a list of files is a name, and names are set in the interface's own font.
 A menu that mixes the two faces reads as two menus.
+
+Real code set inside a sentence — a flag like `--force`, a command, a key
+in a config file — is `CodeText`, and it takes its size from the sentence:
+`--hd-code-inline`, 0.92em with the 12px step as its floor. The monospace
+face's x-height is larger than the interface face's (0.547 against 0.530 of
+the em) and its glyphs are wider and evenly weighted, so at the same size a
+flag read a step larger than the words around it; at 0.92 it sits level with
+them. It adds no step to the scale — it lands on the step of whatever
+sentence holds it.
 
 So a skill's name, a hook's event, a plugin's id, a contribution, a workspace
 path, a worktree's branch and path, a route's endpoint and a changed file all
@@ -571,6 +640,7 @@ changes.
 | All density, spacing, typography, radius, focus, and semantic colours | `packages/ui/src/design/foundation/tokens.css` |
 | Generic dialog mechanics and focus/portal behaviour | `packages/ui/src/design/ui/dialog.tsx` |
 | Modal, confirmation, approval and lightbox policy | `packages/ui/src/design/patterns/ModalDialog.tsx`, `ConfirmDialog.tsx`, `ApprovalDialog.tsx` and `Lightbox.tsx` |
+| A dialog's form rhythm, legend and choice list | `packages/ui/src/design/patterns/DialogForm.tsx` and its CSS module |
 | Disabled or refused actions and their focusable explanation | `packages/ui/src/design/patterns/RefusedAction.tsx` |
 | Menus and popovers | `packages/ui/src/design/patterns/Menu.tsx` and `Popover.tsx`, over `design/ui` |
 | CodeMirror and xterm theme integration | `packages/ui/src/design/adapters/` |

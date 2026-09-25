@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -118,7 +118,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
-  'Settings', 'ModalDialog', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
+  'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'GitHistory', 'TurnWork',
 ])
@@ -137,7 +137,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   badge: ['default', 'secondary', 'destructive', 'outline'],
   board: ['default'],
   breadcrumb: ['default'],
-  button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
+  button: ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'],
   card: ['default', 'muted', 'flush'],
   chart: ['default'],
   checkbox: ['default'],
@@ -182,6 +182,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   tooltip: ['default'],
   Settings: ['default', 'sticky'],
   ModalDialog: ['default'],
+  DialogForm: ['default'],
   ApprovalDialog: ['default'],
   ConfirmDialog: ['default'],
   Lightbox: ['default'],
@@ -258,6 +259,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   tooltip: ['closed', 'open'],
   Settings: ['default', 'loading', 'error', 'stale', 'unknown'],
   ModalDialog: ['closed', 'open'],
+  DialogForm: ['default', 'selected', 'unselected', 'focus-visible', 'disabled', 'error'],
   ApprovalDialog: ['closed', 'open', 'loading', 'error'],
   ConfirmDialog: ['closed', 'open', 'loading', 'error'],
   Lightbox: ['closed', 'open'],
@@ -299,6 +301,7 @@ Object.assign(SIZES, {
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
+  DialogForm: 'packages/ui/src/components/SaveAsAgent.tsx',
   ApprovalDialog: 'packages/ui/src/components/Approvals.tsx',
   ConfirmDialog: 'packages/ui/src/components/Settings.tsx',
   Lightbox: 'packages/ui/src/components/Items.tsx',
@@ -328,6 +331,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature. */
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
+  DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   MessageQueue: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
@@ -447,6 +451,7 @@ export const CANONICAL_UI_MODULES = [
 export const CANONICAL_PATTERN_MODULES = [
   ['Settings', 'row', 'Settings pages, sections, rows and form layouts'],
   ['ModalDialog', 'dialog', 'Application reading and form dialog'],
+  ['DialogForm', 'dialog', 'Dialog form rhythm, fieldset legend and compact choice list'],
   ['ApprovalDialog', 'conversation', 'Pane-local consequential approval policy'],
   ['ConfirmDialog', 'dialog', 'Safe confirmation policy'],
   ['Lightbox', 'dialog', 'Full-window image gallery and modal policy'],
