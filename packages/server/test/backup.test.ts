@@ -386,6 +386,7 @@ test('backup export waits for a seating edit that was already queued', async (t)
     rename: (...args: unknown[]) => Promise<void>
   }
   const { readFile: realRead, rename: realRename } = fsp
+  const realRaw = MachineSeatingFile.prototype.raw
   let releaseRename!: () => void
   const renameReleased = new Promise<void>((resolve) => {
     releaseRename = resolve
@@ -394,14 +395,15 @@ test('backup export waits for a seating edit that was already queued', async (t)
   const renameEntered = new Promise<void>((resolve) => {
     enterRename = resolve
   })
-  let writeHeld = false
-  let observeBackupRead!: () => void
-  const backupRead = new Promise<void>((resolve) => {
-    observeBackupRead = resolve
+  let enterRaw!: () => void
+  const rawEntered = new Promise<void>((resolve) => {
+    enterRaw = resolve
   })
+  let writeHeld = false
+  let crossedWrite = false
   fsp.readFile = async (...args) => {
     if (String(args[0]) === path && writeHeld) {
-      observeBackupRead()
+      crossedWrite = true
       return before
     }
     return realRead(...args)
@@ -415,9 +417,14 @@ test('backup export waits for a seating edit that was already queued', async (t)
     }
     return realRename(...args)
   }
+  MachineSeatingFile.prototype.raw = async function (...args) {
+    enterRaw()
+    return realRaw.apply(this, args)
+  }
   syncBuiltinESMExports()
   t.after(() => {
     releaseRename()
+    MachineSeatingFile.prototype.raw = realRaw
     fsp.readFile = realRead
     fsp.rename = realRename
     syncBuiltinESMExports()
@@ -426,10 +433,8 @@ test('backup export waits for a seating edit that was already queued', async (t)
   const set = host.call('agent/seating/set', { id: 'reviewer', seats: [{ runtime: 'cursor' }] })
   await renameEntered
   const backup = host.call('backup/export', {})
-  const crossedWrite = await Promise.race([
-    backupRead.then(() => true),
-    new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
-  ])
+  await rawEntered
+  await new Promise((resolve) => setImmediate(resolve))
   if (crossedWrite) await backup
   releaseRename()
 

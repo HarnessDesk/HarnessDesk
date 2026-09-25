@@ -126,13 +126,31 @@ describe('an opened tool step', () => {
     const body = container.querySelector('[data-slot="list-row-detail"]')
     expect(body).toBeTruthy()
     expect(body?.getAttribute('data-inset')).toBe('title')
-    // A command's body draws its own plate (`CodeBlock`), so it keeps the
-    // step's left indent and drops the part's own right padding — its own
-    // edge is the row's, not a padded box a step further in.
-    expect(body?.className).toContain('pe-0')
+    // A command's body draws its own plate (`CodeBlock`). `inset="title"`
+    // carries no end padding of its own, so the plate's right edge is
+    // already the row's — nothing here needs to cancel a padded box a step
+    // further in.
+    // In a bordered card every body keeps the card's inner edge, plate or not.
+    expect(body?.className).toMatch(/(?:^|\s)pe-\(--hd-space-3\)/)
     // Retired along with the CSS class it lived in: the shared part now
     // owns the alignment every step body used to redraw its own margin for.
     expect(itemsCss).not.toMatch(/\.rowBody\b/)
+  })
+
+  it('keeps an argument panel and a text result at the same end edge as a bare plate, the card\'s own', () => {
+    // The defect this guards: an opened step's body that is not a plate
+    // (arguments, a result) used to add its own end padding, so it sat
+    // short of the row's right edge while a command's plate reached it.
+    open(call({
+      tool: 'search_files',
+      args: { query: 'row surface' },
+      result: [{ type: 'text', text: 'no matches' }],
+    }))
+
+    const body = container.querySelector('[data-slot="list-row-detail"]')
+    expect(body?.getAttribute('data-inset')).toBe('title')
+    // In a bordered card every body keeps the card's inner edge, plate or not.
+    expect(body?.className).toMatch(/(?:^|\s)pe-\(--hd-space-3\)/)
   })
 
   it('draws a two-line Write with one marker, not a second + in the file text', () => {
@@ -289,6 +307,71 @@ describe('an opened tool step', () => {
   it('renders a JSON object result as output, the same plate as a text result', () => {
     open(call({ tool: 'Bash', result: [{ type: 'json', value: { ok: true } }] }))
     expect(outputs()).toEqual(['{\n  "ok": true\n}'])
+  })
+
+  it('unwraps a JSON content array into the same output plate as a text result', () => {
+    // Claude Code's Agent/Task tool answers this way: without the unwrap a
+    // person sees the array's own `"type": "text"` punctuation.
+    open(call({ tool: 'Task', result: [{ type: 'json', value: [{ type: 'text', text: 'Sub-agent finished.' }] }] }))
+    expect(outputs()).toEqual(['Sub-agent finished.'])
+    expect(container.textContent).not.toContain('"type"')
+  })
+
+  it('unwraps a JSON content array of an image block through the image path', () => {
+    open(call({
+      tool: 'Task',
+      result: [{ type: 'json', value: [{ type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }] }],
+    }))
+    expect(container.querySelectorAll('img[src="data:image/png;base64,iVBORw0KGgo="]').length).toBe(1)
+  })
+
+  it('unwraps a {content: [...]} wrapper the same way as a bare content array', () => {
+    open(call({ tool: 'Task', result: [{ type: 'json', value: { content: [{ type: 'text', text: 'Wrapped reply.' }] } }] }))
+    expect(outputs()).toEqual(['Wrapped reply.'])
+  })
+
+  it('falls back to plain JSON for a content array carrying a block it does not know', () => {
+    open(call({
+      tool: 'Task',
+      result: [{ type: 'json', value: [{ type: 'text', text: 'part one' }, { type: 'tool_reference', id: 'ref-1' }] }],
+    }))
+    expect(outputs()).toEqual([JSON.stringify([{ type: 'text', text: 'part one' }, { type: 'tool_reference', id: 'ref-1' }], null, 2)])
+  })
+
+  it("draws a runtime's own command record as a command plate, with a failing exit code shown", () => {
+    open(call({
+      tool: 'run_command',
+      // Its arguments name the command again, and the absolute folder it ran in.
+      args: { CommandLine: 'pnpm test', Cwd: '/abs/work' },
+      result: [{
+        type: 'json',
+        value: {
+          commandLine: 'pnpm test',
+          workingDir: '/w',
+          exitCode: 1,
+          exit_code: 1,
+          combinedOutput: 'Tests 1 failed',
+          formatted_output: 'Tests 1 failed (formatted)',
+        },
+      }],
+    }))
+    const blocks = container.querySelectorAll('[data-slot="code-block"]')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.querySelector('[data-slot="code-block-command"]')?.textContent).toContain('$pnpm test')
+    expect(blocks[0]?.querySelector('[data-slot="code-block-body"]')?.textContent).toBe('Tests 1 failed')
+    expect(blocks[0]?.querySelector('[data-slot="code-block-exit"]')?.textContent).toBe('Exit code 1')
+    expect(container.textContent).not.toContain('/w')
+    expect(container.querySelector('[data-role="arguments"]')).toBeNull()
+  })
+
+  it("draws a runtime's own {output, isError} pair as output", () => {
+    open(call({ tool: 'run_query', result: [{ type: 'json', value: { output: 'no rows', isError: false } }] }))
+    expect(outputs()).toEqual(['no rows'])
+  })
+
+  it("draws a runtime's own {output, isError} pair as output even when it reports an error", () => {
+    open(call({ tool: 'run_query', result: [{ type: 'json', value: { output: 'connection refused', isError: true } }] }))
+    expect(outputs()).toEqual(['connection refused'])
   })
 
   it('names a result part it cannot draw as an image, instead of drawing a broken one', () => {
