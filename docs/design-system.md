@@ -618,6 +618,30 @@ having written the judgement down.
 
 **Why** — The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.
 
+### `default`
+
+**Use** — Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.
+
+**Not** — Right-aligning a sentence. A ragged left edge cannot be scanned, and a three-line "Declares" set flush right was the worst line in its dialog.
+
+**Why** — The eye runs down the keys and across to the value; a value that starts at the same x every time is the thing it lands on.
+
+### `numeric`
+
+**Use** — A count, a total, money — a value a reader compares by place. The row says `numeric`, and only then is it right-aligned on tabular figures.
+
+**Not** — On a row that holds words, or as the list's default. Right alignment is a claim that the digits line up.
+
+**Why** — A totals column that lines up by place is read in one glance; the same alignment on a sentence is read in none.
+
+### `path`
+
+**Use** — A file or folder path as a value: `kind="path"` (or `MiddleTruncate` elsewhere) gives up the middle, keeps the last segment, and names the whole in its title while cut.
+
+**Not** — A bare path in a value: it has no break opportunities, so it either runs past the container or loses the file name at the end.
+
+**Why** — A path's informative ends are whose it is and what it names. The middle is what every path in the list shares.
+
 ### The slots a gate holds
 
 `pnpm design:audit` fails on a variant that cannot appear in one of these, on one

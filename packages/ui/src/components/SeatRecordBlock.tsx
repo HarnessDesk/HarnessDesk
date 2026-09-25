@@ -87,7 +87,7 @@ export const SeatRecordView = ({ seat }: { readonly seat: SeatRecord }) => {
             ? `${seat.checkout.branch ?? 'a detached HEAD'} at ${shortSha(seat.checkout.head)}`
             : 'no commit yet'}
         </KeyValueRow>
-        <KeyValueRow label="Folder">{shortPath(seat.checkout.cwd, snapshot.home)}</KeyValueRow>
+        <KeyValueRow label="Folder" kind="path">{shortPath(seat.checkout.cwd, snapshot.home)}</KeyValueRow>
         {room && <KeyValueRow label="Board">{seat.role ? `${room} · as ${seat.role}` : room}</KeyValueRow>}
         <KeyValueRow label="Opened">{new Date(seat.openedAt).toLocaleString()}</KeyValueRow>
         {seat.closed && (

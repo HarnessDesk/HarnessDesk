@@ -234,7 +234,7 @@ const CiteDialog = ({
   return (
     <ConfirmDialog title="Cite in this Goal?" confirmLabel="Cite in this Goal" tone="default" busy={busy} pending={!source} onCancel={onClose} onConfirm={confirm}>
       <KeyValue>
-        <KeyValueRow label="File">{path}</KeyValueRow>
+        <KeyValueRow label="File" kind="path">{path}</KeyValueRow>
         <KeyValueRow label="Revision">{shortSha(at)}</KeyValueRow>
       </KeyValue>
       {sources === null ? (
@@ -287,7 +287,7 @@ const CitationDetail = ({ root, citation }: { readonly root: string; readonly ci
     return (
       <>
         <KeyValue>
-          <KeyValueRow label="File">{citation.path}</KeyValueRow>
+          <KeyValueRow label="File" kind="path">{citation.path}</KeyValueRow>
           <KeyValueRow label="Revision">{shortSha(citation.at)}</KeyValueRow>
         </KeyValue>
         <Banner tone="warning" title="The original source was not retained">{result.reason}</Banner>
@@ -300,7 +300,7 @@ const CitationDetail = ({ root, citation }: { readonly root: string; readonly ci
   return (
     <>
       <KeyValue>
-        <KeyValueRow label="File">{citation.path}</KeyValueRow>
+        <KeyValueRow label="File" kind="path">{citation.path}</KeyValueRow>
         <KeyValueRow label="Revision">
           {revisionAvailable ? shortSha(citation.at) : `${shortSha(citation.at)} — Original revision unavailable`}
         </KeyValueRow>

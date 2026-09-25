@@ -574,12 +574,19 @@ const KeyValueBoard = () => (
       data-catalog-sizes={KEY_VALUE_CATALOG_SIZES.join(' ')}
       data-catalog-states={KEY_VALUE_CATALOG_STATES.join(' ')}
     >
-      <Case label="one column, with a total">
+      <Case label="inspector: sentences wrap, a path gives up its middle">
         <KeyValue className="w-full" data-catalog-variant="default">
-          <KeyValueRow label="Prompt">5.9M</KeyValueRow>
-          <KeyValueRow label="Completion">2.5M</KeyValueRow>
-          <KeyValueRow label="Cached">−1.8M</KeyValueRow>
-          <KeyValueRow label="Charged" emphasis>
+          <KeyValueRow label="Source" kind="path">~/work/storefront/.harnessdesk/triggers/review.json</KeyValueRow>
+          <KeyValueRow label="Declares">When a pull request opens, open review-pr.</KeyValueRow>
+          <KeyValueRow label="Repository">acme/widgets</KeyValueRow>
+        </KeyValue>
+      </Case>
+      <Case label="numbers, with a total">
+        <KeyValue className="w-full">
+          <KeyValueRow label="Prompt" numeric>5.9M</KeyValueRow>
+          <KeyValueRow label="Completion" numeric>2.5M</KeyValueRow>
+          <KeyValueRow label="Cached" numeric>−1.8M</KeyValueRow>
+          <KeyValueRow label="Charged" numeric emphasis>
             $212.40
           </KeyValueRow>
         </KeyValue>
