@@ -2,21 +2,21 @@ import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'r
 
 import type { AgentEntry, SeatPlan } from '@harnessdesk/protocol'
 
-import { agentName, firstReason, inForce, markFor, seatTaken } from '../lib/agents'
+import { agentName, firstReason, inForce, seatTaken } from '../lib/agents'
 import {
   ActionError,
   Button,
   ChoiceList,
   Dialog,
   Field,
+  FormStack,
   Input,
   NativeSelect,
   Text,
 } from '../design'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
-import { RuntimeMark } from './BrandIcons'
-import { AgentIcon, BriefIcon, FlowIcon, GoalIcon, TeamIcon } from './Icons'
+import { AgentIcon, FlowIcon, GoalIcon, TeamIcon } from './Icons'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { FrontDoor } from './FrontDoor'
 import { GoalCreate } from './GoalCreate'
@@ -135,6 +135,7 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
       footerAside={<Button type="button" variant="quiet" onClick={openAgents}>Manage Agents…</Button>}
     >
       <div onKeyDownCapture={onKeyDownCapture}>
+        <FormStack>
         <ChoiceList
           label="What are you starting?"
           value={kind}
@@ -175,19 +176,14 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
         {showRunAs && (
           <Field
             label="Run as"
-            hint={chosenInfo ? (chosenInfo.refused ? chosenInfo.reason : `${chosenAgent?.definition?.description ?? ''} It would sit on ${chosenInfo.seat?.label}.`) : 'One agent, working in this folder.'}
+            /* Plain says nothing the Session row above has not; an Agent says what
+               it does and where it would sit, or once, why it cannot. */
+            {...(chosenInfo ? { hint: chosenInfo.refused ? `Can’t start here: ${chosenInfo.reason}. Start shows every seat it would take.` : `${chosenAgent?.definition?.description ?? ''} It would sit on ${chosenInfo.seat?.label}.`.trim() } : {})}
           >
             {(control) => (
-              <span className="flex items-center gap-2">
-                {chosenAgent && (
-                  <span className="flex flex-none items-center" aria-hidden="true">
-                    {chosenInfo?.seat ? <RuntimeMark runtime={markFor(chosenInfo.seat, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
-                  </span>
-                )}
                 <NativeSelect
                   id={control.id}
                   aria-describedby={control['aria-describedby']}
-                  className="flex-1"
                   value={runAs}
                   onChange={(event) => setRunAs(event.target.value)}
                 >
@@ -196,15 +192,15 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
                     const info = runAsInfo(entry, snapshot.agentPlans)
                     return (
                       <option key={entry.id} value={entry.id}>
-                        {info.refused ? `${info.name} — ${info.reason}` : info.name}
+                        {info.refused ? `${info.name} (can’t start here)` : info.name}
                       </option>
                     )
                   })}
                 </NativeSelect>
-              </span>
             )}
           </Field>
         )}
+        </FormStack>
       </div>
     </Dialog>
   )

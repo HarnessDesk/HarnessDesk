@@ -232,19 +232,20 @@ it('lists every in-force Agent under "Run as", and starting one runs the session
   expect(onClose).toHaveBeenCalled()
 })
 
-it('a refused Agent stays choosable, names its own reason in the list and under it, and still starts to show why', () => {
+it('a refused Agent stays choosable, is marked in the list, says why once under it, and still starts to show why', () => {
   const { store } = rig({}, [reviewer('judge', 'Judge')], PLANS)
   render(store)
 
   const select = runAsSelect()
   const judgeOption = [...select.options].find((one) => one.value === 'judge')!
-  expect(judgeOption.textContent).toContain('Cursor is signed out')
+  expect(judgeOption.textContent).toContain('can’t start here')
+  expect(judgeOption.textContent).not.toContain('Cursor is signed out')
 
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'judge')
     select.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  expect(document.body.textContent).toContain('Cursor is signed out')
+  expect(document.body.textContent?.split('Cursor is signed out').length).toBe(2)
 
   act(() => button('Start').click())
   expect(store.startAsAgent).toHaveBeenCalledWith('judge')
