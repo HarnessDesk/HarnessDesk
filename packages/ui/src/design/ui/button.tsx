@@ -174,6 +174,11 @@ const boxedVariants = cva(
         'icon-xs': 'size-(--hd-icon-target) p-0',
         'icon-sm': 'size-(--hd-btn-h-sm) p-0',
         content: 'h-auto p-0 whitespace-normal',
+        /* A row of a hand-windowed table: fixed to the pitch the list's own
+           arithmetic assumes (`--hd-table-row-h`), with only the right inset
+           a table row keeps clear of its own scrollbar. Distinct from `row`
+           above, which is a navigation destination sized off `--hd-nav-h`. */
+        'table-row': 'h-(--hd-table-row-h) p-0 pr-(--hd-space-3) whitespace-normal',
         /* The box belongs to a design-system pattern's own stylesheet — a
            settings `RowButton`, `RowChoice` — and the button brings only its
            behaviour and its variant's states. Not a reset: `content`'s `p-0`
