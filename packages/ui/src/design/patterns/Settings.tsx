@@ -906,7 +906,7 @@ export const RowButton = ({
    * makes every one of them a last child and the list loses every rule.
    */
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'className'>) => (
-  <Button variant="row" size="content"
+  <Button variant="row" size="pattern"
     type="button"
     className={cx(styles.row, styles.rowButton, className)}
     onClick={onClick}
@@ -917,10 +917,17 @@ export const RowButton = ({
       <span className={styles.rowTitle}>{title}</span>
       {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
     </span>
-    {control ? <span className={styles.rowCtl}>{control}</span> : null}
-    {chevron ? (
-      <span className={styles.rowChev}>
-        <ChevronIcon size={15} />
+    {/* The control and the chevron are one trailing item, so a row too narrow
+        for them beside the title wraps them together and they keep the row's
+        end on either line. */}
+    {control || chevron ? (
+      <span className={styles.rowEnd}>
+        {control ? <span className={styles.rowCtl}>{control}</span> : null}
+        {chevron ? (
+          <span className={styles.rowChev}>
+            <ChevronIcon size={15} />
+          </span>
+        ) : null}
       </span>
     ) : null}
   </Button>
@@ -952,13 +959,13 @@ export const RowChoice = ({
   disabled?: boolean
   onClick: () => void
 }) => (
-  <Button variant="row" size="content"
+  <Button variant="row" size="pattern"
     type="button"
     role="radio"
     aria-checked={selected}
     tabIndex={selected || tabStop ? 0 : -1}
     disabled={disabled}
-    className={cx('w-full min-w-0', styles.row, styles.rowButton, styles.rowChoice)}
+    className={cx(styles.row, styles.rowButton, styles.rowChoice)}
     onClick={onClick}
     onKeyDown={(event) => {
       if (!['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return

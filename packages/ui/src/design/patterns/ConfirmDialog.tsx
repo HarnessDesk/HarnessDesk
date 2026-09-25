@@ -38,7 +38,7 @@ export const ConfirmDialog = ({
   icon,
   confirmLabel,
   cancelLabel = 'Keep',
-  tone = 'destructive',
+  tone = 'default',
   busy = false,
   busyLabel,
   pending = false,
@@ -53,6 +53,12 @@ export const ConfirmDialog = ({
   confirmLabel: string
   /** The verb for leaving things alone. Only override with a better verb. */
   cancelLabel?: string
+  /**
+   * `destructive` — the trash glyph and the red verb — only for a confirm that
+   * really destroys something: delete, remove, discard, forget, sign out. A
+   * consent, an approval or a run asks in the ordinary tone, which is why it
+   * is the default: the red look is chosen, never inherited.
+   */
   tone?: 'destructive' | 'default'
   busy?: boolean
   busyLabel?: string

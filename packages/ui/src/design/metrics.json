@@ -287,6 +287,14 @@
     "pad": "16 16 16 16",
     "radius": 8
   },
+  "button/button/size/pattern": {
+    "h": 21,
+    "text": 14,
+    "weight": "400",
+    "line": 21,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "button/button/size/row": {
     "h": 29,
     "text": 13,
