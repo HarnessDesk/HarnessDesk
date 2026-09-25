@@ -575,6 +575,13 @@ Review the working tree's diff at the requested effort level.
 Formatting the project's own linter would catch, and preferences the
 surrounding code has already decided against.
 
+## How to verify a finding
+
+1. Name the input that triggers it, and the line it reaches.
+2. Run the narrowest test that covers that line, or write one.
+3. Say what the test printed, not what you expected it to print.
+4. A finding no test can reach is a question for the author, not a defect.
+
 ## Output
 
 One finding per defect, most severe first, each with a concrete failure
