@@ -142,7 +142,7 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
       </div>
 
       <section aria-label="Every step, for when a node is off screen">
-        <SectionHead name="Steps" />
+        {/* No heading here: the Graph tab this view lives behind already says "Steps". */}
         <Rows>
           {policy.roles.map((role) => (
             <RowButton

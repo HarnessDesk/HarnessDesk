@@ -125,3 +125,11 @@ it('the rule list carries every rule, including the back edge, in accessible tex
   const ruleRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.includes('review → ship'))!
   act(() => ruleRow.click())
 })
+
+it('the accessible step list under the canvas carries no "Steps" heading of its own — the Graph tab above it already says so', () => {
+  render(POLICY)
+  const headings = [...container.querySelectorAll('[data-slot="section-name"]')].map((one) => one.textContent?.trim())
+  expect(headings).not.toContain('Steps')
+  // The list itself is unaffected — every role is still there for a reader whose node is off screen.
+  expect(container.querySelector('section[aria-label="Every step, for when a node is off screen"]')).not.toBeNull()
+})

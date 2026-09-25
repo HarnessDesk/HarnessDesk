@@ -159,6 +159,23 @@ it('a complete blank draft previews and applies exactly one file on Create', asy
   expect(onCreated).toHaveBeenCalledWith(NEW_BLANK)
 })
 
+it('the blank Agent’s fields sit inside a card, and the Ceiling choices read in words, never the raw four levels', async () => {
+  const store = storeFor()
+  mount(store)
+
+  act(() => choice('A blank Agent').click())
+  await settle()
+
+  expect(input('Name').closest('[data-slot="card"]')).not.toBeNull()
+
+  const ceilingSelect = [...document.body.querySelectorAll('select')].find((one) =>
+    [...one.options].some((opt) => opt.value === 'read'),
+  )!
+  const optionText = [...ceilingSelect.options].map((one) => one.textContent?.trim())
+  expect(optionText).toEqual(['Read', 'Edit', 'Publish', 'Merge'])
+  expect(optionText).not.toContain('read')
+})
+
 it('a template copies through agent/copy once, before any edit — no synthesized clone', async () => {
   const store = storeFor()
   const { onCreated } = mount(store)

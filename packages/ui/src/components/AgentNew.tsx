@@ -2,8 +2,8 @@ import { useState } from 'react'
 
 import type { AgentEntry, CeilingLevel } from '@harnessdesk/protocol'
 
-import { agentName, bySection } from '../lib/agents'
-import { Banner, Button, Dialog, Field, Input, NativeSelect, Note, RowChoice, Rows, Textarea } from '../design'
+import { agentName, bySection, ceilingWords } from '../lib/agents'
+import { Banner, Button, Card, Dialog, Field, FormStack, Input, NativeSelect, Note, RowChoice, Rows, Textarea } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 
 /**
@@ -169,37 +169,39 @@ export const AgentNew = ({ root, from, onCreated, onClose }: AgentNewProps) => {
       )}
 
       {mode === 'blank' && (
-        <>
-          <Field label="Name">
-            {(control) => <Input {...control} autoFocus disabled={busy} value={name} onChange={(event) => setName(event.target.value)} />}
-          </Field>
-          <Field label="Description">
-            {(control) => <Input {...control} disabled={busy} value={description} onChange={(event) => setDescription(event.target.value)} />}
-          </Field>
-          <Field label="Folder name" hint="Lowercase letters, digits and -. Chosen now — renaming the Agent later does not move this.">
-            {(control) => (
-              <Input
-                {...control}
-                disabled={busy}
-                value={effectiveId}
-                onChange={(event) => {
-                  setIdTouched(true)
-                  setId(event.target.value)
-                }}
-              />
-            )}
-          </Field>
-          <Field label="Ceiling">
-            {(control) => (
-              <NativeSelect {...control} value={ceiling} disabled={busy} onChange={(event) => setCeiling(event.target.value as CeilingLevel)}>
-                {CEILINGS.map((level) => <option key={level} value={level}>{level}</option>)}
-              </NativeSelect>
-            )}
-          </Field>
-          <Field label="Brief">
-            {(control) => <Textarea {...control} rows={6} disabled={busy} value={brief} onChange={(event) => setBrief(event.target.value)} />}
-          </Field>
-        </>
+        <Card>
+          <FormStack>
+            <Field label="Name">
+              {(control) => <Input {...control} autoFocus disabled={busy} value={name} onChange={(event) => setName(event.target.value)} />}
+            </Field>
+            <Field label="Description">
+              {(control) => <Input {...control} disabled={busy} value={description} onChange={(event) => setDescription(event.target.value)} />}
+            </Field>
+            <Field label="Folder name" hint="Lowercase letters, digits and -. Chosen now — renaming the Agent later does not move this.">
+              {(control) => (
+                <Input
+                  {...control}
+                  disabled={busy}
+                  value={effectiveId}
+                  onChange={(event) => {
+                    setIdTouched(true)
+                    setId(event.target.value)
+                  }}
+                />
+              )}
+            </Field>
+            <Field label="Ceiling">
+              {(control) => (
+                <NativeSelect {...control} value={ceiling} disabled={busy} onChange={(event) => setCeiling(event.target.value as CeilingLevel)}>
+                  {CEILINGS.map((level) => <option key={level} value={level}>{ceilingWords(level)}</option>)}
+                </NativeSelect>
+              )}
+            </Field>
+            <Field label="Brief">
+              {(control) => <Textarea {...control} rows={6} disabled={busy} value={brief} onChange={(event) => setBrief(event.target.value)} />}
+            </Field>
+          </FormStack>
+        </Card>
       )}
 
       {mode === 'blank' && (

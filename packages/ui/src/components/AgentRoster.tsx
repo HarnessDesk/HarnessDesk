@@ -293,6 +293,13 @@ const AuthoringPendingSection = () => {
     }
   }
 
+  /** Where an unfinished save is — a title, not the sentence that belongs under it, and never a raw path. */
+  const placeWords = (one: AuthoringPending): string => {
+    if (one.scope !== 'project' || !one.root) return 'On this Mac'
+    const name = one.root.split('/').filter(Boolean).at(-1)
+    return `In ${name ?? 'a project'}`
+  }
+
   return (
     <section aria-label="Unfinished saves">
       <SectionHead name="Unfinished saves" />
@@ -300,9 +307,9 @@ const AuthoringPendingSection = () => {
         {pending.map((one) => (
           <Row
             key={one.id}
-            title={one.message}
+            title={placeWords(one)}
             wrapDesc
-            desc={one.files.length > 0 ? one.files.join(', ') : undefined}
+            desc={one.message}
             control={
               <span className="flex gap-(--hd-space-2)">
                 <Button size="sm" variant="outline" disabled={busyId === one.id} onClick={() => void resume(one.id)}>

@@ -282,3 +282,27 @@ it('discarding an unfinished save drops its record and writes nothing', async ()
   expect(store.resumeAuthoringSave).not.toHaveBeenCalled()
   expect(store.applyAuthoringSave).not.toHaveBeenCalled()
 })
+
+it('an unfinished save is titled by where it is, not by its own sentence, names the project, and shows no raw file path', async () => {
+  mount({}, {
+    authoringPending: vi.fn(async () => [
+      { id: 'save-1', scope: 'user', root: null, files: ['agents/scout/AGENT.md'], written: [], message: 'This save stopped before any file was known to be written. Resume to check each file and write what is missing.' },
+      { id: 'save-2', scope: 'project', root: '/w/storefront', files: ['agents/code-reviewer/AGENT.md'], written: [], message: 'An earlier save did not finish.' },
+    ]),
+  })
+  await act(async () => {})
+
+  const titles = [...container.querySelectorAll('section[aria-label="Unfinished saves"] [class*="_rowTitle_"]')]
+    .map((one) => one.textContent?.trim())
+
+  // A title is a short place, never the sentence that belongs on the line
+  // under it, and a project-scoped save names the project by name.
+  expect(titles).not.toContain('This save stopped before any file was known to be written. Resume to check each file and write what is missing.')
+  expect(titles).not.toContain('An earlier save did not finish.')
+  expect(titles.some((title) => title?.includes('storefront'))).toBe(true)
+
+  // The sentence itself is still readable, on the second line — never the raw path instead.
+  expect(sectionText('Unfinished saves')).toContain('This save stopped before any file was known to be written')
+  expect(sectionText('Unfinished saves')).not.toContain('agents/scout/AGENT.md')
+  expect(sectionText('Unfinished saves')).not.toContain('agents/code-reviewer/AGENT.md')
+})
