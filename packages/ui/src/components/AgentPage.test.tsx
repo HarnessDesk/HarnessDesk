@@ -355,6 +355,16 @@ it('removes one of yours to the Trash, after asking, and goes back to the roster
   expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
 })
 
+it('Remove… lives in its own Danger section at the foot of the page, never alone under the title, and its confirm is explicitly destructive', async () => {
+  mount({ focus: 'scout' })
+  expect(section('Danger')).toContain('Remove…')
+  // The button that reads "Remove…" is the Danger section's own, not a loose one under the head.
+  expect(button('Remove…').closest('section[aria-label="Danger"]')).not.toBeNull()
+
+  act(() => button('Remove…').click())
+  expect(document.body.querySelector('[role="alertdialog"] [data-tone]')?.getAttribute('data-tone')).toBe('destructive')
+})
+
 it('opens a file that will not parse on why, with nothing to start', () => {
   mount({ focus: 'draft' })
   const text = container.textContent ?? ''
@@ -466,9 +476,16 @@ it('shows Remove’s own refusal in its dialog on a server-only host, and stays 
 /* --- On this Mac (Task 16) ------------------------------------------------ */
 
 const section = (label: string): string => container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? ''
-const labelled = (label: string): HTMLButtonElement[] => [
-  ...container.querySelectorAll<HTMLButtonElement>(`button[aria-label="${label}"]`),
+/** Move up/down/remove live behind each "On this Mac" row's own "… actions" menu, in row order. */
+const seatMenus = (): HTMLButtonElement[] => [
+  ...container.querySelectorAll<HTMLButtonElement>('section[aria-label="On this Mac"] [aria-label$=" actions"]'),
 ]
+/** A row's overflow menu item — Base UI's `Menu.Item` renders a `<div role="menuitem">`, never a `<button>`. */
+const menuItem = (label: string): HTMLElement => {
+  const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no menu item “${label}”`)
+  return found as HTMLElement
+}
 const choose = (label: string, value: string): void => {
   const tag = [...document.body.querySelectorAll('label')].find((one) => one.textContent === label)
   const select = tag ? document.getElementById(tag.htmlFor) : null
@@ -489,23 +506,35 @@ it('lists this Mac’s seats in order, each with its state here, and names the f
   expect(here).toContain('~/.harnessdesk/seating.json')
 })
 
+it('no bare per-row Move up, Move down or remove button sits on "On this Mac" — every one lives behind its row’s own … menu', () => {
+  mount({ focus: 'code-reviewer' })
+  const here = container.querySelector('section[aria-label="On this Mac"]')!
+  expect([...here.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move up')).toBe(false)
+  expect([...here.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move down')).toBe(false)
+  expect([...here.querySelectorAll('button[aria-label="Remove this seat"]')]).toHaveLength(0)
+  expect(seatMenus().length).toBeGreaterThan(0)
+})
+
 it('a seat moves, or goes, and Clear gives the Agent its own list back', async () => {
   const { store } = mount({ focus: 'code-reviewer' })
   const expected = [{ runtime: 'codex' }, { runtime: 'claude-code' }]
-  expect(labelled('Move up')).toHaveLength(2)
-  expect(labelled('Move down')).toHaveLength(2)
-  expect(labelled('Move up')[0]!.textContent).toContain('Move up')
-  expect(labelled('Move down')[0]!.textContent).toContain('Move down')
-  expect(labelled('Move up')[0]!.disabled).toBe(true)
-  expect(labelled('Move down')[1]!.disabled).toBe(true)
-  act(() => labelled('Move down')[0]!.click())
+  expect(seatMenus()).toHaveLength(2)
+
+  act(() => seatMenus()[0]!.click())
+  await settle()
+  expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
+  act(() => menuItem('Move down').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith(
     'code-reviewer',
     [{ runtime: 'claude-code' }, { runtime: 'codex' }],
     expected,
   )
-  act(() => labelled('Remove this seat')[1]!.click())
+
+  act(() => seatMenus()[1]!.click())
+  await settle()
+  expect(menuItem('Move down').getAttribute('aria-disabled')).toBe('true')
+  act(() => menuItem('Remove seat').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }], expected)
   act(() => button('Clear').click())
@@ -513,12 +542,14 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', async (
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, expected)
 })
 
-it('the last seat removed gives the Agent its own list back too', () => {
+it('the last seat removed gives the Agent its own list back too', async () => {
   const { store } = mount({
     focus: 'code-reviewer',
     seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }] }] },
   })
-  act(() => labelled('Remove this seat')[0]!.click())
+  act(() => seatMenus()[0]!.click())
+  await settle()
+  act(() => menuItem('Remove seat').click())
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, [{ runtime: 'codex' }])
 })
 
@@ -527,14 +558,17 @@ it('disables every seat edit while a move is in flight, so a quick remove cannot
   const write = deferred<void>()
   store.setSeating = vi.fn(() => write.promise)
 
-  act(() => labelled('Move down')[0]!.click())
-  expect(labelled('Move up').every((one) => one.disabled)).toBe(true)
-  expect(labelled('Move down').every((one) => one.disabled)).toBe(true)
-  expect(labelled('Remove this seat').every((one) => one.disabled)).toBe(true)
+  act(() => seatMenus()[0]!.click())
+  await settle()
+  act(() => menuItem('Move down').click())
+  // Every seat's own "… actions" trigger is disabled while the move is in flight.
+  expect(seatMenus().every((one) => one.disabled)).toBe(true)
   expect(button('Clear').disabled).toBe(true)
   expect(button('Add a seat…').disabled).toBe(true)
 
-  act(() => labelled('Remove this seat')[1]!.click())
+  // A disabled trigger cannot be reopened to fire a second edit from the old list.
+  act(() => seatMenus()[1]!.click())
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
   expect(store.setSeating).toHaveBeenCalledTimes(1)
   expect(store.setSeating).toHaveBeenCalledWith(
     'code-reviewer',
@@ -587,16 +621,19 @@ it('two pages editing one Agent refuse the stale page, reload it, and show the r
   vi.mocked(staleStore.loadSeating).mockClear()
   const first = container.querySelector<HTMLElement>('[data-page="first"]')!
   const stale = container.querySelector<HTMLElement>('[data-page="stale"]')!
-  const firstMove = [...first.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.getAttribute('aria-label') === 'Move down')!
-  const staleRemoves = [...stale.querySelectorAll<HTMLButtonElement>('button')].filter(
-    (one) => one.getAttribute('aria-label') === 'Remove this seat',
-  )
+  const menusIn = (scope: HTMLElement): HTMLButtonElement[] => [
+    ...scope.querySelectorAll<HTMLButtonElement>('[aria-label$=" actions"]'),
+  ]
 
-  act(() => firstMove.click())
+  act(() => menusIn(first)[0]!.click())
+  await settle()
+  act(() => menuItem('Move down').click())
   await settle()
   expect(hostSeats).toEqual([{ runtime: 'claude-code' }, { runtime: 'codex' }])
 
-  act(() => staleRemoves[1]!.click())
+  act(() => menusIn(stale)[1]!.click())
+  await settle()
+  act(() => menuItem('Remove seat').click())
   await settle()
   expect(staleStore.setSeating).toHaveBeenCalledWith('code-reviewer', [{ runtime: 'codex' }], original)
   expect(staleStore.loadSeating).toHaveBeenCalledTimes(1)

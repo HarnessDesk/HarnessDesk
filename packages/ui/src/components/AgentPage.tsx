@@ -36,10 +36,11 @@ import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
+import { BriefIcon, MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
 import {
   BackLink,
   Banner,
+  BoardMenuButton,
   Button,
   Checkbox,
   CodeText,
@@ -47,6 +48,11 @@ import {
   DetailHead,
   DetailMark,
   Dialog,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Field,
   FormStack,
   NativeSelect,
@@ -229,16 +235,18 @@ export const AgentPage = ({
       />
 
       {/*
-       * Customize… and Remove… live below the head, not inside its own
-       * `actions` slot: that slot's own layout gives its text column no room
-       * once a second and third action sit beside a label this long — a shape
-       * every other `DetailHead` caller avoids by keeping to one short
-       * control (a toggle, an icon). Flagged for the UI-system session
-       * (`design/patterns/Settings.tsx`'s `.detailCtl`/`.detailText`): it
-       * needs either a wrap or a second line for more than one wide action,
-       * not a second composition here working around it.
+       * Customize… lives below the head, not inside its own `actions` slot:
+       * that slot's own layout gives its text column no room once a second
+       * action sits beside a label this long — a shape every other
+       * `DetailHead` caller avoids by keeping to one short control (a toggle,
+       * an icon). Flagged for the UI-system session (`design/patterns/Settings.tsx`'s
+       * `.detailCtl`/`.detailText`): it needs either a wrap or a second line
+       * for more than one wide action, not a second composition here working
+       * around it. Remove… moved out entirely — a destructive action never
+       * sits alone under the title (review item 7) — into its own Danger
+       * section at the foot of the page, below.
        */}
-      {(targets.length > 0 || (folder && entry.origin !== 'builtin') || (definition && snapshot.agentsProject)) && (
+      {(targets.length > 0 || (definition && snapshot.agentsProject)) && (
         <span className={styles.actions}>
           {targets.length > 0 && (
             <Button variant="outline" onClick={() => setCustomizing(true)}>
@@ -248,11 +256,6 @@ export const AgentPage = ({
           {definition && snapshot.agentsProject && (
             <Button variant="outline" onClick={() => setEveryTime(true)}>
               Every time…
-            </Button>
-          )}
-          {folder && entry.origin !== 'builtin' && (
-            <Button variant="secondary" onClick={() => setRemoving(true)}>
-              Remove…
             </Button>
           )}
         </span>
@@ -379,6 +382,24 @@ export const AgentPage = ({
             />
           </Rows>
         </>
+      )}
+
+      {/* A destructive action never sits alone under the title (review item 7) — reachable for a broken entry too, since removing one is how its folder is cleaned up. */}
+      {folder && entry.origin !== 'builtin' && (
+        <section aria-label="Danger">
+          <SectionHead name="Danger" />
+          <Rows>
+            <Row
+              title="Remove"
+              desc="Moves its folder to the Trash. It can be put back."
+              control={
+                <Button variant="destructive" onClick={() => setRemoving(true)}>
+                  Remove…
+                </Button>
+              }
+            />
+          </Rows>
+        </section>
       )}
 
       {customizing && definition && (
@@ -658,40 +679,26 @@ const MachineSeats = ({
               {...(candidate ? { mark: <RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} /> } : {})}
               title={candidate?.label ?? 'Checking…'}
               {...(candidate ? { desc: stateWords(candidate) } : {})}
-              control={
-                <span className={styles.actions}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Move up"
-                    disabled={busy || index === 0}
-                    onClick={() => move(index, index - 1)}
-                  >
-                    <MoveUpIcon size={14} />
-                    Move up
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Move down"
-                    disabled={busy || index === mine.seats.length - 1}
-                    onClick={() => move(index, index + 1)}
-                  >
-                    <MoveDownIcon size={14} />
-                    Move down
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Remove this seat"
-                    title="Remove this seat"
-                    disabled={busy}
-                    onClick={() => remove(index)}
-                  >
-                    <CrossIcon size={13} />
-                  </Button>
-                </span>
-              }
+              control={(
+                <DropdownMenu>
+                  <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} disabled={busy} />} />
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem disabled={index === 0} onClick={() => move(index, index - 1)}>
+                      <MoveUpIcon size={14} />
+                      Move up
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={index === mine.seats.length - 1} onClick={() => move(index, index + 1)}>
+                      <MoveDownIcon size={14} />
+                      Move down
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
+                      <TrashIcon size={14} />
+                      Remove seat
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             />
           )
         })}
