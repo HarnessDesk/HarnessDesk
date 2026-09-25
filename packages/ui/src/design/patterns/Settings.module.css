@@ -879,6 +879,50 @@
   font: inherit;
 }
 
+/* A row that opens and also folds (`RowButton fold`): the button and the fold
+   share the row's line, its inset and its one rule. The rule is the pair's,
+   so it runs under the fold too, and a card's last row draws none. */
+.rowFolding {
+  display: flex;
+  align-items: stretch;
+  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+}
+
+.rowFolding:last-child {
+  border-bottom: none;
+}
+
+.rowFolding > .rowButton {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+  padding-inline-end: var(--hd-space-6); /* desk: var(--hd-card-padding) → var(--hd-space-6), the gap a row keeps between its control and its chevron */
+}
+
+.rowFoldEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-inline-end: var(--hd-card-padding);
+}
+
+/* The fold is a toggle, not a menu: the row's hover, and no fill for open —
+   its mark already says which way it is. It takes the chevron's width in the
+   row's layout and bleeds its target equally either side, so its mark is
+   centred on the column the drill-in chevrons of the rows under it stand in
+   (`--row-chevron`, set by the part from the chevron's own size). */
+.rowFold {
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  width: var(--hd-btn-h);
+  height: var(--hd-btn-h);
+  margin-inline: calc((var(--row-chevron) - var(--hd-btn-h)) / 2);
+  border: none;
+  border-radius: var(--hd-btn-radius);
+  color: inherit;
+}
+
 /* Column, not row: the title and its description are two lines, and a flex
    parent would otherwise set them side by side. */
 .rowText {
@@ -1264,6 +1308,15 @@
 .avatarLg {
   width: 44px;
   height: 44px;
+}
+
+/* A mark that is a control — one ring of a picker — is the same plate: the
+   platform's button edge and inset are not part of it, and a screen used to
+   take them off itself. */
+.avatarButton {
+  padding: 0; /* desk: 1px 6px (the platform's) → 0, the plate has no inset */
+  border: 0; /* desk: 2px outset (the platform's) → 0, the plate's edge is its inset ring */
+  cursor: pointer;
 }
 
 .avatarSm {

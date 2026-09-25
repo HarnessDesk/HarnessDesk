@@ -64,9 +64,10 @@
   flex-direction: column;
 }
 
+/* An import candidate is its labelled checkbox and the kind and description
+   beside it; the empty-copies line is a labelled checkbox alone. */
 .candidate,
 .choice,
-.hollowLine,
 .historyRow,
 .historyWhat {
   display: flex;
@@ -106,8 +107,6 @@
 }
 
 .hollowLine {
-  align-items: center;
-  gap: var(--hd-space-2);
   margin-top: var(--hd-space-3);
 }
 
@@ -139,10 +138,4 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--hd-space-2) var(--hd-space-4);
-}
-
-.target {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1-5);
 }

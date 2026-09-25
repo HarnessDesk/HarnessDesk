@@ -56,3 +56,34 @@ it('turns once inside a button, by the one rotate property both spell', () => {
   expect(button?.className).toContain('[&_[data-chevron][data-open]]:rotate-90')
   expect(chevron?.getAttribute('class')).not.toMatch(/rotate-180|transform:/)
 })
+
+it('turns the other way at a row end: down folded, up open, and not by a button', () => {
+  act(() => root.render(
+    <Button>
+      Usage
+      <DisclosureChevron open={false} placement="trailing" />
+      <DisclosureChevron open placement="trailing" />
+    </Button>,
+  ))
+  const [folded, open] = chevrons()
+  for (const chevron of [folded, open]) {
+    expect(chevron?.getAttribute('data-placement')).toBe('trailing')
+    const cls = chevron?.getAttribute('class') ?? ''
+    // A half turn of its own; a button's quarter turn of `[data-chevron]`
+    // would point an open trailing fold sideways.
+    expect(cls).toContain('data-[open]:rotate-180')
+    expect(cls).not.toContain('data-[open]:rotate-90')
+    expect(chevron?.hasAttribute('data-chevron')).toBe(false)
+  }
+  // The glyph points down at rest (lucide's chevron-down), not right.
+  expect(folded?.getAttribute('class')).toContain('lucide-chevron-down')
+  expect(open?.hasAttribute('data-open')).toBe(true)
+  expect(chevrons()[0]?.getAttribute('width')).toBe('13')
+})
+
+it('keeps the leading fold for every existing consumer by default', () => {
+  act(() => root.render(<DisclosureChevron open={false} />))
+  const [chevron] = chevrons()
+  expect(chevron?.getAttribute('data-placement')).toBe('leading')
+  expect(chevron?.getAttribute('class')).toContain('lucide-chevron-right')
+})

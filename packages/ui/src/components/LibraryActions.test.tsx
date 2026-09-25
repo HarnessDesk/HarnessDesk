@@ -82,6 +82,16 @@ const click = async (button: Element | null | undefined): Promise<void> => {
 const buttonNamed = (text: string): HTMLButtonElement | undefined =>
   [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes(text))
 
+/** A checkbox by its accessible name: the words of the label that names it. */
+const checkboxNamed = (name: string): HTMLElement | undefined =>
+  [...document.body.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
+    (node) =>
+      (node.getAttribute('aria-labelledby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ') === name && !node.hasAttribute('aria-label'),
+  )
+
 const plan = (ops: LibraryPlan['ops']): LibraryPlan => ({ plannedAt: 1, ops })
 
 it('previews before it applies, and applies exactly what was previewed', async () => {
@@ -298,7 +308,7 @@ it('a deselected candidate stays home', async () => {
   await click(intoSecond[intoSecond.length - 1])
   // A checkbox: these rows are items picked out of a list, not settings that
   // take effect where they stand.
-  await click(document.body.querySelector('[role="checkbox"][aria-label="Import carried"]'))
+  await click(checkboxNamed('carried'))
   await click(buttonNamed('Preview 1 import'))
   const intents = onPlan.mock.calls[0]?.[1] as readonly LibraryIntent[]
   expect(intents.map((one) => one.name)).toEqual(['stranded'])
@@ -381,11 +391,9 @@ it('authoring composes the frontmatter and refuses a name that cannot be a direc
   })
   // Several agents at once, so a checkbox per agent: visible before it is
   // ticked, and nothing is installed until the preview is confirmed.
-  await click(
-    [...document.body.querySelectorAll('[data-slot="checkbox"]')].find(
-      (one) => one.getAttribute('aria-label') === 'Install for Second Agent',
-    ),
-  )
+  // Each is named by its label's visible words — the agent's name — in the
+  // group its legend names; a role query by name finds it.
+  await click(checkboxNamed('Second Agent'))
   // The agents are one group, announced by its legend.
   const group = [...document.body.querySelectorAll('[role="group"]')].find(
     (one) => document.getElementById(one.getAttribute('aria-labelledby') ?? '')?.textContent === 'Install for',

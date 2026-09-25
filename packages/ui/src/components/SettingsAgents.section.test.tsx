@@ -80,9 +80,57 @@ it('draws the windows and the balance as one card', () => {
   expect(cards[0]?.textContent).toContain('Credits')
 })
 
-it('keeps the card divider between usage windows and Credits', () => {
-  shown(limits({ balance: 5, windows: [{ label: 'Weekly', usedPercent: 40, resetsAt: null }] as never }))
-  const progress = container.querySelector('[role="progressbar"]')
-  const meterRows = progress?.parentElement?.parentElement
-  expect(meterRows?.className).toContain('border-[var(--hd-card-divider,var(--hd-border))]')
+it('draws each usage window as a row of the card, before Credits', () => {
+  // The windows used to be one padded block drawing its own divider; each is
+  // now a row of the card, so the card's own rule separates them.
+  shown(
+    limits({
+      balance: 5,
+      windows: [
+        { label: '5-hour', usedPercent: 10, resetsAt: null },
+        { label: 'Weekly', usedPercent: 40, resetsAt: null },
+      ] as never,
+    }),
+  )
+  const card = [...container.children].find((node) => node.textContent?.includes('Credits'))
+  const rows = [...(card?.children ?? [])]
+  const meters = rows.filter((row) => row.querySelector('[role="progressbar"]'))
+  const credits = rows.find((row) => row.textContent?.includes('Credits'))
+  expect(meters.map((row) => row.textContent)).toEqual([expect.stringContaining('5-hour'), expect.stringContaining('Weekly')])
+  expect(meters.every((row) => row.querySelectorAll('[role="progressbar"]').length === 1)).toBe(true)
+  expect(rows.indexOf(credits as Element)).toBe(rows.length - 1)
+})
+
+it('grades a window meter the way every remaining meter is graded', () => {
+  // Neutral while there is room — green made "nothing is wrong" the loudest
+  // thing on the page — amber under a fifth, red when spent.
+  shown(
+    limits({
+      windows: [
+        { label: '5-hour', usedPercent: 52, resetsAt: null },
+        { label: 'Weekly', usedPercent: 88, resetsAt: null },
+        { label: 'Monthly', usedPercent: 100, resetsAt: null },
+      ] as never,
+    }),
+  )
+  const meters = [...container.querySelectorAll('[role="progressbar"]')]
+  expect(meters.map((meter) => meter.getAttribute('aria-label'))).toEqual([
+    '5-hour remaining',
+    'Weekly remaining',
+    'Monthly remaining',
+  ])
+  expect(meters.map((meter) => meter.getAttribute('aria-valuenow'))).toEqual(['48', '12', '0'])
+  expect(meters.map((meter) => meter.getAttribute('data-tone'))).toEqual(['neutral', 'warning', 'danger'])
+  expect(meters.every((meter) => meter.getAttribute('data-measure') === 'remaining')).toBe(true)
+  expect(container.textContent).toContain('48% left')
+})
+
+it('says when a window refills on the line under its name', () => {
+  const resetsAt = new Date(2030, 0, 2, 16, 0).getTime()
+  shown(limits({ windows: [{ label: 'Weekly', usedPercent: 40, resetsAt }] as never }))
+  const meter = container.querySelector('[role="progressbar"]')
+  const row = [...container.querySelectorAll('*')].find(
+    (node) => node.parentElement?.children.length && node.contains(meter) && node.textContent?.startsWith('Weekly'),
+  )
+  expect(row?.textContent).toMatch(/^WeeklyResets .+60% left$/)
 })
