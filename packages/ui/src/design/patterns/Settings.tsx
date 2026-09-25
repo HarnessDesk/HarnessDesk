@@ -784,7 +784,7 @@ export const PageHead = ({
 }) => (
   <div className={styles.pageHead}>
     <div className={styles.pageHeadText}>
-      <div className={styles.pageTitle} data-slot="page-title">{title}</div>
+      <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
       {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
     </div>
     {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
@@ -812,12 +812,12 @@ export const SectionHead = ({
      names instead of floating page furniture's 20px above and 8px over it. */
   if (useDialogForm()) return <FieldsetLegend name={name} description={description} action={action} className={className} />
   return (
-  <div className={cx(styles.sectionHead, className)} {...(sticky ? { 'data-sticky': '' } : {})}>
+  <div className={cx(styles.sectionHead, className)} data-section-head="" {...(sticky ? { 'data-sticky': '' } : {})}>
     <div className={styles.sectionHeadText}>
       {level === 'heading' ? (
         <h2 className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</h2>
       ) : (
-        <GroupLabel className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
+        <GroupLabel as="h2" className={styles.sectionName} data-slot="section-name" data-level={level}>{name}</GroupLabel>
       )}
       {description != null && (
         <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
@@ -1153,8 +1153,12 @@ export const DetailHead = ({
     {mark}
     <div className={styles.detailText}>
       <div className={styles.detailName}>
-        {name}
-        {owner ? <span className={styles.detailOwner}>{owner}</span> : null}
+        <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
+        {/* A text owner — a place, a path — gives way at its end; a chip or any
+            other element is a mark and stays whole, so the name wraps first. */}
+        {owner ? (
+          <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
+        ) : null}
       </div>
       {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
     </div>

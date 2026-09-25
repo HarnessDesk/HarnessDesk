@@ -634,7 +634,8 @@ floating grey words.
 
 The label sits on its card: an action beside it (the `sectionAction` slot, a
 small `outline` button) grows the head upward, so every label on a page is the
-same 8px above what it names. A screen composing sections writes no margin of
+same 8px above what it names — a `SectionHead`'s too, which used to stand
+centred in a 26px box 13px above its card. A screen composing sections writes no margin of
 its own. A `SectionHead` on a page keeps the same 32px — including one that
 opens a `<section>` wrapper, which used to lose its margin to `:first-child`
 and start 6px under the card before it — so a page half converted still reads
@@ -656,11 +657,25 @@ narrow, each key rises over its value and the action keeps the end. An account's
 sign-in, plan, credential and default are one card; so should be an Agent's
 file, ceiling, skills, servers and brief.
 
-**A wrapped control keeps the row's end.** When a row is too narrow for its
-control beside the title, the control drops under it — at the row's end, in a
-plain `Row` exactly as in a `RowButton`, whose control travels with a chevron
-that cannot leave the end. The card's trailing edge stays the one column every
-control is found in.
+**A wrapped control lands by what it is.** When a row is too narrow for its
+control beside the title, the control drops under it. A compact control — a
+switch, a button, a chip, a select — keeps the row's end, in a plain `Row`
+exactly as in a `RowButton`, whose control travels with a chevron that cannot
+leave the end. A text answer (`RowValue`) takes its whole line and starts
+where the title starts: pushed to the end, a sentence narrower than the row
+began at whatever indent its length left. The row reads which from the
+control, so no caller has to remember.
+
+**Groups inside a section are sub-heads.** A `SectionHead` among a `Section`'s
+children sits 24px under the card above and 8px over its own — a step between
+the 8px of a label and the 32px of a section — so Permissions' twelve runtimes
+read as groups of Approvals, and a project's flows as its own, yours and the
+built-in ones, each under one label instead of a chip on every row.
+
+**The outline is real.** A page's title and a detail page's title are h1s;
+every section label, `Section` or `SectionHead`, is an h2. A detail head's
+owner is either text — a place, a path — that gives way at its end, or a mark
+such as a status chip that stays whole while the name wraps.
 
 ## Adding to the app
 

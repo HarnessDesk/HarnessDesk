@@ -24,7 +24,7 @@ const mount = async (page: Page, width: number) => {
       response,
       body: `${source}
         import fixtureReact from ${JSON.stringify(reactUrl)};
-        import { Button, DetailHead, DetailMark, Note, PageHead, Row, Rows, Section, SummaryItem, SummaryList } from '/src/design/index.ts';
+        import { AppWindowPage, Button, Chip, DetailHead, DetailMark, Note, PageHead, Row, Rows, Section, SectionHead, SummaryItem, SummaryList } from '/src/design/index.ts';
         document.getElementById('root').hidden = true;
         const frame = document.createElement('div');
         frame.setAttribute('data-testid', 'grammar');
@@ -47,6 +47,21 @@ const mount = async (page: Page, width: number) => {
           ),
           h('div', { style: { marginTop: '48px' } },
             h(DetailHead, { mark: h(DetailMark, null, 'C'), name: 'Code reviewer', owner: 'In storefront', blurb: 'Reads a change before anyone merges it.' }),
+          ),
+          h('div', { style: { marginTop: '48px' }, 'data-testid': 'goal-head' },
+            h(DetailHead, { name: 'Make checkout retries survive a gateway restart without charging twice', owner: h(Chip, { tone: 'warning' }, 'Needs you'), blurb: '~/work/storefront' }),
+          ),
+          h(Section, { title: 'Approvals', description: 'What a new session starts with.', 'data-testid': 'approvals' },
+            h(SectionHead, { name: 'Alpha' }),
+            h(Rows, { 'data-testid': 'alpha' }, h(Row, { title: 'Sandbox' })),
+            h(SectionHead, { name: 'Beta' }),
+            h(Rows, { 'data-testid': 'beta' }, h(Row, { title: 'Decided when a session starts' })),
+          ),
+          h(AppWindowPage, { 'data-testid': 'app-page' },
+            h(Rows, { 'data-testid': 'legacy-above' }, h(Row, { title: 'Everything stays on this Mac' })),
+            h(SectionHead, { name: 'Backup', action: h(Button, { size: 'sm', variant: 'outline' }, 'Export…') }),
+            h(Rows, { 'data-testid': 'legacy-card' }, h(Row, { title: 'Back up this Mac' })),
+            h(Section, { title: 'Support', 'data-testid': 'app-section' }, h(Rows, null, h(Row, { title: 'Diagnostics' }))),
           ),
         ));
       `,
@@ -177,6 +192,88 @@ test('a narrow SummaryList puts each key over its value, and keeps the action at
   expect(rows[0]!.actionEnd).toBe(0)
   expect(rows[0]!.actionBesideValue).toBe(true)
   await page.getByTestId('grammar').screenshot({ path: test.info().outputPath('page-grammar-narrow.png') })
+})
+
+/* A chip is a mark, not a name: it stays whole beside a long title, and the
+   title wraps first (#911's review — a Goal's status read "Nee…" at 720px and
+   "N" at 420px). A text owner still gives way at its end. */
+for (const width of [720, 420]) {
+  test(`a chip owner stays whole beside a long detail title at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 })
+    await mount(page, width)
+    const reading = await page.getByTestId('goal-head').evaluate(node => {
+      const chip = node.querySelector('[data-owner] > *')!
+      const words = chip.querySelector('[data-slot="chip-words"]')!
+      const title = node.querySelector('h1')!
+      const line = parseFloat(getComputedStyle(title).lineHeight)
+      return {
+        owner: node.querySelector('[data-owner]')!.getAttribute('data-owner'),
+        cut: words.scrollWidth > words.clientWidth + 1,
+        chipWidth: chip.getBoundingClientRect().width,
+        titleLines: Math.round(title.getBoundingClientRect().height / line),
+        overflow: node.scrollWidth - node.clientWidth,
+      }
+    })
+    expect(reading.owner).toBe('mark')
+    expect(reading.cut, 'the chip was cut').toBe(false)
+    expect(reading.chipWidth).toBeGreaterThan(50)
+    expect(reading.titleLines).toBeGreaterThan(1)
+    expect(reading.overflow).toBeLessThanOrEqual(0)
+    await page.getByTestId('goal-head').screenshot({ path: test.info().outputPath(`goal-head-${width}.png`) })
+  })
+}
+
+test('page and detail titles are h1, and every section label is an h2', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await mount(page, 640)
+  const tags = await page.getByTestId('grammar').evaluate(node => ({
+    pageTitle: node.querySelector('[data-slot="page-title"]')!.tagName,
+    detailTitles: [...node.querySelectorAll('[data-slot="detail-title"]')].map(one => one.tagName),
+    sectionLabels: [...node.querySelectorAll('section[data-variant="page"] > [data-slot="section-head"] [data-slot="group-label"]')].map(one => one.tagName),
+    headLabels: [...node.querySelectorAll('[data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
+  }))
+  expect(tags.pageTitle).toBe('H1')
+  expect(new Set(tags.detailTitles)).toEqual(new Set(['H1']))
+  expect(new Set(tags.sectionLabels)).toEqual(new Set(['H2']))
+  expect(new Set(tags.headLabels)).toEqual(new Set(['H2']))
+})
+
+/* Inside a Section, a SectionHead is a sub-head: 24px above it, 8px to its
+   card — tighter than the 32px between sections, so Permissions' runtimes
+   read as groups of Approvals. */
+test('a section head inside a Section is a sub-head a step tighter than a section', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await mount(page, 640)
+  const gaps = await page.getByTestId('approvals').evaluate(node => {
+    const box = (selector: string) => node.querySelector(selector)!.getBoundingClientRect()
+    const [alpha, beta] = [...node.querySelectorAll('[data-section-head]')].map(one => one.getBoundingClientRect())
+    const betaLabel = node.querySelectorAll('[data-section-head] [data-slot="section-name"]')[1]!.getBoundingClientRect()
+    return {
+      aboveFirst: Math.round(alpha!.top - box('[data-slot="section-head"]').bottom),
+      betweenGroups: Math.round(beta!.top - box('[data-testid="alpha"]').bottom),
+      labelToCard: Math.round(box('[data-testid="beta"]').top - betaLabel.bottom),
+    }
+  })
+  expect(gaps).toEqual({ aboveFirst: 24, betweenGroups: 24, labelToCard: 8 })
+})
+
+/* On an app-window page a SectionHead keeps the Section rhythm: 32px from the
+   card above, and its label 8px over its own card even with an action beside
+   it — the same two numbers a Section gives. */
+test('on a page a section head sits 32px under the card above and 8px over its own', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 900 })
+  await mount(page, 640)
+  const gaps = await page.getByTestId('app-page').evaluate(node => {
+    const box = (selector: string) => node.querySelector(selector)!.getBoundingClientRect()
+    return {
+      headMargin: getComputedStyle(node.querySelector('[data-section-head]')!).marginTop,
+      aboveHead: Math.round(box('[data-section-head]').top - box('[data-testid="legacy-above"]').bottom),
+      labelToCard: Math.round(box('[data-testid="legacy-card"]').top - box('[data-section-head] [data-slot="section-name"]').bottom),
+      sectionLabelToCard: Math.round(box('[data-testid="app-section"] [data-slot="section-head"] ~ *').top - box('[data-testid="app-section"] [data-slot="group-label"]').bottom),
+      aboveSection: Math.round(box('[data-testid="app-section"]').top - box('[data-testid="legacy-card"]').bottom),
+    }
+  })
+  expect(gaps).toEqual({ headMargin: '32px', aboveHead: 32, labelToCard: 8, sectionLabelToCard: 8, aboveSection: 32 })
 })
 
 test('the rhythm holds in the dark theme too', async ({ page }) => {

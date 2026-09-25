@@ -38,7 +38,7 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   )
   const [label, heading] = container.querySelectorAll<HTMLElement>('[data-slot="section-name"]')
   expect(label?.dataset['level']).toBe('label')
-  expect(label?.tagName).toBe('SPAN')
+  expect(label?.tagName).toBe('H2')
   expect(heading?.dataset['level']).toBe('heading')
   expect(heading?.tagName).toBe('H2')
   expect(heading?.closest('[data-sticky]')?.textContent).toBe('What is leftThe selected account is out of quota.Range')

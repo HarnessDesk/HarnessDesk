@@ -51,7 +51,7 @@ const sectionVariants = cva('flex flex-col', {
       panel: 'gap-2 border-t border-(--hd-border) px-2.5 py-2',
       /* A section of a page, with its label outside and over its card. Drawn
          only through `title` (below), which is what gives it its head. */
-      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>button]:self-start',
+      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-4)! [&>button]:self-start',
     },
   },
   defaultVariants: { variant: 'card' },
@@ -78,7 +78,12 @@ const sectionVariants = cva('flex flex-col', {
  *   inside, child → child  8px; a card's or a note's own margin is dropped,
  *                          so nothing inside can reopen the gap. A card
  *                          fills the column; a lone button keeps its own
- *                          width at the start, never a full-width bar
+ *                          width at the start, never a full-width bar.
+ *   a sub-group inside     a `SectionHead` among its children is a sub-head:
+ *                          24px above it (16 on the gap), 8px to its card —
+ *                          a step between the two, so Permissions' twelve
+ *                          runtimes read as groups of one section rather
+ *                          than twelve sections
  *
  * The heading is a `GroupLabel` (13px, secondary ink, sentence case). The
  * `description` is one muted sentence directly under it — what the section is,

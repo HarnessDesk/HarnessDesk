@@ -688,11 +688,27 @@ having written the judgement down.
 
 ### `wrapped control`
 
-**Use** — A control too wide to share a narrow row with its title drops under it and keeps the row's end — in a plain `Row` and a `RowButton` alike.
+**Use** — A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select — keeps the row's end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.
 
-**Not** — Starting under the title in one kind of row and at the end in the other.
+**Not** — A sentence pushed to the row's end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.
 
-**Why** — A row button's control travels with its chevron, which cannot leave the end, and a card's trailing edge is the column every control is found in. One rule both rows can keep is the end.
+**Why** — A row button's control travels with a chevron that cannot leave the end, and a card's trailing edge is the column every control is found in. Words are read from the left, so words that have their own line start at the left.
+
+### `sub-head`
+
+**Use** — Groups inside one section — one runtime's approvals among twelve, one layer of flows: a `SectionHead` among a `Section`'s children, 24px above it and 8px over its card.
+
+**Not** — A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.
+
+**Why** — The step between a section (32px) and a label-to-card (8px) is what says "part of the section above".
+
+### `outline`
+
+**Use** — A page's or a detail page's title is its h1; every section label on it, `Section` or `SectionHead`, is an h2. A detail head's owner is text that gives way at its end, or a mark (a chip) that stays whole while the name wraps.
+
+**Not** — A title in a div, or a chip owner that ellipsises: a status read "Nee…" beside a long Goal.
+
+**Why** — Heading navigation is how a screen reader skims a page, and a page whose labels are spans cannot be skimmed.
 
 ### `default`
 
