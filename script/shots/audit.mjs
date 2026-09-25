@@ -214,14 +214,17 @@ export const COLLECT = `(() => {
   // \`Page.captureScreenshot\` still captures its pixels. Rather than read its
   // text (which needs a second, guest-side CDP target), every visible guest's
   // own address is reported, so a page this rig did not serve can be refused
-  // outright (#922).
+  // outright (#922). \`srcdoc\` is reported on its own: an iframe fed embedded
+  // markup that way has no address to check at all, which is a reason to
+  // refuse it, not a reason to wave it through.
   const guests = []
   for (const node of document.querySelectorAll('webview, iframe')) {
     const rect = node.getBoundingClientRect()
     if (!(rect.width > 0 && rect.height > 0)) continue
     const tag = node.tagName?.toLowerCase?.() ?? 'unknown'
     const src = tag === 'webview' ? (node.getURL ? node.getURL() : '') : (node.src ?? '')
-    guests.push({ tag, src: src ?? '' })
+    const srcdoc = tag === 'iframe' && Boolean(node.getAttribute('srcdoc'))
+    guests.push({ tag, src: src ?? '', srcdoc })
   }
   return {
     text: document.body.innerText ?? '',
@@ -379,25 +382,36 @@ export const historyReasons = (history = [], { roots = [], nativeCodex = false }
 }
 
 /**
- * A guest document's own address — the rig's loopback origin, or `about:blank`
- * — is the only thing that need not be refused.
+ * A guest document's own address — exactly this take's own static server, and
+ * nothing else — is the only thing that need not be refused.
  *
  * `COLLECT` cannot read a guest's own text without a second, guest-side CDP
  * target (a `<webview>`'s `webContents`, or an `<iframe>`'s content document,
  * neither reachable from the host page's own evaluation context). Auditing the
- * address instead is the fallback #922 names: a page this rig did not serve —
- * a `file://` URL, this machine's real filesystem, or an arbitrary remote
- * site — is refused outright rather than trusted to carry nothing worth
- * hiding. `static-server.mjs` is what makes every rig-served guest answer
- * `http://127.0.0.1:<port>/…`, on whichever port it happened to bind — the
- * one thing every legitimate guest has in common and nothing else can forge
- * from outside this machine.
+ * address instead is the fallback #922 names, and it has to refuse by default
+ * rather than accept by default — the whole point of this file (see its own
+ * header). A first version matched any `http(s)://127.0.0.1:<port>/…`, on the
+ * theory that loopback is what `static-server.mjs` answers on — but the app's
+ * *own* server is loopback too, so a preview pane's iframe (real file
+ * content, on the app's own port) passed unaudited, and so did an empty
+ * address, `about:blank` and `srcdoc`, none of which this function can
+ * actually vouch for (#928 review, P2). So the rule is inverted: `rigOrigin`
+ * is the one address `shoot.mjs`/`gif.mjs` know they just bound — the
+ * `browser` scene's own throwaway static server, this take only — and a
+ * guest is accepted only when its address is exactly that origin or a path
+ * under it. No `rigOrigin`, no address, `about:blank`, `srcdoc`, a `data:`
+ * URI, or loopback on any *other* port are all the same case: nothing this
+ * function was handed proves what is on screen, so it refuses.
  */
-const RIG_SERVED = /^https?:\/\/127\.0\.0\.1:\d+\//
-export const guestReasons = (guests = []) =>
-  (guests ?? []).flatMap(({ tag, src }) => {
-    if (!src || src === 'about:blank' || RIG_SERVED.test(src)) return []
-    return [`a visible ${tag ?? 'guest'} pane is showing a page this rig did not serve`]
+export const guestReasons = (guests = [], { rigOrigin } = {}) =>
+  (guests ?? []).flatMap(({ tag, src, srcdoc }) => {
+    const label = tag ?? 'guest'
+    if (srcdoc) return [`a visible ${label} pane holds embedded srcdoc content, which this rig cannot audit`]
+    if (
+      typeof rigOrigin === 'string' && rigOrigin !== '' &&
+      typeof src === 'string' && (src === rigOrigin || src.startsWith(`${rigOrigin}/`))
+    ) return []
+    return [`a visible ${label} pane is showing a page this rig did not serve`]
   })
 
 /** Everything wrong with this frame, in the order a person would look at it. */
@@ -405,7 +419,7 @@ export const reasonsFor = (seen, options = {}) => [
   ...textReasons(seen, options),
   ...accountReasons(seen.accounts ?? {}, options),
   ...historyReasons(seen.history ?? [], options),
-  ...guestReasons(seen.guests ?? []),
+  ...guestReasons(seen.guests ?? [], options),
 ]
 
 /**
@@ -419,9 +433,9 @@ export const reasonsFor = (seen, options = {}) => [
  * errors would still record a real seat. Reading the map back is the only
  * thing that knows.
  */
-export const refuseUnpublishable = async (cdp, { name, user, vouched, roots, nativeCodex, subject = 'frame' }) => {
+export const refuseUnpublishable = async (cdp, { name, user, vouched, roots, nativeCodex, rigOrigin, subject = 'frame' }) => {
   const seen = await cdp.json(SEEN)
-  const reasons = reasonsFor(seen ?? {}, { user, vouched, roots, nativeCodex })
+  const reasons = reasonsFor(seen ?? {}, { user, vouched, roots, nativeCodex, rigOrigin })
   if (reasons.length > 0) {
     throw new Error(`${name}: this ${subject} is not publishable —\n    ${reasons.join('\n    ')}`)
   }

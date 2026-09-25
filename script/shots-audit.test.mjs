@@ -350,7 +350,7 @@ test('a select\'s chosen option is read directly, not trusted to reach innerText
   assert.doesNotMatch(reasons[0], /select\.runtime/, 'the clean select is not refused')
 })
 
-test('a visible guest pane showing a page this rig did not serve is collected by its address (#922)', () => {
+test('a visible guest pane is collected by its address and its srcdoc flag (#922, #928 review P2)', () => {
   const webview = {
     tagName: 'WEBVIEW',
     getBoundingClientRect: () => ({ width: 800, height: 600 }),
@@ -364,39 +364,71 @@ test('a visible guest pane showing a page this rig did not serve is collected by
   const rigIframe = {
     tagName: 'IFRAME',
     getBoundingClientRect: () => ({ width: 400, height: 300 }),
-    src: 'http://127.0.0.1:54213/preview-frame?ticket=demo',
+    src: 'http://127.0.0.1:54213/index.html',
+    getAttribute: () => null,
+  }
+  const srcdocIframe = {
+    tagName: 'IFRAME',
+    getBoundingClientRect: () => ({ width: 200, height: 200 }),
+    src: '',
+    getAttribute: (name) => (name === 'srcdoc' ? '<h1>hi</h1>' : null),
   }
   const document = {
     title: 'HarnessDesk',
     body: { innerText: '' },
-    querySelectorAll: (selector) => (selector === 'webview, iframe' ? [webview, hiddenIframe, rigIframe] : []),
+    querySelectorAll: (selector) => (selector === 'webview, iframe' ? [webview, hiddenIframe, rigIframe, srcdocIframe] : []),
   }
   const seen = new Function('document', `return ${COLLECT}`)(document)
   assert.deepEqual(seen.guests, [
-    { tag: 'webview', src: 'file:///Users/jroe/work/private-repo/index.html' }, // hd-secrets-ok
-    { tag: 'iframe', src: 'http://127.0.0.1:54213/preview-frame?ticket=demo' },
+    { tag: 'webview', src: 'file:///Users/jroe/work/private-repo/index.html', srcdoc: false }, // hd-secrets-ok
+    { tag: 'iframe', src: 'http://127.0.0.1:54213/index.html', srcdoc: false },
+    { tag: 'iframe', src: '', srcdoc: true },
   ], 'the hidden iframe is not even collected')
-  const reasons = guestReasons(seen.guests)
-  assert.equal(reasons.length, 1)
+  const reasons = guestReasons(seen.guests, { rigOrigin: 'http://127.0.0.1:54213' })
+  assert.equal(reasons.length, 2, JSON.stringify(reasons))
   assert.match(reasons[0], /webview pane is showing a page this rig did not serve/)
+  assert.match(reasons[1], /iframe pane holds embedded srcdoc content/)
 })
 
-test('guestReasons refuses anything not served from the rig\'s own loopback origin, and passes what is (#922)', () => {
-  assert.deepEqual(guestReasons([]), [])
-  assert.deepEqual(guestReasons([{ tag: 'iframe', src: '' }]), [], 'not yet navigated')
-  assert.deepEqual(guestReasons([{ tag: 'webview', src: 'about:blank' }]), [])
-  assert.deepEqual(guestReasons([{ tag: 'iframe', src: 'http://127.0.0.1:9/preview-frame?ticket=x' }]), [])
-  for (const src of [
-    'file:///Users/jroe/work/browse/index.html', // hd-secrets-ok
-    'https://example.com/',
-    'http://192.168.1.5:8080/',
-    'http://127.0.0.1/no-port',
-  ]) {
-    const reasons = guestReasons([{ tag: 'webview', src }])
-    assert.equal(reasons.length, 1, src)
-    assert.doesNotMatch(reasons[0], /example\.com|Users|192\.168/, 'the address itself is not quoted back')
-  }
-})
+test(
+  'guestReasons accepts only this take\'s own rig origin, and refuses everything else including an empty ' +
+    'address, about:blank, srcdoc, data: and any other loopback port (#928 review P2)',
+  () => {
+    const RIG_ORIGIN = 'http://127.0.0.1:54213'
+    // The control: the one shape this take may actually show, at the exact
+    // origin the driver says it bound — a bare origin and a path underneath it.
+    assert.deepEqual(guestReasons([{ tag: 'iframe', src: RIG_ORIGIN }], { rigOrigin: RIG_ORIGIN }), [])
+    assert.deepEqual(guestReasons([{ tag: 'iframe', src: `${RIG_ORIGIN}/index.html` }], { rigOrigin: RIG_ORIGIN }), [])
+    // No guests at all is not a violation — this asks about what is visible.
+    assert.deepEqual(guestReasons([], { rigOrigin: RIG_ORIGIN }), [])
+
+    // Every one of these must be refused, exactly because none of them can be
+    // vouched for — the preview pane's own iframe (the app's own loopback
+    // server, a *different* port from this take's static server) chief among
+    // them, since it is real file content this audit cannot read.
+    const unauditable = [
+      ['an empty address', { src: '' }],
+      ['about:blank', { src: 'about:blank' }],
+      ['srcdoc content', { src: '', srcdoc: true }],
+      ['a data: URI', { src: 'data:text/html,<h1>hi</h1>' }],
+      ['a different loopback port (the app\'s own preview server)', { src: 'http://127.0.0.1:9999/preview-frame?ticket=x' }],
+      ['a file:// URL', { src: 'file:///Users/jroe/work/browse/index.html' }], // hd-secrets-ok
+      ['a remote site', { src: 'https://example.com/' }],
+      ['a LAN address', { src: 'http://192.168.1.5:8080/' }],
+      ['loopback with no port at all', { src: 'http://127.0.0.1/no-port' }],
+    ]
+    for (const [label, guest] of unauditable) {
+      const reasons = guestReasons([{ tag: 'webview', ...guest }], { rigOrigin: RIG_ORIGIN })
+      assert.equal(reasons.length, 1, label)
+      assert.doesNotMatch(reasons[0], /example\.com|Users|192\.168|9999/, `${label}: the address itself is not quoted back`)
+    }
+
+    // No rigOrigin at all — no scene has opened a static server this take —
+    // is the same case as any other unauditable address: refused, not passed.
+    assert.equal(guestReasons([{ tag: 'iframe', src: RIG_ORIGIN }], {}).length, 1, 'no rigOrigin means nothing can be vouched for')
+    assert.equal(guestReasons([{ tag: 'iframe', src: RIG_ORIGIN }]).length, 1, 'same, with no options object at all')
+  },
+)
 
 test('TILDIFY shortens placeholder and aria-label along with title (#922)', () => {
   const home = '/home/someone'

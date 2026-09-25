@@ -200,6 +200,12 @@ try {
     name, user: USER, vouched: VOUCHED,
     roots: REPOS.map(repo => join(WORK, repo.dir)),
     nativeCodex: process.env['HD_SHOTS_NATIVE_CODEX'] === '1',
+    // The one guest address this take can vouch for: `browserServer` is
+    // declared below and only ever set while the `browser` scene's own
+    // static server is up, so every other scene asks with no origin at all —
+    // which is right, because no other scene opens a guest pane a real
+    // address could belong to (#928 review, P2).
+    rigOrigin: browserServer?.url ?? null,
   })
 
   /** Hide this machine's home, the one substitution a frame is allowed. */
