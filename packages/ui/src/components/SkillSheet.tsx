@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   isReachProblem,
@@ -20,19 +20,27 @@ import {
   TrashIcon,
 } from './Icons'
 import { Markdown } from './Markdown'
-import { CodeText } from '../design'
 import {
   Badge,
   Button,
-  DialogRoot,
+  CodeBlock,
+  CodeText,
+  DialogBody,
   DialogContent,
   DialogDescription,
-  DialogTitle,
+  DialogHead,
+  DialogRoot,
+  DialogSubhead,
+  EmptyState,
   IconTile,
+  KeyValue,
+  KeyValueRow,
+  Monogram,
+  SectionFooter,
+  Segmented,
   Separator,
   Switch,
-  ToggleGroup,
-  ToggleGroupItem,
+  Text,
 } from '../design'
 import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryActions'
 import { shortPath } from '../lib/paths'
@@ -113,35 +121,40 @@ const BundleFiles = ({ definition }: { definition: LibraryDefinition }) => (
       return (
         <div
           key={file.path}
-          className="flex min-w-0 items-baseline gap-1.5 text-xs"
-          style={{ paddingLeft: `${Math.min(depth, 3) * 10}px` }}
+          className="flex min-w-0 items-baseline gap-1.5"
+          /* The tree's indent is where a line starts, not a box it draws. */
+          style={{ marginInlineStart: `${Math.min(depth, 3) * 10}px` }}
         >
-          <span className="min-w-0 flex-1 truncate">
-            {parent && <span className="text-(--hd-muted-foreground)">{parent}/</span>}
-            <span
-              className={
-                file.path === 'SKILL.md' ? 'font-medium' : 'text-(--hd-secondary-foreground)'
-              }
-            >
+          <Text role="meta" truncate className="min-w-0 flex-1">
+            {parent && <>{parent}/</>}
+            {/* The entry file is the one an agent reads first; it stands at
+                full ink while the files it points at stay a step back. */}
+            <Text role="meta" ink={file.path === 'SKILL.md' ? 'primary' : 'secondary'}>
               {leaf}
-            </span>
-          </span>
-          <span className="shrink-0 tabular-nums text-(--hd-muted-foreground)">{size(file.bytes)}</span>
+            </Text>
+          </Text>
+          <Text role="meta" numeric className="shrink-0">{size(file.bytes)}</Text>
         </div>
       )
     })}
     {definition.moreFiles > 0 && (
-      <p className="m-0 text-xs text-(--hd-muted-foreground)">
+      <Text as="p" role="meta" className="m-0">
         and {definition.moreFiles} more {definition.moreFiles === 1 ? 'file' : 'files'} not listed
-      </p>
+      </Text>
     )}
   </div>
 )
 
-/** A titled block in the evidence column. */
+/**
+ * A titled block in the evidence column.
+ *
+ * Its name is the group label's step (13px, secondary ink, sentence case).
+ * The page grammar's `GroupLabel` is that step with a name of its own; this
+ * adopts it when it lands.
+ */
 const Fact = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <section className="flex flex-col gap-1.5">
-    <h3 className="m-0 text-xs font-medium text-(--hd-muted-foreground)">{label}</h3>
+    <Text as="h3" role="muted" className="m-0">{label}</Text>
     {children}
   </section>
 )
@@ -170,6 +183,7 @@ export const SkillSheet = ({
   onClose: () => void
 }) => {
   const store = useStore()
+  const surface = useRef<HTMLDivElement>(null)
   const [definition, setDefinition] = useState<LibraryDefinition | null>(null)
   const [reading, setReading] = useState(true)
   const [view, setView] = useState<'rendered' | 'source'>('rendered')
@@ -389,39 +403,45 @@ export const SkillSheet = ({
   const mcpSource = entry.copies.find((one) => one.readBy.length > 0) ?? entry.copies[0]
   const hollowCopies = entry.copies.filter((one) => one.hollow && !one.readOnly)
 
+  /** An agent's column label, or its id when the column is gone. */
+  const labelOf = (runtime: RuntimeId): string => columns.find((one) => one.id === runtime)?.label ?? runtime
+
   return (
     <DialogRoot open onOpenChange={(next) => !next && onClose()}>
       <DialogContent
+        ref={surface}
         data-slot="skill-sheet"
         bleed
+        /* Nothing here is typed into, so the surface takes the focus, as a
+           Dialog without a field does: Escape reaches it, a reader lands
+           inside, and no ring is drawn on Close for a keyboard opening. */
+        initialFocus={() => surface.current}
+        showCloseButton={false}
         className="flex h-[min(84vh,760px)] w-[min(1080px,94vw)] flex-col overflow-hidden"
       >
         {/* --- the head: what this is ---------------------------------- */}
-        <div className="flex items-start gap-3 border-b px-5 py-4">
-          <IconTile size="lg" aria-hidden className="text-xs font-semibold">
-            {monogramFor(entry.name)}
-          </IconTile>
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <DialogTitle className="truncate text-base leading-(--hd-line)">
-                {entry.title ?? entry.name}
-              </DialogTitle>
-              <Badge variant="secondary">{entry.kind === 'skill' ? 'Skill' : 'MCP server'}</Badge>
-            </div>
-            {/* The name as it is typed. Same reasoning as the card: the
-                on-disk identity and the invocation are two different
-                strings, and only showing the first leaves the second to
-                guesswork. */}
-            <CodeText as="code" className="text-xs text-(--hd-muted-foreground)">
-              {entry.kind === 'skill' ? `/${entry.name}` : entry.name}
-            </CodeText>
-            {entry.description && (
-              <DialogDescription className="mt-0.5 text-sm leading-(--hd-line) text-(--hd-secondary-foreground)">
-                {entry.description}
-              </DialogDescription>
-            )}
-          </div>
-        </div>
+        <DialogHead
+          icon={
+            <IconTile size="lg" aria-hidden>
+              <Monogram>{monogramFor(entry.name)}</Monogram>
+            </IconTile>
+          }
+          title={entry.title ?? entry.name}
+          aside={<Badge variant="secondary">{entry.kind === 'skill' ? 'Skill' : 'MCP server'}</Badge>}
+        >
+          {/* The name as it is typed. Same reasoning as the card: the
+              on-disk identity and the invocation are two different
+              strings, and only showing the first leaves the second to
+              guesswork. It stays in the code face: it is what you type. */}
+          <Text role="meta">
+            <CodeText as="code">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
+          </Text>
+          {entry.description && (
+            <DialogDescription className="m-0">
+              <Text role="muted">{entry.description}</Text>
+            </DialogDescription>
+          )}
+        </DialogHead>
 
         {/* --- the body: the document, and the evidence ----------------- */}
         {/*
@@ -434,33 +454,20 @@ export const SkillSheet = ({
          * the reader has to find and work two of them — which is what this
          * did before the narrow case was looked at.
          */}
-        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[1fr_300px] md:overflow-hidden">
+        <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,1fr)_auto_300px] md:overflow-hidden">
           {/* The definition. The largest thing in the sheet, because it is
               the thing the sheet is about. */}
-          <div className="flex min-w-0 flex-col border-b md:min-h-0 md:border-r md:border-b-0">
-            <div className="flex items-center justify-between gap-2 px-5 py-2">
-              <ToggleGroup
-                type="single"
+          <div className="flex min-w-0 flex-col md:min-h-0">
+            <DialogSubhead className="justify-between">
+              <Segmented
+                label="How to show the definition"
                 value={view}
-                aria-label="How to show the definition"
-                className="h-7 rounded-md bg-muted p-0.5"
-                onValueChange={(next) => {
-                  if (next === 'rendered' || next === 'source') setView(next)
-                }}
-              >
-                <ToggleGroupItem
-                  value="rendered"
-                  className="h-full rounded-sm px-2 text-xs text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
-                >
-                  Rendered
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="source"
-                  className="h-full rounded-sm px-2 text-xs text-muted-foreground data-pressed:bg-background data-pressed:text-foreground data-pressed:shadow-xs"
-                >
-                  Source
-                </ToggleGroupItem>
-              </ToggleGroup>
+                options={[
+                  { value: 'rendered', label: 'Rendered' },
+                  { value: 'source', label: 'Source' },
+                ]}
+                onChange={setView}
+              />
               <Button
                 variant="ghost"
                 size="sm"
@@ -471,62 +478,68 @@ export const SkillSheet = ({
                 <CopyIcon size={13} />
                 {copied ? 'Copied' : 'Copy'}
               </Button>
-            </div>
+            </DialogSubhead>
 
-            <div className="px-5 pb-5 md:min-h-0 md:flex-1 md:overflow-y-auto">
+            <DialogBody layout="reading">
               {reading ? (
-                <p className="text-sm text-(--hd-muted-foreground)">Reading the definition…</p>
+                <EmptyState variant="inline" title="Reading the definition…" />
               ) : definition === null ? (
                 /* Never a blank pane. The three reasons a definition cannot
                    be read are all real states of a real machine, and each
                    one is already named elsewhere on the page — so this says
                    which, rather than showing nothing and letting it read as
                    a failure of the app. */
-                <p className="flex items-start gap-2 text-sm text-(--hd-secondary-foreground)">
-                  <span className="mt-0.5 flex-none text-(--hd-warning-ink)">
-                    <AlertIcon size={13} />
-                  </span>
-                  <span>
-                    {entry.copies.every((one) => one.hollow)
+                <EmptyState
+                  tight
+                  icon={<AlertIcon />}
+                  title="No definition to read"
+                  description={
+                    entry.copies.every((one) => one.hollow)
                       ? 'Every copy of this is an empty directory — there is no definition on disk to read.'
-                      : 'This definition could not be read. It may have moved or been removed since the last scan; Rescan will say.'}
-                  </span>
-                </p>
+                      : 'This definition could not be read. It may have moved or been removed since the last scan; Rescan will say.'
+                  }
+                />
               ) : view === 'source' ? (
-                <CodeText as="pre" className="m-0 text-xs leading-(--hd-line-sm) whitespace-pre-wrap text-(--hd-secondary-foreground)">
-                  {definition.text}
-                </CodeText>
+                /* The whole file, in the code face at the muted step, which
+                   the lane already scrolls: a plate that scrolled as well
+                   would be a second, smaller window onto the same reading. */
+                <Text as="div" role="muted">
+                  <CodeText as="pre" className="m-0 whitespace-pre-wrap">{definition.text}</CodeText>
+                </Text>
               ) : (
                 <>
                   {front !== null && (
-                    <div className="mb-4 rounded-(--hd-radius) bg-(--hd-muted) px-3 py-2">
-                      <p
-                        className="m-0 mb-1 text-xs font-medium text-(--hd-muted-foreground)"
+                    <div className="mb-4 flex flex-col gap-1.5">
+                      <Text
+                        as="p"
+                        role="meta"
+                        className="m-0"
                         title="What the agent reads every turn to decide whether to fire this skill — the line the catalogue estimate prices."
                       >
                         Frontmatter
-                      </p>
-                      <CodeText as="pre" className="m-0 text-xs leading-(--hd-line-sm) whitespace-pre-wrap text-(--hd-secondary-foreground)">
-                        {front}
-                      </CodeText>
+                      </Text>
+                      <CodeBlock output={front} />
                     </div>
                   )}
                   <Markdown text={body} document />
                 </>
               )}
               {definition?.truncated && (
-                <p className="mt-3 text-xs text-(--hd-muted-foreground)">
+                <Text as="p" role="meta" className="mt-3 mb-0">
                   This definition is longer than the sheet reads; what is shown stops short of the
                   end of the file.
-                </p>
+                </Text>
               )}
-            </div>
+            </DialogBody>
           </div>
 
+          <Separator orientation="vertical" className="hidden md:block" />
+          <Separator className="md:hidden" />
+
           {/* The evidence. Everything the matrix knew, about this one thing. */}
-          <aside className="flex min-w-0 flex-col gap-4 px-5 py-3 md:min-h-0 md:overflow-y-auto">
+          <DialogBody layout="reading" className="flex min-w-0 flex-col gap-4">
             <Fact label="Which agents load it">
-              <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+              <div role="list" className="flex flex-col gap-1.5">
                 {entry.reach.map((reach, index) => {
                   const column = columns[index]
                   const problem = isReachProblem(reach.state)
@@ -553,26 +566,20 @@ export const SkillSheet = ({
                     reach.toggleable !== false &&
                     (reach.state === 'reaches' || reach.state === 'off')
                   return (
-                    <li key={reach.runtime} className="flex min-w-0 items-baseline gap-2 text-xs">
+                    <div key={reach.runtime} role="listitem" className="flex min-w-0 items-baseline gap-2">
                       <span className="flex flex-none translate-y-0.5 items-center gap-1.5">
                         {column?.info ? (
                           <RuntimeMark runtime={column.info} size={12} />
                         ) : (
-                          <span className="inline-block size-3" />
+                          <span className="inline-block w-3" />
                         )}
-                        <span className="font-medium">{column?.label ?? reach.runtime}</span>
+                        <Text role="meta" ink="primary">{column?.label ?? reach.runtime}</Text>
                       </span>
                       {switchable ? (
                         <span className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
-                          <span
-                            className={
-                              reach.state === 'reaches'
-                                ? 'text-(--hd-success-ink)'
-                                : 'text-(--hd-muted-foreground)'
-                            }
-                          >
+                          <Text role="meta" {...(reach.state === 'reaches' ? { tone: 'success' as const } : {})}>
                             {reach.state === 'reaches' ? 'On' : 'Off'}
-                          </span>
+                          </Text>
                           <Switch
                             checked={reach.state === 'reaches'}
                             disabled={busy === reach.runtime}
@@ -583,26 +590,25 @@ export const SkillSheet = ({
                           />
                         </span>
                       ) : (
-                        <span
+                        <Text
+                          role="meta"
+                          align="end"
+                          {...(problem ? { tone: 'warning' as const } : {})}
                           /* `text-balance`: these sentences are longer than
                              the rail is wide and wrapped with one orphaned
                              word — "Installed where this agent does not /
                              look" — on the two states most rows are in. */
-                          className={`min-w-0 flex-1 text-right text-balance ${
-                            problem
-                              ? 'text-(--hd-warning-ink)'
-                              : 'text-(--hd-muted-foreground)'
-                          }`}
+                          className="min-w-0 flex-1 text-balance"
                         >
                           {REACH_SENTENCE[reach.state]}
-                        </span>
+                        </Text>
                       )}
-                    </li>
+                    </div>
                   )
                 })}
-              </ul>
+              </div>
               {staleIn.length > 0 && (
-                <p className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-(--hd-secondary-foreground)">
+                <Text as="p" role="meta" ink="secondary" className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="min-w-0">
                     {staleIn.length === 1
                       ? `${columns.find((one) => one.id === staleIn[0]?.runtime)?.label ?? 'One agent'} lists the skills it read when it started.`
@@ -616,61 +622,59 @@ export const SkillSheet = ({
                   >
                     {rereading ? 'Asking…' : 'Have it look again'}
                   </Button>
-                </p>
+                </Text>
               )}
               {/* Named, one line each. A press can reach three agents and get
                   three different answers back — "it failed" for all of them
                   would be as wrong as the silence this replaced. */}
               {declined.map((one) => (
-                <p key={one.runtime} className="m-0 text-xs text-(--hd-warning-ink)">
-                  <strong className="font-medium">
-                    {columns.find((column) => column.id === one.runtime)?.label ?? one.runtime}
-                  </strong>
-                  {' \u2014 '}
+                <Text as="p" role="meta" tone="warning" key={one.runtime} className="m-0">
+                  {labelOf(one.runtime)}
+                  {' — '}
                   {one.reason}
-                </p>
+                </Text>
               ))}
               {/* It re-read and still does not list it, so the explanation
                   the line above offers is spent. What is left is a definition
                   this agent will not take. */}
               {rereadAndStillStale.length > 0 && (
-                <p className="m-0 text-xs text-(--hd-warning-ink)">
+                <Text as="p" role="meta" tone="warning" className="m-0">
                   {rereadAndStillStale.length === 1
                     ? `${columns.find((one) => one.id === rereadAndStillStale[0]?.runtime)?.label ?? 'It'} re-read and still does not list it — the definition may be one it will not accept.`
                     : `${rereadAndStillStale.length} of them re-read and still do not list it — the definition may be one they will not accept.`}
-                </p>
+                </Text>
               )}
               {/* The basis, once, rather than on every row. It is the same
                   answer for most machines and repeating it four times turns
                   a caveat into wallpaper. */}
               {entry.reach.some((one) => one.basis === 'scanned') && (
-                <p className="m-0 text-xs text-(--hd-muted-foreground)">
+                <Text as="p" role="meta" className="m-0">
                   {entry.reach.every((one) => one.basis === 'scanned')
                     ? 'Read from disk against this build’s table of where each agent looks — the agents themselves were not asked.'
                     : 'Some rows are what the agent itself reported; the rest are read from disk.'}
-                </p>
+                </Text>
               )}
             </Fact>
 
             {entry.reach.some((one) => one.note) && (
               <Fact label="Why">
-                <ul className="m-0 flex list-none flex-col gap-1 p-0 text-xs text-(--hd-secondary-foreground)">
+                <div role="list" className="flex flex-col gap-1">
                   {entry.reach
                     .filter((one) => one.note)
                     .map((reach) => (
-                      <li key={reach.runtime}>
+                      <Text as="p" role="meta" ink="secondary" key={reach.runtime} className="m-0">
                         {/* An em dash, not a space. The notes are sentences
                             and the labels are names, so "Claude Code On disk,
                             but not in any directory…" ran the two together
                             into something that read like a typo. */}
-                        <strong className="font-medium">
+                        <Text role="meta" ink="primary">
                           {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
-                        </strong>
-                        {' \u2014 '}
+                        </Text>
+                        {' — '}
                         {reach.note}
-                      </li>
+                      </Text>
                     ))}
-                </ul>
+                </div>
               </Fact>
             )}
 
@@ -679,17 +683,17 @@ export const SkillSheet = ({
             <Fact
               label={entry.copies.length === 1 ? 'One copy on disk' : `${entry.copies.length} copies on disk`}
             >
-              <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              <div role="list" className="flex flex-col gap-2">
                 {entry.copies.map((one) => (
-                  <li key={one.path} className="flex min-w-0 flex-col gap-0.5">
+                  <div key={one.path} role="listitem" className="flex min-w-0 flex-col gap-0.5">
                     <div className="flex min-w-0 items-start gap-1">
-                      {/* `anywhere`, not `break-all`: a path only breaks
-                          when it has to, so `/home/u/.claude/skills/…` keeps
-                          its segments instead of being cut mid-word at the
-                          column edge. */}
-                      <CodeText as="code" className="min-w-0 flex-1 text-xs [overflow-wrap:anywhere]">
+                      {/* A folder's name, so the interface face. `anywhere`,
+                          not `break-all`: a path only breaks when it has to,
+                          so `/home/u/.claude/skills/…` keeps its segments
+                          instead of being cut mid-word at the column edge. */}
+                      <Text role="meta" ink="primary" className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                         {shortPath(one.path, home)}
-                      </CodeText>
+                      </Text>
                       {!one.readOnly && (
                         <Button
                           variant="ghost"
@@ -720,21 +724,19 @@ export const SkillSheet = ({
                         </Button>
                       )}
                     </div>
-                    <span className="text-xs text-(--hd-muted-foreground)">
+                    <Text role="meta">
                       {one.hollow
                         ? 'No definition inside — the name lists and nothing loads.'
                         : one.readBy.length === 0
                           ? entry.kind === 'mcp'
                             ? 'No agent reads this file.'
                             : 'No agent reads this directory.'
-                          : `Read by ${one.readBy
-                              .map((id) => columns.find((col) => col.id === id)?.label ?? id)
-                              .join(', ')}.`}
+                          : `Read by ${one.readBy.map(labelOf).join(', ')}.`}
                       {one.readOnly && ' Shipped by the agent.'}
-                    </span>
-                  </li>
+                    </Text>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </Fact>
 
             {entry.kind === 'skill' && definition !== null && definition.files.length > 0 && (
@@ -751,48 +753,40 @@ export const SkillSheet = ({
 
             {entry.kind === 'skill' && (
               <Fact label="What it costs, and whether it earns it">
-                <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-                  <dt className="text-(--hd-muted-foreground)">Every turn</dt>
-                  <dd
-                    className="m-0 text-right tabular-nums"
-                    title="Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not."
-                  >
-                    {entry.catalogTokens ? `≈${entry.catalogTokens} tok` : '—'}
-                  </dd>
+                <KeyValue variant="panel" className="m-0">
+                  <KeyValueRow variant="panel" numeric label="Every turn">
+                    <span title="Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not.">
+                      {entry.catalogTokens ? `≈${entry.catalogTokens} tok` : '—'}
+                    </span>
+                  </KeyValueRow>
                   {usage !== null && (
-                    <>
-                      <dt className="text-(--hd-muted-foreground)">Fired here</dt>
-                      <dd className="m-0 text-right tabular-nums">
-                        {fired
-                          ? `${fired.activations}× in ${fired.sessions} ${
-                              fired.sessions === 1 ? 'conversation' : 'conversations'
-                            }`
-                          : 'never'}
-                      </dd>
-                      {fired && fired.lastAt > 0 && (
-                        <>
-                          <dt className="text-(--hd-muted-foreground)">Last</dt>
-                          <dd className="m-0 text-right tabular-nums">
-                            {new Date(fired.lastAt).toLocaleDateString()}
-                          </dd>
-                        </>
-                      )}
-                    </>
+                    <KeyValueRow variant="panel" numeric label="Fired here">
+                      {fired
+                        ? `${fired.activations}× in ${fired.sessions} ${
+                            fired.sessions === 1 ? 'conversation' : 'conversations'
+                          }`
+                        : 'never'}
+                    </KeyValueRow>
                   )}
-                </dl>
+                  {usage !== null && fired && fired.lastAt > 0 && (
+                    <KeyValueRow variant="panel" numeric label="Last">
+                      {new Date(fired.lastAt).toLocaleDateString()}
+                    </KeyValueRow>
+                  )}
+                </KeyValue>
                 {usage !== null && (
-                  <p className="m-0 text-xs text-(--hd-muted-foreground)">
+                  <Text as="p" role="meta" className="m-0">
                     Counted in the {usage.sessionsScanned} conversations this desk stores. What ran
                     elsewhere is not counted.
-                  </p>
+                  </Text>
                 )}
               </Fact>
             )}
-          </aside>
+          </DialogBody>
         </div>
 
         {/* --- the verbs ------------------------------------------------ */}
-        <div className="flex flex-wrap items-center gap-2 border-t px-5 py-3">
+        <SectionFooter className="flex-wrap">
           {/*
            * The card teaches `/name`; this is where that becomes a thing you
            * did. Same event the per-agent skills page dispatches, so there is
@@ -918,24 +912,24 @@ export const SkillSheet = ({
             ))
           )}
           {refusedBy.length > 0 && installable.length > 0 && (
-            <span className="flex items-center gap-1.5 text-xs text-(--hd-warning-ink)">
+            <Text role="meta" tone="warning" className="flex items-center gap-1.5">
               <AlertIcon size={12} />
               {refusedBy.length === 1
                 ? `${columns.find((one) => one.id === refusedBy[0]?.runtime)?.label ?? 'One agent'} would not load this one.`
                 : `${refusedBy.length} agents would not load this one.`}
-            </span>
+            </Text>
           )}
           {installable.length === 0 && (
-            <span className="flex items-center gap-1.5 text-xs text-(--hd-muted-foreground)">
+            <Text role="meta" className="flex items-center gap-1.5">
               <FileIcon size={12} />
               {entry.reach.every((one) => one.state === 'reaches')
                 ? 'Every agent already loads this.'
                 : digests.size > 1
                   ? 'Resolve the copies before installing anywhere else.'
                   : 'Nowhere left to install this.'}
-            </span>
+            </Text>
           )}
-        </div>
+        </SectionFooter>
       </DialogContent>
     </DialogRoot>
   )

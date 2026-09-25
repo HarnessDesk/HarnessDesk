@@ -133,3 +133,16 @@
 :global([data-slot='form-field']) textarea {
   scroll-margin-block-start: var(--hd-space-8);
 }
+
+/* The agents an authored skill is installed for: one line that wraps. */
+.targets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--hd-space-2) var(--hd-space-4);
+}
+
+.target {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1-5);
+}

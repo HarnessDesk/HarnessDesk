@@ -1,4 +1,4 @@
-import { useRef, type ReactNode } from 'react'
+import { useRef, type ComponentProps, type ReactNode } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
 import { cn } from '../../lib/utils'
@@ -29,6 +29,103 @@ const FIELD = [
   'textarea:not(:disabled,[readonly])',
   'select:not(:disabled)',
 ].join(',')
+
+/**
+ * The head every dialog wears: its mark, its name, and the way out.
+ *
+ * `Dialog` draws it, and so does a sheet that lays out its own body — the
+ * skill sheet — so a dialog's name is one step, one inset and one rule under
+ * it whichever of them is open. The name is the subject step (14/21, medium):
+ * a dialog names one question or one thing, and a page names a place.
+ *
+ * `aside` sits on the name's own line (a kind badge); `children` are the lines
+ * under it — an identifier, the sentence saying what the thing is — and the
+ * head then aligns to its top, so the mark and the way out stay beside the
+ * name rather than drifting to the middle of a paragraph.
+ */
+export const DialogHead = ({
+  icon,
+  title,
+  aside,
+  tone = 'default',
+  children,
+}: {
+  icon?: ReactNode
+  title: ReactNode
+  aside?: ReactNode
+  tone?: 'default' | 'destructive'
+  children?: ReactNode
+}) => {
+  /* The subject step, said as utilities so `cn` replaces the primitive's
+     `text-base leading-none`: a module rule saying the same tied with them,
+     and the preview drew 16px titles. */
+  const name = (className: string | undefined) => (
+    <DialogTitle className={cn(className, 'text-(length:--hd-text) leading-(--hd-line) font-medium')}>{title}</DialogTitle>
+  )
+  const lines = children != null || aside != null
+  return (
+    <div
+      className={styles.header}
+      data-slot="dialog-head"
+      data-tone={tone === 'destructive' ? 'destructive' : undefined}
+      {...(children != null ? { 'data-lines': '' } : {})}
+    >
+      {icon && <span className={styles.icon}>{icon}</span>}
+      {lines ? (
+        <div className={styles.heading}>
+          <div className={styles.titleLine}>
+            {name(styles.titleText)}
+            {aside}
+          </div>
+          {children}
+        </div>
+      ) : (
+        name(styles.title)
+      )}
+      <DialogClose
+        className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
+        aria-label="Close"
+      >
+        <CrossIcon size={13} />
+      </DialogClose>
+    </div>
+  )
+}
+
+/**
+ * Under the head, above the body, and outside the scroll: a breadcrumb, or
+ * the view switch of a document, still there after the body has scrolled.
+ */
+export const DialogSubhead = ({ className, ...props }: ComponentProps<'div'>) => (
+  <div data-slot="dialog-subhead" className={cn(styles.subhead, className)} {...props} />
+)
+
+/**
+ * A dialog's body, which scrolls and is inset the dialog's step.
+ *
+ * `form` (what `Dialog` draws unless it is `flush`) is the form stack: its
+ * children are 16px apart, a `SectionHead` in it is a legend, and a `Rows`
+ * radio group is a compact `ChoiceList`. `flush` is a list whose rows reach
+ * the edges. `reading` is inset like a form and is not one — a document, or
+ * the facts beside it — so its parts keep their own rhythm.
+ */
+export const DialogBody = ({
+  layout = 'form',
+  className,
+  children,
+  ...props
+}: ComponentProps<'div'> & { layout?: 'form' | 'flush' | 'reading' }) => (
+  <div
+    className={cn(styles.body, layout === 'flush' ? styles.flush : layout === 'form' ? dialogStackClass : undefined, className)}
+    data-slot="modal-dialog-body"
+    data-layout={layout}
+    {...props}
+  >
+    {/* A flush body is a list, and a reading body a document: only a form
+        body is a form. */}
+    {layout === 'form' ? <DialogFormScope>{children}</DialogFormScope> : children}
+  </div>
+)
 
 /**
  * The application dialog pattern: Base UI owns focus, dismissal, stacking,
@@ -92,26 +189,9 @@ export const Dialog = ({
           tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
         )}
       >
-        <div className={styles.header} data-tone={tone === 'destructive' ? 'destructive' : undefined}>
-          {icon && <span className={styles.icon}>{icon}</span>}
-          {/* The subject step, said as utilities so `cn` replaces the
-              primitive's `text-base leading-none`: a module rule saying the
-              same tied with them, and the preview drew 16px titles. */}
-          <DialogTitle className={cn(styles.title, 'text-(length:--hd-text) leading-(--hd-line) font-medium')}>{title}</DialogTitle>
-          <DialogClose
-            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
-            aria-label="Close"
-          >
-            <CrossIcon size={13} />
-          </DialogClose>
-        </div>
-        {subhead && <div className={styles.subhead}>{subhead}</div>}
-        {children && (
-          <div className={`${styles.body} ${flush ? styles.flush : dialogStackClass}`} data-slot="modal-dialog-body">
-            {/* A flush body is a list, not a form: it keeps the page's parts. */}
-            {flush ? children : <DialogFormScope>{children}</DialogFormScope>}
-          </div>
-        )}
+        <DialogHead icon={icon} title={title} tone={tone} />
+        {subhead && <DialogSubhead>{subhead}</DialogSubhead>}
+        {children && <DialogBody layout={flush ? 'flush' : 'form'}>{children}</DialogBody>}
         {(footer || footerAside) && (
           /* `dialog-footer` is what the button reads to draw an ordinary
              action quiet here, so the confirm is the one filled button. */
