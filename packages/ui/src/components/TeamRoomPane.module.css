@@ -325,6 +325,7 @@
 .tail {
   display: flex;
   flex-direction: column;
+  gap: var(--hd-space-1);
   max-width: var(--hd-column); /* desk: the column plus the dock's gutters → the column, inside the composer's dock that pays them */
   margin-inline: auto;
 }

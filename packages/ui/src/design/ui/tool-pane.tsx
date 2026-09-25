@@ -253,7 +253,7 @@ const ToolPaneEmptyState = ({
     )}
   >
     {icon != null && <span className="inline-grid place-items-center text-(--hd-border-emphasis)">{icon}</span>}
-    <Text role="value" ink="secondary">{title}</Text>
+    <Text role="prose" ink="secondary">{title}</Text>
     {description != null && <Text as="p" role="muted" ink="muted" className="m-0 max-w-[40ch]">{description}</Text>}
   </div>
 )

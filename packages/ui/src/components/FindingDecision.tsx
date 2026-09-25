@@ -75,7 +75,7 @@ export const FindingDecision = ({ goal, view, onClose }: FindingDecisionProps) =
   return (
     <Dialog title="Decide this run" onClose={onClose} size="md">
       <div className="flex flex-col gap-3">
-        {view.reason && <Text as="p" role="value">{view.reason}</Text>}
+        {view.reason && <Text as="p" role="prose">{view.reason}</Text>}
         <label className="flex flex-col gap-1.5">
           <Text role="meta">Reason</Text>
           <Textarea

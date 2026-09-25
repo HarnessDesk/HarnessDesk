@@ -67,6 +67,7 @@ import { FindingDetail } from './FindingDetail'
 import { FlowRunStatus } from './FlowRunStatus'
 import { WindowControls } from './WindowControls'
 import {
+  ActionError,
   Bar,
   Button,
   Chip,
@@ -2306,16 +2307,10 @@ const Room = ({
             land. */}
         <div className={styles.tail}>
           <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
-          {problem && (
-            <TurnWorkLive settled role="alert" aria-live="assertive">
-              <Text role="value" tone="danger">{problem}</Text>
-            </TurnWorkLive>
-          )}
-          {trouble && (
-            <TurnWorkLive settled role="alert" aria-live="assertive">
-              <Text role="value" tone="danger">{trouble}</Text>
-            </TurnWorkLive>
-          )}
+          {/* A failure is the conversation's own drawing for an action
+              that did not land in the tail: one role, one drawing. */}
+          {problem && <ActionError>{problem}</ActionError>}
+          {trouble && <ActionError>{trouble}</ActionError>}
         </div>
         {/* The reading column, the same one the stream above hangs in. The
             wrapper rather than a prop: `RoomComposer` draws the shell and

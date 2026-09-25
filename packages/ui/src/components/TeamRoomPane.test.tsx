@@ -718,6 +718,29 @@ it('the host’s own problem with the board is said on the surface', async () =>
   // Not the same failure as "your last press did not land", and it must not
   // be folded into it: this one says the record itself is at risk.
   expect(container.textContent).toContain('could not be saved')
+  // Drawn as the conversation draws an action that failed, and spoken.
+  const alert = [...container.querySelectorAll('[role="alert"]')].find((one) => one.textContent?.includes('could not be saved'))
+  expect(alert?.getAttribute('data-slot')).toBe('alert')
+  expect(alert?.getAttribute('data-tone')).toBe('danger')
+})
+
+it('says a press that did not land as a spoken failure, in the danger tone', async () => {
+  const { store } = rig()
+  ;(store.getSnapshot().teams as Map<string, TeamState>).set(ROOM, {
+    ...state,
+    channel: [{
+      id: 'held-1', at: Date.now(), kind: 'message', from: { kind: 'agent', runtime: 'codex', sessionId: 'c1', title: 'API migration' },
+      text: 'Picking up #4.', state: 'held', reason: 'Held for you.', envelope: null,
+    }],
+  } as unknown as TeamState)
+  Object.assign(store, { teamDeliver: vi.fn(async () => { throw new Error('The release did not reach the host.') }) })
+  await render(store)
+  const deliver = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Deliver now')!
+  await act(async () => { deliver.click() })
+  await act(async () => {})
+  const alert = [...container.querySelectorAll('[role="alert"]')].find((one) => one.textContent?.includes('did not reach the host'))
+  expect(alert?.getAttribute('data-slot')).toBe('alert')
+  expect(alert?.getAttribute('data-tone')).toBe('danger')
 })
 
 it('a claimed intent is matched on the runtime too, not the session id alone', async () => {
@@ -1244,6 +1267,7 @@ it('says which members are working on their rows, and keeps one presence fact in
   const light = (name: string): Element | null => row(name).querySelector('[data-slot="dot"][data-variant="presence"]')
   expect(light('API migration')?.getAttribute('data-state')).toBe('ready')
   expect(light('API migration')?.getAttribute('aria-hidden')).toBe('true')
+  expect(light('API migration')?.hasAttribute('data-pulse'), 'working, so it pulses').toBe(true)
   expect(light('Opus')).toBeNull()
   // The room's top row is the window's bar, as a header.
   expect(bar.getAttribute('data-slot')).toBe('bar')
@@ -1475,6 +1499,8 @@ it("draws the room's tail — the live line and the composer's notice — as one
   expect(notice?.textContent).toContain('is working — that copy waits')
   expect(notice?.getAttribute('role')).toBe('status')
   expect(notice?.hasAttribute('data-settled')).toBe(true)
+  // A copy that waits is not a warning: it is the live line's own muted ink.
+  expect(notice?.querySelector('[data-tone]')).toBeNull()
   // One part draws both, so their box is one box.
   expect(notice?.className).toBe(line?.className)
 })
@@ -1518,6 +1544,8 @@ it("the room's own live line names who is waiting for your approval, ahead of an
 
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.textContent).toBe('Codex is waiting for your approval')
+  // A person is needed, so it leads with the tail's one light, pulsing.
+  expect(line.querySelector('[data-slot="dot"][data-pulse]')).not.toBeNull()
 })
 
 /** More than one member holding a question is a count, not a fact the line drops (#917). */
@@ -1555,6 +1583,9 @@ it("names a person-started flow's own stop reason on the live line, as a proper 
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.textContent).toBe('The person stopped this flow')
   expect(line.getAttribute('data-kind')).toBe('stop')
+  // A stop is a state, not motion: the live line settled, no shimmer.
+  expect(line.hasAttribute('data-settled')).toBe(true)
+  expect(line.querySelector('[data-slot="dot"]')).toBeNull()
 })
 
 /**
@@ -2034,6 +2065,28 @@ it.each([
   const line = container.querySelector('[data-slot="room-live-line"]')!
   expect(line.textContent).toBe(sentence)
   expect(container.textContent).not.toContain('Answered long ago.')
+  // Each of these waits on a person, so each leads with the pulsing light.
+  expect(line.querySelector('[data-slot="dot"][data-pulse]')).not.toBeNull()
+})
+
+/**
+ * A wait on a service is a fact, not a call for a person: no light. And a
+ * wait the reader can act on keeps its "Open" beside the words, outside the
+ * live region — a control is not news.
+ */
+it('leads a wait with the light only when a person is needed, and keeps its Open beside the words', async () => {
+  const { store } = triggerRig([], {}, [
+    wait({ id: 'w9', kind: 'limit', waitingOn: { kind: 'service', label: 'the usage window' }, sentence: 'Waiting for the usage window to reset.', action: 'open-usage' }),
+  ])
+  await render(store)
+  await act(async () => {})
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.getAttribute('data-kind')).toBe('wait')
+  expect(line.querySelector('[data-slot="dot"]')).toBeNull()
+  const open = [...line.querySelectorAll('button')].find((one) => one.textContent === 'Open')
+  expect(open, 'the wait keeps its Open').toBeDefined()
+  expect(open?.closest('[data-slot="turn-work-live-trail"]')).not.toBeNull()
+  expect(open?.closest('[role="status"]')).toBeNull()
 })
 
 /**

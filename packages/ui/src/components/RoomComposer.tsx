@@ -495,7 +495,7 @@ export const RoomComposer = ({
         send them. It changes only when the audience does. */}
     {notice && (
       <TurnWorkLive settled data-slot="room-composer-notice">
-        {notice.tone === 'warn' ? <Text role="value" tone="warning">{notice.text}</Text> : notice.text}
+        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
       </TurnWorkLive>
     )}
     <ComposerShell className="relative">

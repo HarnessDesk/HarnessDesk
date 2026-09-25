@@ -866,6 +866,9 @@ const TEXT_ROLE = {
     'text-(length:--hd-display) leading-(--hd-line-display) font-semibold tracking-[-0.025em] tabular-nums',
   metric: 'text-lg leading-none font-semibold tracking-[-0.015em] tabular-nums',
   value: 'text-base leading-(--hd-line) font-normal tabular-nums',
+  /* A sentence at the reading size: `value`'s step and weight, without the
+     tabular figures a value lines up by — a reason, a summary, a notice. */
+  prose: 'text-base leading-(--hd-line) font-normal',
 } as const
 
 const TEXT_ROLE_INK = {
@@ -879,6 +882,7 @@ const TEXT_ROLE_INK = {
   figure: 'text-(--hd-foreground)',
   metric: 'text-(--hd-foreground)',
   value: 'text-(--hd-foreground)',
+  prose: 'text-(--hd-foreground)',
 } as const
 
 const TEXT_INK = {

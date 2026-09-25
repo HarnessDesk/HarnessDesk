@@ -95,7 +95,7 @@ export const FindingCarry = ({ source }: { readonly source: GoalView }) => {
           }
         >
           <div className="flex flex-col gap-3">
-            <Text as="p" role="value">
+            <Text as="p" role="prose">
               The same findings, with the Seat and revision that raised them, move to the Goal you choose, and that Goal waits on this one. This receipt stays as it was wrapped.
             </Text>
             <label className="flex flex-col gap-1.5">
