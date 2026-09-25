@@ -6,7 +6,7 @@ import { openExternal } from '../lib/desktop'
 import { useStore } from '../state/context'
 import { AgentHoverCard } from './AgentCards'
 import { GitHubMark } from './BrandIcons'
-import { Button, CodeText, IconTile, KindGlyph, StatePill, Text, publicationVerb } from '../design'
+import { Button, CardBand, CodeText, IconTile, KindGlyph, StatePill, Text, publicationVerb } from '../design'
 import { FrontDoor } from './FrontDoor'
 import styles from './Publication.module.css'
 
@@ -17,9 +17,13 @@ const figure = (n: number | null): string => (n === null ? '' : n.toLocaleString
  *
  * Built on the agent card's anatomy — crest, bands, verbs — because the reader
  * has learnt it there and a second anatomy for a second kind of thing would
- * cost them the learning twice. What differs is the subject: a pull request
- * has a state that is a judgement (merged is good news, closed without merging
- * is not), so its pill takes a tone where an agent's tile takes a tint.
+ * cost them the learning twice. Its bands are literally `CardBand`, the same
+ * part `AgentCard` draws its own on: this card's bands used to redraw it a
+ * hairline off (`py-2` where the part is `py-2.5`), and that step is the
+ * only visible change the sharing makes. What differs is the subject: a pull
+ * request has a state that is a judgement (merged is good news, closed
+ * without merging is not), so its pill takes a tone where an agent's tile
+ * takes a tint.
  *
  * The text on it is the forge's own. The card shows the pull request's title
  * and the opening of its description exactly as GitHub holds them, which is
@@ -71,7 +75,7 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
       </div>
 
       {(facts.length > 0 || sized) && (
-        <div data-slot="publication-band" className="flex items-center gap-2 border-t border-(--hd-border-strong) px-3 py-2">
+        <CardBand className="flex items-center gap-2">
           {facts.length > 0 && (
             <Text role="meta" className="min-w-0 truncate">{facts.join(' · ')}</Text>
           )}
@@ -81,18 +85,18 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
               <Text role="meta" tone="danger" numeric><CodeText>−{figure(reference.deletions ?? 0)}</CodeText></Text>
             </span>
           )}
-        </div>
+        </CardBand>
       )}
 
       {reference.excerpt && (
-        <div data-slot="publication-band" className="border-t border-(--hd-border-strong) px-3 py-2">
+        <CardBand>
           <Text as="p" role="meta" className="line-clamp-6 whitespace-pre-line">
             {reference.excerpt}
           </Text>
-        </div>
+        </CardBand>
       )}
 
-      <div data-slot="publication-band" className="flex items-center gap-1.5 border-t border-(--hd-border-strong) px-3 py-2">
+      <CardBand className="flex items-center gap-1.5">
         <Button size="sm" variant="secondary" onClick={() => openExternal(reference.url)}>
           Open on GitHub
         </Button>
@@ -105,7 +109,7 @@ export const PublicationCard = ({ reference }: { reference: ForgeReference }) =>
         >
           Copy link
         </Button>
-      </div>
+      </CardBand>
     </div>
   )
 }

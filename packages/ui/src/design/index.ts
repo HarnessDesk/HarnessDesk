@@ -168,6 +168,6 @@ export {
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'
-export { AgentCard, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
+export { AgentCard, CardBand, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
