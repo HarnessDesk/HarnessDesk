@@ -22,8 +22,8 @@
  *   different one would be wrong.
  *
  *   COMPOSITIONS are ours: Bar, Stat, Section, ListRow, Board, EmptyState, Field,
- *   Delta, IconTile, AvatarStack, KeyValue, Progress, Stepper, Sparkline, and
- *   the chart kit. They answer the question one step up — "what does a figure
+ *   Delta, IconTile, AvatarStack, KeyValue and SummaryList, GroupLabel,
+ *   Progress, Stepper, Sparkline, and the chart kit. They answer the question one step up — "what does a figure
  *   on a dashboard look like", "what does a titled region of a page look
  *   like" — which is the question every screen used to answer for itself,
  *   slightly differently, in a `<div className="flex flex-col gap-1">` that
@@ -102,6 +102,7 @@ export * from './disclosure-chevron'
 export * from './dropdown-menu'
 export * from './empty-state'
 export * from './field'
+export * from './group-label'
 export * from './hover-card'
 export * from './icon-tile'
 export * from './input'

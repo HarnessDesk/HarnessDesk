@@ -236,7 +236,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Triggers', 'Provenance'])
+  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Triggers', 'Provenance', 'Memory'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())
@@ -288,15 +288,20 @@ it('asking for “Triggers on this Mac” while a project is open returns to the
 it('plain project stays plain: no explicit memory use, no Memory section, no memory read', async () => {
   const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
-  expect(container.querySelector('section[aria-label="Memory"]')).toBeNull()
-  expect(container.textContent).toContain('Project memory')
+  // Memory is a section of its own even closed, so it never hangs off the
+  // card above it, but closed it holds only the row that opens it.
+  const memory = container.querySelector('section[aria-label="Memory"]')
+  expect([...(memory?.querySelectorAll('button') ?? [])].map((one) => one.textContent)).toEqual(['Committed notesWhat a Goal in this project can cite.'])
+  expect(memory?.querySelector('select')).toBeNull()
+  // The section's label names it once; the row does not say "memory" again.
+  expect(memory?.textContent).not.toMatch(/Project memory/)
   expect((store as unknown as { transport?: { request: unknown } }).transport).toBeUndefined()
 })
 
 it('opening project memory reads it lazily, and an empty project says so honestly', async () => {
   const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
-  const memoryRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Project memory'))
+  const memoryRow = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith('Committed notes'))
   expect(memoryRow).toBeTruthy()
   ;(store as unknown as { transport: { request: ReturnType<typeof vi.fn> } }).transport = {
     request: vi.fn(async (method: string) =>

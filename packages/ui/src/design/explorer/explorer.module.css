@@ -32,13 +32,10 @@
   font-weight: var(--hd-weight-semibold);
 }
 
+/* The catalogue's own rail groups wear the app's one group label
+   (`GroupLabel`); only their place in the rail is said here. */
 .section {
   padding: var(--hd-space-3) var(--hd-space-2-5) var(--hd-space-1);
-  font-size: var(--hd-text-xs);
-  font-weight: var(--hd-weight-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--hd-muted-foreground);
 }
 
 /* The nav item, drawn the way the app's sidebar draws one.

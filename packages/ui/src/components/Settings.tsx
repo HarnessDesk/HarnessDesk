@@ -96,6 +96,7 @@ import {
   RowValue,
   Rows,
   Search,
+  Section,
   SectionHead,
   SectionToggle,
   NativeSelect,
@@ -661,9 +662,10 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <CeilingsSection focus={focus} />
 
       {groups.length > 0 && (
-        <>
-          <SectionHead name="Approvals" />
-          <Note>What a new session starts with. An agent that decides this per conversation says so.</Note>
+        <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
+          {/* Each runtime's head is a sub-head of this section — a step
+              tighter than a section's — so twelve runtimes read as twelve
+              groups of one section rather than twelve sections. */}
           {groups.map((group) => (
             <NewSessionDefaults
               key={group.info.id}
@@ -674,46 +676,44 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
               empty="Decided when a session starts"
             />
           ))}
-        </>
+        </Section>
       )}
 
-      <SectionHead
-        name={withCount('Rules', rules?.length ?? 0)}
+      <Section
+        title={withCount('Rules', rules?.length ?? 0)}
+        description="They answer a request before it reaches you, for every agent alike; a question an agent asks you directly always comes through."
         action={
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <PlusIcon size={13} />
             Add rule
           </Button>
         }
-      />
-      <Note>
-        A rule answers a request before it reaches you, for every agent alike. A question an
-        agent asks you directly always comes through.
-      </Note>
-      {saveError && <Note tone="bad">{saveError}</Note>}
-      <Rows>
-        {rules === null ? (
-          <Row title="Loading…" />
-        ) : rules.length === 0 ? (
-          <EmptyState variant="row" title="No rules yet" description="Every request reaches you." />
-        ) : (
-          rules.map((rule) => (
-            <Row
-              key={rule.id}
-              mark={<ShieldIcon size={15} />}
-              title={rule.name}
-              desc={`${rule.action === 'approve' ? 'Approves' : 'Denies'} ${kindWords(rule.match.type)}${
-                rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
-              }.`}
-              control={
-                <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
-                  Remove…
-                </Button>
-              }
-            />
-          ))
-        )}
-      </Rows>
+      >
+        {saveError && <Note tone="bad">{saveError}</Note>}
+        <Rows>
+          {rules === null ? (
+            <Row title="Loading…" />
+          ) : rules.length === 0 ? (
+            <EmptyState variant="row" title="No rules yet" description="Every request reaches you." />
+          ) : (
+            rules.map((rule) => (
+              <Row
+                key={rule.id}
+                mark={<ShieldIcon size={15} />}
+                title={rule.name}
+                desc={`${rule.action === 'approve' ? 'Approves' : 'Denies'} ${kindWords(rule.match.type)}${
+                  rule.match.pattern ? ` containing “${rule.match.pattern}”` : ''
+                }.`}
+                control={
+                  <Button size="sm" variant="ghost" onClick={() => setRemoving(rule)}>
+                    Remove…
+                  </Button>
+                }
+              />
+            ))
+          )}
+        </Rows>
+      </Section>
       {adding && (
         <AddRuleDialog onAdd={(rule) => save([...(rules ?? []), rule])} onClose={() => setAdding(false)} />
       )}

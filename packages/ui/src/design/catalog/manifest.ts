@@ -1,5 +1,5 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench'
+export type CatalogVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary'
 export type CatalogSize = 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'bare' | 'composer'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out'
 
@@ -69,6 +69,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'dropdown-menu': 'packages/ui/src/components/TeamBoardPane.tsx',
   'empty-state': 'packages/ui/src/components/Library.tsx',
   field: 'packages/ui/src/components/Settings.tsx',
+  'group-label': 'packages/ui/src/components/Settings.tsx',
   'hover-card': 'packages/ui/src/components/AgentCards.tsx',
   'icon-tile': 'packages/ui/src/components/SkillSheet.tsx',
   input: 'packages/ui/src/components/SignIn.tsx',
@@ -96,6 +97,8 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature — so the handle was documented against a drawing of
      the thing it drags. */
   'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  /* The catalogue's own rail heads its groups with it. */
+  'group-label': 'packages/ui/src/design/explorer/Explorer.tsx',
   badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   card: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'hover-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -116,7 +119,7 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'alert-dialog', 'avatar', 'avatar-stack', 'bar', 'board',
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
-  'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field',
+  'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
@@ -152,11 +155,12 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'dropdown-menu': ['default'],
   'empty-state': ['panel', 'inline', 'row'],
   field: ['default'],
+  'group-label': ['default'],
   'hover-card': ['default'],
   'icon-tile': ['default'],
   input: ['default', 'quiet', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
-  'key-value': ['default', 'panel'],
+  'key-value': ['default', 'panel', 'summary'],
   label: ['default'],
   'list-row': ['default'],
   marker: ['default', 'border', 'separator'],
@@ -167,7 +171,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   rail: ['default'],
   'resize-handle': ['default', 'line'],
   'scroll-area': ['default'],
-  section: ['card', 'plain', 'quiet', 'panel'],
+  section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
   bar: ['default'],
@@ -231,6 +235,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   'dropdown-menu': ['closed', 'open', 'selected', 'disabled'],
   'empty-state': ['empty', 'loading', 'error'],
   field: ['default', 'focus-visible', 'disabled', 'error'],
+  'group-label': ['default'],
   'hover-card': ['closed', 'open'],
   'icon-tile': ['default', 'hover', 'selected'],
   input: ['default', 'focus-visible', 'disabled', 'error'],
@@ -425,11 +430,12 @@ export const CANONICAL_UI_MODULES = [
   ['dropdown-menu', 'propagation', 'Base UI dropdown-menu parts'],
   ['empty-state', 'empty', 'Empty and unavailable states'],
   ['field', 'field', 'Label, help and validation anatomy'],
+  ['group-label', 'section', 'The one group heading: 13px, secondary, sentence case'],
   ['hover-card', 'adopted', 'Preview-card behavior'],
   ['icon-tile', 'tile', 'Icon and mark plate'],
   ['input', 'field', 'Single-line text input'],
   ['input-group', 'adopted', 'Affixed text input'],
-  ['key-value', 'readings', 'Measured fact rows'],
+  ['key-value', 'readings', 'Measured fact rows, and SummaryList: facts about one object as a card'],
   ['label', 'field', 'Native form label'],
   ['list-row', 'list', 'Generic selectable list row'],
   ['marker', 'adopted', 'Status marker'],
@@ -439,7 +445,7 @@ export const CANONICAL_UI_MODULES = [
   ['radio-group', 'control', 'Single-choice radio behavior'],
   ['resize-handle', 'panels', 'Keyboard-accessible resize seam'],
   ['scroll-area', 'adopted', 'Themed scroll container'],
-  ['section', 'section', 'Titled content region'],
+  ['section', 'section', 'Titled content region, and the page section that owns its spacing'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
   ['bar', 'panels', 'Bar-height row: title bars, filter rows, facts lines'],

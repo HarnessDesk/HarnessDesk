@@ -43,6 +43,12 @@ export const SECTIONS = [
     'Compose the role from packages/ui/src/design: Row/Rows, PageHead/SectionHead, Search/Field, Alert, EmptyState, Chip, Card, KeyValue, Table, StatePill. Keep only layout in the screen sheet, className, or style, and add a component to the design system when the role has none. Markdown and Diff keep prose\'s ratio ladder and a diff viewer\'s specialized ink; both their `.module.css` and their `.tsx` are exempt, alongside the icon and data-geometry files the loose-icon rule already names. This category is a burn-down: its ceiling may only fall.',
   ],
   [
+    'uppercaseLabel',
+    'Labels set in capitals',
+    'A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out.',
+    'Name the group with GroupLabel (13px, secondary ink, sentence case) from packages/ui/src/design, or write the words in sentence case. The only capitals the app keeps are printed on a Keycap. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
     'screenUnclassified',
     'Properties outside the screen boundary',
     'An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total.',

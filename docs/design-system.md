@@ -323,7 +323,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 
 ### The section label
 
-The word over a group of rows — "Workspaces", "Capabilities", "Agents". Desk sets it at the rows' own 13px size in sentence case, regular weight and muted ink, so it names the group quietly. Studio sets it at 12px in uppercase medium with tracking, so the group reads distinctly without a rule beneath it.
+The word over a group of rows — "Workspaces", "Capabilities", "Agents". There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own 13px chrome step, the secondary ink, sentence case, so it names the group quietly and the rows stay the subject. Studio sets the same label in the medium weight with more air above a rail's group; neither interface sets a label in capitals — the only capitals in the app are printed on a `Keycap`, and the design audit counts any other (`uppercaseLabel`).
 
 ### The card
 
@@ -379,11 +379,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-nav-h-group` | `calc(14px * 1.5 + 4px * 2)` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-inset` | `8px` |
-| `--hd-label-size` | `` |
 | `--hd-label-weight` | `` |
-| `--hd-label-tracking` | `` |
-| `--hd-label-transform` | `` |
-| `--hd-label-ink` | `` |
 | `--hd-label-space` | `` |
 | `--hd-card-fill` | `` |
 | `--hd-card-border` | `` |
@@ -650,6 +646,70 @@ having written the judgement down.
 
 **Why** — The card keeps its shape whether it holds nothing or twelve things, so the page does not jump when the first one arrives.
 
+### `one step`
+
+**Use** — Every page head, a list page's `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark's own type.
+
+**Not** — A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.
+
+**Why** — At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar's wordmark beside it. The owner settled it in #832: page titles match the wordmark.
+
+### `GroupLabel`
+
+**Use** — The word over any group — a card of rows, a rail's list, a section of a page: 13px, the secondary ink, sentence case. `SectionHead`, `Section`, `NavigationGroupHeader` and the catalogue rail all draw it.
+
+**Not** — Capitals. No label outside a `Keycap` is set in uppercase, tracked or not; the design audit counts every one (`uppercaseLabel`) and its ceiling may only fall.
+
+**Why** — The app had three group-label styles and a column of six 12px tracked capitals read as shouted — the one group that needed finding stopped standing out. A key is the exception because it is a physical thing with printing on it.
+
+### `page`
+
+**Use** — Any part of a page: `<Section title description action>` around its card. It owns the rhythm — label to card 8px, section to section 32px, the first one after the head at the same 32px — and drops its children's own margins.
+
+**Not** — A `SectionHead`, a free `Note` and a `Rows` stacked by hand, or a screen margin between sections. The label then belongs to neither card and every page spaces itself.
+
+**Why** — On the Agent page the label "Ceiling" sat 18px under the card above it and 20px over its own, so it named neither. A section that owns its spacing cannot drift that way, and a page composing sections writes no margin at all.
+
+### `description`
+
+**Use** — One muted sentence under the label saying what the section is, when the label alone cannot.
+
+**Not** — A paragraph of how it works. Two or three lines under every label is a page that explains itself before it shows anything; the explanation belongs on the row it explains, or nowhere.
+
+**Why** — Project, Permissions and Triggers each opened every section with a 2–3 line paragraph under the page's own blurb. The one warning that mattered read like the four around it.
+
+### `summary`
+
+**Use** — Several facts about one object on a page — a file, a ceiling, what it loads — as `SummaryList` inside one `Section`: a key, a value, an optional note under it and an optional small action at the row's end.
+
+**Not** — A stack of one-row cards, each under its own label. Five facts about one Agent are one card of five rows.
+
+**Why** — Eight label-plus-one-row-card sections made the Agent page a column of floating grey words. One card of facts is read top to bottom like an inspector, with the actions in one column at the end.
+
+### `wrapped control`
+
+**Use** — A control too wide to share a narrow row with its title drops under it. A compact control — a switch, a button, a chip, a select, a `RowValue numeric` amount — keeps the row's end; a text answer (`RowValue`) takes its whole line and starts where the title starts. The row reads which from the control, so no caller says.
+
+**Not** — A sentence pushed to the row's end on its own line: narrower than the row, it starts at whatever indent its length leaves and lines up with nothing.
+
+**Why** — A row button's control travels with a chevron that cannot leave the end, and a card's trailing edge is the column every control is found in. Words are read from the left, so words that have their own line start at the left.
+
+### `sub-head`
+
+**Use** — Groups inside one section — one runtime's approvals among twelve, one layer of flows: a `SectionHead` among a `Section`'s children, 24px above it and 8px over its card, and an h3 under the section's h2.
+
+**Not** — A top-level section per group. Twelve 32px steps under one heading read as twelve sections and hide the one that heads them.
+
+**Why** — The step between a section (32px) and a label-to-card (8px) is what says "part of the section above".
+
+### `outline`
+
+**Use** — A page's or a detail page's title is its h1; every section label on it, `Section` or `SectionHead`, is an h2. A detail head's owner is text that gives way at its end, or a mark (a chip) that stays whole while the name wraps.
+
+**Not** — A title in a div, or a chip owner that ellipsises: a status read "Nee…" beside a long Goal.
+
+**Why** — Heading navigation is how a screen reader skims a page, and a page whose labels are spans cannot be skimmed.
+
 ### `default`
 
 **Use** — Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.
@@ -684,7 +744,7 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 | slot | what it is | may be | rung | ink actions | why |
 | --- | --- | --- | --- | --- | --- |
 | `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
-| `sectionAction` | the `action` of a `SectionHead` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
+| `sectionAction` | the `action` of a `SectionHead` or a titled `Section` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
 | `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `danger`, `outline` | `--hd-btn-h` | one | Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page's remove action, not a confirm's act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`. |
 
 ## Primitives
@@ -1515,6 +1575,14 @@ sessions run as …"), so the title is decided as the pointer arrives, from
 whether the text overflows its box right then. The ellipsis is the
 caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
 
+### `RowValue`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A row's answer in words. A wrapped text answer takes its line under the
+title; a `numeric` one — money, a count — is compact: it keeps the row's
+end on tabular figures, where a column of them lines up by place.
+
 ### `CodeText`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1549,7 +1617,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 491 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `screenAppearance` | 488 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `uppercaseLabel` | 8 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

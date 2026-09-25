@@ -72,8 +72,11 @@ import {
   RowMark,
   RowValue,
   Rows,
+  Section,
   SectionHead,
   Segmented,
+  SummaryItem,
+  SummaryList,
   Switch,
   Text,
 } from '../design'
@@ -1219,68 +1222,69 @@ const AccountDetail = ({
         actions={<Chip state={state} />}
       />
 
-      <SectionHead name="Name and colour" />
-      <Rows>
-        <Row
-          title="Name"
-          desc="How the sidebar, the composer and the menu bar refer to this account."
-          control={
-            <Input
-              className={styles.nameField}
-              value={name}
-              placeholder={accountName(account, undefined, info.presentation.name)}
-              aria-label="Account name"
-              onChange={(event) => setName(event.target.value)}
-              onBlur={() => store.setAccountPrefs(key, { nickname: name })}
-            />
-          }
-        />
-        <Row
-          title="Ring"
-          desc="Tells this account apart from another one of the same agent."
-          control={
-            <RingPicker
-              info={info}
-              value={tintOf(key, snapshot.accountPrefs)}
-              onChange={(tint) => store.setAccountPrefs(key, { tint })}
-            />
-          }
-        />
-      </Rows>
+      {/* Three ways the desk shows this account, in one card: the name and ring
+          it wears, and the limit it leads with. The limit was a one-row card
+          of its own, under a second "Usage" heading above the real one. */}
+      <Section title="How it is shown">
+        <Rows>
+          <Row
+            title="Name"
+            desc="How the sidebar, the composer and the menu bar refer to this account."
+            control={
+              <Input
+                className={styles.nameField}
+                value={name}
+                placeholder={accountName(account, undefined, info.presentation.name)}
+                aria-label="Account name"
+                onChange={(event) => setName(event.target.value)}
+                onBlur={() => store.setAccountPrefs(key, { nickname: name })}
+              />
+            }
+          />
+          <Row
+            title="Ring"
+            desc="Tells this account apart from another one of the same agent."
+            control={
+              <RingPicker
+                info={info}
+                value={tintOf(key, snapshot.accountPrefs)}
+                onChange={(tint) => store.setAccountPrefs(key, { tint })}
+              />
+            }
+          />
+          <Row
+            title="Primary usage window"
+            desc="Which limit appears first in the tray, account summary and menu."
+            control={
+              <NativeSelect
+                aria-label="Primary usage window"
+                value={pinLaneId}
+                disabled={usageOptions.length <= 1}
+                onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
+              >
+                {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </NativeSelect>
+            }
+          />
+        </Rows>
+      </Section>
 
-      <SectionHead name="Usage" />
-      <Rows>
-        <Row
-          title="Primary usage window"
-          desc="Which limit appears first in the tray, account summary and menu."
-          control={
-            <NativeSelect
-              aria-label="Primary usage window"
-              value={pinLaneId}
-              disabled={usageOptions.length <= 1}
-              onChange={(event) => store.setAccountPrefs(key, { pinLaneId: event.target.value || undefined })}
-            >
-              {usageOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </NativeSelect>
-          }
-        />
-      </Rows>
-
-      <SectionHead name="Account" />
-      <Rows>
-        <Row
-          title={account.label}
-          desc={
-            account.kind === 'apiKey'
-              ? `Stored by HarnessDesk — ${snapshot.credentialProtection}. Handed to ${info.presentation.name} when it starts.`
-              : account.kind === 'externalKey'
-                ? `Read from ${account.planType}. HarnessDesk holds no copy.`
-                : `${info.presentation.name} keeps the credential; HarnessDesk never stores it.`
-          }
-          control={
-            <>
-              {planLabel && <RowValue>{planLabel}</RowValue>}
-              {isKey ? (
+      {/* The facts about the sign-in, as one card: who, on what plan, where
+          its credential lives, and whether new sessions start on it. They were
+          two cards under two headings ("Account", "Defaults"). */}
+      <Section title="Account">
+        <SummaryList>
+          <SummaryItem
+            label="Signed in as"
+            note={
+              account.kind === 'apiKey'
+                ? `Stored by HarnessDesk — ${snapshot.credentialProtection}. Handed to ${info.presentation.name} when it starts.`
+                : account.kind === 'externalKey'
+                  ? `Read from ${account.planType}. HarnessDesk holds no copy.`
+                  : `${info.presentation.name} keeps the credential; HarnessDesk never stores it.`
+            }
+            action={
+              isKey ? (
                 <Button variant="secondary" size="sm" onClick={() => onSignIn(info.id)}>
                   <SignInIcon size={13} />
                   Manage key…
@@ -1290,36 +1294,43 @@ const AccountDetail = ({
                   <SignOutIcon size={13} />
                   {info.slot?.removable ? 'Remove…' : 'Sign out…'}
                 </Button>
-              )}
-            </>
-          }
-        />
-        {credentialHome(info) && (
-          <Row
-            title="Where its credential lives"
-            desc={<CodeText>{credentialHome(info)}</CodeText>}
-          />
-        )}
-      </Rows>
+              )
+            }
+          >
+            {account.label}
+          </SummaryItem>
+          {planLabel && <SummaryItem label="Plan">{planLabel}</SummaryItem>}
+          {credentialHome(info) && (
+            <SummaryItem label="Credential" kind="path">{credentialHome(info) ?? ''}</SummaryItem>
+          )}
+          <SummaryItem
+            label="New sessions"
+            {...(snapshot.activeRuntime === info.id
+              ? {}
+              : {
+                  action: (
+                    <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
+                      Make default
+                    </Button>
+                  ),
+                })}
+          >
+            {snapshot.activeRuntime === info.id ? (
+              /* The chip is the account's readiness as the default, the same
+                 reading the list and the agent's page give (#131). */
+              <span className="inline-flex flex-wrap items-center gap-x-(--hd-space-2)">
+                Start on this account
+                <Chip state={defaultChipState(info, snapshot)} label="Default" />
+              </span>
+            ) : (
+              'Start on another account'
+            )}
+          </SummaryItem>
+        </SummaryList>
+      </Section>
 
       <UsageSection limits={limits} name={info.presentation.name} />
 
-      <SectionHead name="Defaults" />
-      <Rows>
-        <Row
-          title="Use for new sessions"
-          desc="The composer starts on this account."
-          control={
-            snapshot.activeRuntime === info.id ? (
-              <Chip state={defaultChipState(info, snapshot)} label="Default" />
-            ) : (
-              <Button variant="secondary" size="sm" onClick={() => void store.selectRuntime(info.id)}>
-                Make default
-              </Button>
-            )
-          }
-        />
-      </Rows>
       {confirmingSignOut && (
         <ConfirmDialog
           title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}

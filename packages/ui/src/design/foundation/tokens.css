@@ -936,22 +936,26 @@ body {
 
   /* --- the section label ---------------------------------------------------
      The word over a group of rows — "Workspaces", "Capabilities", "Agents".
-     Desk sets it at the rows' own 13px size in sentence case, regular weight
-     and muted ink, so it names the group quietly. Studio sets it at 12px in
-     uppercase medium with tracking, so the group reads distinctly without a
-     rule beneath it. */
+     There is one, `GroupLabel` (design/ui/group-label.tsx): the rows' own
+     13px chrome step, the secondary ink, sentence case, so it names the group
+     quietly and the rows stay the subject. Studio sets the same label in the
+     medium weight with more air above a rail's group; neither interface sets
+     a label in capitals — the only capitals in the app are printed on a
+     `Keycap`, and the design audit counts any other (`uppercaseLabel`). */
   /*
-   * The whole `--hd-label-*` family is defined in the STUDIO block and nowhere
-   * else, and so is the selection family below it. This is the rule the rest
-   * of this section follows, so it is worth stating once.
+   * The two `--hd-label-*` tokens left (`-weight`, `-space`) are defined in the
+   * STUDIO block and nowhere else, and so is the selection family below them.
+   * This is the rule the rest of this section follows, so it is worth stating
+   * once.
    *
-   * The app draws a group heading in three navigation columns and no two agree:
-   * the sidebar's is 13px sentence case in the secondary ink with 6px of air,
-   * the settings window's is 13px tertiary with 20px, the room's rail is
-   * already 12px uppercase medium in the muted foreground. Every one of those
-   * is a value somebody looked at and accepted. Naming a single Desk default
-   * would restyle two of the three, which is a redesign wearing the clothes of
-   * a refactor — and is exactly the mistake this file made once already.
+   * The group heading was where this rule was first needed, and it is now
+   * resolved rather than deferred. The app drew it three ways: the sidebar's
+   * 13px secondary, the settings window's 13px in the faint ink, and the
+   * room's rail in 12px tracked capitals. The first is the one kept; the
+   * settings label moved to it, and the capitals are the audit's to burn down
+   * (the room's rail, the trajectory's role labels and the agent card are the
+   * screens still spelling them). What the interfaces may still vary is only
+   * the weight and the air, which is why those two stay Studio-only tokens.
    *
    * So: **a token that varies between the two interfaces is defined only in
    * Studio, and each call site spells its own value as the `var()` fallback.**
@@ -1148,10 +1152,12 @@ body[data-hd-dark-theme] {
  *      row in a column that most needs finding. Studio fills it with the
  *      brand, so the two states stop being neighbours on one scale of grey.
  *
- *   2. A GROUP HEADING IS NOT A ROW. Desk sets it at the same size and weight
- *      as the rows beneath it, one shade lighter. Studio steps it down to
- *      12px, uppercase, medium, tracked — which is what lets a group read as
- *      a group with no rule under it.
+ *   2. A GROUP HEADING IS NOT A ROW. Desk sets it at the same size as the
+ *      rows beneath it, one shade lighter. Studio gives it the medium weight
+ *      and more air above it, which is what lets a group read as a group with
+ *      no rule under it. It once also stepped it down to 12px tracked
+ *      capitals; the app keeps no capitals outside a `Keycap`, and a column
+ *      of six shouted labels was the loudest thing in the sidebar.
  *
  *   3. A CARD SEPARATES BY AREA, NOT BY EDGE. Desk draws white on white with
  *      a 4%-black hairline; stack three and the page reads as a wireframe.
@@ -1207,15 +1213,11 @@ body[data-hd-interface='studio'] {
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
 
-  /* 2 — the group heading */
-  --hd-label-size: var(--hd-text-xs);
+  /* 2 — the group heading. Defined here and nowhere else — see the note in
+     the Desk block. The size, the ink and the case are `GroupLabel`'s in both
+     interfaces; Studio varies only the weight and the air above a rail's
+     group. */
   --hd-label-weight: var(--hd-weight-medium);
-  --hd-label-tracking: 0.06em;
-  --hd-label-transform: uppercase;
-  /* Defined here and nowhere else — see the note in the Desk block. These two
-     lines are what make the sidebar, the settings window and the room's rail
-     head their groups identically. */
-  --hd-label-ink: var(--hd-tertiary-foreground);
   --hd-label-space: var(--hd-space-5);
 
   /* 3 — the card. 4% of the brand over white is a visible wash and nothing
