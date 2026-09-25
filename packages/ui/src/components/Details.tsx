@@ -11,7 +11,7 @@ import { Agents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { DiffView } from './Diff'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button } from '../design'
+import { Button, ListRowDetail } from '../design'
 import {
   Counts,
   GroupLine,
@@ -22,7 +22,6 @@ import {
   PanelFrame,
   PanelPill,
   PanelRow,
-  PanelRowDetail,
   PanelTools,
 } from './Panel'
 import { Trajectory } from './Trajectory'
@@ -402,9 +401,9 @@ const Changes = ({
                   tooltip={file.path}
                   trail={<Counts added={count.added} removed={count.removed} />}
                 />
-                <PanelRowDetail>
+                <ListRowDetail>
                   <DiffView diff={file.diff} />
-                </PanelRowDetail>
+                </ListRowDetail>
               </div>
             )
           })}
@@ -443,7 +442,7 @@ const Changes = ({
                 {...(count ? { trail: <Counts added={count.added} removed={count.removed} /> } : {})}
               />
               {selected === file.path && (
-                <PanelRowDetail>
+                <ListRowDetail>
                   <div className={styles.fileActions}>
                     <Button
                       type="button"
@@ -469,7 +468,7 @@ const Changes = ({
                         : 'No diff to show.'}
                     </PanelEmpty>
                   )}
-                </PanelRowDetail>
+                </ListRowDetail>
               )}
             </div>
           )

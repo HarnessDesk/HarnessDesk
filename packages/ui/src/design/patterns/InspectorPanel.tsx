@@ -161,17 +161,6 @@ const PanelRow = ({
   )
 }
 
-/**
- * What a row opens under itself — a file's patch and the two things to do
- * with it. It stands at the row's own width, so the patch's edges carry on
- * the row's, with a step of air above and a longer one before the next row.
- */
-const PanelRowDetail = ({ children }: { children: ReactNode }) => (
-  <div data-slot="inspector-row-detail" className="pt-1 pb-2">
-    {children}
-  </div>
-)
-
 const Counts = ({ added, removed }: { added: number; removed: number }) => (
   <ChangeStats added={added} removed={removed} />
 )
@@ -238,7 +227,6 @@ export {
   PanelFrame,
   PanelPill,
   PanelRow,
-  PanelRowDetail,
   PanelTools,
   RowTime,
   RunDot,

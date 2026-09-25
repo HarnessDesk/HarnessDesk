@@ -50,6 +50,9 @@ it('owns the repository history bars and commit-detail insets', () => {
   expect(container.querySelector('[data-slot="git-history-commit-detail"]')?.textContent).toContain('Commit')
   expect(container.querySelector('[data-slot="git-history-commit-detail-header"]')?.textContent).toBe('Commit')
   expect(container.querySelector('[data-slot="git-history-diff-viewport"]')?.textContent).toBe('Diff')
-  expect(container.querySelector('[data-slot="git-history-inline-patch"]')?.textContent).toBe('Inline patch')
+  // The inline patch is the system's row detail, set on the file list's inner line.
+  const patch = container.querySelector<HTMLElement>('[data-slot="list-row-detail"]')
+  expect(patch?.textContent).toBe('Inline patch')
+  expect(patch?.hasAttribute('data-inset')).toBe(true)
   expect(container.querySelector('[data-slot="conversation-empty-state"]')?.textContent).toBe('Nothing to show')
 })

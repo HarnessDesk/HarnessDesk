@@ -15,7 +15,6 @@ export {
   PanelFrame,
   PanelPill,
   PanelRow,
-  PanelRowDetail,
   PanelTools,
   RowTime,
   RunDot,
