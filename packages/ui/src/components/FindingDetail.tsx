@@ -57,12 +57,20 @@ export const FindingDetail = ({
   finding,
   onClose,
   decide,
+  verdictAfterRun = false,
 }: {
   readonly goal: string
   readonly finding: string
   readonly onClose: () => void
   /** The run a person may decide this finding against, as they last read it; absent where no decision is offered. */
   readonly decide?: FindingRunView
+  /**
+   * Whether a person's verdict may still be recorded against `decide` once
+   * that run itself has stopped or settled — true while its Goal is open,
+   * since a finding outlives the run that raised it (#890). The host refuses
+   * once the Goal is closed, whatever this says.
+   */
+  readonly verdictAfterRun?: boolean
 }) => {
   const store = useStore()
   const [read, setRead] = useState<Read>({ kind: 'loading' })
@@ -157,7 +165,7 @@ export const FindingDetail = ({
               {seat ? <SeatRecordView seat={seat} /> : <Text role="muted">This Seat is unavailable.</Text>}
             </Fieldset>
             {decide && (
-              <PersonVerdict goal={goal} view={view} run={decide} onDecided={() => setGeneration((one) => one + 1)} />
+              <PersonVerdict goal={goal} view={view} run={decide} afterRun={verdictAfterRun} onDecided={() => setGeneration((one) => one + 1)} />
             )}
           </>
         )
@@ -173,10 +181,11 @@ export const FindingDetail = ({
  * only once one has been claimed. Bound to the run view the person read, so
  * a run that moved on refuses it rather than applying it to something else.
  */
-const PersonVerdict = ({ goal, view, run, onDecided }: {
+const PersonVerdict = ({ goal, view, run, afterRun, onDecided }: {
   readonly goal: string
   readonly view: FindingView
   readonly run: FindingRunView
+  readonly afterRun: boolean
   readonly onDecided: () => void
 }) => {
   const store = useStore()
@@ -184,7 +193,7 @@ const PersonVerdict = ({ goal, view, run, onDecided }: {
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (view.lifecycle.confirmed || view.restored || view.problem !== null) return null
-  const refusal = run.undecidable ??
+  const refusal = (afterRun ? null : run.undecidable) ??
     (view.origin.run !== run.run && view.origin.goal === goal ? 'This finding belongs to an earlier run on this Goal.' : null)
   const choices: readonly { readonly label: string; readonly state: 'open' | 'repaired' | 'withdrawn' }[] = view.lifecycle.state === 'repaired'
     ? [{ label: 'Accept the repair', state: 'repaired' }, { label: 'Reject the repair', state: 'open' }, { label: 'Withdraw it', state: 'withdrawn' }]

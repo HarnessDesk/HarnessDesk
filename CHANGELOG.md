@@ -7,6 +7,27 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **An Agent can be started at a higher ceiling, and its MCP servers load.**
+  An Agent whose ceiling is publish or merge was always seated at edit from
+  the app, so an MCP server it declared — which needs a Seat that may merge
+  — never loaded. Its page now offers **Start at a higher ceiling…**: the
+  levels up to its own ceiling, each saying whether the runtime taking the
+  seat holds it or can only be asked to, with merge saying it loads the
+  Agent's servers. The plain Start still seats at edit. Approving a server whose
+  review shows a value only as set now asks you to confirm you know what
+  that value is, since a value that changes what the server does can hide
+  behind a name that looks like a credential. A Seat that falls back to
+  another agent says its content was approved for the first one, a server
+  that ignores being asked to stop no longer outlives a quick quit, and a
+  Seat the agent still held when it was reopened keeps its servers.
+
+- **Goal boards save whole, and a stuck Goal clears without a restart.** A
+  board change that rode along with an assignment could be reported saved
+  before its name, messaging and plans were written; they now land in the
+  same write. A Goal whose failed assignment could not be set aside
+  retries that once the next board save lands, instead of waiting for a
+  relaunch. A legacy flow's member roles survive a Goal being read back.
+
 - **A Goal's work survives a relaunch.** Quitting while a Goal's agent was
   working, or waiting for you to approve a command, used to leave the Goal
   reading "Running" after the next launch while nothing ran and the approval

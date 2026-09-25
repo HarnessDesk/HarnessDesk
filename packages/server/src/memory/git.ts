@@ -114,7 +114,8 @@ const refuseAlternates = async (objectsOf: string): Promise<void> => {
  * `git` subprocess is pointed at it.
  *
  * Two shapes are admitted. An ordinary checkout, whose `.git` is a real,
- * unlinked directory declaring no external object alternates. And a linked
+ * unlinked directory declaring no `commondir` and no external object
+ * alternates. And a linked
  * worktree — the shape every Agent lane has — verified hop by hop the way
  * Git itself resolves it, with nothing taken on the pointer's word:
  *
@@ -136,6 +137,13 @@ export async function admitMemoryRoot(root: string): Promise<string> {
   if (!info) throw new Error('This project has no .git — memory can only be read from a Git repository.')
   if (info.isSymbolicLink()) throw new Error('This project’s .git is a link, so memory cannot be read from it.')
   if (info.isDirectory()) {
+    /* An ordinary `.git` folder that names a `commondir` is not ordinary:
+       Git reads its objects and refs from wherever that points, so this
+       checkout's history would be another repository's, reached with none
+       of the hop-by-hop checks a linked worktree gets (#895). Refused. */
+    if (await lstat(join(dotGit, 'commondir')).catch(() => null)) {
+      throw new Error('This project’s .git folder points at another repository’s history, so memory cannot be read from it.')
+    }
     await refuseAlternates(dotGit)
     return real
   }

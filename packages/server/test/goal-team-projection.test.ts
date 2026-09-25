@@ -44,25 +44,40 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   const peers: TeamPeer[] = [peer('worker'), peer('other')]
   /** The Goal document's board, as the host's store holds it. */
   let stored: readonly Intent[] = []
+  let storedState: TeamState | null = null
   let gate: Promise<void> | null = null
   let opener: (() => void) | null = null
+  let atGate: (() => void) | null = null
   let failNext: Error | null = null
   let failAlways: Error | null = null
   let saves = 0
+  let attempts = 0
   let failIn: { n: number; error: Error } | null = null
   const queue = new Queue()
   const save = async (state: TeamState): Promise<void> => {
-    if (gate) await gate
+    attempts += 1
+    if (gate) {
+      atGate?.()
+      await gate
+    }
     if (failAlways) throw failAlways
     if (failNext) { const error = failNext; failNext = null; throw error }
     if (failIn && --failIn.n === 0) { const error = failIn.error; failIn = null; throw error }
     stored = structuredClone(state.intents)
+    storedState = structuredClone(state)
     saves += 1
   }
+  let sendGate: Promise<void> | null = null
+  let sending: (() => void) | null = null
   const port: TeamPort = {
     peers: () => peers,
     rootOf: async () => '/repo',
-    send: async () => {},
+    send: async () => {
+      if (sendGate) {
+        sending?.()
+        await sendGate
+      }
+    },
     steer: async () => {},
     changed: () => {},
     removed: () => {},
@@ -73,7 +88,9 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
     // A refusal is settled inside the queued task, as the host's is, before any later task of the Goal's queue runs.
     mutate: (snapshot, refused) => queue.run(async () => {
       try {
-        await save(snapshot())
+        const state = snapshot()
+        if (state === null) return
+        await save(state)
       } catch (error) {
         refused?.(error instanceof Error ? error : new Error(String(error)))
         throw error
@@ -91,9 +108,15 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
   return {
     team,
     stored: () => stored,
+    /** Every field of the last save that landed. */
+    storedState: () => storedState,
     /** A task of the Goal's queue, as the Goal plane runs one. */
     inQueue: <T>(work: () => Promise<T>) => queue.run(work),
     saves: () => saves,
+    /** Saves that ran at all, landed or not. */
+    attempts: () => attempts,
+    /** Resolves once a save is waiting at the gate `hold` closed. */
+    held: () => new Promise<void>((resolve) => { atGate = resolve }),
     failNextWrite: (error: Error) => { failNext = error },
     /** Fails the `n`th save to run from now. */
     failWrite: (n: number, error: Error) => { failIn = { n, error } },
@@ -104,6 +127,13 @@ const rig = async (t: { after(fn: () => Promise<void>): void }) => {
     /** A Goal read back from its document, as the host installs one; `final` once it can no longer change. */
     install: (room: string, intents: readonly Intent[], final: boolean) =>
       team.installProjection({ ...team.stateFor(room), intents: [...intents] }, undefined, { final }),
+    /** Holds every send until `open`; `entered` resolves once one is waiting. */
+    holdSends: () => {
+      let open!: () => void
+      sendGate = new Promise<void>((resolve) => { open = resolve })
+      const entered = new Promise<void>((resolve) => { sending = resolve })
+      return { entered, open: () => { sendGate = null; open() } }
+    },
     hold: () => {
       let open!: () => void
       gate = new Promise<void>((resolve) => { open = resolve })
@@ -263,6 +293,89 @@ test('a completion whose card was taken from it while its review check ran is re
   assert.equal(card(r.stored(), 1)?.state, 'claimed')
 })
 
+/*
+ * #888. The second look after the review check compared only who holds the
+ * card. The same conversation letting the card go and taking it again in
+ * between is a different claim; the completion was checked against the old one.
+ */
+test('a completion whose card was let go and claimed again by the same conversation while its check ran is refused', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  await r.team.claim(1, scope('worker'))
+  await r.team.flush()
+  const check = reviewCheckHeld(r)
+  const said = r.team.complete(1, {}, scope('worker'))
+  await check.asked
+  await r.goalPlane(room, (intents) => intents.map((one) => (one.id === 1 ? { ...one, state: 'open' as const, claim: null } : one)))
+  await r.goalPlane(room, assignTo('worker'))
+  check.open()
+  assert.match(await said, /^Refused: #1 was let go and claimed again/)
+  await r.team.flush()
+  assert.equal(card(r.team.stateFor(room).intents, 1)?.state, 'claimed')
+  assert.equal(card(r.stored(), 1)?.claim?.at, 1, 'the new claim stands, untouched')
+})
+
+/*
+ * #888. A legacy flow gives its members roles on the board (`setRole`); Goal
+ * Seats carry none. A Goal read back from its document projects the roles of
+ * its Seats, and used to wipe every role the board had given.
+ */
+test('a Goal read back keeps the roles the board gave members whose Seats carry none', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  assert.equal(r.team.roleOf(room, 'codex', 'worker'), 'build')
+  // As `GoalPlane.view` projects it: every member, and no Seat role.
+  r.team.installProjection({ ...r.team.stateFor(room), roles: {} }, undefined, { final: false })
+  assert.equal(r.team.roleOf(room, 'codex', 'worker'), 'build')
+  assert.equal(r.team.roleOf(room, 'codex', 'other'), 'build')
+  // A Seat's own role still wins, and a member who left keeps none.
+  const members = r.team.stateFor(room).members.filter((key) => !key.endsWith('other'))
+  r.team.installProjection({ ...r.team.stateFor(room), members, roles: { [members[0]!]: 'review' } }, undefined, { final: false })
+  assert.equal(r.team.roleOf(room, 'codex', 'worker'), 'review')
+  assert.equal(r.team.roleOf(room, 'codex', 'other'), null)
+})
+
+/*
+ * #888's missing test. A post, and a handout, hold their board across the
+ * send; a Goal read back in that gap must leave what they write afterwards on
+ * the board everybody reads, and in what is saved.
+ */
+test('a post waiting on its send when its Goal is read back is recorded and saved', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const sends = r.holdSends()
+  const posting = r.team.post(room, 'Hello, room')
+  await sends.entered
+  r.install(room, r.stored(), false)
+  sends.open()
+  await posting
+  await r.team.flush()
+  const delivered = (state: TeamState | null) => (state?.channel ?? []).filter((entry) =>
+    entry.kind === 'message' && entry.text === 'Hello, room' && entry.state === 'delivered').length
+  assert.equal(delivered(r.team.stateFor(room)), 2, 'one delivered row per member, on the board everybody reads')
+  assert.equal(delivered(r.storedState()), 2, 'and in what is saved')
+})
+
+test('a handout waiting on its sends when its Goal is read back is recorded and saved', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const sends = r.holdSends()
+  const handing = r.team.handout(room, 'Take {{part}}', [
+    { runtime: 'codex' as RuntimeId, sessionId: 'worker', vars: { part: 'A' } },
+    { runtime: 'codex' as RuntimeId, sessionId: 'other', vars: { part: 'B' } },
+  ])
+  await sends.entered
+  r.install(room, r.stored(), false)
+  sends.open()
+  const tally = await handing
+  await r.team.flush()
+  assert.equal(tally.delivered, 2)
+  const handed = (state: TeamState | null) => (state?.channel ?? []).filter((entry) =>
+    entry.kind === 'message' && entry.state === 'delivered' && entry.text.startsWith('Take ')).map((entry) => entry.kind === 'message' ? entry.text : '').sort()
+  assert.deepEqual(handed(r.team.stateFor(room)), ['Take A', 'Take B'])
+  assert.deepEqual(handed(r.storedState()), ['Take A', 'Take B'])
+})
+
 test('R4: a completion refused because its write failed is never saved by a later write', async (t) => {
   const r = await rig(t)
   const room = await setup(r)
@@ -360,6 +473,37 @@ test('a Goal-plane write made during an operation saves its change alone, and an
   await r.team.goalPlaneWrite(room, (intents) => intents.map((one) => (one.id === 1 ? { ...one, note: 'released by the wrap' } : one)), async () => {}, { carry: false })
   release()
   assert.match(await said, /^Refused: #1 could not be saved/)
+})
+
+/*
+ * #881. A Goal-plane write that carries a Team save not yet begun answers it
+ * as done once its own save lands, so that save has to have written all of
+ * it. Its own queued run is then skipped: run anyway, it could only fail with
+ * nobody listening — the carried save was already settled — leaving memory
+ * and the file apart with no problem shown.
+ */
+test('a save a Goal-plane write carries lands whole with it, and its own run is skipped rather than failing unheard', async (t) => {
+  const r = await rig(t)
+  const room = await setup(r)
+  const release = r.hold()
+  const waiting = r.held()
+  // A save in flight, held at the gate: the next change waits its turn behind it.
+  r.team.setRole(room, 'codex', 'worker', 'review')
+  await waiting
+  const before = { saves: r.saves(), attempts: r.attempts() }
+  // Not yet begun: this is the save the Goal plane's write will carry.
+  r.team.setMessaging(room, false)
+  const assigned = r.goalPlane(room, assignTo('other'))
+  // Were the carried save to run on its own after all, it would fail.
+  r.failWrite(3, new Error('EIO'))
+  release()
+  assert.equal(await assigned, true)
+  await r.team.flush()
+  assert.equal(r.attempts() - before.attempts, 1, 'the Goal plane’s alone after the one in flight: the carried save never runs again')
+  assert.equal(r.saves() - before.saves, 2, 'the save in flight and the Goal plane’s')
+  assert.equal(r.storedState()?.messaging, false, 'what the carried save changed landed with the Goal plane’s write')
+  assert.equal(card(r.stored(), 1)?.claim?.sessionId, 'other')
+  assert.equal(r.team.stateFor(room).problem, null)
 })
 
 test('a change refused because its save failed leaves no line of its own in the channel', async (t) => {

@@ -9,7 +9,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { errnoOf, NOTHING_HERE, NOTHING_YET } from '../errno.js'
 import { readForeignDatabase, type ForeignReadOptions } from './foreign-db.js'
 import type { UsageRow } from './store.js'
-import { InsightBudgetExceededError, type InsightScanOptions, type UsageSample } from './insight.js'
+import { InsightBudgetExceededError, InsightSourceChangedError, type InsightScanOptions, type UsageSample } from './insight.js'
 import type { Measure } from '@harnessdesk/protocol'
 
 /**
@@ -721,8 +721,16 @@ const geminiProjectOf = (chatFile: string): string => {
  * little, shrunk, rewritten to the same size at a different moment, a file
  * mid truncate that read as size zero — is refused too, but as this one
  * source failing to read, the same as any other unreadable source, never as
- * a reason to stop reading the sources after it.
+ * a reason to stop reading the sources after it — though its bytes were read
+ * and still count (`InsightSourceChangedError`, #865).
+ *
+ * The bound is read in chunks of at most `WHOLE_FILE_CHUNK`, never into one
+ * buffer the size of the whole budget: a 64 MiB + 1 byte allocation per file
+ * cost hundreds of MiB resident over a long history, for files a few KiB
+ * long (#865). The chunks are joined once, at the size actually read.
  */
+export const WHOLE_FILE_CHUNK = 1024 * 1024
+
 const readWholeFileWithinBudget = async (
   target: ScanTarget,
   insight: InsightScanOptions | undefined,
@@ -733,22 +741,26 @@ const readWholeFileWithinBudget = async (
     const before = await handle.stat()
     if (before.size > insight.byteLimit) throw new InsightBudgetExceededError()
     const capacity = insight.byteLimit + 1
-    const buffer = Buffer.alloc(capacity)
+    const chunks: Buffer[] = []
     let read = 0
     while (read < capacity) {
-      const { bytesRead } = await handle.read(buffer, read, capacity - read, read)
+      const want = Math.min(WHOLE_FILE_CHUNK, capacity - read)
+      // Only the bytes a read filled are ever kept, so an unfilled tail is never seen.
+      const chunk = Buffer.allocUnsafe(want)
+      const { bytesRead } = await handle.read(chunk, 0, want, read)
       if (bytesRead === 0) break
+      chunks.push(bytesRead === want ? chunk : chunk.subarray(0, bytesRead))
       read += bytesRead
     }
-    // The buffer filled without reaching end of file: more than the whole
-    // budget arrived, whether the file was already over it or grew past it
-    // since the check. This is the one case that stops the shared read.
+    // More than the whole budget arrived without reaching end of file,
+    // whether the file was already over it or grew past it since the check.
+    // This is the one case that stops the shared read.
     if (read > insight.byteLimit) throw new InsightBudgetExceededError()
     const after = await handle.stat()
     if (after.size !== before.size || after.mtimeMs !== before.mtimeMs) {
-      throw new Error('the source changed while it was being read')
+      throw new InsightSourceChangedError('the source changed while it was being read', read)
     }
-    return { text: buffer.subarray(0, read).toString('utf8'), size: read }
+    return { text: Buffer.concat(chunks, read).toString('utf8'), size: read }
   } finally {
     await handle.close()
   }

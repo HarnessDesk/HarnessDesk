@@ -19,6 +19,24 @@ import type { FlowExecution, GoalView } from '@harnessdesk/protocol'
 export const namedGoalRun = (view: GoalView | null | undefined): string | null =>
   view?.reservation?.run ?? (view?.goal.origin.kind === 'flow' ? view.goal.origin.run : null)
 
+/**
+ * Every run of this Goal that keeps findings, oldest first as this window
+ * heard of them — the history a Findings pane offers beside its default
+ * (`goalRunOf`), each said as "Run 2 of 3 · stopped".
+ */
+export const goalRunsOf = (goal: string, executions: ReadonlyMap<string, FlowExecution>): readonly FlowExecution[] =>
+  [...executions.values()].filter((one) => one.goal === goal && Boolean(one.findings))
+
+const RUN_STATE_WORDS: Readonly<Record<FlowExecution['state'], string>> = {
+  running: 'going on',
+  stalled: 'waiting on you',
+  stopped: 'stopped',
+  settled: 'finished',
+}
+
+export const goalRunLabel = (run: FlowExecution, index: number, total: number): string =>
+  `Run ${index + 1} of ${total} · ${RUN_STATE_WORDS[run.state]}`
+
 export const goalRunOf = (
   goal: string,
   view: GoalView | null | undefined,

@@ -17,7 +17,7 @@ import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
 import { listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
 import { LedgerStore, type UsageRow } from './store.js'
-import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, type UsageDetail, type UsageSample } from './insight.js'
+import { INSIGHT_BYTE_LIMIT, INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError, InsightSourceChangedError, type UsageDetail, type UsageSample } from './insight.js'
 
 /**
  * Tokens and money, read off the agents' own transcripts.
@@ -218,6 +218,8 @@ export class Ledger {
       } catch (error) {
         if ((error as { name?: string }).name === 'AbortError') throw error
         if (error instanceof InsightBudgetExceededError) { gaps.push(INSIGHT_BYTE_LIMIT_MESSAGE); break }
+        // Read whole and then refused because it changed: what was read still counts.
+        if (error instanceof InsightSourceChangedError) bytes += error.bytesRead
         detailSources.push(failedCorpusSource(target, this.#now(), 'Recorded usage source could not be read.'))
         // Database and filesystem errors often echo agent-owned paths. The
         // source carries the opaque identity; the rendered gap says only what

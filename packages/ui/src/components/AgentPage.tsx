@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   SEAT_PREFERENCE_LIMIT,
+  reaches,
   type AgentEntry,
   type AgentFieldEdit,
   type AuthoringDocument,
@@ -32,7 +33,7 @@ import {
   wordList,
 } from '../lib/agents'
 import { relativeTo, shortPath } from '../lib/paths'
-import { flagWords } from '../lib/ceilings'
+import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
@@ -127,7 +128,10 @@ export const AgentPage = ({
   const [fieldsBusy, setFieldsBusy] = useState(false)
   const [everyTime, setEveryTime] = useState(false)
   const [attachmentsProblem, setAttachmentsProblem] = useState<string | null>(null)
+  const [startingHigher, setStartingHigher] = useState(false)
   const definition = entry.definition
+  // Offered only for an Agent whose own ceiling reaches past the default a seating starts at (#897).
+  const canStartHigher = definition !== null && (definition.ceiling === 'publish' || definition.ceiling === 'merge')
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
   const folder = isAgentFolder(entry)
@@ -258,8 +262,13 @@ export const AgentPage = ({
        * sits alone under the title (review item 7) — into its own Danger
        * section at the foot of the page, below.
        */}
-      {(targets.length > 0 || (definition && snapshot.agentsProject)) && (
+      {(targets.length > 0 || (definition && snapshot.agentsProject) || canStartHigher) && (
         <span className={styles.actions}>
+          {canStartHigher && (
+            <Button variant="outline" onClick={() => setStartingHigher(true)}>
+              Start at a higher ceiling…
+            </Button>
+          )}
           {targets.length > 0 && (
             <Button variant="outline" onClick={() => setCustomizing(true)}>
               Customize…
@@ -418,6 +427,14 @@ export const AgentPage = ({
             />
           </Rows>
         </section>
+      )}
+
+      {startingHigher && definition && (
+        <StartHigher
+          entry={entry}
+          onClose={() => setStartingHigher(false)}
+          onStarted={onLeave}
+        />
       )}
 
       {customizing && definition && (
@@ -1047,6 +1064,98 @@ const RemoveDialog = ({
         />
       )}
       {problem && <Note tone="bad">{problem}</Note>}
+    </ConfirmDialog>
+  )
+}
+
+/**
+ * Starting an Agent above the default ceiling (#897): a person's explicit
+ * choice, up to the Agent's own ceiling and never past it — `edit` stays the
+ * default, and the plain *Start* never asks. Each level says what it means
+ * and how the runtime that would take the seat here keeps to it, in the same
+ * words a seat's ceiling chip uses (`ceilingTitle`): held by its runtime, or
+ * asked, not held. A level this Mac's own setting refuses when its runtime
+ * cannot hold it is shown and not offered, rather than chosen and then
+ * refused. A consent, not a destruction, so it asks in the ordinary tone. An
+ * Agent that declares MCP servers says at `merge` that this is what loads
+ * them (decision 13: an external server needs a Seat that may merge).
+ */
+const StartHigher = ({
+  entry,
+  onClose,
+  onStarted,
+}: {
+  readonly entry: AgentEntry
+  readonly onClose: () => void
+  readonly onStarted: () => void
+}) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [level, setLevel] = useState<'edit' | 'publish' | 'merge'>('edit')
+  const [busy, setBusy] = useState(false)
+  // What this Mac does with a watched seat its runtime cannot hold: read once, before anything is offered.
+  const [unheld, setUnheld] = useState<'seat' | 'refuse' | null>(null)
+  useEffect(() => {
+    let live = true
+    void store.loadUnheldCeilings().then((value) => { if (live) setUnheld(value) })
+    return () => { live = false }
+  }, [store])
+  const definition = entry.definition
+  if (!definition) return null
+  const plan = snapshot.agentPlans.get(entry.id)
+  const winner = plan && plan.winner !== null ? plan.candidates[plan.winner] : undefined
+  const runtime = winner ? snapshot.runtimes.find((one) => String(one.id) === winner.seat.runtime) : undefined
+  const holds = new Map(runtime ? runtimeHolds(runtime).map((one) => [one.level, one]) : [])
+  const levels = (['edit', 'publish', 'merge'] as const).filter((one) => one === 'edit' || reaches(definition.ceiling, one))
+  const servers = definition.mcp.length
+  const refusal = (one: 'edit' | 'publish' | 'merge'): string | null => {
+    if (one === 'edit') return null
+    if (!winner) return 'No seat can be taken here now.'
+    if (!holds.get(one)?.held && unheld !== 'seat') {
+      return `${winner.runtimeName} cannot hold this ceiling, and this Mac does not seat a ceiling its runtime cannot hold.`
+    }
+    return null
+  }
+  const start = (): void => {
+    if (busy) return
+    setBusy(true)
+    // Closed either way: a seating refused here raises its own refusal sheet, with its fixes.
+    void store.startAsAgent(entry.id, level === 'edit' ? {} : { ceiling: level }).then((key) => {
+      onClose()
+      if (key) onStarted()
+    })
+  }
+  return (
+    <ConfirmDialog
+      title={`Start ${definition.name} at which ceiling?`}
+      confirmLabel={`Start at ${ceilingWords(level)}`}
+      tone="default"
+      busy={busy}
+      pending={unheld === null}
+      onConfirm={start}
+      onCancel={onClose}
+    >
+      <Note>
+        {`A conversation as ${definition.name} starts at ${ceilingWords('edit')} unless you choose more here. Its own ceiling is ${ceilingWords(definition.ceiling)}, and nothing starts above that.`}
+      </Note>
+      <Rows role="radiogroup" aria-label="Ceiling to start at">
+        {levels.map((one) => {
+          const refused = refusal(one)
+          const hold = holds.get(one)
+          const loads = one === 'merge' && servers > 0 ? ` Seat at ${ceilingWords('merge')} to load its MCP server${servers === 1 ? '' : 's'}.` : ''
+          const how = one === 'edit' ? ceilingMeaning(one) : ceilingTitle({ level: one, hold: hold?.held ? 'held' : 'asked' }, hold?.how ?? null)
+          return (
+            <RowChoice
+              key={one}
+              title={ceilingWords(one)}
+              desc={<span className="whitespace-normal">{refused ?? `${how}${loads}`}</span>}
+              selected={level === one}
+              disabled={busy || unheld === null || refused !== null}
+              onClick={() => setLevel(one)}
+            />
+          )
+        })}
+      </Rows>
     </ConfirmDialog>
   )
 }
