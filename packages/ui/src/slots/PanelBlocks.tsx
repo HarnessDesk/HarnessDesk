@@ -1,4 +1,5 @@
 import {
+  DisclosureChevron,
   Button,
   Card,
   CodeText,
@@ -152,9 +153,7 @@ const DocumentSection = ({
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        <Text role="meta" className={styles.documentChevron} data-chevron data-open={open ? '' : undefined} aria-hidden="true">
-          <ChevronIcon size={12} />
-        </Text>
+        <DisclosureChevron open={open} size="sm" className={styles.documentChevron} />
         {heading}
       </Button>
       {open && (
@@ -191,9 +190,7 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
               setOpen((value) => !value)
             }}
           >
-            <Text role="meta" data-chevron data-open={open ? '' : undefined} aria-hidden="true">
-              <ChevronIcon size={12} />
-            </Text>
+            <DisclosureChevron open={open} size="sm" />
           </Button>
         ) : (
           <span className={styles.treeSpacer} aria-hidden="true" />

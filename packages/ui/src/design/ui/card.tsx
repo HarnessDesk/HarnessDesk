@@ -3,11 +3,19 @@ import type * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (card), tightened one step for a desktop app's
- * density: py-4/px-4 where upstream says 6. */
+ * density: py-4/px-4 where upstream says 6.
+ *
+ * `plate` is the app's own card rather than the registry's: it reads the
+ * `--hd-card-*` family (tokens.css), so the Studio interface's brand wash and
+ * borderless edge reach it the way they reach a group of settings rows, and
+ * Desk draws its fallback — the card ground on the strong hairline, drawn
+ * inside the box so the card's size does not depend on its edge. It is the
+ * card that stands on a surface of its own kind: the files card under an
+ * answer is the first, and every card in the transcript is meant to be. */
 
 type CardProps<T extends React.ElementType = 'div'> = {
   as?: T
-  variant?: 'default' | 'muted' | 'flush'
+  variant?: 'default' | 'muted' | 'flush' | 'plate'
   radius?: 'sm' | 'default' | 'lg'
   spacing?: 'default' | 'compact'
 } & Omit<React.ComponentPropsWithoutRef<T>, 'as' | 'variant' | 'radius' | 'spacing'>
@@ -31,6 +39,8 @@ const Card = <T extends React.ElementType = 'div'>({
         'bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-4',
         variant === 'muted' && 'border-dashed bg-(--hd-muted)',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
+        variant === 'plate' &&
+          'overflow-hidden rounded-(--hd-card-radius,var(--hd-radius-lg)) border-0 bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]',
         radius === 'sm' && 'rounded-(--hd-radius-sm)',
         radius === 'lg' && 'rounded-(--hd-radius-lg)',
         spacing === 'compact' && 'gap-2 p-3',

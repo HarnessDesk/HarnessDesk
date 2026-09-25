@@ -4,7 +4,7 @@ import type { FileChange, Turn } from '@harnessdesk/protocol'
 
 import { totalsByFile } from '../lib/turn-view'
 import { useSessionKey, useStore } from '../state/context'
-import { Button } from '../design'
+import { Button, Card, ChangeStats, Chip, CodeText, IconTile, Separator, Text } from '../design'
 import { DiffIcon, RedoIcon, UndoIcon } from './Icons'
 import styles from './TurnFiles.module.css'
 
@@ -80,19 +80,17 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   }
 
   return (
-    <div className={`${styles.card} rounded-(--hd-card-radius,var(--hd-radius-lg)) bg-(--hd-card-fill,var(--hd-card)) shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]`} {...(reverted ? { 'data-reverted': '' } : {})}>
-      <div className={`${styles.head} py-3 px-(--hd-space-4) ps-3 border-b border-(--hd-border)`}>
-        <span className={`${styles.glyph} h-9 rounded-(--hd-radius) bg-(--hd-muted) text-(--hd-secondary-foreground)`}>
+    <Card variant="plate" spacing="compact" className={styles.card} {...(reverted ? { 'data-reverted': '' } : {})}>
+      <div className={styles.head}>
+        <IconTile aria-hidden>
           <DiffIcon size={16} />
-        </span>
+        </IconTile>
         <span className={styles.title}>
-          <span className={`${styles.titleLine} text-base font-medium text-(--hd-foreground)`}>
+          <Text role="subject" className={styles.titleLine}>
             {verb} {one ? basename(one.path) : `${files.length} files`}{' '}
-            <span className={`${styles.counts} text-sm tabular-nums`}>
-              <span className="text-(--hd-success)">+{added}</span> <span className="text-(--hd-danger)">−{removed}</span>
-            </span>
-            {reverted && <span className="px-1.5 rounded-lg bg-(--hd-muted) text-xs font-medium text-(--hd-muted-foreground)">put back</span>}
-          </span>
+            <ChangeStats added={added} removed={removed} />
+            {reverted && <Chip tone="neutral" size="sm">put back</Chip>}
+          </Text>
         </span>
         <span className={styles.actions}>
           {turn.status !== 'inProgress' &&
@@ -139,8 +137,9 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           </Button>
         </span>
       </div>
+      {!one && <Separator className={styles.rule} />}
       {!one && (
-        <ul className={`${styles.files} py-1`}>
+        <ul className={styles.files}>
           {shown.map((file) => {
             const relative = relativeTo(file.path, root)
             const name = basename(relative)
@@ -153,16 +152,13 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
                   onClick={() => store.openFile(file.path)}
                   title={`Open ${relative}`}
                 >
-                  <span className={`${styles.path} font-(family-name:--hd-font-code) text-sm`}>
-                    {dir && <span className="text-(--hd-muted-foreground)">{dir}</span>}
+                  <CodeText size="inherit" className={styles.path}>
+                    {dir && <Text role="muted" ink="muted">{dir}</Text>}
                     {name}
-                    {file.kind === 'delete' && <span className="ms-2 text-xs text-(--hd-muted-foreground)">deleted</span>}
-                    {file.kind === 'add' && <span className="ms-2 text-xs text-(--hd-muted-foreground)">new</span>}
-                  </span>
-                  <span className={`${styles.counts} text-sm tabular-nums`}>
-                    <span className="text-(--hd-success)">+{file.added}</span>{' '}
-                    <span className="text-(--hd-danger)">−{file.removed}</span>
-                  </span>
+                    {file.kind === 'delete' && <Text role="meta" className={styles.kind}>deleted</Text>}
+                    {file.kind === 'add' && <Text role="meta" className={styles.kind}>new</Text>}
+                  </CodeText>
+                  <ChangeStats added={file.added} removed={file.removed} />
                 </Button>
               </li>
             )
@@ -176,6 +172,6 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           )}
         </ul>
       )}
-    </div>
+    </Card>
   )
 }
