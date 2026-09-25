@@ -56,7 +56,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
-  badge: 'packages/ui/src/components/Channel.tsx',
+  badge: 'packages/ui/src/components/GitPane.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
   bar: 'packages/ui/src/components/Sidebar.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
@@ -408,7 +408,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 export const CANONICAL_UI_MODULES = [
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
-  ['avatar', 'face', 'Identity image primitive'],
+  ['avatar', 'adopted', 'Identity image primitive'],
   ['attachment', 'adopted', 'File attachment states'],
   ['avatar-stack', 'adopted', 'Overlapping identity group'],
   ['badge', 'badge', 'Compact categorical state'],
