@@ -1,10 +1,10 @@
 import {
+  DisclosureChevron,
   Separator,
-  TurnWorkChevron,
+  Text,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
-  TurnWorkReceipt,
 } from '../design'
 import { useEffect, useState } from 'react'
 
@@ -103,14 +103,14 @@ export const TurnWork = ({
         {/* The receipt stands in for the rows, so it shows when they do not:
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}
-        {!open && line.receipt.length > 0 && <TurnWorkReceipt className={styles.headReceipt}>· {line.receipt}</TurnWorkReceipt>}
+        {!open && line.receipt.length > 0 && <Text role="muted" ink="muted" className={styles.headReceipt}>· {line.receipt}</Text>}
         {!open && line.declined > 0 && (
-          <TurnWorkReceipt tone="warning" className={styles.declinedReceipt}>· {line.declined} declined</TurnWorkReceipt>
+          <Text role="muted" tone="warning" className={styles.declinedReceipt}>· {line.declined} declined</Text>
         )}
         {!open && line.failed > 0 && (
-          <TurnWorkReceipt tone="danger" className={styles.failedReceipt}>· {line.failed} failed</TurnWorkReceipt>
+          <Text role="muted" tone="danger" className={styles.failedReceipt}>· {line.failed} failed</Text>
         )}
-        <TurnWorkChevron open={open} trouble={line.trouble} className={styles.chevron} />
+        <DisclosureChevron open={open} tone={line.trouble ? 'warning' : 'neutral'} />
         <Separator render={<span />} className={styles.rule} />
       </TurnWorkHeader>
       {open && (

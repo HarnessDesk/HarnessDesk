@@ -18,6 +18,7 @@ import type {
   FlowPolicy,
   FlowPolicyRule,
   FlowRoundState,
+  FlowStartTarget,
   FlowSeat,
   FlowThen,
   GoalCreateInput,
@@ -65,7 +66,10 @@ export type StoredFlowExecution = FlowExecution & {
   vars: Readonly<Record<string, string>>
   startedAt: number
   updatedAt: number
-  authorization: { sourceDigest: string; commandDigest: string; approvedAt: number }
+  /** `start: 'front-door'` marks a start whose Seats must hold their ceilings; its run must then carry `requireHeld`. */
+  authorization: { sourceDigest: string; commandDigest: string; approvedAt: number; start?: 'front-door' }
+  /** The empty Goal a front-door start reserved, journaled with its start before the reservation is written. */
+  reserving?: { readonly goal: string; readonly revision: number }
   operationTimes: Readonly<Record<string, { preparedAt: number; startedAt: number | null; finishedAt: number | null }>>
   /** Each check round's plan, by round number, written when the round's cards were: see `CheckPlan`. */
   checkPlans?: Readonly<Record<string, CheckPlan>>
@@ -111,6 +115,12 @@ export interface FlowStartRequest {
   readonly compiled: CompiledFlow
   readonly vars?: Readonly<Record<string, string>>
   readonly authorization: StoredFlowExecution['authorization']
+  /** From a strict preview token only: every Seat this run opens must hold its ceiling. */
+  readonly requireHeld?: true
+  /** From a strict preview token only: the empty Goal this run lands on, at the revision the preview saw. */
+  readonly goal?: { readonly id: string; readonly revision: number }
+  /** From a strict preview token only: what the run works on, as the host resolved it. A head pins every Seat to it. */
+  readonly target?: FlowStartTarget
 }
 
 /**
@@ -143,6 +153,11 @@ export class TriggerRefusal extends Error {
 /** How long a released trigger Seat's interrupted turn is waited for before its release is tried anyway. */
 const RELEASE_WAIT_MS = 10_000
 export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
+/** Why a Seat of a run pinned to one commit was given no work: its checkout is somewhere else. */
+export const NOT_AT_TARGET = (card: number): string =>
+  `The Seat for card #${card} did not open at the commit this run reviews, so it was given no work. Start the review again.`
+/** Why a review of a branch, a pull request or a diff does not land on an existing Goal. */
+export const REVIEW_OWN_GOAL = 'A review of a branch, a pull request or a diff starts a Goal of its own. Start it from the project instead of this Goal.'
 export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
 /** What a trigger's run says when what it would run no longer matches what was armed. */
 export const TRIGGER_CLOSURE_CHANGED = 'What this trigger runs changed after it fired, so nothing was started. Arm it again, then start this work.'
@@ -160,7 +175,21 @@ export interface FlowExecutionPort {
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
-  createGoal(input: GoalCreateInput): Promise<{ readonly id: string }>
+  /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
+  createGoal(input: GoalCreateInput & { readonly at?: string }): Promise<{ readonly id: string }>
+  /**
+   * Reserves an existing empty Goal for this run, in the Goal queue, against
+   * the revision its preview saw: open, same project, no card, no Seat, ready
+   * to dispatch and not reserved already. Throws a sentence otherwise. Found
+   * again by `goalsOf` after a restart, like a Goal this run made.
+   */
+  reserveGoal?(input: { readonly goal: string; readonly revision: number; readonly run: string; readonly operation: string; readonly root: string }): Promise<void>
+  /**
+   * Lets go of this run's reservation of an existing Goal — only while it is
+   * still this run's, and a no-op otherwise — so a run that ended before its
+   * first round does not keep the Goal from every later start.
+   */
+  releaseGoal?(input: { readonly goal: string; readonly run: string; readonly operation: string }): Promise<void>
   /** Goals whose origin names this run: how an interrupted create is found instead of repeated. */
   goalsOf(run: string): readonly string[]
   seatOf(id: string): SeatRecord | null
@@ -317,6 +346,8 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   reason: run.reason,
   ...(run.findings ? { findings: run.findings } : {}),
   ...(run.intake ? { intake: run.intake } : {}),
+  ...(run.requireHeld ? { requireHeld: true as const } : {}),
+  ...(run.target ? { target: run.target } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -784,7 +815,17 @@ export class FlowExecutions {
    * conversations holding them. Only runs with findings bookkeeping.
    */
   blindRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
-    const out: { run: string; round: number; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
+    // A role that says `blind: false` lets its siblings read each other's finished work; its posting still waits (`embargoedRounds`).
+    return this.embargoedRounds(goal).filter((round) => round.blind)
+  }
+
+  /**
+   * Every open review round with several reviewers, blind or sighted: none of
+   * them may post to a forge, and the round's batch is released only once it
+   * closes. `blind` is the role's own policy — true unless it says false.
+   */
+  embargoedRounds(goal: string): readonly { readonly run: string; readonly round: number; readonly blind: boolean; readonly cards: readonly number[]; readonly holders: readonly { readonly card: number; readonly runtime: string; readonly sessionId: string }[] }[] {
+    const out: { run: string; round: number; blind: boolean; cards: readonly number[]; holders: { card: number; runtime: string; sessionId: string }[] }[] = []
     for (const run of this.#runs.values()) {
       if (run.goal !== goal || !run.findings || run.document.format !== 'agents' || (run.state !== 'running' && run.state !== 'stalled')) continue
       for (const round of run.rounds) {
@@ -795,7 +836,7 @@ export class FlowExecutions {
           const seat = this.#seatForCard(run, card).seat
           return seat ? [{ card, runtime: seat.session.runtime, sessionId: seat.session.sessionId }] : []
         })
-        out.push({ run: run.id, round: round.n, cards: round.cards, holders })
+        out.push({ run: run.id, round: round.n, blind: role.blind !== false, cards: round.cards, holders })
       }
     }
     return out
@@ -1294,21 +1335,50 @@ export class FlowExecutions {
     const policy = request.compiled.document.flow
     const vars: Record<string, string> = {}
     for (const input of policy.inputs) vars[input.id] = request.vars?.[input.id] ?? input.default ?? ''
+    if ((request.requireHeld === true) !== (request.authorization.start === 'front-door')) {
+      throw new Error('This start’s held-seat policy does not match where it came from. Review the dry run again before starting.')
+    }
+    if (request.goal && !request.requireHeld) throw new Error('Only a front-door start reuses an existing Goal.')
+    if (request.target && !request.requireHeld) throw new Error('Only a front-door start names what it works on.')
+    // A Goal made by a person was never pinned to a commit, so a review of one starts a Goal of its own.
+    if (request.goal && request.target?.head) throw new Error(REVIEW_OWN_GOAL)
+    if (request.goal && !this.#port.reserveGoal) throw new Error('This desk cannot reuse a Goal for a run.')
     const id = `flow-${this.#now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const at = this.#now()
-    // The start is journaled before the Goal exists, so a restart finds the Goal by this run rather than making another.
+    // The start is journaled before the Goal exists — or before an empty one is reserved — so a restart finds the Goal by this run rather than making or reserving another.
     let run = await this.#put(this.#operation({
       version: 2, id, goal: '', document: request.compiled.document, state: 'running', rounds: [], operations: [],
       legacyRun: null, reason: null, compiled: request.compiled, source: request.source, sourcePath: request.sourcePath,
       vars, startedAt: at, updatedAt: at, authorization: request.authorization, operationTimes: {},
       // Written before the first dispatch, and frozen for the life of the run.
       findings: startingFindings(policy),
+      // Frozen with it: every Seat this run ever opens holds its ceiling, later and recovered rounds too.
+      ...(request.requireHeld ? { requireHeld: true as const } : {}),
+      ...(request.goal ? { reserving: { goal: request.goal.id, revision: request.goal.revision } } : {}),
+      ...(request.target ? { target: request.target } : {}),
     }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
-    const goal = await this.#port.createGoal({
-      root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
-      origin: { kind: 'flow', run: id },
-    })
-    run = await this.#put(this.#operation({ ...run, goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+    let goal: { readonly id: string }
+    if (request.goal) {
+      try {
+        await this.#port.reserveGoal!({ goal: request.goal.id, revision: request.goal.revision, run: id, operation: 'start', root: request.root })
+      } catch (error) {
+        // Nothing outside the desk happened: no Goal, no Seat, no lane. The refusal stands as the run's reason.
+        const reason = error instanceof Error ? error.message : String(error)
+        await this.#put(this.#operation({ ...this.#get(id), state: 'stopped', reason }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        // A reservation that landed before the refusal was said is this run's to let go: the run never starts.
+        await this.#letGo(id, request.goal.id)
+        throw error
+      }
+      goal = { id: request.goal.id }
+    } else {
+      goal = await this.#port.createGoal({
+        root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
+        origin: { kind: 'flow', run: id },
+        // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
+        ...(request.target?.head ? { at: request.target.head } : {}),
+      })
+    }
+    run = await this.#put(this.#operation({ ...this.#get(id), goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
     await this.#queue.within(id, () => this.#afterStart(id))
     return projectExecution(this.#get(id))
   }
@@ -1810,6 +1880,8 @@ export class FlowExecutions {
           goal: run.goal, agent: binding.agent.id,
           ...(candidates.length ? { seats: candidates } : {}),
           grant: { kind: 'ceiling', level: binding.grant }, card, isolate,
+          // The run's own frozen policy, read from its record every time — never the request that started it.
+          ...(run.requireHeld === true ? { requireHeld: true as const } : {}),
         })
       } catch (error) {
         // The opening failed and said so: nothing is left open for this slot.
@@ -1827,6 +1899,11 @@ export class FlowExecutions {
         const lane = this.#port.laneOf(record)
         if (!lane || lane.cwd !== record.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) return fail(LANE_REFUSED)
       }
+      /* A run that works on one commit hands work only to a Seat whose own
+         checkout is at that commit, read fresh from git — never to one that
+         opened on whatever the project had checked out. */
+      const pinned = this.#get(id).target?.head ?? null
+      if (pinned !== null && (await this.#port.headOf(record.checkout.cwd, null)).at !== pinned) return fail(NOT_AT_TARGET(card))
       try {
         this.#team.setRole(run.goal, record.session.runtime, record.session.sessionId, round.role)
       } catch (error) {
@@ -2189,12 +2266,23 @@ export class FlowExecutions {
     const run = this.#get(id)
     if (run.state === 'settled' || run.state === 'stopped') return
     await this.#put({ ...run, state, reason })
+    // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
+    if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Kept Seats are released once. The Goal stays open for its person to wrap.
     const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
       .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
     // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
     await this.#release(run.goal, open, run.intake !== undefined)
     this.#team.nudgeRoom(run.goal)
+  }
+
+  /** Best effort, and said when it fails: the reservation stays, visible on the Goal, for a person. */
+  async #letGo(id: string, goal: string): Promise<void> {
+    try {
+      await this.#port.releaseGoal?.({ goal, run: id, operation: 'start' })
+    } catch (error) {
+      this.#port.log('a flow run could not let go of the Goal it reserved', { run: id, goal, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   // ----------------------------------------------------------------- stop

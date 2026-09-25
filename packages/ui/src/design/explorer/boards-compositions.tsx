@@ -187,7 +187,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
   </div>
 )
 
-const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'inline', 'composer'] as const
+const TEXTAREA_CATALOG_VARIANTS = ['default', 'editor', 'code', 'inline', 'composer'] as const
 const TEXTAREA_CATALOG_SIZES = ['default', 'compact', 'composer'] as const
 const TEXTAREA_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const ATTACHMENT_CATALOG_VARIANTS = ['default'] as const

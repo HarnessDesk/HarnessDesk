@@ -60,6 +60,11 @@ it('keeps a failed turn and its failed step closed until each is opened', () => 
   const fold = container.querySelector<HTMLButtonElement>('[data-testid="turn-work"] > button')
   expect(fold?.getAttribute('aria-expanded')).toBe('false')
   expect(fold?.textContent).toContain('· 1 failed')
+  // A turn in trouble says so in the fold's label and its chevron, while closed.
+  expect(container.querySelector<HTMLElement>('[data-slot="turn-work-header-label"]')?.dataset['state']).toBe('trouble')
+  const chevron = container.querySelector('[data-slot="disclosure-chevron"]')
+  expect(chevron?.getAttribute('data-tone')).toBe('warning')
+  expect(chevron?.getAttribute('class')).toContain('text-(--hd-warning-ink)')
   expect(container.textContent).not.toContain('one suite failed')
 
   act(() => fold?.click())
@@ -113,4 +118,48 @@ it('keeps an expanded step surface-free in the light work register', () => {
   expect(row?.className).not.toContain('rounded-(--hd-radius)')
   expect(row?.className).not.toContain('bg-(--hd-card)')
   expect(row?.className).not.toContain('shadow-(--hd-hairline)')
+})
+
+it('says a running turn is running in its ink, its live line, and its fold', () => {
+  const command = {
+    id: 'command-2',
+    type: 'command',
+    command: 'cat src/c.ts',
+    cwd: '/work',
+    origin: 'agent',
+    actions: [{ type: 'read', command: 'cat src/c.ts', name: 'c.ts', path: 'src/c.ts' }],
+    status: 'inProgress',
+    output: '',
+  } as unknown as AgentItem
+  const running: Turn = { id: turnId('turn-3'), items: [command], status: 'inProgress', startedAt: Date.now() - 3000, diff: null } as Turn
+  const done: Turn = { ...running, id: turnId('turn-4'), status: 'completed', durationMs: 3000, items: [{ ...command, status: 'completed' } as unknown as AgentItem] }
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  const label = () => container.querySelector<HTMLElement>('[data-slot="turn-work-header-label"]')
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnWork turn={running} work={running.items} root="/work" />
+      </StoreProvider>,
+    )
+  })
+  expect(label()?.dataset['state']).toBe('running')
+  expect(label()?.className).toContain('text-(--hd-secondary-foreground)')
+  expect(container.querySelector('[data-testid="turn-work"]')?.hasAttribute('data-running')).toBe(true)
+  expect(container.querySelector('[data-slot="turn-work-live"]')?.getAttribute('role')).toBe('status')
+  // Open while it runs, and the chevron says so, in the quiet ink: nothing is wrong.
+  expect(container.querySelector('[data-slot="disclosure-chevron"]')?.hasAttribute('data-open')).toBe(true)
+  expect(container.querySelector('[data-slot="disclosure-chevron"]')?.getAttribute('data-tone')).toBe('neutral')
+
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <TurnWork turn={done} work={done.items} root="/work" />
+      </StoreProvider>,
+    )
+  })
+  expect(label()?.dataset['state']).toBe('done')
+  expect(label()?.className).not.toContain('text-(')
+  expect(container.querySelector('[data-slot="turn-work-live"]')).toBeNull()
 })

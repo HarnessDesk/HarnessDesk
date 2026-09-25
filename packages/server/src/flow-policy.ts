@@ -17,7 +17,7 @@ import {
   type FlowThen,
 } from '@harnessdesk/protocol'
 
-import { asList, asRecord, asText, parseFlow, parseSeatList, problem, seatSpec } from './flow.js'
+import { asList, asRecord, asText, parseFlow, parseSeatList, problem, seatSpec, seatWritesCompactly } from './flow.js'
 import { parseYaml, YamlError } from './yaml.js'
 
 const SOURCE_LIMIT = 256 * 1024
@@ -34,7 +34,7 @@ const ROOT_FIELDS = new Set(['version', 'name', 'description', 'inputs', 'roles'
 const BUDGET_FIELDS = new Set(['rounds', 'without-progress'])
 /** The most rounds a budget may name, either key. */
 const BUDGET_LIMIT = 100
-const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf'])
+const AGENT_FIELDS = new Set(['kind', 'uses', 'seats', 'count', 'isolate', 'grant', 'independentOf', 'blind'])
 const CHECK_FIELDS = new Set(['kind', 'check', 'run', 'exits', 'otherwise', 'timeout', 'cwd'])
 const CHECK_VALUE_FIELDS = new Set(['run', 'exits', 'otherwise', 'timeout', 'cwd'])
 const PERSON_FIELDS = new Set(['kind', 'outcomes'])
@@ -263,7 +263,10 @@ const parseAgents = (root: Record<string, unknown>, problems: FlowProblem[]): Fl
       const grant = asText(record['grant'])?.trim() || 'read'
       if (!isCeilingLevel(grant)) problems.push(problem('error', `${at}.grant`, 'grant is read, edit, publish or merge'))
       const independentOf = words(record['independentOf'], `${at}.independentOf`, problems)
-      roles.push({ id, kind: 'agent', uses, seats: parsed.seats, ...(count === undefined ? {} : { count }), isolate: record['isolate'] === true, grant: isCeilingLevel(grant) ? grant : 'read', independentOf })
+      // Blind unless the file says otherwise; anything but true or false is refused rather than read as either.
+      const blind = record['blind']
+      if (blind !== undefined && typeof blind !== 'boolean') problems.push(problem('error', `${at}.blind`, 'blind is true or false'))
+      roles.push({ id, kind: 'agent', uses, seats: parsed.seats, ...(count === undefined ? {} : { count }), isolate: record['isolate'] === true, grant: isCeilingLevel(grant) ? grant : 'read', independentOf, ...(typeof blind === 'boolean' ? { blind } : {}) })
     } else if (kind === 'check') {
       unknownKeys(record, CHECK_FIELDS, at, problems)
       const check = readCheck(record, at, problems)
@@ -426,8 +429,11 @@ export const compileFlowPolicy = (document: FlowDocument, agents: readonly Agent
 }
 
 const scalar = (value: string): string => JSON.stringify(value)
-const seatValue = (seat: FlowSeat): string => scalar(seatSpec(seat))
-const thenValue = (then: FlowThen): string => `{ role: ${scalar(then.role)}, title: ${scalar(then.title)}${then.detail ? `, detail: ${scalar(then.detail)}` : ''} }`
+/** The compact spec where it reads back as the same seat, the long form where the compact grammar would split a name. */
+const seatValue = (seat: FlowSeat): string => seatWritesCompactly(seat)
+  ? scalar(seatSpec(seat))
+  : `{ ${[`runtime: ${scalar(seat.runtime)}`, ...(seat.model ? [`model: ${scalar(seat.model)}`] : []), ...(seat.effort ? [`effort: ${scalar(seat.effort)}`] : []), ...(seat.thinking ? ['thinking: true'] : [])].join(', ')} }`
+const thenValue = (then: FlowThen): string => `{ role: ${scalar(then.role)}, title: ${scalar(then.title)}${then.detail ? `, detail: ${scalar(then.detail)}` : ''}${then.files?.length ? `, files: [${then.files.map(scalar).join(', ')}]` : ''} }`
 
 /** A deliberately normalized serializer. The conversion preview shows formatting loss before it writes. */
 export const serializeFlowPolicy = (policy: FlowPolicy): string => {
@@ -450,13 +456,17 @@ export const serializeFlowPolicy = (policy: FlowPolicy): string => {
       if (role.isolate) lines.push('    isolate: true')
       lines.push(`    grant: ${role.grant}`)
       if (role.independentOf.length) lines.push(`    independentOf: [${role.independentOf.map(scalar).join(', ')}]`)
+      if (role.blind !== undefined) lines.push(`    blind: ${role.blind}`)
     } else if (role.kind === 'person') lines.push(`    outcomes: [${role.outcomes.map(scalar).join(', ')}]`)
     else {
       lines.push(`    run: ${scalar(role.check.run)}`, `    exits: { ${Object.entries(role.check.exits).map(([code, outcome]) => `${code}: ${scalar(outcome)}`).join(', ')} }`, `    otherwise: ${scalar(role.check.otherwise)}`, `    timeout: ${role.check.timeout}`)
       if (role.check.cwd) lines.push(`    cwd: ${scalar(role.check.cwd)}`)
     }
   }
-  lines.push(`seed: ${thenValue(policy.seed)}`, 'rules:')
+  // An empty list still has to read back as one: a bare `rules:` key is a
+  // null scalar to the parser, not `[]`, and "rules is a list" would refuse
+  // exactly the shape a fresh, ruleless draft is.
+  lines.push(`seed: ${thenValue(policy.seed)}`, policy.rules.length === 0 ? 'rules: []' : 'rules:')
   for (const rule of policy.rules) {
     lines.push(`  - id: ${scalar(rule.id)}`, `    on: ${scalar(rule.on)}`)
     if (rule.when) {

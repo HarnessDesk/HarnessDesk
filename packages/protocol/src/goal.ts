@@ -58,6 +58,12 @@ export interface Goal {
    * local-only without one. A person's preference, never a Seat's.
    */
   readonly findingPublication?: boolean
+  /**
+   * The commit every Seat of this Goal works at, each in a checkout of its
+   * own cut from it: set by the host alone, for a front-door review of a
+   * branch, a pull request or a diff. Absent, Seats work where the Goal does.
+   */
+  readonly at?: Sha
 }
 
 export interface GoalCitation {
@@ -151,6 +157,12 @@ export interface GoalView {
   readonly board: TeamState
   readonly receipt: GoalReceipt | null
   readonly problem: string | null
+  /**
+   * The front-door run this existing empty Goal was reserved for, while the
+   * reservation holds: how a window finds that run's pane after a reload,
+   * since the Goal's own origin still names the person who made it.
+   */
+  readonly reservation?: { readonly run: string }
 }
 
 export interface GoalCreateInput {
@@ -173,6 +185,11 @@ export interface GoalSeatRequest {
   grant?: SeatGrant
   card?: number
   isolate?: boolean
+  /**
+   * Host-only: this Seat must hold its ceiling, read back, before it is kept.
+   * It only ever narrows seating; no wire request carries it.
+   */
+  requireHeld?: true
 }
 
 export interface WrapChoices {

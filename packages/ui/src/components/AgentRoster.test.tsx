@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId, type AgentEntry, type RuntimeInfo, type SeatPlan } from '@harnessdesk/protocol'
 
@@ -106,7 +106,7 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-const mount = (over: Partial<AppSnapshot> = {}): AppStore => {
+const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknown> = {}): AppStore => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -119,7 +119,26 @@ const mount = (over: Partial<AppSnapshot> = {}): AppStore => {
     agentPlans: PLANS,
     ...over,
   } as unknown as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    // The overview's unfinished-saves banner: neutral (none) unless a test overrides it.
+    authoringPending: vi.fn(async () => []),
+    resumeAuthoringSave: vi.fn(async () => ({ token: null, edits: [], issues: [{ at: 'save', text: 'not wired in this test', fix: '' }], resuming: true })),
+    discardAuthoringSave: vi.fn(async () => []),
+    applyAuthoringSave: vi.fn(async () => ({ state: 'refused', written: [], message: 'not wired in this test' })),
+    loadAgents: vi.fn(async () => {}),
+    readAuthoring: vi.fn(async (target: { readonly id?: string }) => ({
+      target,
+      source: '---\nname: x\n---\nBrief.\n',
+      digest: `digest-${target.id ?? 'x'}`,
+      exists: true,
+      displayPath: 'AGENT.md',
+      writable: true,
+      issues: [],
+    })),
+    ...storeOver,
+  } as unknown as AppStore
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -213,7 +232,7 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
       said('tidy', 'Tidy', 'user', 'ceiling'),
     ],
   })
-  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission:, so it reads as edit.')
+  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission, so it reads as edit.')
   expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
   expect(sectionText('Yours')).toContain('Tidy does the work.')
   expect(sectionText('Yours')).not.toContain('Tidy does the work. Written')
@@ -222,4 +241,68 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
   expect(chip?.getAttribute('data-hold')).toBe('asked')
   expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
   expect(sectionText('Yours')).toContain('Edit')
+})
+
+it('an unfinished save from a restart offers Resume or Discard, never resuming on its own', async () => {
+  const store = mount({}, {
+    authoringPending: vi.fn(async () => [
+      { id: 'save-1', scope: 'user', root: null, files: ['agents/scout/AGENT.md'], written: [], message: 'This save stopped before any file was known to be written. Resume to check each file and write what is missing.' },
+    ]),
+    resumeAuthoringSave: vi.fn(async () => ({ token: 'tok-resume', edits: [{ path: 'agents/scout/AGENT.md', before: 'a', after: 'b' }], issues: [], resuming: true })),
+  })
+  await act(async () => {})
+
+  expect(sectionText('Unfinished saves')).toContain('This save stopped before any file was known to be written')
+  expect(store.resumeAuthoringSave).not.toHaveBeenCalled()
+  expect(store.applyAuthoringSave).not.toHaveBeenCalled()
+
+  const resumeButton = [...container.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Resume')
+  await act(async () => {
+    resumeButton?.click()
+  })
+
+  expect(store.resumeAuthoringSave).toHaveBeenCalledWith('save-1')
+  expect(store.applyAuthoringSave).toHaveBeenCalledWith('tok-resume')
+})
+
+it('discarding an unfinished save drops its record and writes nothing', async () => {
+  const store = mount({}, {
+    authoringPending: vi.fn(async () => [
+      { id: 'save-2', scope: 'project', root: '/w/storefront', files: ['agents/code-reviewer/AGENT.md'], written: [], message: 'An earlier save did not finish.' },
+    ]),
+  })
+  await act(async () => {})
+
+  const discardButton = [...container.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Discard')
+  await act(async () => {
+    discardButton?.click()
+  })
+
+  expect(store.discardAuthoringSave).toHaveBeenCalledWith('save-2')
+  expect(store.resumeAuthoringSave).not.toHaveBeenCalled()
+  expect(store.applyAuthoringSave).not.toHaveBeenCalled()
+})
+
+it('an unfinished save is titled by where it is, not by its own sentence, names the project, and shows no raw file path', async () => {
+  mount({}, {
+    authoringPending: vi.fn(async () => [
+      { id: 'save-1', scope: 'user', root: null, files: ['agents/scout/AGENT.md'], written: [], message: 'This save stopped before any file was known to be written. Resume to check each file and write what is missing.' },
+      { id: 'save-2', scope: 'project', root: '/w/storefront', files: ['agents/code-reviewer/AGENT.md'], written: [], message: 'An earlier save did not finish.' },
+    ]),
+  })
+  await act(async () => {})
+
+  const titles = [...container.querySelectorAll('section[aria-label="Unfinished saves"] [class*="_rowTitle_"]')]
+    .map((one) => one.textContent?.trim())
+
+  // A title is a short place, never the sentence that belongs on the line
+  // under it, and a project-scoped save names the project by name.
+  expect(titles).not.toContain('This save stopped before any file was known to be written. Resume to check each file and write what is missing.')
+  expect(titles).not.toContain('An earlier save did not finish.')
+  expect(titles.some((title) => title?.includes('storefront'))).toBe(true)
+
+  // The sentence itself is still readable, on the second line — never the raw path instead.
+  expect(sectionText('Unfinished saves')).toContain('This save stopped before any file was known to be written')
+  expect(sectionText('Unfinished saves')).not.toContain('agents/scout/AGENT.md')
+  expect(sectionText('Unfinished saves')).not.toContain('agents/code-reviewer/AGENT.md')
 })

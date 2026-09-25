@@ -7,6 +7,42 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Starting a team is two clicks, from files you can edit or write yourself** —
+  New session gains **Start with a team**, alongside the solo and room
+  choices: a catalogue of shapes — Fan out, Review, Compare, Relay,
+  Investigate, Align, and a seventh, unordered custom starting point — each an
+  ordinary file, none of them a special case in the app itself. Choosing one
+  reads its populated dry run before anything opens: every Seat it would
+  take, every command verbatim, the rules a round moves through, and whether
+  independence from the author is known. Every Seat a front-door run opens
+  must actually hold its ceiling — a runtime that can only be asked shows an
+  honest refusal and its fix rather than starting under a weaker policy, so a
+  fresh install with one ready runtime still gets exactly what it asked for.
+  The same door opens from a branch's own menu, a pull request's row, ⌘K, and
+  an empty Goal's board, prefilled with what that place already knows. A
+  **Review…** of a branch, a pull request or a diff runs three read-only
+  specialists at the commit it resolved — each in a checkout of its own cut
+  from that commit, whatever you have checked out — and never offers a shape
+  that starts by editing.
+  **Your own shape…**, the catalogue's last row, is an ordered editor for
+  Agents, checks and person steps and the rules between them — no YAML to
+  write — with the exact file shown and updated as you go, a graph view of
+  the same steps and rules for a shape that branches or loops, and a save to
+  the project or to yourself, previewed first; starting needs no save at all.
+  **Every time…**, on a shape or on an Agent's own page, composes a disarmed
+  trigger — a pull request, an issue or a schedule — and saves it to the
+  working tree; it is never itself consent; the existing Triggers preview and
+  an explicit Arm, bound to what is actually committed, are what let it run
+  unattended.
+- **The Agent page is now an editor, and Agents can be made from nothing** —
+  a name, description, answers and produces are each edited in place, with
+  the exact line the change would write shown before Save; a hand-written
+  comment and the rest of the file survive untouched, and a value that spans
+  lines refuses with a route to the file rather than being flattened. **New
+  Agent** starts from a shipped Agent or from a blank draft — nothing is
+  written while typing, and only an explicit Create or Save writes anything.
+  An interrupted save is listed with Resume or Discard, never resumed on its
+  own.
 - **A project can open bounded work on its own, and you decide exactly what that means before it ever runs** —
   a project's own `.harnessdesk/triggers.yml` declares what opens work: a
   pull request, an issue, or a schedule. A project's page now has a Triggers

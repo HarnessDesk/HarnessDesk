@@ -110,6 +110,19 @@ const mount = (focus: string | null = null) => {
       support: [],
     })),
     readAgentNotes: vi.fn(async () => ({ path: '/NOTES.md', text: null, digest: null, writable: true, problem: null })),
+    // The overview's unfinished-saves banner and the Agent page's editable
+    // fields: neutral defaults, so a test with no opinion about either still
+    // settles rather than throwing "not a function".
+    authoringPending: vi.fn(async () => []),
+    readAuthoring: vi.fn(async (target: { readonly id?: string }) => ({
+      target,
+      source: '---\nname: x\n---\nBrief.\n',
+      digest: `digest-${target.id ?? 'x'}`,
+      exists: true,
+      displayPath: 'AGENT.md',
+      writable: true,
+      issues: [],
+    })),
   } as unknown as AppStore
   const onClose = vi.fn()
   const onFocus = vi.fn()

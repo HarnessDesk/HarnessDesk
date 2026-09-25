@@ -23,12 +23,14 @@ it('keeps transcript animations bound to shared global keyframes', () => {
 })
 
 it('keeps the light work register compact and its grouped body visibly nested', () => {
-  expect(itemsTsx).toContain("register === 'light' ? 'py-(--hd-space-px)' : 'py-(--hd-space-1)'")
-  // The step group composes the same rhythm and body the design system owns
-  // (`TurnItem`, `StepFoldBody`), whose drawing is pinned in its own test.
+  // Items and the step group keep one rhythm: both compose `TurnItem`.
+  expect(itemsTsx).toContain('<TurnItem register={register} className={styles.item}>')
+  // The step group composes the same rhythm the design system owns
+  // (`TurnItem`, whose drawing is pinned in its own test), and its body only
+  // places the items: it reaches into none of them.
   expect(stepGroupTsx).toContain('<TurnItem register={register}')
-  expect(stepGroupTsx).toContain('<StepFoldBody register={register}>')
   expect(stepGroupTsx).not.toContain('py-(--hd-space')
+  expect(stepGroupTsx).not.toContain('[&>div]')
   expect(stepGroupTsx).not.toContain('styles.groupBody')
   expect(itemsCss).not.toMatch(/\.groupBody\s*\{\s*\}/)
 })

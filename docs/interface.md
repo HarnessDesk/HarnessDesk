@@ -188,8 +188,9 @@ so the composer, a filter box and an empty desk all still navigate.
 Three slots at the top, because that space is the most valuable in the app and
 only what a person reaches for *while working* earns a place in it:
 
-- **New session**: clicking the button opens a choice between a solo session and
-  a collaborative room for several agents. The solo choice lists Agents first,
+- **New session**: clicking the button opens a choice between a solo session,
+  a collaborative room, and **Start with a team** — the front door, below.
+  The solo choice lists Agents first,
   each with the mark of the runtime it would sit on here — one that cannot be
   seated here stays, greyed with its reason — and then the runtime's own
   session; ⌘N goes straight to a session. The small branch button at the row's
@@ -776,8 +777,11 @@ row saying its origin in words, never a wire id. An old-format project file
 carries **Update…**; a shipped or your-Mac file carries **Customize…**;
 either opens a dialog showing the whole before/after diff of every file it
 would write, through the same diff viewer an Agent's own ceiling update
-uses, before one confirming write. A broken entry stays listed, disabled,
-with its own parser refusal on screen — never hidden.
+uses, before one confirming write. A project's own current-format file
+additionally carries **Edit shape…**, opening the same ordered editor and
+graph the front door's *Your own shape* uses, seeded from that file. A broken
+entry stays listed, disabled, with its own parser refusal on screen — never
+hidden.
 
 **New session → A flow** shows the same dry run FlowStart always has: every
 seat a role would open, every candidate this machine tried and why each was
@@ -799,3 +803,31 @@ a person, Interrupted, Stopped or Settled — and an interrupted check's own
 (showing the original command, unchanged) before spending anything a second
 time. Nothing here names a runtime by brand; every word comes from what the
 Agent, seat and evidence actually are.
+
+### The front door
+
+**Start with a team**, beside **New session**'s solo choice, opens the same
+catalogue Flows lists — the project's own, then yours, then what ships,
+sorted by a shape's own declared `layout.frontDoor.order` when it has one —
+and reads the identical strict dry run before **Start**: every Seat must
+*hold* its ceiling here, so a runtime that can only be asked shows its exact
+refusal and fix rather than starting under a weaker policy. Git's branch
+menu, a pull request's own row, ⌘K and an empty Goal's board each open it
+the same way, prefilled with what that place already knows — a branch, a
+pull request, the project itself.
+
+**Your own shape…**, the catalogue's last row, opens an ordered editor of
+the chosen shape (or a blank one, a single person step) instead of starting
+it: add a step or a rule, see the exact file update as you go, and the
+identical dry run below it. **Save…** writes it to the project or to you,
+previewed first; **Start** needs no save at all, running the shape exactly as
+edited. Its **Graph** tab draws the same steps and rules spatially — dragging
+a node, or the Horizontal/Vertical fields beside a selected one, only ever
+moves it on screen.
+
+**Every time…**, on a chosen shape or an Agent's own page, hands off to
+Intake: the source, its fields, the Goal grouping and budget, saved to the
+working tree and disarmed. *Saved. Commit this file before arming* is the
+whole of what a save does — the existing Triggers section's own preview and
+explicit **Arm**, bound to the committed bytes, are still what consents to
+anything running unattended.

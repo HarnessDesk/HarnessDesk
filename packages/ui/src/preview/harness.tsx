@@ -17,6 +17,8 @@ import {
   type FlowSeat,
   type FlowUpdatePreview,
   type FlowUpdateResult,
+  type FrontDoorPreview,
+  type FrontDoorPreviewInput,
   type GoalView,
   type MachineSeating,
   type ProjectChecks,
@@ -29,6 +31,7 @@ import {
   type Session,
   type SessionId,
   type SessionKey,
+  type StartContext,
   type TeamPeerInfo,
   type TeamState,
 } from '@harnessdesk/protocol'
@@ -76,6 +79,7 @@ import { EVIDENCE_BOARD, EVIDENCE_ROOM, EVIDENCE_TEAM, PREVIEW_CHECKS, PREVIEW_S
 import { terminalAttach } from './terminal-fixture'
 import { PREVIEW_GOAL, PREVIEW_GOALS, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { FIX_PREVIEW, PREVIEW_FLOW_CUSTOMIZE, PREVIEW_FLOW_SOURCE, PREVIEW_FLOW_UPDATE, PREVIEW_FLOWS, previewFlowPreviewFor } from './flow-fixture'
+import { frontDoorPreviewFor } from './front-door-fixture'
 import { triggerArmPreview, triggerGoalStatus, triggerHistoryPage, triggerPreferences as triggerPreferencesFixture, triggerProjectView, triggerView } from './intake-fixture'
 /* The editor surface opens this file, and is given this file — its real
    source, read at build time. Edit `brands.ts` and the editor shows the edit;
@@ -1191,6 +1195,16 @@ class PreviewStore {
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
   previewFlowRetry = async (): Promise<FlowPreview> => ({ ...FIX_PREVIEW, token: null, problems: [{ level: 'error', at: 'run', text: 'This flow or its seating changed. Review the dry run again before starting.' }] })
   retryFlowCheck = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow run to retry here') }
+
+  // --- the front door --------------------------------------------------
+  openFrontDoor = (context: StartContext, goal?: { readonly id: string; readonly revision: number }): void =>
+    this.patch({ frontDoor: { context, goal: goal ?? null, preview: null } })
+  closeFrontDoor = (): void => this.patch({ frontDoor: null })
+  previewFrontDoor = async (input: FrontDoorPreviewInput): Promise<FrontDoorPreview> => {
+    const preview = frontDoorPreviewFor(input)
+    if (this.#snapshot.frontDoor) this.patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
+    return preview
+  }
 
   // --- the dials -----------------------------------------------------------
   setTheme = (theme: AppSnapshot['theme']): void => this.patch({ theme })

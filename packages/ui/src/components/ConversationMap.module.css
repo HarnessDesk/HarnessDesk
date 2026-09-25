@@ -28,7 +28,9 @@
  * so the gutter to its left still belongs to the rail and a pointer there
  * still drives the magnification.
  */
-.mark {
+/* Two classes, so this outranks the button's own centring: a dash grows from
+   its start, rightward into the gutter, never back out of the rail. */
+.rail .mark {
   flex: none;
   justify-content: flex-start;
   margin-left: var(--hd-space-2); /* desk: the rail's padding-left → the mark's margin, the same 8px */
@@ -48,7 +50,7 @@
  */
 .dash {
   display: block;
-  width: calc(var(--hd-space-2) + var(--near, 0) * var(--hd-space-3));
+  width: min(var(--cap, 100vw), calc(var(--hd-space-2) + var(--near, 0) * var(--reach, var(--hd-space-3)))); /* desk: the push is --reach (measured, at most --hd-space-3) and the dash stops at --cap in a tight pane */
   opacity: calc(0.35 + var(--near, 0) * 0.45);
   transition:
     width 90ms cubic-bezier(0.4, 0, 0.2, 1),
@@ -57,11 +59,21 @@
 
 /* What was asked stands a little longer than what came back, so the rail reads
    as a conversation rather than as a list of equal things. */
-.mark[data-kind='prompt'] .dash {
-  width: calc(var(--hd-space-3) + var(--near, 0) * var(--hd-space-3));
+.rail .mark[data-kind='prompt'] .dash {
+  width: min(var(--cap, 100vw), calc(var(--hd-space-3) + var(--near, 0) * var(--reach, var(--hd-space-3)))); /* desk: capped as above */
 }
 
-.mark:focus-visible .dash {
+/* A tight pane: the rail and its marks move to the pane's edge, which gives
+   the dashes the two steps of gutter their insets were spending. */
+.rail[data-fit='tight'] {
+  left: 0; /* desk: --hd-space-2 → 0 where the column leaves no room */
+}
+
+.rail[data-fit='tight'] .mark {
+  margin-left: 0; /* desk: --hd-space-2 → 0, with the rail */
+}
+
+.rail .mark:focus-visible .dash {
   opacity: 1;
 }
 

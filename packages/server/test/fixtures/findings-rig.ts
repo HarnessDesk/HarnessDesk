@@ -80,6 +80,8 @@ export const findingsRig = async (
     readonly messaging?: 'board-only' | 'members'
     /** The reviewer role's Agents, one blind reviewer each; the two built-in ones unless a test needs more. */
     readonly reviewers?: readonly string[]
+    /** The reviewer role says `blind: false` (phase 10): siblings may read each other's finished work. */
+    readonly sighted?: boolean
   } = {},
 ): Promise<FindingsRig> => {
   const rig = await goalRig(t)
@@ -110,6 +112,7 @@ export const findingsRig = async (
       subjects: (goal, round) => rig.flows.subjectsOf(goal, round),
       recordClose: (run, round, next) => rig.flows.recordRoundClose(run, round, next),
       blindRounds: (goal) => rig.flows.blindRounds(goal),
+      embargoedRounds: (goal) => rig.flows.embargoedRounds(goal),
       facts: async (goal) => (rig.facts.get(goal) ?? []).map((record) => ({
         record,
         freshness: rig.staleFacts.has(record.id) ? { state: 'moved' as const } : { state: 'fresh' as const },
@@ -153,7 +156,7 @@ export const findingsRig = async (
   attach(options.dropCloses === true)
   const reviewers = options.reviewers ?? ['code-reviewer', 'security-reviewer']
   const flow = FIX_AND_REVIEW.replace('messaging: board-only', `messaging: ${options.messaging ?? 'board-only'}`)
-    .replace('uses: [code-reviewer, security-reviewer]', `uses: [${reviewers.join(', ')}]`)
+    .replace('uses: [code-reviewer, security-reviewer]', `uses: [${reviewers.join(', ')}]${options.sighted ? ', blind: false' : ''}`)
   const agents = [...AGENTS(), ...reviewers.filter((id) => id !== 'code-reviewer' && id !== 'security-reviewer').map((id) => REVIEWER(id))]
   const execution = await rig.start(flow, agents)
   await rig.flows.flush()

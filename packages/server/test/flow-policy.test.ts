@@ -355,3 +355,51 @@ test('budget spelling and strict bounds', () => {
     assert.equal(parseFlowPolicy(withBudget(budget)).document, null)
   }
 })
+
+test('layout survives without changing compilation', () => {
+  const layout = '\nlayout: { frontDoor: { order: 1, contexts: [branch] }, positions: { worker: { x: 12.5, y: -4 } }, foreign: { keep: [1, "two"] } }\n'
+  const plain = parseFlowPolicy(source('    kind: agent\n    uses: writer'))
+  const laid = parseFlowPolicy(source('    kind: agent\n    uses: writer') + layout)
+  assert.equal(laid.document?.format, 'agents')
+  const compiledPlain = compileFlowPolicy(plain.document!, [agent('writer')])
+  const compiledLaid = compileFlowPolicy(laid.document!, [agent('writer')])
+  assert.deepEqual(compiledLaid.bindings, compiledPlain.bindings)
+  assert.deepEqual(compiledLaid.problems, compiledPlain.problems)
+  const policy = laid.document!.format === 'agents' ? laid.document!.flow : null
+  assert.deepEqual(policy?.layout, { frontDoor: { order: 1, contexts: ['branch'] }, positions: { worker: { x: 12.5, y: -4 } }, foreign: { keep: [1, 'two'] } })
+  // The reserved subtree comes back whole, foreign siblings included, and still compiles the same.
+  const again = parseFlowPolicy(serializeFlowPolicy(policy!))
+  assert.deepEqual(again.document!.format === 'agents' ? again.document!.flow.layout : null, policy?.layout)
+  assert.deepEqual(compileFlowPolicy(again.document!, [agent('writer')]).bindings, compiledPlain.bindings)
+  assert.deepEqual(
+    { ...(again.document!.flow as object), layout: undefined },
+    { ...(plain.document!.flow as object), layout: undefined, budget: { rounds: 3, withoutProgress: 2 } },
+  )
+})
+
+test('blindness is a boolean Agent-role policy', () => {
+  const role = (extra: string) => parseFlowPolicy(source(`    kind: agent\n    uses: writer${extra}`))
+  const blindOf = (parsed: ReturnType<typeof parseFlowPolicy>) =>
+    parsed.document?.format === 'agents' ? parsed.document.flow.roles.find((one) => one.id === 'worker') : undefined
+  for (const [extra, expected] of [['', undefined], ['\n    blind: true', true], ['\n    blind: false', false]] as const) {
+    const parsed = role(extra)
+    const worker = blindOf(parsed)
+    assert.equal(worker?.kind === 'agent' ? worker.blind : 'missing', expected)
+    const reread = parseFlowPolicy(serializeFlowPolicy(parsed.document!.flow as import('@harnessdesk/protocol').FlowPolicy))
+    const back = blindOf(reread)
+    assert.equal(back?.kind === 'agent' ? back.blind : 'missing', expected)
+  }
+  for (const bad of ['\n    blind: "false"', '\n    blind: yes', '\n    blind: 0', '\n    blind: [true]']) {
+    assert.ok(errors(source(`    kind: agent\n    uses: writer${bad}`)).some((one) => one.startsWith('roles.worker.blind:')), bad)
+  }
+  const check = errors(source('    kind: agent\n    uses: writer').replace('  person:\n    kind: person\n', '  person:\n    kind: person\n    blind: false\n'))
+  assert.ok(check.some((one) => one.startsWith('roles.person.blind:')), check.join(' | '))
+  const checkRole = errors(`
+version: 2
+name: Checked
+roles:
+  verify: { kind: check, run: "pnpm test", blind: true }
+seed: { role: verify, title: Verify }
+`)
+  assert.ok(checkRole.some((one) => one.startsWith('roles.verify.blind:')), checkRole.join(' | '))
+})

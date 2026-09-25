@@ -112,6 +112,31 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (!object(authorization) || !text(authorization['sourceDigest']) || !text(authorization['commandDigest']) || !finite(authorization['approvedAt'])) {
     bad('has no authorization')
   }
+  /* A front-door start is recorded twice over: the authorization says where
+     it came from, and the run carries the policy it froze. Either one wrong,
+     or the policy gone while the start says front door, and the run is not
+     read at all — it never falls back to seating under a weaker policy. */
+  const start = (authorization as Record<string, unknown>)['start']
+  if (start !== undefined && start !== 'front-door') bad('has an unknown start')
+  if (raw['requireHeld'] !== undefined && raw['requireHeld'] !== true) bad('has an unreadable held-seat policy')
+  if (start === 'front-door' && raw['requireHeld'] !== true) bad('was started from the front door and no longer says its Seats must hold their ceilings')
+  const reserving = raw['reserving']
+  if (reserving !== undefined && (!object(reserving) || !text(reserving['goal']) || !reserving['goal'] || !integer(reserving['revision']))) {
+    bad('names a Goal reservation it cannot describe')
+  }
+  /* What a front-door run works on: only ever on a front-door start, and a
+     head, when there is one, is one complete commit — the one its Seats'
+     checkouts are cut from and checked against before any work. */
+  const target = raw['target']
+  if (target !== undefined) {
+    const sha = (value: unknown): boolean => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
+    if (start !== 'front-door' || !object(target) || !['branch', 'pull-request', 'diff', 'working-diff'].includes(String(target['kind'])) ||
+      !text(target['label']) || !(target['base'] === null || sha(target['base'])) || !(target['head'] === null || sha(target['head'])) ||
+      !(target['pr'] === null || integer(target['pr'])) || typeof target['dirty'] !== 'boolean' ||
+      (target['kind'] === 'working-diff') !== (target['head'] === null)) {
+      bad('names a start target it cannot describe')
+    }
+  }
   if (!object(raw['operationTimes'])) bad('has unreadable operation times')
   for (const time of Object.values(raw['operationTimes'] as Record<string, unknown>)) {
     if (!object(time) || !finite(time['preparedAt']) || !(time['startedAt'] === null || finite(time['startedAt'])) ||

@@ -1,12 +1,13 @@
-import { Button, Spinner, StepFoldBody, TurnItem } from '../design'
+import { Button, DisclosureChevron, Separator, Spinner, TurnItem } from '../design'
 import { useState } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
 import { describeGroup } from '../lib/group-items'
-import { ChevronIcon, ToolIcon } from './Icons'
+import { ToolIcon } from './Icons'
 import { ItemView } from './Items'
 import styles from './Items.module.css'
+import own from './StepGroup.module.css'
 
 /**
  * A collapsed burst of agent steps.
@@ -52,21 +53,20 @@ export const StepGroup = ({
             setOpen(!expanded)
           }}
         >
-          <ChevronIcon
-            className={styles.chevron}
-            size={12}
-            {...(expanded ? { 'data-open': '' } : {})}
-          />
+          <DisclosureChevron open={expanded} size="sm" />
           <ToolIcon size={13} />
           <span className={styles.groupSummary}>{describeGroup(items)}</span>
           {running && <Spinner size="sm" tone="brand" />}
         </Button>
         {expanded && (
-          <StepFoldBody register={register}>
-            {items.map((item) => (
-              <ItemView key={item.id} item={item} root={root} register={register} />
-            ))}
-          </StepFoldBody>
+          <>
+            {register !== 'light' && <Separator />}
+            <div className={own.body} data-register={register}>
+              {items.map((item) => (
+                <ItemView key={item.id} item={item} root={root} register={register} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </TurnItem>

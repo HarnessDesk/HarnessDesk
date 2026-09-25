@@ -205,18 +205,23 @@ const ChartAxis = ({
  * That is for a figure that is not a plot with columns: the conversation map
  * offers a message's first words beside whichever dash the pointer is
  * nearest, which is the same tip following a position — just down a rail
- * rather than across an axis.
+ * rather than across an axis. A tip inside a control — the map's is inside
+ * the mark's button — is `as="span"`, because a button holds phrasing
+ * content and a `<div>` in one is invalid markup.
  */
 const ChartTip = ({
   className,
   at,
+  as: Element = 'div',
   children,
   ...props
 }: React.ComponentProps<'div'> & {
   /** Where the tip points, 0..1 across the plot. Omitted, the owner places the tip. */
   at?: number
+  /** The element the tip is: a `span` where it sits inside a control. */
+  as?: 'div' | 'span'
 }) => (
-  <div
+  <Element
     data-slot="chart-tip"
     role="presentation"
     {...(at === undefined ? { 'data-placement': 'owner' } : {})}
@@ -237,7 +242,7 @@ const ChartTip = ({
     {...props}
   >
     {children}
-  </div>
+  </Element>
 )
 
 /**

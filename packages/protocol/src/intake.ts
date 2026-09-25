@@ -76,6 +76,13 @@ export const TRIGGER_DEFAULTS: {
   schedule: { events: ['tick'], fields: ['slot'], goal: ['slot'], dedupe: ['slot'] },
 }
 
+/**
+ * The title a later round is opened under: fixed, so no event text ever
+ * becomes a card title. The one canonical spelling — the parser refuses
+ * `again` with any other title, and authoring writes exactly this one.
+ */
+export const AGAIN_TITLE = 'Continue this work'
+
 /** One trigger as the host normalized it: every omitted setting filled, nothing inferred from event text. */
 export interface TriggerDefinition {
   /** Project-scoped: what arming and history attach to. */

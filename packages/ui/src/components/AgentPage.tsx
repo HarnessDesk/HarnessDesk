@@ -3,11 +3,15 @@ import { useEffect, useRef, useState } from 'react'
 import {
   SEAT_PREFERENCE_LIMIT,
   type AgentEntry,
+  type AgentFieldEdit,
+  type AuthoringDocument,
+  type AuthoringTarget,
   type FlowSeat,
   type ModelInfo,
   type RuntimeId,
   type SeatCandidate,
   type SeatFix,
+  type WritableAuthoringTarget,
 } from '@harnessdesk/protocol'
 
 import {
@@ -32,9 +36,11 @@ import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { BriefIcon, CrossIcon, MoveDownIcon, MoveUpIcon, PlusIcon } from './Icons'
+import { BriefIcon, MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
 import {
   BackLink,
+  Banner,
+  BoardMenuButton,
   Button,
   Checkbox,
   CodeText,
@@ -42,8 +48,12 @@ import {
   DetailHead,
   DetailMark,
   Dialog,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   Field,
-  FormStack,
   NativeSelect,
   Note,
   Row,
@@ -55,8 +65,18 @@ import {
 } from '../design'
 import styles from './AgentPage.module.css'
 import { AgentAttachments } from './AgentAttachments'
+import { AgentFields, AgentPageSections, FieldEditDialog, PreferFieldDialog } from './AgentFields'
 import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
+import { TriggerCreate } from './TriggerCreate'
+
+/** The one file `AgentFields` reads and saves through — a project's own Agent needs the project that owns it. */
+const authoringTarget = (entry: AgentEntry, project: string | null): AuthoringTarget => ({
+  kind: 'agent',
+  origin: entry.origin,
+  id: entry.id,
+  ...(entry.origin === 'project' && project ? { root: project } : {}),
+})
 
 /**
  * An Agent's page — a drill from the roster, not a dialog.
@@ -91,9 +111,15 @@ export const AgentPage = ({
   const [removing, setRemoving] = useState(false)
   const [adding, setAdding] = useState(false)
   const [updatingCeiling, setUpdatingCeiling] = useState(false)
+  const [editingCeiling, setEditingCeiling] = useState(false)
+  const [editingPrefer, setEditingPrefer] = useState(false)
   const [seatingBusy, setSeatingBusy] = useState(false)
   const [seatingProblem, setSeatingProblem] = useState<string | null>(null)
   const seatingInFlight = useRef(false)
+  const [agentDocument, setAgentDocument] = useState<AuthoringDocument | null>(null)
+  const [documentProblem, setDocumentProblem] = useState<string | null>(null)
+  const [fieldsBusy, setFieldsBusy] = useState(false)
+  const [everyTime, setEveryTime] = useState(false)
   const definition = entry.definition
   const name = agentName(entry)
   const project = projectName(snapshot.workspace)
@@ -105,13 +131,55 @@ export const AgentPage = ({
   const plan = snapshot.agentPlans.get(entry.id)
   const ceilingFlag = definition ? flagWords(definition) : null
   const canUpdateCeiling = ceilingFlag !== null && (entry.origin === 'user' || entry.origin === 'project')
+  /** Builtins are read-only until Customize copies them, exactly like the fields below. */
+  const editable = entry.origin !== 'builtin'
   useEffect(() => {
     setUpdatingCeiling(false)
+    setEditingCeiling(false)
+    setEditingPrefer(false)
   }, [entry.id, entry.origin, entry.path, snapshot.agentsProject])
+
+  useEffect(() => {
+    if (!definition) return
+    let live = true
+    setAgentDocument(null)
+    setDocumentProblem(null)
+    store.readAuthoring(authoringTarget(entry, snapshot.agentsProject)).then(
+      (next) => {
+        if (live) setAgentDocument(next)
+      },
+      (error: unknown) => {
+        if (live) setDocumentProblem(error instanceof Error ? error.message : String(error))
+      },
+    )
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entry.id, entry.origin, snapshot.agentsProject, store])
 
   const openFile = (): void => {
     store.openFile(entry.path)
     onLeave()
+  }
+
+  /**
+   * A field just landed. The digest `AgentFields` was editing against is now
+   * stale for the next one, so both the roster (for `entry`) and the document
+   * (for its digest) are read again before another edit is allowed —
+   * `fieldsBusy` is what disables its rows meanwhile.
+   */
+  const onFieldEdited = (_edit: AgentFieldEdit): void => {
+    setFieldsBusy(true)
+    void Promise.all([
+      store.loadAgents(),
+      store.readAuthoring(authoringTarget(entry, snapshot.agentsProject)).then(
+        (next) => setAgentDocument(next),
+        () => {
+          // A read that fails after a save that landed leaves the last good document on screen.
+        },
+      ),
+    ]).finally(() => setFieldsBusy(false))
   }
 
   const setMachineSeats = async (
@@ -166,25 +234,27 @@ export const AgentPage = ({
       />
 
       {/*
-       * Customize… and Remove… live below the head, not inside its own
-       * `actions` slot: that slot's own layout gives its text column no room
-       * once a second and third action sit beside a label this long — a shape
-       * every other `DetailHead` caller avoids by keeping to one short
-       * control (a toggle, an icon). Flagged for the UI-system session
-       * (`design/patterns/Settings.tsx`'s `.detailCtl`/`.detailText`): it
-       * needs either a wrap or a second line for more than one wide action,
-       * not a second composition here working around it.
+       * Customize… lives below the head, not inside its own `actions` slot:
+       * that slot's own layout gives its text column no room once a second
+       * action sits beside a label this long — a shape every other
+       * `DetailHead` caller avoids by keeping to one short control (a toggle,
+       * an icon). Flagged for the UI-system session (`design/patterns/Settings.tsx`'s
+       * `.detailCtl`/`.detailText`): it needs either a wrap or a second line
+       * for more than one wide action, not a second composition here working
+       * around it. Remove… moved out entirely — a destructive action never
+       * sits alone under the title (review item 7) — into its own Danger
+       * section at the foot of the page, below.
        */}
-      {(targets.length > 0 || (folder && entry.origin !== 'builtin')) && (
+      {(targets.length > 0 || (definition && snapshot.agentsProject)) && (
         <span className={styles.actions}>
           {targets.length > 0 && (
             <Button variant="outline" onClick={() => setCustomizing(true)}>
               Customize…
             </Button>
           )}
-          {folder && entry.origin !== 'builtin' && (
-            <Button variant="secondary" onClick={() => setRemoving(true)}>
-              Remove…
+          {definition && snapshot.agentsProject && (
+            <Button variant="outline" onClick={() => setEveryTime(true)}>
+              Every time…
             </Button>
           )}
         </span>
@@ -241,14 +311,29 @@ export const AgentPage = ({
               <Row
                 title={ceilingWords(definition.ceiling)}
                 desc={[ceilingMeaning(definition.ceiling), ceilingFlag].filter(Boolean).join(' ')}
-                {...(canUpdateCeiling ? {
-                  control: <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>,
+                {...(editable ? {
+                  control: canUpdateCeiling ? (
+                    // A legacy `permission:` Agent needs Update first — Edit…
+                    // would only reach the same preview and be told, every
+                    // time, to come back here. One action, not a second that
+                    // always refuses.
+                    <Button size="sm" variant="outline" onClick={() => setUpdatingCeiling(true)}>Update…</Button>
+                  ) : (
+                    // Same `authoring/*` preview/save path as name, description, answers and
+                    // produces below — disabled until that document is read, since it needs
+                    // the digest to preview against.
+                    <Button size="sm" variant="outline" disabled={!agentDocument} onClick={() => setEditingCeiling(true)}>Edit…</Button>
+                  ),
                 } : {})}
               />
             </Rows>
           </section>
 
-          <OwnSeats entry={entry} onEditSeats={() => setAdding(true)} />
+          <OwnSeats
+            entry={entry}
+            onEditSeats={() => setAdding(true)}
+            {...(agentDocument ? { onEditPrefer: () => setEditingPrefer(true) } : {})}
+          />
           <MachineSeats
             entry={entry}
             busy={seatingBusy}
@@ -258,14 +343,30 @@ export const AgentPage = ({
           />
           <AgentSeatCosts entry={entry} />
 
-          <SectionHead name="What it hands back" />
-          <Rows>
-            <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
-            <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
-          </Rows>
+          {agentDocument ? (
+            <AgentFields
+              document={agentDocument}
+              entry={entry}
+              busy={fieldsBusy}
+              onEdit={onFieldEdited}
+              onOpenFile={openFile}
+            />
+          ) : documentProblem ? (
+            <Banner tone="danger" title="This Agent’s file could not be read">{documentProblem}</Banner>
+          ) : (
+            <>
+              <SectionHead name="What it hands back" />
+              <Rows>
+                <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
+                <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
+              </Rows>
+            </>
+          )}
 
           <AgentAttachments entry={entry} />
           <AgentNotes entry={entry} />
+
+          <AgentPageSections entry={entry}>{null}</AgentPageSections>
 
           <SectionHead name="Brief" />
           <Rows>
@@ -279,6 +380,24 @@ export const AgentPage = ({
             />
           </Rows>
         </>
+      )}
+
+      {/* A destructive action never sits alone under the title (review item 7) — reachable for a broken entry too, since removing one is how its folder is cleaned up. */}
+      {folder && entry.origin !== 'builtin' && (
+        <section aria-label="Danger">
+          <SectionHead name="Danger" />
+          <Rows>
+            <Row
+              title="Remove"
+              desc="Moves its folder to the Trash. It can be put back."
+              control={
+                <Button variant="destructive" onClick={() => setRemoving(true)}>
+                  Remove…
+                </Button>
+              }
+            />
+          </Rows>
+        </section>
       )}
 
       {customizing && definition && (
@@ -306,6 +425,36 @@ export const AgentPage = ({
         <CeilingUpdate entry={entry} onClose={() => setUpdatingCeiling(false)} />
       )}
 
+      {editingCeiling && definition && agentDocument && (
+        <FieldEditDialog
+          fieldKey="ceiling"
+          target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
+          digest={agentDocument.digest}
+          initial={definition.ceiling}
+          onOpenFile={openFile}
+          onClose={() => setEditingCeiling(false)}
+          onSaved={(edit) => {
+            setEditingCeiling(false)
+            onFieldEdited(edit)
+          }}
+        />
+      )}
+
+      {editingPrefer && definition && agentDocument && (
+        <PreferFieldDialog
+          entry={entry}
+          target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
+          digest={agentDocument.digest}
+          initial={definition.prefer}
+          onOpenFile={openFile}
+          onClose={() => setEditingPrefer(false)}
+          onSaved={(edit) => {
+            setEditingPrefer(false)
+            onFieldEdited(edit)
+          }}
+        />
+      )}
+
       {removing && folder && entry.origin !== 'builtin' && (
         <RemoveDialog
           entry={entry}
@@ -313,6 +462,15 @@ export const AgentPage = ({
           hasMachineSeat={plan?.from === 'machine'}
           onClose={() => setRemoving(false)}
           onRemoved={onBack}
+        />
+      )}
+
+      {everyTime && snapshot.agentsProject && (
+        <TriggerCreate
+          root={snapshot.agentsProject}
+          opens={{ agent: entry.id }}
+          onClose={() => setEveryTime(false)}
+          onSaved={() => setEveryTime(false)}
         />
       )}
     </>
@@ -327,19 +485,26 @@ export const AgentPage = ({
 const OwnSeats = ({
   entry,
   onEditSeats,
+  onEditPrefer,
 }: {
   readonly entry: AgentEntry
   /** Where a seat the Agent asks for that this Mac cannot give is fixed — this Mac's own seats. */
   readonly onEditSeats?: () => void
+  /** Edits the list itself, through the same `authoring/*` path as the rest of this page — absent while it is not yet known which file to save. */
+  readonly onEditPrefer?: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const plan = snapshot.agentPlans.get(entry.id)
   const replaced = plan?.from === 'machine'
   const seats = replaced ? (plan.own ?? []) : (plan?.candidates ?? [])
+  const editable = entry.origin !== 'builtin'
   return (
     <section aria-label="Seats">
-      <SectionHead name="Seats" />
+      <SectionHead
+        name="Seats"
+        {...(editable && onEditPrefer ? { action: <Button size="sm" variant="outline" onClick={onEditPrefer}>Edit…</Button> } : {})}
+      />
       <Note>
         {replaced
           ? 'Not used on this Mac: its seats here replace this list. Every other machine seats it in this order.'
@@ -512,40 +677,26 @@ const MachineSeats = ({
               {...(candidate ? { mark: <RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} /> } : {})}
               title={candidate?.label ?? 'Checking…'}
               {...(candidate ? { desc: stateWords(candidate) } : {})}
-              control={
-                <span className={styles.actions}>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Move up"
-                    disabled={busy || index === 0}
-                    onClick={() => move(index, index - 1)}
-                  >
-                    <MoveUpIcon size={14} />
-                    Move up
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    aria-label="Move down"
-                    disabled={busy || index === mine.seats.length - 1}
-                    onClick={() => move(index, index + 1)}
-                  >
-                    <MoveDownIcon size={14} />
-                    Move down
-                  </Button>
-                  <Button
-                    size="icon-sm"
-                    variant="ghost"
-                    aria-label="Remove this seat"
-                    title="Remove this seat"
-                    disabled={busy}
-                    onClick={() => remove(index)}
-                  >
-                    <CrossIcon size={13} />
-                  </Button>
-                </span>
-              }
+              control={(
+                <DropdownMenu>
+                  <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} disabled={busy} />} />
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem disabled={index === 0} onClick={() => move(index, index - 1)}>
+                      <MoveUpIcon size={14} />
+                      Move up
+                    </DropdownMenuItem>
+                    <DropdownMenuItem disabled={index === mine.seats.length - 1} onClick={() => move(index, index + 1)}>
+                      <MoveDownIcon size={14} />
+                      Move down
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
+                      <TrashIcon size={14} />
+                      Remove seat
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             />
           )
         })}
@@ -637,59 +788,57 @@ const AddSeatDialog = ({
         </>
       }
     >
-      <FormStack>
-        {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
-        <Field label="Runtime">
+      {expected === null && <Note>Seats here replace its own list on this Mac. They are not added to it.</Note>}
+      <Field label="Runtime">
+        {(control) => (
+          <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
+            {snapshot.runtimes.map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.presentation.name}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
+      <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
+        {(control) => (
+          <NativeSelect
+            {...control}
+            value={model}
+            disabled={models === null}
+            onChange={(event) => {
+              setModel(event.target.value)
+              setEffort('')
+              setThinking(false)
+            }}
+          >
+            <option value="">Its default</option>
+            {(models ?? []).map((one) => (
+              <option key={one.id} value={one.id}>
+                {one.displayName}
+              </option>
+            ))}
+          </NativeSelect>
+        )}
+      </Field>
+      {shape && shape.reasoningLevels.length > 0 && (
+        <Field label="Effort">
           {(control) => (
-            <NativeSelect {...control} value={runtime} onChange={(event) => setRuntime(event.target.value)}>
-              {snapshot.runtimes.map((one) => (
-                <option key={one.id} value={one.id}>
-                  {one.presentation.name}
-                </option>
-              ))}
-            </NativeSelect>
-          )}
-        </Field>
-        <Field label="Model" {...(models === null ? { hint: 'Asking the runtime…' } : {})}>
-          {(control) => (
-            <NativeSelect
-              {...control}
-              value={model}
-              disabled={models === null}
-              onChange={(event) => {
-                setModel(event.target.value)
-                setEffort('')
-                setThinking(false)
-              }}
-            >
+            <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
               <option value="">Its default</option>
-              {(models ?? []).map((one) => (
-                <option key={one.id} value={one.id}>
-                  {one.displayName}
+              {shape.reasoningLevels.map((level) => (
+                <option key={level.id} value={level.id}>
+                  {level.label}
                 </option>
               ))}
             </NativeSelect>
           )}
         </Field>
-        {shape && shape.reasoningLevels.length > 0 && (
-          <Field label="Effort">
-            {(control) => (
-              <NativeSelect {...control} value={effort} onChange={(event) => setEffort(event.target.value)}>
-                <option value="">Its default</option>
-                {shape.reasoningLevels.map((level) => (
-                  <option key={level.id} value={level.id}>
-                    {level.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            )}
-          </Field>
-        )}
-        {shape?.thinking === 'optional' && (
-          <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
-        )}
-        {problem && <Note tone="bad">{problem}</Note>}
-      </FormStack>
+      )}
+      {shape?.thinking === 'optional' && (
+        <Field label="Thinking">{(control) => <Switch {...control} checked={thinking} onCheckedChange={setThinking} />}</Field>
+      )}
+      {problem && <Note tone="bad">{problem}</Note>}
     </Dialog>
   )
 }

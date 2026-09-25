@@ -89,6 +89,7 @@ export {
   WireText,
 } from './patterns/Settings'
 export { Button, buttonVariants } from './ui/button'
+export { DisclosureChevron } from './ui/disclosure-chevron'
 export { Input } from './ui/input'
 export { Textarea } from './ui/textarea'
 export { Switch } from './ui/switch'
@@ -128,13 +129,10 @@ export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue 
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'
 export {
-  StepFoldBody,
   TurnItem,
-  TurnWorkChevron,
   TurnWorkHeader,
   TurnWorkHeaderLabel,
   TurnWorkLive,
-  TurnWorkReceipt,
   type TurnWorkState,
 } from './patterns/TurnWork'
 export {
