@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 
-import { InsightBudgetExceededError } from './insight.js'
+import { InsightBudgetExceededError, InsightSourceChangedError } from './insight.js'
 
 /**
  * Reads a SQLite file another application owns, without writing a byte beside
@@ -66,7 +66,7 @@ export interface ForeignReadOptions {
   readonly onCopied?: () => void
   /** Refuses before the database is opened for its real read if the fingerprinted size is already more than this. */
   readonly byteLimit?: number
-  /** The fingerprinted size (database plus write-ahead log) a consistent read actually spent, once the read is known to match it. */
+  /** The fingerprinted size (database plus write-ahead log) a consistent read actually spent, once the read is known to match it — every snapshot copy it made along the way included. */
   readonly onSize?: (size: number) => void
 }
 
@@ -141,7 +141,8 @@ const readRollback = <T>(path: string, read: (database: DatabaseSync) => T, opti
   if (overBudget(before.size, options)) throw new InsightBudgetExceededError()
   const value = readIn(open(path), read)
   if (options.byteLimit !== undefined) {
-    if (!sameStamp(before, stamp(path))) throw changed(path)
+    // Read, then refused: the bytes were still read, and still count.
+    if (!sameStamp(before, stamp(path))) throw changed(path, before.size)
     options.onSize?.(before.size)
   }
   return value
@@ -159,31 +160,36 @@ const readQuiescent = <T>(
     value = readIn(open(path, true), read)
   } catch (error) {
     // A file that moved under an immutable read can fail in any way at all.
-    if (!same(before, fingerprint(path))) throw changed(path)
+    if (!same(before, fingerprint(path))) throw changed(path, sizeOf(before))
     throw error
   }
   options.onCopied?.()
-  if (!same(before, fingerprint(path))) throw changed(path)
+  if (!same(before, fingerprint(path))) throw changed(path, sizeOf(before))
   options.onSize?.(sizeOf(before))
   return value
 }
 
 const readSnapshot = <T>(path: string, read: (database: DatabaseSync) => T, options: ForeignReadOptions): T => {
+  /* Every whole copy is a read of the source, kept or thrown away: a copy a
+     commit made stale was still read off disk, so it counts against the
+     caller's budget, and a later attempt may spend only what is left. */
+  let spent = 0
   for (let attempt = 0; attempt < SNAPSHOT_ATTEMPTS; attempt++) {
     const before = fingerprint(path)
-    if (before === null) throw changed(path)
+    if (before === null) throw changed(path, spent)
     if (sizeOf(before) > SNAPSHOT_LIMIT_BYTES) {
       throw new Error(`${path} is too large to read while its owner may have it open`)
     }
-    if (overBudget(sizeOf(before), options)) throw new InsightBudgetExceededError()
+    if (overBudget(spent + sizeOf(before), options)) throw new InsightBudgetExceededError()
     const dir = mkdtempSync(join(tmpdir(), 'hd-foreign-'))
     try {
       copyFileSync(path, join(dir, 'db'))
       if (before.wal !== null) copyFileSync(`${path}-wal`, join(dir, 'db-wal'))
+      spent += sizeOf(before)
       options.onCopied?.()
       if (!same(before, fingerprint(path))) continue
       const value = readIn(open(join(dir, 'db')), read)
-      options.onSize?.(sizeOf(before))
+      options.onSize?.(spent)
       return value
     } catch (error) {
       // The log a checkpoint removes between the check and the copy is that
@@ -194,10 +200,11 @@ const readSnapshot = <T>(path: string, read: (database: DatabaseSync) => T, opti
       rmSync(dir, { recursive: true, force: true })
     }
   }
-  throw changed(path)
+  throw changed(path, spent)
 }
 
-const changed = (path: string): Error => new Error(`${path} changed while it was being read`)
+/** A source that changed while it was read; `bytesRead` is what was read of it all the same (#865). */
+const changed = (path: string, bytesRead = 0): Error => new InsightSourceChangedError(`${path} changed while it was being read`, bytesRead)
 
 const isMissing = (error: unknown): boolean =>
   typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT'

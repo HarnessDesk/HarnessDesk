@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { Ledger } from '../src/ledger/index.js'
 import { INSIGHT_BYTE_LIMIT_MESSAGE, InsightBudgetExceededError } from '../src/ledger/insight.js'
 import { Pricing } from '../src/ledger/pricing.js'
-import { scanClaudeTranscript, scanClineDatabase, scanCodexRollout, scanGeminiChat, scanOpencodeDatabase, scanQwenTranscript } from '../src/ledger/scan.js'
+import { scanClaudeTranscript, scanClineDatabase, scanCodexRollout, scanGeminiChat, scanOpencodeDatabase, scanQwenTranscript, WHOLE_FILE_CHUNK } from '../src/ledger/scan.js'
 import { seatFor } from '../src/insight/attribution.js'
 import { InsightPlane } from '../src/insight/plane.js'
 import { tempDir } from './scratch.js'
@@ -559,4 +559,86 @@ test('bytes read from a source rejected as not JSON still count against the shar
     )
     assert.equal(detail.complete, false)
   } finally { ledger.close() }
+})
+
+/*
+ * #865. A whole-file source that changes between its size check and the end
+ * of its read is refused as unreadable — but it was read, so its bytes count
+ * against the shared budget. Three such sources together spend the whole
+ * budget here, so the healthy source listed after them is never read and the
+ * budget gap is reported.
+ */
+test('bytes read from a whole-file source refused because it changed mid-read still count against the shared Insight budget', async (t) => {
+  const dir = tempDir('hd-insight-changed-budget-')
+  const changing = new Set<string>()
+  const corpora: { runtime: string; kind: 'gemini' | 'codex'; root: string }[] = []
+  for (let index = 0; index < 3; index += 1) {
+    const root = join(dir, `gemini-${index}`)
+    const chats = join(root, 'project', 'chats'); await mkdir(chats, { recursive: true })
+    const path = join(chats, 'chat.jsonl')
+    await writeFile(path, `${'x'.repeat(400_000)}\n`)
+    changing.add(path)
+    corpora.push({ runtime: `gemini-${index}`, kind: 'gemini', root })
+  }
+  const codexDir = join(dir, 'codex'); await mkdir(codexDir, { recursive: true })
+  await writeFile(join(codexDir, 'rollout.jsonl'), codexSessionMeta('healthy-session') + codexEvent('2026-09-20T00:00:01.000Z'))
+  corpora.push({ runtime: 'codex-healthy', kind: 'codex', root: codexDir })
+
+  // Each changing source is written to right after each of its size checks: its read is refused, deterministically.
+  const originalOpen = nodeFsPromises.open
+  t.mock.method(nodeFsPromises, 'open', (async (...args: Parameters<typeof nodeFsPromises.open>) => {
+    const handle = await originalOpen(...args)
+    if (!changing.has(String(args[0]))) return handle
+    const originalStat = handle.stat.bind(handle)
+    t.mock.method(handle, 'stat', async () => {
+      const result = await originalStat()
+      await appendFile(String(args[0]), 'xyz')
+      return result
+    })
+    return handle
+  }) as typeof nodeFsPromises.open)
+
+  // Each is read whole with the three bytes its first check let in: exactly the budget, together.
+  const ledger = new Ledger({ stateDir: dir, databasePath: join(dir, 'usage.sqlite'), corpora, insightByteLimit: 3 * 400_004 })
+  try {
+    const detail = await ledger.readInsight({ root: '/work/project', from: Date.parse('2026-09-19T00:00:00.000Z'), to: Date.parse('2026-09-21T00:00:00.000Z') })
+    assert.equal(detail.gaps.filter((gap) => gap === 'A recorded usage source could not be read.').length, 3, 'each changed source is an ordinary failed source')
+    assert.ok(detail.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE), 'and what they read spent the budget')
+    assert.ok(!detail.samples.some((sample) => sample.sessionId === 'healthy-session'), 'so nothing after them was read')
+  } finally { ledger.close() }
+})
+
+/*
+ * #865. A whole-file read under a 64 MiB budget used to allocate one buffer
+ * of the whole budget plus one byte, for a file of a few KiB. It reads in
+ * chunks now, each at most `WHOLE_FILE_CHUNK`, joined at the size read — and a
+ * character split across two chunks is still read whole.
+ */
+test('a whole-file source is read in chunks, never into one buffer the size of the budget, and decodes across a chunk boundary', async (t) => {
+  const dir = tempDir('hd-insight-gemini-chunks-')
+  const chats = join(dir, 'project', 'chats'); await mkdir(chats, { recursive: true })
+  const path = join(chats, 'chat.jsonl')
+  const first = `${JSON.stringify({ type: 'gemini', id: 'a', timestamp: '2026-09-20T00:00:00.000Z', model: 'gemini', tokens: { input: 10, output: 5 } })}\n`
+  const second = `${JSON.stringify({ type: 'gemini', id: 'b', timestamp: '2026-09-20T00:00:01.000Z', model: 'm€', tokens: { input: 1, output: 1 } })}\n`
+  // The three bytes of the euro sign straddle the first chunk's end.
+  const at = Buffer.from(second, 'utf8').indexOf(Buffer.from('€', 'utf8'))
+  const padding = WHOLE_FILE_CHUNK - 1 - Buffer.byteLength(first, 'utf8') - at - 1
+  await writeFile(path, `${first}${'x'.repeat(padding)}\n${second}`)
+
+  let largest = 0
+  const alloc = Buffer.alloc.bind(Buffer)
+  const allocUnsafe = Buffer.allocUnsafe.bind(Buffer)
+  t.mock.method(Buffer, 'alloc', ((size: number, ...rest: unknown[]) => {
+    largest = Math.max(largest, size)
+    return (alloc as (...args: unknown[]) => Buffer)(size, ...rest)
+  }) as typeof Buffer.alloc)
+  t.mock.method(Buffer, 'allocUnsafe', ((size: number) => {
+    largest = Math.max(largest, size)
+    return allocUnsafe(size)
+  }) as typeof Buffer.allocUnsafe)
+  const samples: import('../src/ledger/insight.js').UsageSample[] = []
+  await scanGeminiChat({ runtime: 'gemini', kind: 'gemini', path, size: 0, mtime: 0 }, { emit: (sample) => samples.push(sample), byteLimit: 64 * 1024 * 1024 })
+  t.mock.restoreAll()
+  assert.ok(largest <= WHOLE_FILE_CHUNK, `no buffer larger than one chunk (${WHOLE_FILE_CHUNK}), got ${largest}`)
+  assert.deepEqual(samples.map((sample) => sample.model).sort(), ['gemini', 'm€'])
 })

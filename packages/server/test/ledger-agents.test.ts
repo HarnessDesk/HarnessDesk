@@ -8,7 +8,7 @@ import { tempDir } from './scratch.js'
 
 import { readForeignDatabase } from '../src/ledger/foreign-db.js'
 import { Ledger } from '../src/ledger/index.js'
-import { InsightBudgetExceededError } from '../src/ledger/insight.js'
+import { InsightBudgetExceededError, InsightSourceChangedError } from '../src/ledger/insight.js'
 import { Pricing } from '../src/ledger/pricing.js'
 import { corpusRoot, listTargets, projectRootOf, scanGeminiChat, scanQwenTranscript } from '../src/ledger/scan.js'
 import { LedgerStore } from '../src/ledger/store.js'
@@ -539,6 +539,69 @@ test('a rollback-journal database that grows while it is being read is refused, 
       ),
     /changed while it was being read/,
   )
+})
+
+/*
+ * #865. A database refused because it changed while it was read was still
+ * read, so what it cost is on the refusal: the caller's shared budget counts
+ * it, and a source that keeps changing can no longer be read over and over for
+ * free.
+ */
+test('a budgeted database refused because it changed while it was read says how much of it was read', () => {
+  const dir = scratch()
+  const path = join(dir, 'rollback-changed.db')
+  const db = new DatabaseSync(path)
+  db.exec('CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  db.close()
+  const before = statSync(path).size
+  assert.throws(
+    () => readForeignDatabase(path, (database) => {
+      const value = countRows(database)
+      appendFileSync(path, 'x'.repeat(10))
+      return value
+    }, { byteLimit: before * 4 }),
+    (error: unknown) => error instanceof InsightSourceChangedError && error.bytesRead === before,
+  )
+
+  const busy = join(dir, 'busy-changed.db')
+  const owner = new DatabaseSync(busy)
+  owner.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  let n = 10
+  const copies: number[] = []
+  assert.throws(
+    () => readForeignDatabase(busy, countRows, {
+      byteLimit: 1024 * 1024 * 1024,
+      onCopied: () => {
+        copies.push(statSync(busy).size + statSync(`${busy}-wal`).size)
+        owner.exec(`INSERT INTO t VALUES (${n++})`)
+      },
+    }),
+    (error: unknown) => error instanceof InsightSourceChangedError && error.bytesRead === copies.reduce((sum, size) => sum + size, 0) && copies.length === 3,
+    'every copy thrown away was still read, and all of them count',
+  )
+  owner.close()
+})
+
+test('a snapshot copy a commit made stale is spent from the budget, so a second copy that no longer fits is refused', () => {
+  const dir = scratch()
+  const path = join(dir, 'stale-copy.db')
+  const owner = new DatabaseSync(path)
+  owner.exec('PRAGMA journal_mode = WAL; PRAGMA wal_autocheckpoint = 0; CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+  const size = statSync(path).size + statSync(`${path}-wal`).size
+  let landed = false
+  assert.throws(
+    () => readForeignDatabase(path, countRows, {
+      // Room for one copy and a half: the first copy is spent, and the second no longer fits.
+      byteLimit: Math.floor(size * 1.5),
+      onCopied: () => {
+        if (landed) return
+        landed = true
+        owner.exec('INSERT INTO t VALUES (2)')
+      },
+    }),
+    (error: unknown) => error instanceof InsightBudgetExceededError,
+  )
+  owner.close()
 })
 
 test('a rollback-journal database written to during a no-budget read still succeeds, as SQLite’s own lock already allows', () => {
