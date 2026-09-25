@@ -118,6 +118,34 @@ test('tildifying a personal agent worktree does not make it publishable', () => 
   assert.deepEqual(textReasons(frame('~/work/storefront/.worktrees/sidebar-1'), { user: USER }), [])
 })
 
+test('an unshortened OS temp path is refused, whether or not it carries a username (#921 follow-up)', () => {
+  /* This rig's own home moved off the real one and onto a fixed folder under
+     `os.tmpdir()` — anonymous, but still a machine path a public frame must
+     not carry, and the one surface `TILDIFY` cannot be trusted to keep
+     shortened (the browser pane's address bar, a React-controlled input that
+     writes its "real" value back mid-take) is exactly where a `file://` URL
+     used to put one. This is the backstop: it does not need a username to
+     fire, only the shape of the path. */
+  for (const line of [
+    'Opened /private/var/folders/xx/T/harnessdesk-shots/person/work/storefront',
+    'Opened /var/folders/xx/T/harnessdesk-shots/person/work/storefront',
+    'file:///private/tmp/harnessdesk-shots/person/work/browse/index.html',
+    'file:///tmp/harnessdesk-shots/person/work/browse/index.html',
+  ]) {
+    const refused = textReasons(frame(line), { user: USER })
+    assert.equal(refused.length, 1, line)
+    assert.match(refused[0], /OS temp path/)
+    // Not quoted, the same reason the username arm does not quote what it found.
+    assert.doesNotMatch(refused[0], /folders|harnessdesk-shots/)
+  }
+  // The control: the same folder after TILDIFY has done its job, and paths
+  // that merely start the same way without ever spelling one of the four
+  // recognised temp roots.
+  for (const line of ['Opened ~/work/storefront', '/private/tmpdir/ignored', 'the /var/lib config directory']) {
+    assert.deepEqual(textReasons(frame(line), { user: USER }), [], line)
+  }
+})
+
 test('history outside the staged repositories is refused even when its row is not visible', () => {
   const history = [{ runtime: 'shots-opencode', id: 'unvouched', cwd: '/home/someone/private-repo' }]
   const refused = reasonsFor({ ...frame('Storefront'), history }, { roots: ['/tmp/rig/work/storefront'] })

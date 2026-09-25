@@ -218,6 +218,22 @@ const askTheGate = (where, value) =>
   offendersIn(where, String(value).split('hd-secrets-ok').join('hd-secrets-mark'))
 
 /**
+ * An OS temp directory `TILDIFY` did not shorten.
+ *
+ * This rig's own home moved off the real one and onto a fixed folder under
+ * `os.tmpdir()` (`config.mjs`), which is anonymous but still an ugly machine
+ * path in a public frame — and the one place that matters most, the browser
+ * pane's address bar, is a React-controlled input that writes its "real"
+ * value back mid-take, so a DOM substitution over it cannot be trusted to
+ * survive to the screenshot (`static-server.mjs` is the actual fix for that
+ * one surface: it gives the pane an `http://127.0.0.1` address with no
+ * filesystem path in it at all). This is the backstop for everywhere else —
+ * refusing the shape of the path rather than any one instance of it, the same
+ * way the username check does not need to know what this machine is called.
+ */
+const OS_TEMP_PATH = /\/private\/var\/folders\/|\/var\/folders\/|\/private\/tmp\/|\/tmp\//
+
+/**
  * Reasons the rendered text is not publishable.
  *
  * The username stays a check — it is the one name this machine is certain to
@@ -246,6 +262,9 @@ export const textReasons = ({ text, documentTitle, attributes }, { user } = {}) 
     }
     if (/(?:~|[/\\])[/\\]?\.(?:codex|claude|harnessdesk)[/\\]worktrees(?:[/\\]|\b)/i.test(String(value ?? ''))) {
       reasons.push(`${where}: a personal agent worktree path is in it`)
+    }
+    if (OS_TEMP_PATH.test(String(value ?? ''))) {
+      reasons.push(`${where}: an unshortened OS temp path is in it`)
     }
   }
   return reasons

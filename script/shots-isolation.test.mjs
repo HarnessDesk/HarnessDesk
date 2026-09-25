@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -398,4 +398,281 @@ test('seed.mjs marks an empty custom home on its first run, and seeds it normall
   writeFileSync(join(home, 'goals', 'stale.json'), '{}\n')
   seed()
   assert.equal(existsSync(join(home, 'goals', 'stale.json')), false)
+})
+
+test('the guard no longer trusts the default home outright — the marker check reads the same for both', () => {
+  const seed = readFileSync(join(root, 'script/shots/seed.mjs'), 'utf8')
+  assert.doesNotMatch(seed, /usingDefaultHome/, 'the default path must earn the same marker/empty proof as an override')
+  assert.match(seed, /const rigOwnsHome = empty \|\| existsSync\(MARKER\)/)
+})
+
+test('a home that is a symlink is refused before anything reads, writes or deletes through it (P2-2)', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-symlink-home-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const elsewhere = join(directory, 'elsewhere')
+  mkdirSync(elsewhere, { recursive: true })
+  writeFileSync(join(elsewhere, 'keep.txt'), 'must not be touched')
+  const link = join(directory, 'home-link')
+  symlinkSync(elsewhere, link)
+  const work = join(directory, 'work')
+
+  let failure = null
+  try {
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: link, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  } catch (error) {
+    failure = error
+  }
+  assert.ok(failure, 'a symlinked home must refuse rather than seed through the link')
+  assert.notEqual(failure.status, 0)
+  assert.match(String(failure.stderr), /symlink/)
+  // Nothing on the far side of the link, and the link itself, survive untouched.
+  assert.equal(readFileSync(join(elsewhere, 'keep.txt'), 'utf8'), 'must not be touched')
+  assert.ok(lstatSync(link).isSymbolicLink(), 'the link itself must not have been replaced or removed')
+  assert.equal(existsSync(join(elsewhere, '.rig-home.json')), false, 'nothing was seeded through the link')
+})
+
+test('a residue path swapped for a symlink between two takes refuses the reseed, and nothing outside the home changes (P2-2)', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-symlink-residue-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  seed()
+  const before = readFileSync(join(home, 'agents.json'), 'utf8')
+
+  // A later take's `goals` — a `RESIDUE` entry — swapped for a link to
+  // somewhere with its own file, the way a mistaken tool or a stray `ln -s`
+  // could leave it.
+  const elsewhere = join(directory, 'elsewhere')
+  mkdirSync(elsewhere, { recursive: true })
+  writeFileSync(join(elsewhere, 'keep.txt'), 'must not be touched')
+  rmSync(join(home, 'goals'), { recursive: true, force: true })
+  symlinkSync(elsewhere, join(home, 'goals'))
+
+  let failure = null
+  try {
+    seed()
+  } catch (error) {
+    failure = error
+  }
+  assert.ok(failure, 'a symlinked residue entry must refuse the reseed rather than delete through it')
+  assert.notEqual(failure.status, 0)
+  assert.match(String(failure.stderr), /symlink/)
+  assert.equal(readFileSync(join(elsewhere, 'keep.txt'), 'utf8'), 'must not be touched')
+  assert.ok(lstatSync(join(home, 'goals')).isSymbolicLink(), 'the link itself must survive, unremoved')
+  // The refusal is a full pass before any deletion: legitimate residue this
+  // rig staged in the first seed is untouched by the aborted second one.
+  assert.equal(readFileSync(join(home, 'agents.json'), 'utf8'), before)
+})
+
+test('the default rig home and its work folder live under the OS temp directory, never this machine\'s real home', () => {
+  // Spawned rather than imported directly: `config.mjs` resolves its defaults
+  // at import time, and this repository's own test run always has
+  // `HD_SHOTS_HOME`/`HD_SHOTS_WORK` set by whichever suite ran before this
+  // one shares the module cache. A fresh process with neither set is the only
+  // way to see what a person who has never heard of either variable gets.
+  const { HOME, WORK } = JSON.parse(
+    execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', "import { HOME, WORK } from './script/shots/config.mjs'; process.stdout.write(JSON.stringify({ HOME, WORK }))"],
+      { cwd: root, env: { ...process.env, HD_SHOTS_HOME: undefined, HD_SHOTS_WORK: undefined }, stdio: 'pipe', encoding: 'utf8' },
+    ),
+  )
+  const home = homedir()
+  assert.ok(HOME.startsWith(realpathSync(tmpdir())), `HOME (${HOME}) is not under the OS temp directory`)
+  assert.ok(WORK.startsWith(realpathSync(tmpdir())), `WORK (${WORK}) is not under the OS temp directory`)
+  assert.equal(HOME.startsWith(home), false, `HOME (${HOME}) is under this machine's real home`)
+  assert.equal(WORK.startsWith(home), false, `WORK (${WORK}) is under this machine's real home`)
+  // `WORK` is nested one level inside `HOME`, under a "person" folder — the
+  // folder `shoot.mjs`/`gif.mjs` shorten to `~` so a frame still reads
+  // `~/work/storefront` (`config.mjs`'s own doc comment).
+  assert.ok(WORK.startsWith(`${HOME}/`), `WORK (${WORK}) is not nested inside HOME (${HOME})`)
+  assert.equal(dirname(WORK), join(HOME, 'person'))
+})
+
+test('the capture drivers shorten the work folder\'s parent, never `WORK` itself, so a frame still reads ~/work/…', () => {
+  for (const file of ['script/shots/shoot.mjs', 'script/shots/gif.mjs']) {
+    const source = readFileSync(join(root, file), 'utf8')
+    assert.match(source, /TILDIFY\(dirname\(WORK\)\)/, `${file} does not shorten WORK's parent folder`)
+    assert.doesNotMatch(source, /TILDIFY\(WORK\)/, `${file} still shortens WORK itself, which would drop the "work" segment`)
+  }
+})
+
+test('the browser scene serves its page over loopback HTTP, never as a file:// URL', () => {
+  // A `file://` URL always carries a filesystem path, and the address bar is
+  // a React-controlled input that can write that path back mid-take even
+  // after `TILDIFY` has run — so the fix is to never hand it a path at all.
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const body = shoot.slice(shoot.indexOf("browser: { leaveOverlay: true"), shoot.indexOf('// The review sweep'))
+  assert.match(body, /const browseDir = join\(WORK, 'browse'\)/, 'the served folder must live under WORK')
+  assert.match(body, /startStaticServer\(browseDir\)/)
+  assert.match(body, /\$\{browserServer\.url\}\/index\.html/)
+  assert.doesNotMatch(body, /pathToFileURL/, 'the browser scene must not open a file:// URL')
+  assert.doesNotMatch(body, /homedir\(\)/, 'the browser scene must never build its page from the real home')
+  assert.match(shoot, /import \{ startStaticServer \} from '\.\/static-server\.mjs'/)
+})
+
+test('reseeding clears a leftover browser-pane layout, closing the leak an earlier browser take left in state.json', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-layout-leak-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  seed()
+
+  // What a running app persists after a `browser` scene docks its pane
+  // (`packages/ui/src/state/store.ts`'s `#keepWorkbench`, into
+  // `preferences.layouts` — `packages/server/src/state.ts`): the tab's own
+  // URL, carrying a path this rig must never publish.
+  writeFileSync(
+    join(home, 'state.json'),
+    JSON.stringify({
+      version: 1,
+      installId: 'shots',
+      workspaces: [],
+      preferences: {
+        layouts: {
+          [join(work, 'storefront')]: {
+            main: { root: { kind: 'pane', id: 'p1', view: { kind: 'conversation', session: null } }, focused: 'p1', expanded: null },
+            right: {
+              root: {
+                kind: 'stack',
+                id: 's1',
+                views: [{
+                  id: 'm1',
+                  view: {
+                    kind: 'browser',
+                    tabs: [{ id: 't1', url: 'file:///Users/someone/work/browse', title: 'browse' }],
+                    active: 't1',
+                    driven: 't1',
+                  },
+                }],
+              },
+              collapsed: false,
+            },
+          },
+        },
+      },
+    }),
+  )
+
+  // The next take reseeds, exactly as seed.mjs's own doc comment says to do
+  // before every one.
+  seed()
+
+  const state = JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+  assert.deepEqual(state.preferences, {}, 'a leftover panel/dock layout survived reseeding')
+  assert.doesNotMatch(readFileSync(join(home, 'state.json'), 'utf8'), /\/Users\/someone\/work\/browse/)
+})
+
+/** Runs a one-liner against `config.mjs`'s exports, for a fixture home. */
+const runAgainstConfig = (expression, { home, work }) =>
+  execFileSync(
+    process.execPath,
+    ['--input-type=module', '-e', expression],
+    { cwd: root, env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work }, stdio: 'pipe', encoding: 'utf8' },
+  )
+
+test('both drivers refuse to launch on a home nothing has seeded, naming seed.mjs (P2-3)', () => {
+  // Common after a reboot clears the OS temp directory the new default lives
+  // under: not a corrupted rig, just one that has never been staged, or was
+  // staged and then emptied by the OS rather than by `--clean`.
+  for (const file of ['script/shots/shoot.mjs', 'script/shots/gif.mjs']) {
+    const source = readFileSync(join(root, file), 'utf8')
+    assert.match(source, /requireSeeded\(\)/, `${file} must ask before it launches anything`)
+    assert.ok(
+      source.indexOf('requireSeeded()') < source.indexOf('await launchDesk('),
+      `${file} must ask before launching, not after`,
+    )
+  }
+  // seed.mjs is the one script allowed onto an unseeded home — asking would
+  // make seeding a home for the first time impossible.
+  assert.doesNotMatch(readFileSync(join(root, 'script/shots/seed.mjs'), 'utf8'), /requireSeeded/)
+})
+
+test('requireSeeded refuses a home missing its marker or its agents.json, naming seed.mjs (P2-3)', async t => {
+  for (const missing of ['marker', 'agents.json']) {
+    const directory = mkdtempSync(join(tmpdir(), 'hd-shots-unseeded-'))
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    const home = join(directory, 'home')
+    mkdirSync(home, { recursive: true })
+    if (missing !== 'marker') writeFileSync(join(home, '.rig-home.json'), '{}\n')
+    if (missing !== 'agents.json') writeFileSync(join(home, 'agents.json'), '{}\n')
+
+    let failure = null
+    try {
+      runAgainstConfig(
+        "import { requireSeeded } from './script/shots/config.mjs'; requireSeeded(); process.stdout.write('reached')",
+        { home, work: join(directory, 'work') },
+      )
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure, `missing ${missing} must refuse`)
+    assert.notEqual(failure.status, 0)
+    assert.match(String(failure.stderr), /seed\.mjs/, `the refusal must name seed.mjs (missing ${missing})`)
+    assert.match(String(failure.stderr), /has not been seeded/)
+  }
+})
+
+test('requireSeeded lets a properly seeded home through untouched (P2-3)', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-seeded-'))
+  try {
+    const home = join(directory, 'home')
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, '.rig-home.json'), '{}\n')
+    writeFileSync(join(home, 'agents.json'), '{}\n')
+    const out = runAgainstConfig(
+      "import { requireSeeded } from './script/shots/config.mjs'; requireSeeded(); process.stdout.write('reached')",
+      { home, work: join(directory, 'work') },
+    )
+    assert.equal(out, 'reached')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('importing config.mjs for a fresh default-shaped home does not poison it for the seed that follows', () => {
+  // A real regression this fix introduced and then closed: `WORK`'s default
+  // nests inside `HOME` (`config.mjs`), and eagerly creating that nested
+  // `person/work` scaffold on every import — including a `shoot.mjs` run
+  // that goes on to refuse via `requireSeeded` — left a non-empty, unmarked
+  // `HOME` behind. The very next `seed.mjs`, on the very same home, then hit
+  // its own #909 guard and refused to seed a folder it had itself just
+  // created nothing real in. `WORK`'s default must resolve to the right
+  // string without `mkdir`-ing anything, so a `HOME` nobody has seeded yet
+  // stays genuinely empty until `seed.mjs` says otherwise.
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-work-scaffold-'))
+  try {
+    const home = join(directory, 'home')
+    // No HD_SHOTS_WORK: this is exactly the shape the real default takes,
+    // just rooted somewhere this test controls instead of the shared tmpdir.
+    const env = { ...process.env, HD_SHOTS_HOME: home }
+    delete env['HD_SHOTS_WORK']
+    execFileSync(
+      process.execPath,
+      ['--input-type=module', '-e', "import './script/shots/config.mjs'"],
+      { cwd: root, env, stdio: 'pipe' },
+    )
+    assert.ok(existsSync(home), 'importing config.mjs must still create HOME itself')
+    assert.deepEqual(readdirSync(home), [], 'HOME must stay empty until something actually seeds it')
+
+    // And the seed that follows succeeds, rather than refusing a home it now
+    // sees as non-empty and unmarked.
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], { env, stdio: 'pipe' })
+    assert.ok(existsSync(join(home, '.rig-home.json')), 'the reseed must have been allowed to mark and stage this home')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })
