@@ -458,6 +458,81 @@ it('Start is disabled while a dry run a var edit triggered is still in flight', 
   })
 })
 
+it('Start stays disabled through a step edit’s own render round trip, not just its own dry run', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+
+  // A slow `authoring/shape/render` — the render round trip an edited step
+  // takes before its own dry run is even asked for. Start must already be
+  // disabled for this whole span, not just once the dry run itself starts.
+  let resolveRender!: (value: { readonly source: string; readonly issues: readonly unknown[] }) => void
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/shape/render') return new Promise((resolve) => { resolveRender = resolve as never })
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      const policy = JSON.parse(source) as FlowPolicy
+      return previewFor(policy, { vars })
+    }
+    if (method === 'agent/list') return [AGENT]
+    return null
+  }) as never)
+
+  act(() => button('Agent').click())
+  expect(button('Start').hasAttribute('disabled')).toBe(true)
+
+  const rendered: FlowPolicy = {
+    version: 2, name: 'Your own shape', inputs: [{ id: 'task', label: 'Task' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }, { id: 'agent-1', kind: 'agent', uses: [], seats: [], isolate: false, grant: 'read', independentOf: [] }],
+    rules: [], seed: { role: 'review', title: '{{task}}' }, messaging: 'board-only', wait: 240,
+  }
+  await act(async () => {
+    resolveRender({ source: JSON.stringify(rendered), issues: [] })
+  })
+  await settle()
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+})
+
+it('a bound input takes the start target’s own value, never its own YAML default — a hand-written binding from a branch is not refused', async () => {
+  const bound: FlowPolicy = {
+    version: 2, name: 'Review', inputs: [{ id: 'branch', label: 'Branch', default: 'placeholder-default' }],
+    roles: [{ id: 'reviewer', kind: 'person', outcomes: ['done'] }], rules: [],
+    seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only', wait: 240,
+    layout: { frontDoor: { bindings: [{ input: 'branch', value: 'branch' }] } },
+  }
+  const RESOLVED = 'feature-x'
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      const policy = JSON.parse(source) as FlowPolicy
+      // The real host resolves a bound input from the start target alone —
+      // it never accepts one asserted by the caller. A value other than the
+      // one it resolves to is refused, the same as a stale, mismatched token.
+      if ('branch' in vars && vars['branch'] !== RESOLVED) {
+        return {
+          flow: { token: null, compiled: { document: { format: 'agents', flow: policy }, bindings: [], problems: [] }, seats: [], commands: [], guards: [], messaging: 'board-only', problems: [{ level: 'error', at: 'branch', text: 'This input is bound; it cannot be set to anything else.' }] },
+          target: { label: 'branch feature-x', base: null, head: null, dirty: false, independence: 'unknown' },
+          vars, source, sentence: '', goal: null,
+        }
+      }
+      return previewFor(policy, { vars: { ...vars, branch: RESOLVED }, target: { label: 'branch feature-x', base: null, head: null, dirty: false, independence: 'unknown' } })
+    }
+    if (method === 'agent/list') return [AGENT]
+    return null
+  }) as never)
+  renderWithSource(store, JSON.stringify(bound))
+  await settle()
+
+  // The target's own value, shown — never the shape's own placeholder default.
+  expect(document.body.textContent).toContain(RESOLVED)
+  expect(document.body.textContent).not.toContain('placeholder-default')
+  // Never refused: a hand-written binding starting from a branch reaches a usable Start.
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+})
+
 it('an input bound from the start target renders read-only, as a fact, never an editable field that refuses its own edit', async () => {
   const bound: FlowPolicy = {
     version: 2, name: 'Review', inputs: [{ id: 'branch', label: 'Branch' }],

@@ -104,16 +104,21 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
         if (parsedDocument.format === 'agents') {
           setPolicy(parsedDocument.flow)
           setStale(false)
-          // Fill a default only for an input with no value yet — an input
-          // freshly added by a step or rule edit. A value already there,
-          // typed or defaulted earlier, is never overwritten: that is what
-          // reset every keystroke back to the input's own default the moment
-          // the dry run it triggered came back.
+          // Fill a value only for an input with none yet — an input freshly
+          // added by a step or rule edit. A value already there, typed or
+          // filled earlier, is never overwritten: that is what reset every
+          // keystroke back to the input's own default the moment the dry run
+          // it triggered came back. A bound input (a branch, a base, a head,
+          // a pull request) takes the value this very response resolved it
+          // to, from the start target — never its own YAML default, which is
+          // not what the host bound it to and is refused as a mismatch the
+          // instant it is sent back.
+          const boundHere = boundInputIds(parsedDocument.flow)
           let changed = false
           const next = { ...varsRef.current }
           for (const input of parsedDocument.flow.inputs) {
             if (!(input.id in next)) {
-              next[input.id] = input.default ?? ''
+              next[input.id] = boundHere.has(input.id) ? (dry.vars[input.id] ?? '') : (input.default ?? '')
               changed = true
             }
           }
@@ -183,17 +188,26 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
 
   const editPolicy = useCallback(
     async (next: FlowPolicy): Promise<void> => {
+      // Retires a dry run already in flight (a var edit's, say) the instant a
+      // step or rule changes, and — with `previewPending` below — keeps Start
+      // disabled for the *whole* render round trip this edit takes, not just
+      // once `runDryRun` itself starts: a click on Start while `renderShape`
+      // is still out would otherwise redeem the dry run from before this edit.
+      sequence.current += 1
       setPolicy(next)
       setFormIssues([])
+      setPreviewPending(true)
       let rendered: { readonly source: string; readonly issues: readonly AuthoringIssue[] }
       try {
         rendered = await store.renderShape(next)
       } catch (error) {
         setFormIssues([{ at: 'file', text: error instanceof Error ? error.message : 'This change could not be checked.', fix: 'Try again.' }])
+        setPreviewPending(false)
         return
       }
       if (rendered.issues.length > 0) {
         setFormIssues(rendered.issues)
+        setPreviewPending(false)
         return
       }
       setSource(rendered.source)

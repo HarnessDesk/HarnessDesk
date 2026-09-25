@@ -4,7 +4,7 @@ import type { AgentEntry, FlowEntry, FlowExecution, StartContext } from '@harnes
 
 import { ActionError, Banner, Button, Dialog, Field, FormStack, Input, Note, Row, RowButton, Rows } from '../design'
 import { shortSha } from '../lib/evidence'
-import { boundInputIds } from '../lib/shapes'
+import { boundInputValues } from '../lib/shapes'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
@@ -195,7 +195,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const compiled = flow?.compiled.document ?? null
   const inputs = compiled?.format === 'agents' ? compiled.flow.inputs : []
   /** Which of `inputs` the shape's own layout fills from the resolved target — head, base, a pull request — rather than from a person typing. */
-  const bound = compiled?.format === 'agents' ? boundInputIds(compiled.flow) : new Set<string>()
+  const bound = compiled?.format === 'agents' ? boundInputValues(compiled.flow) : new Map<string, never>()
   const errors = (flow?.problems ?? []).filter((one) => one.level === 'error')
   const warnings = (flow?.problems ?? []).filter((one) => one.level === 'warning')
   const startable = flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
@@ -319,12 +319,24 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
           {inputs.filter((input) => bound.has(input.id)).length > 0 && (
             <Rows>
-              {inputs.filter((input) => bound.has(input.id)).map((input) => (
-                // A fact the chosen start already filled in — never a field
-                // that looks editable only to refuse the edit typing into it
-                // would send.
-                <Row key={input.id} title={input.label} desc={vars[input.id] || '—'} />
-              ))}
+              {inputs.filter((input) => bound.has(input.id)).map((input) => {
+                const value = vars[input.id] ?? ''
+                const kind = bound.get(input.id)
+                // `head`/`base` are commits — shown short, the full sha still
+                // reachable on hover; a branch, a pull request or a diff's own
+                // label is not a sha and is never shortened.
+                const isSha = (kind === 'head' || kind === 'base') && value !== ''
+                return (
+                  <Row
+                    key={input.id}
+                    title={input.label}
+                    // A fact the chosen start already filled in — never a
+                    // field that looks editable only to refuse the edit
+                    // typing into it would send.
+                    desc={isSha ? <span title={value}>{shortSha(value)}</span> : (value || '—')}
+                  />
+                )
+              })}
             </Rows>
           )}
 

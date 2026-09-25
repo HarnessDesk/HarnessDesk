@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
-import { boundInputIds } from './shapes'
+import { boundInputIds, boundInputValues } from './shapes'
 
 /**
  * `boundInputIds` reads `layout.frontDoor.bindings` defensively, exactly like
@@ -45,5 +45,21 @@ describe('boundInputIds', () => {
     expect(() => boundInputIds(policy({ layout: { frontDoor: { bindings: 'not an array' as never } } }))).not.toThrow()
     expect(() => boundInputIds(policy({ layout: { frontDoor: { bindings: [{ input: '__proto__', value: 'head' }] } } }))).not.toThrow()
     expect(boundInputIds(policy({ layout: { frontDoor: { bindings: [{ input: '__proto__', value: 'head' }] } } }))).toEqual(new Set())
+  })
+})
+
+describe('boundInputValues', () => {
+  it('names which resolved fact each bound input takes — a branch, a base, a head, a pull request', () => {
+    const shape = policy({ layout: { frontDoor: { bindings: [{ input: 'branch', value: 'branch' }, { input: 'topic', value: 'head' }] } } })
+    expect(boundInputValues(shape)).toEqual(new Map([['branch', 'branch'], ['topic', 'head']]))
+  })
+
+  it('drops a binding whose own value is not one of the five the host resolves', () => {
+    const shape = policy({ layout: { frontDoor: { bindings: [{ input: 'branch', value: 'not-a-real-kind' }] } } })
+    expect(boundInputValues(shape)).toEqual(new Map())
+  })
+
+  it('is empty for a shape with no layout, or a layout with no bindings', () => {
+    expect(boundInputValues(policy())).toEqual(new Map())
   })
 })

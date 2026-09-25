@@ -375,6 +375,56 @@ it('an input bound from the start target renders read-only, as a fact, never an 
   expect(document.body.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
 })
 
+it('a bound input carrying a commit — head or base — shows it short, with the full sha in title; a branch or a pull request bound input shows its own value whole', async () => {
+  const boundPolicy = {
+    version: 2 as const, name: 'Review',
+    inputs: [{ id: 'head', label: 'Commit to review' }, { id: 'base', label: 'Compared with' }, { id: 'pr', label: 'Pull request' }],
+    roles: [{ id: 'reviewer', kind: 'person' as const, outcomes: ['done'] }], rules: [],
+    seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240,
+    layout: {
+      frontDoor: {
+        bindings: [
+          { input: 'head', value: 'head' as const },
+          { input: 'base', value: 'base' as const },
+          { input: 'pr', value: 'pr' as const },
+        ],
+      },
+    },
+  }
+  const flow: FlowPreview = {
+    token: 'tok', compiled: { document: { format: 'agents', flow: boundPolicy }, bindings: [], problems: [] },
+    seats: [], commands: [], guards: [], messaging: 'board-only', problems: [],
+  }
+  const preview = previewOf(flow, {
+    vars: { head: 'a1b2c3d4e5f6789', base: 'f6e5d4c3b2a1000', pr: '#42' },
+    target: { label: 'pull request #42', base: null, head: 'a1b2c3d4e5f6789', dirty: false, independence: 'unknown' },
+  })
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')],
+    'agent/list': () => [],
+    'flow/source': () => 'version: 2\nname: Review\n',
+    'authoring/start/preview': () => preview,
+  })
+
+  render(store, { kind: 'pull-request', root: '/repo', number: 42 })
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+
+  // The two commit-bearing inputs read short, in the interface font, never
+  // the raw 15-character value sitting in the row as if it were prose.
+  expect(document.body.textContent).toContain('a1b2c3d')
+  expect(document.body.textContent).not.toContain('a1b2c3d4e5f6789')
+  expect(document.body.textContent).toContain('f6e5d4c')
+  expect(document.body.textContent).not.toContain('f6e5d4c3b2a1000')
+  // The full sha for each is still reachable, on hover.
+  expect(document.body.querySelector('[title="a1b2c3d4e5f6789"]')).not.toBeNull()
+  expect(document.body.querySelector('[title="f6e5d4c3b2a1000"]')).not.toBeNull()
+  // A pull request number is not a commit — shown whole, never shortened.
+  expect(document.body.textContent).toContain('#42')
+})
+
 it('source or input changes disable Start immediately, before the fresh dry run answers', async () => {
   const held = previewOf({ ...emptyFlow('held-token') })
   const store = new AppStore('ws://localhost:0/')

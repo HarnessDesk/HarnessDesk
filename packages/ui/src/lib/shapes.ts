@@ -1,7 +1,8 @@
 import {
+  SHAPE_BINDING_VALUES,
   SHAPE_LAYOUT_LIMIT,
   SHAPE_POSITION_LIMIT,
-  type CeilingLevel, type FlowAgentRole, type FlowCheck, type FlowPolicy, type FlowPolicyRole, type FlowPolicyRule, type FlowThen,
+  type CeilingLevel, type FlowAgentRole, type FlowCheck, type FlowPolicy, type FlowPolicyRole, type FlowPolicyRule, type FlowThen, type ShapeBindingValue,
 } from '@harnessdesk/protocol'
 
 /**
@@ -191,17 +192,30 @@ export const defaultGraphPosition = (index: number): GraphPoint => ({ x: 40, y: 
  * can show that one as the fact it is instead of a field that looks editable
  * and refuses the edit.
  */
-export const boundInputIds = (policy: FlowPolicy): ReadonlySet<string> => {
+export const boundInputIds = (policy: FlowPolicy): ReadonlySet<string> => new Set(boundInputValues(policy).keys())
+
+/**
+ * The same reading as `boundInputIds`, naming which resolved fact — a
+ * branch, a base, a head, a pull request, a diff — each bound input takes.
+ * `head` and `base` are commits; a screen that shows one short still owes
+ * the exact value somewhere a person can read it, since this is the only
+ * place that knows which bound inputs are shas and which are not.
+ */
+export const boundInputValues = (policy: FlowPolicy): ReadonlyMap<string, ShapeBindingValue> => {
   const layout = asRecord(policy.layout)
   const frontDoor = layout ? asRecord(layout['frontDoor']) : null
   const raw = frontDoor ? frontDoor['bindings'] : null
-  if (!Array.isArray(raw)) return new Set()
+  if (!Array.isArray(raw)) return new Map()
   const ids = new Set(policy.inputs.map((input) => input.id))
-  const bound = new Set<string>()
+  const kinds: readonly string[] = SHAPE_BINDING_VALUES
+  const bound = new Map<string, ShapeBindingValue>()
   for (const entry of raw.slice(0, SHAPE_LAYOUT_LIMIT)) {
     const record = asRecord(entry)
     const id = record?.['input']
-    if (typeof id === 'string' && !PROTOTYPE_KEYS.has(id) && ids.has(id)) bound.add(id)
+    const value = record?.['value']
+    if (typeof id === 'string' && !PROTOTYPE_KEYS.has(id) && ids.has(id) && typeof value === 'string' && kinds.includes(value)) {
+      bound.set(id, value as ShapeBindingValue)
+    }
   }
   return bound
 }
