@@ -90,16 +90,26 @@ const CardFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
   <div data-slot="card-footer" className={cn('flex items-center px-4', className)} {...props} />
 )
 
-/** A fixed-height media window inside a preview card. */
+/**
+ * A media window inside a card — an editor, most often.
+ *
+ * `editor` is the fixed height a preview stands at. `lines` is a window that
+ * grows with what it shows up to a bound and scrolls past it; the bound is
+ * `maxHeight`, in pixels, because it is measured from the content's own type
+ * (so many lines at the editor's size and leading), which no token can know.
+ */
 const CardViewport = ({
   className,
   size = 'editor',
+  maxHeight,
+  style,
   ...props
-}: React.ComponentProps<'div'> & { size?: 'editor' }) => (
+}: React.ComponentProps<'div'> & { size?: 'editor' | 'lines'; maxHeight?: number }) => (
   <div
     data-slot="card-viewport"
     data-size={size}
-    className={cn(size === 'editor' && 'h-44', className)}
+    className={cn(size === 'editor' && 'h-44', size === 'lines' && 'overflow-auto', className)}
+    style={size === 'lines' && maxHeight !== undefined ? { ...style, maxHeight } : style}
     {...props}
   />
 )

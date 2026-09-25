@@ -129,7 +129,7 @@ export const BringHome = ({ worktree, onClose }: { worktree: Worktree; onClose: 
       onCancel={onClose}
     >
       <p>
-        <span className="text-(--hd-foreground)">{folder}</span> switches
+        {folder} switches
         {main?.branch && (
           <>
             {' '}

@@ -135,6 +135,21 @@ describe('TaskPanel', () => {
     expect(text()).toContain('in progress')
   })
 
+  it('strikes a finished task through as done text, with its mark on the label\'s first line', () => {
+    mount(
+      { s1: planning([{ content: 'explore the repo', status: 'completed' }, { content: 'ship it', status: 'pending' }]) },
+      's1',
+    )
+    const items = [...container.querySelectorAll('li')]
+    const label = (item: Element | undefined) => item?.querySelector('button [data-slot="text"][data-role="value"]')
+    expect(label(items[0])?.hasAttribute('data-done')).toBe(true)
+    expect(label(items[1])?.hasAttribute('data-done')).toBe(false)
+    // The row itself is no longer the thing struck through.
+    expect(items[0]?.querySelector('button')?.hasAttribute('data-done')).toBe(false)
+    const mark = items[0]?.querySelector('[data-mark]')
+    expect(mark?.getAttribute('data-role')).toBe('value')
+  })
+
   it('is the *other* session’s plan when the other session is the one on screen', () => {
     // One list per conversation. A single shared list is what put the
     // previous agent's nine tasks under the next agent's session.

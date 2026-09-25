@@ -62,6 +62,5 @@
 /* --- the range diff ------------------------------------------------------ */
 
 .rangeDiff {
-  overflow: auto;
   height: 100%;
 }

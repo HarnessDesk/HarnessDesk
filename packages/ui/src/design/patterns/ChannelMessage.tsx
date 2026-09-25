@@ -5,6 +5,7 @@ import type { Brand } from '../../lib/brands'
 import { Avatar, AvatarFallback } from '../ui/avatar'
 import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
+import { CodeText } from './Settings'
 
 /**
  * One line in the team channel, said the way a person reads a conversation.
@@ -459,9 +460,9 @@ export const ChannelMessage = ({
               {peeking ? 'Hide envelope' : 'Envelope'}
             </Button>
             {peeking && (
-              <pre className="mt-1.5 overflow-x-auto rounded-md bg-muted p-2 font-mono text-xs leading-(--hd-line-xs) whitespace-pre-wrap">
+              <CodeText as="pre" block ground="muted" wrap className="mt-1.5">
                 {envelope}
-              </pre>
+              </CodeText>
             )}
           </>
         )}

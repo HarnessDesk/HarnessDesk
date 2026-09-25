@@ -8,14 +8,6 @@
   min-width: 0;
 }
 
-.titlebar,
-.header {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--hd-bar-gap);
-}
-
 .workspaceName {
   min-width: 0;
   overflow: hidden;
@@ -334,11 +326,6 @@
   margin-top: var(--hd-space-1);
 }
 
-.account {
-  position: relative;
-  flex: none;
-}
-
 .accountRow {
   gap: var(--hd-space-2);
 }
@@ -396,6 +383,15 @@
 
 .usageDetails {
   margin: 0 var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-8);
+}
+
+/* The lanes stand a row's pitch apart the way the dashboard's own lanes are
+   spaced — by the gap between them, not a height each row claims. */
+.usageLanes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-2);
+  margin-block: var(--hd-space-1);
 }
 
 .usageLane {

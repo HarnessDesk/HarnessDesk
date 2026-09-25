@@ -886,6 +886,8 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
   fade?: boolean
   numeric?: boolean
+  /** A finished item in a checklist: struck through and stepped back, the way a row marked done is. */
+  done?: boolean
 }
 
 /** The interface's named text roles, including dashboard readouts. */
@@ -901,6 +903,7 @@ export const Text = ({
   truncateFrom,
   fade,
   numeric,
+  done,
   children,
   ...props
 }: TextProps) =>
@@ -914,6 +917,7 @@ export const Text = ({
       ...(tint ? { 'data-tint': tint } : {}),
       ...(ink ? { 'data-ink': ink } : {}),
       ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
+      ...(done ? { 'data-done': '' } : {}),
       className: cx(
         TEXT_ROLE[role],
         tone
@@ -928,11 +932,42 @@ export const Text = ({
         truncateFrom === 'start' && '[direction:rtl] text-left',
         fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
         numeric && 'tabular-nums',
+        done && 'line-through opacity-60',
         className,
       ),
     },
     children,
   )
+
+/**
+ * The mark at the head of a line of text — a bullet, a task's check.
+ *
+ * It is set in the text's own role and is one of that text's lines tall (a
+ * zero-width space is the line's strut), with the mark centred in it; the
+ * row lays the two out on their first baseline, so the mark sits on the
+ * middle of the label's first line however many lines the label wraps to and
+ * whatever box the label is drawn in. `role` is the label's.
+ */
+export const TextMark = ({
+  role = 'navigation',
+  className,
+  children,
+}: {
+  role?: TextRole
+  className?: string
+  children: ReactNode
+}) => (
+  <Text
+    role={role}
+    ink="muted"
+    aria-hidden="true"
+    data-mark=""
+    className={cx('inline-flex w-3 shrink-0 items-center justify-center', className)}
+  >
+    {'\u200b'}
+    {children}
+  </Text>
+)
 
 /** The label line above navigation rows, including the controls that act on that list. */
 export const NavigationGroupHeader = ({
@@ -1271,21 +1306,44 @@ export const SectionToggle = ({ children, className }: { children: ReactNode; cl
   <span className={cx(styles.sectionToggle, className)}>{children}</span>
 )
 
+/**
+ * Code and output in the code face.
+ *
+ * `block` is text set as a block — laid out line for line, at the code step
+ * and its leading, inset from the box it fills: a file's text standing in a
+ * card where an editor would be (a plugin panel's code block), a raw envelope
+ * a message was sent in, the detail of an Agent that could not be read.
+ * `ground="muted"` gives the block a plate of its own, on the muted ground at
+ * the small corner and in the secondary ink, for one that sits among
+ * sentences rather than filling a card. `wrap` folds long lines instead of
+ * scrolling them, for text read as prose rather than aligned as code.
+ */
 export const CodeText = ({
   as = 'span',
   size = 'default',
+  block = false,
+  ground = 'none',
+  wrap = false,
   className,
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   as?: 'span' | 'code' | 'pre'
   size?: 'default' | 'inherit'
+  block?: boolean
+  /** A block's own plate; only a `block` takes one. */
+  ground?: 'none' | 'muted'
+  /** Fold a block's long lines; only a `block` takes it. */
+  wrap?: boolean
   children: ReactNode
 }) => createElement(as, {
   ...props,
   'data-slot': 'code-text',
   'data-size': size,
-  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, className),
+  ...(block ? { 'data-block': '' } : {}),
+  ...(block && ground !== 'none' ? { 'data-ground': ground } : {}),
+  ...(block && wrap ? { 'data-wrap': '' } : {}),
+  className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)
 
 /** Initials inside a row's neutral mark. They identify the thing without becoming its name. */

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { Button, ToolPane, ToolPaneBody, ToolPaneMessage, ToolPaneReading } from '../design'
+import { Button, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneReading, ToolPaneStage } from '../design'
 import { Markdown } from './Markdown'
 import { ToolPaneHeader } from './ToolPaneHeader'
 import styles from './ToolPanes.module.css'
@@ -135,12 +135,9 @@ export const PreviewPane = () => {
           frameSrc === null ? (
             <ToolPaneMessage>Loading…</ToolPaneMessage>
           ) : (
-            <iframe
-              className={`${styles.frame} border-0 bg-(--hd-external-canvas)`}
-              title={path}
-              sandbox="allow-scripts allow-forms allow-popups"
-              src={frameSrc}
-            />
+            <ToolPaneStage>
+              <ToolPaneGuest title={path} sandbox="allow-scripts allow-forms allow-popups" src={frameSrc} />
+            </ToolPaneStage>
           )
         ) : kind === 'pdf' ? (
           frameSrc === null ? (
@@ -149,7 +146,9 @@ export const PreviewPane = () => {
             // No `sandbox` here: Chromium treats its PDF viewer as a plugin
             // and blocks plugins in sandboxed frames. The endpoint's CSP and
             // the single-use ticket still bound what the document can do.
-            <iframe className={`${styles.frame} border-0 bg-(--hd-external-canvas)`} title={path} src={frameSrc} />
+            <ToolPaneStage>
+              <ToolPaneGuest title={path} src={frameSrc} />
+            </ToolPaneStage>
           )
         ) : content === null ? (
           <ToolPaneMessage>Loading…</ToolPaneMessage>

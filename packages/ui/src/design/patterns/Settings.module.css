@@ -1145,6 +1145,26 @@
   font-size: inherit;
 }
 
+.monoBlock {
+  display: block;
+  margin: 0;
+  padding: var(--hd-space-2);
+  overflow-x: auto;
+  white-space: pre;
+  font-size: var(--hd-code-text);
+  line-height: var(--hd-code-line);
+}
+
+.monoBlock[data-ground='muted'] {
+  border-radius: var(--hd-radius-sm);
+  background: var(--hd-muted);
+  color: var(--hd-secondary-foreground);
+}
+
+.monoBlock[data-wrap] {
+  white-space: pre-wrap;
+}
+
 .monogram {
   font-size: var(--hd-text-xs);
   font-weight: var(--hd-weight-semibold);

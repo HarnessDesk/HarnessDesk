@@ -19,15 +19,7 @@
      it was one more off-scale number in the app. One rung down; a pixel of
      bullet gap is not what tells these rows apart. */
   gap: var(--hd-space-1-5);
-  align-items: flex-start;
-}
-
-.bullet {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
+  align-items: first baseline; /* desk: flex-start → first baseline, the TextMark sits on the label's first line, not 8px above it */
 }
 
 /*

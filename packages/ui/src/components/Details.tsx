@@ -11,7 +11,7 @@ import { Agents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { DiffView } from './Diff'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button } from '../design'
+import { Button, ListRowDetail } from '../design'
 import {
   Counts,
   GroupLine,
@@ -160,11 +160,11 @@ export const ChangesView = () => {
       tools={
         <>
           <PanelPill
-            {...(staged ? { 'data-on': '' } : {})}
+            pressed={staged}
             title="Show what is staged instead of what is not"
             onClick={() => setStaged((value) => !value)}
           >
-            staged
+            Staged
           </PanelPill>
           {/* Not the panel's expand glyph, which sits directly above this one
               in the panel's own strip. That one gives this panel the room; this
@@ -197,11 +197,11 @@ export const TrajectoryView = () => {
       foot={foot}
       tools={
         <PanelPill
-          {...(timedOnly ? { 'data-on': '' } : {})}
+          pressed={timedOnly}
           title="Show only steps the runtime timed"
           onClick={() => setTimedOnly((value) => !value)}
         >
-          timed
+          Timed
         </PanelPill>
       }
     >
@@ -392,9 +392,9 @@ const Changes = ({
                   tooltip={file.path}
                   trail={<Counts added={count.added} removed={count.removed} />}
                 />
-                <div className="pt-1 pb-2">
+                <ListRowDetail>
                   <DiffView diff={file.diff} />
-                </div>
+                </ListRowDetail>
               </div>
             )
           })}
@@ -433,7 +433,7 @@ const Changes = ({
                 {...(count ? { trail: <Counts added={count.added} removed={count.removed} /> } : {})}
               />
               {selected === file.path && (
-                <div className="pt-1 pb-2">
+                <ListRowDetail>
                   <div className={styles.fileActions}>
                     <Button
                       type="button"
@@ -459,7 +459,7 @@ const Changes = ({
                         : 'No diff to show.'}
                     </PanelEmpty>
                   )}
-                </div>
+                </ListRowDetail>
               )}
             </div>
           )

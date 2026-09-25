@@ -354,9 +354,9 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
         <Prose text={lead} />
       </Text>
       {detail && (
-        <pre className="m-0 max-h-[170px] overflow-auto p-2 px-2.5 rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-secondary-foreground) font-(family-name:--hd-font-code) text-xs leading-(--hd-line-sm) whitespace-pre">
+        <CodeText as="pre" block ground="muted" className="max-h-[170px] overflow-auto">
           {detail}
-        </pre>
+        </CodeText>
       )}
       {remediation && (
         <Text role="muted" as="p" className="m-0">

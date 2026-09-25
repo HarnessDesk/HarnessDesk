@@ -384,18 +384,16 @@ const AccentSwatches = () => {
           aria-label={entry.label}
           title={entry.label}
           variant="ghost" size="icon-circle"
-          data-swatch=""
           {...(accent === entry.value ? { 'data-on': '' } : {})}
-          style={{
-            background:
-              (dark ? entry.dark : entry.colour) ??
-              /* "Default" is the palette's own accent: the live token while it
-                 is the one in use, and the palette's recorded value otherwise
-                 — the token on `body` would report whichever accent is on. */
-              (accent === 'default'
-                ? 'var(--hd-accent)'
-                : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)')),
-          }}
+          swatch={
+            (dark ? entry.dark : entry.colour) ??
+            /* "Default" is the palette's own accent: the live token while it
+               is the one in use, and the palette's recorded value otherwise
+               — the token on `body` would report whichever accent is on. */
+            (accent === 'default'
+              ? 'var(--hd-accent)'
+              : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)'))
+          }
           onClick={() => store.setAccent(entry.value)}
         />
       ))}

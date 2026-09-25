@@ -3,6 +3,7 @@ import { forwardRef, type ComponentProps } from 'react'
 import { cn } from '@/lib/utils'
 
 import { DialogPopup } from '../ui/dialog'
+import { RailSection } from './DockPanel'
 
 /**
  * The full-window destination shell shared by Settings and Dashboard.
@@ -30,20 +31,14 @@ export const AppWindowRail = ({ className, ...props }: ComponentProps<'nav'>) =>
   />
 )
 
-export const AppWindowRailTop = ({ className, ...props }: ComponentProps<'div'>) => (
-  <div
-    data-slot="app-window-rail-top"
-    className={cn('px-3 pt-(--hd-titlebar-height) pb-2', className)}
-    {...props}
-  />
+/** The window rail's head, under the window buttons: the system's rail section. */
+export const AppWindowRailTop = (props: ComponentProps<'div'>) => (
+  <RailSection stretch="head" density="comfortable" corner {...props} />
 )
 
-export const AppWindowRailScroll = ({ className, ...props }: ComponentProps<'div'>) => (
-  <div
-    data-slot="app-window-rail-scroll"
-    className={cn('px-3 pt-1.5 pb-3', className)}
-    {...props}
-  />
+/** The window rail's scrolling list: the system's rail section. */
+export const AppWindowRailScroll = (props: ComponentProps<'div'>) => (
+  <RailSection stretch="list" density="comfortable" {...props} />
 )
 
 export const AppWindowPage = ({ className, ...props }: ComponentProps<'div'>) => (

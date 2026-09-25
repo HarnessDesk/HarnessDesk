@@ -364,6 +364,14 @@ try {
       if (faults.length) throw new Error(name + ': ' + faults.join('; '))
     }
     const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false })
+    /* Asked again after the capture, because the substitution above does not
+       hold: a React-controlled field (the browser pane's address bar) writes
+       its real value back on its next render, which can land between the
+       audit and the capture. A frame taken across that render would carry the
+       real path, so the window is re-read and the frame is discarded unless
+       it is still publishable. A render that lands after the capture only
+       costs a take. */
+    await audit(name)
     writeFileSync(`${OUT}/${name}.png`, Buffer.from(data, 'base64'))
     say(`✓ ${name}.png`)
   }

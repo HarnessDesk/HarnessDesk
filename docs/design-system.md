@@ -338,6 +338,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-seg-text` | `12px` |
 | `--hd-chip-radius` | `9999px` |
 | `--hd-chip-fill` | `rgb(245, 245, 245)` |
+| `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-toggle-knob` | `rgb(255, 255, 255)` |
 | `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
@@ -359,6 +360,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-lightbox-shadow` | `0 24px 60px rgba(0, 0, 0, 0.5)` |
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
+| `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
 | `--hd-tint-blue-ink` | `rgb(69, 99, 198)` |
 | `--hd-tint-green-ink` | `rgb(18, 125, 52)` |
@@ -768,6 +770,18 @@ The full-window destination shell shared by Settings and Dashboard.
 Base UI still owns focus and modality; this pattern owns the window ground
 and the two plates that meet inside it.
 
+### `AppWindowRailTop`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The window rail's head, under the window buttons: the system's rail section.
+
+### `AppWindowRailScroll`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+The window rail's scrolling list: the system's rail section.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -974,6 +988,28 @@ The grounded canvas the split tree and docks share.
 `packages/ui/src/design/patterns/DockPanel.tsx`
 
 The navigation plate down the workbench's side.
+
+### `RailSection`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+A navigation rail's two stretches: the short column of places at its head,
+and the long list that scrolls under it.
+
+One part for both rails the app has — the workbench's sidebar and the
+rail down the side of a full window (Settings, the dashboard, Agents). Both
+hold their rows on a gutter, close the head with a short step before the
+list's first label, keep a hair of air under that label, and leave a longer
+step after the last row so it can be scrolled clear of what sits below.
+
+`density` is the one way they differ, and it is the rail's own density, the
+word the window rail already carries as `data-hd-density`: `compact` is the
+sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
+lines up with the bars above them; `comfortable` is the window rail, whose
+rows carry a second line and take a wider gutter and longer steps.
+
+`corner` puts the head below the band the native window buttons sit in,
+for a rail that owns the window's top-left corner with no bar of its own.
 
 ### `WorkbenchScrim`
 
@@ -1460,6 +1496,18 @@ The page's 20px semibold name, matching the wordmark, one line saying what it is
 
 The interface's named text roles, including dashboard readouts.
 
+### `TextMark`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The mark at the head of a line of text — a bullet, a task's check.
+
+It is set in the text's own role and is one of that text's lines tall (a
+zero-width space is the line's strut), with the mark centred in it; the
+row lays the two out on their first baseline, so the mark sits on the
+middle of the label's first line however many lines the label wraps to and
+whatever box the label is drawn in. `role` is the label's.
+
 ### `NavigationGroupHeader`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1549,6 +1597,21 @@ A row's answer in words. A wrapped text answer takes its line under the
 title; a `numeric` one — money, a count — is compact: it keeps the row's
 end on tabular figures, where a column of them lines up by place.
 
+### `CodeText`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Code and output in the code face.
+
+`block` is text set as a block — laid out line for line, at the code step
+and its leading, inset from the box it fills: a file's text standing in a
+card where an editor would be (a plugin panel's code block), a raw envelope
+a message was sent in, the detail of an Agent that could not be read.
+`ground="muted"` gives the block a plate of its own, on the muted ground at
+the small corner and in the secondary ink, for one that sits among
+sentences rather than filling a card. `wrap` folds long lines instead of
+scrolling them, for text read as prose rather than aligned as code.
+
 ### `Monogram`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1573,8 +1636,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 451 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
-| `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
+| `screenAppearance` | 480 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `uppercaseLabel` | 8 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |

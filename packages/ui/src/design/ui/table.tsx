@@ -116,14 +116,24 @@ const TableHead = ({
   />
 )
 
+/**
+ * `align` is the cell's half of the column's alignment, which `TableHead`
+ * already carries: a column the head sets flush right is a column of figures,
+ * so its cells are set flush right in tabular digits and line up under it.
+ */
 const TableCell = ({
   className,
   variant = 'default',
+  align = 'start',
   ...props
-}: React.ComponentProps<'td'> & { variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel' }) => (
+}: Omit<React.ComponentProps<'td'>, 'align'> & {
+  variant?: 'default' | 'matrix' | 'flush' | 'detail' | 'footer' | 'panel'
+  align?: 'start' | 'end'
+}) => (
   <td
     data-slot="table-cell"
     data-variant={variant}
+    data-align={align}
     className={cn(
       variant === 'default' && 'px-2 py-1.5 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0',
       variant === 'matrix' && 'p-0 text-center align-middle',
@@ -131,6 +141,7 @@ const TableCell = ({
       variant === 'detail' && 'bg-(--hd-background) px-3 pt-2.5 pb-3 align-middle',
       variant === 'footer' && 'px-1.5 py-2 text-center text-xs tabular-nums whitespace-nowrap text-(--hd-muted-foreground)',
       variant === 'panel' && 'px-2 py-1 align-top whitespace-normal [overflow-wrap:anywhere]',
+      align === 'end' && 'text-right tabular-nums',
       className,
     )}
     {...props}

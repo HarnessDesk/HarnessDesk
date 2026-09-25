@@ -15,6 +15,7 @@ import {
   Checkbox,
   Dialog,
   FileState,
+  GitHistoryDiffViewport,
   Input,
   NativeSelect,
   Note,
@@ -850,9 +851,9 @@ export const DiffRangeDialog = ({
       ) : diff.length === 0 ? (
         <Note>The two are identical.</Note>
       ) : (
-        <div className={`${styles.rangeDiff} px-3 py-2.5`}>
+        <GitHistoryDiffViewport className={styles.rangeDiff}>
           <DiffView diff={diff} />
-        </div>
+        </GitHistoryDiffViewport>
       )}
     </Dialog>
   )

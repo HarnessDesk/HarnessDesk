@@ -1,6 +1,7 @@
 import { forwardRef, type ComponentProps } from 'react'
 
 import { cn } from '@/lib/utils'
+import { ListRowDetail } from '../ui/list-row'
 import { Toolbar } from '../ui/section'
 import styles from './GitHistory.module.css'
 
@@ -41,9 +42,8 @@ const GitHistoryDiffViewport = ({ className, ...props }: ComponentProps<'div'>) 
   <div data-slot="git-history-diff-viewport" className={cn('min-h-0 px-3 py-2.5', styles.diffViewport, className)} {...props} />
 )
 
-const GitHistoryInlinePatch = ({ className, ...props }: ComponentProps<'div'>) => (
-  <div data-slot="git-history-inline-patch" className={cn('px-3 pt-1 pb-3', className)} {...props} />
-)
+/** A commit's file opened in place: the system's row detail, on the file list's inner line. */
+const GitHistoryInlinePatch = (props: ComponentProps<'div'>) => <ListRowDetail inset {...props} />
 
 export {
   GitHistoryActionBar,
