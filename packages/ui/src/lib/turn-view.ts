@@ -2,6 +2,7 @@ import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/proto
 
 import { elapsedSince, instant } from './clock'
 import { countFileChange } from './diff'
+import { readToolResult } from './tool-result'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'
 
 /**
@@ -30,11 +31,20 @@ export interface TurnView {
 const isAnswer = (item: AgentItem): boolean =>
   item.type === 'assistantMessage' && item.phase !== 'commentary'
 
+const failedResult = (value: unknown): boolean => {
+  const reading = readToolResult(value)
+  return (reading.kind === 'command' && typeof reading.exitCode === 'number' && reading.exitCode !== 0) || ((reading.kind === 'output' || reading.kind === 'blocks') && reading.error)
+}
+
 /** The status a reader sees after a step has supplied its final result. */
 export const effectiveItemStatus = (item: AgentItem): ItemStatus | undefined => {
   if (!('status' in item)) return undefined
   if (item.status !== 'completed') return item.status
   if (item.type === 'toolCall' && item.error) return 'failed'
+  // A result that says so itself: a command record that exited non-zero, or
+  // an output flagged as an error. Read the way the transcript draws it, so
+  // an "Exit code 1" line never sits under a success mark.
+  if (item.type === 'toolCall' && item.result?.some((part) => part.type === 'json' && failedResult(part.value))) return 'failed'
   if (item.type === 'command' && typeof item.exitCode === 'number' && item.exitCode !== 0) return 'failed'
   return item.status
 }
