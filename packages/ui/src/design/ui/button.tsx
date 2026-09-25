@@ -1,5 +1,6 @@
 import { Button as ButtonPrimitive } from '@base-ui/react/button'
 import { cva, type VariantProps } from 'class-variance-authority'
+import type { CSSProperties } from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -238,6 +239,13 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   cursor?: 'default' | 'pointer'
   /** A quiet row may brighten its inherited label on hover without changing warning ink. */
   quietHover?: boolean
+  /**
+   * A colour that is itself the choice — an accent to pick. The button is
+   * filled with it and keeps it under the pointer; the ring that marks the one
+   * chosen is the `data-swatch` ring every swatch wears. The colour is data,
+   * the thing being chosen, never a screen's own paint.
+   */
+  swatch?: string
 }
 
 /* The variants that fill their button. A filled button says so on the
@@ -251,6 +259,8 @@ const Button = ({
   bordered = true,
   cursor = 'pointer',
   quietHover = false,
+  swatch,
+  style,
   type,
   render,
   ...props
@@ -259,12 +269,15 @@ const Button = ({
     data-slot="button"
     data-variant={variant}
     {...(FILLED.has(variant) ? { 'data-filled': '' } : {})}
+    {...(swatch !== undefined ? { 'data-swatch': '' } : {})}
     className={cn(
       buttonVariants({ variant, size, className }),
       !bordered && 'border-0',
       cursor === 'default' && 'cursor-default',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
+      swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
     )}
+    style={swatch !== undefined && typeof style !== 'function' ? ({ ...style, '--swatch': swatch } as CSSProperties) : style}
     /* A bare <button> submits the form around it; nothing in this app means
        that, so the default is the safe one — the same rule Kit's Btn holds.
        Skipped when `render` is given, because the element being rendered may
