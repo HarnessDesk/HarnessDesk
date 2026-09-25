@@ -109,19 +109,28 @@ test('ordinary start keeps watched semantics', async (t) => {
 })
 
 // The same fake `packages/server/test/agent-seat.test.ts` runs the real Codex
-// adapter against, so the fake rig and this suite exercise one fixture.
+// adapter against.
 const CODEX_FAKE = fileURLToPath(new URL('../../../adapter-codex/dist/test/fixtures/fake-codex.mjs', import.meta.url))
 
 /*
  * `HoldFake` above proves the mechanism; this proves it against a real
- * adapter and its own fake process — the same pair the fake-agent rig wires
- * up for a screenshot or an in-app walk. Every shipped shape's `grant` is
- * `read` or `edit` (`packages/server/flows/*.yml`), both levels
- * `CODEX_CEILINGS` declares (`packages/adapter-codex/src/runtime.ts`), so a
- * front-door start seating Codex for either should hold — not just ask —
- * exactly as it would for the real binary. Before #927, nothing exercised
- * this path end to end, and the fake rig's front door refused every seat as
- * unheld.
+ * adapter and its own fake process. Every shipped shape's `grant` is `read`
+ * or `edit` (`packages/server/flows/*.yml`), both levels `CODEX_CEILINGS`
+ * declares (`packages/adapter-codex/src/runtime.ts`), so a front-door start
+ * seating Codex for either should hold — not just ask — exactly as it would
+ * for the real binary.
+ *
+ * This is not, by itself, the fake-agent rig: `script/shots/seed.mjs`
+ * registers every cast member, `codex` included, as the same uniform ACP
+ * fixture (`script/shots/agent.mjs`), which — like every ACP adapter,
+ * documented in `docs/agent-capabilities.md` — gives no reliable ceiling
+ * read-back at all. `script/shots-front-door.test.mjs` is the test that
+ * proves the rig itself: staged with the real `seed.mjs`, in the one existing
+ * mode (`HD_SHOTS_NATIVE_CODEX=1`) where the reserved `codex` id is freed for
+ * the real built-in adapter — over this same fixture — to answer instead.
+ * Refs #927: making that the rig's own default, or building the front-door
+ * scene the issue's routing comment also asks for, is screenshot-rig work
+ * this lane leaves alone.
  */
 test('a front-door start over the real Codex adapter and its fake seats every role held (#927)', async (t) => {
   const stateDir = tempDir('hd-front-door-codex-state-')
