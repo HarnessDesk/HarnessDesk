@@ -85,6 +85,7 @@ export const RemoveWorktree = ({
       title="Remove worktree"
       icon={<BranchIcon size={15} />}
       confirmLabel={dirty ? 'Discard changes and remove' : 'Remove worktree'}
+      tone="destructive"
       busyLabel={dirty ? 'Discarding…' : 'Removing…'}
       busy={busy}
       pending={changes === null || working}

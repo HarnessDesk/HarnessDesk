@@ -54,6 +54,7 @@ export const AgentNotes = ({ entry }: { readonly entry: AgentEntry }) => {
         <ConfirmDialog
           title="Clear this Agent’s notes?"
           confirmLabel="Clear notes"
+          tone="destructive"
           busy={busy}
           onCancel={() => setConfirming(false)}
           onConfirm={() => {

@@ -808,6 +808,7 @@ const RemoveDialog = ({
     <ConfirmDialog
       title={`Remove ${name}?`}
       confirmLabel="Move to Trash"
+      tone="destructive"
       busy={busy}
       onCancel={onClose}
       onConfirm={() => {
