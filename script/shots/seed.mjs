@@ -25,17 +25,18 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { CAST, CONVERSATIONS, HISTORY, PRIMARY, REPOS, rigRuntimeId } from './cast.mjs'
-import { HOME, SHOT_ENV, WORK } from './config.mjs'
+import { HOME, NATIVE_CODEX, SHOT_ENV, WORK } from './config.mjs'
 
 const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 /* `agent.mjs`, not the repository's `fake-acp-agent.mjs` fixture: that one is
    written to be deliberately un-Codex and answers "hearing: … done.", which is
    correct for the adapter's tests and unpublishable in a screenshot. */
 const AGENT = join(APP, 'script/shots/agent.mjs')
-// The native UI-system smoke needs one runtime that can host the integrated
-// terminal. In that run the built-in Codex adapter is pointed at its scripted
-// app-server fixture, so the camera-only ACP row must leave the `codex` id free.
-const REGISTERED_CAST = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
+// The built-in Codex adapter is the one row that can ever hold a ceiling
+// (`NATIVE_CODEX`, `config.mjs`, #927) — on by default, so the camera-only
+// ACP row must leave the `codex` id free unless staging was asked for the
+// all-camera desk (`HD_SHOTS_NATIVE_CODEX=0`).
+const REGISTERED_CAST = NATIVE_CODEX
   ? CAST.filter((agent) => agent.id !== 'codex')
   : CAST
 

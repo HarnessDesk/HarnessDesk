@@ -138,22 +138,34 @@ export const TILDIFY = (home, replacement = '~') => {
     const replacement = ${JSON.stringify(replacement)}
     const regex = pattern ? new RegExp(pattern, 'g') : null
     const shorten = (value) => (typeof value === 'string' && regex ? value.replace(regex, replacement) : value)
-    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    // A rewrite inside a region a person can actually type into is not a
+    // rewrite — it is an edit. \`contenteditable\` and \`.cm-content\` (the code
+    // editor's own root) hold live document state, so a text-node substitution
+    // there lands in the document itself, not only on screen (#941). Skipped
+    // rather than rewritten: COLLECT still reads this text as part of
+    // \`document.body.innerText\`, so an un-shortened real path left standing
+    // here is still audited — and still refused, the same way any other
+    // unshortened path is (see \`textReasons\`, below).
+    const isEditable = (element) => Boolean(element && element.closest('[contenteditable]:not([contenteditable="false"]), .cm-content'))
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => (isEditable(node.parentElement) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    })
     let node
     while ((node = walk.nextNode())) {
       const shortened = shorten(node.nodeValue)
       if (shortened !== node.nodeValue) node.nodeValue = shortened
     }
     // \`placeholder\` is drawn on screen exactly like a title is on hover, so
-    // both are rewritten before the capture (#922). \`aria-label\` is read for
-    // the audit (COLLECT, below) but never rewritten here: nothing paints it —
-    // \`Page.captureScreenshot\` cannot show what no browser ever draws — and
-    // the editor keys its own file identity off the exact, un-shortened path
-    // in \`.cm-content\`'s own aria-label (\`FilePane.tsx\`'s \`ariaLabel={path}\`).
-    // Mutating it here left that element unfindable by the very path a second
-    // theme's capture went looking for, which is not a hypothetical: it took
-    // the whole native suite down between \`editor-light\` and \`editor-dark\`
-    // the one time it ran (#932 review).
+    // both are rewritten before the capture (#922). \`aria-label\` is never
+    // read or rewritten here: nothing paints it — \`Page.captureScreenshot\`
+    // cannot show what no browser ever draws (COLLECT, below, deliberately
+    // does not read it either) — and the editor keys its own file identity
+    // off the exact, un-shortened path in \`.cm-content\`'s own aria-label
+    // (\`FilePane.tsx\`'s \`ariaLabel={path}\`). Mutating it here left that
+    // element unfindable by the very path a second theme's capture went
+    // looking for, which is not a hypothetical: it took the whole native
+    // suite down between \`editor-light\` and \`editor-dark\` the one time it
+    // ran (#932 review).
     for (const element of document.querySelectorAll('[title], [placeholder]')) {
       for (const name of ['title', 'placeholder']) {
         const value = element.getAttribute(name)
@@ -163,11 +175,14 @@ export const TILDIFY = (home, replacement = '~') => {
       }
     }
     // A field's contents live in its \`value\` property, which neither the text
-    // walk nor any attribute reaches — the browser pane's address bar is one.
-    for (const field of document.querySelectorAll('input:not([type=hidden]), textarea')) {
-      const shortened = shorten(field.value)
-      if (shortened !== field.value) field.value = shortened
-    }
+    // walk nor any attribute reaches. It is never rewritten, for the same
+    // reason a \`contenteditable\` region is not (#941): an \`<input>\` or
+    // \`<textarea>\` is exactly as editable as either, and a script-driven
+    // \`.value\` write can still land as the field's real content rather than
+    // only as a picture of one — the browser pane's address bar is one such
+    // field, and \`static-server.mjs\` is what actually keeps a real path out
+    // of it. COLLECT still reads every field's \`value\` (below), so a real
+    // path left in one is still audited and still refused.
     return true
   })()`
 }

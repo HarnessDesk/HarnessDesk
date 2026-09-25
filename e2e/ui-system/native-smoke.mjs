@@ -41,6 +41,7 @@ const shootArgs = explicitScenes
       '--scene', 'terminal',
       '--scene', 'board',
       '--scene', 'room',
+      '--scene', 'front-door',
       '--scene', 'browser',
     ]
 const chosenTheme = (() => {
