@@ -60,3 +60,18 @@ it('opens a row detail at the row\'s edges, or on the list\'s inner line when in
   expect(inset).toContain('pb-3')
   expect(inset).not.toContain('pb-2')
 })
+
+it('hangs a detail under a row\'s own title, on the third inset step', () => {
+  const title = renderToStaticMarkup(<ListRowDetail inset="title">reasoning</ListRowDetail>)
+  expect(title).toContain('data-inset="title"')
+  // The header's 2px of padding, its 16px icon and the 8px gap after it.
+  expect(title).toContain('ps-(--hd-space-6)')
+  expect(title).not.toContain('px-3')
+  expect(title).not.toContain('pt-1 ')
+
+  // A caller composing a plate back in (a code block, a diff) keeps the
+  // part's left indent and drops its own right padding with a plain
+  // `className`, rather than a fourth inset step for one shape.
+  const bare = renderToStaticMarkup(<ListRowDetail inset="title" className="pe-0">output</ListRowDetail>)
+  expect(bare).toContain('pe-0')
+})

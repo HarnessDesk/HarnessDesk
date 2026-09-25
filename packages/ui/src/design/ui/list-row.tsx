@@ -236,16 +236,31 @@ const ListRows = ({
  * edges carry on the row's; a list whose rows stand on an inner line (a
  * commit's files) sets the detail on that line, and gives it the longer
  * closing step its rows, which have no gap between them, do not.
+ *
+ * A third row has no list at all: a transcript step whose one opened body —
+ * reasoning, an argument list, a diff — hangs under the row's own *title*
+ * rather than its edge. `inset="title"` is that step: the header's 2px of
+ * padding, its 16px icon and the 8px gap after it, so the body's first word
+ * lands under the title's first letter. Padding, not margin, even for a
+ * child that draws its own plate — a full-width block is indented the same
+ * either way, and a caller composing a plate back in adds `pe-0` to keep its
+ * own right edge.
  */
 const ListRowDetail = ({
   className,
   inset = false,
   ...props
-}: React.ComponentProps<'div'> & { inset?: boolean }) => (
+}: React.ComponentProps<'div'> & { inset?: boolean | 'title' }) => (
   <div
     data-slot="list-row-detail"
-    {...(inset ? { 'data-inset': '' } : {})}
-    className={cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2', className)}
+    {...(inset === true ? { 'data-inset': '' } : {})}
+    {...(inset === 'title' ? { 'data-inset': 'title' } : {})}
+    className={cn(
+      inset === 'title'
+        ? 'pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)'
+        : cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2'),
+      className,
+    )}
     {...props}
   />
 )

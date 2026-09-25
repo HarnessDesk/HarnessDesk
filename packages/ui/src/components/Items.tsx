@@ -46,6 +46,7 @@ import {
   KeyValue,
   KeyValueRow,
   Lightbox,
+  ListRowDetail,
   Note,
   Separator,
   Spinner,
@@ -235,9 +236,12 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
 /**
  * Shared disclosure row used by commands, tools, reasoning, and file changes.
  *
- * An opened step hangs its body under its own title, one way: the body only
- * places what it holds, and each thing in it — a code plate, a diff, a list
- * of arguments, a line of thought — is a design part that owns its own box.
+ * An opened step hangs its body under its own title, one way: `ListRowDetail`
+ * `inset="title"`, the same part a list uses to hang a row's own detail under
+ * it, at the step under a title rather than a list's edge or inner line. The
+ * body only places what it holds, and each thing in it — a code plate, a
+ * diff, a list of arguments, a line of thought — is a design part that owns
+ * its own box.
  */
 const Row = ({
   icon,
@@ -246,6 +250,7 @@ const Row = ({
   meta,
   status,
   defaultOpen = false,
+  bareBody = false,
   children,
 }: {
   icon: ReactNode
@@ -254,6 +259,8 @@ const Row = ({
   meta?: ReactNode
   status?: ItemStatus
   defaultOpen?: boolean
+  /** The child draws its own plate, so the body supplies alignment only. */
+  bareBody?: boolean
   children?: ReactNode
 }) => {
   const [open, setOpen] = useState(defaultOpen)
@@ -277,7 +284,14 @@ const Row = ({
         </Text>
         {collapsible && <DisclosureChevron open={open} size="lg" />}
       </Button>
-      {collapsible && open && <div className={styles.rowBody}>{children}</div>}
+      {collapsible && open && (
+        <ListRowDetail
+          inset="title"
+          className={bareBody ? 'pe-0' : `grid gap-(--hd-space-2) pt-(--hd-space-2) pe-(--hd-space-3) pb-(--hd-space-3)`}
+        >
+          {children}
+        </ListRowDetail>
+      )}
     </>
   )
 
@@ -734,6 +748,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
       }
       status={effectiveItemStatus(item)}
       defaultOpen={item.status === 'inProgress'}
+      bareBody
     >
       <CodeBlock
         command={shellCommandOf(item.command)}
@@ -776,6 +791,7 @@ const FileChange = ({ item, root }: { item: FileChangeItem; root?: string }) => 
       }
       status={item.status}
       defaultOpen={item.changes.length === 1}
+      bareBody
     >
       {only ? (
         <DiffView diff={only.diff} wholeFile={wholeFileOf(only.kind.type)} inline />
@@ -1023,6 +1039,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       }
       status={effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
+      bareBody={Boolean(change) || Boolean(command)}
     >
       {/* A plain wrapper, not `Text` itself: `Text` owns `data-role` for its
           own role, so a second meaning of the attribute has to sit outside it. */}

@@ -93,21 +93,25 @@ describe('an opened tool step', () => {
     open(call({ tool: 'search_files', args: { query: 'row surface' } }))
 
     const row = byClass('row')[0]
-    const body = byClass('rowBody')[0]
+    const body = container.querySelector('[data-slot="list-row-detail"]')
     // The row itself is the shared `Card variant="plate"` surface, with its
     // default gap/padding zeroed: this is a dense conversation row, not a
     // section's boxed content, so the row's own header rung (30px) and the
-    // body's own sheet-drawn margin supply the only spacing — not a
-    // Tailwind utility repeated at the call site.
+    // body's own inset supply the only spacing — not a Tailwind utility
+    // repeated at the call site.
     expect(row?.getAttribute('data-slot')).toBe('card')
     expect(row?.getAttribute('data-variant')).toBe('plate')
     expect(row?.className).toContain('!gap-0')
     expect(row?.className).toContain('!py-0')
     expect(body?.getAttribute('data-slot')).not.toBe('card')
-    expect(body?.className).not.toMatch(/-\(--hd-/)
+    // The step body is the shared `ListRowDetail`, not a bare div of the
+    // row's own: `inset="title"` is the step that lands under the header's
+    // icon and title, the same part a list uses to hang a row's own detail
+    // under it.
+    expect(body?.getAttribute('data-inset')).toBe('title')
   })
 
-  it('keeps a command body aligned the same way any other step body is, not through a bare class of its own', () => {
+  it('keeps a command body aligned the same way any other step body is, through the shared list-row-detail part', () => {
     open({
       id: 'command-1',
       type: 'command',
@@ -119,9 +123,16 @@ describe('an opened tool step', () => {
       output: 'all clear',
     } as unknown as AgentItem)
 
-    expect(byClass('rowBody')[0]).toBeTruthy()
-    expect(byClass('rowBodyBare')).toHaveLength(0)
-    expect(itemsCss).toMatch(/(?:^|\n)\.rowBody\s*\{[^}]*margin:\s*var\(--hd-space-0-5\)\s+0\s+var\(--hd-space-1-5\)\s+var\(--hd-space-6\)/s)
+    const body = container.querySelector('[data-slot="list-row-detail"]')
+    expect(body).toBeTruthy()
+    expect(body?.getAttribute('data-inset')).toBe('title')
+    // A command's body draws its own plate (`CodeBlock`), so it keeps the
+    // step's left indent and drops the part's own right padding — its own
+    // edge is the row's, not a padded box a step further in.
+    expect(body?.className).toContain('pe-0')
+    // Retired along with the CSS class it lived in: the shared part now
+    // owns the alignment every step body used to redraw its own margin for.
+    expect(itemsCss).not.toMatch(/\.rowBody\b/)
   })
 
   it('draws a two-line Write with one marker, not a second + in the file text', () => {
