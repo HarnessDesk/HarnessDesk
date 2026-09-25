@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { renameSync, realpathSync, symlinkSync, watch, type FSWatcher } from 'node:fs'
+import { mkdirSync, renameSync, realpathSync, symlinkSync, watch, type FSWatcher } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -9,7 +9,7 @@ import { test } from 'node:test'
 
 import { AgentWatch, type Clock, type WatchFn } from '../src/agent-watch.js'
 import { Agents } from '../src/agents.js'
-import { builtinAgentRoot } from '../src/host.js'
+import { __setBuiltinAgentRootForTests, builtinAgentRoot } from '../src/host.js'
 import { Client, shippedAgentsCopy, start, stop } from './fixtures/harness.js'
 import { tempDir } from './scratch.js'
 
@@ -213,6 +213,36 @@ test('a root that is not there yet is watched for, and followed once it appears'
     () => writeFile(join(root, 'scout', 'AGENT.md'), brief(`Look ${n++}.`)),
     'a change inside the root that appeared',
   )
+})
+
+/*
+ * #899's own bug: `#follow`'s walk-up checks whether the name it wants is
+ * there (`reach`), then attaches a watcher on the ancestor above it — and
+ * between those two steps, a real `mkdir -p` can land the name in place
+ * before the watcher ever starts listening. A watcher only reports a
+ * *future* event; one that already happened by the time it attaches is gone
+ * for good, and nothing after that ever tells the roster the root exists.
+ *
+ * The watcher this test hands back is deliberately quiet — it never emits
+ * anything on its own — so the only way this test can pass is the fix's own
+ * immediate re-check right after the watch attaches, never a real event a
+ * real `fs.watch` happened to still catch. `watchFn` creates the root as a
+ * side effect of being asked for the ancestor watch, reproducing the exact
+ * gap `#follow` cannot see across on its own, with no dependence on how any
+ * given platform's real watcher handles a creation that landed moments
+ * before it started listening. Before the fix this test times out.
+ */
+test('a root created in the gap between the ancestor check and the watch attaching is not missed (#899)', async (t) => {
+  const home = tempDir('hd-agent-watch-')
+  const root = join(home, 'agents')
+  const { said, changed } = heard()
+  const watchFn: WatchFn = () => {
+    mkdirSync(root, { recursive: true })
+    return quietWatcher()
+  }
+  const watchInstance = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn })
+  t.after(() => watchInstance.dispose())
+  await until(() => said.length > 0, 'the root that already existed by the time its own ancestor watch armed, from the fix’s own re-check, never a real event')
 })
 
 test('a project is watched while it is open, named as it was opened, and not after', async (t) => {
@@ -1379,20 +1409,18 @@ test('(P3) the top-level link rescan runs once per settled burst, not once per f
  * This one still proves the app's own setup — that a host started with no
  * explicit `builtinAgents` option watches wherever `builtinAgentRoot()`
  * resolves — but it never touches the real folder to do it:
- * `HARNESSDESK_BUILTIN_AGENTS_DIR` points that resolution at a private copy
- * for the life of the test, restored (or removed) once it ends, so a run of
- * this file never races another copy of itself, or a person editing
- * `packages/server/agents`, over the same real directory's mtime.
+ * `__setBuiltinAgentRootForTests` points that resolution at a private copy
+ * for the life of the test, cleared once it ends, so a run of this file never
+ * races another copy of itself, or a person editing `packages/server/agents`,
+ * over the same real directory's mtime. There is deliberately no environment
+ * variable for this — see `builtinAgentRoot`'s own comment in `host.ts` —
+ * only a function a test imports and calls directly.
  */
 
 test('(G4) through the host: the Agents that ship with the app are watched where they ship', async (t) => {
   const copy = await shippedAgentsCopy()
-  const had = process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
-  process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = copy
-  t.after(() => {
-    if (had === undefined) delete process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
-    else process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = had
-  })
+  __setBuiltinAgentRootForTests(copy)
+  t.after(() => __setBuiltinAgentRootForTests(null))
   // No `agents` in this state directory, so a notice for this machine's roster can only be the built-in one's.
   const harness = await start()
   t.after(() => stop(harness))
@@ -1421,12 +1449,8 @@ test('(G4) through the host: a host pointed at a copy of the shipped Agents watc
   // whatever `builtinAgentRoot()` would otherwise resolve to, without this
   // test ever touching the checkout's actual `agents/` to prove it.
   const decoy = await shippedAgentsCopy()
-  const had = process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
-  process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = decoy
-  t.after(() => {
-    if (had === undefined) delete process.env['HARNESSDESK_BUILTIN_AGENTS_DIR']
-    else process.env['HARNESSDESK_BUILTIN_AGENTS_DIR'] = had
-  })
+  __setBuiltinAgentRootForTests(decoy)
+  t.after(() => __setBuiltinAgentRootForTests(null))
   const harness = await start({ builtinAgents: copy })
   t.after(() => stop(harness))
   const client = await Client.connect(harness.server)
@@ -1455,5 +1479,5 @@ test('(G4) through the host: a host pointed at a copy of the shipped Agents watc
   const at = new Date(was.mtimeMs + 60_000)
   await utimes(shipped, at, at)
   await pause(600)
-  assert.deepEqual(agentChanged(), [], 'the real shipped folder is still watched by a host pointed at a copy')
+  assert.deepEqual(agentChanged(), [], 'the decoy standing in for the real folder is still not watched by a host pointed at a copy')
 })
