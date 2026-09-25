@@ -97,7 +97,25 @@ let TURN = 'turn-e2e'
 let threadCounter = 0
 const nextThreadId = () => (threadCounter++ === 0 ? 'thread-e2e' : `thread-e2e-${threadCounter}`)
 
+/**
+ * Each thread's own working folder, taken from its `cwd` at `thread/start`,
+ * or from the thread it was resumed or forked from — never shared between
+ * threads the way `settingsState` otherwise is. `settingsState.cwd` still
+ * holds whichever thread is currently being handled, for the code below that
+ * reads it mid-turn; `cwdByThread` is what lets a *different* thread's own
+ * folder survive that one being resolved and reasserted at the top of every
+ * `thread/start`, `thread/resume` and `thread/fork`, instead of the second
+ * thread's cwd silently overwriting the first's for the rest of the process.
+ */
+const cwdByThread = new Map()
+
 const thread = (overrides = {}) => {
+  // The thread this describes may not be the one currently being handled —
+  // `thread/read`'s fallback describes an arbitrary `params.threadId` this
+  // way — so its own folder comes from `cwdByThread`, keyed on whichever id
+  // wins below, and only a thread this process never started or resumed
+  // falls back to whatever `settingsState.cwd` currently holds.
+  const describedId = overrides.id ?? THREAD
   const described = {
     id: THREAD,
     sessionId: THREAD,
@@ -109,7 +127,7 @@ const thread = (overrides = {}) => {
     updatedAt: 1_700_000_100,
     status: { type: 'idle' },
     path: '/tmp/rollout.jsonl',
-    cwd: '/w',
+    cwd: cwdByThread.get(describedId) ?? settingsState.cwd,
     cliVersion: version,
     source: 'vscode',
     threadSource: null,
@@ -655,7 +673,7 @@ const startBackground = (command, { fails = false } = {}) => {
     type: 'commandExecution',
     id: itemId,
     command,
-    cwd: '/w',
+    cwd: settingsState.cwd,
     processId,
     source: 'unifiedExecStartup',
     commandActions: [{ type: 'unknown', command }],
@@ -674,7 +692,7 @@ const startBackground = (command, { fails = false } = {}) => {
       itemId,
       processId,
       command,
-      cwd: '/w',
+      cwd: settingsState.cwd,
       osPid: 40000 + backgroundCounter,
       cpuPercent: 1.5,
       rssKb: 20480,
@@ -1266,6 +1284,10 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: problem } })
         return
       }
+      // This thread's own folder, from here on — never overwritten by a
+      // later thread/start's own cwd the way `settingsState.cwd` otherwise
+      // would be for every thread that shares it.
+      cwdByThread.set(THREAD, settingsState.cwd)
       // A new thread is in the folder it was started in, as Codex reports it.
       send({ id, result: { ...startResponse(), thread: thread({ preview: '', cwd: settingsState.cwd }) } })
       notify('thread/started', { thread: thread() })
@@ -1290,6 +1312,11 @@ rl.on('line', (line) => {
         send({ id, error: { code: -32600, message: `thread ${params.threadId} not found` } })
         return
       }
+      // A resume or a fork picks its settings up where the thread it came
+      // from left them, not wherever the last *different* thread active in
+      // this process happened to leave `settingsState` — cwd most of all,
+      // the one setting a test routinely gives a fresh value at `thread/start`.
+      settingsState.cwd = cwdByThread.get(params.threadId) ?? settingsState.cwd
       THREAD = method === 'thread/resume' ? params.threadId : nextThreadId()
       TURN = `turn-${THREAD}`
       const refused = historyVerb(method, params)
@@ -1309,6 +1336,7 @@ rl.on('line', (line) => {
         settingsState.permissions = null
         settingsState.sandboxPolicy = JSON.parse(resumed)
       }
+      cwdByThread.set(THREAD, settingsState.cwd)
       send({ id, result: startResponse() })
       notify('thread/started', { thread: thread() })
       return

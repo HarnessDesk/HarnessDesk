@@ -52,6 +52,44 @@ const PAGED = [
   'turn-p3: userMessage, assistantMessage',
 ]
 
+test('two threads keep their own working folder — a second thread/start never bleeds into the first (#917)', async (t) => {
+  const server = new CodexAppServer({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
+    binaryPath: FAKE,
+    env: {},
+  })
+  t.after(() => server.stop())
+  await server.start()
+  const first = await server.request('thread/start', { cwd: '/repo-a' })
+  assert.equal(first.thread.cwd, '/repo-a', "the first thread is in the folder it was started in")
+  const second = await server.request('thread/start', { cwd: '/repo-b' })
+  assert.equal(second.thread.cwd, '/repo-b', "the second thread is in its own folder, not the first's")
+  // Reading each back — after the other thread has changed what was, before
+  // this fix, one shared `cwd` for the whole process — proves neither
+  // thread's folder was overwritten by starting the other.
+  const rereadFirst = await server.request('thread/read', { threadId: first.thread.id, includeTurns: false })
+  assert.equal(rereadFirst.thread.cwd, '/repo-a', "the first thread's folder survives a second thread/start")
+  const rereadSecond = await server.request('thread/read', { threadId: second.thread.id, includeTurns: false })
+  assert.equal(rereadSecond.thread.cwd, '/repo-b')
+})
+
+test('a resumed thread keeps its own working folder, not whatever a different thread active in this process last left', async (t) => {
+  const server = new CodexAppServer({
+    clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
+    binaryPath: FAKE,
+    env: {},
+  })
+  t.after(() => server.stop())
+  await server.start()
+  const first = await server.request('thread/start', { cwd: '/repo-a' })
+  await server.request('thread/start', { cwd: '/repo-b' })
+  // Resuming the first thread, naming no cwd of its own, must pick up
+  // `/repo-a` again — not `/repo-b`, which is merely whichever thread this
+  // process handled most recently.
+  const resumed = await server.request('thread/resume', { threadId: first.thread.id })
+  assert.equal(resumed.thread.cwd, '/repo-a')
+})
+
 test('control: the fake deprecates a whole read of a paginated thread where 0.155.0 does', async (t) => {
   const server = new CodexAppServer({
     clientInfo: { name: 'harnessdesk-test', title: 'HarnessDesk', version: '0.0.0' },
