@@ -995,10 +995,12 @@ const RemoveDialog = ({
       {entry.shadows.length > 0 ? ' The one it came first over takes its place.' : ''}
       {entry.origin === 'project' ? ' The project’s checkout changes; commit it for everyone else.' : ''}
       {hasMachineSeat && (
-        <label className={styles.clearSeats}>
-          <Checkbox checked={clearSeats} onCheckedChange={(next) => setClearSeats(next === true)} />
-          Also clear this Mac’s seats for “{name}”
-        </label>
+        <Checkbox
+          className={styles.clearSeats}
+          checked={clearSeats}
+          onCheckedChange={(next) => setClearSeats(next === true)}
+          label={`Also clear this Mac’s seats for “${name}”`}
+        />
       )}
       {problem && <Note tone="bad">{problem}</Note>}
     </ConfirmDialog>
