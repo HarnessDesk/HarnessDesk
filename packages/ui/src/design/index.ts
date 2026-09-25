@@ -165,28 +165,17 @@ export {
   Popover,
   dismissOverlays,
   PopoverGroupLabel,
-  PopoverDim,
-  PopoverFilterInput,
   PopoverOption,
   PopoverOptionBody,
   PopoverOptionHint,
   PopoverOptionLabel,
   PopoverOptionLive,
   PopoverOptionMark,
-  PopoverStrong,
-  PopoverUpdateNote,
   PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
   type DismissDetail,
 } from './patterns/Popover'
-export {
-  MessageQueueActions,
-  MessageQueueFrame,
-  MessageQueueHeader,
-  MessageQueueList,
-  MessageQueueRow,
-} from './patterns/MessageQueue'
 export * from './ui'
 export {
   ChannelMessage,

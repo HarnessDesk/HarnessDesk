@@ -10,7 +10,7 @@ import {
   MenuNote,
   MenuToggle,
   Popover,
-  PopoverFilterInput,
+  Search,
   Submenu,
   dismissOverlays,
   useContextMenu,
@@ -401,7 +401,7 @@ describe('Submenu', () => {
         <Menu close={() => {}}>
           <Submenu label="More models">
             {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
-            <PopoverFilterInput autoFocus placeholder="Type to filter" />
+            <Search size="compact" icon="filter" autoFocus placeholder="Type to filter" value="" onChange={() => {}} />
             <MenuItem label="Tiny" selected={false} onSelect={() => {}} />
           </Submenu>
         </Menu>,
