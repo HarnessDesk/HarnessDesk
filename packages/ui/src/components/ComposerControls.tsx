@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 import { optionsIn } from '@harnessdesk/protocol'
 
-import { Button, Dialog, RowChoice, Text } from '../design'
+import { Button, CodeText, Dialog, RowChoice, Search, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -43,7 +43,7 @@ import {
 import { ModelMark, RuntimeMark } from './BrandIcons'
 import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
-import { Popover, PopoverDim, PopoverFilterInput, PopoverStrong, PopoverUpdateNote } from '../design'
+import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
 
 /**
@@ -266,6 +266,9 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
  * keystrokes somewhere harmless to land while the menu is open, and Enter
  * picks the top match.
  */
+/** The keys a filter field keeps from the menu around it, beside any printable one. */
+const FIELD_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End'])
+
 const FilterableChoices = ({ option, close }: { option: SelectOption; close: () => void }) => {
   const store = useStore()
   const [query, setQuery] = useState('')
@@ -279,14 +282,29 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      <PopoverFilterInput
+      {/* The list's filter is the one every list draws: the compact field, a
+          line among the menu's borderless rows rather than a form to fill in.
+          The margin sets it on the rows' own inset. */}
+      <Search
+        size="compact"
+        icon="filter"
+        className="mx-1 mt-1 mb-0.5"
         // eslint-disable-next-line jsx-a11y/no-autofocus
         autoFocus
         placeholder={`Type to filter ${option.choices.length} choices…`}
         value={query}
-        spellCheck={false}
-        onChange={(event) => setQuery(event.target.value)}
+        onChange={setQuery}
         onKeyDown={(event) => {
+          /* Editing keys are the field's, not the menu's. The menu jumps to
+             the row a typed letter starts, and takes the key to do it — so the
+             field, inside the menu, never received one: typing into it did
+             nothing. ← → Home End move the caret, where the menu would close
+             the flyout or jump to a row. ↑ ↓ Tab Escape and Enter stay the
+             menu's: they move between rows, leave, or pick. */
+          if (event.key.length === 1 || FIELD_KEYS.has(event.key)) {
+            event.stopPropagation()
+            return
+          }
           if (event.key !== 'Enter') return
           event.preventDefault()
           const first = filtered.find((choice) => !choice.disabled)
@@ -463,8 +481,9 @@ export const ModelControl = () => {
             ) : (
               <ModelIcon size={13} />
             )}
-            {!narrow && <PopoverStrong>{name}</PopoverStrong>}
-            {effort && !narrow && <PopoverDim>{effort}</PopoverDim>}
+            {/* The model reads as the subject, its effort as the qualifier. */}
+            {!narrow && <Text role="row">{name}</Text>}
+            {effort && !narrow && <Text ink="muted">{effort}</Text>}
             {!tight && <Chevron />}
           </>
         }
@@ -617,19 +636,19 @@ const RuntimeBuildNote = () => {
         {version && (
           <div data-testid="runtime-build">
             {version}
-            {checked && <PopoverDim> · {checked}</PopoverDim>}
+            {checked && ` · ${checked}`}
           </div>
         )}
         {update && (
-          <PopoverUpdateNote data-testid="runtime-update">
+          /* A shade warmer than the note around it. The command is the shared
+             command block — the muted plate Settings sets a command on — on a
+             line of its own, folding only when it is wider than the menu. */
+          <Text as="div" role="muted" className="mt-1" data-testid="runtime-update">
             {update.text}
             {update.command && (
-              <>
-                {' '}
-                <code>{update.command}</code>
-              </>
+              <CodeText as="pre" block ground="muted" wrap className="mt-1">{update.command}</CodeText>
             )}
-          </PopoverUpdateNote>
+          </Text>
         )}
       </MenuNote>
     </>
@@ -786,7 +805,7 @@ export const AgentControl = () => {
         label={
           <>
             <RuntimeMark runtime={owner} size={13} />
-            {!narrow && <PopoverStrong>{seated?.name ?? brandOf(owner.presentation.name)}</PopoverStrong>}
+            {!narrow && <Text role="row">{seated?.name ?? brandOf(owner.presentation.name)}</Text>}
             {!tight && <Chevron />}
           </>
         }
@@ -1072,7 +1091,7 @@ export const PlaceControl = () => {
             {!narrow && (
               armed
                 ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
-                : <PopoverStrong className={sheet.word}>{word}</PopoverStrong>
+                : <Text role="row" className={sheet.word}>{word}</Text>
             )}
             {!narrow && tagged && <Badge variant="secondary">worktree</Badge>}
             <Chevron />

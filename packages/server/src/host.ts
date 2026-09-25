@@ -317,9 +317,31 @@ const SEND_ACCEPT_DEADLINE_MS = 30_000
  * this whole package and unpacks every `node_modules` entry (`asarUnpack`);
  * `files` lists it too, so the manifest says what the package holds. A
  * directory that is not there is still an empty tier rather than a failure.
+ *
+ * `__setBuiltinAgentRootForTests` below replaces the computed path outright,
+ * for exactly the test that has to prove the host watches wherever this
+ * function points — with no explicit `builtinAgents` option to override that
+ * resolution — against a folder of its own, never the checkout's real
+ * `agents/`, which someone may be editing while the suite runs. There is no
+ * environment variable for this: an env override a stale shell left set
+ * would silently swap out the whole built-in tier of a real, packaged app,
+ * and nothing here checks for one. Only a test that imports this module and
+ * calls that function directly can ever see anything but the real path.
  */
+let builtinAgentRootForTests: string | null = null
+
+/**
+ * Test-only: every `builtinAgentRoot()` call answers `path` until cleared
+ * (`null`) or the process ends. `bootstrap.ts` never imports this, and there
+ * is no way to reach it short of calling it from test code — see
+ * `builtinAgentRoot`'s own comment for why that is deliberate.
+ */
+export const __setBuiltinAgentRootForTests = (path: string | null): void => {
+  builtinAgentRootForTests = path
+}
+
 export const builtinAgentRoot = (): string =>
-  packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
+  builtinAgentRootForTests ?? packagedPath(fileURLToPath(new URL('../../agents', import.meta.url)))
 
 /** Editable starter flows ship beside Agent starters and are never renderer-selected paths. */
 export const builtinFlowRoot = (): string =>

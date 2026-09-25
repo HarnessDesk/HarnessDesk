@@ -1074,13 +1074,6 @@ body {
   --hd-surface-radius: var(--hd-radius-lg);
   --hd-surface-shadow: var(--hd-shadow-lg), var(--hd-hairline);
   --hd-scrim: var(--hdp-alias-bg-mask-1);
-  --hd-lightbox-scrim: rgba(0, 0, 0, 0.78);
-  --hd-lightbox-canvas: rgb(255, 255, 255);
-  --hd-lightbox-foreground: rgba(255, 255, 255, 0.92);
-  --hd-lightbox-muted: rgba(255, 255, 255, 0.6);
-  --hd-lightbox-control: rgba(255, 255, 255, 0.12);
-  --hd-lightbox-control-hover: rgba(255, 255, 255, 0.24);
-  --hd-lightbox-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
   --hd-external-canvas: rgb(255, 255, 255);
 }
 

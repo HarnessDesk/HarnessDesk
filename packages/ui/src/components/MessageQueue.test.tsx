@@ -275,6 +275,35 @@ describe('MessageQueue', () => {
     expect(calls.flushQueue).toHaveBeenCalledWith(KEY)
   })
 
+  /**
+   * The queue is a notice standing beside the composer, so it is the soft
+   * alert — muted ground, strong hairline — and the warning alert while it is
+   * held. Its head is a toolbar, its list the sortable list's rows, and a row
+   * takes no hover ground: pressing one does nothing.
+   */
+  it('is drawn by the alert, the toolbar and the sortable list — nothing of its own', () => {
+    mount(waiting('run the tests', 'then commit it'))
+    const frame = container.firstElementChild as HTMLElement
+    expect(frame.getAttribute('data-slot')).toBe('alert')
+    expect(frame.getAttribute('data-variant')).toBe('soft')
+    expect(frame.getAttribute('data-tone')).toBe('neutral')
+    expect(frame.querySelector(':scope > [data-slot="toolbar"]')?.textContent).toContain('2 messages waiting')
+    const list = frame.querySelector('ol[aria-label="Waiting messages"]')
+    expect(list?.querySelectorAll(':scope > li[data-slot="sortable-row"]')).toHaveLength(2)
+    for (const row of rows()) {
+      expect(row.className).not.toMatch(/hover:bg-/)
+      // Its actions are the sortable item's to reveal, with the pointer or the keyboard's focus.
+      expect(row.className).toContain('focus-within:[&_[data-slot=sortable-actions]]:opacity-100')
+      const actions = row.querySelector('[data-slot="sortable-actions"]')
+      expect(actions?.querySelector('[aria-label="Remove"]')).not.toBeNull()
+      expect(actions?.className).not.toMatch(/opacity|group-hover|focus-within/)
+    }
+    expect(frame.querySelector('[data-slot="sortable-announcer"]')).not.toBeNull()
+
+    mount({ ...waiting('the follow-up'), status: 'paused', reason: 'Stopped.' })
+    expect((container.firstElementChild as HTMLElement).getAttribute('data-tone')).toBe('warning')
+  })
+
   it('a message on its way out has no controls to fight over', () => {
     mount({
       status: 'waiting',
