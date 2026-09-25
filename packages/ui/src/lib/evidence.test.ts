@@ -61,10 +61,17 @@ describe("a card's chips", () => {
     expect(chips.map((one) => one.label)).toEqual(['verify running', 'PR #12 open'])
   })
 
-  it('a diff that changed nothing draws no chip, while one that changed something does', () => {
+  it('a diff that changed nothing draws no chip beside other facts, while one that changed something does', () => {
     const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
     expect(cardChips(cardEvidence(1, [none, prView('open')])).map((one) => one.label)).toEqual(['PR #12 open'])
     expect(cardChips(cardEvidence(1, [diffView()])).map((one) => one.label)).toEqual(['+120 −30 in 6 files'])
+  })
+
+  it('a card whose only fact is a zero diff keeps one quiet "no changes" chip, so its evidence stays reachable', () => {
+    const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
+    const chips = cardChips(cardEvidence(1, [none]))
+    expect(chips.map((one) => [one.label, one.outcome])).toEqual([['no changes', null]])
+    expect(cardChips(cardEvidence(1, [none, none])).map((one) => one.label)).toEqual(['no changes'])
   })
 
   it('a card the desk observed nothing about has none', () => {

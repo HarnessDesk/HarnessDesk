@@ -128,6 +128,12 @@ const checkOutcome = (fact: CheckFact): FactOutcome | null =>
 const ciLabel = (verdict: CiVerdict): string =>
   verdict === 'passed' ? 'CI ✓' : verdict === 'failed' ? 'CI ✗' : `CI ${verdict}`
 
+type DiffFact = Extract<Evidence, { kind: 'diff' }>
+
+const isEmptyDiff = (fact: DiffFact): boolean => fact.files === 0 && fact.added === 0 && fact.removed === 0
+
+const isEmptyDiffView = (view: EvidenceView): boolean => view.record.fact.kind === 'diff' && isEmptyDiff(view.record.fact)
+
 export const chipOf = (view: EvidenceView): FactChip => {
   const fact = view.record.fact
   const since = sinceWords(view.freshness)
@@ -151,7 +157,7 @@ export const chipOf = (view: EvidenceView): FactChip => {
     case 'pr':
       return chip('pr', `PR #${fact.number} ${fact.state}`, fact.state)
     case 'diff':
-      return chip('diff', `+${fact.added} −${fact.removed} in ${plural(fact.files, 'file')}`, null)
+      return chip('diff', isEmptyDiff(fact) ? 'no changes' : `+${fact.added} −${fact.removed} in ${plural(fact.files, 'file')}`, null)
     case 'review':
       return chip(`review:${fact.by}`, `review: ${fact.verdict}`, null)
     case 'finding':
@@ -171,7 +177,7 @@ export const chipOf = (view: EvidenceView): FactChip => {
 export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] => {
   if (!card) return []
   const running = new Set(card.running.map((one) => one.name))
-  return [
+  const chips = [
     ...card.running.map((one): FactChip => ({
       key: `check:${one.name}`,
       label: `${one.name} running`,
@@ -182,9 +188,13 @@ export const cardChips = (card: CardEvidence | undefined): readonly FactChip[] =
     })),
     ...card.facts
       .filter((view) => !(view.record.fact.kind === 'check' && running.has(view.record.fact.name)))
-      /* A diff that changed nothing is a count of zero, and a chip that counts
-         none says nothing; the dialog still lists the fact. */
-      .filter((view) => !(view.record.fact.kind === 'diff' && view.record.fact.files === 0 && view.record.fact.added === 0 && view.record.fact.removed === 0))
-      .map(chipOf),
+      .map((view) => ({ view, chip: chipOf(view) })),
   ]
+  /* A diff that changed nothing is a count of zero: beside other facts it
+     says nothing and draws no chip (the dialog still lists it). Alone, it is
+     the evidence — on a Done card "no changes" is the finding — and it is
+     also the only way into the dialog, so it stays, quiet and neutral. */
+  const said = chips.filter((one) => !('view' in one) || !isEmptyDiffView(one.view))
+  const kept = said.length > 0 ? said : chips.slice(0, 1)
+  return kept.map((one) => ('chip' in one ? one.chip : one))
 }
