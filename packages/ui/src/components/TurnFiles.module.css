@@ -2,17 +2,15 @@
    two actions, then the files when there are several. Quiet — a list, not a
    dashboard.
 
-   It is the conversation's one real card, so it joins the `--hd-card-*`
-   family: under Studio it fills with the brand wash and drops its hairline,
-   the same as every card in Settings. Its own values are the fallbacks, so
-   Desk keeps the 10%-black edge it has always drawn — a shade stronger than
-   the settings card's, because this one sits on a transcript rather than on
-   a page of its own. */
+   It is the conversation's one real card, so it is the system's `plate`
+   card, which joins the `--hd-card-*` family: under Studio it fills with the
+   brand wash and drops its hairline, the same as every card in Settings, and
+   Desk keeps the 10%-black edge it has always drawn. Everything below is the
+   arrangement inside it. */
 .card {
   width: 100%;
   max-width: var(--hd-column);
   margin: 10px auto 4px;
-  overflow: hidden;
 }
 
 .card[data-reverted] {
@@ -30,13 +28,6 @@
   row-gap: 8px;
 }
 
-.glyph {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 36px;
-}
-
 .title {
   flex: 1 1 140px;
   min-width: 0;
@@ -50,15 +41,6 @@
   align-items: center;
   gap: 8px;
 }
-
-/* Appearance for .revertedTag is composed on the element via Tailwind. */
-
-.counts {
-  flex: none;
-  white-space: nowrap;
-}
-
-/* Appearance for .added and .removed is composed on the elements via Tailwind. */
 
 .actions {
   flex: none;
@@ -74,9 +56,18 @@
   gap: 6px;
 }
 
+/* The rule under the head runs to the card's edges, through its padding.
+   Scoped under the card so it outranks the separator's own full width. */
+.card > .rule[data-orientation] {
+  width: auto;
+  margin-inline: calc(var(--hd-space-3) * -1);
+}
+
+/* The files hang under the title's words, not under the tile: the tile is
+   32px, the head's gap 12, and a row insets its own words by the nav inset. */
 .files {
   list-style: none;
-  margin: 0;
+  margin: 0 0 0 calc(var(--hd-space-8) + var(--hd-space-3) - var(--hd-nav-inset)); /* desk: 0 (the list's UA indent, which the card's reset removes) → the title's column */
 }
 
 .file {
@@ -84,9 +75,7 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-
   text-align: left;
-
 }
 
 .more {
@@ -103,5 +92,9 @@
   text-align: left;
 }
 
-/* Appearance (font-family, font-size for .path; color for .dir and .kind;
-   font-size for .kind) is composed on the elements via Tailwind/Text. */
+/* A physical margin, because the path runs right to left so that it keeps
+   its file name when it is cut: a logical one landed on the far side and ran
+   "refs.tsnew" together. */
+.kind {
+  margin-left: var(--hd-space-2);
+}

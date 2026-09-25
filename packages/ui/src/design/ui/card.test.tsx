@@ -146,3 +146,17 @@ it('owns the compact plugin-panel table variant', () => {
   expect(container.querySelector('[data-slot="table-cell"]')?.getAttribute('data-variant')).toBe('panel')
   expect(container.querySelector('[data-slot="table-row"]')?.getAttribute('data-variant')).toBe('panel')
 })
+
+it('draws the plate card from the app card family, with its hairline inside the box', () => {
+  act(() => root.render(<Card variant="plate" spacing="compact">Edited 2 files</Card>))
+  const card = container.firstElementChild as HTMLElement | null
+  expect(card?.dataset['variant']).toBe('plate')
+  expect(card?.className).toContain('bg-(--hd-card-fill,var(--hd-card))')
+  expect(card?.className).toContain('rounded-(--hd-card-radius,var(--hd-radius-lg))')
+  expect(card?.className).toContain('shadow-[inset_0_0_0_1px_var(--hd-card-border,var(--hd-border-strong))]')
+  expect(card?.className).toContain('border-0')
+  /* The registry card's own ground and edge are replaced, not stacked. */
+  expect(card?.className).not.toMatch(/(^|\s)bg-card(\s|$)/)
+  expect(card?.className).not.toMatch(/(^|\s)border(\s|$)/)
+  expect(card?.className).toContain('p-3')
+})
