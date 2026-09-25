@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
-import { BranchIcon, BriefIcon, CaretIcon, CheckIcon, ChevronIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
+import { BranchIcon, BriefIcon, CheckIcon, ChevronIcon, FilterIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, UsageIcon } from './Icons'
 import { WindowControls } from './WindowControls'
 import { NewSessionChoice } from './NewSessionChoice'
 import { SessionListControls, SessionTree } from './SessionTree'
@@ -40,7 +40,7 @@ import { anyBroken, inForce } from '../lib/agents'
 import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
-import { Clipped, EmptyState } from '../design'
+import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
 import { bindingLane, describeReport, isBlocked } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
@@ -724,7 +724,7 @@ export const AccountFooter = ({
               </span>
               <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
                 {here?.figure ?? '—'}
-                {hasUsage && <CaretIcon size={13} className={styles.accountMenuCaret} />}
+                {hasUsage && <DisclosureChevron open={usageOpen} placement="trailing" className={styles.accountMenuCaret} />}
               </Text>
             </MenuItem>
             {usageOpen && usageView && (

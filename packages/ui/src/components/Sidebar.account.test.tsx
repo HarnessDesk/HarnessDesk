@@ -210,9 +210,14 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   )
   if (!usage) throw new Error('no Usage remaining row')
   expect(usage.getAttribute('aria-expanded')).toBe('false')
+  // The one trailing fold: down while folded, up while open.
+  const mark = () => usage.querySelector('[data-slot="disclosure-chevron"]')
+  expect(mark()?.getAttribute('data-placement')).toBe('trailing')
+  expect(mark()?.hasAttribute('data-open')).toBe(false)
   click(usage)
 
   expect(usage.getAttribute('aria-expanded')).toBe('true')
+  expect(mark()?.hasAttribute('data-open')).toBe(true)
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
 })
