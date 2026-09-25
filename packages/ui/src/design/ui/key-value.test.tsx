@@ -115,19 +115,37 @@ it('keeps the panel variant compact and left-aligned', () => {
   expect(list.querySelector('dd')?.className).toContain('text-left')
 })
 
-it('says the whole path once: one hidden run for reading and copying, the visible halves hidden from both', () => {
+it('reads the whole path once, and keeps the visible halves selectable', () => {
   const path = '~/work/storefront/.harnessdesk/triggers/review.json'
   const line = draw(<MiddleTruncate>{path}</MiddleTruncate>)
   const whole = line.querySelector('.sr-only')
   expect(whole?.textContent).toBe(path)
   for (const part of line.querySelectorAll('[data-part]')) {
     expect(part.getAttribute('aria-hidden')).toBe('true')
-    expect(part.className).toContain('select-none')
+    expect(part.className).not.toContain('select-none')
   }
 })
 
+it('answers a copy that touches the path with the whole path', () => {
+  const path = '~/work/storefront/.harnessdesk/triggers/review.json'
+  const line = draw(<MiddleTruncate>{path}</MiddleTruncate>)
+  const tail = line.querySelector('[data-part="tail"]')
+  if (!tail) throw new Error('no tail')
+  const range = document.createRange()
+  range.selectNodeContents(tail)
+  getSelection()?.removeAllRanges()
+  getSelection()?.addRange(range)
+  const written: Record<string, string> = {}
+  const copy = new Event('copy', { bubbles: true, cancelable: true }) as ClipboardEvent
+  Object.defineProperty(copy, 'clipboardData', { value: { setData: (type: string, text: string) => { written[type] = text } } })
+  act(() => { tail.dispatchEvent(copy) })
+  expect(written['text/plain']).toBe(path)
+  expect(copy.defaultPrevented).toBe(true)
+})
+
 it('splits on graphemes and on either separator', () => {
-  expect(splitPath('C:\\Users\\shane\\review.json')).toEqual(['C:\\Users\\shane', '\\review.json'])
+  // A file name longer than the twelve-grapheme fallback, so only the separator can place the cut.
+  expect(splitPath('C:\\Users\\shane\\review-every-pull-request.json')).toEqual(['C:\\Users\\shane', '\\review-every-pull-request.json'])
   expect(splitPath('~/work/a/b.json')).toEqual(['~/work/a', '/b.json'])
   // No separator: the last twelve graphemes, and a family emoji is one of them, never half of one.
   const family = '👨‍👩‍👧'

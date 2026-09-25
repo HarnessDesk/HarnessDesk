@@ -116,25 +116,16 @@ it("each chip's tone is the one the state map gives its outcome, and stale and u
   )
 })
 
-it('reads from its board whether the card is finished: a zero diff alone is news only on a done card', async () => {
+it('draws a zero diff alone only when the caller says the card is finished', async () => {
   const none = factView({ kind: 'diff', files: 0, added: 0, removed: 0, from: 'a'.repeat(40), to: 'b'.repeat(40) })
-  const done = cardEvidence(1, [none])
-  const working = cardEvidence(2, [none])
-  const board = {
-    ...emptySnapshot(),
-    status: 'open',
-    boardEvidence: new Map([['room-1', { room: 'room-1', cards: [done, working] }]]),
-    teams: new Map([['room-1', { intents: [{ id: 1, state: 'done' }, { id: 2, state: 'claimed' }] }]]),
-  } as unknown as AppSnapshot
-  const boardStore = { subscribe: () => () => {}, getSnapshot: () => board } as unknown as AppStore
-  await act(async () => {
-    root.render(
-      <StoreProvider store={boardStore}>
-        <div data-card="1"><EvidenceChips id={1} title="Finished" card={done} /></div>
-        <div data-card="2"><EvidenceChips id={2} title="Working" card={working} /></div>
-      </StoreProvider>,
-    )
-  })
+  await mount(
+    <>
+      <div data-card="1"><EvidenceChips id={1} title="Finished" card={cardEvidence(1, [none])} finished /></div>
+      <div data-card="2"><EvidenceChips id={2} title="Working" card={cardEvidence(2, [none])} finished={false} /></div>
+      <div data-card="3"><EvidenceChips id={3} title="Unsaid" card={cardEvidence(3, [none])} /></div>
+    </>,
+  )
   expect(container.querySelector('[data-card="1"]')?.textContent).toBe('no changes')
   expect(container.querySelector('[data-card="2"]')?.innerHTML).toBe('')
+  expect(container.querySelector('[data-card="3"]')?.innerHTML).toBe('')
 })

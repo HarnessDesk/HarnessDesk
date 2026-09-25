@@ -1010,7 +1010,7 @@ const IntentCard = ({
       }
       meta={
         <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1 whitespace-nowrap">
-          <EvidenceChips id={intent.id} title={intent.title} card={evidence} />
+          <EvidenceChips id={intent.id} title={intent.title} card={evidence} finished={intent.state === 'done'} />
           {/* How long since anything happened to it. The number a person is
               actually after on a board is "how long has that been sitting
               there", and until now the card could not answer it at all. */}

@@ -16,13 +16,14 @@ import { cn } from '@/lib/utils'
  * graphemes are the tail. When even the tail is wider than what the head
  * leaves, it ellipsises too — the line never runs past its container.
  *
- * **The text is the whole path, once.** The two visible halves are layout
- * only: flex items, which a copy and an accessible name would each join with
- * a break or a space ("…/triggers\n/review.json"). So they are hidden from
- * assistive technology and from selection, and the whole path sits beside
- * them as one visually hidden run — what a screen reader reads and what a
- * copy takes. The whole path is also the `title` while it is cut, decided as
- * the pointer arrives, as `Clipped` does.
+ * **The text is the whole path, once.** The two visible halves are layout:
+ * flex items, which a copy and an accessible name would each join with a
+ * break or a space ("…/triggers\n/review.json"). So a screen reader is given
+ * the whole path as one visually hidden run and the halves are hidden from
+ * it; and a copy of any selection that touches the path — a drag, a
+ * double-click, a triple-click on the halves, which stay selectable — is
+ * answered with the whole path, on one line. The whole path is also the
+ * `title` while it is cut, decided as the pointer arrives, as `Clipped` does.
  */
 const graphemes = (text: string): string[] =>
   typeof Intl.Segmenter === 'function'
@@ -60,17 +61,30 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
         if (cut) node.title = children
         else node.removeAttribute('title')
       }}
+      onCopy={(event) => {
+        const node = event.currentTarget
+        const selection = window.getSelection()
+        if (!selection || selection.isCollapsed) return
+        // `intersectsNode`, not `containsNode(…, true)`: a selection wholly
+        // inside the path does not "partially contain" the path itself.
+        const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
+        if (!ranges.some((range) => range.intersectsNode(node))) return
+        event.clipboardData.setData('text/plain', children)
+        event.preventDefault()
+      }}
       {...props}
     >
-      <span className="sr-only">{children}</span>
+      {/* Out of the selection, so a copy that starts before the path does not
+          take it twice. */}
+      <span className="sr-only select-none">{children}</span>
       {/* Only the head gives way, so the name stays whole while there is any
           head left to give — and the head keeps enough of itself (`~/…`) to
           show that something was cut. A name wider than all of that is the
           one case where the tail ellipsises too. */}
       {head !== '' && (
-        <span aria-hidden="true" data-part="head" className={cn('truncate select-none', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
+        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
       )}
-      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate select-none', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
+      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
     </span>
   )
 }

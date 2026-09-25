@@ -89,23 +89,22 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
   await line.hover()
   await expect(line).toHaveAttribute('title', PATH)
 
-  // What a screen reader hears is the whole path, with no gap where it was cut.
+  // What a screen reader hears is exactly the whole path, once, with no gap
+  // where it was cut — the visible halves are hidden from it.
   const value = dialog.locator('[data-slot="key-value"] dd').first()
-  expect(await value.ariaSnapshot()).toContain(PATH)
+  expect(await value.ariaSnapshot()).toBe(`- definition: ${PATH}`)
 
-  // And what a copy takes is the whole path, on one line: select the value
-  // the way a triple-click does, and press the platform's copy key.
-  for (const target of [value, dialog.locator('[data-slot="key-value"]')]) {
-    await target.evaluate((node) => {
-      const range = document.createRange()
-      range.selectNodeContents(node)
-      const selection = getSelection()
-      selection?.removeAllRanges()
-      selection?.addRange(range)
-    })
+  // And what a person copies is the whole path, on one line. Real gestures on
+  // the visible path, the platform's copy key, the real clipboard.
+  const visible = line.locator('[data-part="tail"]')
+  for (const gesture of ['double-click', 'triple-click'] as const) {
+    await page.evaluate(() => getSelection()?.removeAllRanges())
+    if (gesture === 'double-click') await visible.dblclick()
+    else await visible.click({ clickCount: 3 })
+    // The gesture selected something: the visible path stays selectable.
+    expect(await page.evaluate(() => getSelection()?.toString().length ?? 0)).toBeGreaterThan(0)
+    await page.evaluate(() => navigator.clipboard.writeText(''))
     await page.keyboard.press('ControlOrMeta+C')
-    const copied = await page.evaluate(() => navigator.clipboard.readText())
-    expect(copied).toContain(PATH)
-    expect(copied.split('\n').some((one) => one.trim() === PATH || one.trim().endsWith(PATH))).toBe(true)
+    expect(await page.evaluate(() => navigator.clipboard.readText()), gesture).toBe(PATH)
   }
 })
