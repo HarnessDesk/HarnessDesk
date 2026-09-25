@@ -19,6 +19,7 @@ import '../panels/builtins'
 import { StoreProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
+import styles from './TeamRoomPane.module.css'
 
 /**
  * The team room: a list of agents, then the conversations you can have with
@@ -1246,7 +1247,7 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   const bar = headers[0]!
   expect(container.textContent?.split('Checkout rewrite').length ?? 1, 'named once').toBe(2)
   // The state, on the header's own line, as a chip.
-  expect(bar.textContent).toContain('Working')
+  expect(bar.textContent).toContain('Running')
   // The project's short name is visible; its absolute path is not, anywhere.
   expect(bar.textContent).toContain('widgets')
   expect(container.textContent).not.toContain('/Users/dev/work/widgets')
@@ -1254,22 +1255,235 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   expect(projectMark?.getAttribute('title'), 'the full path is one hover away, home-shortened').toBe('~/work/widgets')
 })
 
-it('a trigger Goal’s header carries its origin as one short meta segment; the full origin and its budget stay in the page body', async () => {
+it('a trigger Goal’s header carries its origin as a chip, its hover card naming the source in full', async () => {
   const TRIGGER_GOAL: GoalView = {
     ...GOAL,
     goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
   }
   const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
   const triggerGoal = vi.fn(async () => ({
-    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43',
+    url: 'https://github.com/acme/widgets/issues/43', budget: null, waits: [],
   }))
   Object.assign(store, { triggerGoal })
   await render(store)
   await act(async () => {})
 
   const bar = container.querySelector('header')!
-  expect(bar.textContent).toContain('from issue #43')
+  // The bare number, on the chip itself — the full sentence is one hover away.
+  expect(bar.textContent).toContain('#43')
+  expect(bar.textContent).not.toContain('Opened from issue #43')
   expect(triggerGoal).toHaveBeenCalledWith(ROOM)
+
+  // Hovering the chip opens the full sentence and an Open link.
+  const trigger = bar.querySelector('[data-slot="hover-card-trigger"]') as HTMLElement
+  expect(trigger).toBeTruthy()
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
+  expect(document.body.textContent).toContain('Issue #43 started this Goal.')
+  const open = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Open')!
+  expect(open).toBeTruthy()
+})
+
+/**
+ * One chip, one vocabulary: `FlowRunStatus` used to draw a second chip in
+ * the body, in different words, that never actually disagreed with this
+ * one. A pending approval for any member of the room pulses it — the same
+ * fact the composer's own approval card and the room's live line both read.
+ */
+it('the header\'s one state chip reads "Needs you" and pulses while a member\'s approval is pending', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  const withApproval = {
+    ...store.getSnapshot(),
+    approvals: [{ key: sessionKey('codex', 'c1'), approval: { id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo' } }] as never,
+  }
+  Object.assign(store, { getSnapshot: () => withApproval })
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  expect(bar.textContent).toContain('Needs you')
+  expect(bar.querySelector(`.${styles.pulse}`)).toBeTruthy()
+})
+
+/**
+ * The thread's own tail, at the room's default (plain-chat) view: one live
+ * line, naming whoever is on it and for how long — or what it is waiting on
+ * a person for, which outranks merely working (the header's own rule,
+ * repeated here for the one line under the chat that reads the same fact).
+ */
+it("the room's own live line names who is working, with the elapsed time once there is a turn to read it from", async () => {
+  // The default rig's Codex session is already `status: 'active'`, so the
+  // roster already reads it as busy; a turn is what the elapsed reading
+  // needs, and this session starts with none.
+  const { store } = rig()
+  const base = store.getSnapshot()
+  const withTurn = {
+    ...base,
+    sessions: new Map(base.sessions).set(sessionKey('codex', 'c1'), {
+      ...base.sessions.get(sessionKey('codex', 'c1')),
+      turns: [{ id: 't1', status: 'inProgress', startedAt: Date.now() - 42_000, items: [] }],
+    } as never),
+  }
+  Object.assign(store, { getSnapshot: () => withTurn })
+  await render(store)
+
+  expect(container.textContent).toContain('Codex is working')
+  expect(container.textContent).toMatch(/Codex is working · \d+(\.\d+)?s/)
+})
+
+it("the room's own live line names who is waiting for your approval, ahead of anyone merely working", async () => {
+  const { store } = rig()
+  const withApproval = {
+    ...store.getSnapshot(),
+    approvals: [{ key: sessionKey('codex', 'c1'), approval: { id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo' } }] as never,
+  }
+  Object.assign(store, { getSnapshot: () => withApproval })
+  await render(store)
+
+  expect(container.textContent).toContain('Codex is waiting for your approval')
+  expect(container.textContent).not.toContain('Codex is working')
+})
+
+/**
+ * The owner's own design for #905's four body elements: nothing sits between
+ * the one-row header and the conversation — the origin line, the budget
+ * sentence and the "Needs you" card are gone from the page body outright.
+ */
+it('has no body elements between the header and the conversation — the origin, budget and Needs-you card are gone', async () => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #42',
+    url: 'https://github.com/acme/widgets/issues/42',
+    budget: {
+      goal: ROOM, startedAt: Date.now() - 12 * 60_000, deadline: Date.now() + 48 * 60_000,
+      budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
+      spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
+      closedRounds: [], idleRounds: 0, stop: null,
+    },
+    waits: [{
+      id: 'wait-1', goal: ROOM, trigger: 'triage-issue', kind: 'approval' as const,
+      waitingOn: { kind: 'person' as const, label: 'you' }, sentence: 'Codex is waiting for your approval: run ls -la',
+      action: 'open-goal' as const, createdAt: 1, resolvedAt: null, notification: 'delivered' as const,
+    }],
+  }))
+  Object.assign(store, { triggerGoal })
+  await render(store)
+  await act(async () => {})
+
+  const header = container.querySelector('header')!
+  const afterHeader = header.nextElementSibling
+  expect(afterHeader, 'nothing between the header and the split view').toBe(container.querySelector(`.${styles.split}`))
+  expect(container.textContent).not.toContain('Opened from issue #42')
+  expect(container.textContent).not.toContain('Up to $5')
+  expect(container.textContent).not.toContain('is waiting for your approval: run ls -la')
+})
+
+/**
+ * The composer's own footer meter: filled with what is left, and its hover
+ * card carries the exact numbers the ring itself rounds away — spend,
+ * rounds and time, each read as used of its own total.
+ */
+it("the composer's own budget meter reads what is left, and its hover card has the exact rows", async () => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #42',
+    url: 'https://github.com/acme/widgets/issues/42',
+    budget: {
+      goal: ROOM, startedAt: Date.now() - 12 * 60_000, deadline: Date.now() + 48 * 60_000,
+      budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
+      spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
+      closedRounds: [], idleRounds: 0, stop: null,
+    },
+    waits: [],
+  }))
+  Object.assign(store, { triggerGoal })
+  await render(store)
+  await act(async () => {})
+
+  expect(container.textContent).toContain('$3.80 left')
+
+  const trigger = [...container.querySelectorAll('[data-slot="hover-card-trigger"]')].find((one) => one.textContent?.includes('$3.80 left'))!
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
+
+  expect(document.body.textContent).toContain('$1.20 of $5')
+  expect(document.body.textContent).toContain('0 of 1')
+  expect(document.body.textContent).toContain('12 of 60 min')
+  expect(document.body.textContent).toContain('Stops after a round with no progress.')
+})
+
+/**
+ * The composer's own slot: a pending approval takes it, the same live
+ * `Approvals` surface a conversation's own pane draws — numbered choices
+ * answer to keys 1, 2 and 3, and answering any of them (or Escape) clears
+ * the approval and returns the composer, focused.
+ */
+it("the composer's own slot is a pending approval; a numbered choice answers it, and the composer returns focused", async () => {
+  const { store } = rig()
+  const base = store.getSnapshot()
+  const pendingApprovals = [{
+    key: sessionKey('codex', 'c1'),
+    approval: {
+      id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo',
+      options: [
+        { id: 'yes', label: 'Yes', intent: 'approve' },
+        { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+        { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+      ],
+    },
+  }]
+  // `useSyncExternalStore` needs a stable reference back for an unchanged
+  // snapshot, so the object is cached and only replaced when `approvals`
+  // itself changes — a fresh literal on every read is an infinite loop.
+  let snapshot: typeof base = { ...base, approvals: pendingApprovals as never }
+  // Every component that calls `useSnapshot()` subscribes independently —
+  // `TeamRoomPane`, `Room` and `Approvals` all have their own listener. A
+  // mock that only remembers the *last* one silently drops the others, so
+  // only the deepest subscriber ever re-renders and its ancestors' own
+  // props (`pendingApproval`) go stale — exactly the bug this test exists
+  // to catch, so the mock itself must not reproduce a smaller version of it.
+  const listeners = new Set<() => void>()
+  const respondToApproval = vi.fn(() => {
+    snapshot = { ...snapshot, approvals: [] as never }
+    for (const listener of listeners) listener()
+  })
+  Object.assign(store, {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+    getSnapshot: () => snapshot,
+    respondToApproval,
+  })
+  await render(store)
+
+  expect(container.textContent).toContain('Run this command?')
+  expect(container.querySelector('textarea')).toBeNull()
+
+  const three = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('No, tell it instead'))!
+  expect(three.textContent).toContain('3')
+  act(() => three.click())
+  expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'no' })
+
+  // Answered — the approval clears, and the composer is back, focused.
+  await act(async () => {})
+  expect(container.textContent).not.toContain('Run this command?')
+  const textarea = container.querySelector('textarea')
+  expect(textarea).not.toBeNull()
+  expect(document.activeElement).toBe(textarea)
 })
 
 /**

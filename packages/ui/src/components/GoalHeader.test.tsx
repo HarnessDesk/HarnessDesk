@@ -28,29 +28,18 @@ it('opens dependencies and says why a wrapped Goal cannot be mutated', () => {
   expect(document.body.textContent).toContain('receipt is kept here')
 })
 
-it('a plain conversation’s Goal never asks Intake for anything', () => {
+/**
+ * A trigger Goal's own origin, budget and "Needs you" waits used to live
+ * here too, in `GoalIntake` (deleted with the owner's own design for the
+ * four body elements) — this body never asks Intake anything now, for any
+ * Goal, trigger-opened or not. `TeamRoomPane.test.tsx` covers the header's
+ * own origin chip and hover card, which is where that responsibility moved.
+ */
+it('never asks Intake for anything, trigger-opened or not', () => {
   const snapshot = emptySnapshot() as AppSnapshot
   const triggerGoal = vi.fn(async () => null)
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn(), triggerGoal } as unknown as AppStore
-  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view()} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><GoalHeader view={view({ origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' } })} /></StoreProvider>))
   expect(triggerGoal).not.toHaveBeenCalled()
   expect(document.body.querySelector('section[aria-label="Trigger origin"]')).toBeNull()
-})
-
-it('a trigger Goal shows its origin, drawn from the host’s own label', async () => {
-  const snapshot = { ...emptySnapshot(), goals: new Map([['g1', view({ origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' } })]]) } as unknown as AppSnapshot
-  const triggerGoal = vi.fn(async () => ({
-    goal: 'g1', trigger: 'review-pr', source: 'pull-request' as const, label: 'from PR #12', url: null,
-    budget: null, waits: [],
-  }))
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, openGoal: vi.fn(), updateGoal: vi.fn(), triggerGoal } as unknown as AppStore
-  await act(async () => {
-    root.render(
-      <StoreProvider store={store}>
-        <GoalHeader view={view({ origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' } })} />
-      </StoreProvider>,
-    )
-  })
-  expect(triggerGoal).toHaveBeenCalledWith('g1')
-  expect(document.body.textContent).toContain('Opened from PR #12')
 })

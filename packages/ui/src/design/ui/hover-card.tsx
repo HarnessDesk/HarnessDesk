@@ -92,7 +92,12 @@ const HoverCardContent = ({
       <HoverCardPrimitive.Popup
         data-slot="hover-card-content"
         className={cn(
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) overflow-hidden rounded-lg border shadow-md outline-hidden',
+          /* `p-3`, so a card of plain facts — a sentence, a key/value list —
+             is never the first thing that has to hand-roll its own inset;
+             `AgentHoverCard`'s own fully custom body already cancels it with
+             `p-0`, which was written defensively before this default existed
+             and still means the same thing now that it does. */
+          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) overflow-hidden rounded-lg border p-3 shadow-md outline-hidden',
           className,
         )}
         {...props}

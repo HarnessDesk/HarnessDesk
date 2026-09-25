@@ -3,11 +3,9 @@ import type { GoalView } from '@harnessdesk/protocol'
 import { Note, RowButton, Rows } from '../design'
 import { goalActions } from '../lib/goals'
 import { useStore } from '../state/context'
-import { GoalIntake } from './GoalIntake'
 
 /**
- * A Goal's body: what it is waiting on, why it cannot be wrapped, and — for
- * one a trigger opened — where it came from and what has to be answered.
+ * A Goal's body: what it is waiting on, and why it cannot be wrapped.
  *
  * The title, its state chip and the Wrap action used to live here too, in a
  * `DetailHead` stacked over the room's own header — two rows naming the same
@@ -15,6 +13,13 @@ import { GoalIntake } from './GoalIntake'
  * that single row (`TeamRoomPane`'s own bar, the one every Goal or room page
  * now has), which is where the design already put a conversation's title,
  * status and actions; a Goal's is no different a fact.
+ *
+ * A trigger Goal's own origin, budget and its "Needs you" waits lived here
+ * too, in `GoalIntake` — repeating the header's own origin chip, and a card
+ * where a pending approval belongs on the composer instead. Both moved: the
+ * origin's full detail is the header chip's own hover card now, the budget
+ * is the composer's own meter, and a pending approval takes the composer's
+ * slot directly, live, rather than a sentence read from a poll.
  */
 export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
   const store = useStore()
@@ -37,7 +42,6 @@ export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
         </Rows>
       ) : null}
       {reason ? <Note {...(view.problem ? { tone: 'bad' as const } : {})}>{reason}</Note> : null}
-      {view.goal.origin.kind === 'trigger' && <GoalIntake goal={view.goal.id} />}
     </>
   )
 }

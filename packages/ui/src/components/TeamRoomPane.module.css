@@ -283,6 +283,16 @@
 /* --- the right half ------------------------------------------------------ */
 
 .body {
+  /* `ApprovalDialog`'s own `.scope` positions itself `absolute; inset: 0`
+     against the nearest positioned ancestor — every conversation's own pane
+     sets this for the same reason (`Conversation.module.css`), so its
+     approval stays inside that conversation rather than covering the whole
+     window. A pending approval taking the room's own composer slot reads
+     `<Approvals/>` here too, and without this it found no positioned
+     ancestor at all and filled the entire app in a backdrop — caught only
+     by looking at the frame, not by the vitest suite, which never lays
+     anything out. */
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
@@ -378,11 +388,15 @@
    stream and the composer — a docked item, like `.composer` — so the measure
    has to be the column plus the dock's own gutters, and the 12px it reads at
    is inside that rather than inside the pane. */
+/* Also the thread's own live line's measure now — a second docked strip at
+   the same position, so the one rule answers "the column plus the dock's
+   own gutters" once rather than once per caller. */
 .trouble {
   flex-shrink: 0;
   width: 100%;
   max-width: calc(var(--hd-column) + 2 * var(--room-dock));
   margin: 0 auto; /* desk: 0 → centred, the line now sits in the column */
+  padding-inline: calc(var(--room-dock) + var(--hd-space-3)); /* desk: added — folded in from each caller's own utility, now a third caller shares it rather than repeating it */
 }
 
 /* No rule above it, and the reading column's own gutter beside it.
