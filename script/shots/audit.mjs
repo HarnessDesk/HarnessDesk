@@ -141,6 +141,12 @@ export const TILDIFY = (home) => {
       const shortened = shorten(title)
       if (shortened !== title) element.setAttribute('title', shortened)
     }
+    // A field's contents live in its \`value\` property, which neither the text
+    // walk nor any attribute reaches — the browser pane's address bar is one.
+    for (const field of document.querySelectorAll('input, textarea')) {
+      const shortened = shorten(field.value)
+      if (shortened !== field.value) field.value = shortened
+    }
     return true
   })()`
 }
@@ -165,6 +171,16 @@ export const COLLECT = `(() => {
         typeof element.className === 'string' ? element.className : '',
       ])
     }
+  }
+  // What a field holds is not in innerText and not in any attribute: the
+  // browser pane's address bar showed a real home path that passed unread.
+  for (const field of document.querySelectorAll('input, textarea')) {
+    if (typeof field.value === 'string' && field.value !== '') attributes.push([
+      'value',
+      field.value,
+      field.tagName?.toLowerCase?.() ?? 'unknown',
+      typeof field.className === 'string' ? field.className : '',
+    ])
   }
   return {
     text: document.body.innerText ?? '',
