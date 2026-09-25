@@ -2121,7 +2121,7 @@ const CommitDetail = ({
           dragging.current = false
         }}
       />
-      <ToolPaneBar variant="tools">
+      <ToolPaneBar variant="tools" className={styles.detailHead}>
         <CommitIcon size={13} />
         <Text role="meta"><CodeText as="code">{shortSha(sha)}</CodeText></Text>
         <Text role="row" className={styles.detailTitle}>{subject}</Text>

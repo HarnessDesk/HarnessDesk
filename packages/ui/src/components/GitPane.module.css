@@ -323,6 +323,12 @@
   z-index: 1;
 }
 
+/* The commit's head sets its glyph, id and subject a word apart: it reads as
+   one line of text rather than a row of controls. */
+.detailHead {
+  gap: var(--hd-space-2);
+}
+
 .detailTitle {
   min-width: 0;
   overflow: hidden;

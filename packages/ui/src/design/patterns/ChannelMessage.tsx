@@ -313,8 +313,10 @@ export const ChannelMessage = ({
               </Text>
             )}
             {/* The attribution is one run — name, who it went to, when, and
-                how it went — because that is the line every chat window has. */}
-            <MetaList className="min-w-0">
+                how it went — because that is the line every chat window has.
+                In a narrow room it wraps a whole fact at a time, never "04:54"
+                on one line and "AM" on the next. */}
+            <MetaList className="min-w-0 whitespace-nowrap">
               <span>{at}</span>
               {whisper && <span>{whisper}</span>}
             </MetaList>
