@@ -157,7 +157,7 @@ import {
   WorkbenchRail,
   WorkbenchScrim,
 } from '../patterns/DockPanel'
-import { CodeText, Row, Rows, Text } from '../patterns/Settings'
+import { CodeText, Row, Rows, SectionHead, Text } from '../patterns/Settings'
 import { AGENTS, COLUMNS, SESSIONS_TREND, SETUP_STEPS, SPEND_BY_DAY } from '../showcase/fixtures'
 import type { Board as BoardSpec } from './boards'
 import { IconBoard } from './icon-board'
@@ -352,6 +352,77 @@ const DeltaBoard = () => (
 
 // --- surfaces ---------------------------------------------------------------
 
+/**
+ * The Agent page, before and after the page grammar.
+ *
+ * Before: five facts about one Agent, each a grey label over a card that
+ * holds one row — the label 18px under the card above and 20px over its own,
+ * so it named neither. After: one `Section` holding one `SummaryList`, the
+ * facts read top to bottom like an inspector and every action in one column
+ * at the end. The words are the page's own, so the comparison is the layout
+ * and nothing else.
+ */
+const AGENT_FILE = '~/work/storefront/.harnessdesk/agents/code-reviewer/AGENT.md'
+const AGENT_BRIEF = 'Read a change against the checkout rules before anyone merges it, and say what would break.'
+
+const PageGrammar = () => (
+  <>
+    <div className="grid w-full items-start gap-(--hd-space-3) xl:grid-cols-2" data-catalog-example="page-grammar">
+      <Case label="the Agent page, before: a label over a one-row card, five times">
+        <div className="w-full">
+          <SectionHead name="File" />
+          <Rows>
+            <Row
+              title={<CodeText>{AGENT_FILE}</CodeText>}
+              desc="Comes first over the one that ships"
+              control={<><Button size="sm" variant="outline">Open file</Button><Button size="sm" variant="outline">Reveal</Button></>}
+            />
+          </Rows>
+          <SectionHead name="Ceiling" />
+          <Rows>
+            <Row title="Edit" desc="May change files and commit in its own checkout, and never push." control={<Button size="sm" variant="outline">Update…</Button>} />
+          </Rows>
+          <SectionHead name="Skills" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Servers" />
+          <Rows><Row title="Runtime defaults" control={<Button size="sm" variant="outline">Edit…</Button>} /></Rows>
+          <SectionHead name="Brief" />
+          <Rows><Row title={AGENT_BRIEF} control={<Button size="sm" variant="outline">Open in editor</Button>} /></Rows>
+        </div>
+      </Case>
+      <Case label="after: one Section, one SummaryList">
+        <div className="w-full">
+          <Section title="Agent" description="Read from its file; the file is the truth.">
+            <SummaryList>
+              <SummaryItem label="File" kind="path" note="Comes first over the one that ships" action={<Button size="sm" variant="secondary">Open file</Button>}>
+                {AGENT_FILE}
+              </SummaryItem>
+              <SummaryItem label="Ceiling" note="May change files and commit in its own checkout, and never push." action={<Button size="sm" variant="secondary">Update…</Button>}>
+                Edit
+              </SummaryItem>
+              <SummaryItem label="Skills" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Servers" action={<Button size="sm" variant="secondary">Edit…</Button>}>Runtime defaults</SummaryItem>
+              <SummaryItem label="Brief" action={<Button size="sm" variant="secondary">Open in editor</Button>}>{AGENT_BRIEF}</SummaryItem>
+            </SummaryList>
+          </Section>
+          <Section title="Seats" action={<Button size="sm" variant="outline"><PlusIcon /> Add a seat…</Button>}>
+            <Rows>
+              <Row title="Claude · Opus" desc="The seat it takes here" />
+              <Row title="Codex" desc="Free here" />
+            </Rows>
+          </Section>
+        </div>
+      </Case>
+    </div>
+    <Rule>
+      A page is a head and a column of <code>Section</code>s, each a <code>GroupLabel</code> over one
+      card. The section owns the space — 8px from label to card, 32px to the next section — so a
+      screen writes no margin. Five facts about one thing are one <code>SummaryList</code>: a key
+      column, a value that wraps, an optional note and an action at the row&rsquo;s end.
+    </Rule>
+  </>
+)
+
 const SectionBoard = () => (
   <>
     <div
@@ -443,6 +514,7 @@ const SectionBoard = () => (
         </SectionBody>
       </Section>
     </div>
+    <PageGrammar />
     <Rule>
       The header lays out on a grid that grows a second column only when a{' '}
       <code>SectionAction</code> is really there — <code>has-data-[slot=…]</code> asks the DOM

@@ -46,8 +46,8 @@ furniture is smaller than a row's own title.
 | `--hd-text-sm` | 13px | the chrome: rows, navigation, settings rows, menu items, button labels, hints and notes | 215 |
 | `--hd-text` | 14px | what is read: the transcript, the composer, inputs | 82 |
 | `--hd-text-lg` | 16px | a dialog's title | 16 |
-| `--hd-heading` | 20px | a section's own name, a page's title, the wordmark | 13 |
-| `--hd-title` | 24px | the reserved top interface step; Markdown's h1 fallback | 1 |
+| `--hd-heading` | 20px | every page's title — a list page's and a detail page's alike — and the wordmark | 14 |
+| `--hd-title` | 24px | reserved; no page head wears it since the detail head joined the page title (#832). Markdown's h1 fallback | 0 |
 | `--hd-display` | 36px | a figure that fills a card | 1 |
 
 The counts are measured, not aspirational. The sizes above 14 are rare because
@@ -124,7 +124,8 @@ are doing; screens do not invent a new spelling for the same job:
 | role | spelling | what wears it |
 | --- | --- | --- |
 | wordmark | 20 / semibold | the product name beside its mark |
-| page | 20 / semibold | the name of a place — a settings page, a review; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it |
+| page | 20 / semibold | the name of a place — a settings page, a review, and a page drilled into (`DetailHead`) alike; by owner decision on 2026-09-19 it matches the wordmark rather than outsizing it, and #832 put the detail head on it too: a detail page adds its mark and its owner chip, never a size of its own |
+| group label | 13 / normal, secondary ink | the word over a group — a card of rows, a rail's list, a section of a page (`GroupLabel`). Sentence case, always: no label outside a `Keycap` is set in capitals |
 | subject | 14 / medium | the name of the thing a pane, a dialog or a card is about |
 | row | 13 / medium | the title of a setting, and the word above a control |
 | navigation | 13 / normal | the name of one thing in a navigable list |
@@ -176,6 +177,23 @@ second edit, and it is how the two heights that column used to have became one.
 
 Rows sit 2px apart. Without that gap a hover or selection pill reads as a band
 across the column rather than as one row.
+
+### One title, one group label
+
+There were two page titles and three group labels. A list page's `PageHead`
+said 20px semibold and a detail page's `DetailHead` said 24px regular, so the
+page you drilled into read lighter and less finished than the list you came
+from. The word over a group was 13px secondary in the sidebar, 13px in the
+faint ink over a settings card, and 12px tracked capitals in the room's rail,
+the trajectory's roles and the agent card.
+
+Now every page head is the page role, and every group heading is
+`GroupLabel`. The interfaces vary a label's weight and the air above a rail's
+group, never its size, its ink or its case. Capitals are counted: the design
+audit's `uppercaseLabel` finds every `text-transform: uppercase`, `uppercase`
+utility and inline `textTransform` outside a `Keycap`, and its ceiling may only
+fall. The screens still spelling them — the room's rail, the trajectory, the
+agent card and the transcript's small tags — are the burn-down.
 
 ### Where a label lands
 
@@ -524,6 +542,56 @@ What stayed, and why:
 | Open links in Browser pane · Persist sessions | Each says what the *off* state does. |
 | Clear browsing data | Names its blast radius: this pane, not your browser. |
 | Every disabled row's reason | A tooltip on a disabled control is unreachable. |
+
+## A page: sections and summaries
+
+A page is a head and a column of sections, and a section is a label over one
+card. That was always the intent; what the pages had instead was a
+`SectionHead`, a free `Note` and a `Rows` card stacked by hand, each with its
+own margin and nothing owning the space between them. On the Agent page the
+label "Ceiling" sat 18px under the card above it and 20px over its own, so it
+named neither, and eight labels each over a card of one row read as a column of
+floating grey words.
+
+**`Section` owns the rhythm.** `<Section title description action>` renders
+`<section aria-label={title}>`, its label a `GroupLabel`, and spaces itself:
+
+| between | space | why |
+| --- | --- | --- |
+| the label and its card | 8px (`--hd-space-2`) | the label belongs to the card under it |
+| one section and the next | 32px (`--hd-space-8`) | four times the label's gap, so no label is ever nearer the card above it |
+| the page head and the first section | 32px | the head's 24px collapses into the section's own margin, so the first gap is every gap |
+| things inside one section | 8px | a card's or a note's own margin is dropped; a lone button keeps its width |
+
+The label sits on its card: an action beside it (the `sectionAction` slot, a
+small `outline` button) grows the head upward, so every label on a page is the
+same 8px above what it names. A screen composing sections writes no margin of
+its own. A `SectionHead` on a page keeps the same 32px — including one that
+opens a `<section>` wrapper, which used to lose its margin to `:first-child`
+and start 6px under the card before it — so a page half converted still reads
+as one page. A dialog keeps its tighter step.
+
+**The description is one sentence.** It says what the section is, muted,
+directly under the label. A paragraph of how it works is not a description:
+Project, Permissions and Triggers each opened every section with two or three
+lines of it under the page's own blurb, and the one warning that mattered read
+like the four around it.
+
+**Several facts about one thing are one card.** `SummaryList` is the key/value
+inspector drawn as a settings card — the `Rows` ground, edge and hairline — with
+a key column, a value that wraps as a sentence (`kind="path"` gives up its
+middle, `numeric` right-aligns tabular figures), an optional one-line `note`
+under the value, and an optional small action at the row's end. Once any row has
+an action every row stands as tall as one, so the card keeps one row height;
+narrow, each key rises over its value and the action keeps the end. An account's
+sign-in, plan, credential and default are one card; so should be an Agent's
+file, ceiling, skills, servers and brief.
+
+**A wrapped control keeps the row's end.** When a row is too narrow for its
+control beside the title, the control drops under it — at the row's end, in a
+plain `Row` exactly as in a `RowButton`, whose control travels with a chevron
+that cannot leave the end. The card's trailing edge stays the one column every
+control is found in.
 
 ## Adding to the app
 
