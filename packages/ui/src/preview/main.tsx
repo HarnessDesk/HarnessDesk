@@ -51,7 +51,12 @@ import { captureHealth, commitProvenance, provenanceSeat, PROVENANCE_ROOT, PROVE
 import { PREVIEW_FLOW_GOAL, PREVIEW_GOAL, PREVIEW_TRIGGER_GOAL } from './goal-fixture'
 import { GOAL_INTAKE_SCENES, sceneArmPreview, sceneGoalStatus, triggerFiring, triggerHistoryPage, triggerProjectView, TRIGGER_ARM_SCENES, type GoalIntakeScene, type TriggerArmScene } from './intake-fixture'
 import { FLOW_EXECUTION_SCENES, sceneFlowExecution, type FlowExecutionScene } from './flow-fixture'
+import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
+import { MessageQueue } from '../components/MessageQueue'
 import '../styles/app.css'
+
+const composerWaiting = composerStore(store.getSnapshot())
+const composerPaused = composerStore(store.getSnapshot(), true)
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -537,6 +542,46 @@ const Preview = () => {
               onOpenRuntimes={() => {}}
             />
           </PaneProvider>
+        </div>
+      </Frame>
+
+      {/* The composer holding everything it can at once, on a store of its
+          own: a model list that folds behind a filter, a build with a newer
+          one out, three messages waiting, and a sent message with two
+          pictures to open in the lightbox. */}
+      <Frame title="Composer — its pickers, the queue and a picture">
+        <div className="h-[820px]" data-preview="composer">
+          <StoreProvider store={composerWaiting}>
+            <PaneProvider
+              scope={{
+                paneId: 'preview-composer' as never,
+                view: { kind: 'conversation', session: COMPOSER_SESSION_KEY } as never,
+                sessionKey: COMPOSER_SESSION_KEY,
+              }}
+            >
+              <Conversation
+                onChooseProject={() => {}}
+                onSignIn={() => {}}
+                onOpenUsage={() => {}}
+                onOpenRuntimes={() => {}}
+              />
+            </PaneProvider>
+          </StoreProvider>
+        </div>
+      </Frame>
+      <Frame title="Composer — a paused queue">
+        <div className="p-4" data-preview="queue-paused">
+          <StoreProvider store={composerPaused}>
+            <PaneProvider
+              scope={{
+                paneId: 'preview-queue' as never,
+                view: { kind: 'conversation', session: COMPOSER_SESSION_KEY } as never,
+                sessionKey: COMPOSER_SESSION_KEY,
+              }}
+            >
+              <MessageQueue />
+            </PaneProvider>
+          </StoreProvider>
         </div>
       </Frame>
 
