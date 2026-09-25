@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { TriggerPreferences } from '@harnessdesk/protocol'
 
-import { Button, Field, Input, KeyValue, KeyValueRow, Note, Row, Rows, SectionHead, Switch } from '../design'
+import { KeyValue, KeyValueRow, Note, Row, RowInput, Rows, SectionHead, Switch } from '../design'
 import { useStore } from '../state/context'
 
 const money = (usd: number | null): string => (usd === null ? 'Unknown' : `$${usd.toFixed(2)}`)
@@ -12,15 +12,19 @@ const money = (usd: number | null): string => (usd === null ? 'Unknown' : `$${us
  * daily cap every armed trigger reserves against.
  *
  * A read-back precedes every shown value — turning the pause switch or
- * saving a cap never flips to its new-looking state until the host has
+ * changing the cap never flips to its new-looking state until the host has
  * actually said so, and a rejected write (a stale revision, an invalid cap)
- * leaves exactly what was there before it.
+ * leaves exactly what was there before it. Like every Settings value, the cap
+ * applies as it is changed (`RowInput`: Enter, or leaving the field); a cap
+ * that is refused stays in its field, marked, with the reason read with it.
  */
 export const TriggerSettings = ({ focus = null }: { readonly focus?: string | null }) => {
   const store = useStore()
   const [prefs, setPrefs] = useState<TriggerPreferences | null>(null)
-  const [dailyInput, setDailyInput] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
+  /** Why the cap in its field was refused; cleared by the next cap that is taken, or by Escape. */
+  const [capProblem, setCapProblem] = useState<string | null>(null)
+  const capNote = useId()
   const [busy, setBusy] = useState(false)
   const saving = useRef(false)
   const section = useRef<HTMLElement>(null)
@@ -33,38 +37,40 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
 
   const load = useCallback((): void => {
     store.triggerPreferences().then(
-      (next) => { setPrefs(next); setDailyInput(String(next.dailyUsd)) },
+      (next) => setPrefs(next),
       (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
     )
   }, [store])
 
   useEffect(() => { load() }, [load])
 
-  const apply = async (paused: boolean, dailyUsd: number): Promise<void> => {
+  const apply = async (paused: boolean, dailyUsd: number, field: 'pause' | 'cap'): Promise<void> => {
     if (!prefs || saving.current) return
     saving.current = true
     setBusy(true)
     setProblem(null)
+    if (field === 'cap') setCapProblem(null)
     try {
       const next = await store.setTriggerPreferences(prefs.revision, paused, dailyUsd)
       setPrefs(next)
-      setDailyInput(String(next.dailyUsd))
     } catch (error) {
-      setProblem(error instanceof Error ? error.message : 'This could not be saved.')
+      const text = error instanceof Error ? error.message : 'This could not be saved.'
+      if (field === 'cap') setCapProblem(text)
+      else setProblem(text)
     } finally {
       saving.current = false
       setBusy(false)
     }
   }
 
-  const saveCap = (): void => {
+  const saveCap = (typed: string): void => {
     if (!prefs) return
-    const value = Number(dailyInput)
-    if (!Number.isFinite(value) || value < 0) {
-      setProblem('Give a daily cap of zero or more — zero means no new paid work.')
+    const value = Number(typed)
+    if (typed.trim() === '' || !Number.isFinite(value) || value < 0) {
+      setCapProblem('Give a daily cap of zero or more — zero means no new paid work.')
       return
     }
-    void apply(prefs.paused, value)
+    void apply(prefs.paused, value, 'cap')
   }
 
   return (
@@ -87,27 +93,31 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
                   checked={prefs.paused}
                   disabled={busy}
                   aria-label="Pause every trigger"
-                  onCheckedChange={(checked) => void apply(checked, prefs.dailyUsd)}
+                  onCheckedChange={(checked) => void apply(checked, prefs.dailyUsd, 'pause')}
+                />
+              )}
+            />
+            <Row
+              title="Stop for the day after"
+              desc="US dollars of reported spend. Resets at midnight UTC; zero means no new paid work today."
+              control={(
+                <RowInput
+                  type="number"
+                  min={0}
+                  step="any"
+                  inputMode="decimal"
+                  aria-label="Stop for the day after, in US dollars"
+                  {...(capProblem ? { 'aria-describedby': capNote } : {})}
+                  disabled={busy}
+                  value={String(prefs.dailyUsd)}
+                  invalid={capProblem !== null}
+                  onCommit={saveCap}
+                  onRestore={() => setCapProblem(null)}
                 />
               )}
             />
           </Rows>
-          <Field label="Stop for the day after" hint="Resets at midnight UTC. Zero means no new paid work today.">
-            {(control) => (
-              <Input
-                {...control}
-                type="number"
-                min={0}
-                inputMode="decimal"
-                disabled={busy}
-                value={dailyInput}
-                onChange={(event) => setDailyInput(event.target.value)}
-              />
-            )}
-          </Field>
-          <Button variant="secondary" disabled={busy || dailyInput === String(prefs.dailyUsd)} onClick={saveCap}>
-            Save
-          </Button>
+          {capProblem && <Note id={capNote} tone="bad">{capProblem}</Note>}
           <KeyValue variant="panel">
             <KeyValueRow label="Today (UTC)">{prefs.day}</KeyValueRow>
             <KeyValueRow label="Reserved today">{money(prefs.reservedUsd)}</KeyValueRow>

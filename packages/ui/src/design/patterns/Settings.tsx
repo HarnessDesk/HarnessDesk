@@ -1344,9 +1344,18 @@ export const RowValue = ({ children, className, numeric = false }: { children: R
  *
  * Settings pages never show a Save button: a switch applies as it is flipped,
  * and this applies when the typing is done — on Enter, or when focus leaves
- * the field. Escape puts back what is stored (and only then lets Escape close
- * the window around it). Nothing is sent while the text still reads as
- * stored, so tabbing through the page writes nothing.
+ * the field for somewhere else in the window. Escape puts back what is stored
+ * (and only then lets Escape close the window around it), and says so with
+ * `onRestore`. Nothing is sent while the text still reads as stored, so
+ * tabbing through the page writes nothing.
+ *
+ * Leaving the window is not finishing: Cmd-Tab away mid-number blurs the
+ * field, and applying "1" of "10" there would be a guess. So a blur while the
+ * document has lost focus keeps the draft, and the next real blur or Enter
+ * applies it. A field that goes away mid-edit (the page closing) drops its
+ * draft rather than applying it on the way out: an unmount cannot show a
+ * refusal, and a write the person cannot see fail is worse than one they did
+ * not finish.
  *
  * The row owns the name (`aria-label` repeats the row's title for a reader),
  * the field owns only the value, at the width of the value it holds: a
@@ -1360,6 +1369,7 @@ export const RowInput = ({
   onCommit,
   invalid = false,
   width = 'number',
+  onRestore,
   className,
   ...props
 }: Omit<ComponentProps<typeof Input>, 'value' | 'defaultValue' | 'onChange' | 'onBlur' | 'onKeyDown' | 'aria-invalid'> & {
@@ -1367,8 +1377,10 @@ export const RowInput = ({
   value: string
   /** The finished edit. Called only when it differs from `value`. */
   onCommit: (next: string) => void
-  /** The caller refused the last commit; its `Note` says why. */
+  /** The caller refused the last commit; its `Note` says why (link it with `aria-describedby`). */
   invalid?: boolean
+  /** Escape put the stored value back: the caller's refusal no longer applies. */
+  onRestore?: () => void
   /** `number` for a port, a count or an amount; `text` for a short word. */
   width?: 'number' | 'text'
   'aria-label': string
@@ -1388,15 +1400,20 @@ export const RowInput = ({
       {...(invalid ? { 'aria-invalid': true } : {})}
       className={cx(width === 'number' ? 'w-24' : 'w-48', className)}
       onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
+      onBlur={() => {
+        // The window lost focus, not the field: keep the draft for later.
+        if (!document.hasFocus()) return
+        commit()
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
           event.preventDefault()
           commit()
-        } else if (event.key === 'Escape' && draft !== value) {
+        } else if (event.key === 'Escape' && (draft !== value || invalid)) {
           event.preventDefault()
           event.stopPropagation()
           setDraft(value)
+          onRestore?.()
         }
       }}
     />

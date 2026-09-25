@@ -45,9 +45,11 @@ const key = (input: HTMLInputElement, name: string): KeyboardEvent => {
   return event
 }
 
-const Port = ({ onCommit, refuse = false }: { onCommit: (next: string) => void; refuse?: boolean }) => {
+const Port = ({ onCommit, refuse = false, outside }: { onCommit: (next: string) => void; refuse?: boolean; outside?: string }) => {
   const [stored, setStored] = useState('30000')
   const [invalid, setInvalid] = useState(false)
+  const [restored, setRestored] = useState(0)
+  const shown = outside ?? stored
   return (
     <Rows>
       <Row
@@ -56,8 +58,10 @@ const Port = ({ onCommit, refuse = false }: { onCommit: (next: string) => void; 
           <RowInput
             aria-label="Starting port"
             type="number"
-            value={stored}
+            value={shown}
             invalid={invalid}
+            data-restored={restored}
+            onRestore={() => { setInvalid(false); setRestored((was) => was + 1) }}
             onCommit={(next) => {
               onCommit(next)
               if (refuse) setInvalid(true)
@@ -71,12 +75,25 @@ const Port = ({ onCommit, refuse = false }: { onCommit: (next: string) => void; 
 }
 
 const field = (): HTMLInputElement => container.querySelector('[data-slot="row-input"]') as HTMLInputElement
+/** Leaving the field, as a person does inside a window that has the focus. */
+const leave = (): void => {
+  act(() => field().dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
+}
+
+let windowFocused = true
+beforeEach(() => {
+  windowFocused = true
+  vi.spyOn(document, 'hasFocus').mockImplementation(() => windowFocused)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('RowInput', () => {
   it('applies on Enter and on leaving the field, and only when the value changed', () => {
     const onCommit = vi.fn()
     act(() => root.render(<Port onCommit={onCommit} />))
-    act(() => field().dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
+    leave()
     expect(onCommit).not.toHaveBeenCalled()
 
     type(field(), '31000')
@@ -86,9 +103,33 @@ describe('RowInput', () => {
     expect(onCommit).toHaveBeenLastCalledWith('31000')
 
     type(field(), '32000')
-    act(() => field().dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
+    leave()
     expect(onCommit).toHaveBeenLastCalledWith('32000')
     expect(onCommit).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not apply half a number when the window, not the field, loses focus', () => {
+    const onCommit = vi.fn()
+    act(() => root.render(<Port onCommit={onCommit} />))
+    type(field(), '1')
+    // Cmd-Tab away mid-number: the field is blurred with the window.
+    windowFocused = false
+    leave()
+    expect(onCommit).not.toHaveBeenCalled()
+    expect(field().value).toBe('1')
+    // Back, and the typing finishes: the next real blur applies the whole value.
+    windowFocused = true
+    type(field(), '10')
+    leave()
+    expect(onCommit).toHaveBeenCalledTimes(1)
+    expect(onCommit).toHaveBeenLastCalledWith('10')
+  })
+
+  it('shows a value changed from outside, rather than holding an edit of one that is gone', () => {
+    act(() => root.render(<Port onCommit={() => {}} />))
+    expect(field().value).toBe('30000')
+    act(() => root.render(<Port onCommit={() => {}} outside="31000" />))
+    expect(field().value).toBe('31000')
   })
 
   it('puts back what is stored on Escape, and leaves Escape alone when there is nothing to undo', () => {
@@ -104,12 +145,17 @@ describe('RowInput', () => {
     expect(onCommit).not.toHaveBeenCalled()
   })
 
-  it('keeps a refused value in the field and marks it invalid', () => {
+  it('keeps a refused value in the field and marks it invalid, and Escape restores and says so', () => {
     act(() => root.render(<Port onCommit={() => {}} refuse />))
     type(field(), '80')
     key(field(), 'Enter')
     expect(field().value).toBe('80')
     expect(field().getAttribute('aria-invalid')).toBe('true')
+    const undo = key(field(), 'Escape')
+    expect(undo.defaultPrevented).toBe(true)
+    expect(field().value).toBe('30000')
+    expect(field().getAttribute('data-restored')).toBe('1')
+    expect(field().getAttribute('aria-invalid')).toBeNull()
   })
 
   it('is as wide as the value it holds, not the row', () => {
