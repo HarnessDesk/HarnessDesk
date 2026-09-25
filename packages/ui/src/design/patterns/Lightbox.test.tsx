@@ -46,11 +46,16 @@ const open = async (onClose = () => {}) => {
   return opener
 }
 
-it('moves focus to the safe close action and returns it to the opener', async () => {
-  const opener = await open()
-  expect(document.activeElement).toBe(document.querySelector('[aria-label="Close"]'))
+const close = () => document.querySelector<HTMLButtonElement>('[data-lightbox] [data-slot="dialog-close"]')
 
-  await act(() => (document.querySelector('[aria-label="Close"]') as HTMLButtonElement).click())
+it('takes the focus on its own sheet, which wears no ring, and gives it back to the opener', async () => {
+  const opener = await open()
+  const sheet = document.querySelector<HTMLElement>('[data-lightbox]')
+  expect(sheet).not.toBeNull()
+  expect(document.activeElement).toBe(sheet)
+  expect(sheet?.className).toContain('focus-visible:outline-none')
+
+  await act(() => close()!.click())
   await frame()
   expect(document.activeElement).toBe(opener)
 })
@@ -82,6 +87,92 @@ it('walks the gallery with canonical actions and arrow keys', async () => {
   await act(() => (document.querySelector('[aria-label="Next image"]') as HTMLButtonElement).click())
   expect(document.querySelector('img')?.getAttribute('alt')).toBe('Second image')
 
-  await act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft' })))
+  // From where the focus is — inside the sheet — as a person presses it.
+  await act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true })))
   expect(document.querySelector('img')?.getAttribute('alt')).toBe('First image')
+})
+
+it('is the dialog, drawn by the dialog: its surface, its close, and the name as its title', async () => {
+  await open()
+  const sheet = document.querySelector<HTMLElement>('[data-lightbox]')
+  // The dialog's own surface, not a sheet the viewer made transparent and redrew.
+  expect(sheet?.getAttribute('data-slot')).toBe('dialog-content')
+  expect(sheet?.className).toContain('bg-popover')
+  expect(sheet?.className).not.toContain('bg-transparent')
+  // The dialog's close — the one every dialog wears — named for a reader.
+  expect(close()?.textContent).toContain('Close')
+  // Named by its title and described by its facts, where a reader looks.
+  const title = document.querySelector('[data-slot="dialog-title"]')
+  expect(title?.textContent).toBe('First image')
+  expect(title?.classList.contains('sr-only')).toBe(false)
+  expect(sheet?.getAttribute('aria-labelledby')).toBe(title?.id)
+  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent).toContain('1 of 2')
+})
+
+it('steps the gallery with the floating control every button over content wears', async () => {
+  await open()
+  for (const name of ['Previous image', 'Next image']) {
+    const step = document.querySelector<HTMLElement>(`[aria-label="${name}"]`)
+    expect(step?.className).toContain('rounded-full')
+    expect(step?.className).toContain('bg-(--hd-card)')
+  }
+  await act(() => (document.querySelector('[aria-label="Next image"]') as HTMLButtonElement).click())
+  expect(document.querySelector('[data-slot="dialog-title"]')?.textContent).toBe('Second image')
+  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent).toContain('2 of 2')
+})
+
+it('draws one picture without steps or a count', async () => {
+  await act(() => root.render(<Lightbox images={[images[0]]} index={0} onClose={() => {}} />))
+  await frame()
+  expect(document.querySelector('[aria-label="Next image"]')).toBeNull()
+  expect(document.querySelector('[aria-label="Previous image"]')).toBeNull()
+  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent ?? '').not.toContain('of')
+})
+
+it('answers the arrows from inside the sheet even when the key never reaches the window', async () => {
+  await open()
+  const stop = (event: Event): void => event.stopPropagation()
+  document.addEventListener('keydown', stop)
+  try {
+    await act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+    expect(document.querySelector('[data-slot="dialog-title"]')?.textContent).toBe('Second image')
+  } finally {
+    document.removeEventListener('keydown', stop)
+  }
+})
+
+const three = [
+  { name: 'First image', url: 'data:image/png;base64,AA==' },
+  { name: 'Second image', url: 'data:image/png;base64,AQ==' },
+  { name: 'Third image', url: 'data:image/png;base64,Ag==' },
+] as const
+
+const title = () => document.querySelector('[data-slot="dialog-title"]')?.textContent
+const press = (key: string) => act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+
+it('steps back with ← and on with →, round the ends, in a gallery of three', async () => {
+  await act(() => root.render(<Lightbox images={three} index={0} onClose={() => {}} />))
+  await frame()
+  await press('ArrowLeft')
+  expect(title()).toBe('Third image')
+  await press('ArrowLeft')
+  expect(title()).toBe('Second image')
+  await press('ArrowRight')
+  expect(title()).toBe('Third image')
+  await press('ArrowRight')
+  expect(title()).toBe('First image')
+  await act(() => (document.querySelector('[aria-label="Previous image"]') as HTMLButtonElement).click())
+  expect(title()).toBe('Third image')
+})
+
+it('reads the picture’s size from the picture once it has loaded', async () => {
+  await act(() => root.render(<Lightbox images={three} index={1} onClose={() => {}} />))
+  await frame()
+  const description = () => document.querySelector('[data-slot="dialog-description"]')?.textContent ?? ''
+  expect(description()).not.toContain('×')
+  const img = document.querySelector('img')!
+  Object.defineProperty(img, 'naturalWidth', { configurable: true, value: 1280 })
+  Object.defineProperty(img, 'naturalHeight', { configurable: true, value: 800 })
+  await act(() => { img.dispatchEvent(new Event('load')) })
+  expect(description()).toMatch(/^1280 × 800 · .+ · 2 of 3$/)
 })

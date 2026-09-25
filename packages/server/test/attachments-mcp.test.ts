@@ -195,6 +195,35 @@ test('a listing has one deadline for all its pages, not one per page', async () 
   )
 })
 
+test('a page timeout is always the listing deadline, never leaked as its own message — even when Date.now() itself would say it has not passed', async () => {
+  // A page whose own remaining-time timeout genuinely fires (a real
+  // setTimeout, on the real clock — never faked) is always the deadline
+  // being reached, structurally, because it was given exactly the time
+  // remaining before that deadline as its own timeout. Before the fix, that
+  // was decided by comparing `Date.now()` against the deadline *after* the
+  // timer fired — a second, independent reading of the same clock the timer
+  // itself never consulted. Freezing `Date.now()` here reproduces exactly
+  // what let that comparison lose the race under load: a real timer firing
+  // at the real deadline, read back by a clock that does not yet agree it
+  // has passed. The fix asks the timeout's own `timedOut` flag instead of
+  // asking Date.now() a second time, so it cannot be fooled by this at all.
+  const real = Date.now
+  Date.now = () => real()
+  const frozen = Date.now()
+  Date.now = () => frozen
+  try {
+    await assert.rejects(
+      // A page that never answers within any deadline this test could set:
+      // the fixture schedules its reply for real time this test does not
+      // wait out, so the one real timer here is the per-page request's own.
+      listStdioMcpServerTools(fixtureSpec({ FAKE_MCP_PAGE_DELAY_MS: '999999999' }), { deadlineMs: 200 }),
+      /did not finish listing its tools within 200ms/,
+    )
+  } finally {
+    Date.now = real
+  }
+})
+
 test('stderr is capped: a server that floods it cannot grow the desk, and the reason stays short', async () => {
   const flood = new BoundedTail(8 * 1024)
   for (let index = 0; index < 100; index += 1) flood.push('x'.repeat(64 * 1024))

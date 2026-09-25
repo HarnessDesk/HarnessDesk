@@ -80,6 +80,14 @@ const press = (target: HTMLElement, key: string, alt = true): KeyboardEvent => {
 }
 
 describe('SortableList', () => {
+  it('owns the reveal of an item’s actions: hidden at rest, up with the pointer or the focus', () => {
+    const drawn = sortableItemClass()
+    expect(drawn).toContain('[&_[data-slot=sortable-actions]]:opacity-0')
+    expect(drawn).toContain('hover:[&_[data-slot=sortable-actions]]:opacity-100')
+    expect(drawn).toContain('focus-within:[&_[data-slot=sortable-actions]]:opacity-100')
+    expect(sortableItemClass('horizontal')).toContain('focus-within:[&_[data-slot=sortable-actions]]:opacity-100')
+  })
+
   it('moves a row one place with ⌥↑ and ⌥↓, from its handle or anything else in it', () => {
     const onMove = vi.fn()
     act(() => root.render(<List onMove={onMove} />))

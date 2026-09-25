@@ -255,6 +255,148 @@ test('a trigger Goal’s approval and question are named waits the moment they a
   assert.ok(d.pushed.filter((one) => one.method === 'trigger/attention').length > announced, 'the resolution is announced')
 })
 
+/** A trigger Goal whose one Seat is inside its turn, asking a person to approve a command. */
+const askingSeat = async (d: IntakeDesk, number: number): Promise<{ goal: string; card: { id: number; session: string }; run: FlowExecution }> => {
+  const root = d.repo.dir
+  const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
+  await d.host.call('trigger/arm', { root, id: 'triage', token: preview.token! })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number, state: 'open', created: at, updated: at, events: [{ id: number, event: 'labeled', created: at, label: 'ready' }], comments: [] })
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const [view] = await until(async () => { const found = await triggerGoals(d); return found.length === 1 ? found : null }, 'the trigger Goal')
+  const goal = view!.goal.id
+  const [card] = await until(async () => { const cards = await claimedCards(d, goal); return cards.length === 1 && running(d).length === 1 ? cards : null }, 'its Seat at work')
+  void d.runtime.sessions.get(card!.session)!.askApproval('ap-before' as never)
+  await until(async () => ((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => one.kind === 'approval') ? true : null), 'the approval named')
+  return { goal, card: card!, run: await runOn(d, root, 'triage', goal) }
+}
+
+const TRIAGE = `- id: triage
+  on: issue
+  events: [labelled]
+  label: ready
+  opens: { flow: review-pr }
+`
+
+test('an unattended trigger’s card is added by the trigger, never by the person, through the whole intake path (#906)', E2E, async (t) => {
+  const repo = await makeRepo('hd-intake-actor-')
+  await commitTriggers(repo, TRIAGE)
+  const d = await intakeDesk({ repo })
+  t.after(() => d.stop())
+  const root = repo.dir
+  const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
+  await d.host.call('trigger/arm', { root, id: 'triage', token: preview.token! })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 13, state: 'open', created: at, updated: at, events: [{ id: 13, event: 'labeled', created: at, label: 'ready' }], comments: [] })
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const [view] = await until(async () => { const found = await triggerGoals(d); return found.length === 1 && found[0]!.board.intents.length > 0 ? found : null }, 'the trigger Goal and its card')
+  const read = await d.host.call('goal/read', { goal: view!.goal.id }) as GoalView
+  const added = read.board.channel.filter((entry) => entry.kind === 'signal' && entry.signal === 'added')
+  assert.ok(added.length > 0, 'the card’s creation is on the Goal’s channel')
+  for (const entry of added) assert.deepEqual((entry as { by?: unknown }).by, { kind: 'trigger', trigger: 'triage' })
+})
+
+test('a relaunch with an approval pending reopens the Seat’s conversation and hands it its card again, so it can ask again (#915)', E2E, async (t) => {
+  const repo = await makeRepo('hd-intake-relaunch-')
+  await commitTriggers(repo, TRIAGE)
+  const first = await intakeDesk({ repo })
+  let d = first
+  t.after(() => d.stop())
+  const { goal, card, run } = await askingSeat(d, 11)
+
+  // Quit with the approval still pending; the agent's process goes with the desk.
+  await d.stop()
+  d = await intakeDesk({ repo, stateDir: first.stateDir, forge: first.forge, clocks: first.clocks })
+
+  // The Seat's conversation is reopened and handed its card, in a turn of its own.
+  await until(() => running(d).includes(card.session) ? true : null, 'the Seat back at work after the relaunch')
+  assert.ok(d.runtime.resumes > 0, 'the conversation was reopened, not replaced')
+  const record = d.host.registry.all().find((one) => String(one.session.id) === card.session)!
+  const order = JSON.stringify(record.session.turns.at(-1))
+  assert.match(order, new RegExp(`Card #${card.id} on this Goal is yours`), 'its own card, handed back')
+  const after = await execution(d, run.id)
+  assert.equal(after.state, 'running', 'the run reads running because something is')
+
+  // The approval that died with the old process is not shown as pending; the agent asks again, and that is.
+  assert.equal((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => one.kind === 'approval'), false)
+  void d.runtime.sessions.get(card.session)!.askApproval('ap-after' as never)
+  await until(async () => ((await d.host.call('trigger/goal', { goal }) as TriggerGoalStatus).waits.some((one) => one.kind === 'approval') ? true : null), 'the new approval named')
+})
+
+test('a relaunch whose Seat cannot be reopened stops reading as running and says why (#915)', E2E, async (t) => {
+  const repo = await makeRepo('hd-intake-relaunch-refused-')
+  await commitTriggers(repo, TRIAGE)
+  const first = await intakeDesk({ repo })
+  let d = first
+  t.after(() => d.stop())
+  const { card, run } = await askingSeat(d, 12)
+
+  await d.stop()
+  d = await intakeDesk({
+    repo, stateDir: first.stateDir, forge: first.forge, clocks: first.clocks,
+    before: (runtime) => { runtime.resumeFailure = new Error('the agent keeps no record of that conversation') },
+  })
+
+  const stalled = await until(async () => { const one = await execution(d, run.id); return one.state === 'stalled' ? one : null }, 'the run stalled with its reason')
+  assert.match(stalled.reason ?? '', new RegExp(`Card #${card.id} could not be handed back to its Seat`))
+  assert.deepEqual(running(d), [], 'and nothing is running')
+})
+
+test('a run held by a pause across a relaunch reopens its Seat on its own model when the pause lifts (#915)', E2E, async (t) => {
+  const repo = await makeRepo('hd-intake-relaunch-held-')
+  await commitTriggers(repo, TRIAGE)
+  // Seated on a model of its own choosing, which a reopened conversation does not come back on by itself.
+  const first = await intakeDesk({ repo, prefer: 'fake=fake-1' })
+  let d = first
+  t.after(() => d.stop())
+  const root = repo.dir
+  const preview = await d.host.call('trigger/preview', { root, id: 'triage' })
+  await d.host.call('trigger/arm', { root, id: 'triage', token: preview.token! })
+  const at = d.clocks.wall + 1000
+  d.forge.issues.push({ number: 14, state: 'open', created: at, updated: at, events: [{ id: 14, event: 'labeled', created: at, label: 'ready' }], comments: [] })
+  d.clocks.advance(60_000)
+  await d.host.intakePlane.tick()
+  const [view] = await until(async () => { const found = await triggerGoals(d); return found.length === 1 ? found : null }, 'the trigger Goal')
+  const goal = view!.goal.id
+  const [card] = await until(async () => { const cards = await claimedCards(d, goal); return cards.length === 1 && running(d).length === 1 ? cards : null }, 'its Seat at work')
+  const seated = d.host.registry.all().find((one) => String(one.session.id) === card!.session)!.live!.options().find((one) => one.id === 'model')!.currentValue
+  const run = await runOn(d, root, 'triage', goal)
+  const prefs = await d.host.call('trigger/preferences', {})
+  await d.host.call('trigger/preferences/set', { revision: prefs.revision, paused: true, dailyUsd: 20 })
+  await until(() => running(d).length === 0 ? true : null, 'its turn interrupted by the pause')
+
+  // Quit while paused. The agent comes back on its own default — not the model the Seat was seated with.
+  await d.stop()
+  d = await intakeDesk({
+    repo, stateDir: first.stateDir, forge: first.forge, clocks: first.clocks, prefer: 'fake=fake-1',
+    before: (runtime) => {
+      const resume = runtime.resumeSession.bind(runtime)
+      runtime.resumeSession = async (id, options) => {
+        const session = await resume(id, options)
+        await session.setOption('model', seated === 'fake-2' ? 'fake-1' : 'fake-2')
+        return session
+      }
+    },
+  })
+  await d.host.intakePlane.tick()
+  assert.deepEqual(running(d), [], 'nothing runs while paused')
+  assert.equal((await execution(d, run.id)).state, 'running', 'held, not stopped')
+
+  const paused = await d.host.call('trigger/preferences', {})
+  await d.host.call('trigger/preferences/set', { revision: paused.revision, paused: false, dailyUsd: 20 })
+  const back = await until(async () => {
+    const now = await execution(d, run.id)
+    return running(d).includes(card!.session) || now.state !== 'running' ? now : null
+  }, 'the held Seat back at work')
+  assert.deepEqual([back.state, back.reason, back.intake?.heldFor ?? null], ['running', null, null], 'running again, nothing held')
+  assert.ok(running(d).includes(card!.session), 'the held Seat back at work')
+  assert.ok(d.runtime.resumes > 0, 'its own conversation was reopened')
+  const reopened = d.host.registry.all().find((one) => String(one.session.id) === card!.session)!
+  assert.equal(reopened.live!.options().find((one) => one.id === 'model')!.currentValue, seated, 'on the model it was seated with')
+})
+
 test('pausing stops watching and holds every live trigger run; resuming continues it', E2E, async (t) => {
   const repo = await makeRepo('hd-intake-pause-')
   await commitTriggers(repo, `- id: triage

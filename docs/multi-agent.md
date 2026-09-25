@@ -825,7 +825,13 @@ watching every source and holds the work triggers started — its turns and
 checks interrupted, nothing recorded as a stop, nothing new posted — and
 resuming continues it: a held Seat is handed its card again and what arrived
 meanwhile is read then. A daily cap lowered below what is already committed
-holds work the same way, and raising it continues it. A budget reached is a
+holds work the same way, and raising it continues it. A quit is not a stop
+either: a Seat's turn goes with the agent's process, and an approval it was
+waiting on goes with it, so on the next launch — after one fresh read of
+allowance and spend — the desk reopens each Seat whose card is still open,
+in the conversation it already had, and hands it that card again, where it
+can ask again. A Seat that cannot be reopened stops the run with the reason,
+so the Goal reads Needs you and never Running over nothing. A budget reached is a
 stop: recorded, the run stopped and every Seat it lets go interrupted, so no
 turn outlives it; a check stopped part-way is left for a person, never run
 again on its own, so a check round a pause stopped waits for a person after

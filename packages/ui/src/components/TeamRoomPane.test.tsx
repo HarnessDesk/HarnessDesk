@@ -542,6 +542,22 @@ it('a reused Goal with an earlier stopped run prefers the reservation’s own ru
   expect(container.textContent).not.toContain('Stopped')
 })
 
+it('a flow-opened Goal whose run was dropped and a new one reserved reads the reserved run, as its Findings pane does (#890)', async () => {
+  const FLOW = { version: 2 as const, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 }
+  const dropped: FlowExecution = {
+    version: 2, id: 'flow-opened-1', goal: ROOM, document: { format: 'agents', flow: FLOW },
+    state: 'stopped', rounds: [], operations: [], legacyRun: null, reason: 'Stopped.',
+  }
+  const current: FlowExecution = { ...dropped, id: 'flow-reserved-1', state: 'running', reason: null }
+  const view = { ...GOAL, goal: { ...GOAL.goal, origin: { kind: 'flow', run: 'flow-opened-1' } }, reservation: { run: 'flow-reserved-1' } } as GoalView
+  const { store } = rig(undefined, undefined, {}, view, new Map([[dropped.id, dropped], [current.id, current]]))
+
+  await render(store)
+
+  expect(container.textContent).toContain('Running')
+  expect(container.textContent).not.toContain('Stopped')
+})
+
 it('while the reservation’s own run has not loaded yet, the pane asks for it rather than falling back to an older cached run sharing the Goal’s id', async () => {
   const FLOW = { version: 2 as const, name: 'Fix', inputs: [], roles: [], rules: [], seed: { role: 'fixer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 }
   const older: FlowExecution = {

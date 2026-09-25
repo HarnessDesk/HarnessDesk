@@ -68,10 +68,10 @@ export const commitTriggers = async (repo: Repo, triggers = TRIGGERS): Promise<v
   await repo.git('commit', '-q', '-m', 'triggers')
 }
 
-export const writeAgent = async (stateDir: string): Promise<void> => {
+export const writeAgent = async (stateDir: string, prefer = 'fake'): Promise<void> => {
   await mkdir(join(stateDir, 'agents', 'reviewer'), { recursive: true })
   await writeFile(join(stateDir, 'agents', 'reviewer', 'AGENT.md'), [
-    '---', 'name: reviewer', 'ceiling: read', 'answers: [approve, request-changes]', 'prefer: [fake]', '---', 'Review the change.', '',
+    '---', 'name: reviewer', 'ceiling: read', 'answers: [approve, request-changes]', `prefer: [${prefer}]`, '---', 'Review the change.', '',
   ].join('\n'), 'utf8')
 }
 
@@ -89,11 +89,15 @@ export const intakeDesk = async (options: {
    * shipped default seat anyone at all.
    */
   readonly runtime?: 'holds' | 'asks'
+  /** The Agent's seat preference, `fake` by default; `fake=fake-1` seats it on that model. */
+  readonly prefer?: string
+  /** Runs on the fake agent after it is registered and before the host starts. */
+  readonly before?: (runtime: FakeRuntime) => void
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
   if (!options.repo && options.triggers !== null) await commitTriggers(repo, options.triggers ?? TRIGGERS)
   const stateDir = options.stateDir ?? tempDir('hd-intake-host-state-')
-  await writeAgent(stateDir)
+  await writeAgent(stateDir, options.prefer)
   const forge = options.forge ?? new FakeForge()
   const clocks = options.clocks ?? new Clocks(Date.now())
   const timers = new ManualTimers()
@@ -114,6 +118,7 @@ export const intakeDesk = async (options: {
   })
   const runtime = options.runtime === 'asks' ? new FakeRuntime({ capabilities: { metered: true } }) : holding()
   host.register(runtime)
+  options.before?.(runtime)
   const pushed: WireNotification[] = []
   host.addBroadcaster((notification) => { pushed.push(notification) })
   await host.start()
