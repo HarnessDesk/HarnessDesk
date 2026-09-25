@@ -18,6 +18,17 @@ const WIDTH = {
 } as const
 
 /**
+ * The first control a person types into: a text field, a text area or a
+ * select. A checkbox, a radio or a button is not a field — landing on one
+ * would draw its ring on open and invite Space or Return to answer for you.
+ */
+const FIELD = [
+  'input:not([type=hidden],[type=checkbox],[type=radio],[type=button],[type=submit],[type=reset],[type=range],[type=color],[type=file]):not(:disabled,[readonly])',
+  'textarea:not(:disabled,[readonly])',
+  'select:not(:disabled)',
+].join(',')
+
+/**
  * The application dialog pattern: Base UI owns focus, dismissal, stacking,
  * the portal and accessibility; this layer owns HarnessDesk's header, body,
  * footer and measured sizes.
@@ -54,7 +65,11 @@ export const Dialog = ({
     <DialogRoot open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         ref={surface}
-        initialFocus={surface}
+        /* The first field when there is one, so a dialog that asks for a
+           name is ready for it; otherwise the surface, so Escape reaches it
+           and a reader lands inside. The surface wears no ring (the
+           primitive's `SURFACE_FOCUS`), whatever opened it. */
+        initialFocus={() => surface.current?.querySelector<HTMLElement>(`[data-slot="modal-dialog-body"] :is(${FIELD})`) ?? surface.current}
         showCloseButton={false}
         aria-label={title}
         aria-describedby={undefined}
@@ -71,7 +86,7 @@ export const Dialog = ({
           </DialogClose>
         </div>
         {subhead && <div className={styles.subhead}>{subhead}</div>}
-        {children && <div className={`${styles.body} ${flush ? styles.flush : ''}`}>{children}</div>}
+        {children && <div className={`${styles.body} ${flush ? styles.flush : ''}`} data-slot="modal-dialog-body">{children}</div>}
         {(footer || footerAside) && (
           <div className={styles.footer}>
             {footer}

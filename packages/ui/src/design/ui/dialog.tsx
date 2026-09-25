@@ -30,10 +30,24 @@ const DialogViewport = ({ ...props }: React.ComponentProps<typeof DialogPrimitiv
   <DialogPrimitive.Viewport data-slot="dialog-viewport" {...props} />
 )
 
+/* A surface that takes focus is a mechanism, not a control: it wears no ring,
+   whatever opened it, and the controls inside keep theirs. The document-wide
+   `:focus-visible` outline in `styles/app.css` is bundled after the utilities
+   and wins a tie with `outline-none`, so the state is named as well —
+   `focus-visible:outline-none` outranks the bare pseudo-class in any order. */
+const SURFACE_FOCUS = 'outline-none focus-visible:outline-none'
+
 const DialogPopup = forwardRef<
   HTMLDivElement,
   React.ComponentProps<typeof DialogPrimitive.Popup>
->(({ ...props }, ref) => <DialogPrimitive.Popup ref={ref} data-slot="dialog-popup" {...props} />)
+>(({ className, ...props }, ref) => (
+  <DialogPrimitive.Popup
+    ref={ref}
+    data-slot="dialog-popup"
+    className={typeof className === 'function' ? (state) => cn(SURFACE_FOCUS, className(state)) : cn(SURFACE_FOCUS, className)}
+    {...props}
+  />
+))
 DialogPopup.displayName = 'DialogPopup'
 
 /* Forwards its ref, because the portal it is rendered into hands the child a
@@ -92,7 +106,8 @@ const DialogContent = forwardRef<
         ref={ref}
         data-slot="dialog-content"
         className={cn(
-          'bg-popover data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow) duration-200 outline-none',
+          'bg-popover data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow) duration-200',
+          SURFACE_FOCUS,
           bleed || 'grid w-full gap-4 p-5 sm:max-w-md',
           className,
         )}

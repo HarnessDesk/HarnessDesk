@@ -9,56 +9,14 @@
  *
  * The one thing the six did NOT agree on is the footer, because four of them
  * do not have one. It is written once here, and the rule is at the bottom.
+ *
+ * The surface itself — its four widths (460, 520, 560, 620: counted, not
+ * chosen), the tall floor, the shadow and the focus it takes without a ring —
+ * is said as utilities in ModalDialog.tsx, because the primitive under it
+ * says its own box as utilities and a module rule here would only tie with
+ * them. The `.dialog`, `.sm`…`.xl`, `.tall` and `.overlay` rules that used to
+ * sit here were never applied to anything.
  */
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--hd-z-dialog);
-  display: grid;
-  place-items: center;
-  padding: var(--hd-space-6);
-  background: var(--hd-scrim);
-}
-
-.dialog {
-  display: flex;
-  flex-direction: column;
-  max-height: min(72vh, 720px);
-  border-radius: var(--hd-surface-radius);
-  background: var(--hd-surface-fill);
-  color: var(--hd-popover-foreground);
-  /* The edge is a shadow, not a border: it costs no layout, and it survives
-     `overflow: hidden` on a rounded corner where a border does not. */
-  box-shadow: var(--hd-surface-shadow);
-  overflow: hidden;
-}
-
-/* The surface takes focus when it opens, so Escape reaches it and a reader
-   lands inside rather than behind. That is a mechanism, not a state worth
-   announcing — and the element is `tabindex="-1"`, so nobody can Tab to it
-   and be left wondering where the ring went. */
-.dialog:focus,
-.dialog:focus-visible {
-  outline: none;
-}
-
-/* --- the four widths ------------------------------------------------------
-   Counted, not chosen: 460 was the hand-off sheet, 520 the install and remove
-   dialogs, 560 the folder picker, 620 the approval. Every dialog in the app
-   already stood at one of these. */
-.sm { width: min(460px, 100%); }
-.md { width: min(520px, 100%); }
-.lg { width: min(560px, 100%); }
-.xl { width: min(620px, 100%); }
-
-/* A body that is a list wants a floor as well as a ceiling: without one the
-   surface grows and shrinks as you walk into folders, and the buttons move
-   under the pointer. */
-.tall {
-  height: min(62vh, 560px);
-  max-height: min(62vh, 560px);
-}
 
 .header {
   flex: none;

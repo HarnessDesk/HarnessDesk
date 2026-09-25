@@ -26,11 +26,16 @@ const DropdownMenuPositioner = React.forwardRef<
 ))
 DropdownMenuPositioner.displayName = 'DropdownMenuPositioner'
 
+/* A surface that takes focus wears no ring; see `SURFACE_FOCUS` in dialog.tsx. */
+const SURFACE_FOCUS = 'outline-none focus-visible:outline-none'
+const surfaceFocus = <S,>(className: string | ((state: S) => string | undefined) | undefined) =>
+  typeof className === 'function' ? (state: S) => cn(SURFACE_FOCUS, className(state)) : cn(SURFACE_FOCUS, className)
+
 const DropdownMenuPopup = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Popup>,
   React.ComponentProps<typeof DropdownMenuPrimitive.Popup>
->(({ ...props }, ref) => (
-  <DropdownMenuPrimitive.Popup ref={ref} data-slot="dropdown-menu-popup" {...props} />
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Popup ref={ref} data-slot="dropdown-menu-popup" className={surfaceFocus(className)} {...props} />
 ))
 DropdownMenuPopup.displayName = 'DropdownMenuPopup'
 
@@ -54,6 +59,7 @@ const DropdownMenuContent = ({
         data-slot="dropdown-menu-content"
         className={cn(
           'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 max-h-(--available-height) min-w-32 origin-(--transform-origin) overflow-x-hidden overflow-y-auto rounded-lg border p-1 shadow-md',
+          SURFACE_FOCUS,
           className,
         )}
         {...props}
@@ -230,6 +236,7 @@ const DropdownMenuSubContent = ({
         data-slot="dropdown-menu-sub-content"
         className={cn(
           'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 min-w-32 origin-(--transform-origin) overflow-hidden rounded-lg border p-1 shadow-lg',
+          SURFACE_FOCUS,
           className,
         )}
         {...props}

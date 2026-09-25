@@ -25,11 +25,16 @@ const PopoverPositioner = React.forwardRef<
 ))
 PopoverPositioner.displayName = 'PopoverPositioner'
 
+/* A surface that takes focus wears no ring; see `SURFACE_FOCUS` in dialog.tsx. */
+const SURFACE_FOCUS = 'outline-none focus-visible:outline-none'
+const surfaceFocus = <S,>(className: string | ((state: S) => string | undefined) | undefined) =>
+  typeof className === 'function' ? (state: S) => cn(SURFACE_FOCUS, className(state)) : cn(SURFACE_FOCUS, className)
+
 const PopoverPopup = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Popup>,
   React.ComponentProps<typeof PopoverPrimitive.Popup>
->(({ ...props }, ref) => (
-  <PopoverPrimitive.Popup ref={ref} data-slot="popover-popup" {...props} />
+>(({ className, ...props }, ref) => (
+  <PopoverPrimitive.Popup ref={ref} data-slot="popover-popup" className={surfaceFocus(className)} {...props} />
 ))
 PopoverPopup.displayName = 'PopoverPopup'
 
@@ -46,7 +51,8 @@ const PopoverContent = ({
       <PopoverPrimitive.Popup
         data-slot="popover-content"
         className={cn(
-          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) rounded-lg border p-4 shadow-md outline-hidden',
+          'bg-popover text-popover-foreground data-starting-style:animate-in data-starting-style:fade-in-0 data-starting-style:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 w-72 origin-(--transform-origin) rounded-lg border p-4 shadow-md',
+          SURFACE_FOCUS,
           className,
         )}
         {...props}
