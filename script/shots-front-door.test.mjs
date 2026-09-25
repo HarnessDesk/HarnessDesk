@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -103,4 +103,33 @@ test('a front-door start over the rig staged by the real seed.mjs seats the code
   const view = await host.call('goal/read', { goal: run.goal })
   assert.equal(view.members.length, 1)
   assert.deepEqual(view.members[0]?.ceiling, { level: 'edit', hold: 'held' })
+})
+
+/**
+ * #946 review: the `front-door` shots scene seats the Implementer on the
+ * native Codex fixture, which starts its own scripted turn the moment it
+ * holds the seat — and that fixture reports its own bookkeeping
+ * (`TOOLS_DECLARED …`) as a notice over the pane, the same way it does for
+ * every other native-Codex scene (`review`, the approval scenes). Every one
+ * of those calls `dismissFixtureEchoes()` right before its final capture; a
+ * scene that skips it publishes the fixture's own echo instead of the app.
+ *
+ * A source check, not a live one: the scene drives the real Electron app over
+ * CDP, which this suite does not launch (see this file's own header on
+ * `shots-front-door.test.mjs`'s scope). What can be checked without a window
+ * is that the call is actually there, and after the point the Goal page is
+ * confirmed reached rather than before it.
+ */
+test('the front-door scene dismisses the fixture\'s own echoes before its final capture, the way every native-Codex scene does (#946 review)', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const sceneStart = shoot.indexOf("'front-door': {")
+  assert.notEqual(sceneStart, -1, 'shoot.mjs still has the front-door scene')
+  const sceneEnd = shoot.indexOf('\n    } },', sceneStart)
+  assert.notEqual(sceneEnd, -1, 'the front-door scene still closes the way every other scene does')
+  const scene = shoot.slice(sceneStart, sceneEnd)
+  const reachedGoal = scene.indexOf('Ship it once every specialist approves')
+  assert.notEqual(reachedGoal, -1, 'the scene still waits for the Goal page sentence')
+  const dismissed = scene.indexOf('dismissFixtureEchoes()')
+  assert.notEqual(dismissed, -1, 'the front-door scene must call dismissFixtureEchoes() before its capture')
+  assert.ok(dismissed > reachedGoal, 'the fixture\'s echoes are dismissed after the Goal page is reached, not before it exists to dismiss them from')
 })

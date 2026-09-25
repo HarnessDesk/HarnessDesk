@@ -133,6 +133,34 @@
   background: var(--hd-toggle-knob-on);
 }
 
+/* The title's own line: an optional leading icon, the title, and an optional
+   shortcut pinned to the far end — a `display: contents` row would still
+   need this seam, since `.choiceDesc` below stays on the title's column
+   without sharing its line. */
+.choiceHead {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
+}
+
+/* The kind being chosen, not a tinted tile — dimmer than the title so the
+   word carries the row, the way a settings row's own leading glyph does. */
+.choiceIcon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  color: var(--hd-secondary-foreground);
+}
+
+/* A keyboard shortcut, said quietly at the row's end — never a second
+   column, so a row with none of these is exactly as wide as one with one. */
+.choiceTrailing {
+  flex: none;
+  margin-left: auto;
+}
+
 .choiceTitle {
   min-width: 0;
   font-size: var(--hd-text-sm);

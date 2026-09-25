@@ -11,6 +11,7 @@ import type { AgentEvent } from '@harnessdesk/protocol'
 import { EventEmitter } from 'node:events'
 
 import { CliAccount } from '../src/account.js'
+import { firstSentence } from '../src/runtime.js'
 import { AcpRuntime, parseStatus, type AcpAgentConfig } from '../src/index.js'
 
 /**
@@ -256,17 +257,15 @@ test('an agent that refuses a session for want of a sign-in says so, in its decl
     assert.equal(status.signInMethods[0]?.id, 'acp:device')
     assert.equal(status.signInMethods[0]?.label, 'Sign in on the agent side')
     assert.equal(status.signInMethods[0]?.flow, 'browser', 'the agent asked to be called, so the desk offers a button')
-    assert.match(status.signInMethods[0]?.description ?? '', /Run the agent login\./)
-    assert.match(status.signInMethods[0]?.description ?? '', /Authentication required/)
-    /* The whole line, because this is a line a person reads and it used to
-       show the agent's `error.data` as a brace: `Authentication required:
-       {"message":"No authentication method selected.` — cut mid-record,
-       since the sentence it is trimmed to ended inside the JSON. The fake
-       refuses in Antigravity's own shape, `data.message` (#749). */
-    assert.equal(
-      status.signInMethods[0]?.description,
-      'Run the agent login. — Authentication required: No authentication method selected.',
-    )
+    /* The method keeps its own words, and the refusal is said once, for the
+       account: appended to every method it printed the same sentence under
+       each of them. The whole line, because it used to show the agent's
+       `error.data` as a brace: `Authentication required: {"message":"No
+       authentication method selected.` — cut mid-record, since the sentence
+       it is trimmed to ended inside the JSON. The fake refuses in
+       Antigravity's own shape, `data.message` (#749). */
+    assert.equal(status.signInMethods[0]?.description, 'Run the agent login.')
+    assert.equal(status.refusal, 'Authentication required: No authentication method selected.')
   } finally {
     await runtime.dispose()
   }
@@ -333,7 +332,7 @@ test('a prompt-time auth refusal moves an observed agent to sign-in required', a
     assert.equal(status.signInMethods[0]?.id, 'acp:devin-browser')
     assert.equal(status.signInMethods[0]?.label, 'Log in with browser')
     assert.equal(status.signInMethods[0]?.flow, 'browser')
-    assert.match(status.signInMethods[0]?.description ?? '', /Please log in to use Devin/)
+    assert.match(status.refusal ?? '', /Please log in to use Devin/)
     assert.ok(
       events.some((event) => event.type === 'account/changed'),
       'account/changed event was announced on prompt-time auth refusal',
@@ -466,10 +465,24 @@ test('a cancelled ACP sign-in ends at once, and the agent signing in anyway stil
       1,
       'the flow ended once, however the agent finished',
     )
-    assert.deepEqual((await runtime.getAccount()).accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    const after = await runtime.getAccount()
+    assert.deepEqual(after.accounts, [{ kind: 'agent', label: 'Signed in', anonymous: true }])
+    assert.equal(after.refusal, undefined, 'a refusal is not kept past the sign-in that answered it')
   } finally {
     await runtime.dispose()
   }
+})
+
+test('a refusal keeps its sentence and drops only a record the agent appended', () => {
+  // Qwen Code's own shape: a sentence, then its `error.data` as JSON.
+  assert.equal(
+    firstSentence('Authentication required: Use Qwen Code CLI to authenticate first.: {"authMethods":[{"id":"openai"}]}'),
+    'Authentication required: Use Qwen Code CLI to authenticate first.',
+  )
+  assert.equal(firstSentence('Sign-in failed: [{"code":1}]'), 'Sign-in failed')
+  // A reason written in brackets is the clue, not a record.
+  assert.equal(firstSentence('Sign-in failed: [Errno 13] Permission denied'), 'Sign-in failed: [Errno 13] Permission denied')
+  assert.equal(firstSentence('Sign-in failed: [auth] token expired'), 'Sign-in failed: [auth] token expired')
 })
 
 test('an agent that declared no methods is still refused a sign-in in words', async () => {

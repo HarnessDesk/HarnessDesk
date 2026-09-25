@@ -4,17 +4,20 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPreview, SeatPlan } from '@harnessdesk/protocol'
 
+import { ShellProvider, type ShellActions } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { NewSessionChoice } from './NewSessionChoice'
 
 /**
- * The entry point for the collaborative half of the product.
+ * The entry point for the whole product: what kind of thing you are
+ * starting, first, and only then — for a Session — who runs it.
  *
- * "New session" made a solo draft and a Room appeared later, once agents
- * happened to be in the folder — so somebody who came to run three agents on
- * one repository had no way to say so, and the Room was something you
- * discovered rather than chose.
+ * Every created Agent used to lead this dialog as its own bordered row, so a
+ * roster of more than a couple buried "A session" — what ⌘N does — under a
+ * scrolling column of identical tiles. An Agent is now an answer to "who
+ * runs the session," reached from a "Run as" picker, not a fifth kind of
+ * thing to start.
  */
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -32,33 +35,28 @@ afterEach(() => {
 })
 
 const rig = (
-  history: readonly { cwd: string; archived?: boolean; repo?: unknown }[] = [],
-  over: { workspace?: unknown; teams?: Map<string, unknown> } = {},
+  over: { workspace?: unknown } = {},
   agents: readonly AgentEntry[] = [],
   plans: ReadonlyMap<string, SeatPlan> = new Map(),
 ) => {
-  const open = over.workspace ?? { path: '/repo', name: 'repo', lastOpenedAt: 1 }
-  let snapshot = {
+  const open = over.workspace === undefined ? { path: '/repo', name: 'repo', lastOpenedAt: 1 } : over.workspace
+  const snapshot = {
     ...emptySnapshot(),
     status: 'open',
     workspace: open,
-    workspaces: [open],
-    history,
+    workspaces: open ? [open] : [],
     agents,
     agentPlans: plans,
-    ...(over.teams ? { teams: over.teams } : {}),
   } as unknown as AppSnapshot
-  const listeners = new Set<() => void>()
   const store = {
-    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    subscribe: () => () => {},
     getSnapshot: () => snapshot,
     newDraft: vi.fn(),
-    openTeamRoom: vi.fn(),
     createGoal: vi.fn().mockResolvedValue({ goal: { id: 'g1' } }),
-    seatGoal: vi.fn(),
     openGoal: vi.fn(),
     loadAgents: vi.fn(async () => {}),
     startAsAgent: vi.fn(async () => null),
+    showView: vi.fn(),
     flowGeneration: vi.fn(() => 0),
     flowCatalog: vi.fn(async () => []),
     agentsIn: vi.fn(async () => []),
@@ -66,93 +64,54 @@ const rig = (
     previewFlow: vi.fn(async () => null),
     startFlowGoal: vi.fn(),
   } as unknown as AppStore
-  /**
-   * A snapshot change with nobody's own state involved — the shape of a
-   * `useSyncExternalStore` re-render that has nothing to do with focus.
-   * `agentPlans` refreshing after a dry-run seat check is exactly this: the
-   * dialog stays open and nobody touched the roster, but React re-renders it.
-   */
-  const notify = (): void => {
-    snapshot = { ...snapshot }
-    listeners.forEach((listener) => listener())
-  }
-  return { store, notify }
+  return { store }
+}
+
+const shell: ShellActions = {
+  chooseProject: vi.fn(),
+  signIn: vi.fn(),
+  openUsage: vi.fn(),
+  openRuntimes: vi.fn(),
+  openAgents: vi.fn(),
 }
 
 const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {
   act(() => {
     root.render(
-      <StoreProvider store={store}>
-        <NewSessionChoice onClose={onClose} />
-      </StoreProvider>,
+      <ShellProvider actions={shell}>
+        <StoreProvider store={store}>
+          <NewSessionChoice onClose={onClose} />
+        </StoreProvider>
+      </ShellProvider>,
     )
   })
   return onClose
 }
 
-const choice = (name: string): HTMLButtonElement => {
-  const found = [...document.querySelectorAll('button')].find((one) =>
-    one.textContent?.includes(name),
+const choose = (select: HTMLSelectElement, value: string): void => {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value)
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+}
+
+/** The kind row named `name` — "Session", "Goal", "Flow" or "Team". */
+const kindRow = (name: string): HTMLButtonElement => {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((one) =>
+    one.textContent?.startsWith(name),
   )
-  if (!found) throw new Error(`no choice named ${name}`)
+  if (!found) throw new Error(`no kind row named ${name}`)
   return found
 }
 
-it('offers both shapes of work, and starting a session is still a draft', () => {
-  const { store } = rig()
-  const onClose = render(store)
+/** A footer or dialog button by its exact label. */
+const button = (label: string): HTMLButtonElement => {
+  const found = [...document.querySelectorAll('button')].find((one) => one.textContent === label)
+  if (!found) throw new Error(`no button labelled ${label}`)
+  return found
+}
 
-  act(() => choice('A session').click())
-  expect(store.newDraft).toHaveBeenCalledTimes(1)
-  expect(store.openTeamRoom).not.toHaveBeenCalled()
-  expect(onClose).toHaveBeenCalled()
-})
-
-it('opens Goal creation under the open project', async () => {
-  const { store } = rig()
-  const onClose = render(store)
-
-  act(() => choice('A Goal').click())
-  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
-  act(() => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the release')
-    field.dispatchEvent(new Event('input', { bubbles: true }))
-  })
-  act(() => choice('Create Goal').click())
-  await act(async () => {})
-
-  expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'Ship the release', checkout: 'shared' })
-  expect(store.openGoal).toHaveBeenCalledWith('g1')
-  expect(store.newDraft).not.toHaveBeenCalled()
-  expect(onClose).toHaveBeenCalled()
-})
-
-it('keys Goal creation from a worktree to its project and disables it without a folder', () => {
-  const { store } = rig()
-  const snapshot = store.getSnapshot() as unknown as { workspace: unknown }
-  snapshot.workspace = {
-    path: '/repo/.worktrees/feature',
-    name: 'feature',
-    lastOpenedAt: 1,
-    repo: { root: '/repo', worktree: true },
-  }
-  render(store)
-  act(() => choice('A Goal').click())
-  expect(document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')).not.toBeNull()
-
-  act(() => root.unmount())
-  root = createRoot(container)
-  snapshot.workspace = null
-  render(store)
-  expect(choice('A Goal').disabled).toBe(true)
-})
-
-/*
- * As an Agent: the roster leads the dialog, and starting one starts a
- * conversation as it — but the plain choice still opens focused and is still
- * what Enter starts, whatever else is listed above it (the owner's rule that
- * a person who never touches Agents sees today's app, unchanged).
- */
+const runAsSelect = (): HTMLSelectElement => document.querySelector('select')!
 
 const reviewer = (id: string, name: string): AgentEntry => ({
   id,
@@ -203,89 +162,192 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-it('lists Agents above the session door, and starting one starts a conversation as it', () => {
-  const { store } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer'), reviewer('judge', 'Judge')], PLANS)
+it('opens on the Session row focused, selected, and starts a plain draft on Enter', () => {
+  const { store } = rig()
   const onClose = render(store)
-  const labels = [...document.querySelectorAll('button')].map((one) => one.textContent ?? '')
-  expect(labels.findIndex((one) => one.startsWith('Code reviewer'))).toBeLessThan(labels.findIndex((one) => one.startsWith('A session')))
-  act(() => choice('Code reviewer').click())
-  expect(store.startAsAgent).toHaveBeenCalledWith('code-reviewer')
-  expect(onClose).toHaveBeenCalled()
-})
 
-it('an Agent that cannot be seated here stays, greyed with its reason — and pressing it asks why', () => {
-  const { store } = rig([], {}, [reviewer('judge', 'Judge')], PLANS)
-  render(store)
-  const judge = choice('Judge')
-  expect(judge.hasAttribute('data-refused')).toBe(true)
-  // Greyed, not merely annotated: the same fade a refused control wears
-  // everywhere else in the app (#871), on the exact variant this row draws —
-  // but only its lead and name. The reason has to clear body-text contrast
-  // to be read at all, so it carries none of that fade.
-  expect(judge.className).toContain('data-[refused]:[&_[data-slot=icon-tile]]:opacity-45')
-  expect(judge.className).toContain('data-[refused]:[&_[data-role=row]]:opacity-45')
-  const reason = judge.querySelector<HTMLElement>('[data-role="muted"]')
-  expect(reason?.textContent).toContain('Cursor is signed out')
-  expect(reason?.className).not.toContain('opacity-45')
-  expect(judge.disabled).toBe(false)
-  act(() => judge.click())
-  expect(store.startAsAgent).toHaveBeenCalledWith('judge')
-})
+  const session = kindRow('Session')
+  expect(document.activeElement).toBe(session)
+  expect(session.getAttribute('aria-checked')).toBe('true')
+  expect(button('Start')).toBeTruthy()
+  expect(document.querySelector('select')).toBeNull()
 
-it('the plain choice is what opens focused, Agents above it or not', () => {
-  const { store } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
-  render(store)
-  expect(document.activeElement).toBe(choice('A session'))
-})
-
-/*
- * #870: focusing the plain choice must never scroll the dialog. It sits
- * under every Agent row, so the browser's default scroll-into-view on that
- * focus slides the whole "As an Agent" list up toward the dialog's header —
- * on a roster long enough that the plain choice starts below the fold, that
- * scroll lands the top rows close enough to the header's own bottom edge
- * that a click meant for the row's centre can land on the header instead,
- * silently. `elementFromPoint` cannot run under jsdom, so this pins the
- * mechanism directly: the plain choice takes focus without ever asking the
- * browser to scroll it into view.
- */
-it('focuses the plain choice without scrolling the roster out from under a person', () => {
-  const spy = vi.spyOn(HTMLElement.prototype, 'focus')
-  const { store } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
-  render(store)
-  expect(document.activeElement).toBe(choice('A session'))
-  const call = spy.mock.calls.find(([options]) => (options as FocusOptions | undefined)?.preventScroll === true)
-  expect(call, `focus() was called as: ${JSON.stringify(spy.mock.calls)}`).toBeDefined()
-  spy.mockRestore()
-})
-
-/*
- * #870 (Opus review): the callback ref that focuses the plain choice must be
- * stable. A new function identity every render calls the ref again — Base
- * UI's Button merges refs by identity — which refocuses the plain choice and
- * throws a keyboard user on an Agent row back to it the next time this
- * component re-renders for any reason, such as the roster's plans refreshing
- * after a dry-run seat check.
- */
-it('never steals focus back to the plain choice once a person has moved off it', () => {
-  const { store, notify } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
-  render(store)
-  const agentRow = choice('Code reviewer')
-  act(() => agentRow.focus())
-  expect(document.activeElement).toBe(agentRow)
-  act(() => notify())
-  expect(document.activeElement).toBe(agentRow)
-})
-
-it('Enter still starts a plain conversation on the default runtime — agent/seat is never asked for it', () => {
-  const { store } = rig([], {}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
-  const onClose = render(store)
   act(() => {
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
   })
-  expect(store.newDraft).toHaveBeenCalled()
+  expect(store.newDraft).toHaveBeenCalledTimes(1)
   expect(store.startAsAgent).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
+})
+
+it('the primary label follows the chosen kind, and Goal opens Goal creation under the open project', async () => {
+  const { store } = rig()
+  const onClose = render(store)
+
+  act(() => kindRow('Goal').click())
+  expect(button('Continue')).toBeTruthy()
+  act(() => button('Continue').click())
+
+  const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the release')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => button('Create Goal').click())
+  await act(async () => {})
+
+  expect(store.createGoal).toHaveBeenCalledWith({ root: '/repo', sentence: 'Ship the release', checkout: 'shared' })
+  expect(store.openGoal).toHaveBeenCalledWith('g1')
+  expect(store.newDraft).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('a double click on a kind row answers and proceeds in one gesture', () => {
+  const { store } = rig()
+  render(store)
+
+  act(() => kindRow('Goal').click())
+  act(() => kindRow('Goal').dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })))
+  expect(document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')).not.toBeNull()
+})
+
+it('Goal, Flow and Team stay listed but disabled without an open folder, and say why', () => {
+  const { store } = rig({ workspace: null })
+  render(store)
+
+  for (const name of ['Goal', 'Flow', 'Team']) {
+    const row = kindRow(name)
+    expect(row.disabled, `${name} should be disabled without a folder`).toBe(true)
+    expect(row.textContent).toContain('Open a folder to start one.')
+  }
+  expect(kindRow('Session').disabled).toBe(false)
+
+  // Session still needs no folder, and Enter still starts a plain draft.
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(store.newDraft).toHaveBeenCalledTimes(1)
+})
+
+it('lists every in-force Agent under "Run as", and starting one runs the session as it', () => {
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer'), reviewer('judge', 'Judge')], PLANS)
+  const onClose = render(store)
+
+  const select = runAsSelect()
+  const optionLabels = [...select.options].map((one) => one.textContent)
+  expect(optionLabels).toContain('Plain session')
+  expect(optionLabels).toContain('Code reviewer')
+
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'code-reviewer')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(document.body.textContent).toContain('It would sit on Claude.')
+
+  act(() => button('Start').click())
+  expect(store.startAsAgent).toHaveBeenCalledWith('code-reviewer')
+  expect(store.newDraft).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+it('a refused Agent stays choosable, is marked in the list, says why once under it, and still starts to show why', () => {
+  const { store } = rig({}, [reviewer('judge', 'Judge')], PLANS)
+  render(store)
+
+  const select = runAsSelect()
+  const judgeOption = [...select.options].find((one) => one.value === 'judge')!
+  expect(judgeOption.textContent).toContain('can’t start here')
+  expect(judgeOption.textContent).not.toContain('Cursor is signed out')
+
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'judge')
+    select.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  expect(document.body.textContent?.split('Cursor is signed out').length).toBe(2)
+
+  act(() => button('Start').click())
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge')
+})
+
+it('"Run as" stays off the page when no Agent is in force', () => {
+  const { store } = rig()
+  render(store)
+  expect(document.querySelector('select')).toBeNull()
+})
+
+it('"Manage Agents…" closes the dialog and opens the Agents window, not a session\'s side view', () => {
+  vi.mocked(shell.openAgents).mockClear()
+  const { store } = rig()
+  const onClose = render(store)
+  act(() => button('Manage Agents…').click())
+  expect(shell.openAgents).toHaveBeenCalledTimes(1)
+  expect(store.showView).not.toHaveBeenCalled()
+  expect(onClose).toHaveBeenCalled()
+})
+
+/*
+ * #870: focusing the selected kind must never scroll the dialog, and a later
+ * render must never pull focus back to it once a person has moved on.
+ */
+it('opens focused on Session without scrolling, and leaves focus where a person moved it', () => {
+  const spy = vi.spyOn(HTMLElement.prototype, 'focus')
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  expect(document.activeElement).toBe(kindRow('Session'))
+  const call = spy.mock.calls.find(([options]) => (options as FocusOptions | undefined)?.preventScroll === true)
+  expect(call, `focus() was called as: ${JSON.stringify(spy.mock.calls)}`).toBeDefined()
+  spy.mockRestore()
+
+  const select = runAsSelect()
+  act(() => select.focus())
+  render(store)
+  expect(document.activeElement).toBe(select)
+})
+
+it('Enter with Agents listed still starts a plain session while Plain session is chosen', () => {
+  const { store } = rig({}, [reviewer('code-reviewer', 'Code reviewer')], PLANS)
+  render(store)
+  act(() => {
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
+  })
+  expect(store.newDraft).toHaveBeenCalledTimes(1)
+  expect(store.startAsAgent).not.toHaveBeenCalled()
+})
+
+it('an Agent that leaves the roster is not started behind the dialog\'s back', () => {
+  const agent = reviewer('code-reviewer', 'Code reviewer')
+  const first = rig({}, [agent, reviewer('judge', 'Judge')], PLANS)
+  render(first.store)
+  choose(runAsSelect(), 'code-reviewer')
+
+  const later = rig({}, [reviewer('judge', 'Judge')], PLANS)
+  render(later.store)
+  expect(runAsSelect().value).toBe('plain')
+  act(() => button('Start').click())
+  expect(later.store.startAsAgent).not.toHaveBeenCalled()
+  expect(later.store.newDraft).toHaveBeenCalledTimes(1)
+})
+
+it('an Agent whose seat check has not come back says what it does, never "undefined"', () => {
+  const { store } = rig({}, [reviewer('fresh', 'Fresh reviewer')], new Map())
+  render(store)
+  choose(runAsSelect(), 'fresh')
+  expect(document.body.textContent).toContain('Fresh reviewer.')
+  expect(document.body.textContent).not.toContain('undefined')
+  expect(document.body.textContent).not.toContain('null')
+})
+
+it('a kind that needs a folder falls back to Session when the folder goes away', () => {
+  const withFolder = rig()
+  render(withFolder.store)
+  act(() => kindRow('Goal').click())
+  expect(button('Continue')).toBeTruthy()
+
+  const noFolder = rig({ workspace: null })
+  render(noFolder.store)
+  expect(kindRow('Session').getAttribute('aria-checked')).toBe('true')
+  act(() => button('Start').click())
+  expect(noFolder.store.newDraft).toHaveBeenCalledTimes(1)
 })
 
 /*
@@ -312,12 +374,13 @@ it('flow starts exactly one Goal through its host operation', async () => {
   vi.mocked(store.startFlowGoal).mockResolvedValue(FLOW_EXECUTION)
   const onClose = render(store)
 
-  act(() => choice('A flow').click())
+  act(() => kindRow('Flow').click())
+  act(() => button('Continue').click())
   await act(async () => {})
-  const select = document.querySelector('select') as HTMLSelectElement
+  const flowSelect = document.querySelector('select') as HTMLSelectElement
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'fix')
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(flowSelect, 'fix')
+    flowSelect.dispatchEvent(new Event('change', { bubbles: true }))
   })
   await act(async () => {})
 
@@ -326,12 +389,11 @@ it('flow starts exactly one Goal through its host operation', async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(field, 'Ship the fix')
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  act(() => choice('Start').click())
+  act(() => button('Start').click())
   await act(async () => {})
 
   expect(store.startFlowGoal).toHaveBeenCalledWith({ root: '/repo', source: 'version: 2\nname: Fix\n', token: 'tok-1', sentence: 'Ship the fix', vars: {} })
   expect(store.createGoal).not.toHaveBeenCalled()
-  expect(store.seatGoal).not.toHaveBeenCalled()
   expect(store.openGoal).toHaveBeenCalledWith('goal-1')
   expect(onClose).toHaveBeenCalled()
 })
@@ -354,12 +416,13 @@ it('an old-format flow greys Start and says to update it, rather than a Start th
   } as unknown as FlowPreview)
   render(store)
 
-  act(() => choice('A flow').click())
+  act(() => kindRow('Flow').click())
+  act(() => button('Continue').click())
   await act(async () => {})
-  const select = document.querySelector('select') as HTMLSelectElement
+  const flowSelect = document.querySelector('select') as HTMLSelectElement
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'old')
-    select.dispatchEvent(new Event('change', { bubbles: true }))
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(flowSelect, 'old')
+    flowSelect.dispatchEvent(new Event('change', { bubbles: true }))
   })
   await act(async () => {})
   const field = document.querySelector<HTMLInputElement>('[aria-label="What finishes this?"]')!
@@ -368,7 +431,7 @@ it('an old-format flow greys Start and says to update it, rather than a Start th
     field.dispatchEvent(new Event('input', { bubbles: true }))
   })
 
-  const start = choice('Start')
+  const start = button('Start')
   expect(start.disabled).toBe(true)
   expect(document.body.textContent).toContain('Update it from the project’s Flows list before it can start a Goal here')
   act(() => start.click())

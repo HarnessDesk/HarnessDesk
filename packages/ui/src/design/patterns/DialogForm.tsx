@@ -1,4 +1,4 @@
-import { useContext, useId, type KeyboardEvent, type ReactNode } from 'react'
+import { useCallback, useContext, useId, useRef, type KeyboardEvent, type ReactNode } from 'react'
 
 import { DialogFormContext } from '../../lib/dialog-form'
 import { Button } from '../ui/button'
@@ -131,22 +131,44 @@ export const stepRadio = (event: KeyboardEvent<HTMLElement>): void => {
 export const ChoiceRow = ({
   title,
   desc,
+  icon,
+  trailing,
   selected,
   tabStop,
   disabled,
+  autoFocus,
   onClick,
+  onDoubleClick,
 }: {
   readonly title: ReactNode
   readonly desc?: ReactNode
+  /** A 16px line icon leading the title — the kind being chosen, not a tinted tile. */
+  readonly icon?: ReactNode
+  /** Pinned to the title line's far end — a keyboard shortcut, said quietly. */
+  readonly trailing?: ReactNode
   readonly selected: boolean
   /** The Tab entry when the group has no answer yet. */
   readonly tabStop?: boolean
   readonly disabled?: boolean
+  /**
+   * Focuses this row once, the moment it mounts, without scrolling it into
+   * view — a dialog that opens onto a list of answers still opens onto its
+   * default one. Read once, at mount: a row does not steal focus back just
+   * because its caller re-renders with the same answer still selected.
+   */
+  readonly autoFocus?: boolean
   readonly onClick: () => void
+  /** A double click on a row is the fast path to its list's own default action. */
+  readonly onDoubleClick?: () => void
 }) => {
   const id = useId()
+  const focusOnce = useRef(autoFocus)
+  const focusWithoutScrolling = useCallback((node: HTMLButtonElement | null): void => {
+    if (focusOnce.current) node?.focus({ preventScroll: true })
+  }, [])
   return (
     <Button
+      ref={focusWithoutScrolling}
       variant="ghost"
       size="pattern"
       type="button"
@@ -161,10 +183,15 @@ export const ChoiceRow = ({
       className={styles.choice}
       data-slot="choice-row"
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onKeyDown={stepRadio}
     >
       <span className={styles.radio} aria-hidden="true" {...(selected ? { 'data-checked': '' } : {})} />
-      <span id={`${id}-title`} className={styles.choiceTitle}>{title}</span>
+      <span className={styles.choiceHead}>
+        {icon && <span className={styles.choiceIcon} aria-hidden="true">{icon}</span>}
+        <span id={`${id}-title`} className={styles.choiceTitle}>{title}</span>
+        {trailing && <span className={styles.choiceTrailing}>{trailing}</span>}
+      </span>
       {desc ? <span id={`${id}-desc`} className={styles.choiceDesc}>{desc}</span> : null}
     </Button>
   )
@@ -187,13 +214,28 @@ export const ChoiceList = <T extends string>({
   value,
   onChange,
   disabled,
+  autoFocusSelected,
+  onActivate,
 }: {
   /** The group's accessible name — usually the legend's words. */
   readonly label: string
-  readonly options: readonly { readonly value: T; readonly title: ReactNode; readonly description?: ReactNode; readonly disabled?: boolean }[]
+  readonly options: readonly {
+    readonly value: T
+    readonly title: ReactNode
+    readonly description?: ReactNode
+    readonly disabled?: boolean
+    /** A 16px line icon leading the title, in place of a tinted tile. */
+    readonly icon?: ReactNode
+    /** Said quietly at the title line's far end — a keyboard shortcut. */
+    readonly trailing?: ReactNode
+  }[]
   readonly value: T | null
   readonly onChange: (next: T) => void
   readonly disabled?: boolean
+  /** Focuses the current answer the moment this list mounts, rather than leaving a dialog's opening focus to fall through to its surface. */
+  readonly autoFocusSelected?: boolean
+  /** A double click on a row both answers and proceeds — the list's own default action, when its caller has one. */
+  readonly onActivate?: (value: T) => void
 }) => {
   const answered = options.some((option) => option.value === value && !option.disabled)
   const firstEnabled = options.find((option) => !option.disabled)?.value
@@ -204,10 +246,14 @@ export const ChoiceList = <T extends string>({
           key={option.value}
           title={option.title}
           desc={option.description}
+          icon={option.icon}
+          trailing={option.trailing}
           selected={option.value === value}
           tabStop={!answered && option.value === firstEnabled}
           disabled={disabled || option.disabled}
+          autoFocus={autoFocusSelected && option.value === value}
           onClick={() => onChange(option.value)}
+          onDoubleClick={onActivate ? () => onActivate(option.value) : undefined}
         />
       ))}
     </div>

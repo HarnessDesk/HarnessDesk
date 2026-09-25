@@ -15,7 +15,8 @@ const openFrontDoor = async (page: Page): Promise<void> => {
   await page.goto('/preview.html')
   const dialogSelect = page.locator('select', { has: page.locator('option', { hasText: 'new session' }) }).first()
   await dialogSelect.selectOption('new session')
-  await page.getByRole('button', { name: 'Start with a team' }).click()
+  await page.getByRole('radio', { name: 'Team' }).click()
+  await page.getByRole('button', { name: 'Continue' }).click()
 }
 
 test('choosing a shape then Start is two clicks, with the populated dry run readable before either', async ({ page }) => {
