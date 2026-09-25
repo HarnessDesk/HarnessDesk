@@ -4,6 +4,7 @@ import { turnId, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import {
   activityLabel,
+  effectiveItemStatus,
   describeTurnWork,
   elapsedOf,
   formatElapsed,
@@ -340,5 +341,21 @@ describe('describeTurnWork', () => {
     expect(line.head).toBe('Working for 18s')
     expect(line.receipt).toBe('')
     expect(line.trouble).toBe(false)
+  })
+})
+
+describe('effectiveItemStatus', () => {
+  const toolCall = (value: unknown): AgentItem =>
+    ({ id: 't', type: 'toolCall', source: { kind: 'builtin' }, status: 'completed', tool: 'run', args: {}, result: [{ type: 'json', value }] }) as unknown as AgentItem
+
+  test('a completed call whose command record exited non-zero reads as failed', () => {
+    expect(effectiveItemStatus(toolCall({ commandLine: 'pnpm test', combinedOutput: 'x', exitCode: 1 }))).toBe('failed')
+    expect(effectiveItemStatus(toolCall({ commandLine: 'pnpm test', combinedOutput: 'x', exitCode: 0 }))).toBe('completed')
+  })
+
+  test('a completed call whose own result says it is an error reads as failed', () => {
+    expect(effectiveItemStatus(toolCall({ output: 'connection refused', isError: true }))).toBe('failed')
+    expect(effectiveItemStatus(toolCall({ content: [{ type: 'text', text: 'denied' }], isError: true }))).toBe('failed')
+    expect(effectiveItemStatus(toolCall({ output: 'ok', isError: false }))).toBe('completed')
   })
 })

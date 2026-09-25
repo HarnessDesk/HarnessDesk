@@ -241,23 +241,35 @@ const ListRows = ({
  * reasoning, an argument list, a diff — hangs under the row's own *title*
  * rather than its edge. `inset="title"` is that step: the header's 2px of
  * padding, its 16px icon and the 8px gap after it, so the body's first word
- * lands under the title's first letter. Padding, not margin, even for a
- * child that draws its own plate — a full-width block is indented the same
- * either way, and a caller composing a plate back in adds `pe-0` to keep its
- * own right edge.
+ * lands under the title's first letter. It carries no end padding at all, on
+ * purpose — a plate, an argument panel, a result block and reasoning text all
+ * end at the row's own right edge alike, whatever they hold, rather than each
+ * caller having to remember to cancel one. Padding on the start, not margin,
+ * even for a child that draws its own plate — a full-width block is indented
+ * the same either way.
  */
 const ListRowDetail = ({
   className,
   inset = false,
+  within = 'row',
   ...props
-}: React.ComponentProps<'div'> & { inset?: boolean | 'title' }) => (
+}: React.ComponentProps<'div'> & {
+  inset?: boolean | 'title'
+  /**
+   * What the row sits in, for a title-hung body's end edge: a plain row lets
+   * everything it holds reach the row's own edge; a bordered card keeps its
+   * inner edge for every body alike, plate or prose.
+   */
+  within?: 'row' | 'card'
+}) => (
   <div
     data-slot="list-row-detail"
     {...(inset === true ? { 'data-inset': '' } : {})}
     {...(inset === 'title' ? { 'data-inset': 'title' } : {})}
+    {...(inset === 'title' && within === 'card' ? { 'data-within': 'card' } : {})}
     className={cn(
       inset === 'title'
-        ? 'pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)'
+        ? cn('pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)', within === 'card' && 'pe-(--hd-space-3)')
         : cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2'),
       className,
     )}

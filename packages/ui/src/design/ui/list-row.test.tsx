@@ -68,10 +68,17 @@ it('hangs a detail under a row\'s own title, on the third inset step', () => {
   expect(title).toContain('ps-(--hd-space-6)')
   expect(title).not.toContain('px-3')
   expect(title).not.toContain('pt-1 ')
+  // No end padding of its own: a plate, an argument panel, a result block
+  // and reasoning text all end at the row's own right edge alike, without a
+  // caller having to remember to cancel a padded box a step further in.
+  expect(title).not.toMatch(/(?:^|\s)pe-/)
 
-  // A caller composing a plate back in (a code block, a diff) keeps the
-  // part's left indent and drops its own right padding with a plain
-  // `className`, rather than a fourth inset step for one shape.
-  const bare = renderToStaticMarkup(<ListRowDetail inset="title" className="pe-0">output</ListRowDetail>)
-  expect(bare).toContain('pe-0')
+  // A caller can still add its own vertical rhythm — the gap between
+  // several parts, say — without disturbing the insets this part owns.
+  const spaced = renderToStaticMarkup(
+    <ListRowDetail inset="title" className="grid gap-(--hd-space-2)">output</ListRowDetail>,
+  )
+  expect(spaced).toContain('ps-(--hd-space-6)')
+  expect(spaced).toContain('gap-(--hd-space-2)')
+  expect(spaced).not.toMatch(/(?:^|\s)pe-/)
 })
