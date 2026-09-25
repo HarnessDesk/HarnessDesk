@@ -17,6 +17,7 @@ import {
   Text,
   ToolPane,
   ToolPaneBar,
+  ToolPaneBody,
   ToolPaneNotice,
 } from '../design'
 import styles from './ToolPanes.module.css'
@@ -188,7 +189,11 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
 
   return (
     <>
-      <div className={`${styles.terminalHost} bg-(--hd-card) pt-1.5 pl-2`} ref={host} />
+      {/* The pane's own body keeps the inset, so the element xterm measures
+          to fit its rows and columns is exactly the room it has. */}
+      <ToolPaneBody className={styles.terminalBody}>
+        <div className={styles.terminalHost} ref={host} />
+      </ToolPaneBody>
       {(exitCode !== null || error) && (
         <ToolPaneNotice placement="bottom">
           <span className="flex-1">
