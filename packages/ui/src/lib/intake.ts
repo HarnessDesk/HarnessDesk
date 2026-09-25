@@ -110,14 +110,15 @@ export const originHoverWords = (status: TriggerGoalStatus, heading?: string): s
  * of it starts from.
  */
 export interface BudgetMeterWords {
-  readonly spentUsd: number
+  /** Null when the host cannot read the spend — which is not nothing spent: the host stops the run on it. */
+  readonly spentUsd: number | null
   readonly totalUsd: number
-  readonly leftUsd: number
-  /** 0–100, floored at 0 and capped at 100 — what the ring itself fills to. */
-  readonly percentLeft: number
+  readonly leftUsd: number | null
+  /** 0–100, floored at 0 and capped at 100 — what the ring itself fills to; null while the spend is unknown. */
+  readonly percentLeft: number | null
   readonly roundsUsed: number
-  /** The round being worked, 1-based: a first round is "Round 1", never "Round 0". */
-  readonly roundNow: number
+  /** The round being worked, 1-based ("Round 1", never "Round 0"); null when the budget allows no round at all. */
+  readonly roundNow: number | null
   readonly roundsTotal: number
   readonly minutesUsed: number
   readonly minutesTotal: number
@@ -125,20 +126,24 @@ export interface BudgetMeterWords {
 }
 
 export const budgetMeterWords = (state: TriggerBudgetState, now: number): BudgetMeterWords => {
-  const spentUsd = (state.spentMicros ?? 0) / 1_000_000
+  const spentUsd = state.spentMicros === null ? null : state.spentMicros / 1_000_000
   const totalUsd = state.budget.usd
-  const leftUsd = Math.max(0, totalUsd - spentUsd)
-  const percentLeft = totalUsd > 0 ? Math.max(0, Math.min(100, Math.round((leftUsd / totalUsd) * 100))) : 0
-  const minutesUsed = Math.max(0, Math.round((now - state.startedAt) / 60_000))
-  const minutesTotal = state.budget.hours * 60
+  const leftUsd = spentUsd === null ? null : Math.max(0, totalUsd - spentUsd)
+  const percentLeft = leftUsd === null ? null : totalUsd > 0 ? Math.max(0, Math.min(100, Math.round((leftUsd / totalUsd) * 100))) : 0
+  // The host's own window — `startedAt` to `deadline` — and a clock that
+  // stops where the run stopped, rather than counting on after it.
+  const until = Math.min(now, state.stop?.at ?? now, state.deadline)
+  const minutesUsed = Math.max(0, Math.round((until - state.startedAt) / 60_000))
+  const minutesTotal = Math.max(0, Math.round((state.deadline - state.startedAt) / 60_000))
+  const rounds = state.budget.rounds
   return {
     spentUsd,
     totalUsd,
     leftUsd,
     percentLeft,
     roundsUsed: state.closedRounds.length,
-    roundNow: Math.max(1, Math.min(state.budget.rounds, state.closedRounds.length + 1)),
-    roundsTotal: state.budget.rounds,
+    roundNow: rounds > 0 ? Math.max(1, Math.min(rounds, state.closedRounds.length + 1)) : null,
+    roundsTotal: rounds,
     minutesUsed,
     minutesTotal,
     minutesLeft: Math.max(0, minutesTotal - minutesUsed),

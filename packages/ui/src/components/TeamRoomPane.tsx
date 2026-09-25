@@ -23,7 +23,7 @@ import { elapsedSince } from '../lib/clock'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { budgetMeterWords, formatMeterUsd, originHoverWords, originSubject } from '../lib/intake'
-import { isPathInside, shortPath } from '../lib/paths'
+import { isPathInside } from '../lib/paths'
 import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/snapshot'
@@ -841,10 +841,9 @@ export const TeamRoomPane = ({
             it came from: muted facts, joined by `·` and only between segments
             that both have something to say. This gives way before the name
             does, and drops a segment entirely rather than printing an empty
-            one. The project's own folder name is what shows; its full,
-            home-shortened path (never the raw absolute one) is one hover away —
-            the same helper (`shortPath`) every other folder mention in the app
-            already reads against. */}
+            one. The project's own folder name is what shows; its full path
+            is one hover away, where a person looking for exactly which folder
+            this is can read it whole. */}
         <span className={`${styles.barFacts} text-xs text-(--hd-muted-foreground)`}>
           {root && (
             <>
@@ -856,8 +855,8 @@ export const TeamRoomPane = ({
               <span
                 title={
                   goal && goal.goal.cwd !== goal.goal.root
-                    ? `${shortPath(root, snapshot.home)} — working in ${shortPath(goal.goal.cwd, snapshot.home)}`
-                    : shortPath(root, snapshot.home)
+                    ? `${root} — working in ${goal.goal.cwd}`
+                    : root
                 }
               >
                 {folderName(root)}
@@ -1738,28 +1737,34 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
   /* Brand ink while there is plenty left, like the context ring: in grey a
      full 14px ring was the track's own colour one step darker, and read as
      an empty outline at the very moment it was full. */
-  const tone: Tone = words.percentLeft <= 0 ? 'danger' : words.percentLeft < 20 ? 'warning' : 'brand'
+  const tone: Tone = words.percentLeft === null ? 'neutral' : words.percentLeft <= 0 ? 'danger' : words.percentLeft < 20 ? 'warning' : 'brand'
+  /* A spend the host cannot read is not nothing spent: the host stops the run
+     on it (`budgetRefusal`), so the meter says so — an unfilled, dashed ring
+     and "Spend unknown" — rather than a full ring and the whole budget left. */
+  const reading = words.leftUsd === null ? 'Spend unknown' : `${formatMeterUsd(words.leftUsd)} left`
   return (
     <div data-slot="room-budget" className="mt-2 flex items-center justify-end gap-(--hd-space-2)">
       <HoverCard>
         <HoverCardTrigger render={<span className="inline-flex items-center gap-(--hd-space-1-5)" />}>
           <ProgressRing value={words.percentLeft} size={14} tone={tone} label="Budget left" />
           <Text role="meta">
-            {formatMeterUsd(words.leftUsd)} left
-            {words.roundsTotal > 0 && ` · Round ${words.roundNow} of ${words.roundsTotal}`}
+            {reading}
+            {words.roundNow !== null && ` · Round ${words.roundNow} of ${words.roundsTotal}`}
           </Text>
         </HoverCardTrigger>
         <HoverCardContent side="top" align="end">
           <KeyValue variant="panel">
-            <KeyValueRow label="Spend">{formatMeterUsd(words.spentUsd)} of {formatMeterUsd(words.totalUsd)}</KeyValueRow>
+            <KeyValueRow label="Spend">{words.spentUsd === null ? 'Unknown' : formatMeterUsd(words.spentUsd)} of {formatMeterUsd(words.totalUsd)}</KeyValueRow>
             {/* The footer's own meaning — the round being worked — so the two never disagree. */}
-            <KeyValueRow label="Round">{words.roundNow} of {words.roundsTotal}</KeyValueRow>
+            {words.roundNow !== null && <KeyValueRow label="Round">{words.roundNow} of {words.roundsTotal}</KeyValueRow>}
             <KeyValueRow label="Time">{words.minutesUsed} of {words.minutesTotal} min</KeyValueRow>
           </KeyValue>
           <Note className="mt-2">
-            {state.budget.withoutProgress === 1
-              ? 'Stops after a round with no progress.'
-              : `Stops after ${state.budget.withoutProgress} rounds with no progress.`}
+            {words.spentUsd === null
+              ? 'The run stops while its spend cannot be read.'
+              : state.budget.withoutProgress === 1
+                ? 'Stops after a round with no progress.'
+                : `Stops after ${state.budget.withoutProgress} rounds with no progress.`}
           </Note>
         </HoverCardContent>
       </HoverCard>
@@ -1818,18 +1823,37 @@ const Room = ({
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
   }, [])
-  /* The approval just cleared — answered, either way — so the composer is
-     back and gets the focus an approval otherwise holds. Compared by id
-     rather than by "was there one a moment ago": two approvals in a row for
-     the same member must not skip this, and the same approval read twice
-     (a snapshot that has not moved yet) must not re-focus a composer the
-     person is already typing into. */
+  /* The slot the composer and the card share, and whether focus is in it.
+     The card takes the focus only from the composer it replaces — a person
+     typing in the sidebar, the rail's filter or another pane keeps theirs —
+     and it is read at the render the approval arrives in, before the card
+     exists to take anything. Keyed by the approval's own id, so two in a row
+     for the same member are two arrivals. */
+  const slot = useRef<HTMLDivElement>(null)
+  const pendingId = pendingApproval
+    ? snapshot.approvals.find((entry) => entry.key === pendingApproval.key)?.approval.id ?? null
+    : null
+  const takeFocus = useMemo(() => {
+    if (pendingId === null) return false
+    const at = typeof document === 'undefined' ? null : document.activeElement
+    return Boolean(at && at !== document.body && slot.current?.contains(at))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per arrival, on purpose
+  }, [pendingId])
+  /* The approval cleared — answered, either way. Focus goes back to the
+     composer only if the card took it from there and the person has not
+     since put it somewhere else: the card's answer button vanishing leaves
+     it on the page itself, and that is the only case this hands it back. */
+  const tookFocus = useRef(false)
   const lastApproval = useRef<string | null>(null)
   useEffect(() => {
-    const id = pendingApproval ? String(pendingApproval.key) : null
-    if (lastApproval.current && !id) composer.current?.focus()
-    lastApproval.current = id
-  }, [pendingApproval])
+    if (pendingId !== null) tookFocus.current = takeFocus
+    else if (lastApproval.current !== null && tookFocus.current) {
+      tookFocus.current = false
+      const at = document.activeElement
+      if (!at || at === document.body) composer.current?.focus()
+    }
+    lastApproval.current = pendingId
+  }, [pendingId, takeFocus])
 
   const team = snapshot.teams.get(room)
   const entries = team?.channel ?? NO_ENTRIES
@@ -2053,8 +2077,8 @@ const Room = ({
             wrapper rather than a prop: `RoomComposer` draws the shell and
             knows nothing about how wide the pane it sits in is, which is the
             caller's business — exactly as `.streamColumn` is. */}
-        <div className={styles.composerShell}>
-          {pendingApproval ? (
+        <div ref={slot} className={styles.composerShell}>
+          {pendingApproval && (
             /* The composer's own slot, taken by whichever member is waiting
                on a person — the same `Approvals` a conversation's own pane
                draws, docked: a card in flow where the composer stood, as
@@ -2074,9 +2098,14 @@ const Room = ({
                 sessionKey: pendingApproval.key,
               }}
             >
-              <Approvals placement="docked" />
+              <Approvals placement="docked" takeFocus={takeFocus} />
             </PaneProvider>
-          ) : (
+          )}
+          {/* Mounted whatever holds the slot, and only hidden under the
+              card: an approval arriving mid-sentence must not throw away
+              the words or the audience being written — they are this
+              component's own state, and unmounting it was the loss. */}
+          <div hidden={pendingApproval !== null}>
               <RoomComposer
                 /* Keyed by the room, so moving between rooms is a new box
                    rather than the old one being talked out of its state. The
@@ -2109,7 +2138,7 @@ const Room = ({
                 onTrouble={setTrouble}
                 onPosted={toFloor}
               />
-          )}
+          </div>
           {/* The footer strip stays put under whichever of the two holds the
               slot: what a run has left to spend is as true while it waits on
               a person as while it works. */}

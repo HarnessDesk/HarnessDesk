@@ -111,8 +111,13 @@ export const ApprovalDialog = forwardRef<HTMLDivElement, {
     if (!focused || !surface) return
     const returnTo = document.activeElement as HTMLElement | null
     surface.focus()
+    /* Docked, `focused` means only "take the focus the composer had": the
+       slot's owner knows where focus belongs when the card goes (the
+       composer it stood in for, and only if the person was still there), so
+       the card hands nothing back of its own. */
+    if (placement === 'docked') return
     return () => returnTo?.focus?.()
-  }, [focused, focusKey, surface])
+  }, [focused, focusKey, surface, placement])
 
   if (placement === 'docked') {
     /* The one filled act is the last approving answer — the plain yes, which

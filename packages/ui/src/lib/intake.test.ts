@@ -90,14 +90,34 @@ describe('budgetMeterWords', () => {
     expect(spent.leftUsd).toBe(0)
     expect(spent.percentLeft).toBe(0)
 
-    const untouched = budgetMeterWords(budgetState({ spentMicros: null }), 0)
+    const untouched = budgetMeterWords(budgetState({ spentMicros: 0 }), 0)
     expect(untouched.spentUsd).toBe(0)
     expect(untouched.percentLeft).toBe(100)
   })
 
+  it('reads an unknown spend as unknown — never as nothing spent — because the host stops on it', () => {
+    const unknown = budgetMeterWords(budgetState({ spentMicros: null }), 0)
+    expect(unknown.spentUsd).toBeNull()
+    expect(unknown.leftUsd).toBeNull()
+    expect(unknown.percentLeft).toBeNull()
+  })
+
+  it('reads time off the host’s own window, and stops the clock where the run stopped', () => {
+    const window = { startedAt: 0, deadline: 90 * 60_000 }
+    expect(budgetMeterWords(budgetState(window), 30 * 60_000).minutesTotal).toBe(90)
+    expect(budgetMeterWords(budgetState(window), 200 * 60_000).minutesUsed).toBe(90)
+    const stopped = budgetState({ ...window, stop: { reason: 'cancelled', detail: 'Cancelled.', at: 20 * 60_000 } })
+    expect(budgetMeterWords(stopped, 60 * 60_000).minutesUsed).toBe(20)
+  })
+
+  it('has no round to name when the budget allows none', () => {
+    expect(budgetMeterWords(budgetState({ budget: { usd: 5, rounds: 0, hours: 1, withoutProgress: 1 } }), 0).roundNow).toBeNull()
+  })
+
   it('never reads a negative time left once a run has run past its own deadline', () => {
     const words = budgetMeterWords(budgetState({ budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 } }), 90 * 60_000)
-    expect(words.minutesUsed).toBe(90)
+    // The host stops the run at its deadline, so the clock stops there too.
+    expect(words.minutesUsed).toBe(60)
     expect(words.minutesLeft).toBe(0)
   })
 })

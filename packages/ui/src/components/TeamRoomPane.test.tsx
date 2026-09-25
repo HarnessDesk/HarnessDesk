@@ -1257,7 +1257,7 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   expect(bar.textContent).toContain('widgets')
   expect(container.textContent).not.toContain('/Users/dev/work/widgets')
   const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'widgets')
-  expect(projectMark?.getAttribute('title'), 'the full path is one hover away, home-shortened').toBe('~/work/widgets')
+  expect(projectMark?.getAttribute('title'), 'the full path is one hover away').toBe('/Users/dev/work/widgets')
 })
 
 it('a trigger Goal’s header is named by its subject and carries its origin as a chip, its hover card naming the source in full', async () => {
@@ -1360,8 +1360,8 @@ it("the room's own live line names who is waiting for your approval, ahead of an
   Object.assign(store, { getSnapshot: () => withApproval })
   await render(store)
 
-  expect(container.textContent).toContain('Codex is waiting for your approval')
-  expect(container.textContent).not.toContain('Codex is working')
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe('Codex is waiting for your approval')
 })
 
 /**
@@ -1451,10 +1451,11 @@ it("the composer's own budget meter reads what is left, and its hover card has t
 /**
  * The composer's own slot: a pending approval takes it, the same live
  * `Approvals` surface a conversation's own pane draws — numbered choices
- * answer to keys 1, 2 and 3, and answering any of them (or Escape) clears
- * the approval and returns the composer, focused.
+ * answer to keys 1, 2 and 3 pressed in the card, and answering any of them
+ * clears the approval and brings the composer back. Focus is not handed to
+ * it: nobody was in it when the card arrived (see the mid-sentence test).
  */
-it("the composer's own slot is a pending approval; a numbered choice answers it, and the composer returns focused", async () => {
+it("the composer's own slot is a pending approval; a numbered choice answers it, and the composer comes back", async () => {
   const { store } = rig()
   const base = store.getSnapshot()
   const pendingApprovals = [{
@@ -1491,19 +1492,19 @@ it("the composer's own slot is a pending approval; a numbered choice answers it,
   await render(store)
 
   expect(container.textContent).toContain('Run this command?')
-  expect(container.querySelector('textarea')).toBeNull()
+  expect(container.querySelector('textarea')!.closest('[hidden]')).not.toBeNull()
 
   const three = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('No, tell it instead'))!
   expect(three.textContent).toContain('3')
   act(() => three.click())
   expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'no' })
 
-  // Answered — the approval clears, and the composer is back, focused.
+  // Answered — the approval clears, and the composer is back.
   await act(async () => {})
   expect(container.textContent).not.toContain('Run this command?')
   const textarea = container.querySelector('textarea')
   expect(textarea).not.toBeNull()
-  expect(document.activeElement).toBe(textarea)
+  expect(textarea!.closest('[hidden]')).toBeNull()
 })
 
 /** A pending command approval for Codex's member, with three numbered answers. */
@@ -1520,7 +1521,7 @@ const PENDING = [{
 }]
 
 /** A trigger's Goal with a live budget, and a store whose approvals can be answered. */
-const triggerRig = (approvals: readonly unknown[]) => {
+const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknown> = {}) => {
   const TRIGGER_GOAL: GoalView = {
     ...GOAL,
     goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
@@ -1541,6 +1542,7 @@ const triggerRig = (approvals: readonly unknown[]) => {
       budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
       spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
       closedRounds: [], idleRounds: 0, stop: null,
+      ...budget,
     },
     waits: [],
   }))
@@ -1550,7 +1552,25 @@ const triggerRig = (approvals: readonly unknown[]) => {
     respondToApproval,
     triggerGoal,
   })
-  return { store, respondToApproval }
+  /** A member's approval arriving while the room is already open. */
+  const raise = (next: readonly unknown[]): void => {
+    snapshot = { ...snapshot, approvals: next as never }
+    for (const listener of listeners) listener()
+  }
+  return { store, respondToApproval, raise }
+}
+
+/** A key pressed where focus actually is — the event starts at that element and bubbles, as a real keystroke does. */
+const press = (at: Element, key: string): void => {
+  act(() => { at.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+}
+
+/** An editable field somewhere else in the window — another pane's box, the sidebar's search. */
+const elsewhere = (): HTMLInputElement => {
+  const input = document.createElement('input')
+  document.body.append(input)
+  input.focus()
+  return input
 }
 
 /**
@@ -1570,7 +1590,11 @@ it('draws a pending approval in flow, in the composer’s slot — not a dialog,
   expect(card?.getAttribute('aria-modal')).toBeNull()
   // In the room's own tree, where the composer stood — never portalled.
   expect(container.contains(card)).toBe(true)
-  expect(container.querySelector('textarea'), 'the composer gives up its slot').toBeNull()
+  // The composer gives up its slot, but stays mounted — hidden, so what was
+  // being written survives the approval.
+  const box = container.querySelector('textarea')
+  expect(box, 'the composer stays mounted').not.toBeNull()
+  expect(box!.closest('[hidden]'), 'and is hidden while the card holds the slot').not.toBeNull()
   expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
   expect(document.querySelector('[data-slot="dialog-overlay"], [data-slot="approval-dialog-scope"]')).toBeNull()
   // The thread above it stays in the accessibility tree, and interactive.
@@ -1592,16 +1616,96 @@ it.each([
   ['1', 'yes'],
   ['2', 'always'],
   ['3', 'no'],
-])('key %s answers the docked approval with its numbered choice', async (key, optionId) => {
+])('key %s pressed in the docked card answers it with its numbered choice', async (key, optionId) => {
   const { store, respondToApproval } = triggerRig(PENDING)
   await render(store)
   await act(async () => {})
 
-  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  act(() => card.focus())
+  press(card, key)
   expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId })
   await act(async () => {})
   expect(container.querySelector('[data-slot="approval-card"]')).toBeNull()
-  expect(document.activeElement).toBe(container.querySelector('textarea'))
+})
+
+/**
+ * The docked card is not a dialog and traps nothing, so its keys are its own:
+ * a digit or an Escape typed in any other field in the window — the rail's
+ * filter, the sidebar's search, another pane's composer — is that field's.
+ * A denial cannot be taken back.
+ */
+it.each(['1', '2', '3', 'Escape'])('key %s typed in a field outside the docked card never answers it', async (key) => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const input = elsewhere()
+  press(input, key)
+  expect(respondToApproval).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-slot="approval-card"]')).not.toBeNull()
+  input.remove()
+})
+
+it('a key on the room’s own thread, outside the card, does not answer it either', async () => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+  press(container.querySelector('[data-slot="room-stream"]')!, '1')
+  press(document.body, '1')
+  expect(respondToApproval).not.toHaveBeenCalled()
+})
+
+/**
+ * An approval arriving mid-sentence neither throws the sentence away nor
+ * lets the next keystroke of it answer a command nobody has read. Focus moves
+ * to the card only because it was in the composer the card replaced, a digit
+ * typed straight after is still the sentence's, and answering puts the
+ * person back in the composer with every word where it was.
+ */
+it('an approval arriving mid-sentence keeps the draft, swallows the keystroke in flight, and returns to the composer', async () => {
+  const { store, respondToApproval, raise } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+
+  const box = container.querySelector<HTMLTextAreaElement>('textarea')!
+  act(() => box.focus())
+  act(() => type(box, 'half a thought about step 3'))
+  raise(PENDING)
+  await act(async () => {})
+
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  expect(document.activeElement, 'focus was in the composer, so it follows the slot').toBe(card)
+  press(card, '3')
+  expect(respondToApproval, 'a digit already on its way is not an answer').not.toHaveBeenCalled()
+
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)) })
+  press(card, '1')
+  expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId: 'yes' })
+  await act(async () => {})
+
+  const back = container.querySelector<HTMLTextAreaElement>('textarea')!
+  expect(back).toBe(box)
+  expect(back.value).toBe('half a thought about step 3')
+  expect(back.closest('[hidden]')).toBeNull()
+  expect(document.activeElement).toBe(back)
+})
+
+it('an approval arriving while the person works elsewhere takes no focus, and gives none back to the composer', async () => {
+  const { store, raise } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+
+  const input = elsewhere()
+  raise(PENDING)
+  await act(async () => {})
+  expect(document.activeElement, 'the card does not steal focus').toBe(input)
+
+  const allow = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="approval-choices"] button')].find((one) => one.textContent?.startsWith('Yes1'))!
+  act(() => allow.click())
+  await act(async () => {})
+  expect(document.activeElement, 'nor hand it to the composer on the way out').toBe(input)
+  input.remove()
 })
 
 /**
@@ -1626,11 +1730,42 @@ it('keeps the budget in the footer strip with and without a pending approval', a
   const card = container.querySelector('[data-slot="approval-card"]')!
   expect(card.compareDocumentPosition(waiting!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
-  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true, cancelable: true })) })
+  const card2 = container.querySelector<HTMLElement>('[data-slot="approval-card"]')!
+  act(() => card2.focus())
+  press(card2, '1')
   await act(async () => {})
   const working = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
   expect(working?.textContent).toBe('$3.80 left · Round 1 of 1')
   expect(container.querySelector('textarea')!.compareDocumentPosition(working!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+/**
+ * The host stops a run whose spend it cannot read (`budgetRefusal`: "Spend is
+ * unknown"), so a meter that read an unknown spend as nothing spent — a full
+ * ring and "$5.00 left" — said the opposite of what the run was about to do.
+ */
+it('says spend is unknown, with an unfilled ring, when the host cannot read it', async () => {
+  const { store } = triggerRig([], { spentMicros: null })
+  await render(store)
+  await act(async () => {})
+
+  const footer = container.querySelector<HTMLElement>('[data-slot="room-budget"]')!
+  expect(footer.textContent).toBe('Spend unknown · Round 1 of 1')
+  expect(footer.textContent).not.toContain('left')
+  const ring = footer.querySelector<HTMLElement>('[data-slot="progress-ring"]')!
+  expect(ring.hasAttribute('data-unknown')).toBe(true)
+  expect(ring.getAttribute('aria-valuenow')).toBeNull()
+
+  const trigger = footer.querySelector('[data-slot="hover-card-trigger"]')!
+  await act(async () => {
+    trigger.dispatchEvent(new PointerEvent('pointerenter', { bubbles: true, pointerType: 'mouse' }))
+    trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }))
+    trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+  })
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
+  const card = document.body.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('Unknown of $5.00')
+  expect(card.textContent).toContain('The run stops while its spend cannot be read.')
 })
 
 /**
