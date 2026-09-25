@@ -222,9 +222,25 @@ export const COLLECT = `(() => {
     const rect = node.getBoundingClientRect()
     if (!(rect.width > 0 && rect.height > 0)) continue
     const tag = node.tagName?.toLowerCase?.() ?? 'unknown'
-    const src = tag === 'webview' ? (node.getURL ? node.getURL() : '') : (node.src ?? '')
+    // \`<webview>.getURL()\` throws rather than answering until the guest has
+    // actually attached — a real Electron behaviour this file's own review
+    // caught crashing the whole audit call the one time it fired mid-take,
+    // which would have failed the take with no name in the error rather than
+    // refusing the one frame that was not ready yet. Caught here, so a guest
+    // that cannot answer is reported as not ready rather than thrown past.
+    let src = ''
+    let ready = true
+    if (tag === 'webview') {
+      try {
+        src = node.getURL ? node.getURL() : ''
+      } catch {
+        ready = false
+      }
+    } else {
+      src = node.src ?? ''
+    }
     const srcdoc = tag === 'iframe' && Boolean(node.getAttribute('srcdoc'))
-    guests.push({ tag, src: src ?? '', srcdoc })
+    guests.push({ tag, src: src ?? '', srcdoc, ready })
   }
   return {
     text: document.body.innerText ?? '',
@@ -401,11 +417,16 @@ export const historyReasons = (history = [], { roots = [], nativeCodex = false }
  * guest is accepted only when its address is exactly that origin or a path
  * under it. No `rigOrigin`, no address, `about:blank`, `srcdoc`, a `data:`
  * URI, or loopback on any *other* port are all the same case: nothing this
- * function was handed proves what is on screen, so it refuses.
+ * function was handed proves what is on screen, so it refuses. A guest
+ * `COLLECT` could not even ask — `<webview>.getURL()` threw, because the
+ * guest has not attached yet — is the same case again: refused, so the take
+ * is retried once the guest is ready rather than crashing the whole audit
+ * call on the one that was not.
  */
 export const guestReasons = (guests = [], { rigOrigin } = {}) =>
-  (guests ?? []).flatMap(({ tag, src, srcdoc }) => {
+  (guests ?? []).flatMap(({ tag, src, srcdoc, ready = true }) => {
     const label = tag ?? 'guest'
+    if (!ready) return [`a visible ${label} pane is not ready to be audited yet`]
     if (srcdoc) return [`a visible ${label} pane holds embedded srcdoc content, which this rig cannot audit`]
     if (
       typeof rigOrigin === 'string' && rigOrigin !== '' &&

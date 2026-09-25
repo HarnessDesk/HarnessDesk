@@ -670,6 +670,29 @@ test('the browser scene serves its page over loopback HTTP, never as a file:// U
   assert.match(shoot, /import \{ startStaticServer \} from '\.\/static-server\.mjs'/)
 })
 
+test('the browser scene closes its own docked pane before its server, so any scene order is safe (#932 review)', () => {
+  // Left docked, the webview stays mounted and visible for every scene that
+  // follows in the same process, and once the server below closes there is
+  // no address left to vouch for it with — a later scene (settings-agents,
+  // say) would find a guest on screen the audit has no way to accept. Closing
+  // the pane first is what makes `browser` safe to run anywhere in a take,
+  // not only last.
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const body = shoot.slice(shoot.indexOf("browser: { leaveOverlay: true"), shoot.indexOf('// The review sweep'))
+  const finish = body.slice(body.indexOf('finish: async'))
+  assert.match(finish, /STORE\}\.closeBrowser\(\)/, 'the scene must close its own pane on the way out')
+  assert.ok(
+    finish.indexOf('closeBrowser()') < finish.indexOf('browserServer?.close()'),
+    'the pane must close before the server it was pointed at goes away',
+  )
+})
+
+test('the audit is given the exact origin the browser scene just bound, so no other loopback port can pass as it (#928 review P2)', () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const auditDefinition = shoot.slice(shoot.indexOf('const audit = (name)'), shoot.indexOf('/** Hide this machine\'s home'))
+  assert.match(auditDefinition, /rigOrigin:\s*browserServer\?\.url\s*\?\?\s*null/)
+})
+
 test('reseeding clears a leftover browser-pane layout, closing the leak an earlier browser take left in state.json', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'hd-shots-layout-leak-'))
   t.after(() => rmSync(directory, { recursive: true, force: true }))

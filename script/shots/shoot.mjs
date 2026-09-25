@@ -909,6 +909,15 @@ rules:
         throw new Error(`the inline browser did not load its local fixture (title ${q(title)})`)
       }
     }, finish: async () => {
+      // Left docked, this pane's webview stays mounted and visible for every
+      // scene that follows in the same process — and once the server below
+      // closes, its address can never be vouched for again, so a later scene
+      // (settings-agents, say) would find a guest on screen it has no way to
+      // accept and no way it staged itself (#928 review, follow-up). Closing
+      // the pane is what a person leaving this scene actually does, and it is
+      // what makes any scene order safe rather than only "browser last".
+      await cdp.eval(`${STORE}.closeBrowser(); true`).catch(() => {})
+      await sleep(300)
       await browserServer?.close()
       browserServer = null
     } },

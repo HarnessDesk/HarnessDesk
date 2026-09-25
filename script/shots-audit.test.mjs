@@ -380,9 +380,9 @@ test('a visible guest pane is collected by its address and its srcdoc flag (#922
   }
   const seen = new Function('document', `return ${COLLECT}`)(document)
   assert.deepEqual(seen.guests, [
-    { tag: 'webview', src: 'file:///Users/jroe/work/private-repo/index.html', srcdoc: false }, // hd-secrets-ok
-    { tag: 'iframe', src: 'http://127.0.0.1:54213/index.html', srcdoc: false },
-    { tag: 'iframe', src: '', srcdoc: true },
+    { tag: 'webview', src: 'file:///Users/jroe/work/private-repo/index.html', srcdoc: false, ready: true }, // hd-secrets-ok
+    { tag: 'iframe', src: 'http://127.0.0.1:54213/index.html', srcdoc: false, ready: true },
+    { tag: 'iframe', src: '', srcdoc: true, ready: true },
   ], 'the hidden iframe is not even collected')
   const reasons = guestReasons(seen.guests, { rigOrigin: 'http://127.0.0.1:54213' })
   assert.equal(reasons.length, 2, JSON.stringify(reasons))
@@ -429,6 +429,51 @@ test(
     assert.equal(guestReasons([{ tag: 'iframe', src: RIG_ORIGIN }]).length, 1, 'same, with no options object at all')
   },
 )
+
+test('a guest not yet ready to answer its own address is refused, never mistaken for a served page (#932 review)', () => {
+  const RIG_ORIGIN = 'http://127.0.0.1:54213'
+  // A webview that has not attached yet answers with no address at all —
+  // `ready: false` is what `COLLECT` reports for it (see below), and it must
+  // be refused on that alone, whatever `src` happens to be sitting at and
+  // whatever `rigOrigin` this take bound.
+  const reasons = guestReasons([{ tag: 'webview', src: '', ready: false }], { rigOrigin: RIG_ORIGIN })
+  assert.equal(reasons.length, 1)
+  assert.match(reasons[0], /webview pane is not ready to be audited yet/)
+  // Even a guest whose src happens to already equal the rig's own origin is
+  // still refused while not ready — the flag, not the address, decides.
+  assert.equal(
+    guestReasons([{ tag: 'webview', src: RIG_ORIGIN, ready: false }], { rigOrigin: RIG_ORIGIN }).length,
+    1,
+  )
+  // The control: omitting `ready` at all defaults to ready, so every earlier
+  // test in this file — none of which mentions it — still means what it said.
+  assert.deepEqual(guestReasons([{ tag: 'iframe', src: RIG_ORIGIN }], { rigOrigin: RIG_ORIGIN }), [])
+})
+
+test('the collector never throws when a webview\'s getURL() is not ready yet, and reports it instead (#932 review)', () => {
+  /* Electron's own `<webview>` throws calling `getURL()` before the guest has
+     attached — real behaviour, not a hypothetical: `BrowserPane.tsx` already
+     guards every such call with its own `safely()` wrapper for the same
+     reason. `COLLECT` runs inside one `Runtime.evaluate` call for the whole
+     window; an uncaught throw here would fail that call — and the audit
+     along with it — with no name in the error, rather than refusing the one
+     guest that was not ready. */
+  const notReady = {
+    tagName: 'WEBVIEW',
+    getBoundingClientRect: () => ({ width: 800, height: 600 }),
+    getURL: () => { throw new Error('The WebView must be attached to the DOM and the dom-ready event emitted') },
+  }
+  const document = {
+    title: 'HarnessDesk',
+    body: { innerText: '' },
+    querySelectorAll: (selector) => (selector === 'webview, iframe' ? [notReady] : []),
+  }
+  const seen = new Function('document', `return ${COLLECT}`)(document)
+  assert.deepEqual(seen.guests, [{ tag: 'webview', src: '', srcdoc: false, ready: false }])
+  const reasons = guestReasons(seen.guests, { rigOrigin: 'http://127.0.0.1:1' })
+  assert.equal(reasons.length, 1)
+  assert.match(reasons[0], /not ready to be audited yet/)
+})
 
 test('TILDIFY shortens placeholder and aria-label along with title (#922)', () => {
   const home = '/home/someone'
