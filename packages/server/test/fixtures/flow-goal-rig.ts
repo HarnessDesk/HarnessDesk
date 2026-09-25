@@ -130,6 +130,8 @@ export interface GoalRig {
   turnsEndLater: boolean
   /** Called once an order is accepted — where a test says a turn has started. */
   onOrder: ((seat: SeatRecord) => void) | null
+  /** Called as a Seat is put back on its picks — where a test says a person started a turn meanwhile. */
+  onReseat: ((seat: SeatRecord) => void) | null
   /** Every accepted order's text, by Seat id, in order. */
   readonly orderTexts: Map<string, string[]>
   /** The lane a Seat gets when it asked for isolation. */
@@ -184,7 +186,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
     facts: new Map<string, EvidenceRecord[]>(),
     staleFacts: new Set<string>(),
     goalSerial: new Serial(), seatAsked: null, strictAsks: [] as boolean[], holdsCeilings: true, reserve: null,
-    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null,
+    beforeOpen: null, beforeClaim: null, opensAs: null, failOrder: false, turnsEndLater: false, comesBackAs: null, busySeats: new Set<string>(), onOrder: null, onReseat: null,
     orderTexts: new Map<string, string[]>(),
     origins: new Map<string, GoalOrigin>(),
     triggerGate: null,
@@ -302,7 +304,7 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       else rig.busySeats.delete(String(seat.id))
     },
     laneOf: (seat) => rig.lanes.get(String(seat.id)) ?? null,
-    reseat: async (seat) => rig.comesBackAs ?? seat.seatLabel,
+    reseat: async (seat) => { rig.onReseat?.(seat); return rig.comesBackAs ?? seat.seatLabel },
     changed: () => {},
     log: () => {},
     headOf: async (cwd) => rig.heads.get(cwd) ?? { at: null, dirty: false },

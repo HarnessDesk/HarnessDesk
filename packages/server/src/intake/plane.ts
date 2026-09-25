@@ -325,6 +325,13 @@ export class IntakePlane {
     // Every wait still open is said again first, by its own id: a window sees a held approval's wait at once, not after recovery.
     this.#attention.replay()
     this.#dispatchReady = true
+    /* One meter pass before anything is released or resumed. A launch has
+       read no allowance and no usage yet, and a Seat whose turn the quit cut
+       off was last read before the quit: every gate would read that as
+       unknown spend and stall the run before its Seat was handed anything
+       (#915). Unknown after a real read still stops it. Only triggers'
+       runs wait on this: the host resumes a person's runs beside it. */
+    if (this.#problem === null && !this.#prefs.paused) await this.meter().catch(() => {})
     if (this.#problem === null) {
       await this.#admission.recover().catch((error: unknown) => {
         this.#port.log('a trigger firing could not be released', { error: error instanceof Error ? error.message : String(error) })

@@ -279,6 +279,55 @@ it('a dropped run\'s refreshed view greys Decide this run with the drop\'s own r
   expect(container.textContent).toContain(undecidable)
 })
 
+const runView = (run: string, reason: string, undecidable: string | null = null) => ({
+  run, goal: 'g1', round: 1, finished: 1, total: 1, embargoed: false, open: 1, blocking: 1,
+  reason, stamp: `stamp-${run}`, publication: 'local',
+  reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
+  boundPr: null, unbound: null, undecidable, override: null,
+}) as never
+
+it('a Goal with an old dropped run and a live one shows the live run, not the first it finds (#890)', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  // The dropped run is cached first, as it would be: this window heard of it before the new one started.
+  const flowExecutions = new Map([
+    ['run-old', { id: 'run-old', goal: 'g1', state: 'stopped', findings: {} } as never],
+    ['run-new', { id: 'run-new', goal: 'g1', state: 'running', findings: {} } as never],
+  ])
+  const findingRuns = new Map([
+    ['run-old', runView('run-old', 'The old round.', 'Dropped: parking this.')],
+    ['run-new', runView('run-new', 'The live round.')],
+  ])
+  const { store } = rig(state, { flowExecutions, findingRuns })
+  await render(store)
+  expect(container.textContent).toContain('The live round.')
+  expect(container.textContent).not.toContain('Dropped: parking this.')
+  expect(store.loadFindingRun).toHaveBeenCalledWith('g1', 'run-new')
+  expect(store.loadFindingRun).not.toHaveBeenCalledWith('g1', 'run-old')
+})
+
+it('the run reserved on the Goal wins over any other cached run, as the room header reads it (#890)', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const flowExecutions = new Map([
+    ['run-old', { id: 'run-old', goal: 'g1', state: 'stopped', findings: {} } as never],
+    ['run-reserved', { id: 'run-reserved', goal: 'g1', state: 'stopped', findings: {} } as never],
+  ])
+  const findingRuns = new Map([
+    ['run-old', runView('run-old', 'The old round.')],
+    ['run-reserved', runView('run-reserved', 'The reserved round.')],
+  ])
+  const goals = new Map([['g1', { ...goalView(true), reservation: { run: 'run-reserved' } }]])
+  const { store } = rig(state, { flowExecutions, findingRuns, goals })
+  await render(store)
+  expect(container.textContent).toContain('The reserved round.')
+  expect(container.textContent).not.toContain('The old round.')
+})
+
 it('keeps a long lifecycle chip off the row\'s fixed icon mark, on the label\'s own line instead', async () => {
   const state: FindingsListState = {
     filter: 'all',

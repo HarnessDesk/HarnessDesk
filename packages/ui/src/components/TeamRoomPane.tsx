@@ -21,6 +21,7 @@ import {
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
+import { goalRunOf, namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/evidence'
 import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
@@ -234,34 +235,25 @@ export const TeamRoomPane = ({
   /** Shared by the bar's full Wrap button and its narrow ⋯ fallback. */
   const wrapDisabled = goal ? goalActions(goal.goal).disabled || goal.problem !== null : true
   /**
-   * The run this Goal's own front door names — its origin when a flow opened
-   * it, or its reservation while one holds a reused empty Goal, whose origin
-   * still only names the person who made it.
+   * The run this Goal names for itself — its reservation, else the flow that
+   * opened it — asked for below when this window has not cached it yet; and
+   * the run the header reads, by the one rule the Findings pane reads too
+   * (`lib/goal-run.ts`): reserved, then going on now, then the opener. A
+   * Goal's id is reused across incarnations, so an older stopped run merely
+   * sharing it never stands in for a run this Goal names and has not loaded.
    */
-  const run = goal?.goal.origin.kind === 'flow' ? goal.goal.origin.run : goal?.reservation?.run ?? null
-  /**
-   * This Goal's own v2 flow run, at most one per phase 6 decision 4 — read by
-   * `run` above, never by scanning every cached execution for the first one
-   * merely sharing this Goal's id. A Goal's id is reused across incarnations,
-   * so an earlier, already-stopped run can still sit in the cache under the
-   * same `.goal`; a plain "find the first match" can read that one back
-   * instead of the run this incarnation actually reserved — including while
-   * *this* run has not been fetched yet, when a fallback scan would still
-   * find the older one sitting there. Once `run` is known, this is the only
-   * id that answers; the effect below is what asks for it when it is not
-   * cached yet, never a stand-in read here.
-   */
+  const run = namedGoalRun(goal)
   const flowExecution = useMemo(
-    () => (run ? (snapshot.flowExecutions.get(run) ?? null) : [...snapshot.flowExecutions.values()].find((one) => one.goal === room) ?? null),
-    [snapshot.flowExecutions, room, run],
+    () => goalRunOf(room, goal, snapshot.flowExecutions),
+    [snapshot.flowExecutions, room, goal],
   )
   // A reopened room whose run predates this window's own pushes has nothing
   // cached yet: read it once, the same pull `flow/execution-changed` is the
   // push half of.
   useEffect(() => {
-    if (flowExecution || !run) return
+    if (!run || snapshot.flowExecutions.has(run)) return
     void store.readFlowExecution(run).catch(() => {})
-  }, [flowExecution, run, store])
+  }, [snapshot.flowExecutions, run, store])
   /**
    * What this Goal reviews, for the header's meta line — a flow run's own
    * resolved target first, since it names the branch too
