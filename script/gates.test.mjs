@@ -10,16 +10,32 @@ import {
   compareBaseline,
   createSourceCache,
   declarationsOf,
+  designImportsOf,
+  exportedNamesOf,
   NAMED_COLOURS,
   rawColours,
   rawZIndexes,
   looksLikeUnmappedAppearanceUtility,
+  classOwnersOf,
+  declarationsByClassIn,
+  dynamicImportUsesOf,
+  exportsReferencing,
+  importersByFile,
+  importsIn,
+  isPatternModule,
+  isWorkbenchDockExempt,
+  NAMED_ROOTS,
+  parseScreenSource,
+  patternExportAppearanceOf,
+  resolveFamilies,
+  resolvedConsumersOf,
   screenAppearanceOf,
   screenAreaOf,
   singleScreenAreaOf,
   screenInlineStyleAppearanceOf,
   patternSourceAppearanceOf,
   screenPropertySideOf,
+  stylesheetFor,
   screenUnclassifiedOf,
   screenUnmappedUtilityOf,
   screenUtilityAppearanceOf,
@@ -105,6 +121,11 @@ test('single-screen pattern accounting follows a pattern consumer into its scree
   const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
   const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
   const importers = new Map([[approval, [room, builtins]]])
+  // The registry mounts Approvals in the session view beside Conversation,
+  // and TeamRoomPane docks it too — two different places, not one, so the
+  // registry counts as its own area alongside `room` rather than being
+  // dropped, and a pattern used only by [approval] reads as cross-area
+  // (#925 review round 2, P1).
   assert.equal(singleScreenAreaOf([approval], importers), null)
 })
 
@@ -113,6 +134,57 @@ test('the pane registry mounts a screen without making its patterns shared', () 
   const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
   // Every pane is registered there; a pattern only GitPane uses is still Git's.
   assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+})
+
+/*
+ * #914, shape 2: before this, Git was the only screen family named, so a
+ * pattern used only by the conversation transcript's own files — Items,
+ * TurnWork, StepGroup and their siblings — read as cross-area, because each
+ * file was its own area. `screenAreaOf` names four families now, not one.
+ */
+test('single-screen pattern accounting groups the conversation family, not only Git (#914)', () => {
+  const items = path.join(repoRoot, 'packages/ui/src/components/Items.tsx')
+  const turnWork = path.join(repoRoot, 'packages/ui/src/components/TurnWork.tsx')
+  const stepGroup = path.join(repoRoot, 'packages/ui/src/components/StepGroup.tsx')
+  const conversationMap = path.join(repoRoot, 'packages/ui/src/components/ConversationMap.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  assert.equal(screenAreaOf(items), 'conversation')
+  assert.equal(screenAreaOf(turnWork), 'conversation')
+  assert.equal(screenAreaOf(conversationMap), 'conversation')
+  // Before #914 these were four separate areas ('items', 'turnwork',
+  // 'stepgroup'), so a pattern spread across any two of them read as
+  // cross-area and was never charged.
+  assert.equal(singleScreenAreaOf([items, turnWork, stepGroup]), 'conversation')
+  assert.equal(singleScreenAreaOf([items, sidebar]), null)
+})
+
+test('single-screen pattern accounting names the settings, agent roster and room families (#914)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const settingsAgents = path.join(repoRoot, 'packages/ui/src/components/SettingsAgents.tsx')
+  const settingsYou = path.join(repoRoot, 'packages/ui/src/components/SettingsYou.tsx')
+  assert.equal(singleScreenAreaOf([settings, settingsAgents, settingsYou]), 'settings')
+
+  const agentsWindow = path.join(repoRoot, 'packages/ui/src/components/AgentsWindow.tsx')
+  const agentRoster = path.join(repoRoot, 'packages/ui/src/components/AgentRoster.tsx')
+  const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
+  assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
+  // Agents.tsx (a session's own delegated sub-agents, in the right-dock
+  // inspector) is a different screen and must stay out of that family — it
+  // does, but not by keeping its own name: its one real importer is
+  // Details.tsx, which is itself unhosted, so the closure folds it (and
+  // Activity.tsx, and Trajectory.tsx) into `details` instead.
+  const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
+  assert.equal(screenAreaOf(agentsInspector), 'details')
+  assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
+
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  const teamBoardPane = path.join(repoRoot, 'packages/ui/src/components/TeamBoardPane.tsx')
+  const goalHeader = path.join(repoRoot, 'packages/ui/src/components/GoalHeader.tsx')
+  assert.equal(singleScreenAreaOf([teamRoomPane, teamBoardPane, goalHeader]), 'room')
+  // GoalCreate (the new-session flow) and GoalMigrationBanner (the app's own
+  // chrome) are goals too, but never appear in the room, so they stay out.
+  const goalCreate = path.join(repoRoot, 'packages/ui/src/components/GoalCreate.tsx')
+  assert.notEqual(screenAreaOf(goalCreate), 'room')
 })
 
 /*
@@ -162,6 +234,833 @@ test('single-screen patterns leave semantic appearance to system primitives', ()
   const turnWork = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/TurnWork.tsx'), 'utf8')
   assert.doesNotMatch(turnWork, /TurnWork\.module\.css/)
   assert.match(turnWork, /quietHover/)
+})
+
+/*
+ * #914, shape 1: `design/index.ts` re-exports `design/ui` and a few patterns
+ * (InspectorPanel, DockPanel) with `export *`, not a named `export { X } from
+ * 'y'`. Reading only the named form, as the single-consumer rule used to,
+ * makes every part behind an `export *` invisible — never charged, whatever
+ * its consumers.
+ */
+test('exported-name resolution follows `export *`, however many hops deep, to the file that declares the name (#914)', () => {
+  const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+  // `Tick` reaches `design/index.ts` only through `export * from './ui'` and
+  // then `design/ui/index.ts`'s own `export * from './spark'` — two hops.
+  assert.deepEqual(exportedNamesOf(designIndex).get('Tick'), {
+    file: path.join(repoRoot, 'packages/ui/src/design/ui/spark.tsx'),
+    localName: 'Tick',
+  })
+  // `GroupLine` is declared in InspectorPanel.tsx and reaches design/index.ts
+  // only through `export * from './patterns/InspectorPanel'` — one hop, but
+  // still invisible to a reader of named exports only.
+  assert.deepEqual(exportedNamesOf(designIndex).get('GroupLine'), {
+    file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
+    localName: 'GroupLine',
+  })
+})
+
+/*
+ * #914, shape 4: `components/Panel.tsx` re-exports `GroupLine` and `PanelRow`
+ * from `'../design'` — a shim entirely outside `design/`. A screen importing
+ * either from the shim used to leave no trace of ever having reached
+ * `design/` at all, because the old resolver only read a direct
+ * `from '../design'` import.
+ */
+test('exported-name resolution follows a re-export shim to the file that actually declares the name (#914)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-export-shim-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const shimPath = path.join(dir, 'Shim.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\nexport const Bar = () => null\n')
+    fs.writeFileSync(shimPath, "export { Foo, Bar } from './Target'\n")
+    assert.deepEqual(exportedNamesOf(shimPath).get('Foo'), { file: targetPath, localName: 'Foo' })
+    assert.deepEqual(exportedNamesOf(shimPath).get('Bar'), { file: targetPath, localName: 'Bar' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+
+  // The real shape this fixes: Trajectory.tsx imports GroupLine from
+  // `./Panel` (the shim), not from `../design` directly.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const found = designImportsOf(trajectory).find((ref) => ref.localName === 'GroupLine')
+  assert.deepEqual(found, {
+    file: path.join(repoRoot, 'packages/ui/src/design/patterns/InspectorPanel.tsx'),
+    localName: 'GroupLine',
+    localBinding: 'GroupLine',
+  })
+})
+
+/*
+ * #914, shape 3: consumers used to be merged per *module*, not per export, so
+ * one export used everywhere made every sibling export in the same file look
+ * shared too — a genuinely single-area sibling's own appearance was never
+ * charged. `patternExportAppearanceOf` resolves each export's own consumers
+ * before asking whether the module is single-area.
+ */
+test('a module charges only its single-area export, not a sibling export used everywhere (#914)', () => {
+  const module = patternTsx('Widget.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    'export const Common = () => <span className="tabular-nums" />',
+    'export const Solo = () => <span className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    // Common is shared: Sidebar and GitPane are two different areas.
+    { localName: 'Common', consumers: [widelyUsed, onlyConsumer] },
+    // Solo has one consumer only, so it is that screen's own appearance.
+    { localName: 'Solo', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: line-through (text-decoration)',
+  ])
+})
+
+test('a module whose every export reaches the same area is still charged in full, the original way (#914)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    'export const Head = () => <span className="tabular-nums" />',
+    'export const Foot = () => <span className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    'design/patterns/Widget.tsx [git screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #914 review: `declarationsByClassIn` first read a rule's selector and body
+ * with the same flat `bare(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)` `squaresOf`
+ * uses for its own narrow width/height check, then fed the extracted *body*
+ * text alone back into `declarationsOf`. That function is `declarationsIn`'s
+ * full stylesheet parser, which only flushes a declaration once it has seen a
+ * `{` open a rule; handed a body with no surrounding braces at all, it never
+ * enters a rule, so every declaration for a class-scoped export vanished
+ * silently (`Settings.tsx`'s `SearchMatch` and `RowMark`, real names this
+ * shipped with #914, both read as contributing nothing). The fix reads
+ * `declarationsIn`'s own `rule.prelude` instead of re-deriving a selector.
+ */
+test('the CSS-module classes a single-area export reaches for are charged, reading real declarations not a re-parsed body (#914)', () => {
+  const css = [
+    '.mono { font-family: var(--hd-mono); }',
+    '.monoBlock { padding: 8px; background: var(--hd-muted); }',
+    '',
+  ].join('\n')
+  const tagged = declarationsByClassIn(css)
+  assert.deepEqual(tagged, [
+    { classes: new Set(['mono']), property: 'font-family', value: 'var(--hd-mono)' },
+    { classes: new Set(['monoBlock']), property: 'padding', value: '8px' },
+    { classes: new Set(['monoBlock']), property: 'background', value: 'var(--hd-muted)' },
+  ])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Shared = ({ className }) => <span className={styles.mono + \' \' + className} />',
+    'export const Solo = () => <span className={styles.monoBlock} />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'Solo', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.module.css [git screen area]: background',
+  ])
+})
+
+/*
+ * #914 review: a plain `.ts` design module (no JSX) has no sibling
+ * `.module.css` — `design/adapters/terminal.ts` is one. The original
+ * `module.replace(/\.tsx$/, '.module.css')` left `sheet` equal to `module`
+ * itself for a `.ts` file, so the module's own TypeScript source was read as
+ * though it were a stylesheet, and a bogus finding came out the other end.
+ */
+test('a plain .ts design module has no stylesheet to charge (#914)', () => {
+  assert.equal(stylesheetFor(patternTsx('Widget.tsx')), patternTsx('Widget.module.css'))
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')), null)
+})
+
+test('stylesheetFor rejects a .ts pattern module too, not only an adapter (#914 review, item 7)', () => {
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/patterns/Foo.ts')), null)
+})
+
+/*
+ * #914 review, P1: `RowMark` alone draws `.rowMark`, but `Row` and
+ * `RowButton` in the same module also reach for it, and those are used
+ * everywhere. Before this, a class was charged to any single-area export
+ * that referenced it in its own scoped subtree, without asking whether some
+ * *other* declaration in the module — exported or not — reached for the same
+ * class. Only a class exclusively one export's own may be charged.
+ */
+test('a class shared with another export in the same module is not charged to a single-area export (#914 review, P1)', () => {
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Row = ({ className }) => <span className={styles.rowMark + " " + className} />',
+    'export const RowButton = () => <span className={styles.rowMark} />',
+    'export const RowMark = () => <span className={styles.rowMark + " " + styles.soloOnly} />',
+    '',
+  ].join('\n')
+  const owners = classOwnersOf(parseScreenSource('Widget.tsx', source), 'styles')
+  // .rowMark is Row's, RowButton's and RowMark's — shared, whichever export
+  // is later found single-area.
+  assert.deepEqual(owners.get('rowMark'), new Set(['Row', 'RowButton', 'RowMark']))
+  // .soloOnly is reached only from RowMark's own body.
+  assert.deepEqual(owners.get('soloOnly'), new Set(['RowMark']))
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const css = ['.rowMark { color: red; }', '.soloOnly { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Row', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowButton', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowMark', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+  ])
+})
+
+/*
+ * #914 review, item 7: the whole-module path must still work when a module
+ * has a local (unexported) helper and a class nothing references at all —
+ * neither should crash the walk or leak into a charge.
+ */
+test('the whole-module path tolerates a local helper and a class nothing references (#914 review, item 7)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'const cx = (...parts) => parts.filter(Boolean).join(" ")',
+    'export const Head = () => <span className={cx(styles.head, "tabular-nums")} />',
+    'export const Foot = () => <span className={styles.head} />',
+    '',
+  ].join('\n')
+  const css = ['.head { color: red; }', '.unused { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  // The whole-module path charges the whole sheet, `.unused` included: every
+  // export here reaches the same one area, so the entire module is that
+  // screen's appearance moved into design/ in full, not only the classes an
+  // export happens to reach today — unchanged from before this review, and
+  // this fixture is here so a future change to that rule has to notice it.
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: color',
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, item 6: the workbench dock chrome is exempt by name, not by
+ * pattern — the real DockPanel.tsx module, where every listed export is
+ * genuinely single-area (`workbench`), still charges nothing.
+ */
+test('the workbench dock chrome is a named exemption, not a pattern match (#914 review, DockPanel policy)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'WorkbenchRail'), true)
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'DockPanelTab'), true)
+  // RailSection is DockPanel.tsx's other export, and is not on the list:
+  // it is not single-area at all (AppWindow.tsx composes it too), so
+  // whether it would be exempt never comes up.
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'RailSection'), false)
+  // The same export name in a different module is not exempt — this is a
+  // named list, not a rule about the word "WorkbenchRail".
+  assert.equal(isWorkbenchDockExempt(patternTsx('Widget.tsx'), 'WorkbenchRail'), false)
+
+  const moduleSource = fs.readFileSync(dockPanel, 'utf8')
+  const sheet = stylesheetFor(dockPanel)
+  const sheetSource = sheet && fs.existsSync(sheet) ? fs.readFileSync(sheet, 'utf8') : null
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'DockPanelTab', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, moduleSource, sheet, sheetSource, exportsAndConsumers), [])
+})
+
+/*
+ * #925 review round 2, P3: an otherwise-uniform module (every export the
+ * same single area) with a named exemption must not take the whole-module
+ * fast path — that reads the whole file's text, which would charge an
+ * exempt export's own utilities right along with an unlisted sibling's. One
+ * unlisted export charges only itself.
+ */
+test('the dock exemption is a per-export skip: one unlisted export in an otherwise-uniform module still charges (#925 review round 2, P3)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const source = [
+    'export const WorkbenchRail = () => <div className="tabular-nums" />',
+    'export const NotYetExempt = () => <div className="line-through" />',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'NotYetExempt', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, source, null, null, exportsAndConsumers), [
+    'design/patterns/DockPanel.tsx [workbench screen area]: line-through (text-decoration)',
+  ])
+})
+
+/*
+ * #925 review round 2, item 5: the primitive ledger and a pattern moved into
+ * ui/ as gates tests, not only caught by --strict — `isPatternModule` is the
+ * one switch between the two ceilings, both of which are real SECTIONS
+ * entries with their own recorded baseline.
+ */
+test('isPatternModule is the one switch between screenAppearance and singleAreaPrimitive, both real ceilings (#925 review round 2, item 5)', () => {
+  assert.ok(SECTIONS.some(([key]) => key === 'singleAreaPrimitive'))
+  const asPattern = path.join(repoRoot, 'packages/ui/src/design/patterns/Widget.tsx')
+  const asPrimitive = path.join(repoRoot, 'packages/ui/src/design/ui/widget.tsx')
+  assert.equal(isPatternModule(asPattern), true)
+  assert.equal(isPatternModule(asPrimitive), false)
+
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = 'export const Solo = () => <span className="tabular-nums" />\n'
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  // Charged under screenAppearance as a pattern...
+  assert.deepEqual(patternExportAppearanceOf(asPattern, source, null, null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+  // ...but the real audit loop never calls patternExportAppearanceOf for a
+  // ui/ module at all — isPatternModule routes it to singleAreaPrimitive
+  // instead, using the same singleScreenAreaOf check patternExportAppearanceOf
+  // itself uses internally to decide an export's own area.
+  assert.equal(singleScreenAreaOf([onlyConsumer]), 'git')
+})
+
+/*
+ * #925 review round 2, P1: `Approvals.tsx` is mounted by the registry's own
+ * session view (beside Conversation) *and* docked by TeamRoomPane — two
+ * different places. `GitPane.tsx` is mounted by the registry alone (no
+ * other screen), and stays exactly one screen's own. The distinction is
+ * whether a real screen host was found *alongside* the registry/app mount,
+ * not whether one exists at all.
+ */
+test('a registry mount alongside a real screen import is a host with its own area (#925 review round 2, P1)', () => {
+  const gitPane = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
+  // GitPane's only importer is the registry, alone — unaffected.
+  assert.equal(singleScreenAreaOf([gitPane], new Map([[gitPane, [builtins]]])), 'git')
+
+  // The real shape review found: Approvals is drawn in the registry's own
+  // ConversationView (beside Conversation.tsx) and docked by TeamRoomPane.
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')))
+})
+
+test('a file mounted by app/ and by one screen does not fold into that screen\'s family (#925 review round 2, P1)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const root = path.join(uiSrc, 'components', 'Root.tsx')
+  const child = path.join(uiSrc, 'components', 'Child.tsx')
+  const appFile = path.join(uiSrc, 'app', 'App.tsx')
+  const namedRoots = new Map([[root, 'lobby']])
+
+  // Without the app/ mount, Child has exactly one host and folds into it.
+  const onlyScreen = new Map([[child, [root]]])
+  assert.equal(resolveFamilies([root, child], onlyScreen, namedRoots).get(child), 'lobby')
+
+  // The same screen host, plus an app/ mount: reachable from two places, so
+  // Child keeps its own name instead.
+  const withAppMount = new Map([[child, [root, appFile]]])
+  assert.equal(resolveFamilies([root, child], withAppMount, namedRoots).get(child), 'child')
+
+  // An app/ mount alone (no other screen) changes nothing, the same as a
+  // bare registry mount.
+  const solo = path.join(uiSrc, 'components', 'Solo.tsx')
+  const onlyApp = new Map([[solo, [appFile]]])
+  assert.equal(resolveFamilies([solo], onlyApp, new Map()).get(solo), 'solo')
+})
+
+/*
+ * #925 review round 2, P1: `Dialog` composes `DialogBody`/`DialogSubhead` in
+ * the same file, with no import at all — an import scanner can never see
+ * this. Replicated the way the audit's own loop builds a same-module edge:
+ * for each of a module's own exports, which sibling export's own body
+ * references it.
+ */
+test('same-module composition: an export composed by a sibling inherits its consumers (#925 review round 2, P1)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-same-module-'))
+  try {
+    const modulePath = path.join(dir, 'IntraShell.tsx')
+    fs.writeFileSync(modulePath, ['export const IntraBody = () => <div />', 'export const IntraShell = () => <IntraBody />', ''].join('\n'))
+    const ast = parseScreenSource(modulePath, fs.readFileSync(modulePath, 'utf8'))
+    const exported = exportedNamesOf(modulePath)
+    const designUsers = new Map()
+    for (const [, ref] of exported) {
+      if (ref.file !== modulePath) continue
+      for (const composerName of exportsReferencing(ast, ref.localName)) {
+        if (composerName === ref.localName) continue
+        const key = `${modulePath}::${ref.localName}`
+        const entry = designUsers.get(key) ?? { file: modulePath, localName: ref.localName, users: [] }
+        entry.users.push({ file: modulePath, localName: composerName })
+        designUsers.set(key, entry)
+      }
+    }
+    assert.deepEqual(designUsers.get(`${modulePath}::IntraBody`)?.users, [{ file: modulePath, localName: 'IntraShell' }])
+
+    const areaA = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const areaB = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+    const directConsumers = new Map([
+      [`${modulePath}::IntraShell`, { file: modulePath, localName: 'IntraShell', consumers: [areaA, areaB] }],
+    ])
+    // IntraBody has no direct screen importer of its own — its whole reach
+    // is IntraShell's, which two different areas use, so IntraBody is
+    // cross-area too and would not be charged.
+    const reach = resolvedConsumersOf(modulePath, 'IntraBody', directConsumers, designUsers)
+    assert.deepEqual(reach.slice().sort(), [areaA, areaB].sort())
+    assert.equal(singleScreenAreaOf(reach), null)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, P3: the DFS this replaced memoized a *partial* result
+ * the moment it hit a cycle, so which of two mutually-importing files "won"
+ * a shared name could depend on which was visited first. The fixed point
+ * must give the same answer regardless of the order files are handed in.
+ */
+test('cycle resolution in the family closure is order-independent (#925 review round 2, P3)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const a = path.join(uiSrc, 'components', 'CycleA.tsx')
+  const b = path.join(uiSrc, 'components', 'CycleB.tsx')
+  const importers = new Map([
+    [a, [b]],
+    [b, [a]],
+  ])
+  const forward = resolveFamilies([a, b], importers, new Map())
+  const backward = resolveFamilies([b, a], importers, new Map())
+  assert.deepEqual([forward.get(a), forward.get(b)], [backward.get(a), backward.get(b)])
+  assert.equal(forward.get(a), 'cyclea')
+  assert.equal(forward.get(b), 'cycleb')
+})
+
+/*
+ * #925 review round 2, P3: an anonymous default export (no name of its own)
+ * must still map to something `directDeclarationIn` can scope into — the
+ * literal sentinel `default`, resolved to the export assignment's own
+ * expression rather than a named declaration.
+ */
+test('exportedNamesOf maps an anonymous default export to its module\'s own default (#925 review round 2, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-anonymous-default-'))
+  try {
+    const arrowPath = path.join(dir, 'ArrowDefault.tsx')
+    fs.writeFileSync(arrowPath, 'export default () => null\n')
+    assert.deepEqual(exportedNamesOf(arrowPath).get('default'), { file: arrowPath, localName: 'default' })
+
+    const module = patternTsx('Widget.tsx')
+    const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+    const source = 'export default () => <span className="tabular-nums" />\n'
+    const exportsAndConsumers = [{ localName: 'default', consumers: [onlyConsumer] }]
+    assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+      'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+    ])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: end-to-end wiring, not only the unit that
+ * finds a dynamic import — a screen file's own `lazy(() => import(...))`
+ * must register as a real design consumer through `designImportsOf`'s
+ * sibling mechanism, the same conservative way a design file's already does.
+ */
+test('a screen\'s dynamic import is read too, not only a design file\'s (#925 review round 2, P3/item 5)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-screen-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(screenPath, 'export const Lazied = () => { import("./Target"); return null }\n')
+    const ast = parseScreenSource(screenPath, fs.readFileSync(screenPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses, [{ exportName: 'Lazied', target: targetPath }])
+    // Every export of the target is reached, conservatively — the same
+    // wiring the audit's own screen loop uses to call `addConsumer`.
+    assert.deepEqual([...exportedNamesOf(targetPath).keys()].sort(), ['A', 'B'])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #925 review round 2, item 5: the export function branch survives a
+ * mutation unless both directions are pinned — charged when its own
+ * consumers are single-area, uncharged when a sibling export function
+ * shares the same module but a different (or no) area.
+ */
+test('an export function is charged only when its own consumers are single-area, not merely present (#925 review round 2, item 5)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const source = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    'export function Shared() {',
+    '  return <span className="line-through" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Solo', consumers: [onlyConsumer] },
+    { localName: 'Shared', consumers: [onlyConsumer, widelyUsed] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a `const` export was the only shape `directDeclarationIn`
+ * and `exportsReferencing` could scope into. An `export function` composer
+ * lost its design-to-design reach entirely — neither shape existed in the
+ * tree, so nothing today depended on the gap, but a future pattern written
+ * this way must not silently stop composing.
+ */
+test('directDeclarationIn and exportsReferencing read an export function declaration (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'export function AppWindowRailTop(props) {',
+    '  return <RailSection {...props} />',
+    '}',
+    'export function AppWindowSurface(props) {',
+    '  return <div {...props} />',
+    '}',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const fnSource = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  assert.deepEqual(patternExportAppearanceOf(module, fnSource, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a composer that delegates its own drawing to a private,
+ * unexported helper must not read as composing nothing — the helper's own
+ * body is where the import is actually used.
+ */
+test('exportsReferencing resolves a local helper component to its own body (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'const Inner = () => <RailSection stretch="head" />',
+    'export const AppWindowRailTop = () => <Inner />',
+    'export const AppWindowSurface = () => <div />',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+})
+
+/*
+ * #914 review, P3: `import X, { Y }` names a default and a named specifier
+ * in one statement; both must be read as real bindings.
+ */
+test('importsIn reads a default-and-named import together, and a type-only import is invisible (#914 review, P2/P3)', () => {
+  const code = [
+    "import type { Foo } from './Foo'",
+    "import Default, { Bar, type Baz, Qux as Quux } from './Bar'",
+    '',
+  ].join('\n')
+  const found = importsIn(code)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].spec, './Bar')
+  assert.deepEqual(found[0].bindings, [
+    { kind: 'default', name: 'default', localBinding: 'Default' },
+    { kind: 'named', name: 'Bar', localBinding: 'Bar' },
+    { kind: 'named', name: 'Qux', localBinding: 'Quux' },
+  ])
+})
+
+/*
+ * #914 review, P2: a type-only import must not register as a real screen
+ * import, in either consumer path. The real shape review found:
+ * CommandPalette.tsx and Sidebar.tsx both `import type { Section } from
+ * './Settings'` — a type import, not a use, so it must not make a pattern
+ * used only by Settings.tsx read as shared with either of them.
+ */
+test('a type-only import does not register as a real screen import (#914 review, P2)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const commandPalette = path.join(repoRoot, 'packages/ui/src/components/CommandPalette.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const realImporters = importersByFile.get(settings) ?? []
+  assert.equal(realImporters.includes(commandPalette), false)
+  assert.equal(realImporters.includes(sidebar), false)
+})
+
+/*
+ * #925 review round 2, P2: the previous version of this gate reimplemented
+ * the closure it checks — including the registry skip — so it could not
+ * catch the very bug this round found (Approvals folded into `room` because
+ * the registry mount was dropped instead of counted). Hand-written
+ * expectations for known real cases instead: they describe what a reader
+ * would expect from the real import graph, not from re-deriving it.
+ */
+test('screen families read correctly for known real cases, including the ones the closure gets subtle (#925 review round 2, P2)', () => {
+  const approvals = path.join(repoRoot, 'packages/ui/src/components/Approvals.tsx')
+  const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
+  // Approvals is drawn in the registry's own session view (beside
+  // Conversation) and docked by TeamRoomPane — two different places — so it
+  // is multi-area, not `room`.
+  assert.notEqual(screenAreaOf(approvals), screenAreaOf(teamRoomPane))
+  assert.equal(singleScreenAreaOf([approvals], importersByFile), null)
+
+  // Trajectory's real host is Details.tsx (its only value importer), not
+  // Conversation — Details is itself unhosted, so both read `details`.
+  const trajectory = path.join(repoRoot, 'packages/ui/src/components/Trajectory.tsx')
+  const details = path.join(repoRoot, 'packages/ui/src/components/Details.tsx')
+  assert.equal(screenAreaOf(trajectory), screenAreaOf(details))
+  assert.equal(screenAreaOf(trajectory), 'details')
+
+  // Library.tsx is imported only by Settings.tsx, directly — one hop, not
+  // through ProjectPage or any other intermediary.
+  const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
+  assert.equal(screenAreaOf(library), 'settings')
+
+  // Two more single-host files, named so a future reader can check them by
+  // hand against the real tree the same way: GitDialogs.tsx's only real
+  // importer is GitPane.tsx, and BranchSwitcher.tsx's is Conversation.tsx —
+  // a branch switcher in the transcript's own header, not Git's.
+  const gitDialogs = path.join(repoRoot, 'packages/ui/src/components/GitDialogs.tsx')
+  const branchSwitcherFile = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(gitDialogs), 'git')
+  assert.equal(screenAreaOf(branchSwitcherFile), 'conversation')
+})
+
+/*
+ * #914 review, item 7: families have live effect, not just a one-hop
+ * assertion that happened to already be true — AppearancePreview.tsx is
+ * folded into `settings` two hops deep (Settings.tsx -> SettingsYou.tsx ->
+ * AppearancePreview.tsx), and BranchSwitcher.tsx into `conversation`
+ * (Conversation.tsx's own header), which the closure only finds by iterating
+ * to a fixed point.
+ */
+test('the family closure iterates more than one hop, with a real effect on real files (#914 review, item 7)', () => {
+  const appearancePreview = path.join(repoRoot, 'packages/ui/src/components/AppearancePreview.tsx')
+  const branchSwitcher = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(appearancePreview), 'settings')
+  assert.equal(screenAreaOf(branchSwitcher), 'conversation')
+})
+
+/*
+ * #914 review, P3: a namespace import reaches for whichever exports its own
+ * `D.X` sites actually name, found the same way a CSS-module binding's
+ * `styles.X` sites are — not assumed used just because the import exists,
+ * and not invisible just because it is not a named import.
+ */
+test('a namespace import reaches for the specific exports its own D.X sites name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-namespace-'))
+  try {
+    const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+    const relative = path.relative(dir, designIndex).replace(/\.ts$/, '')
+    const spec = relative.startsWith('.') ? relative : `./${relative}`
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(
+      screenPath,
+      `import * as D from '${spec}'\nexport const Widget = () => <D.Button>{D.Chip}</D.Button>\n`,
+    )
+    const names = designImportsOf(screenPath).map((ref) => ref.localName).sort()
+    assert.ok(names.includes('Button'), `expected Button among ${names.join(', ')}`)
+    assert.ok(names.includes('Chip'), `expected Chip among ${names.join(', ')}`)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: an aliased design-to-design import must be traced by its
+ * local binding, not the name it was exported under — `RailSection`
+ * imported as `Rail` is found by looking for `Rail` in the importing file's
+ * own body, not by looking for `RailSection`.
+ */
+test('a design-to-design edge follows an aliased import by its local binding (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-aliased-design-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const composerPath = path.join(dir, 'Composer.tsx')
+    fs.writeFileSync(targetPath, 'export const RailSection = () => null\n')
+    fs.writeFileSync(composerPath, "import { RailSection as Rail } from './Target'\nexport const Outer = () => <Rail />\n")
+    const found = designImportsOf(composerPath)
+    assert.equal(found.length, 0) // Target.tsx is not under design/, so this is not counted as reaching design/
+    // The mechanism itself, proven directly: exportsReferencing is asked
+    // about the *local* binding a design-to-design scan would resolve to.
+    const composerAst = parseScreenSource(composerPath, fs.readFileSync(composerPath, 'utf8'))
+    assert.deepEqual(exportsReferencing(composerAst, 'Rail'), ['Outer'])
+    assert.deepEqual(exportsReferencing(composerAst, 'RailSection'), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a default export — either `export default function Name`
+ * or `export default Name` naming an earlier local — is a name
+ * `directDeclarationIn` can now scope into, the same as a named export.
+ */
+test('exportedNamesOf recognizes a default export, named or re-exported by name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-default-export-'))
+  try {
+    const fnPath = path.join(dir, 'FnDefault.tsx')
+    fs.writeFileSync(fnPath, 'export default function Widget() {\n  return null\n}\n')
+    assert.deepEqual(exportedNamesOf(fnPath).get('default'), { file: fnPath, localName: 'Widget' })
+
+    const namedPath = path.join(dir, 'NamedDefault.tsx')
+    fs.writeFileSync(namedPath, 'const Widget = () => null\nexport default Widget\n')
+    assert.deepEqual(exportedNamesOf(namedPath).get('default'), { file: namedPath, localName: 'Widget' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a dynamic `import('spec')` inside an exported
+ * declaration — directly, or wrapped in `lazy(() => import('spec'))` —
+ * cannot be resolved to specific names, so it is read as reaching for the
+ * target's entire surface. Conservative: it can only add a consumer a part
+ * genuinely has, never remove one it does not.
+ */
+test('a dynamic import reaches for every export of its target, conservatively (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const callerPath = path.join(dir, 'Caller.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(
+      callerPath,
+      [
+        "const lazy = (f) => f",
+        'export const Direct = () => { import("./Target"); return null }',
+        'export const Lazied = lazy(() => import("./Target"))',
+        'export const Untouched = () => null',
+        '',
+      ].join('\n'),
+    )
+    const ast = parseScreenSource(callerPath, fs.readFileSync(callerPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses.map((use) => use.exportName).sort(), ['Direct', 'Lazied'])
+    for (const use of uses) assert.equal(use.target, targetPath)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('designImportsOf never resolves a target outside design/ (#914 review, item 7)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-design-filter-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\n')
+    fs.writeFileSync(screenPath, "import { Foo } from './Target'\n")
+    assert.deepEqual(designImportsOf(screenPath), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review: charging a part as single-area because it has one *screen*
+ * importer ignored a design part composing it into something used far more
+ * widely. `RailSection` (DockPanel.tsx) has one direct screen importer
+ * (Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+ * and `AppWindowRailScroll`, which `components/AppWindow.tsx` mounts for
+ * Settings, the Agents window, ChangesReview and Usage — so RailSection's
+ * true reach spans several areas, and charging it as "Sidebar's own" would
+ * have made the zero unreachable without faking a consumer away.
+ */
+test('exportsReferencing finds only the exports that actually compose an import, real file (#914)', () => {
+  const appWindow = path.join(repoRoot, 'packages/ui/src/design/patterns/AppWindow.tsx')
+  const ast = parseScreenSource(appWindow, fs.readFileSync(appWindow, 'utf8'))
+  assert.deepEqual(
+    new Set(exportsReferencing(ast, 'RailSection')),
+    new Set(['AppWindowRailTop', 'AppWindowRailScroll']),
+  )
+  // Neither of these draws RailSection at all.
+  assert.equal(exportsReferencing(ast, 'DialogPopup').includes('AppWindowRailTop'), false)
+})
+
+test('resolvedConsumersOf inherits the reach of every design export that composes one, cycles guarded (#914)', () => {
+  const part = { file: '/design/Rail.tsx', localName: 'RailSection' }
+  const wrapperA = { file: '/design/AppWindow.tsx', localName: 'AppWindowRailTop' }
+  const sidebar = '/components/Sidebar.tsx'
+  const settings = '/components/Settings.tsx'
+  const agentsWindow = '/components/AgentsWindow.tsx'
+
+  const directConsumers = new Map([
+    [`${part.file}::${part.localName}`, { file: part.file, localName: part.localName, consumers: [sidebar] }],
+    // AppWindowRailTop has no screen importer of its own in this fixture —
+    // its whole reach comes from what composes *it*.
+  ])
+  const designUsers = new Map([
+    // RailSection is composed into AppWindowRailTop.
+    [`${part.file}::${part.localName}`, { ...part, users: [wrapperA] }],
+    // AppWindowRailTop is itself composed into components/AppWindow.tsx's own
+    // exports, which Settings and AgentsWindow each mount — modelled here as
+    // a second design export so the chain is two hops, not one.
+    [`${wrapperA.file}::${wrapperA.localName}`, {
+      ...wrapperA,
+      users: [{ file: '/components/AppWindow.tsx', localName: 'AppWindowPage' }],
+    }],
+  ])
+  directConsumers.set('/components/AppWindow.tsx::AppWindowPage', {
+    file: '/components/AppWindow.tsx',
+    localName: 'AppWindowPage',
+    consumers: [settings, agentsWindow],
+  })
+
+  assert.deepEqual(
+    resolvedConsumersOf(part.file, part.localName, directConsumers, designUsers).sort(),
+    [agentsWindow, settings, sidebar].sort(),
+  )
+
+  // A cycle (A composes B, B composes A) terminates rather than looping.
+  const cyclic = new Map([
+    ['/a.tsx::A', { file: '/a.tsx', localName: 'A', users: [{ file: '/b.tsx', localName: 'B' }] }],
+    ['/b.tsx::B', { file: '/b.tsx', localName: 'B', users: [{ file: '/a.tsx', localName: 'A' }] }],
+  ])
+  assert.deepEqual(resolvedConsumersOf('/a.tsx', 'A', new Map(), cyclic), [])
+})
+
+/*
+ * #914 review: `design/ui/` holds generic, shadcn-registry-style primitives
+ * that are meant to exist before they have a second caller — charging one
+ * for having exactly one today would make the ceiling unreachable without
+ * inventing a pointless second caller. Only `design/patterns/` compositions
+ * are charged; a single-area primitive is listed under `--verbose` instead
+ * (see the audit's own `isMain` block), never counted or baselined.
+ */
+test('only design/patterns/ is a pattern module; design/ui/ primitives are not charged (#914)', () => {
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/patterns/Settings.tsx')), true)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')), false)
+  assert.equal(isPatternModule(path.join(repoRoot, 'packages/ui/src/design/ui/board.tsx')), false)
 })
 
 test('the browser integration job builds workspace package entries before Vite', () => {

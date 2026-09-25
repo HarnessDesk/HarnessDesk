@@ -777,8 +777,8 @@ these is opening every tab in a browser.
 
 ### What the audit refuses
 
-`pnpm design:audit --strict` holds eighteen categories at a baseline.
-Seventeen are at zero; `screenAppearance` sits at 895 declarations —
+`pnpm design:audit --strict` holds nineteen categories at a baseline.
+Eighteen are at zero; `screenAppearance` sits at 656 declarations —
 appearance a screen still draws for itself instead of composing it, in
 whichever of three spellings it chose.
 
@@ -811,6 +811,76 @@ table header or a card heading, which is why `patternClass` could safely keep
 only `empty`; the declaration says what the screen actually owns. Markdown's
 prose ratio ladder and the diff viewer remain named specialized-renderer
 exemptions, in both the stylesheet and the `.tsx` that renders each.
+
+The same boundary reaches into `design/patterns/` — typed, product-specific
+composition contracts — but not into `design/ui/`, the shadcn-registry
+primitive layer. A pattern export whose every screen consumer sits in one
+screen area — one file, or a named multi-file family such as Git or the
+conversation transcript — is that screen's own appearance parked in the
+design folder rather than composed, so its CSS-module rules, its own
+Tailwind utilities and its own inline styles are charged to
+`screenAppearance` the same way a screen's are; an export two or more areas
+reach for stays uncharged, because moving it would break whichever area lost
+it. Consumers are resolved per exported name, not per file: one export used
+everywhere does not make a single-area sibling in the same module look
+shared, and a re-export — `export *`, a renamed named export, or a shim
+entirely outside `design/` forwarding a name back out — is followed to
+wherever the name is actually declared before its consumers are counted. A
+part imported by *another design part* inherits that part's own resolved
+reach, cycles guarded, rather than stopping at the design file that happens
+to import it directly — `RailSection` has one direct screen importer
+(Sidebar.tsx), but `AppWindow.tsx` also composes it into `AppWindowRailTop`
+and `AppWindowRailScroll`, which the app's shared window shell mounts for
+Settings, the Agents window and more, so `RailSection` reads as several areas
+rather than Sidebar's alone. A CSS-module class is charged to a single-area
+export only when nothing else in the module — another export, or a local
+helper neither exports — also reaches for it: `Settings.tsx`'s `RowMark`
+alone draws `.rowMark`, but `Row` and `RowButton` in the same file draw it
+too, and those are used everywhere, so that class stays uncharged even
+though `RowMark` itself is genuinely SignIn's alone.
+
+Screen areas are not asserted by hand — a handful of named roots
+(Conversation, Settings, TeamRoomPane/TeamBoardPane, AgentsWindow, GitPane,
+Workbench) seed the closure, and every other screen file's area is the
+closure of single-host files: a screen imported by only one already-resolved
+family belongs to it too, iterated to a fixed point. `pnpm design:audit`'s
+own test suite holds this to an invariant — a single-host screen file that
+sits outside its host's family fails the gate — the same way every other
+category here is held to a check that has been made to fail once, not only
+to pass.
+
+`design/ui/`'s primitives — the chart kit, `Board`, `ToolPane`, `Card`,
+`Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta` and the rest — are
+never charged to `screenAppearance` even when every screen that reaches for
+one sits in a single area today: a primitive is meant to exist before it has
+grown a second caller, the way a design system's own vocabulary always does,
+and charging one under `screenAppearance` for that would make that strict
+zero unreachable without inventing a pointless second caller. That does not
+make it nothing, though: `singleAreaPrimitive` is a burn-down ceiling of its
+own, so a single-area primitive is still held to "may only fall," and moving
+a genuine screen composition into `design/ui/` to dodge the
+`screenAppearance` charge just raises this one instead — it never zeroes the
+move out. `pnpm design:audit --verbose` lists each one by name.
+
+Both ledgers count *exports*, not declarations, which prices a move unevenly
+on purpose: `screenAppearance` charges every appearance-side declaration a
+single-area pattern's exports draw (a large composition can cost dozens),
+while `singleAreaPrimitive` charges one line per single-area export
+regardless of how much it draws (`ChannelMessage.tsx`'s ninety-nine
+declarations would cost `design/ui/` all of seven — one per export). A move
+that looks cheap by this count is not a loophole: the ceiling still moves,
+`--strict` still fails until it is re-recorded, and a reviewer reading
+`--verbose`'s named list sees exactly which export moved and can still ask
+whether it belongs there.
+
+The workbench dock is the one deliberate exception to all of this: there is
+exactly one workbench, by design, so `panels/Workbench.tsx`'s thirteen own
+`design/patterns/DockPanel.tsx` exports (`WorkbenchRail`, `DockPanel`, and
+the rest of the dock chrome) are a named, documented exemption, the same way
+Markdown's prose ladder and the diff viewer's own ink are — a second consumer
+to compose them generically for is never coming, so charging them asks for a
+fix with no destination. `RailSection`, DockPanel.tsx's other export, needs
+no such exemption: it is not single-area at all, for the reason above.
 
 Three of those categories spent a long time reporting zero while they were
 simply unable to see:
@@ -871,7 +941,83 @@ simply unable to see:
   every possibility, and reports what it cannot compute rather than assume
   it small.
 
-All three have the same shape as the line-height ratios before them: name the
+- The single-consumer half of `screenAppearance` could not see four shapes of
+  its own use. `export *` — `design/ui`, `InspectorPanel`, `DockPanel` — hid
+  every part behind it entirely, because only a named `export { X } from 'y'`
+  was read. Only the Git surface was a named multi-file screen area, so the
+  conversation transcript's own files (Items, TurnWork, StepGroup, TurnFiles,
+  Trajectory, ConversationMap) read as four separate areas and a part spread
+  across any two of them looked cross-area. A module's exports were resolved
+  as one merged list of consumers rather than one list per export, so a
+  widely used export made a genuinely single-area sibling in the same file
+  look shared too. And a re-export shim entirely outside `design/`
+  (`components/Panel.tsx`, forwarding `GroupLine` and `PanelRow` back out
+  from `'../design'`) traced no consumer to `design/` at all. Following
+  `export *` and a shim however many hops deep, naming the conversation,
+  settings, agent-roster and room families, and resolving consumers per
+  export rather than per module closed all four.
+
+  The first pass over-corrected in two ways review caught before merge:
+  charging `design/ui/`'s primitives the same way as a `design/patterns/`
+  composition would have made the strict zero unreachable the moment any
+  generic primitive picked up a first caller, and stopping consumer
+  resolution at the nearest design file — rather than following it into
+  whatever *that* file's own exports reach — read `RailSection` as
+  Sidebar's alone when `AppWindow.tsx` also composes it into parts the
+  app's shared window shell mounts for Settings and the Agents window too.
+  Restricting the charge to `design/patterns/` and resolving through
+  design-to-design use, cycles guarded, closed both; the baseline rose from
+  480 to 607.
+
+  A second review round found the closure itself still asserted by hand
+  rather than derived, and a false positive in what it charged. Screen
+  families are now the closure of single-host files (above), which corrected
+  two wrong assumptions the hand-written version made: Trajectory's real host
+  is Details.tsx, not Conversation, and Branch/Changes/NewWorktree were never
+  Git's — each is reached from a different, unhosted screen or from
+  `app/App.tsx`, which is not a screen source at all. A type-only import
+  (`import type`, `{ type X }`) is skipped in both the screen host graph and
+  `designImportsOf`: `CommandPalette.tsx` and `Sidebar.tsx` both `import type
+  { Section } from './Settings'`, and counting that as importing Settings.tsx
+  made a pattern used only by Settings.tsx read as shared with either of
+  them. And a stylesheet class is now charged to a single-area export only
+  when no other declaration in the module also reaches for it — `RowMark`
+  alone draws `.rowMark`, but `Row` and `RowButton` in the same module do
+  too, and those are used everywhere; the six `Settings.module.css [settings]`
+  findings the first pass reported were entirely that false positive.
+  `design/ui/` gained its own ceiling (`singleAreaPrimitive`) rather than
+  only ever being watched, design-to-design reach was widened to `export
+  function` composers, local helpers, namespace and dynamic imports, and the
+  workbench dock's own chrome (thirteen `DockPanel.tsx` exports
+  `panels/Workbench.tsx` alone uses) became a named exemption rather than a
+  charge with nowhere to be composed to. `screenAppearance` settled at 820
+  (607 plus Settings.tsx's newly-correct `settings`-area exports, minus the
+  workbench exemption and the false-positive class charge; #924 has since
+  removed `AccessHeader`, one of the SignIn-area exports this rule counts).
+
+  A third review round found two more false positives, both from consumer
+  resolution stopping one hop too early. `panels/builtins.tsx` (the pane
+  registry) was skipped entirely as an importer, which correctly kept a
+  bare registry mount (GitPane, mounted nowhere else) from reading as
+  cross-area — but it also hid that `Approvals.tsx` is drawn in the
+  registry's own session view beside Conversation *and* docked by
+  TeamRoomPane, two different places, so it wrongly folded into `room`
+  (`ApprovalDialog.module.css [room]`, 48 findings). And composition within
+  one file was never followed at all: `Dialog` composes `DialogBody` and
+  `DialogSubhead` in the same `ModalDialog.tsx`, with no import needed, so
+  their reach read as SkillSheet.tsx's alone instead of the ~46 screens
+  `Dialog` itself reaches (`ModalDialog.module.css [settings]`, 9 findings).
+  A registry or `app/` mount now counts as its own host area, but only
+  alongside a real screen import, and a same-module composer's own reach is
+  now followed the same way a cross-file one already was. Family resolution
+  also moved from a DFS with a visiting set — which memoized a partial,
+  order-dependent result the moment it hit a cycle — to a monotone fixed
+  point, so the answer no longer depends on which file is visited first.
+  `screenAppearance` settled at 656 after also merging main past #920
+  (Agents and Goals brought onto shared design parts, which changed several
+  unrelated screen-appearance findings of its own).
+
+All four have the same shape as the line-height ratios before them: name the
 spellings you happen to remember, and everything else is invisible —
 confidently, at zero. When adding a rule, the question is not "does this catch
 the case I am thinking of" but "what spelling of this would it miss".
