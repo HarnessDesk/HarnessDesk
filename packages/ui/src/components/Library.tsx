@@ -46,6 +46,7 @@ import {
   MenuSeparator,
   MetaList,
   PageHead,
+  PanelPill,
   Popover,
   Search,
   Segmented,
@@ -243,7 +244,7 @@ const FilterRow = ({
     />
   )
 
-/** The words a filter goes by, in its menu row and on the Filter button while it is on. */
+/** The words a filter goes by, in its menu row and on its pill while it is on. */
 const FILTER_WORDS: Record<Filter, string> = {
   all: 'Everything',
   problems: 'Problems',
@@ -605,8 +606,6 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   const agentName = agentFilter
     ? (snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? null)
     : null
-  /** What the Filter button says: the filter that is on, and whose declarations, or just "Filter". */
-  const filterWords = [filter === 'all' ? null : FILTER_WORDS[filter], agentName].filter(Boolean).join(' · ') || 'Filter'
 
   return (
     <>
@@ -724,8 +723,21 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           onChange={setQuery}
         />
         <ToolbarGap />
+        {/* What narrows the list right now, each a pressed pill that lets go
+            of it — the inspectors' filter pill, so a filter that is on looks
+            the same wherever it is on. */}
+        {filter !== 'all' && (
+          <PanelPill pressed title="Show everything again" onClick={() => setFilter('all')}>
+            {FILTER_WORDS[filter]}
+          </PanelPill>
+        )}
+        {agentName && (
+          <PanelPill pressed title="Show what every Agent declares" onClick={() => setAgentFilter('')}>
+            {agentName}
+          </PanelPill>
+        )}
         <Popover
-          label={<><FilterIcon size={13} /><span>{filterWords}</span></>}
+          label={<><FilterIcon size={13} /><span>Filter</span></>}
           title="Filter the library"
           align="right"
           triggerClassName={buttonVariants({ variant: 'outline' })}

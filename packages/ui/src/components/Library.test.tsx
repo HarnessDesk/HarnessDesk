@@ -282,7 +282,7 @@ it('a count with nothing to show is not offered', async () => {
   expect(counts.some((text) => text?.startsWith('Everything'))).toBe(true)
 })
 
-it('the toolbar is one row: listing, search, filter and view, with no count pills beside it', async () => {
+it('the toolbar is one row: listing, search, filter and view, and a pill only for the filter that is on', async () => {
   await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
   const toolbar = document.body.querySelector('[data-slot="library-toolbar"]') as HTMLElement | null
   expect(toolbar, 'the page should have one toolbar').toBeTruthy()
@@ -295,9 +295,16 @@ it('the toolbar is one row: listing, search, filter and view, with no count pill
   expect(document.body.querySelector('select[aria-label="Agent"]')).toBeNull()
   await openFilter()
   expect(filterRow('Empty on disk')?.querySelector('[data-tone="warning"]')?.textContent).toBe('1')
-  // Choosing a filter names it on the button, so the narrowed list says why.
+  // A filter that is on is a pressed pill in the toolbar, so the narrowed list
+  // says why — and pressing it lets go.
   await act(async () => filterRow('Empty on disk')?.click())
-  expect(filterTrigger().textContent).toBe('Empty on disk')
+  const pill = [...(toolbar?.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]') ?? [])].find((node) => node.textContent === 'Empty on disk')
+  expect(pill, 'the filter that is on should be a pressed pill').toBeTruthy()
+  expect(filterTrigger().textContent).toBe('Filter')
+  expect(cards().length).toBe(1)
+  await act(async () => pill?.click())
+  expect(cards().length).toBe(2)
+  expect([...(toolbar?.querySelectorAll('button[aria-pressed="true"]') ?? [])].some((node) => node.textContent === 'Empty on disk')).toBe(false)
 })
 
 it('opening a row shows every copy and who reads it', async () => {

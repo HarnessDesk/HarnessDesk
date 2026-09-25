@@ -1386,7 +1386,7 @@ export const RowInput = ({
       data-slot="row-input"
       value={draft}
       {...(invalid ? { 'aria-invalid': true } : {})}
-      className={cx(width === 'number' ? 'w-24 tabular-nums' : 'w-48', className)}
+      className={cx(width === 'number' ? 'w-24' : 'w-48', className)}
       onChange={(event) => setDraft(event.target.value)}
       onBlur={commit}
       onKeyDown={(event) => {
