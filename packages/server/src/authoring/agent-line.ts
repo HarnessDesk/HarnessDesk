@@ -42,17 +42,39 @@ export function replaceAgentLine(source: string, key: string, encoded: string): 
   const original = lines[index]!
   const line = body(original)
   const colon = line.indexOf(':')
+  /* A quote opens only where a scalar starts: at the value itself, or at an
+     item of a flow list or map. Inside a plain scalar an apostrophe is a
+     letter ("The team's reviewer"), and reading it as a quote would hide the
+     comment after it. */
   let quote: string | null = null
   let comment = line.length
+  let start = true
+  let depth = 0
   for (let at = colon + 1; at < line.length; at += 1) {
     const char = line[at]!
     if (quote !== null) {
       if (char === '\\' && quote === '"') at += 1
+      else if (char === "'" && quote === "'" && line[at + 1] === "'") at += 1
       else if (char === quote) quote = null
-    } else if (char === '"' || char === "'") quote = char
-    else if (char === '#' && /[ \t]/.test(line[at - 1]!)) {
+      continue
+    }
+    if (char === ' ' || char === '\t') continue
+    if (char === '#' && /[ \t]/.test(line[at - 1]!)) {
       comment = at
       break
+    }
+    if (start && (char === '"' || char === "'")) {
+      quote = char
+      start = false
+    } else if (start && (char === '[' || char === '{')) {
+      depth += 1
+    } else if (depth > 0 && (char === ',' || char === ':')) {
+      start = true
+    } else if (depth > 0 && (char === ']' || char === '}')) {
+      depth -= 1
+      start = false
+    } else {
+      start = false
     }
   }
   const old = line.slice(colon + 1, comment).trim()

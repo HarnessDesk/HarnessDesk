@@ -55,3 +55,22 @@ test('refuses a field that is not edited on a row, and a file without front matt
   assert.throws(() => replaceAgentLine('Just a brief.\n', 'name', '"a"'), /add its front matter first/)
   assert.throws(() => replaceAgentLine('---\nname: a\nBrief.\n', 'name', '"b"'), /Close the front matter/)
 })
+
+test('an apostrophe inside a plain value opens no quote, so its trailing comment survives', () => {
+  // The review's reproduction: a plain scalar with an apostrophe mid-value.
+  const source = "---\nname: Reviewer\ndescription: The team's reviewer   # shown in lists\nceiling: read\n---\nBrief.\n"
+  assert.equal(
+    replaceAgentLine(source, 'description', '"New text"'),
+    "---\nname: Reviewer\ndescription: \"New text\"   # shown in lists\nceiling: read\n---\nBrief.\n",
+  )
+  // A quote still opens where a scalar starts — at the value, and at an item of a flow list — and '' stays inside it.
+  const quoted = "---\nname: 'It''s # still the name'   # the shown name\nanswers: [approve, 'won''t # merge']  # the verdicts\n---\nBrief.\n"
+  assert.equal(
+    replaceAgentLine(quoted, 'name', '"Its"'),
+    "---\nname: \"Its\"   # the shown name\nanswers: [approve, 'won''t # merge']  # the verdicts\n---\nBrief.\n",
+  )
+  assert.equal(
+    replaceAgentLine(quoted, 'answers', '["approve"]'),
+    "---\nname: 'It''s # still the name'   # the shown name\nanswers: [\"approve\"]  # the verdicts\n---\nBrief.\n",
+  )
+})
