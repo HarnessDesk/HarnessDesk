@@ -7,12 +7,15 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
-- **A standing notice no longer hides a room's Board and Chat rows.** The
-  floating banner stack (a Library import offer, an account warning) used to
-  start right where a room's own rail does, so a notice could sit squarely
-  over Board and cut through the top of Chat, unclickable until it was
-  dismissed. The rail now leaves room for whatever notice is showing, the
-  same way the plain conversation view already does.
+- **A standing notice stays in its own pane.** The floating banner stack (a
+  Library import offer, an account warning) used to span the whole workbench,
+  so it could sit squarely over a room's Board row, cut through the top of
+  Chat, or spill into a docked browser pane's own toolbar and catch a click
+  meant for its reload button — all unclickable until the notice was
+  dismissed. A room now leaves room for whatever notice is showing, its rail
+  and reading side moving together; the notice itself now confines its own
+  width to the pane it's about, never a right panel or an unrelated pane
+  beside it in a split.
 
 - **A Goal or room now has one header, and it says what it should.** A Goal's
   page used to stack two headers naming it — its own, then the room's, one

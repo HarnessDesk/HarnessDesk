@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import css from './TeamRoomPane.module.css?raw'
 import source from './TeamRoomPane.tsx?raw'
+import appCss from '../styles/app.css?raw'
 
 /**
  * Two things about the room's stylesheet that no rendered test in this suite
@@ -182,8 +183,33 @@ describe('the narrow rail and the narrow header', () => {
  * side) comes down to: Board, Chat and Findings stay below a notice's
  * height, at zero cost when `--hd-notice-inset` is unset.
  */
-describe('the rail under a standing notice', () => {
-  it('reserves the notice stack’s own height, so Board and Chat never sit under it', () => {
-    expect(body('.rail')).toMatch(/margin-top:\s*var\(--hd-notice-inset,\s*0(?:px)?\)/)
+/**
+ * The app's floating notice stack (`.hd-floatingNotices` in `App.tsx`) sits
+ * over the whole pane area, starting right under the window's own 46px
+ * header — which is also where a room's rail starts. Measured live (#913):
+ * with a standing banner showing, its "Board" row was entirely hidden under
+ * it and "Chat" was cut through its top half, both unclickable until the
+ * banner was dismissed.
+ *
+ * The fix belongs to the notice system, not the rail: `data-notice-yield`
+ * (declared once, in `app.css`, beside `.hd-floatingNotices` itself) reads
+ * `--hd-notice-inset` and resets it for what it contains. The room's own
+ * `.split` opts in, so the rail, the reading side and Board's own header row
+ * all move together — not just the rail, which used to leave the reading
+ * side's own top edge, and Board's header with it, exactly where it was.
+ */
+describe('the room under a standing notice', () => {
+  it('opts the whole split into the notice system’s own contract, not just the rail', () => {
+    expect(source).toContain('<div className={styles.split} data-notice-yield>')
+  })
+
+  it('does not keep its own copy of the inset — that is the notice system’s job now', () => {
+    expect(body('.rail')).not.toMatch(/margin-top|padding-top/)
+    expect(body('.split')).not.toMatch(/margin-top|padding-top/)
+  })
+
+  it('is declared once, beside the stack it measures, and reset for whatever it contains', () => {
+    expect(appCss).toMatch(/\[data-notice-yield\]\s*{[^}]*margin-top:\s*var\(--hd-notice-inset,\s*0px\)/s)
+    expect(appCss).toMatch(/\[data-notice-yield\]\s*>\s*\*\s*{[^}]*--hd-notice-inset:\s*0px/s)
   })
 })

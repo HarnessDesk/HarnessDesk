@@ -6,7 +6,7 @@ import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySumma
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
-import { Workbench } from '../panels/Workbench'
+import { noticeRightOffset, Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ImportOffer } from '../components/ImportOffer'
 import { GoalMigrationBanner } from '../components/GoalMigrationBanner'
@@ -114,6 +114,12 @@ export const App = () => {
   // hidden sidebar deliberately leaves it centred on the page underneath.
   const noticeLeft =
     sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
+
+  // The same confinement, on the right: a notice is about the main content,
+  // never a right panel or an unrelated second pane beside it in a split
+  // (#896). `noticeRightOffset` is exported from `Workbench` and kept pure
+  // so it can be tested against every shape of split and dock without a DOM.
+  const noticeRight = noticeRightOffset(snapshot.workbench, noticeLeft)
 
   // One way to choose a folder per build: the desktop app uses the system
   // dialog, as Claude Code and Codex do; the browser build, which has none,
@@ -390,7 +396,7 @@ export const App = () => {
             className="hd-floatingNotices"
             data-over-conversation
             ref={notices}
-            style={{ left: `${noticeLeft}px` }}
+            style={{ left: `${noticeLeft}px`, right: noticeRight }}
           >
             <StatusBanner onSignIn={() => setSignInOpen(true)} />
             <GoalMigrationBanner />

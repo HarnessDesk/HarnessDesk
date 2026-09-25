@@ -546,6 +546,18 @@ export interface WorkspaceEntry {
    * reads this rather than `repo.root`.
    */
   readonly checkoutRoot?: string | null
+  /**
+   * `path`, with every symlink in it resolved — macOS's own `/var` ->
+   * `/private/var` among them — whether or not this folder is a git
+   * repository. `repo.root`/`checkoutRoot` already answer this canonically
+   * for one; outside git there is nothing else to compare a folder opened
+   * through a link against the same folder's own sessions, whose `cwd` an
+   * agent process starting there already reports resolved. Grouping reads
+   * this when the other two are absent; nothing that acts on a folder
+   * (opening it, starting work in it) ever should — `path` is what was
+   * opened, and stays what was opened.
+   */
+  readonly realPath?: string
 }
 
 /**

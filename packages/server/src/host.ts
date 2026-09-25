@@ -3758,6 +3758,13 @@ export class Host {
       // surface comparing against this never disagrees with what a change
       // notification names.
       checkoutRoot: await this.#topLevelOf(described.path),
+      // `describeWorkspace` keeps `path` at the spelling it was opened at, on
+      // purpose (see its own comment) — `repo`/`checkoutRoot` are the
+      // renderer's canonical answer inside a repository, and this is the same
+      // answer outside one, so a non-git folder opened through a link (#907)
+      // has something to compare its own sessions against too. `#realPath`
+      // already exists for the identical reason a confinement check has.
+      realPath: await this.#realPath(described.path),
     }
   }
 

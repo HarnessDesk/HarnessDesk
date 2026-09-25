@@ -266,6 +266,10 @@ a:hover {
 .hd-floatingNotices {
   position: absolute;
   top: 46px;
+  /* `left` and `right` are both set inline, in `App.tsx`, confining this to
+     the main content it is about — never the sidebar, a right panel or an
+     unrelated second pane beside it in a split (#896). `0` here is only the
+     value before that effect has ever run. */
   left: 0;
   right: 0;
   z-index: var(--hd-z-notice);
@@ -275,11 +279,44 @@ a:hover {
   gap: 10px;
   padding: 0 16px;
   pointer-events: none;
-  transition: left var(--hd-duration-slow) var(--hd-ease);
+  transition:
+    left var(--hd-duration-slow) var(--hd-ease),
+    right var(--hd-duration-slow) var(--hd-ease);
 }
 
 .hd-floatingNotices > * {
   pointer-events: auto;
+}
+
+/*
+ * The notice system's own contract for a pane that can sit under the stack
+ * above: read `--hd-notice-inset` once, at your own top edge, so nothing of
+ * yours starts underneath a notice that is showing. `Conversation.tsx` reads
+ * the same variable directly, for the single case that predates this
+ * attribute; every other consumer opts in with `data-notice-yield` instead
+ * of reaching for the variable itself, so the one place that measures the
+ * stack (`App.tsx`) is also the one place that says how a pane leaves room
+ * for it, and a future screen composes this rather than growing its own
+ * copy (#913).
+ *
+ * Reset to `0px` for everything underneath: an inset already spent once, at
+ * the yielding element's own top, must not be spent again by whatever it
+ * contains — the room's rail and its reading side share one top edge this
+ * way instead of each counting the same notice twice.
+ *
+ * Coarse on purpose, for now: this measures whether the stack is showing at
+ * all, not whether it actually reaches the pane it is applied to. A very
+ * wide pane, a docked panel, or the second pane of a split can all yield to
+ * a notice that never visually reaches them, which is a real gap — scoping
+ * this to the pane the stack's own rectangle actually overlaps is filed as a
+ * follow-up rather than carried here.
+ */
+[data-notice-yield] {
+  margin-top: var(--hd-notice-inset, 0px);
+}
+
+[data-notice-yield] > * {
+  --hd-notice-inset: 0px;
 }
 
 /*
