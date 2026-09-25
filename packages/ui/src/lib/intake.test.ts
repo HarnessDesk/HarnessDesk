@@ -30,9 +30,15 @@ describe('originSubject', () => {
 describe('originHoverWords', () => {
   it('names the exact source and its number', () => {
     expect(originHoverWords(status({ source: 'issue', url: 'https://github.com/acme/widgets/issues/42' })))
-      .toBe('Issue #42 started this Goal.')
+      .toBe('Issue #42 · started this Goal')
     expect(originHoverWords(status({ source: 'pull-request', url: 'https://github.com/acme/widgets/pull/7' })))
-      .toBe('Pull request #7 started this Goal.')
+      .toBe('Pull request #7 · started this Goal')
+  })
+
+  it('never repeats the source under a heading that already names it', () => {
+    const issue = status({ source: 'issue', url: 'https://github.com/acme/widgets/issues/42' })
+    expect(originHoverWords(issue, 'Issue #42')).toBe('Started this Goal')
+    expect(originHoverWords(issue, 'Crash when config is empty')).toBe('Issue #42 · started this Goal')
   })
 
   it('says a schedule started it, honestly, when there is no subject to name', () => {
@@ -65,10 +71,18 @@ describe('budgetMeterWords', () => {
     expect(words.leftUsd).toBeCloseTo(3.8)
     expect(words.percentLeft).toBe(76)
     expect(words.roundsUsed).toBe(1)
+    expect(words.roundNow).toBe(1)
     expect(words.roundsTotal).toBe(1)
     expect(words.minutesUsed).toBe(12)
     expect(words.minutesTotal).toBe(60)
     expect(words.minutesLeft).toBe(48)
+  })
+
+  it('counts the round being worked from 1, and never past the last', () => {
+    const budget = { usd: 5, rounds: 3, hours: 1, withoutProgress: 1 }
+    expect(budgetMeterWords(budgetState({ closedRounds: [], budget }), 0).roundNow).toBe(1)
+    expect(budgetMeterWords(budgetState({ closedRounds: [1], budget }), 0).roundNow).toBe(2)
+    expect(budgetMeterWords(budgetState({ closedRounds: [1, 2, 3], budget }), 0).roundNow).toBe(3)
   })
 
   it('fills the meter with what is left, never past 0% or past 100%', () => {

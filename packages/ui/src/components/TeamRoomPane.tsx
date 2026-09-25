@@ -20,7 +20,7 @@ import {
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
 import { elapsedSince } from '../lib/clock'
-import { goalActions } from '../lib/goals'
+import { goalActions, goalName } from '../lib/goals'
 import { openExternal } from '../lib/desktop'
 import { budgetMeterWords, formatMeterUsd, originHoverWords, originSubject } from '../lib/intake'
 import { isPathInside, shortPath } from '../lib/paths'
@@ -172,7 +172,7 @@ const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
  * host could not resolve — there is no number for the chip to show then, and
  * this earns its place in the header only by being short.
  */
-const OriginChip = ({ status }: { readonly status: TriggerGoalStatus }) => {
+const OriginChip = ({ status, name }: { readonly status: TriggerGoalStatus; readonly name: string }) => {
   const subject = originSubject(status)
   if (!subject) return null
   const Icon = status.source === 'pull-request' ? PullRequestIcon : status.source === 'issue' ? IssueIcon : ClockIcon
@@ -185,7 +185,8 @@ const OriginChip = ({ status }: { readonly status: TriggerGoalStatus }) => {
         </Chip>
       </HoverCardTrigger>
       <HoverCardContent side="bottom" align="start">
-        <Text role="subject">{originHoverWords(status)}</Text>
+        <Text role="subject">{name}</Text>
+        <Text role="meta" as="div">{originHoverWords(status, name)}</Text>
         {status.url && (
           <div className="mt-2">
             <Button variant="link" size="inline" onClick={() => openExternal(status.url!)}>Open</Button>
@@ -708,9 +709,14 @@ export const TeamRoomPane = ({
     ],
   )
 
-  const working = roster.filter((one) => one.busy).length
   /** Members whose conversation the desk actually has open. See the head. */
   const hereCount = roster.filter((one) => one.here).length
+  /* The page's name: the Goal's own (`goalName` — for a trigger's Goal, its
+     subject, "Issue #42", never the trigger's id the chip beside it already
+     answers for), then the room's. Never the placeholder word "Room" for the
+     beat before the board answers — a name that reads as real and then
+     changes is worse than none. */
+  const title = goal ? goalName(goal.goal) : team?.name ?? ''
   /**
    * The one member (if any) a runtime is waiting on a person for, in room
    * order — the header's own state chip pulses for this, the room's chat
@@ -817,7 +823,7 @@ export const TeamRoomPane = ({
             drew the placeholder word "Room" here — a name that reads as real
             for the beat before the real one arrives is worse than showing
             nothing. */}
-        <span className={`${styles.barName} font-medium`} title={goal?.goal.sentence ?? team?.name ?? ''}>{goal?.goal.sentence ?? team?.name ?? ''}</span>
+        <span className={`${styles.barName} font-medium`} title={title}>{title}</span>
         {/* The state, on the label's own line, in a word — never a second row
             (rule 9). Absent for a room with no Goal, which has no state to be
             in. One chip for the whole run: `FlowRunStatus` used to draw a
@@ -856,37 +862,23 @@ export const TeamRoomPane = ({
               >
                 {folderName(root)}
               </span>
-              {' · '}
+              {(originStatus || peers !== null) && ' · '}
             </>
           )}
           {originStatus && (
             <>
-              <OriginChip status={originStatus} />
-              {' · '}
+              <OriginChip status={originStatus} name={title} />
+              {peers !== null && ' · '}
             </>
           )}
-          {peers !== null && (
-            <>
-              {working > 0 && (
-                <>
-                  <span className={`${styles.pulse} h-1.5 rounded-full bg-(--hd-success)`} aria-hidden />
-                  <span className="text-(--hd-foreground)">{working} working</span>
-                  {' · '}
-                </>
-              )}
-              {/* Two numbers when they differ, because they are two facts: how
-                  many agents are in this room, and how many of their
-                  conversations the desk currently has open. After a relaunch
-                  the second is zero and the first is not, and a bar that
-                  printed only one of them would either read as an empty room
-                  or hide that nothing is warm yet. */}
-              {hereCount === roster.length
-                ? `${roster.length} here`
-                : `${hereCount} of ${roster.length} here`}
-              {' · '}
-            </>
-          )}
-          {intents.filter((one: Intent) => one.state === 'claimed').length} claimed
+          {/* One presence fact, not three. Who is working is the thread's own
+              live line, and what is claimed is the board's; this row keeps
+              only who is here — and two numbers when they differ, because
+              after a relaunch the room is intact and nothing is warm yet, and
+              "2 here" would hide that. */}
+          {peers !== null && (hereCount === roster.length
+            ? `${roster.length} here`
+            : `${hereCount} of ${roster.length} here`)}
         </span>
         {/* Everything to the left of this states a fact; everything to the
             right does something. The conversation's header draws the same
@@ -1312,15 +1304,12 @@ type Member = {
 
 const withCeiling = (shown: SeatCeilingShown | null, line: ReactNode): ReactNode =>
   shown ? (
-    <span className="flex min-w-0 items-center gap-1.5">
+    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
       <CeilingChip ceiling={shown.ceiling} note={shown.note} />
-      {/* `flex-1`, not just `min-w-0 truncate`: without a grow factor this
-          span sits at its own content width (`flex: 0 1 auto`'s default
-          basis), so a job's title clipped to "Do t…" beside a chip with
-          plenty of the card still unclaimed — the flex row simply never
-          handed it the width that was sitting there unused. `flex-1` is what
-          claims it, before the truncate ellipsis has anything to decide. */}
-      {line !== undefined && <span className="min-w-0 flex-1 truncate">{line}</span>}
+      {/* A job's title is a sentence, and sentences wrap (rule 9): beside the
+          chip when it fits, under it whole when it does not. Truncated here it
+          read "#1 Do t…" in a rail with the rest of the line to spare. */}
+      {line !== undefined && <span className="min-w-0">{line}</span>}
     </span>
   ) : (
     line
@@ -1527,6 +1516,7 @@ const MemberRow = ({
       size="sm"
       nav
       interactive
+      wrapSubtitle
       selected={selected}
       onClick={onOpen}
       className="group/member"
@@ -1726,7 +1716,7 @@ const RoomLiveLine = ({
   const turn = session ? currentTurn(session) : undefined
   const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
   return (
-    <div className={`${styles.trouble} flex items-center gap-(--hd-space-1-5)`}>
+    <div data-slot="room-live-line" className={`${styles.trouble} flex items-center gap-(--hd-space-1-5)`}>
       {waiting ? <Dot state="limit" pulse /> : <Spinner size="sm" tone="brand" />}
       <Text role="meta">
         {subject.peer.nickname} {waiting ? 'is waiting for your approval' : 'is working'}
@@ -1747,13 +1737,13 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
   const words = budgetMeterWords(state, now)
   const tone: Tone = words.percentLeft <= 0 ? 'danger' : words.percentLeft < 20 ? 'warning' : 'neutral'
   return (
-    <div className="mt-2 flex items-center justify-end gap-(--hd-space-2)">
+    <div data-slot="room-budget" className="mt-2 flex items-center justify-end gap-(--hd-space-2)">
       <HoverCard>
         <HoverCardTrigger render={<span className="inline-flex items-center gap-(--hd-space-1-5)" />}>
           <ProgressRing value={words.percentLeft} size={14} tone={tone} label="Budget left" />
           <Text role="meta">
             {formatMeterUsd(words.leftUsd)} left
-            {words.roundsTotal > 0 && ` · Round ${words.roundsUsed} of ${words.roundsTotal}`}
+            {words.roundsTotal > 0 && ` · Round ${words.roundNow} of ${words.roundsTotal}`}
           </Text>
         </HoverCardTrigger>
         <HoverCardContent side="top" align="end">
@@ -1762,7 +1752,11 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
             <KeyValueRow label="Rounds">{words.roundsUsed} of {words.roundsTotal}</KeyValueRow>
             <KeyValueRow label="Time">{words.minutesUsed} of {words.minutesTotal} min</KeyValueRow>
           </KeyValue>
-          <Note className="mt-2">Stops after a round with no progress.</Note>
+          <Note className="mt-2">
+            {state.budget.withoutProgress === 1
+              ? 'Stops after a round with no progress.'
+              : `Stops after ${state.budget.withoutProgress} rounds with no progress.`}
+          </Note>
         </HoverCardContent>
       </HoverCard>
     </div>
@@ -2059,13 +2053,16 @@ const Room = ({
           {pendingApproval ? (
             /* The composer's own slot, taken by whichever member is waiting
                on a person — the same `Approvals` a conversation's own pane
-               draws, not a card that repeats it in prose. `team-room:` as
-               the pane id's root is `useIsFocusedPane`'s own exception for
-               this surface (see the per-member column below, which reads
-               the same way): answering an approval here must not depend on
-               bookkeeping meant for a split of panes this page does not
-               have. Answering it, either way, clears `pendingApproval` and
-               brings this composer back, focused — the effect above. */
+               draws, docked: a card in flow where the composer stood, as
+               wide as it, with the thread above left whole and readable. No
+               scrim, no blur, not a dialog — the room is everyone's
+               conversation, and one member's question does not cover it.
+               `team-room:` as the pane id's root is `useIsFocusedPane`'s own
+               exception for this surface (see the per-member column below,
+               which reads the same way): answering an approval here must not
+               depend on bookkeeping meant for a split of panes this page does
+               not have. Answering it, either way, clears `pendingApproval`
+               and brings this composer back, focused — the effect above. */
             <PaneProvider
               scope={{
                 paneId: `team-room:approval:${pendingApproval.key}`,
@@ -2073,10 +2070,9 @@ const Room = ({
                 sessionKey: pendingApproval.key,
               }}
             >
-              <Approvals />
+              <Approvals placement="docked" />
             </PaneProvider>
           ) : (
-            <>
               <RoomComposer
                 /* Keyed by the room, so moving between rooms is a new box
                    rather than the old one being talked out of its state. The
@@ -2109,9 +2105,11 @@ const Room = ({
                 onTrouble={setTrouble}
                 onPosted={toFloor}
               />
-              {triggerStatus?.budget && <BudgetFooter state={triggerStatus.budget} now={now} />}
-            </>
           )}
+          {/* The footer strip stays put under whichever of the two holds the
+              slot: what a run has left to spend is as true while it waits on
+              a person as while it works. */}
+          {triggerStatus?.budget && <BudgetFooter state={triggerStatus.budget} now={now} />}
         </div>
       </div>
     </>

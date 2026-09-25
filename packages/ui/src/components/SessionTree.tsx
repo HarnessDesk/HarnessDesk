@@ -24,7 +24,7 @@ import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
-import { goalWords } from '../lib/goals'
+import { goalName, goalWords } from '../lib/goals'
 import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
 
@@ -96,21 +96,22 @@ const SessionRow = ({
   summary,
   now,
   onDelete,
-  context,
+  need,
 }: {
   summary: SessionSummary
   now: number
   /** Raises the confirmation; the dialog belongs to the list, not to a row. */
   onDelete: (summary: SessionSummary) => void
   /**
-   * A short, earned second line naming what this row is for — the Goal or
-   * issue behind it, and the kind of wait — shown whatever the density,
-   * because two "Needs you" rows both named after their agent ("Triager",
-   * "Triager") are indistinguishable without it (rule 9: a fact that varies
-   * earns its own line). Takes the density-gated meta line's place rather
-   * than adding a third row.
+   * A "Needs you" row's own words: what it is for and what kind of wait.
+   * `name` — the Goal or room the conversation works for — replaces the
+   * row's title, because two rows both named after their agent ("Triager",
+   * "Triager") are indistinguishable, and the Goal is what the person is
+   * being asked about. `reason` is a word, so it is a chip on the title's
+   * own line (rule 9) rather than a sentence under it. The agent's own name
+   * is one hover away, in the row's title.
    */
-  context?: string
+  need?: NeedsYou
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -142,7 +143,8 @@ const SessionRow = ({
      138 renames in a row left the sidebar saying "Untitled session" down the
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
-  const label = sessionLabel(live?.title ?? summary.title, summary.preview)
+  const ownLabel = sessionLabel(live?.title ?? summary.title, summary.preview)
+  const label = need?.name ?? ownLabel
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
@@ -209,7 +211,9 @@ const SessionRow = ({
             {...(snapshot.activeSessionKey === key ? { 'data-active': '' } : {})}
             {...(openInPane ? { 'data-open': '' } : {})}
             title={
-              snapshot.listPrefs.density === 'compact'
+              need
+                ? `${ownLabel} · ${agentName} — ${need.reason.toLowerCase()}`
+                : snapshot.listPrefs.density === 'compact'
                 ? `${agentName} · ${traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now)}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}${worktree ? ` · worktree ${folderName(summary.cwd)}` : ''}${backgrounded > 0 ? ` · ${backgrounded} running in the background` : ''}`
                 : backgrounded > 0
                   ? `${backgrounded === 1 ? '1 task is' : `${backgrounded} tasks are`} still running in the background — open the conversation, then Background tasks`
@@ -262,6 +266,7 @@ const SessionRow = ({
             <span className={styles.rowBody}>
               <span className={styles.rowHead}>
                 <Text role="navigation" fade className={styles.rowTitle}>{label}</Text>
+                {need && <Chip tone="warning">{need.reason}</Chip>}
                 {/* One project, several checkouts. The row says which it ran
                     in with a branch glyph rather than a group of its own —
                     a worktree is where a conversation happened, not what it
@@ -297,19 +302,7 @@ const SessionRow = ({
                   </span>
                 )}
               </span>
-              {context ? (
-                <span className={styles.rowMeta}>
-                  {/* A Goal's name plus the kind of wait is a sentence, not a
-                      name or a path — rule 9 draws the line there: names and
-                      paths truncate, sentences wrap. `rowMetaItem`'s `flex:
-                      none` (right, for the short words it usually holds) kept
-                      this sentence at its full content width, so it never
-                      shrank far enough for its own `truncate` ellipsis to
-                      engage — the row's own overflow just clipped it instead,
-                      raw, with no ellipsis at all. */}
-                  <Text role="meta" tone="warning" className={styles.rowMetaSentence}>{context}</Text>
-                </span>
-              ) : snapshot.listPrefs.density === 'comfortable' && (
+              {!need && snapshot.listPrefs.density === 'comfortable' && (
                 <span className={styles.rowMeta}>
                   {snapshot.runtimes.length > 1 && (
                     <>
@@ -645,30 +638,6 @@ const GroupHead = ({
  * expanding.
  */
 /**
- * A trigger Goal's origin, on its own room row — the host's own short label
- * ("from PR #12"), never a source token or a raw event id. Fetched only for
- * a room whose Goal a trigger opened; a plain conversation's row never asks.
- *
- * Plain muted text, not a chip: a chip is a pill that could carry a colour
- * or a click, and this carries neither — it is a fact on its own line (rule
- * 9), and a taste sweep of #905 found a pill spent on a fact with no state
- * to show read as clutter next to the row's one real chip, the Goal's own.
- */
-const RoomOrigin = ({ goal }: { readonly goal: string }) => {
-  const store = useStore()
-  const [label, setLabel] = useState<string | null>(null)
-  useEffect(() => {
-    let live = true
-    store.triggerGoal(goal).then(
-      (status) => { if (live) setLabel(status?.label ?? null) },
-      () => { if (live) setLabel(null) },
-    )
-    return () => { live = false }
-  }, [store, goal])
-  return label ? <Text role="meta" className={styles.rowMetaItem}>{label}</Text> : null
-}
-
-/**
  * A room's members, resolved against what the tree is *showing* — the agent
  * filter applies here as it does everywhere else, and the live session map is
  * read too, because a conversation reaches `sessions` a beat before it
@@ -714,6 +683,8 @@ const RoomRow = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
+  const name = goal ? goalName(goal.goal) : room.name
+  const waiting = room.members.some((member) => snapshot.approvals.some((entry) => String(entry.key) === String(member)))
   /* Resolved against what the tree is *showing* first, so the agent filter
      applies here as it does everywhere else — a room drawn straight from its
      member list would keep conversations the filter had just removed from
@@ -747,11 +718,11 @@ const RoomRow = ({
         className={styles.roomRow}
         {...(held > 0 ? { 'data-held': '' } : {})}
         tabIndex={0}
-        aria-label={`Room ${room.name}`}
+        aria-label={`Room ${name}`}
         title={
           held > 0
-            ? `${room.name} — a held message is waiting for you`
-            : `${room.name} — the board, the chat, and who is here`
+            ? `${name} — a held message is waiting for you`
+            : `${name} — the board, the chat, and who is here`
         }
         onClick={() => store.openTeamRoom(room.id)}
         onKeyDown={(event) => {
@@ -771,7 +742,8 @@ const RoomRow = ({
           type="button"
           variant="ghost" size="icon-sm" className={styles.roomTwisty}
           aria-expanded={open}
-          aria-label={open ? `Hide the agents in ${room.name}` : `Show the agents in ${room.name}`}
+          aria-label={open ? `Hide the agents in ${name}` : `Show the agents in ${name}`}
+          title={members.length === 1 ? '1 conversation in here' : `${members.length} conversations in here`}
           onClick={(event) => {
             event.stopPropagation()
             onToggle()
@@ -782,28 +754,25 @@ const RoomRow = ({
         <Text role="meta" tint="violet" className={styles.roomIcon}>
           <TeamIcon size={12} />
         </Text>
-        {/* The name and its state chip on one protected line (`rowHead`,
-            `SessionRow`'s own idiom): each was a sibling of the state chip,
-            the origin chip and both counts on one shared flex line, all
-            `flex: 1` and each as entitled to the row's width as the name —
-            two of them together (a state and an issue's origin) left the name
-            a `flex-basis` of zero and nothing to grow into: the room read as a
-            bare chevron, an icon, and "Working" with no name in front of it.
-            The origin now earns a second line of its own instead (rule 9: a
-            fact that varies), which nothing here shares a flex row with. */}
+        {/* One line: the name, one state chip, then the counts. The name is
+            the only thing here that gives way — it fades at its edge — and the
+            chip and the counts keep their own width, so they never slide
+            under one another. A trigger's Goal is named by its subject
+            (`goalName`: "Issue #42"); where it came from is the room's own
+            header chip, not a second line here saying the name again. */}
         <span className={styles.rowBody}>
           <span className={styles.rowHead}>
-            <Text role="navigation" fade className={styles.roomTitle}>{room.name}</Text>
+            <Text role="navigation" fade className={styles.roomTitle}>{name}</Text>
             {goal ? (() => {
-              const words = goalWords({ goal: goal.goal, activity: goal.activity })
+              /* The room's own header rule: a member holding an approval is
+                 the Goal needing you, whatever the host's activity has
+                 caught up to — the two rows must not disagree. */
+              const words = waiting
+                ? { label: 'Needs you', tone: 'warning' as const }
+                : goalWords({ goal: goal.goal, activity: goal.activity })
               return <Chip tone={words.tone}>{words.label}</Chip>
             })() : null}
           </span>
-          {goal?.goal.origin.kind === 'trigger' && (
-            <span className={styles.rowMeta}>
-              <RoomOrigin goal={goal.goal.id} />
-            </span>
-          )}
         </span>
         {/* A state and a size, and they must not read as one number. Drawn
             plainly the row said "1 0" — two counts in the same grey, the same
@@ -812,13 +781,19 @@ const RoomRow = ({
             glance. The project row one line above already answers this: a
             glyph qualifies the count beside it, so what is a state looks like
             a state. */}
-        {claimed > 0 && (
+        {/* A Goal's row spends its width on its name and its one state chip.
+            At the sidebar's own width the two counters beside them left the
+            name "Issu" — measured in the running app — so on a Goal's row
+            they give way: what is claimed is the room rail's Board row, and
+            how many conversations it holds is the twisty's own label and
+            the list it opens. A plain room, with no chip, keeps both. */}
+        {!goal && claimed > 0 && (
           <Text role="meta" numeric className={styles.roomClaimed} title={`${claimed} of this room's jobs ${claimed === 1 ? 'is' : 'are'} claimed`}>
             <TodoActiveIcon size={11} />
             {claimed}
           </Text>
         )}
-        <Text
+        {!goal && <Text
           role="meta"
           numeric
           className={styles.groupCount}
@@ -836,7 +811,7 @@ const RoomRow = ({
         >
           <SessionIcon size={11} />
           {members.length}
-        </Text>
+        </Text>}
       </Button>
       {/* A navigation tree never renders an empty-state sentence — several
           freshly opened Goals, none seated yet, used to repeat "No agents in
@@ -935,17 +910,25 @@ const PROJECT_MIME = 'application/x-harnessdesk-project'
  * own title — a trigger seats every one of them under its agent's own name —
  * used to read as one row, twice: both said only "Triager".
  */
-const needsYouHint = (summary: SessionSummary, snapshot: AppSnapshot): string => {
+interface NeedsYou {
+  /** The Goal or room this conversation works for, or null for a lone one. */
+  readonly name: string | null
+  /** The kind of wait, in a word or two. */
+  readonly reason: string
+}
+
+const needsYouOf = (summary: SessionSummary, snapshot: AppSnapshot): NeedsYou => {
   const key = sessionKey(summary.runtime, summary.id)
   const room = [...snapshot.teams.values()].find((team) =>
     team.members.some((member) => String(member) === String(key)),
   )
-  const kind = snapshot.approvals.some((entry) => entry.key === key)
-    ? 'needs your approval'
+  const goal = room ? snapshot.goals.get(room.id) : undefined
+  const reason = snapshot.approvals.some((entry) => entry.key === key)
+    ? 'Approval'
     : snapshot.queues.get(key)?.status === 'paused'
-      ? 'a queued message needs you'
-      : 'waiting for your answer'
-  return room ? `${room.name} — ${kind}` : kind
+      ? 'Queued message'
+      : 'Question'
+  return { name: goal ? goalName(goal.goal) : room?.name ?? null, reason }
 }
 
 const rowOf = (session: Session): SessionSummary => ({
@@ -1413,7 +1396,7 @@ export const SessionTree = ({ now }: { now: number }) => {
               summary={summary}
               now={now}
               onDelete={setDeleting}
-              context={needsYouHint(summary, snapshot)}
+              need={needsYouOf(summary, snapshot)}
             />
           ))}
           <Separator />

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey } from './projects'
+import { folderShown, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey } from './projects'
 
 const session = (
   id: string,
@@ -312,5 +312,17 @@ describe('migratedRoots', () => {
     expect(migratedRoots(['/a', '/b'], null)).toEqual(['/a', '/b'])
     const plain = workspace('/w/main', { root: '/w/main', worktree: false })
     expect(migratedRoots(['/a', '/w/main'], plain)).toEqual(['/a', '/w/main'])
+  })
+})
+
+describe('folderShown', () => {
+  it('names the project by its short name, and a folder inside it by the way down', () => {
+    expect(folderShown('/home/dev/work/widgets', '/home/dev', '/home/dev/work/widgets')).toBe('widgets')
+    expect(folderShown('/home/dev/work/widgets/packages/ui', '/home/dev', '/home/dev/work/widgets')).toBe('widgets/packages/ui')
+  })
+
+  it('shortens anything outside the project against home, and leaves the rest as it is', () => {
+    expect(folderShown('/home/dev/elsewhere', '/home/dev', '/home/dev/work/widgets')).toBe('~/elsewhere')
+    expect(folderShown('/srv/build', '/home/dev', null)).toBe('/srv/build')
   })
 })

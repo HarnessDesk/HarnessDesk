@@ -32,6 +32,22 @@ export const goalWords = (row: GoalRow): {
   return { label: 'Working', tone: 'info' }
 }
 
+/**
+ * What a Goal is called wherever it is named — the header, the sidebar, a
+ * "Needs you" row. A person's Goal is its sentence. A trigger's Goal carries
+ * a sentence the host builds from validated scalars only ("Issue #42, from
+ * trigger triage-issue"): its subject is the name, and the trigger's id is
+ * the desk's own bookkeeping, which the origin chip beside it already
+ * answers for. The forge's own title is never in it — the host keeps no copy
+ * of a subject's prose (`docs/data-boundaries.md`) — so "Issue #42" is the
+ * whole name.
+ */
+export const goalName = (goal: Pick<Goal, 'sentence' | 'origin'>): string => {
+  if (goal.origin.kind !== 'trigger') return goal.sentence
+  const suffix = `, from trigger ${goal.origin.trigger}`
+  return goal.sentence.endsWith(suffix) ? goal.sentence.slice(0, -suffix.length) : goal.sentence
+}
+
 export const goalActions = (goal: Goal): { disabled: boolean; reason: string | null } => {
   if (goal.state === 'wrapped') {
     return { disabled: true, reason: 'This Goal is wrapped. Its receipt is kept here.' }

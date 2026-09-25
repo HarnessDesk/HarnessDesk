@@ -1118,14 +1118,19 @@ it('counts one broadcast once, and does not call a signal a message', async () =
  *
  * The old row spent its one grey line joining three facts with a middle dot
  * and then truncated, so whether an agent was mid-turn survived only when it
- * happened to be the shortest of the three. It is a light now — and the head
- * counts the same fact, from the same list, so the two cannot disagree.
+ * happened to be the shortest of the three. It is a light now. The head used
+ * to count the same fact beside two others ("1 working · 2 here · 1
+ * claimed"); it keeps one — who is here — since who is working is the
+ * thread's own live line and what is claimed is the board's.
  */
-it('says which members are working, and counts them in the head', async () => {
+it('says which members are working on their rows, and keeps one presence fact in the head', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(container.textContent).toContain('1 working')
+  const bar = container.querySelector('header')!
+  expect(bar.textContent).toContain('2 here')
+  expect(bar.textContent).not.toContain('working')
+  expect(bar.textContent).not.toContain('claimed')
   /* Read as text, not as a class: the CSS module is stubbed to nothing in this
      environment, so asserting on the light's class name would pass whether or
      not the light was drawn. What is asserted is the half that has to be right
@@ -1209,7 +1214,7 @@ it('names the room once, on a row that is also the window’s handle', async () 
   if (!bar) throw new Error('no top row')
   // The room's name, its live counts and the switch, all on one row.
   expect(bar.textContent).toContain('Checkout rewrite')
-  expect(bar.textContent).toContain('1 working')
+  expect(bar.textContent).toContain('2 here')
   const toggle = bar.querySelector('[aria-label="Hold messages at the board"]')
   expect(toggle, 'the messaging toggle is on this row').not.toBeNull()
   // Said once. The name used to be printed by the strip above and the rail
@@ -1255,10 +1260,10 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   expect(projectMark?.getAttribute('title'), 'the full path is one hover away, home-shortened').toBe('~/work/widgets')
 })
 
-it('a trigger Goal’s header carries its origin as a chip, its hover card naming the source in full', async () => {
+it('a trigger Goal’s header is named by its subject and carries its origin as a chip, its hover card naming the source in full', async () => {
   const TRIGGER_GOAL: GoalView = {
     ...GOAL,
-    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+    goal: { ...GOAL.goal, sentence: 'Issue #43, from trigger triage-issue', origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
   }
   const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
   const triggerGoal = vi.fn(async () => ({
@@ -1270,6 +1275,13 @@ it('a trigger Goal’s header carries its origin as a chip, its hover card namin
   await act(async () => {})
 
   const bar = container.querySelector('header')!
+  // The title is the Goal's subject — never the trigger's own id, which is
+  // the desk's bookkeeping, and the origin is the chip's to say, not the
+  // title's to repeat.
+  const name = bar.querySelector('[title="Issue #43"]')
+  expect(name?.textContent).toBe('Issue #43')
+  expect(bar.textContent).not.toContain('triage-issue')
+  expect(bar.textContent).not.toContain('from trigger')
   // The bare number, on the chip itself — the full sentence is one hover away.
   expect(bar.textContent).toContain('#43')
   expect(bar.textContent).not.toContain('Opened from issue #43')
@@ -1284,7 +1296,10 @@ it('a trigger Goal’s header carries its origin as a chip, its hover card namin
     trigger.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
   })
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)) })
-  expect(document.body.textContent).toContain('Issue #43 started this Goal.')
+  const card = document.body.querySelector('[data-slot="hover-card-content"]')!
+  expect(card.textContent).toContain('Started this Goal')
+  // The heading names the source; the line under it does not say it again.
+  expect(card.textContent?.split('Issue #43').length).toBe(2)
   const open = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Open')!
   expect(open).toBeTruthy()
 })
@@ -1305,8 +1320,9 @@ it('the header\'s one state chip reads "Needs you" and pulses while a member\'s 
   await render(store)
 
   const bar = container.querySelector('header')!
-  expect(bar.textContent).toContain('Needs you')
-  expect(bar.querySelector(`.${styles.pulse}`)).toBeTruthy()
+  const chip = [...bar.querySelectorAll('[data-slot="chip"]')].find((one) => one.textContent?.includes('Needs you'))
+  expect(chip, 'the one state chip reads Needs you').toBeTruthy()
+  expect(chip?.querySelector('[data-pulse]'), 'and it pulses').toBeTruthy()
 })
 
 /**
@@ -1484,6 +1500,127 @@ it("the composer's own slot is a pending approval; a numbered choice answers it,
   const textarea = container.querySelector('textarea')
   expect(textarea).not.toBeNull()
   expect(document.activeElement).toBe(textarea)
+})
+
+/** A pending command approval for Codex's member, with three numbered answers. */
+const PENDING = [{
+  key: sessionKey('codex', 'c1'),
+  approval: {
+    id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo',
+    options: [
+      { id: 'yes', label: 'Yes', intent: 'approve' },
+      { id: 'always', label: 'Yes, always', intent: 'approveAlways' },
+      { id: 'no', label: 'No, tell it instead', intent: 'deny' },
+    ],
+  },
+}]
+
+/** A trigger's Goal with a live budget, and a store whose approvals can be answered. */
+const triggerRig = (approvals: readonly unknown[]) => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const base = store.getSnapshot()
+  let snapshot: typeof base = { ...base, approvals: approvals as never }
+  const listeners = new Set<() => void>()
+  const respondToApproval = vi.fn(() => {
+    snapshot = { ...snapshot, approvals: [] as never }
+    for (const listener of listeners) listener()
+  })
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #42',
+    url: 'https://github.com/acme/widgets/issues/42',
+    budget: {
+      goal: ROOM, startedAt: Date.now() - 12 * 60_000, deadline: Date.now() + 48 * 60_000,
+      budget: { usd: 5, rounds: 1, hours: 1, withoutProgress: 1 },
+      spentMicros: 1_200_000, reservedMicros: 0, provenance: 'vendorMetered' as const,
+      closedRounds: [], idleRounds: 0, stop: null,
+    },
+    waits: [],
+  }))
+  Object.assign(store, {
+    subscribe: (fn: () => void) => { listeners.add(fn); return () => { listeners.delete(fn) } },
+    getSnapshot: () => snapshot,
+    respondToApproval,
+    triggerGoal,
+  })
+  return { store, respondToApproval }
+}
+
+/**
+ * The approval takes the composer's slot, not the pane: a card in normal
+ * flow where the composer stood, with the thread above it whole — no scrim,
+ * no dialog, nothing inert or hidden from a screen reader. A room is
+ * everyone's conversation; one member's question does not cover it.
+ */
+it('draws a pending approval in flow, in the composer’s slot — not a dialog, no scrim, the thread still readable', async () => {
+  const { store } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const card = container.querySelector<HTMLElement>('[data-slot="approval-card"]')
+  expect(card, 'the approval is drawn as a docked card').not.toBeNull()
+  expect(card?.getAttribute('role')).not.toBe('dialog')
+  expect(card?.getAttribute('aria-modal')).toBeNull()
+  // In the room's own tree, where the composer stood — never portalled.
+  expect(container.contains(card)).toBe(true)
+  expect(container.querySelector('textarea'), 'the composer gives up its slot').toBeNull()
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
+  expect(document.querySelector('[data-slot="dialog-overlay"], [data-slot="approval-dialog-scope"]')).toBeNull()
+  // The thread above it stays in the accessibility tree, and interactive.
+  const stream = container.querySelector<HTMLElement>('[data-slot="room-stream"]')!
+  expect(stream.closest('[inert]')).toBeNull()
+  expect(stream.closest('[aria-hidden="true"]')).toBeNull()
+  // Its choices are numbered, and exactly one is the filled act.
+  const choices = [...card!.querySelectorAll<HTMLElement>('[data-slot="approval-choices"] button')]
+  expect(choices.map((one) => one.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['No, tell it instead3', 'Yes, always2', 'Yes1'])
+  expect(choices.filter((one) => one.hasAttribute('data-filled'))).toHaveLength(1)
+  // The folder is named like any other folder: the project's short name,
+  // the full path on hover.
+  const folder = card!.querySelector('[data-slot="approval-meta"][data-kind="folder"]')
+  expect(folder?.textContent).toBe('inrepo')
+  expect(folder?.getAttribute('title')).toBe('/repo')
+})
+
+it.each([
+  ['1', 'yes'],
+  ['2', 'always'],
+  ['3', 'no'],
+])('key %s answers the docked approval with its numbered choice', async (key, optionId) => {
+  const { store, respondToApproval } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
+  expect(respondToApproval).toHaveBeenCalledWith(sessionKey('codex', 'c1'), 'a1', { type: 'option', optionId })
+  await act(async () => {})
+  expect(container.querySelector('[data-slot="approval-card"]')).toBeNull()
+  expect(document.activeElement).toBe(container.querySelector('textarea'))
+})
+
+/**
+ * The composer's footer strip carries the budget, and stays put under
+ * whichever of the two holds the slot: what a run has left is as true while
+ * it waits on a person as while it works.
+ */
+it('keeps the budget in the footer strip with and without a pending approval', async () => {
+  const { store } = triggerRig(PENDING)
+  await render(store)
+  await act(async () => {})
+
+  const waiting = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
+  expect(waiting?.textContent).toBe('$3.80 left · Round 1 of 1')
+  // Under the card, not above it.
+  const card = container.querySelector('[data-slot="approval-card"]')!
+  expect(card.compareDocumentPosition(waiting!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true, cancelable: true })) })
+  await act(async () => {})
+  const working = container.querySelector<HTMLElement>('[data-slot="room-budget"]')
+  expect(working?.textContent).toBe('$3.80 left · Round 1 of 1')
+  expect(container.querySelector('textarea')!.compareDocumentPosition(working!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 })
 
 /**

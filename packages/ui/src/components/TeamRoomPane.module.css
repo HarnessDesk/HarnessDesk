@@ -114,15 +114,6 @@
   min-height: 0;
 }
 
-/* The room's own heartbeat: something in here is mid-turn. Same light as the
-   one on a member's tile, so the head and the row that explains it are
-   obviously the same fact at two scales. */
-.pulse {
-  width: 6px;
-  flex: none;
-  animation: hd-room-pulse 2s ease-in-out infinite;
-}
-
 @keyframes hd-room-pulse {
   0%,
   100% {
@@ -130,14 +121,6 @@
   }
   50% {
     opacity: 0.35;
-  }
-}
-
-/* A person who has asked for less motion has asked for less motion. The light
-   is still there and still the same colour; it simply stops breathing. */
-@media (prefers-reduced-motion: reduce) {
-  .pulse {
-    animation: none;
   }
 }
 
@@ -248,9 +231,7 @@
    the board has never seen it use one. Muted rather than warning ink, so it
    cannot be mistaken for the line above it, which is a fact. */
 .memberIdle {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere; /* desk: nowrap + ellipsis → wraps, a sentence arrives whole (rule 9) */
 }
 
 /* A state somebody chose, which is neither of the two above: not a fault to
@@ -259,9 +240,7 @@
    muted, because a member set to hold its messages is a setting, not an
    alarm. */
 .memberInbound {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere; /* desk: nowrap + ellipsis → wraps, a sentence arrives whole (rule 9) */
 }
 
 /* Warning ink, because this is the one line on a member row that is about
@@ -271,9 +250,6 @@
   align-items: center;
   gap: var(--hd-space-1);
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .memberWarn svg {
@@ -283,16 +259,6 @@
 /* --- the right half ------------------------------------------------------ */
 
 .body {
-  /* `ApprovalDialog`'s own `.scope` positions itself `absolute; inset: 0`
-     against the nearest positioned ancestor — every conversation's own pane
-     sets this for the same reason (`Conversation.module.css`), so its
-     approval stays inside that conversation rather than covering the whole
-     window. A pending approval taking the room's own composer slot reads
-     `<Approvals/>` here too, and without this it found no positioned
-     ancestor at all and filled the entire app in a backdrop — caught only
-     by looking at the frame, not by the vitest suite, which never lays
-     anything out. */
-  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;

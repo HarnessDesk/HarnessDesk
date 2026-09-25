@@ -1,6 +1,6 @@
 import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
 
-import { isPathInside } from './paths'
+import { isPathInside, relativeTo, shortPath } from './paths'
 
 /**
  * Sessions grouped by project, where a project is a repository rather than
@@ -64,6 +64,21 @@ export const isWorktreeSession = (summary: SessionSummary): boolean =>
   summary.repo ? summary.repo.worktree : isWorktreePath(summary.cwd)
 
 export const folderName = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
+
+/**
+ * A folder, the way a person reads one beside the work it holds: the project's
+ * own short name when it is the project (`widgets`), that name plus the way
+ * down when it is inside it (`widgets/packages/ui`), and otherwise a
+ * home-shortened path (`~/elsewhere`) — never the raw absolute one, which is
+ * the hover's to carry.
+ */
+export const folderShown = (path: string, home: string | null | undefined, project?: string | null): string => {
+  if (project && isPathInside(path, project)) {
+    const below = relativeTo(path, project)
+    return below === path ? folderName(project) : `${folderName(project)}/${below}`
+  }
+  return shortPath(path, home)
+}
 
 /**
  * One key per repository, whatever the remote's spelling:

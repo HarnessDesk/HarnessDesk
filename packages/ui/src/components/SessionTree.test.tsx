@@ -340,14 +340,25 @@ const rowTitles = (where: HTMLElement): string[] =>
     .map((one) => one.textContent?.trim() ?? '')
     .filter((text) => text.startsWith('session-'))
 
+/** A trigger's Goal, as `snapshot.goals` holds it, for a room of the same id. */
+const triggerGoalView = (board: TeamState, activity: GoalView['activity'] = 'working'): GoalView => ({
+  goal: {
+    id: board.id, root: '/repo', cwd: '/repo', sentence: board.name, state: 'open', revision: 1,
+    checkout: 'shared', dependsOn: [], origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' },
+    createdAt: 1, updatedAt: 4, receipt: null,
+  },
+  activity, waitingOn: [], members: [], board, receipt: null, problem: null,
+})
+
 /**
  * Two Goals a trigger opened seat the same agent, so both conversations keep
  * that agent's own name — "Triager", "Triager" — since neither was ever given
  * a title of its own. Before this, both "Needs you" rows read only that name:
- * two rows the sidebar could not tell apart, for a wait the Goal's own page
- * names precisely ("Triager is waiting for your approval: run ls -la").
+ * two rows the sidebar could not tell apart. Each row is named by the Goal it
+ * works for now, with the kind of wait as a chip on the same line — one line,
+ * no sentence under it, and the trigger's own id nowhere.
  */
-it('gives each “Needs you” row a distinguishing reason, so two conversations named after the same agent do not read as one row twice (#898)', () => {
+it('names each “Needs you” row by its Goal, with a short reason as a chip on the same line (#898)', () => {
   const key1 = sessionKey('codex', sessionId('s1'))
   const key2 = sessionKey('codex', sessionId('s2'))
   const roomA = room({ id: 'g1', name: 'Issue #42, from trigger triage-issue', members: [key1] })
@@ -362,6 +373,7 @@ it('gives each “Needs you” row a distinguishing reason, so two conversations
     history: [s1, s2],
     sessions: new Map([[key1, s1], [key2, s2]]),
     teams: new Map([['g1', roomA], ['g2', roomB]]),
+    goals: new Map([['g1', triggerGoalView(roomA, 'needs-you')], ['g2', triggerGoalView(roomB, 'needs-you')]]),
     approvals: [{ key: key1, approval: {} }, { key: key2, approval: {} }],
   } as unknown as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
@@ -369,42 +381,41 @@ it('gives each “Needs you” row a distinguishing reason, so two conversations
 
   const waiting = container.querySelector('[data-tone="waiting"]')
   if (!waiting) throw new Error('no Needs you band rendered')
-  expect(waiting.textContent).toContain('Issue #42')
-  expect(waiting.textContent).toContain('Issue #43')
-  expect(waiting.textContent).toContain('needs your approval')
+  const rows = [...waiting.querySelectorAll<HTMLElement>('[class*="rowHead"]')]
+  expect(rows.map((one) => one.textContent)).toEqual(['Issue #42Approval', 'Issue #43Approval'])
+  expect(waiting.textContent).not.toContain('from trigger')
+  expect(waiting.textContent).not.toContain('Triager')
+  // One line: no second line under the name.
+  expect(waiting.querySelector('[class*="rowMeta"]')).toBeNull()
+  for (const row of rows) expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
 })
 
 /**
- * The reason line above is a sentence — a Goal's name plus the kind of
- * wait — not a short fact like a name or a path. Rule 9 draws the line
- * exactly there: "names and paths truncate, sentences wrap." Truncating it
- * with an ellipsis, or worse, clipping it with no ellipsis at all because the
- * row never gave the text room to shrink, would read as "Issue #42, from
- * trigger triage-issue —" with the actual reason cut off after the dash.
+ * A Goal's row is one line: its name, one state chip, then its counts. The
+ * origin used to take a second line ("from issue #43") under a name that
+ * already said "Issue #43", and the trigger's own id sat in the name itself.
+ * jsdom lays nothing out, so the overlap the floor caused is read from its
+ * shape: the chip and the counts are never inside the name's line box, and
+ * the name is the only thing given to fade.
  */
-it('wraps the "Needs you" reason instead of truncating it, because it is a sentence (rule 9)', () => {
-  const key1 = sessionKey('codex', sessionId('s1'))
-  const roomA = room({ id: 'g1', name: 'Issue #42, from trigger triage-issue', members: [key1] })
-  const s1 = summary({ id: 's1', title: 'Triager' })
-  const snapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    workspace: { path: '/repo', name: 'repo', lastOpenedAt: 1 },
-    workspaces: [{ path: '/repo', name: 'repo', lastOpenedAt: 1 }],
-    history: [s1],
-    sessions: new Map([[key1, s1]]),
-    teams: new Map([['g1', roomA]]),
-    approvals: [{ key: key1, approval: {} }],
-  } as unknown as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
-  act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
+it('draws a trigger Goal’s row on one line: its subject and one state chip, nothing crowding the name', async () => {
+  const board = room({ id: 'g1', name: 'Issue #43, from trigger triage-issue', updatedAt: 4 })
+  const triggerGoal = vi.fn(async () => ({
+    goal: 'g1', trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
+  }))
+  const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([['g1', triggerGoalView(board)]]), { triggerGoal })
+  await act(async () => { await Promise.resolve() })
 
-  const hint = [...container.querySelectorAll('[data-slot="text"]')].find((el) =>
-    el.textContent?.includes('needs your approval'),
-  )
-  if (!hint) throw new Error('no reason text rendered')
-  expect(hint.textContent).toBe('Issue #42, from trigger triage-issue — needs your approval')
-  expect(hint.className.split(' ')).not.toContain('truncate')
+  const row = roomRow(tree, 'Issue #43')
+  const head = row.querySelector('[class*="rowHead"]')
+  expect(head?.textContent).toBe('Issue #43Working')
+  expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+  expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
+  expect(row.textContent).not.toContain('from issue')
+  expect(row.textContent).not.toContain('triage-issue')
+  // Nothing beside the chip competes with the name for the row's width.
+  expect(row.querySelector('[class*="groupCount"], [class*="roomClaimed"]')).toBeNull()
+  expect(triggerGoal).not.toHaveBeenCalled()
 })
 
 it('a room is a row under its project, and its members hang off it', () => {
@@ -447,49 +458,6 @@ it('shows Goal activity and keeps wrapped Goals in a collapsed history group', (
   expect(tree.querySelector('[aria-label="Room Prepare release"]')).toBeNull()
   act(() => [...tree.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Wrapped · 1'))!.click())
   expect(roomRow(tree, 'Prepare release').textContent).toContain('Wrapped')
-})
-
-/**
- * The room row used to lay the Goal's name, its state chip and its trigger
- * origin chip out as three siblings on one flex line, each `flex: 1` fighting
- * the others for space. Two chips ("Working", "from issue #43") were plenty
- * to leave the name a `flex-basis` of zero and nothing left to grow into,
- * which is a browser laying the row out exactly as told rather than a text
- * node going missing — so drawing it once and reading `textContent` back
- * proves nothing here; jsdom does not do layout. What is checked instead is
- * the fix's own shape: the name and its state chip share one line
- * (`rowHead`, mirroring `SessionRow`'s own), and the origin — a fact that
- * varies, earning its own line by rule 9 — sits on a second line (`rowMeta`)
- * that can never again compete with the name for the same row's width (#898).
- */
-it('names a trigger Goal’s room by its own sentence, keeps the state as a chip on that line, and puts the origin on a line of its own', async () => {
-  const board = room({ id: 'g1', name: 'Issue #43, from trigger triage-issue', updatedAt: 4 })
-  const view: GoalView = {
-    goal: {
-      id: 'g1', root: '/repo', cwd: '/repo', sentence: board.name, state: 'open', revision: 1,
-      checkout: 'shared', dependsOn: [], origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' },
-      createdAt: 1, updatedAt: 4, receipt: null,
-    },
-    activity: 'working', waitingOn: [], members: [], board, receipt: null, problem: null,
-  }
-  const triggerGoal = vi.fn(async () => ({
-    goal: 'g1', trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
-  }))
-  const { container: tree } = treeWith([board], [], [], {}, undefined, null, new Map([['g1', view]]), { triggerGoal })
-  await act(async () => { await Promise.resolve() })
-
-  const row = roomRow(tree, board.name)
-  const title = [...row.querySelectorAll<HTMLElement>('[class*="rowTitle"], [class*="roomTitle"], [class*="groupName"]')].find(
-    (one) => one.textContent === board.name,
-  )
-  if (!title) throw new Error('the room’s own name never rendered at all')
-  const head = title.closest('[class*="rowHead"]')
-  expect(head, 'the name and the state chip share one protected line').not.toBeNull()
-  expect(head?.textContent).toContain('Working')
-
-  const origin = row.querySelector('[class*="rowMeta"]')
-  expect(origin?.textContent).toContain('from issue #43')
-  expect(head?.contains(origin)).toBe(false)
 })
 
 it('a conversation in a room is listed once, under the room', () => {

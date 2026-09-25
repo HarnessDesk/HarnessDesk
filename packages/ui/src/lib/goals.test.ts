@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { Goal, GoalActivity } from '@harnessdesk/protocol'
 
-import { goalActions, goalNotification, goalWords, projectGoals, type GoalRow } from './goals'
+import { goalActions, goalName, goalNotification, goalWords, projectGoals, type GoalRow } from './goals'
 
 const goal = (id: string, patch: Partial<Goal> = {}): Goal => ({
   id,
@@ -88,5 +88,18 @@ describe('Goal transition notifications', () => {
     [row('g', 'working'), row('g', 'needs-you'), { ...prefs, goalNeedsYou: false }, false],
   ] as const)('suppresses startup, repeats, focus, mismatches and disabled preferences', (previous, next, chosen, focused) => {
     expect(goalNotification(previous, next, chosen, focused)).toBeNull()
+  })
+})
+
+describe('goalName', () => {
+  it('names a trigger’s Goal by its subject, never by the trigger’s own id', () => {
+    const origin = { kind: 'trigger' as const, trigger: 'triage-issue', event: 'e1' }
+    expect(goalName(goal('g', { sentence: 'Issue #42, from trigger triage-issue', origin }))).toBe('Issue #42')
+    expect(goalName(goal('g', { sentence: 'Pull request #7, from trigger triage-issue', origin }))).toBe('Pull request #7')
+  })
+
+  it('leaves a person’s sentence whole, even one that happens to end the same way', () => {
+    expect(goalName(goal('g', { sentence: 'Ship it, from trigger triage-issue' }))).toBe('Ship it, from trigger triage-issue')
+    expect(goalName(goal('g'))).toBe('Finish g')
   })
 })

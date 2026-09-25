@@ -87,12 +87,20 @@ export const originSubject = (status: TriggerGoalStatus): string | null => {
   return match ? `#${match[1]}` : null
 }
 
-/** One line a trigger Goal's origin hover card reads, for the source it names. */
-export const originHoverWords = (status: TriggerGoalStatus): string => {
+/**
+ * The fact line under a trigger Goal's name in its origin hover card: the
+ * source and its number, then what it did — "Issue #42 · started this Goal",
+ * or only what it did when the card's heading is already that source.
+ * The forge's own state (open, closed) is not here because the host keeps no
+ * copy of it; a line that guessed would be wrong the moment the issue moved.
+ */
+export const originHoverWords = (status: TriggerGoalStatus, heading?: string): string => {
   const subject = originSubject(status)
   if (!subject) return 'A scheduled run started this Goal.'
   const kind = status.source === 'pull-request' ? 'Pull request' : 'Issue'
-  return `${kind} ${subject} started this Goal.`
+  // Under a heading that already is the source ("Issue #42"), the line says
+  // only what it did — never the same name twice, one line apart.
+  return heading === `${kind} ${subject}` ? 'Started this Goal' : `${kind} ${subject} · started this Goal`
 }
 
 /**
@@ -108,6 +116,8 @@ export interface BudgetMeterWords {
   /** 0–100, floored at 0 and capped at 100 — what the ring itself fills to. */
   readonly percentLeft: number
   readonly roundsUsed: number
+  /** The round being worked, 1-based: a first round is "Round 1", never "Round 0". */
+  readonly roundNow: number
   readonly roundsTotal: number
   readonly minutesUsed: number
   readonly minutesTotal: number
@@ -127,6 +137,7 @@ export const budgetMeterWords = (state: TriggerBudgetState, now: number): Budget
     leftUsd,
     percentLeft,
     roundsUsed: state.closedRounds.length,
+    roundNow: Math.max(1, Math.min(state.budget.rounds, state.closedRounds.length + 1)),
     roundsTotal: state.budget.rounds,
     minutesUsed,
     minutesTotal,

@@ -4,6 +4,7 @@ import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { wholeFileOf } from '../lib/diff'
+import { folderShown } from '../lib/projects'
 import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
 import {
@@ -61,7 +62,21 @@ const titles = (agent: string): Record<Approval['type'], string> => ({
 const commandTitle = (approval: Extract<Approval, { type: 'command' }>): string =>
   approval.kind === 'stdin' ? 'Send this input to the running command?' : 'Run this command?'
 
-const CommandBody = ({ approval }: { approval: Extract<Approval, { type: 'command' }> }) =>
+/**
+ * Where a command runs, the way the rest of the app names a folder: the
+ * project's short name, or a home-shortened path, with the full path one
+ * hover away. In the interface's own type — a folder is a place, and only
+ * the command itself is set as code.
+ */
+const FolderMeta = ({ cwd, home, project }: { cwd: string; home: string | null; project: string | null }) => (
+  <ApprovalMeta label="in" kind="folder" title={cwd}>{folderShown(cwd, home, project)}</ApprovalMeta>
+)
+
+const CommandBody = ({ approval, home, project }: {
+  approval: Extract<Approval, { type: 'command' }>
+  home: string | null
+  project: string | null
+}) =>
   approval.kind === 'stdin' ? (
     // Input to a program that is already running: the text goes first,
     // because it is the thing being approved, and the command it goes to is
@@ -71,15 +86,13 @@ const CommandBody = ({ approval }: { approval: Extract<Approval, { type: 'comman
       {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
       <ApprovalCode className={styles.command}>{approval.input ?? ''}</ApprovalCode>
       <ApprovalMeta label="to">{approval.command}</ApprovalMeta>
-      {approval.cwd && (
-        <ApprovalMeta label="in">{approval.cwd}</ApprovalMeta>
-      )}
+      {approval.cwd && <FolderMeta cwd={approval.cwd} home={home} project={project} />}
     </>
   ) : (
     <>
       {approval.reason && <ApprovalReason className={styles.reason}>{approval.reason}</ApprovalReason>}
       <ApprovalCode className={styles.command}>{approval.command}</ApprovalCode>
-      <ApprovalMeta label="in">{approval.cwd}</ApprovalMeta>
+      {approval.cwd && <FolderMeta cwd={approval.cwd} home={home} project={project} />}
     </>
   )
 
@@ -165,8 +178,12 @@ const UserInputBody = ({
  * there is never a question of which conversation is asking. Keyboard
  * shortcuts answer only in the focused pane — two agents asking at once must
  * not share one Escape key.
+ *
+ * `placement="docked"` draws the same question as a card in a composer's
+ * slot rather than over the pane — the room's own use, where the thread above
+ * belongs to everyone in it and stays readable while one member waits.
  */
-export const Approvals = () => {
+export const Approvals = ({ placement = 'overlay' }: { placement?: 'overlay' | 'docked' } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
@@ -287,8 +304,15 @@ export const Approvals = () => {
       focused={focused}
       focusKey={approval.id}
       actions={actions}
+      placement={placement}
     >
-          {approval.type === 'command' && <CommandBody approval={approval} />}
+          {approval.type === 'command' && (
+            <CommandBody
+              approval={approval}
+              home={snapshot.home ?? null}
+              project={(key && snapshot.sessions.get(key)?.cwd) || snapshot.workspace?.path || null}
+            />
+          )}
           {approval.type === 'fileChange' && <FileChangeBody approval={approval} />}
           {approval.type === 'permission' && <PermissionBody approval={approval} />}
           {approval.type === 'userInput' && (

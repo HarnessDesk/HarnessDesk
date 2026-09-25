@@ -49,6 +49,24 @@
   outline: none;
 }
 
+/* The composer-slot card. The composer's own shell, down to its edge and its
+   shadow, because it stands exactly where that shell stood: same column,
+   same width, in flow at the bottom of the chat, the thread above it left
+   whole. It grows with its question up to a share of the pane and scrolls
+   inside past that, so a long command never pushes the thread off screen. */
+.docked {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: min(50vh, 480px);
+  border-radius: var(--hd-radius-lg);
+  background: var(--hd-card);
+  box-shadow: var(--hd-shadow-xs), inset 0 0 0 var(--hd-border-width) var(--hd-border-emphasis);
+  overflow: hidden;
+  outline: none;
+  container: hd-approval / inline-size;
+}
+
 .header {
   flex: none;
   display: flex;
@@ -118,6 +136,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--hd-font-code);
+}
+
+.meta[data-kind='folder'] .metaValue {
+  font-family: inherit;
 }
 
 .filePath {
