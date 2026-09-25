@@ -12,8 +12,6 @@ import { cn } from '@/lib/utils'
 
 import { buttonVariants } from '../ui/button'
 
-import { Input } from '../ui/input'
-
 import styles from './Popover.module.css'
 
 /* The contract itself is in `lib/overlays.ts`, free of React so that anything
@@ -317,20 +315,4 @@ export const PopoverOptionHint = ({ children, className }: { children: ReactNode
 
 export const PopoverOptionLive = ({ label = 'Live' }: { label?: string }) => (
   <span className={styles.optionLive} aria-label={label} />
-)
-
-export const PopoverStrong = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={`${styles.strong}${className ? ` ${className}` : ''}`}>{children}</span>
-)
-
-export const PopoverDim = ({ children }: { children: ReactNode }) => (
-  <span className={styles.dim}>{children}</span>
-)
-
-export const PopoverFilterInput = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
-  <Input {...props} className={`${styles.filterInput}${props.className ? ` ${props.className}` : ''}`} />
-)
-
-export const PopoverUpdateNote = ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => (
-  <div {...props} className={`${styles.updateNote}${props.className ? ` ${props.className}` : ''}`}>{children}</div>
 )
