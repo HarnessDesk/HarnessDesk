@@ -76,24 +76,27 @@
 }
 
 /* --- the choice list -------------------------------------------------------
-   Rows the height of a menu item, a radio on the title's line, and no card:
-   a dialog's list of answers is part of the form, not a panel inside it. The
-   rows reach 8px past the column on either side so the radio lines up with
-   the labels above it while the hover still has a corner to round. */
+   Compact rows, a radio on the title's line, and no card: a dialog's list of
+   answers is part of the form, not a panel inside it. */
 .choiceList {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  margin-inline: calc(-1 * var(--hd-space-2));
 }
 
+/* Each row reaches 8px past its column on either side — the row, not the
+   list, so the radio lines up with the labels above it wherever the row is
+   placed — and the hover still has a corner to round. Its height is its
+   content's: a title, and the description under it when there is one, so the
+   rows never move when the answer changes. */
 .choice {
   display: grid;
   grid-template-columns: var(--hd-space-4) minmax(0, 1fr);
-  align-items: center;
+  align-items: start;
   column-gap: var(--hd-space-2);
-  width: 100%;
-  min-height: var(--hd-btn-h);
-  padding: var(--hd-space-1-5) var(--hd-space-2);
+  width: calc(100% + 2 * var(--hd-space-2));
+  margin-inline: calc(-1 * var(--hd-space-2));
+  min-height: var(--hd-control-h);
+  padding: var(--hd-space-1) var(--hd-space-2);
   border-radius: var(--hd-radius-md);
   text-align: left;
 }
@@ -105,9 +108,11 @@
 
 /* The radio, drawn as `design/ui/radio-group` draws it: a ring at rest, the
    accent with a knob when it is the answer. */
+/* Centred on the title's 18px line, not on the row. */
 .radio {
   display: grid;
   place-items: center;
+  margin-top: var(--hd-space-px);
   width: var(--hd-space-4);
   height: var(--hd-space-4);
   border: var(--hd-border-width) solid var(--hd-border-strong);
@@ -135,12 +140,11 @@
   color: var(--hd-foreground);
 }
 
-/* Only the chosen answer explains itself, under its title and in the step a
-   hint is set in; the others keep theirs for a screen reader. */
+/* Every answer explains itself, under its title in the step a hint is set
+   in: one line where it fits, and a sentence that does not wraps whole. */
 .choiceDesc {
   grid-column: 2;
   min-width: 0;
-  margin-top: var(--hd-space-0-5);
   font-size: var(--hd-text-xs);
   line-height: var(--hd-line-xs);
   color: var(--hd-secondary-foreground);

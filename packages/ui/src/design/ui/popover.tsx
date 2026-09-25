@@ -1,6 +1,7 @@
 import { Popover as PopoverPrimitive } from '@base-ui/react/popover'
 import * as React from 'react'
 
+import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (popover); z-index from the app's layer names. */
@@ -34,7 +35,9 @@ const PopoverPopup = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Popup>,
   React.ComponentProps<typeof PopoverPrimitive.Popup>
 >(({ className, ...props }, ref) => (
-  <PopoverPrimitive.Popup ref={ref} data-slot="popover-popup" className={surfaceFocus(className)} {...props} />
+  <DialogFormContext.Provider value={false}>
+    <PopoverPrimitive.Popup ref={ref} data-slot="popover-popup" className={surfaceFocus(className)} {...props} />
+  </DialogFormContext.Provider>
 ))
 PopoverPopup.displayName = 'PopoverPopup'
 
@@ -46,6 +49,7 @@ const PopoverContent = ({
   ...props
 }: React.ComponentProps<typeof PopoverPrimitive.Popup> &
   Pick<React.ComponentProps<typeof PopoverPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  <DialogFormContext.Provider value={false}>
   <PopoverPrimitive.Portal>
     <PopoverPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} className="z-(--hd-z-popover)">
       <PopoverPrimitive.Popup
@@ -59,6 +63,7 @@ const PopoverContent = ({
       />
     </PopoverPrimitive.Positioner>
   </PopoverPrimitive.Portal>
+  </DialogFormContext.Provider>
 )
 
 export { Popover, PopoverTrigger, PopoverPortal, PopoverPositioner, PopoverPopup, PopoverContent }

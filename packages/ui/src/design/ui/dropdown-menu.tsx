@@ -2,6 +2,7 @@ import { Menu as DropdownMenuPrimitive } from '@base-ui/react/menu'
 import * as React from 'react'
 
 import { CheckIcon, BulletIcon } from '@/components/Icons'
+import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (dropdown-menu). Icons come from the app's
@@ -35,7 +36,9 @@ const DropdownMenuPopup = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Popup>,
   React.ComponentProps<typeof DropdownMenuPrimitive.Popup>
 >(({ className, ...props }, ref) => (
-  <DropdownMenuPrimitive.Popup ref={ref} data-slot="dropdown-menu-popup" className={surfaceFocus(className)} {...props} />
+  <DialogFormContext.Provider value={false}>
+    <DropdownMenuPrimitive.Popup ref={ref} data-slot="dropdown-menu-popup" className={surfaceFocus(className)} {...props} />
+  </DialogFormContext.Provider>
 ))
 DropdownMenuPopup.displayName = 'DropdownMenuPopup'
 
@@ -53,6 +56,7 @@ const DropdownMenuContent = ({
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Popup> &
   Pick<React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  <DialogFormContext.Provider value={false}>
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} className="z-(--hd-z-popover)">
       <DropdownMenuPrimitive.Popup
@@ -66,6 +70,7 @@ const DropdownMenuContent = ({
       />
     </DropdownMenuPrimitive.Positioner>
   </DropdownMenuPrimitive.Portal>
+  </DialogFormContext.Provider>
 )
 
 const DropdownMenuGroup = ({
@@ -223,6 +228,7 @@ const DropdownMenuSubContent = ({
     React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>,
     'align' | 'side' | 'sideOffset' | 'collisionAvoidance' | 'sticky'
   >) => (
+  <DialogFormContext.Provider value={false}>
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Positioner
       align={align}
@@ -243,6 +249,7 @@ const DropdownMenuSubContent = ({
       />
     </DropdownMenuPrimitive.Positioner>
   </DropdownMenuPrimitive.Portal>
+  </DialogFormContext.Provider>
 )
 
 export {

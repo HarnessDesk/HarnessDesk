@@ -37,8 +37,9 @@ const FIELD = [
  *
  * The body is a form stack (`DialogForm`) unless it is `flush`: its children
  * are 16px apart, a `SectionHead` in it is a legend on the group it names,
- * and a `Rows` radio group is a compact `ChoiceList`. Nothing in the body
- * needs spacing of its own.
+ * and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
+ * Nothing in the body needs spacing of its own. A `flush` body is a list and
+ * is not a form, so it keeps the page's parts.
  */
 export const Dialog = ({
   title,
@@ -80,7 +81,16 @@ export const Dialog = ({
         showCloseButton={false}
         aria-label={title}
         aria-describedby={undefined}
-        className={`${WIDTH[size]} ${tall ? 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]' : ''} flex max-h-[min(72vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)`}
+        /* The ceiling is 80% of the window up to 720px: a form of a few
+           fields and two short choice lists stands whole in a 900px window
+           rather than scrolling its last answer out of sight (it was 72%,
+           which cut Save as an Agent by 28px). `tall` states its own bound,
+           and `cn` lets it replace the ceiling rather than tie with it. */
+        className={cn(
+          WIDTH[size],
+          'flex max-h-[min(80vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)',
+          tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
+        )}
       >
         <div className={styles.header} data-tone={tone === 'destructive' ? 'destructive' : undefined}>
           {icon && <span className={styles.icon}>{icon}</span>}
@@ -98,7 +108,8 @@ export const Dialog = ({
         {subhead && <div className={styles.subhead}>{subhead}</div>}
         {children && (
           <div className={`${styles.body} ${flush ? styles.flush : dialogStackClass}`} data-slot="modal-dialog-body">
-            <DialogFormScope>{children}</DialogFormScope>
+            {/* A flush body is a list, not a form: it keeps the page's parts. */}
+            {flush ? children : <DialogFormScope>{children}</DialogFormScope>}
           </div>
         )}
         {(footer || footerAside) && (

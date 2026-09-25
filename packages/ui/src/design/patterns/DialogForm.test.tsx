@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { Input } from '../ui/input'
+import { Popover, PopoverContent } from '../ui/popover'
 import formSheet from './DialogForm.module.css?raw'
 import { ChoiceList, DialogFormScope, Fieldset } from './DialogForm'
 import { Dialog } from './ModalDialog'
@@ -77,17 +78,83 @@ describe('inside a dialog', () => {
     expect(rows[1]!.querySelector('[data-checked]')).toBeNull()
   })
 
-  it('shows only the chosen answer’s description, and still describes every answer', async () => {
+  it('shows every answer’s description, and choosing changes nothing but the answer', async () => {
     await render(<Answer inDialog />)
-    const rows = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+    const rows = () => [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
     const described = (row: HTMLElement) => document.getElementById(row.getAttribute('aria-describedby')!)!
-    expect(described(rows[0]!).hidden).toBe(false)
-    expect(described(rows[1]!).hidden).toBe(true)
-    expect(described(rows[1]!).textContent).toBe('May change files.')
+    const before = rows().map((row) => row.innerHTML.replace(/ data-checked=""/g, ''))
+    for (const row of rows()) expect(described(row).hidden).toBe(false)
+    expect(described(rows()[1]!).textContent).toBe('May change files.')
 
-    await act(async () => rows[1]!.click())
-    expect(described(rows[0]!).hidden).toBe(true)
-    expect(described(rows[1]!).hidden).toBe(false)
+    await act(async () => rows()[1]!.click())
+    // The same rows, the same text: only the radio mark moved.
+    expect(rows().map((row) => row.innerHTML.replace(/ data-checked=""/g, ''))).toEqual(before)
+    expect(rows().map((row) => row.getAttribute('aria-checked'))).toEqual(['false', 'true'])
+  })
+
+  it('names each answer by its title alone and describes it once', async () => {
+    await render(<Answer inDialog />)
+    const row = container.querySelector<HTMLButtonElement>('[role="radio"]')!
+    const labelled = row.getAttribute('aria-labelledby')!.split(' ')
+    expect(labelled.map((id) => document.getElementById(id)?.textContent)).toEqual(['Read'])
+    expect(row.getAttribute('aria-describedby')!.split(' ')).toHaveLength(1)
+    expect(document.getElementById(row.getAttribute('aria-describedby')!)?.textContent).toBe('Changes nothing.')
+  })
+
+  it('keeps the card of a radio group that is not all RowChoice rows, and its rows', async () => {
+    await render(
+      <DialogFormScope>
+        <Rows role="radiogroup" aria-label="Start from">
+          <Note>Reading branches…</Note>
+          <button type="button" role="radio" aria-checked="true">main</button>
+          <RowChoice title="In a card" selected={false} onClick={() => {}} />
+        </Rows>
+        <div role="radiogroup" aria-label="Loose">
+          <RowChoice title="Loose" selected onClick={() => {}} />
+        </div>
+      </DialogFormScope>,
+    )
+    const picker = container.querySelector('[aria-label="Start from"]')!
+    expect(picker.getAttribute('data-slot')).toBeNull()
+    expect(picker.getAttribute('data-context')).toBe('dialog')
+    // In a card a RowChoice stays the settings row the card is built for; a
+    // compact row reaching past its column would be clipped by the edge.
+    expect(picker.querySelector('[data-slot="choice-row"]')).toBeNull()
+    // Outside a card — the hand-off sheet's own radio group — it is compact.
+    expect(container.querySelector('[aria-label="Loose"] [data-slot="choice-row"]')).not.toBeNull()
+  })
+
+  it('does not reach into a popover opened from the dialog, or a flush body', async () => {
+    await render(
+      <DialogFormScope>
+        <Popover open>
+          <PopoverContent>
+            <SectionHead name="In the popover" />
+          </PopoverContent>
+        </Popover>
+      </DialogFormScope>,
+    )
+    expect(document.body.textContent).toContain('In the popover')
+    expect(document.querySelector('[data-slot="fieldset-legend"]')).toBeNull()
+    await act(async () => root.render(
+      <Dialog title="Pick" flush onClose={() => {}}>
+        <SectionHead name="A list" />
+      </Dialog>,
+    ))
+    expect(document.querySelector('[data-slot="fieldset-legend"]')).toBeNull()
+    expect(document.querySelector('[data-slot="modal-dialog-body"]')?.className).not.toMatch(/stack/)
+  })
+
+  it('a dialog opened from a dialog body starts outside its form', async () => {
+    await render(
+      <DialogFormScope>
+        <Dialog title="Inner" flush onClose={() => {}}>
+          <SectionHead name="Inner list" />
+        </Dialog>
+      </DialogFormScope>,
+    )
+    expect(document.body.textContent).toContain('Inner list')
+    expect(document.querySelector('[data-slot="fieldset-legend"]')).toBeNull()
   })
 
   it('arrow keys move the answer, one tab stop for the group', async () => {
@@ -176,9 +243,13 @@ describe('the rhythm, as the sheets say it', () => {
     expect(rule(formSheet, '.fieldset')).toMatch(/gap:\s*var\(--hd-space-1-5\)/)
   })
 
-  it('a choice row is a control’s height, not a settings row’s', () => {
-    expect(rule(formSheet, '.choice')).toMatch(/min-height:\s*var\(--hd-btn-h\)/)
-    expect(rule(formSheet, '.choice')).toMatch(/padding:\s*var\(--hd-space-1-5\) var\(--hd-space-2\)/)
+  it('a choice row is compact, and reaches past its column on its own', () => {
+    expect(rule(formSheet, '.choice')).toMatch(/min-height:\s*var\(--hd-control-h\)/)
+    expect(rule(formSheet, '.choice')).toMatch(/padding:\s*var\(--hd-space-1\) var\(--hd-space-2\)/)
+    // The row carries its own reach, so the radio lines up with the labels
+    // whether or not a list holds it.
+    expect(rule(formSheet, '.choice')).toMatch(/margin-inline:\s*calc\(-1 \* var\(--hd-space-2\)\)/)
+    expect(rule(formSheet, '.choiceList')).not.toMatch(/margin/)
   })
 
   it('a hint sits a step below its label; the legend is drawn as the label is', () => {

@@ -1,5 +1,5 @@
 import { Button } from '../ui/button'
-import { Children, createElement, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
+import { Children, createContext, createElement, isValidElement, useContext, useId, type ButtonHTMLAttributes, type ComponentProps, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
 import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
 
@@ -876,12 +876,19 @@ export const NavigationGroupHeader = ({
   </div>
 )
 
+/* Inside a card of rows: a `RowChoice` here is a settings row, whatever
+   surrounds the card, because a compact radio row reaching past its column
+   would be clipped by the card's edge. */
+const RowsCardContext = createContext(false)
+
 /**
  * A card of rows. Every settings page is made of these and nothing else.
  *
  * A card with nothing in it is not drawn: an empty list left a stray 2px
  * rule in the middle of a form. Inside a dialog, a card that is a radio group
- * is a `ChoiceList` — no card, and each `RowChoice` in it a compact radio row.
+ * of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
+ * row a compact radio row. A radio group of anything else (a branch picker of
+ * row buttons) keeps its card, its edge and its ground.
  */
 export const Rows = ({
   children,
@@ -889,11 +896,16 @@ export const Rows = ({
   ...props
 }: HTMLAttributes<HTMLDivElement> & { children: ReactNode; className?: string }) => {
   const inDialog = useDialogForm()
-  if (Children.toArray(children).length === 0) return null
-  if (inDialog && props.role === 'radiogroup') {
+  const rows = Children.toArray(children)
+  if (rows.length === 0) return null
+  if (inDialog && props.role === 'radiogroup' && rows.every((row) => isValidElement(row) && row.type === RowChoice)) {
     return <div className={cx(choiceListClass, className)} data-slot="choice-list" {...props}>{children}</div>
   }
-  return <div className={cx(styles.rows, className)} {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>{children}</div>
+  return (
+    <div className={cx(styles.rows, className)} {...(inDialog ? { 'data-context': 'dialog' } : {})} {...props}>
+      <RowsCardContext.Provider value>{children}</RowsCardContext.Provider>
+    </div>
+  )
 }
 
 export const Row = ({
@@ -986,8 +998,10 @@ export const RowButton = ({
  * than as a column of unrelated switches — and the chosen row is the only one
  * carrying ink, so the answer is findable without reading all of them.
  *
- * Inside a dialog it is a `ChoiceList` row instead: 30px, a radio on the
- * title's line, and the description only on the chosen answer.
+ * Inside a dialog it is a compact radio row instead (`ChoiceRow`): a radio on
+ * the title's line and the description under it in the hint step — unless it
+ * stands in a card of rows, where it stays the settings row the card is
+ * built for.
  */
 export const RowChoice = ({
   title,
@@ -1008,7 +1022,9 @@ export const RowChoice = ({
   disabled?: boolean
   onClick: () => void
 }) => {
-  if (useDialogForm()) {
+  const inDialog = useDialogForm()
+  const inCard = useContext(RowsCardContext)
+  if (inDialog && !inCard) {
     return <ChoiceRow title={title} desc={desc} selected={selected} tabStop={tabStop} disabled={disabled} onClick={onClick} />
   }
   return (

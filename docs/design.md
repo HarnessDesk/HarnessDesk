@@ -281,8 +281,13 @@ one (`design/patterns/DialogForm.tsx`): children 16px apart, a `Field`'s label
 6px over its group. The Settings parts read the dialog around them, so a
 screen composes them without saying a number: `SectionHead` draws a legend,
 `FormStack`, `Note` and `Rows` drop their page spacing, and a `Rows` radio
-group of `RowChoice` draws as a `ChoiceList` — 30px rows, a radio on the
-title's line, and only the chosen answer's description on screen.
+group made only of `RowChoice` rows draws as a `ChoiceList` — compact rows, a
+radio on the title's line, and every answer's description under its title in
+the hint step, so answers can be compared and choosing moves nothing. A radio
+group of anything else (New worktree's branch picker) keeps its card. The
+scope stops where the form does: a `flush` body is a list, and dialog and
+alert content, popovers and menus start outside any form, even when opened
+from a dialog's field (React context crosses portals).
 
 Which control a choice takes: `Segmented` or a `NativeSelect` for two to four
 short answers; `ChoiceList` when answers need a line; checkboxes for several

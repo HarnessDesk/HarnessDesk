@@ -1,6 +1,7 @@
 import { AlertDialog as AlertDialogPrimitive } from '@base-ui/react/alert-dialog'
 import type * as React from 'react'
 
+import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 
 /**
@@ -54,7 +55,7 @@ const AlertDialogContent = ({ className, children, ...props }: AlertDialogPrimit
       )}
       {...props}
     >
-      {children}
+      <DialogFormContext.Provider value={false}>{children}</DialogFormContext.Provider>
     </AlertDialogPrimitive.Popup>
   </AlertDialogPortal>
 )

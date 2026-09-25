@@ -8,9 +8,11 @@ import confirmSheet from './ConfirmDialog.module.css?raw'
 import confirmStyles from './ConfirmDialog.module.css'
 import formSheet from './DialogForm.module.css?raw'
 import formStyles from './DialogForm.module.css'
+import { ChoiceList, Fieldset } from './DialogForm'
 import { Dialog } from './ModalDialog'
 import modalSheet from './ModalDialog.module.css?raw'
 import modalStyles from './ModalDialog.module.css'
+import { RowChoice, Rows, SectionHead } from './Settings'
 
 /**
  * A dialog pattern owns its box without a tie (#901's rule, for dialogs).
@@ -162,9 +164,24 @@ it('a dialog owns its box: no utility on any of its parts ties with its sheet', 
       footerAside="⌘⏎"
     >
       <p>Body</p>
+      <Fieldset legend="The most it may do" hint="One of four.">
+        <ChoiceList
+          label="The most it may do"
+          value="read"
+          onChange={() => {}}
+          options={[{ value: 'read', title: 'Read', description: 'Changes nothing.' }, { value: 'edit', title: 'Edit' }]}
+        />
+      </Fieldset>
+      <SectionHead name="Where it is kept" description="Either place." />
+      <Rows role="radiogroup" aria-label="Where it is kept">
+        <RowChoice title="For you" desc="On this Mac." selected onClick={() => {}} />
+      </Rows>
     </Dialog>,
   ))
   const parts = ties(document.body)
-  expect(parts.map((one) => one.local)).toEqual(expect.arrayContaining(['header', 'title', 'subhead', 'body', 'footer', 'stack']))
+  expect(parts.map((one) => one.local)).toEqual(expect.arrayContaining([
+    'header', 'title', 'subhead', 'body', 'footer', 'stack',
+    'fieldset', 'fieldsetBody', 'legend', 'legendName', 'legendHint', 'choiceList', 'choice', 'radio', 'choiceTitle', 'choiceDesc',
+  ]))
   for (const part of parts) expect(part.ties, part.element).toEqual([])
 })

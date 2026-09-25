@@ -3,6 +3,7 @@ import { forwardRef, useState } from 'react'
 import type * as React from 'react'
 
 import { CrossIcon } from '@/components/Icons'
+import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 
 /* Vendored from shadcn/ui (dialog). The scrim and z-order are the app's own
@@ -113,7 +114,9 @@ const DialogContent = forwardRef<
         )}
         {...props}
       >
-        {children}
+        {/* What a dialog holds starts outside any form: a dialog opened from
+            another dialog's body does not inherit that body's rhythm. */}
+        <DialogFormContext.Provider value={false}>{children}</DialogFormContext.Provider>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"

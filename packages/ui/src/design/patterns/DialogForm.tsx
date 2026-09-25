@@ -1,5 +1,6 @@
-import { createContext, useContext, useId, type KeyboardEvent, type ReactNode } from 'react'
+import { useContext, useId, type KeyboardEvent, type ReactNode } from 'react'
 
+import { DialogFormContext } from '../../lib/dialog-form'
 import { Button } from '../ui/button'
 import styles from './DialogForm.module.css'
 
@@ -15,20 +16,21 @@ import styles from './DialogForm.module.css'
  * group label floating 40px from its list, four 60px rows for four words.
  *
  * So the dialog's body says it is a dialog (`DialogFormScope`, provided by
- * `Dialog`), and those parts read it: inside a dialog `SectionHead` draws a
- * legend, `FormStack` and the body keep this sheet's rhythm, and a `Rows`
- * that is a radio group of `RowChoice` becomes a `ChoiceList`. Existing
- * dialogs change without an edit; new ones compose the parts below.
+ * `Dialog`, and not by a `flush` body, which is a list), and those parts read
+ * it: inside a dialog `SectionHead` draws a legend, `FormStack` and the body
+ * keep this sheet's rhythm, a `Rows` radio group whose every row is a
+ * `RowChoice` becomes a `ChoiceList` (a group of anything else keeps its
+ * card), and a `RowChoice` outside a card is a compact radio row. Dialog and alert content, popovers and menus reset the scope for
+ * what they hold. Existing dialogs change without an edit; new ones compose
+ * the parts below.
  *
  * Choosing the control for one answer among several:
  *
  *   2–4 short answers        `Segmented`, or a `NativeSelect`
- *   answers that need a line `ChoiceList` — only the chosen one explains itself
+ *   answers that need a line `ChoiceList` — every answer's line in the hint step
  *   several members at once  checkboxes (`Checkbox`), never switches: a switch
  *                            acts now, and a picked member is not an action
  */
-
-const DialogFormContext = createContext(false)
 
 /** Marks everything inside as a dialog's form. `Dialog` puts its body in one. */
 export const DialogFormScope = ({ children }: { readonly children: ReactNode }) => (
@@ -118,9 +120,13 @@ export const stepRadio = (event: KeyboardEvent<HTMLElement>): void => {
 }
 
 /**
- * One answer in a `ChoiceList`: a radio on the title's line, and the
- * description only when it is the answer. The row is the target, so the
- * whole line answers a click, and its height is a menu item's.
+ * One answer in a `ChoiceList`: a radio on the title's line and, under the
+ * title, the answer's description in the hint step. Every answer shows its
+ * description, so answers can be compared before one is chosen, and choosing
+ * moves nothing — a row's height is its content's, never its state's. The
+ * whole row is the target. It reaches 8px past its column on either side, so
+ * the radio lines up with the labels above it and the hover still has a
+ * corner to round, wherever the row is placed.
  */
 export const ChoiceRow = ({
   title,
@@ -138,7 +144,7 @@ export const ChoiceRow = ({
   readonly disabled?: boolean
   readonly onClick: () => void
 }) => {
-  const descId = useId()
+  const id = useId()
   return (
     <Button
       variant="ghost"
@@ -146,7 +152,10 @@ export const ChoiceRow = ({
       type="button"
       role="radio"
       aria-checked={selected}
-      aria-describedby={desc ? descId : undefined}
+      /* Named by its title alone; the description is said once, as the
+         description. Left to the text content, the name read both. */
+      aria-labelledby={`${id}-title`}
+      aria-describedby={desc ? `${id}-desc` : undefined}
       tabIndex={selected || tabStop ? 0 : -1}
       disabled={disabled}
       className={styles.choice}
@@ -155,11 +164,8 @@ export const ChoiceRow = ({
       onKeyDown={stepRadio}
     >
       <span className={styles.radio} aria-hidden="true" {...(selected ? { 'data-checked': '' } : {})} />
-      <span className={styles.choiceTitle}>{title}</span>
-      {/* Kept in the tree when it is not the answer, hidden, so the row is
-          still described to a screen reader and the list does not reflow
-          under a reader who is only listening. */}
-      {desc ? <span id={descId} className={styles.choiceDesc} hidden={!selected}>{desc}</span> : null}
+      <span id={`${id}-title`} className={styles.choiceTitle}>{title}</span>
+      {desc ? <span id={`${id}-desc`} className={styles.choiceDesc}>{desc}</span> : null}
     </Button>
   )
 }
@@ -170,9 +176,10 @@ export const choiceListClass = styles.choiceList
 /**
  * One answer among a few that each need a line of explanation, in a dialog.
  *
- * Rows 30px tall, a radio beside each title, and only the chosen answer's
- * description on screen. For two to four answers a word each, use `Segmented`
- * or a `NativeSelect`; for several members at once, checkboxes.
+ * Compact rows, a radio beside each title and every description under its
+ * title in the hint step, so nothing moves when the answer changes. For two to
+ * four answers a word each, use `Segmented` or a `NativeSelect`; for several
+ * members at once, checkboxes.
  */
 export const ChoiceList = <T extends string>({
   label,

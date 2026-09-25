@@ -466,11 +466,11 @@ having written the judgement down.
 
 ### `secondary`
 
-**Use** — An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet so the confirm is the one filled button.
+**Use** — An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Alone in a footer it keeps its fill.
 
 **Not** — In a page or section head. It is the same grey as the surfaces around it and disappears into them.
 
-**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn. In a footer the footer decides its look (`in-data-[slot=dialog-footer]`), so a screen writes `secondary` and gets the quiet way out.
+**Why** — The enclosure supplies the separation, so the control does not have to. It is the app's most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out; a lone Close keeps its frame.
 
 ### `quiet`
 
@@ -492,7 +492,7 @@ having written the judgement down.
 
 **Use** — A remove action set among others on a page or in a row — the door to a confirm, not the confirm.
 
-**Not** — For an action that merely closes, cancels or hides (those are ordinary), and never as the act of a destructive confirm: that is `danger`, filled.
+**Not** — For an action that merely closes, cancels or hides (those are ordinary), and never in a dialog footer: the act of a destructive confirm is `danger`, filled, and the audit refuses the soft red there.
 
 **Why** — It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.
 
@@ -548,11 +548,11 @@ having written the judgement down.
 
 ### `Segmented · NativeSelect · ChoiceList · Checkbox`
 
-**Use** — One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — 30px radio rows, and only the chosen answer explains itself. Several members at once (which Agents to seat, which files to take): checkboxes.
+**Use** — One answer among two to four short ones: `Segmented`, or a `NativeSelect` when the words are long or the list may grow. One answer that needs a line to explain it: `ChoiceList` — compact radio rows, each with its description under its title in the hint step, so answers can be compared and choosing moves nothing. Several members at once (which Agents to seat, which files to take): checkboxes.
 
-**Not** — A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group of `RowChoice` already draws as a `ChoiceList`.
+**Not** — A switch for picking a member — a switch acts the moment it is flipped, and ticking who comes along is not an action. Nor a card of 60px settings rows for four words in a dialog; inside a dialog a `Rows` radio group made only of `RowChoice` rows already draws as a `ChoiceList` (a group of anything else keeps its card).
 
-**Why** — A choice is read before it is made, and the eye reads a list of titles faster than a list of paragraphs. The description earns its line on the answer that holds, where it says what you have just agreed to; on the others it is noise until chosen, and a screen reader still hears it.
+**Why** — A choice is read before it is made, so every answer shows what it means — in the hint step, a size below its title, so the titles still scan as a list. A description shown only on the chosen answer moved the rows under the pointer and hid what a person needed to compare.
 
 ### `Field · Fieldset · FormStack`
 
@@ -581,7 +581,7 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 | --- | --- | --- | --- | --- | --- |
 | `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
 | `sectionAction` | the `action` of a `SectionHead` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
-| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `destructive`, `danger`, `outline` | `--hd-btn-h` | one | Exactly one filled button: the confirm, `default` — or `danger` when it destroys. Cancel and Close are `secondary`, which the footer draws quiet, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled confirm keeps its own hue, dimmed, rather than fading into a grey slab. `ghost` is not allowed: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. |
+| `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `danger`, `outline` | `--hd-btn-h` | one | A footer of two or more buttons has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is exempt: a sheet with only Close has nothing to act. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page's remove action, not a confirm's act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`. |
 
 ## Primitives
 
@@ -762,9 +762,13 @@ the way a native radio group does: one Tab stop, and the arrows choose.
 
 `packages/ui/src/design/patterns/DialogForm.tsx`
 
-One answer in a `ChoiceList`: a radio on the title's line, and the
-description only when it is the answer. The row is the target, so the
-whole line answers a click, and its height is a menu item's.
+One answer in a `ChoiceList`: a radio on the title's line and, under the
+title, the answer's description in the hint step. Every answer shows its
+description, so answers can be compared before one is chosen, and choosing
+moves nothing — a row's height is its content's, never its state's. The
+whole row is the target. It reaches 8px past its column on either side, so
+the radio lines up with the labels above it and the hover still has a
+corner to round, wherever the row is placed.
 
 ### `choiceListClass`
 
@@ -778,9 +782,10 @@ The container a dialog's `Rows role="radiogroup"` becomes.
 
 One answer among a few that each need a line of explanation, in a dialog.
 
-Rows 30px tall, a radio beside each title, and only the chosen answer's
-description on screen. For two to four answers a word each, use `Segmented`
-or a `NativeSelect`; for several members at once, checkboxes.
+Compact rows, a radio beside each title and every description under its
+title in the hint step, so nothing moves when the answer changes. For two to
+four answers a word each, use `Segmented` or a `NativeSelect`; for several
+members at once, checkboxes.
 
 ### `WorkbenchCanvas`
 
@@ -958,8 +963,9 @@ footer and measured sizes.
 
 The body is a form stack (`DialogForm`) unless it is `flush`: its children
 are 16px apart, a `SectionHead` in it is a legend on the group it names,
-and a `Rows` radio group is a compact `ChoiceList`. Nothing in the body
-needs spacing of its own.
+and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
+Nothing in the body needs spacing of its own. A `flush` body is a list and
+is not a form, so it keeps the page's parts.
 
 ### `useDismissOverlays`
 
@@ -1226,7 +1232,9 @@ A card of rows. Every settings page is made of these and nothing else.
 
 A card with nothing in it is not drawn: an empty list left a stray 2px
 rule in the middle of a form. Inside a dialog, a card that is a radio group
-is a `ChoiceList` — no card, and each `RowChoice` in it a compact radio row.
+of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
+row a compact radio row. A radio group of anything else (a branch picker of
+row buttons) keeps its card, its edge and its ground.
 
 ### `RowButton`
 
@@ -1244,8 +1252,10 @@ The tick sits on the left, where a list of choices reads as a list rather
 than as a column of unrelated switches — and the chosen row is the only one
 carrying ink, so the answer is findable without reading all of them.
 
-Inside a dialog it is a `ChoiceList` row instead: 30px, a radio on the
-title's line, and the description only on the chosen answer.
+Inside a dialog it is a compact radio row instead (`ChoiceRow`): a radio on
+the title's line and the description under it in the hint step — unless it
+stands in a card of rows, where it stays the settings row the card is
+built for.
 
 ### `BackLink`
 
