@@ -1,10 +1,10 @@
 /* The group project's two columns: who is here, and what they said.
  *
- * Geometry, and the two marks the geometry exists to place: the presence light
- * on a member's tile, and the pill that says how far behind the reader is.
- * Everything else with a colour or an edge is a component; this file decides
- * where the rail is and that both halves scroll on their own — which is the
- * whole reason it is a pane and not a panel.
+ * Geometry only. Everything with a colour, a type step or an edge is a
+ * component — the bar, the rail's sections, the presence light, the pill that
+ * says how far behind the reader is; this file decides where the rail is and
+ * that both halves scroll on their own — which is the whole reason it is a
+ * pane and not a panel.
  */
 
 .pane {
@@ -16,25 +16,17 @@
 
 /* --- the room's one top row ----------------------------------------------
  *
- * One bar height, like every other edge row in the window — the conversation's
- * header, a tool's, a panel's tab strip. That is what makes the horizontal
- * line under it continue straight into whatever is beside the room instead of
- * stepping.
- *
- * With the sidebar away this is the window's top-left, and the macOS window
- * buttons are drawn over it — so it starts after whatever room the shell says
- * this box owes them. See `--titlebar-inset` in `app.css`; with the sidebar up,
- * in the browser build, or on the preview page, that is nothing.
+ * The window's `Bar`, like every other edge row in the window — the
+ * conversation's header, a tool's, a panel's tab strip. That is what makes the
+ * horizontal line under it continue straight into whatever is beside the room
+ * instead of stepping, and what clears the macOS window buttons when the
+ * sidebar is away (`Bar corner`).
  */
 .bar {
   /* A pane's top row, under the name every top row folds by — so the window's
      own controls fold their arrows here at the width they do in a
      conversation's header (`WindowControls.module.css`). */
   container: hd-header / inline-size;
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2); /* desk: 10 → 8, one row rather than the rail head's two-line block */
-  flex: none; /* desk: the rail head's growing text box is a fixed-height row now */
   /* `.barName` and `.barFacts` shrink to their own floors before anything
      else does, but the row's own fixed-width members — the window's own
      controls, the state chip, the origin chip, the rule, the verbs — do not
@@ -84,20 +76,14 @@
   text-overflow: ellipsis; /* desk: it now carries the project and origin too, and a bare clip mid-word read as broken. */
 }
 
-/* The line between what the row says and what it does. Same rule, same 18px,
-   as the conversation header's. */
-.barRule {
-  flex: none;
-  width: 1px;
-  margin: 0 var(--hd-space-1);
-  margin-left: auto;
-}
-
+/* What the row does, at its end, behind the divider that separates it from
+   what the row says. */
 .barVerbs {
   display: flex;
   align-items: center;
   gap: var(--hd-space-0-5);
   flex: none;
+  margin-left: auto;
 }
 
 /* Messaging and Wrap are actions, not facts — the bar's own `overflow:
@@ -121,11 +107,6 @@
   .barVerbsCompact {
     display: inline-flex;
   }
-}
-
-.barTrouble {
-  flex: none;
-  margin: 0;
 }
 
 /* The two halves, under the row that names them both. */
@@ -170,61 +151,23 @@
   overflow-wrap: normal;
 }
 
-@keyframes hd-room-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.35;
-  }
-}
-
-/* Board and room sit above the agents with a rule under them: the work and
-   the place it is agreed come before any one worker. */
+/* Board and room are the rail's head (`RailSection`), above the agents with a
+   rule under them: the work and the place it is agreed come before any one
+   worker. The agents' own label is the sidebar's (`NavigationGroupHeader`). */
 .railPinned {
   display: flex;
   flex-direction: column;
   gap: var(--hd-space-0-5);
   flex-shrink: 0;
-  /* Even padding now that the room's name is on the row above rather than in a
-     head of its own: this is the top of the rail, and it was leaning on that
-     head for its own breathing room. */
 }
 
-/* The word over the rail's agent list. On `--hd-label-*` like the sidebar's
-   and the settings window's, so the three columns cannot drift and one
-   Interface setting moves all of them. This rule reached the shape by hand
-   first — 12px uppercase medium — which is a good sign the tokens named the
-   right thing, and a bad one that it had to be typed twice. */
-.railLabel {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  flex-shrink: 0;
-}
-
-/* The filter, drawn as a line rather than a field: a box with its own border
-   inside a rail of borderless rows reads as a form to fill in. */
+/* The sidebar's own filter field, on the rail's gutter. */
 .railFilter {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-1-5);
   flex-shrink: 0;
-  margin: 0 var(--hd-space-2) var(--hd-space-1);
+  margin: 0 var(--hd-bar-pad) var(--hd-space-1);
 }
 
-.railFilter svg {
-  width: 13px;
-  flex: none;
-}
-
-.railFilterClear {
-  display: flex;
-  flex: none;
-
-}
-
+/* The long list, which scrolls under the head (`RailSection stretch="list"`). */
 .railList {
   flex: 1;
   min-height: 0;
@@ -233,6 +176,12 @@
 
 .railEmpty {
   margin: 0;
+}
+
+/* The rail's edge is a rule of its own, beside it: the narrow room below takes
+   it away with the split, when the rail is the whole pane. */
+.railEdge {
+  flex: none;
 }
 
 /* `margin-left: auto` here and nowhere else in the row. The roster heading
@@ -251,8 +200,8 @@
  * that has to truncate from the right end and not the left.
  */
 
-/* The tile, and the light that sits on its corner. Relative so the light can
-   hang half off the tile the way a presence dot does everywhere else. */
+/* The tile, and the light that sits on its corner (`Dot variant="presence"`).
+   Relative so the light can hang half off the tile. */
 .memberMark,
 .columnMark {
   position: relative;
@@ -269,32 +218,17 @@
   opacity: 0.55;
 }
 
-.dotOn {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 7px;
-  animation: hd-room-pulse 2s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dotOn {
-    animation: none;
-  }
-}
-
 /* A doubt rather than a refusal: the harness says it can reach the tools and
-   the board has never seen it use one. Muted rather than warning ink, so it
-   cannot be mistaken for the line above it, which is a fact. */
+   the board has never seen it use one. The row's own muted second line rather
+   than warning ink, so it cannot be mistaken for the line above it, which is a
+   fact. */
 .memberIdle {
   overflow-wrap: anywhere; /* desk: nowrap + ellipsis → wraps, a sentence arrives whole (rule 9) */
 }
 
 /* A state somebody chose, which is neither of the two above: not a fault to
-   warn about and not a doubt to hedge. Upright rather than italic — the
-   italic on `.memberIdle` is this app's mark for "we are not sure" — and
-   muted, because a member set to hold its messages is a setting, not an
-   alarm. */
+   warn about and not a doubt to hedge. The row's own muted second line,
+   because a member set to hold its messages is a setting, not an alarm. */
 .memberInbound {
   overflow-wrap: anywhere; /* desk: nowrap + ellipsis → wraps, a sentence arrives whole (rule 9) */
 }
@@ -320,22 +254,6 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  /* How far the reading column is held off this pane's edge.
-     The stream pays it as 24px of padding plus the scrollbar gutter it
-     reserves on both edges; nothing else here scrolls, so everything else
-     that has to land on the same column adds it back by hand. Named once
-     because it was wrong the first time it was typed twice: `.trouble` was
-     given the column's `max-width` and none of this, and ran up to 64px wider
-     than the messages it is about on any pane under ~1032px — which is most of
-     them, since the 232px rail comes off the pane first.
-
-     Unprefixed on purpose: this is one component's private property, not a
-     token. `--hd-` belongs to the design system's own vocabulary in
-     `tokens.css` and `design:audit` refuses a new one declared out here —
-     rightly, since a name under that prefix reads as something the whole app
-     may rely on. `--composer-h` in `Conversation.module.css` is the same
-     shape. */
-  --room-dock: calc(var(--hd-space-6) + var(--hd-scrollbar-width, 8px));
 }
 
 /* The stream and the thing that floats over it. */
@@ -400,50 +318,20 @@
   width: fit-content;
 }
 
-/* In the column with the words it is about: a line that runs the full pane
-   under a 736px conversation reads as the window's alarm rather than this
-   message's.
-
-   `.turnError` in the conversation is the same idea and gets away with a plain
-   `max-width` because `TurnTail` renders it *inside* `.scroll`, so it inherits
-   the scroller's inset. This one is rendered in `.body`, outside both the
-   stream and the composer — a docked item, like `.composer` — so the measure
-   has to be the column plus the dock's own gutters, and the 12px it reads at
-   is inside that rather than inside the pane. */
-/* Also the thread's own live line's measure now — a second docked strip at
-   the same position, so the one rule answers "the column plus the dock's
-   own gutters" once rather than once per caller. */
-.trouble {
-  flex-shrink: 0;
-  width: 100%;
-  max-width: calc(var(--hd-column) + 2 * var(--room-dock));
-  margin: 0 auto; /* desk: 0 → centred, the line now sits in the column */
-  padding-inline: calc(var(--room-dock) + var(--hd-space-3)); /* desk: added — folded in from each caller's own utility, now a third caller shares it rather than repeating it */
+/* The thread's own tail — its live line and the two failures it can say out
+   loud — docked with the composer (`ComposerDock`) in the same reading column,
+   so a line about the room's messages is as wide as they are rather than the
+   window's alarm. */
+.tail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
+  max-width: var(--hd-column); /* desk: the column plus the dock's gutters → the column, inside the composer's dock that pays them */
+  margin-inline: auto;
 }
 
-/* No rule above it, and the reading column's own gutter beside it.
- *
- * This had `space-2` all round and a hairline across the top; the conversation
- * has no rule at all. The rule was the louder half — a line drawn one click
- * from where the conversation draws none, and a composer that needs a border
- * to separate it from the stream is a composer whose shadow is not doing its
- * job.
- *
- * The gutter was 16px for a while, measured against the channel's own rows on
- * the reasoning that a box lining up with a wider column's number would be out
- * of line with everything above it here. That reasoning was right and its
- * premise has gone: the rows are not full-bleed any more. They read in
- * `--hd-column`, the same measure the conversation is set in, so lining up
- * with the words above is now the same thing as lining up with the
- * conversation — which is the point. The number is the stream's own inset plus
- * the gutter the stream reserves, so the box is exactly as wide as the words
- * rather than 16px proud of them once the pane falls below the column's cap.
- * The conversation's composer carries the same compensation for the same
- * reason; see `.composerShell` for the measure itself. */
-.composer {
-  flex-shrink: 0;
-}
-
+/* The composer's own measure, inside the dock: the reading column the stream
+   above hangs in, so the box is exactly as wide as the words. */
 .composerShell {
   max-width: var(--hd-column);
   margin-inline: auto;
@@ -485,6 +373,10 @@
     display: flex;
   }
 
+  .railEdge {
+    display: none;
+  }
+
   /* Four short numbers are not worth a truncated sentence. At this width the
      row keeps the room's name and the verbs, which are the two things that
      cannot be got any other way. */
@@ -502,26 +394,23 @@
  * against the pane's measured width, so this never has to squeeze.
  */
 .columns {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
+  display: flex; /* desk: grid → flex, so a Separator can stand between neighbours */
   min-width: 0;
   min-height: 0;
   height: 100%;
 }
 
+/* Equal shares of the row, with a rule (`Separator`) between neighbours. */
 .column {
   display: flex;
   flex-direction: column;
+  flex: 1 1 0;
   min-width: 0;
   min-height: 0;
 }
 
-/* One bar height, like every other edge row in the window. */
+/* The window's `Bar`, like every other edge row in the window. */
 .columnHead {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
   flex: none;
 }
 

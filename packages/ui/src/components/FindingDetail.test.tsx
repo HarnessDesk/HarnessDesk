@@ -83,6 +83,27 @@ it('a missing Seat says so, and never substitutes a current name', async () => {
   expect(document.body.textContent).toContain('This Seat is unavailable.')
 })
 
+it('names each later part of the history as one of the dialog’s own groups', async () => {
+  const { store } = rig(page({ seat: null }))
+  await render(store)
+  const groups = [...document.querySelectorAll('[role="dialog"] [data-slot="fieldset"][role="group"]')].map(
+    (group) => document.getElementById(group.getAttribute('aria-labelledby') ?? '')?.textContent,
+  )
+  // Nothing after the raise yet, so there is no later history to name.
+  expect(groups).toEqual(['Where it was posted', 'Raised by'])
+  expect(document.body.textContent).toContain('Not published yet')
+
+  // A later page of events is a history, even before it is read.
+  act(() => root.unmount())
+  root = createRoot(container)
+  await render(rig(page({ seat: null, next: 'cursor-2' })).store)
+  const named = [...document.querySelectorAll('[role="dialog"] [data-slot="fieldset"][role="group"]')].map(
+    (group) => document.getElementById(group.getAttribute('aria-labelledby') ?? '')?.textContent,
+  )
+  expect(named).toEqual(['History', 'Where it was posted', 'Raised by'])
+  expect(document.body.textContent).toContain('Show more history')
+})
+
 it('a script-bearing body and an unsafe link are never executed or opened', async () => {
   const malicious = page({
     finding: {

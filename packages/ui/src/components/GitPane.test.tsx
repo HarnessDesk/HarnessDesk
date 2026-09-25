@@ -14,6 +14,8 @@ import { StoreProvider } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitPane } from './GitPane'
+import gitPaneCss from './GitPane.module.css?raw'
+import gitPaneSource from './GitPane.tsx?raw'
 
 /**
  * The history pane against a scripted host. What is held: the pane asks for
@@ -1166,4 +1168,18 @@ it('a file staged and then changed again is one file to commit, not two', async 
   await act(async () => button('Commit').click())
   const rows = [...document.querySelectorAll('[role="checkbox"]')].filter((node) => node.textContent?.includes('src/a.ts'))
   expect(rows).toHaveLength(1)
+})
+
+/**
+ * The commit's head stands on the tool bar, which wraps its controls in a
+ * narrow pane. The head is one line of text whose subject ellipsises, so it
+ * says `nowrap`: wrapped, a long subject would drop under the id on a line of
+ * its own. Read as text, because the CSS module is stubbed here.
+ */
+it('keeps the open commit’s head on one line, while the other tool bars wrap', () => {
+  expect(gitPaneSource).toContain('<ToolPaneBar variant="tools" className={styles.detailHead}>')
+  const at = gitPaneCss.indexOf('.detailHead {')
+  expect(at, 'the head has a rule of its own').toBeGreaterThan(-1)
+  const rule = gitPaneCss.slice(at, gitPaneCss.indexOf('}', at)).replace(/\/\*[\s\S]*?\*\//g, '')
+  expect(rule).toMatch(/flex-wrap:\s*nowrap/)
 })

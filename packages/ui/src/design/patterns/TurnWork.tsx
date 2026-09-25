@@ -81,19 +81,35 @@ const TurnItem = ({
  * rather than a record — faint, and moving. It stands as tall as the step
  * rows it will become, and its words shimmer unless the reader asked for less
  * motion, when they are simply muted.
+ *
+ * It is a polite live region, and only its words are in it. Two options keep
+ * that contract clean for a line that says more than an activity:
+ *
+ *   trail     a reading that ticks — a turn's clock — set after the words and
+ *             outside the region, so a screen reader hears what is happening
+ *             when it changes rather than once a second.
+ *   settled   a line that is not motion but a state the thread is in — a wait,
+ *             a stop — in the same box and ink, without the shimmer. It may
+ *             lead with the glyph that says so (a `Dot`).
  */
-const TurnWorkLive = ({ className, children, ...props }: React.ComponentProps<'div'>) => (
-  <div
-    data-slot="turn-work-live"
-    role="status"
-    aria-live="polite"
-    className={cn(
-      'flex min-h-(--hd-control-h) items-center pt-0.5 pb-1 pl-0.5 text-base text-(--hd-muted-foreground)',
-      className,
-    )}
-    {...props}
-  >
+const TurnWorkLive = ({
+  className,
+  children,
+  trail,
+  settled = false,
+  ...props
+}: React.ComponentProps<'div'> & { trail?: React.ReactNode; settled?: boolean }) => {
+  const line = cn(
+    'flex min-h-(--hd-control-h) items-center gap-(--hd-space-1-5) pt-0.5 pb-1 pl-0.5 text-base text-(--hd-muted-foreground)',
+    className,
+  )
+  const words = settled ? (
+    <span data-slot="turn-work-live-words" className="inline-flex items-center gap-(--hd-space-1-5)">
+      {children}
+    </span>
+  ) : (
     <span
+      data-slot="turn-work-live-words"
       className={cn(
         'bg-[linear-gradient(90deg,var(--hd-muted-foreground)_0%,var(--hd-muted-foreground)_35%,var(--hd-foreground)_50%,var(--hd-muted-foreground)_65%,var(--hd-muted-foreground)_100%)]',
         '[background-size:220%_100%] bg-clip-text text-transparent',
@@ -103,8 +119,26 @@ const TurnWorkLive = ({ className, children, ...props }: React.ComponentProps<'d
     >
       {children}
     </span>
-  </div>
-)
+  )
+  const state = settled ? { 'data-settled': '' } : {}
+  if (trail == null) {
+    return (
+      <div data-slot="turn-work-live" role="status" aria-live="polite" {...state} className={line} {...props}>
+        {words}
+      </div>
+    )
+  }
+  return (
+    <div {...state} className={line} {...props}>
+      <span data-slot="turn-work-live" role="status" aria-live="polite" className="inline-flex min-w-0">
+        {words}
+      </span>
+      <span data-slot="turn-work-live-trail" className="tabular-nums">
+        {trail}
+      </span>
+    </div>
+  )
+}
 
 export {
   TurnItem,

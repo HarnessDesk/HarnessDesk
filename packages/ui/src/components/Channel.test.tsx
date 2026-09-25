@@ -631,13 +631,13 @@ it('draws you in the face the seat wears — the one you chose, or the house mar
   ] as unknown as TeamEntry[]
 
   await render(you({ name: 'Jane', avatar: 'astronaut' }), said)
-  const face = container.querySelector('[data-slot="avatar"]')
+  const face = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(face?.querySelector('img')?.getAttribute('src')).toMatch(/\/astronaut\.png$/)
   // Still "You" in words: the face is decoration, and the header says who spoke.
   expect(container.textContent).toContain('You')
 
   await render(you({}), said)
-  const mark = container.querySelector('[data-slot="avatar"]')
+  const mark = container.querySelector('[data-channel="message"] [data-slot="icon-tile"]')
   expect(mark?.querySelector('img')).toBeNull()
   expect(mark?.querySelector('.brand-harnessdesk')).not.toBeNull()
 })
@@ -661,7 +661,7 @@ it('draws your face at the cost of anyone else’s row — no subscription of it
       reason: null,
     })) as unknown as TeamEntry[]
     await render(store, said)
-    if (from === 'user') expect(container.querySelectorAll('[data-slot="avatar"] img')).toHaveLength(3)
+    if (from === 'user') expect(container.querySelectorAll('[data-channel="message"] [data-slot="icon-tile"] img')).toHaveLength(3)
     act(() => root.unmount())
     root = createRoot(container)
     return subscribe.mock.calls.length

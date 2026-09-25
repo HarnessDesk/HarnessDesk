@@ -32,7 +32,7 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, GitHistoryActionBar, GitHistoryCommitDetail, GitHistoryCommitDetailHeader, GitHistoryCommitFileList, GitHistoryDiffViewport, GitHistoryFilters, GitHistoryInlinePatch, GitHistoryTableHeader, KeyValue, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, Text } from '../design'
 import { Button, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
@@ -722,7 +722,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Button>
       </ToolPaneHeader>
 
-      <GitHistoryActionBar role="toolbar" aria-label="Repository actions">
+      <ToolPaneBar variant="tools" role="toolbar" aria-label="Repository actions">
         <ActionBtn
           icon={<CommitIcon size={15} />}
           label="Commit"
@@ -803,8 +803,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         />
         <span className={styles.space} />
         {working && <Text role="meta">{working}</Text>}
-      </GitHistoryActionBar>
-      <Separator />
+      </ToolPaneBar>
 
       {conflicted && (
         <Alert tone="warning" className={styles.troubleBar} role="status">
@@ -828,7 +827,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </Alert>
       )}
 
-      <GitHistoryFilters className={styles.tools}>
+      <ToolPaneBar variant="tools" className={styles.tools}>
         <Segmented<GitLogScope>
           label="Which branches"
           options={[
@@ -866,8 +865,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         <Text role="meta" numeric className={styles.count}>
           {loading ? 'Reading…' : `${total.toLocaleString()}${hasMore ? '+' : ''} commits`}
         </Text>
-      </GitHistoryFilters>
-      <Separator />
+      </ToolPaneBar>
 
       {provenance.error && <Note>Provenance could not be read. <Button variant="link" onClick={provenance.retry}>Retry provenance</Button></Note>}
 
@@ -893,7 +891,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             </Button>
           )}
 
-          <GitHistoryTableHeader role="row" onPointerMove={onDragMove} onPointerUp={onRelease}>
+          <div role="row" className={styles.tableHead} onPointerMove={onDragMove} onPointerUp={onRelease}>
             {!searching && (
               <HeadCell
                 name="graph"
@@ -934,7 +932,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
                 onNudge={onNudge}
               />
             )}
-          </GitHistoryTableHeader>
+          </div>
           <Separator />
 
           <div
@@ -2100,7 +2098,7 @@ const CommitDetail = ({
   )
 
   return (
-    <GitHistoryCommitDetail className={styles.detail} style={{ flexBasis: `${fraction * 100}%` }} ref={host}>
+    <div className={styles.detail} style={{ flexBasis: `${fraction * 100}%` }} ref={host}>
       <Separator />
       <ResizeHandle
         orientation="horizontal"
@@ -2123,7 +2121,7 @@ const CommitDetail = ({
           dragging.current = false
         }}
       />
-      <GitHistoryCommitDetailHeader>
+      <ToolPaneBar variant="tools" className={styles.detailHead}>
         <CommitIcon size={13} />
         <Text role="meta"><CodeText as="code">{shortSha(sha)}</CodeText></Text>
         <Text role="row" className={styles.detailTitle}>{subject}</Text>
@@ -2131,8 +2129,7 @@ const CommitDetail = ({
         <Button variant="ghost" size="icon-sm" aria-label="Close the commit" onClick={onClose}>
           <CrossIcon size={13} />
         </Button>
-      </GitHistoryCommitDetailHeader>
-      <Separator />
+      </ToolPaneBar>
 
       {failed ? (
         <Note>Could not read that commit — it may have been rewritten away.</Note>
@@ -2146,7 +2143,7 @@ const CommitDetail = ({
             <PopoverGroupLabel>
               {detail.files.length} file{detail.files.length === 1 ? '' : 's'}
             </PopoverGroupLabel>
-            <GitHistoryCommitFileList>{detail.files.map(fileRow)}</GitHistoryCommitFileList>
+            {detail.files.map(fileRow)}
           </div>
           <Separator orientation="vertical" />
           <div className={styles.detailRight}>
@@ -2165,9 +2162,9 @@ const CommitDetail = ({
                 ) : diffs.get(file) === '' ? (
                   <Note>No text patch — a binary file, or an empty change.</Note>
                 ) : (
-                  <GitHistoryDiffViewport>
+                  <ToolPaneBody>
                     <DiffView diff={diffs.get(file)!} />
-                  </GitHistoryDiffViewport>
+                  </ToolPaneBody>
                 )}
               </>
             ) : (
@@ -2191,15 +2188,15 @@ const CommitDetail = ({
                 ) : diffs.get(entry.path) === '' ? (
                   <Note>No text patch — a binary file, or an empty change.</Note>
                 ) : (
-                  <GitHistoryInlinePatch>
+                  <ListRowDetail inset>
                     <DiffView diff={diffs.get(entry.path)!} />
-                  </GitHistoryInlinePatch>
+                  </ListRowDetail>
                 ))}
             </div>
           ))}
         </div>
       )}
-    </GitHistoryCommitDetail>
+    </div>
   )
 }
 

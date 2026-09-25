@@ -15,7 +15,6 @@ import {
   Checkbox,
   Dialog,
   FileState,
-  GitHistoryDiffViewport,
   Input,
   NativeSelect,
   Note,
@@ -840,7 +839,6 @@ export const DiffRangeDialog = ({
       icon={<DiffIcon size={16} />}
       size="xl"
       tall
-      flush
       onClose={onDone}
       footer={<Button variant="default" onClick={onDone}>Close</Button>}
     >
@@ -851,9 +849,7 @@ export const DiffRangeDialog = ({
       ) : diff.length === 0 ? (
         <Note>The two are identical.</Note>
       ) : (
-        <GitHistoryDiffViewport className={styles.rangeDiff}>
-          <DiffView diff={diff} />
-        </GitHistoryDiffViewport>
+        <DiffView diff={diff} />
       )}
     </Dialog>
   )

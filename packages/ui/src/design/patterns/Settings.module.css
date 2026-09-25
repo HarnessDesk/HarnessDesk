@@ -65,6 +65,29 @@
   50% { opacity: 0.35; }
 }
 
+/* A member's presence: the light that hangs off the corner of its tile, cut
+   out of the tile by a ring of the ground it stands on — the room's rail, a
+   column's head and the name card all draw the same one. The navigation
+   dot's size, because it is read in the same glance. */
+.dot[data-variant='presence'] {
+  position: absolute;
+  right: calc(-1 * var(--hd-space-0-5));
+  bottom: calc(-1 * var(--hd-space-0-5));
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 2px var(--hd-background);
+}
+
+.dot[data-variant='presence'][data-ground='popover'] {
+  box-shadow: 0 0 0 2px var(--hd-popover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot[data-pulse] {
+    animation: none;
+  }
+}
+
 .chip {
   flex: none;
   display: inline-flex;

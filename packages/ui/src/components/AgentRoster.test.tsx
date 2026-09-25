@@ -201,13 +201,23 @@ it('draws every Agent’s ceiling through the same chip, held plan or none', () 
 it('keeps an Agent that cannot be seated here, with the first reason on screen', () => {
   mount()
   expect(sectionText('Built in')).toContain("Can't seat here · Cursor is signed out")
+  // Said in the warning tone: the person has to act before it can seat here.
+  const refusal = [...container.querySelectorAll('section[aria-label="Built in"] [data-slot="text"][data-tone="warning"]')]
+    .find((one) => one.textContent?.startsWith("Can't seat here"))
+  expect(refusal).toBeDefined()
 })
 
-it('lists a shadowed copy where it lives, in the Plugins-superseded idiom — a chip and a sentence', () => {
+it('lists a shadowed copy where it lives, in the Plugins-superseded idiom — a value and a sentence', () => {
   mount()
   const text = sectionText('Built in')
   expect(text).toContain('Shadowed')
   expect(text).toContain('Shadowed by the one in storefront')
+  // A copy that is not used is a fact, not a warning (usage.ts, `tone`).
+  const value = [...container.querySelectorAll('section[aria-label="Built in"] *')]
+    .find((one) => one.children.length === 0 && one.textContent === 'Shadowed')
+  expect(value).toBeDefined()
+  expect(value?.closest('[data-tone]')).toBeNull()
+  expect(value?.className ?? '').not.toContain('warning')
 })
 
 it('lists a file that will not parse, with why', () => {

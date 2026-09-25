@@ -65,6 +65,7 @@ import {
   SummaryItem,
   SummaryList,
   Switch,
+  Text,
   sortableItemClass,
   useSortable,
 } from '../design'
@@ -529,7 +530,7 @@ const OwnSeats = ({
           ? 'Not used on this Mac: its seats here replace this list. Every other machine seats it in this order.'
           : 'In the order it asks for them. The first this Mac can offer is the one it takes.'}
       </Note>
-      <Rows className={replaced ? 'text-(--hd-muted-foreground)' : undefined}>
+      <Rows>
         {!plan && <Row title="Checking seats…" />}
         {plan && !replaced && plan.blocked && <Row title={plan.blocked} />}
         {plan && seats.length === 0 && !plan.blocked && <Row title="It names no seat" />}
@@ -537,6 +538,7 @@ const OwnSeats = ({
           <SeatRow
             key={`${index}-${candidate.label}`}
             candidate={candidate}
+            moot={replaced}
             words={replaced && candidate.state === 'taken' ? 'Free here' : stateWords(candidate)}
             editsSeats={onEditSeats !== undefined}
             onFix={(fix) => (fix.kind === 'seats' ? onEditSeats?.() : store.askSeatFix(fix, entry.id))}
@@ -551,11 +553,14 @@ const OwnSeats = ({
 export const SeatRow = ({
   candidate,
   words,
+  moot = false,
   editsSeats = false,
   onFix,
 }: {
   readonly candidate: SeatCandidate
   readonly words: string
+  /** A seat of a list this Mac does not use: named in the muted ink, never withdrawn. */
+  readonly moot?: boolean
   /** Whether this surface can take *Edit seats for this Mac* itself; a button that goes nowhere is not drawn. */
   readonly editsSeats?: boolean
   readonly onFix: (fix: SeatFix) => void
@@ -565,7 +570,7 @@ export const SeatRow = ({
   return (
     <Row
       mark={<RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} />}
-      title={candidate.label}
+      title={<Text role="row" ink={moot ? 'muted' : 'primary'}>{candidate.label}</Text>}
       desc={words}
       {...(fix && (fix.kind !== 'seats' || editsSeats)
         ? {
