@@ -58,6 +58,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
   badge: 'packages/ui/src/components/Channel.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
+  bar: 'packages/ui/src/components/Sidebar.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
   chart: 'packages/ui/src/components/Usage.tsx',
   composer: 'packages/ui/src/components/RoomComposer.tsx',
@@ -113,7 +114,7 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
    exemptions are for compound anatomy whose state is already exercised by
    the named interactive board but is not expressed as CVA axes. */
 const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
-  'alert-dialog', 'avatar', 'avatar-stack', 'board',
+  'alert-dialog', 'avatar', 'avatar-stack', 'bar', 'board',
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
@@ -169,6 +170,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   section: ['card', 'plain', 'quiet', 'panel'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
+  bar: ['default'],
   spark: ['default'],
   stat: ['plain', 'bordered', 'tinted'],
   stepper: ['default'],
@@ -247,6 +249,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   section: ['expanded', 'collapsed'],
   select: ['closed', 'open', 'selected', 'disabled'],
   separator: ['default'],
+  bar: ['default'],
   spark: ['default', 'success', 'warning', 'error'],
   stat: ['default', 'loading', 'error'],
   stepper: ['default', 'active', 'success', 'error'],
@@ -439,6 +442,7 @@ export const CANONICAL_UI_MODULES = [
   ['section', 'section', 'Titled content region'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
+  ['bar', 'panels', 'Bar-height row: title bars, filter rows, facts lines'],
   ['spark', 'spark', 'Inline quantitative marks'],
   ['stat', 'stat', 'Primary reading tile'],
   ['stepper', 'stepper', 'Ordered progress steps'],
