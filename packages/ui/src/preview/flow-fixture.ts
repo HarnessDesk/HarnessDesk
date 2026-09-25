@@ -1,4 +1,4 @@
-import type { CompiledFlow, FlowEntry, FlowPreview, FlowPreviewSeat, FlowUpdatePreview, SeatPlan } from '@harnessdesk/protocol'
+import type { CompiledFlow, FlowEntry, FlowExecution, FlowPreview, FlowPreviewSeat, FlowStartTarget, FlowUpdatePreview, SeatPlan } from '@harnessdesk/protocol'
 
 import { PREVIEW_ROOT } from './sidebar-fixture'
 
@@ -163,4 +163,44 @@ export const PREVIEW_FLOW_CUSTOMIZE: FlowUpdatePreview = {
     { path: '.harnessdesk/flows/comparison.yml', before: null, after: FIX_SOURCE },
   ],
   problems: [],
+}
+
+/**
+ * A front-door start's own resolved target, three ways: a branch's head (a
+ * pinned revision, shown as "at a1b2c3d on branch feature"), a diff's own
+ * range (no head repeated — its label already carries both ends), and a
+ * working tree's bounded snapshot (`head: null`, `dirty: true` — never a
+ * committed head to pin).
+ */
+const FLOW_TARGETS: Readonly<Record<'branch' | 'diff' | 'working-diff', FlowStartTarget>> = {
+  branch: { kind: 'branch', label: 'branch feature', base: 'main', head: 'a1b2c3d4e5f678901234567890abcdef12345678', pr: null, dirty: false },
+  diff: { kind: 'diff', label: 'changes from abc123 to def456', base: 'abc1234567890123456789012345678901234567', head: 'def4567890123456789012345678901234567890', pr: null, dirty: false },
+  'working-diff': { kind: 'working-diff', label: 'the working tree', base: null, head: null, pr: null, dirty: true },
+}
+
+const FLOW_EXECUTION = (over: Partial<FlowExecution> = {}): FlowExecution => ({
+  version: 2,
+  id: 'preview-flow-run',
+  goal: 'goal-flow',
+  document: FIX_DOCUMENT,
+  state: 'running',
+  rounds: [{ n: 1, role: 'fixer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+  operations: [],
+  legacyRun: null,
+  reason: null,
+  ...over,
+})
+
+export const FLOW_EXECUTION_SCENES = ['pinned', 'stopped', 'diff', 'working-diff'] as const
+export type FlowExecutionScene = (typeof FLOW_EXECUTION_SCENES)[number]
+
+/** What the "flow scene" Dial in the preview harness stages for `goal-flow`'s own reserved run. */
+export const sceneFlowExecution = (scene: FlowExecutionScene): FlowExecution => {
+  if (scene === 'pinned') return FLOW_EXECUTION({ target: FLOW_TARGETS.branch })
+  if (scene === 'diff') return FLOW_EXECUTION({ target: FLOW_TARGETS.diff })
+  if (scene === 'working-diff') return FLOW_EXECUTION({ target: FLOW_TARGETS['working-diff'] })
+  // A person's own stop, never a service's: the host's exact default
+  // sentence (`packages/server/src/flow-execution.ts`), read lowercase and
+  // shown by `TeamRoomPane`'s own `sentence()` as "The person stopped this flow."
+  return FLOW_EXECUTION({ target: FLOW_TARGETS.branch, state: 'stopped', reason: 'the person stopped this flow' })
 }
