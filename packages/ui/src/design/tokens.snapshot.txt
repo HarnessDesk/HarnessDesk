@@ -82,6 +82,7 @@
 --hd-code-selection = rgba(0, 92, 197, 0.18)
 --hd-code-string = rgb(23, 110, 62)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
@@ -534,6 +535,7 @@
 --hd-code-selection = rgba(56, 139, 253, 0.32)
 --hd-code-string = rgb(126, 231, 135)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px
@@ -990,6 +992,7 @@
 --hd-code-selection = rgba(0, 92, 197, 0.18)
 --hd-code-string = rgb(23, 110, 62)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(154, 76, 15)
 --hd-code-variable = rgb(36, 41, 47)
 --hd-column = 736px
@@ -1454,6 +1457,7 @@
 --hd-code-selection = rgba(56, 139, 253, 0.32)
 --hd-code-string = rgb(126, 231, 135)
 --hd-code-text = 12px
+--hd-code-tracking-spaced = 0.18em
 --hd-code-type = rgb(255, 166, 87)
 --hd-code-variable = rgb(201, 209, 217)
 --hd-column = 736px

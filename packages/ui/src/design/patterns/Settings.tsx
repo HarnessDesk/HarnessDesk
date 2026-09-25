@@ -43,7 +43,8 @@ export const Dot = ({
   className,
   ...props
 }: HTMLAttributes<HTMLSpanElement> & {
-  state: Readiness
+  /** Absent: the neutral light — a state that is neither good nor bad news. */
+  state?: Readiness
   pulse?: boolean
   variant?: 'default' | 'navigation' | 'presence'
   /** The surface a presence light's tile stands on. */
@@ -53,7 +54,7 @@ export const Dot = ({
     {...props}
     className={cx(styles.dot, className)}
     data-slot="dot"
-    data-state={state}
+    {...(state ? { 'data-state': state } : {})}
     data-variant={variant}
     {...(variant === 'presence' ? { 'data-ground': ground } : {})}
     {...(pulse ? { 'data-pulse': '' } : {})}
@@ -614,6 +615,13 @@ const TEXT_ROLE_INK = {
   prose: 'text-(--hd-foreground)',
 } as const
 
+/** A role's own weight, or one of the scale's rungs in its place. */
+const TEXT_WEIGHT = {
+  normal: 'font-normal',
+  medium: 'font-medium',
+  semibold: 'font-semibold',
+} as const
+
 const TEXT_INK = {
   primary: 'text-(--hd-foreground)',
   secondary: 'text-(--hd-secondary-foreground)',
@@ -623,7 +631,7 @@ const TEXT_INK = {
 
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'b' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
   children: ReactNode
   role?: TextRole
   tone?: Tone
@@ -631,6 +639,11 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   tint?: Tint
   /** Preserve a role's size and weight while selecting one of the three ink tiers. */
   ink?: keyof typeof TEXT_INK
+  /**
+   * Keep the role's size and ink on a different rung of the weight scale — the
+   * words a search matched, lifted inside the line they were found in.
+   */
+  weight?: keyof typeof TEXT_WEIGHT
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
   /** Put the ellipsis at the beginning, so a path keeps the filename end. */
@@ -650,6 +663,7 @@ export const Text = ({
   tone,
   tint,
   ink,
+  weight,
   align = 'start',
   truncate,
   truncateFrom,
@@ -668,10 +682,11 @@ export const Text = ({
       ...(tone ? { 'data-tone': tone } : {}),
       ...(tint ? { 'data-tint': tint } : {}),
       ...(ink ? { 'data-ink': ink } : {}),
+      ...(weight ? { 'data-weight': weight } : {}),
       ...(truncateFrom ? { 'data-truncate-from': truncateFrom } : {}),
       ...(done ? { 'data-done': '' } : {}),
       className: cx(
-        TEXT_ROLE[role],
+        weight ? TEXT_ROLE[role].replace(/\bfont-(?:normal|medium|semibold)\b/, TEXT_WEIGHT[weight]) : TEXT_ROLE[role],
         tone
           ? inkTone({ tone })
           : tint
@@ -1210,6 +1225,7 @@ export const CodeText = ({
   block = false,
   ground = 'none',
   wrap = false,
+  spaced = false,
   className,
   children,
   ...props
@@ -1221,6 +1237,8 @@ export const CodeText = ({
   ground?: 'none' | 'muted'
   /** Fold a block's long lines; only a `block` takes it. */
   wrap?: boolean
+  /** Space the characters, for a code read aloud and typed elsewhere — a one-time code. */
+  spaced?: boolean
   children: ReactNode
 }) => createElement(as, {
   ...props,
@@ -1229,6 +1247,7 @@ export const CodeText = ({
   ...(block ? { 'data-block': '' } : {}),
   ...(block && ground !== 'none' ? { 'data-ground': ground } : {}),
   ...(block && wrap ? { 'data-wrap': '' } : {}),
+  ...(spaced ? { 'data-spaced': '' } : {}),
   className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)
 

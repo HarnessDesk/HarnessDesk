@@ -35,7 +35,10 @@ const alertVariants = cva(
         soft: '',
       },
       tone: {
-        neutral: 'border-(--hd-border) bg-(--hd-card) [&>svg]:text-(--hd-muted-foreground)',
+        /* The title is the alert's headline wherever it sits: a neutral alert
+           has no tone ink of its own, so without this its title took the
+           ink of whatever held it — the secondary ink of a dialog's body. */
+        neutral: 'border-(--hd-border) bg-(--hd-card) [&>svg]:text-(--hd-muted-foreground) [&_[data-slot=alert-title]]:text-(--hd-foreground)',
         info: 'border-(--hd-tint-sky-edge)/40 bg-(--hd-tint-sky-fill) [&>svg]:text-(--hd-tint-sky-ink)',
         success: 'border-(--hd-success)/40 bg-(--hd-success-dim) [&>svg]:text-(--hd-success-ink)',
         warning: 'border-(--hd-warning)/40 bg-(--hd-warning-dim) [&>svg]:text-(--hd-warning-ink)',

@@ -145,6 +145,9 @@ it('names the account already held before sending you to the browser', async () 
   )
 
   expect(detail().textContent).toContain('Sign in as somebody else')
+  // It is a labelled group — the section head every group on the page wears — over its note.
+  const caution = [...detail().querySelectorAll('[data-slot="section-name"]')].find((node) => node.textContent === 'Sign in as somebody else')
+  expect(caution?.closest('[data-section-head]')?.nextElementSibling?.getAttribute('data-slot')).toBe('note')
   // In the card, not the rail — the roster prints that same label for the
   // primary row, so `container` would pass with the warning missing.
   expect(detail().textContent).toContain('ada@example.com')
@@ -285,6 +288,10 @@ it('composes the shared roster, state and text roles', async () => {
   expect([...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])].map((node) => node.getAttribute('data-stretch')))
     .toEqual(['head', 'list'])
   expect(rail?.querySelector(':scope > [data-slot="section-footer"]')?.textContent).toContain('Credentials stay on this machine')
+  const [head, list] = [...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])]
+  // The head sits under the dialog's own rule, so it opens with a ruled head's short step.
+  expect(head?.hasAttribute('data-ruled')).toBe(true)
+  expect([head, list].map((section) => section?.getAttribute('data-density'))).toEqual(['comfortable', 'comfortable'])
   expect(detail().getAttribute('data-slot')).toBe('modal-dialog-body')
   expect(detail().getAttribute('data-layout')).toBe('reading')
 
@@ -295,6 +302,12 @@ it('composes the shared roster, state and text roles', async () => {
   expect(lights?.getAttribute('aria-label')).toBe('2 agents: 1 ready, 1 needs sign-in')
   expect([...(lights?.querySelectorAll('[data-slot="dot"]') ?? [])].map((dot) => dot.getAttribute('data-state')))
     .toEqual(['ready', 'signin'])
+
+  // The agent's mark in the detail head stands in the subject role's ink,
+  // not the reading body's secondary ink.
+  const headMark = detail().querySelector('svg')?.closest('[data-slot="text"]')
+  expect(headMark?.getAttribute('data-role')).toBe('subject')
+  expect(headMark?.className).toContain('text-(--hd-foreground)')
 
   // An account's state is a toned round tile beside the subject and muted roles.
   expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
@@ -321,6 +334,8 @@ it('sets a one-time code verbatim on the code plate, at the page step', async ()
   expect(code?.getAttribute('data-slot')).toBe('code-text')
   expect(code?.hasAttribute('data-block')).toBe(true)
   expect(code?.getAttribute('data-ground')).toBe('muted')
+  // Spaced, so its groups read across a room.
+  expect(code?.hasAttribute('data-spaced')).toBe(true)
   const words = code?.querySelector('[data-slot="text"]')
   expect(words?.getAttribute('data-role')).toBe('page')
   expect(words?.textContent).toBe('WDJB-MJHT')

@@ -655,7 +655,7 @@ const QueueBoard = () => (
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
       </PopoverSurface>
       <Text role="muted" as="div">
-        Press <Keycap>esc</Keycap> to close; “Set<Text as="strong" role="meta" ink="primary" className="font-semibold">tings</Text>” shows the matched text at full ink and weight.
+        Press <Keycap>esc</Keycap> to close; “Set<Text as="b" role="meta" ink="primary" weight="semibold">tings</Text>” shows the matched text at full ink and weight.
       </Text>
       <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
       <ComposerShell className="relative min-h-20">

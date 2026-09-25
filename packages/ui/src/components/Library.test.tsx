@@ -973,6 +973,17 @@ it('a row says who loads it without a table, and names each state for readers', 
   ])
 })
 
+it('a problem wears the warning ground on the same small round tile', async () => {
+  await mount(library([entry('alpha', ['hollow', 'reaches'])]))
+  const [problem] = [...document.body.querySelectorAll<HTMLElement>('[data-reach][data-tone]')]
+  expect(problem?.dataset['reach']).toBe('hollow')
+  expect(problem?.dataset['tone']).toBe('warning')
+  expect(problem?.hasAttribute('data-problem')).toBe(true)
+  expect(problem?.classList.contains('size-4.5')).toBe(true)
+  expect(problem?.classList.contains('rounded-full')).toBe(true)
+  expect(problem?.classList.contains('opacity-40')).toBe(false)
+})
+
 it('a row’s finding names the defect, never the symptom it causes', async () => {
   // The bug this pins: `hollow` and `differs` both mean nothing reaches, so
   // a "reaches nobody first" rule captioned an empty directory and a pair of
@@ -1455,6 +1466,8 @@ it('draws each matrix state in the meta ink it judges by, loads-it as the readin
   expect(loads?.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('Reaches')
   expect(unread?.dataset['tone']).toBe('warning')
   expect(unread?.querySelector('[data-slot="dot"]')).toBeNull()
+  // A copy no agent has read is the task list's pending ring, not a drawing of one.
+  expect(unread?.querySelector('svg')?.classList.contains('lucide-circle')).toBe(true)
 })
 
 it('a copy an agent has not read back yet says so, and is not filed as a fault', async () => {

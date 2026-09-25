@@ -538,7 +538,6 @@
   color: var(--hd-muted-foreground);
 }
 
-
 /* A form: fields stacked with a step of air between them. */
 .formStack {
   display: flex;
@@ -1222,7 +1221,6 @@
 
 /* --- odds and ends the pages share -------------------------------------- */
 
-
 .mono {
   font-family: var(--hd-font-code);
   font-size: var(--hd-code-inline); /* desk: 12.5px → 0.92em of its sentence (12px floor), the code face follows the words around it */
@@ -1252,6 +1250,14 @@
   white-space: pre-wrap;
 }
 
+/* Spaced code sets the spacing on the words it holds too, so a text role
+   inside it (a one-time code at the page step) does not take its own
+   tracking back. */
+.mono[data-spaced],
+.mono[data-spaced] * {
+  letter-spacing: var(--hd-code-tracking-spaced);
+}
+
 .monogram {
   font-size: var(--hd-text-xs);
   font-weight: var(--hd-weight-semibold);
@@ -1273,9 +1279,6 @@
   margin-inline: var(--hd-space-2);
   color: var(--hd-muted-foreground);
 }
-
-/* A tool's wire name. It is what you need to write a permission rule and not
-   what you need to read a history, so it appears only where it is the answer. */
 
 .field {
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */
@@ -1376,7 +1379,6 @@
 .avatar[data-shape='square'][data-size='m'] {
   border-radius: var(--hd-radius);
 }
-
 
 /* In a box someone else drew: its size, and its corner. */
 .avatar[data-fill] {

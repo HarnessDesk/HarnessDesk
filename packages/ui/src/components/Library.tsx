@@ -32,6 +32,7 @@ import {
   RetryIcon,
   RowsLooseIcon,
   SearchIcon,
+  TodoPendingIcon,
   TrashIcon,
 } from './Icons'
 import {
@@ -135,37 +136,20 @@ type Filter =
   | 'unused'
   | 'off'
 
-
 /**
  * The mark for one state.
  *
  * Shape carries the meaning and colour only reinforces it, so the table reads
- * the same to anyone who does not separate red from green. `absent` is a rule,
- * not a glyph: nothing is wrong, and a symbol there would compete with the
- * ones that mean something.
- */
-/**
- * What the marks in the table mean — the ones actually on screen, and no
- * others.
+ * the same to anyone who does not separate red from green. `absent` is the
+ * table's own no-value dash, not a glyph: nothing is wrong, and a symbol there
+ * would compete with the ones that mean something.
  *
- * The table had a `<caption>` and the caption was `position: absolute` at one
- * pixel: a legend for screen readers and nothing at all for everybody else.
- * So the one view in this app that no other app has — eight distinct marks
- * against a grid of agents — asked a first-time reader to hover every cell to
- * find out what it was looking at, and a reader who does not hover simply
- * never learns.
- *
- * Built from the rows on screen rather than from the eight states, because a
- * key that explains five things absent from the table is furniture. On a
- * healthy machine this is two entries wide.
- */
-/**
- * One state in the matrix, told apart by shape before colour. The marks are
- * set in the meta role's ink — a warning's where the copy needs mending, the
- * muted one everywhere else — so a state reads the same in a cell, in the
- * legend and beside a row: a problem is an icon (empty, refused, differs,
- * cannot host it), a copy that loads is the readiness light every roster
- * uses, and "not installed" is the table's own no-value dash.
+ * Every mark is a part the app already has, set in the meta role's ink — the
+ * warning ink where the copy needs mending, the muted one everywhere else: a
+ * problem is its icon, a copy no agent has read is the task list's pending
+ * ring, a copy that loads is the readiness light, one not loaded yet the
+ * neutral light. Only "switched off" — the neutral light struck through — is
+ * drawn here.
  */
 const ReachMark = ({
   state,
@@ -181,12 +165,12 @@ const ReachMark = ({
   else if (state === 'differs') mark = <DiffIcon size={13} />
   else if (state === 'unhostable') mark = <CrossIcon size={13} />
   else if (state === 'reaches') mark = <Dot state="ready" />
-  else if (state === 'unscanned') mark = <span className="size-2 rounded-full border border-current" />
-  else if (state === 'stale') mark = <span className="size-1.5 rounded-full bg-current" />
+  else if (state === 'unscanned') mark = <TodoPendingIcon size={10} />
+  else if (state === 'stale') mark = <Dot />
   else if (state === 'off') {
     mark = (
       <span className="relative inline-flex size-3 items-center justify-center">
-        <span className="size-1.5 rounded-full bg-current" />
+        <Dot />
         <span className="absolute h-px w-3 bg-current" />
       </span>
     )
@@ -206,6 +190,21 @@ const ReachMark = ({
   )
 }
 
+/**
+ * What the marks in the table mean — the ones actually on screen, and no
+ * others.
+ *
+ * The table had a `<caption>` and the caption was `position: absolute` at one
+ * pixel: a legend for screen readers and nothing at all for everybody else.
+ * So the one view in this app that no other app has — eight distinct marks
+ * against a grid of agents — asked a first-time reader to hover every cell to
+ * find out what it was looking at, and a reader who does not hover simply
+ * never learns.
+ *
+ * Built from the rows on screen rather than from the eight states, because a
+ * key that explains five things absent from the table is furniture. On a
+ * healthy machine this is two entries wide.
+ */
 const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
   const present = useMemo(() => {
     const order: readonly ReachState[] = [

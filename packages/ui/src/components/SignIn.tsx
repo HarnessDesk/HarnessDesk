@@ -341,9 +341,10 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
             {row && row.status !== 'out' ? (
               <Alert tone="neutral" variant="soft" className={own.next}>
-                <span className={own.nextMark}>
+                {/* The mark belongs to the alert's headline, and wears its ink. */}
+                <Text role="subject" className={own.nextMark}>
                   <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
-                </span>
+                </Text>
                 <AlertContent className={own.nextText}>
                   <AlertTitle>
                     {nextUp
@@ -530,9 +531,11 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   return (
     <>
       <div className={own.who}>
-        <span className={own.whoMark}>
+        {/* The agent's mark stands in its name's role and ink: the reading
+            body's secondary ink is for prose, not for a head. */}
+        <Text role="subject" className={own.whoMark}>
           <RuntimeMark runtime={info} size={22} />
-        </span>
+        </Text>
         <Text role="subject" truncate>{info.presentation.name}</Text>
       </div>
       <Note className={own.blurb}>
@@ -749,9 +752,11 @@ const RegistryAgent = ({
   return (
     <>
       <div className={own.who}>
-        <span className={own.whoMark}>
+        {/* The agent's mark stands in its name's role and ink: the reading
+            body's secondary ink is for prose, not for a head. */}
+        <Text role="subject" className={own.whoMark}>
           <RuntimeMark runtime={{ id: agent.id, presentation: { name: agent.name } }} size={22} />
-        </span>
+        </Text>
         <Text role="subject" truncate>{agent.name}</Text>
         <Text role="meta" className={own.whoMeta}>{meta}</Text>
       </div>
@@ -1016,9 +1021,9 @@ const Pending = ({
       />
 
       {start.type === 'browser' ? null : (
-        /* Verbatim and selectable, on the code plate, at the page step so it
-           can be read across a room and typed on another device. */
-        <CodeText as="code" block ground="muted" className={own.code} aria-label="One-time code">
+        /* Verbatim and selectable, on the code plate, at the page step and
+           spaced, so it can be read across a room and typed on another device. */
+        <CodeText as="code" block ground="muted" spaced className={own.code} aria-label="One-time code">
           <Text role="page" ink="primary">{start.code}</Text>
         </CodeText>
       )}

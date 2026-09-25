@@ -147,3 +147,13 @@ it('sets a sentence at the reading size without the tabular figures a value line
   expect(prose?.className).not.toContain('tabular-nums')
   expect(value?.className).toContain('tabular-nums')
 })
+
+it('takes a weight rung in place of its role\u2019s own, keeping the role\u2019s size and ink', () => {
+  act(() => root.render(<Text as="b" role="meta" ink="primary" weight="semibold">match</Text>))
+  const word = container.querySelector<HTMLElement>('b[data-slot="text"]')
+  expect(word?.dataset['weight']).toBe('semibold')
+  expect(word?.className).toContain('font-semibold')
+  expect(word?.className).not.toContain('font-normal')
+  expect(word?.className).toContain('text-xs')
+  expect(word?.className).toContain('text-(--hd-foreground)')
+})
