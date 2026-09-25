@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
 import { buttonVariants } from '../ui/button'
+import css from './Settings.module.css?raw'
 import { Row, RowButton, RowChoice, Rows } from './Settings'
 
 /**
@@ -57,4 +58,23 @@ it('the pattern size brings the behaviour and the variant, and none of the box',
   // Every other size still wears the button's own box.
   expect(buttonVariants({ size: 'content' })).toContain('rounded-(--hd-btn-radius)')
   expect(buttonVariants({})).toContain('inline-flex')
+})
+
+/**
+ * A narrow row stacks rather than squeezing its title (#885). The layout is
+ * measured in `e2e/ui-system/row-box.spec.ts`; this keeps the three rules that
+ * make it in the loop `pnpm verify` runs, where no browser is.
+ */
+it('a row wraps its control under a title that keeps a readable width', () => {
+  const rule = (selector: string): string => {
+    const match = new RegExp(`(?:^|\\n)${selector.replace(/[.:()+]/g, '\\$&')} \\{([^}]*)\\}`).exec(css)
+    if (!match?.[1]) throw new Error(`no ${selector} rule`)
+    return match[1]
+  }
+  expect(rule('.row')).toMatch(/flex-wrap:\s*wrap/)
+  // A title with no floor is the one that went a letter a line.
+  expect(rule('.rowText')).toMatch(/min-width:\s*min\(100%,\s*\d/)
+  // A control that never shrinks runs off the card once it is alone on a line.
+  expect(rule('.rowCtl')).toMatch(/flex:\s*0 1 auto/)
+  expect(rule('.rowCtl')).toMatch(/max-width:\s*100%/)
 })

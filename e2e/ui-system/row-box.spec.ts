@@ -10,9 +10,16 @@ import { expect, test, type Page } from '@playwright/test'
  * utility wins its tie with a stylesheet class by order — so every row button
  * lost the card's inset and set its words against the card's edge (#866).
  *
- * Measured in the real engine, because jsdom compiles no utilities, so the
- * tie cannot be seen there.
+ * The second half is the narrow row (#885): a control that holds a sentence
+ * used to keep its whole width and squeeze the title to one letter per line.
+ * The title keeps a readable width now, and the control drops under it when
+ * the two cannot share a line.
+ *
+ * Measured in the real engine, because jsdom lays nothing out and compiles no
+ * utilities, so neither defect can be seen there.
  */
+
+const SENTENCE = 'Runs after every round, and stops the flow when a reviewer asks for changes twice in a row.'
 
 const mount = async (page: Page, width: number) => {
   await page.route('**/src/preview/main.tsx*', async route => {
@@ -38,6 +45,11 @@ const mount = async (page: Page, width: number) => {
               h(RowChoice, { title: 'Choice row', desc: 'A description', selected: true, onClick: () => {} }),
               h(RowChoice, { title: 'Another answer', selected: false, onClick: () => {} })),
             h(Row, { 'data-testid': 'rowfx-last', title: 'Last row' }),
+          ),
+          h(Rows, { 'data-testid': 'rowfx-narrow' },
+            h(Row, { 'data-testid': 'rowfx-sentence', title: 'Round one', control: h(RowValue, null, ${JSON.stringify(SENTENCE)}) }),
+            h(RowButton, { 'data-testid': 'rowfx-sentence-button', title: 'Round two', control: h(RowValue, null, ${JSON.stringify(SENTENCE)}), onClick: () => {} }),
+            h(Row, { 'data-testid': 'rowfx-short', title: 'Round three', control: h(RowValue, null, 'Twice') }),
           ),
         ));
       `,
@@ -78,4 +90,56 @@ test('a row button and a row choice draw the same box as the plain row beside th
       return Math.round(title.getBoundingClientRect().left - row.getBoundingClientRect().left)
     }))
   expect(lefts[1]).toBe(lefts[0])
+})
+
+test('a sentence in a narrow row wraps under a title that keeps its words', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  await mount(page, 400)
+  const readings = await page.evaluate(() => ['sentence', 'sentence-button', 'short'].map(id => {
+    const row = document.querySelector(`[data-testid="rowfx-${id}"]`) as HTMLElement
+    const title = row.querySelector('[class*="rowTitle"]') as HTMLElement
+    const control = row.querySelector('[class*="rowCtl"]') as HTMLElement
+    const line = parseFloat(getComputedStyle(title).lineHeight)
+    const t = title.getBoundingClientRect(), c = control.getBoundingClientRect(), r = row.getBoundingClientRect()
+    return {
+      id,
+      titleLines: Math.round(t.height / line),
+      controlBelow: c.top >= t.bottom - 1,
+      controlInside: c.left >= r.left - 1 && c.right <= r.right + 1,
+      overflow: row.scrollWidth - row.clientWidth,
+    }
+  }))
+  for (const reading of readings) {
+    expect(reading.titleLines, `${reading.id}: the title broke over lines`).toBe(1)
+    expect(reading.controlInside, `${reading.id}: the control left the row`).toBe(true)
+    expect(reading.overflow, `${reading.id}: the row overflows`).toBeLessThanOrEqual(0)
+  }
+  // A row button's chevron stays on the control's line, at the row's end.
+  const chevron = await page.evaluate(() => {
+    const row = document.querySelector('[data-testid="rowfx-sentence-button"]') as HTMLElement
+    const c = row.querySelector('[class*="rowCtl"]')!.getBoundingClientRect()
+    const v = row.querySelector('[class*="rowChev"]')!.getBoundingClientRect()
+    return { sameLine: v.top < c.bottom && v.bottom > c.top, end: Math.round(row.getBoundingClientRect().right - v.right) }
+  })
+  expect(chevron.sameLine).toBe(true)
+  await page.getByRole('region', { name: 'Row fixture' }).screenshot({ path: test.info().outputPath('narrow-rows.png') })
+  // The sentence drops under its title; a word stays on the title's line.
+  expect(readings.find(r => r.id === 'sentence')?.controlBelow).toBe(true)
+  expect(readings.find(r => r.id === 'sentence-button')?.controlBelow).toBe(true)
+  expect(readings.find(r => r.id === 'short')?.controlBelow).toBe(false)
+})
+
+test('at a normal width a short control keeps its place beside the title', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 700 })
+  await mount(page, 720)
+  const same = await page.evaluate(() => {
+    const row = document.querySelector('[data-testid="rowfx-short"]') as HTMLElement
+    const title = row.querySelector('[class*="rowTitle"]')!.getBoundingClientRect()
+    const control = row.querySelector('[class*="rowCtl"]')!.getBoundingClientRect()
+    return { row: Math.round(row.getBoundingClientRect().right), control: Math.round(control.right), below: control.top >= title.bottom - 1 }
+  })
+  expect(same.below).toBe(false)
+  // The control still ends at the row's inset, not wherever the words stop.
+  expect(same.row - same.control).toBeGreaterThan(0)
+  expect(same.row - same.control).toBeLessThan(40)
 })
