@@ -34,3 +34,13 @@ it('is one part under both rails', () => {
     renderToStaticMarkup(<AppWindowRailScroll>c</AppWindowRailScroll>),
   ]) expect(markup).toContain('data-slot="rail-section"')
 })
+
+it('opens a head that sits under a bar’s rule with the step it closes with, so its first row never meets the line', () => {
+  const ruled = renderToStaticMarkup(<RailSection stretch="head" ruled>places</RailSection>)
+  expect(ruled).toContain('data-ruled')
+  expect(classOf(ruled)).toEqual(expect.arrayContaining(['pt-(--hd-space-1)', 'pb-(--hd-space-1)']))
+  // Only a head is ever under a bar; a list is under its label.
+  const list = renderToStaticMarkup(<RailSection stretch="list" ruled>sessions</RailSection>)
+  expect(list).not.toContain('data-ruled')
+  expect(classOf(list)).not.toContain('pt-(--hd-space-1)')
+})

@@ -248,8 +248,8 @@
 .channel {
   display: flex;
   flex-direction: column;
-  max-width: var(--hd-column);
-  padding: var(--hd-space-2) var(--hd-space-4);
+  max-width: var(--hd-column); /* desk: 420px → --hd-column, the room is the channel's only measure now */
+  padding: var(--hd-space-2) var(--hd-space-4); /* desk: 8px 0 → 8px 16px, the rows sit on the column's edges rather than carrying a gutter of their own */
   border: 1px solid var(--hd-border);
   border-radius: var(--hd-radius);
   background: var(--hd-card);

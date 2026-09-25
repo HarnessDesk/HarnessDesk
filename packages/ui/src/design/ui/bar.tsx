@@ -23,19 +23,25 @@ import { cn } from '@/lib/utils'
  *           `--titlebar-inset` in `app.css`.
  *   rule    The one hairline that separates the bar from what it heads
  *           (`bottom`) or closes (`top`).
+ *
+ * `as="header"` is for a bar that names what is under it — a page's own top
+ * row, a column's head — so a screen reader can find it as that region's
+ * header rather than as one more box.
  */
 const Bar = ({
+  as: Element = 'div',
   className,
   inset = 'box',
   corner = false,
   rule,
   ...props
 }: React.ComponentProps<'div'> & {
+  as?: 'div' | 'header'
   inset?: 'box' | 'ink'
   corner?: boolean
   rule?: 'top' | 'bottom'
 }) => (
-  <div
+  <Element
     data-slot="bar"
     data-inset={inset}
     {...(corner ? { 'data-corner': '' } : {})}

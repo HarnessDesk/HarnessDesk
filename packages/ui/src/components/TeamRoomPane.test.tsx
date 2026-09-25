@@ -1235,12 +1235,18 @@ it('says which members are working on their rows, and keeps one presence fact in
   expect(bar.textContent).toContain('2 here')
   expect(bar.textContent).not.toContain('working')
   expect(bar.textContent).not.toContain('claimed')
-  /* Read as text, not as a class: the CSS module is stubbed to nothing in this
-     environment, so asserting on the light's class name would pass whether or
-     not the light was drawn. What is asserted is the half that has to be right
-     anyway — what the row says to a reader who cannot see a colour. */
+  /* Read as text, and as the system's presence light — never as a class: the
+     CSS module is stubbed to nothing in this environment. What is asserted
+     first is the half that has to be right anyway — what the row says to a
+     reader who cannot see a colour. */
   expect(row('API migration').textContent).toContain('working')
   expect(row('Opus').textContent).not.toContain('working')
+  const light = (name: string): Element | null => row(name).querySelector('[data-slot="dot"][data-variant="presence"]')
+  expect(light('API migration')?.getAttribute('data-state')).toBe('ready')
+  expect(light('API migration')?.getAttribute('aria-hidden')).toBe('true')
+  expect(light('Opus')).toBeNull()
+  // The room's top row is the window's bar, as a header.
+  expect(bar.getAttribute('data-slot')).toBe('bar')
 })
 
 /**

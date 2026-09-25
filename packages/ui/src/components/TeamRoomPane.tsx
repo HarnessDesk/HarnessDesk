@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   currentTurn,
@@ -46,7 +46,6 @@ import {
   PlusIcon,
   PullRequestIcon,
   ReviewIcon,
-  SearchIcon,
   ShieldOffIcon,
   TeamIcon,
 } from './Icons'
@@ -68,27 +67,34 @@ import { FindingDetail } from './FindingDetail'
 import { FlowRunStatus } from './FlowRunStatus'
 import { WindowControls } from './WindowControls'
 import {
+  Bar,
   Button,
   Chip,
+  ComposerDock,
   Dot,
   EmptyState,
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
   IconTile,
-  Input,
   KeyValue,
   KeyValueRow,
   ListRow,
   ListRows,
   Menu,
   MenuItem,
+  NavigationGroupHeader,
   Note,
+  PaneSurface,
   Popover,
-  PopoverGroupLabel,
   ProgressRing,
-  Spinner,
+  RailSection,
+  Search,
+  Separator,
   Text,
+  ToolPaneHeaderDivider,
+  ToolPaneNotice,
+  TurnWorkLive,
   type Tone,
 } from '../design'
 import styles from './TeamRoomPane.module.css'
@@ -871,7 +877,7 @@ export const TeamRoomPane = ({
   }, [seen])
 
   return (
-    <div className={`${styles.pane} h-full bg-(--hd-background)`} data-showing={onRail ? 'rail' : 'body'}>
+    <PaneSurface className={`${styles.pane} h-full`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
 
@@ -891,10 +897,11 @@ export const TeamRoomPane = ({
         *
         * It is also the window's top row when the sidebar is away, so it does
         * what every other top row in this app does: leaves room for the macOS
-        * buttons (`--titlebar-inset`, spent in the stylesheet) and moves the
-        * window when dragged.
+        * buttons (`Bar corner`, `--titlebar-inset`) and moves the window when
+        * dragged. Its words start on the rows' ink line (`inset="ink"`), as
+        * the conversation's header's do.
         */}
-      <header className={`${styles.bar} h-(--hd-bar-h) px-2 border-b border-(--hd-border) hd-drag`} style={{ paddingLeft: 'max(var(--hd-space-3), var(--titlebar-inset, 0px))' }}>
+      <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.bar} hd-drag`}>
         {/* The window's own controls, as a conversation's header carries them
             whenever the sidebar is not standing beside it. A room is the other
             thing the middle can show, and a narrow window's sidebar is only
@@ -913,7 +920,7 @@ export const TeamRoomPane = ({
             drew the placeholder word "Room" here — a name that reads as real
             for the beat before the real one arrives is worse than showing
             nothing. */}
-        <span className={`${styles.barName} font-medium`} title={title}>{title}</span>
+        <Text role="subject" className={styles.barName} title={title}>{title}</Text>
         {/* The state, on the label's own line, in a word — never a second row
             (rule 9). Absent for a room with no Goal, which has no state to be
             in. One chip for the whole run: `FlowRunStatus` used to draw a
@@ -939,7 +946,7 @@ export const TeamRoomPane = ({
             one. The project's own folder name is what shows; its full path
             is one hover away, where a person looking for exactly which folder
             this is can read it whole. */}
-        <span className={`${styles.barFacts} text-xs text-(--hd-muted-foreground)`}>
+        <Text role="meta" className={styles.barFacts}>
           {root && (
             <>
               {/* The project's own folder, and — when a Goal's own working
@@ -981,15 +988,15 @@ export const TeamRoomPane = ({
               </span>
             </>
           )}
-        </span>
-        {/* Everything to the left of this states a fact; everything to the
-            right does something. The conversation's header draws the same
-            rule for the same reason. */}
-        <span className={`${styles.barRule} h-[18px] bg-(--hd-border)`} />
+        </Text>
         {/* A real box, not `display: contents`: app-region is a property of a
             box, and a boxless wrapper leaves its buttons inside the drag
             region, where a click moves the window instead of pressing them. */}
         <div className={`${styles.barVerbs} hd-no-drag`}>
+          {/* Everything to the left of this states a fact; everything to the
+              right does something — the tool header's own divider, drawn for
+              the same reason between a tool's controls and its panel's. */}
+          <ToolPaneHeaderDivider />
           {/* Board-only used to live in the chat's header, one surface down,
               spelled out in the app's own name for it. It governs *messages* —
               every one of them, from every member, in this room — so it
@@ -1074,7 +1081,7 @@ export const TeamRoomPane = ({
             </Popover>
           </span>
         </div>
-      </header>
+      </Bar>
       {goal ? <GoalHeader view={goal} /> : null}
       {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
       {goal?.receipt ? (
@@ -1089,13 +1096,13 @@ export const TeamRoomPane = ({
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
       {barTrouble && (
-        <p className={`${styles.barTrouble} py-1.5 px-3 border-b border-(--hd-border) text-xs text-(--hd-danger-ink)`} role="alert">
-          {barTrouble}
-        </p>
+        <ToolPaneNotice tone="danger">
+          <span role="alert">{barTrouble}</span>
+        </ToolPaneNotice>
       )}
 
       <div className={styles.split}>
-        <aside className={`${styles.rail} border-r border-(--hd-border) @max-[38rem]/hd-room:border-r-0`}>
+        <aside className={styles.rail}>
           {/* The work before the chatter: a reader arriving at a group project
               wants the state of the board before they want the conversation.
 
@@ -1106,7 +1113,7 @@ export const TeamRoomPane = ({
               a list of destinations must show its destination here. The board
               still has a pane of its own for when it is the work, from the Team
               panel and the command palette. */}
-          <div className={`${styles.railPinned} p-2 border-b border-(--hd-border)`}>
+          <RailSection stretch="head" ruled className={styles.railPinned}>
             {/* `as="button"`: these two switch the pane, and nothing else in
                 the row can be tabbed to, so the row itself has to be the stop.
                 The member rows below stay divs — see the note on MemberCard. */}
@@ -1170,15 +1177,16 @@ export const TeamRoomPane = ({
                 title="Findings"
               />
             ) : null}
-          </div>
+          </RailSection>
+          {/* The work before the workers, with a rule between them. */}
+          <Separator />
 
           {/* The roster's heading does three jobs: names the section, counts
               it, and carries the one verb a roster is for. Adding a member used
               to mean leaving the room, starting a session somewhere else,
               sending it something, and coming back to see whether it had
               appeared. */}
-          <div className={`${styles.railLabel} py-(--hd-label-space,var(--hd-space-3)) px-3 pb-1`}>
-            <PopoverGroupLabel inset={false}>Agents</PopoverGroupLabel>
+          <NavigationGroupHeader label="Agents">
             <Text role="meta" numeric className={styles.count}>{roster.length}</Text>
             {goal ? <Button
               type="button"
@@ -1189,37 +1197,30 @@ export const TeamRoomPane = ({
             >
               <PlusIcon size={13} />
             </Button> : null}
-          </div>
+          </NavigationGroupHeader>
 
           {/* A filter, once the roster is longer than the eye scans in one go.
               Four is where a rail of names stops being a picture and starts
               being a list — and below it the box would be a control that costs
               a row to save nothing. */}
           {roster.length > 4 && (
-            <div className={`${styles.railFilter} px-2 rounded-(--hd-radius-sm) bg-(--hd-muted) text-(--hd-muted-foreground)`}>
-              <SearchIcon className="!h-[13px]" />
-              <Input
-                value={filter}
-                placeholder="Filter agents"
-                aria-label="Filter agents"
-                variant="quiet"
-                controlSize="bare"
-                onChange={(event) => setFilter(event.target.value)}
-              />
-              {filter !== '' && (
-                <Button
-                  type="button"
-                  aria-label="Clear the filter"
-                  variant="ghost" size="icon-sm" className={styles.railFilterClear}
-                  onClick={() => setFilter('')}
-                >
-                  <CrossIcon size={12} />
-                </Button>
-              )}
-            </div>
+            /* The sidebar's own filter field: a line rather than a box, in a
+               rail of borderless rows that would read a bordered field as a
+               form to fill in. */
+            <Search
+              size="compact"
+              icon="filter"
+              className={styles.railFilter}
+              value={filter}
+              placeholder="Filter agents"
+              label="Filter agents"
+              onChange={setFilter}
+              clear={{ label: 'Clear the filter', onClick: () => setFilter('') }}
+            />
           )}
 
-          <ListRows size="sm" className={`${styles.railList} px-2 pb-2`}>
+          <RailSection stretch="list" className={styles.railList}>
+          <ListRows size="sm">
             {peers !== null && roster.length === 0 && (
               /* A zero says what it looked for *and* what it found — and it is
                  only said once the host has actually answered. Drawn from a
@@ -1256,13 +1257,9 @@ export const TeamRoomPane = ({
               />
             )}
             {roster.length > 0 && shown.length === 0 && (
-              <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`}>No agent here matches “{filter.trim()}”.</p>
+              <EmptyState variant="inline" title={`No agent here matches “${filter.trim()}”.`} />
             )}
-            {railTrouble && (
-              <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`} role="alert">
-                {railTrouble}
-              </p>
-            )}
+            {railTrouble && <Note tone="bad" className={styles.railEmpty}>{railTrouble}</Note>}
             {shown.map((member) => (
               <MemberRow
                 key={member.key}
@@ -1285,7 +1282,10 @@ export const TeamRoomPane = ({
               />
             ))}
           </ListRows>
+          </RailSection>
         </aside>
+        {/* The rail's edge, which the narrow room takes away with the split. */}
+        <Separator orientation="vertical" className={styles.railEdge} />
 
         <div className={styles.body}>
           {/* Only drawn by the narrow-room container query. The label names what
@@ -1309,11 +1309,13 @@ export const TeamRoomPane = ({
                screen, and it is a view rather than a loose pane: capped, headed
                by whose it is, and reachable from nowhere but here. */
             <div className={styles.columns} ref={watching} data-columns={columns.length}>
-              {columns.map((key) => {
+              {columns.map((key, index) => {
                 const member = memberOf(key)
                 const entry = roster.find((one) => one.key === key) ?? null
                 return (
-                  <section key={key} className={`${styles.column} border-s border-(--hd-border) first:border-s-0`}>
+                  <Fragment key={key}>
+                  {index > 0 && <Separator orientation="vertical" />}
+                  <section className={styles.column}>
                     {/* Whose column this is — drawn when the rail is not already
                         saying it. One member watched, with the roster beside it,
                         is the case where this row is pure repetition: the rail
@@ -1324,7 +1326,7 @@ export const TeamRoomPane = ({
                         of the transcript. The stylesheet takes it away at one
                         column and hands it straight back when the room is narrow
                         enough to have dropped the rail. */}
-                    <header className={`${styles.columnHead} h-(--hd-bar-h) px-3 border-b border-(--hd-border)`}>
+                    <Bar as="header" rule="bottom" className={styles.columnHead}>
                       {/* The mark, the name and what it runs, as one trigger:
                           resting on the name asks what resting on the mark
                           does. The ✕ stays outside, so reaching for it never
@@ -1346,7 +1348,7 @@ export const TeamRoomPane = ({
                           <IconTile size="sm" tint={entry?.tint ?? 'blue'}>
                             {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                           </IconTile>
-                          {entry?.busy && <span className={`${styles.dotOn} h-[7px] rounded-full bg-(--hd-success) shadow-[0_0_0_2px_var(--hd-background)]`} aria-hidden />}
+                          {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
                         </span>
                         <Text role="row" className={styles.columnName}>{member?.nickname ?? 'Member'}</Text>
                         {/* What it runs, beside what it is called — two Cursor
@@ -1375,7 +1377,7 @@ export const TeamRoomPane = ({
                           <CrossIcon size={12} />
                         </Button>
                       )}
-                    </header>
+                    </Bar>
                     <div className={styles.columnBody}>
                       <PaneProvider
                         scope={{
@@ -1398,6 +1400,7 @@ export const TeamRoomPane = ({
                       </PaneProvider>
                     </div>
                   </section>
+                  </Fragment>
                 )
               })}
             </div>
@@ -1406,7 +1409,7 @@ export const TeamRoomPane = ({
           )}
         </div>
       </div>
-    </div>
+    </PaneSurface>
   )
 }
 
@@ -1669,7 +1672,7 @@ const MemberRow = ({
           </IconTile>
           {/* Working is a light, not a word. Announced to a screen reader on
               the name below, where it is a sentence rather than a colour. */}
-          {member.busy && <span className={`${styles.dotOn} h-[7px] rounded-full bg-(--hd-success) shadow-[0_0_0_2px_var(--hd-background)]`} aria-hidden />}
+          {member.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
         </span>
       }
       /* One run of text, not a flex row of two. The row's own `truncate` then
@@ -1693,7 +1696,7 @@ const MemberRow = ({
               renamed. Printed both, the row read "Triager Triager" — the name
               and the role said back as if they were two facts. */}
           {member.title && member.title !== peer.nickname && (
-            <span className="text-xs text-(--hd-muted-foreground)"> {member.title}</span>
+            <Text role="meta"> {member.title}</Text>
           )}
           {member.busy && <span className="sr-only"> — working</span>}
           {!member.here && <span className="sr-only"> — not open</span>}
@@ -1707,10 +1710,10 @@ const MemberRow = ({
              HarnessDesk's tools reach an agent through a server the agent has
              to accept, and one that refused it can claim nothing — which used
              to be discoverable only by an agent trying and being refused. */
-          <span className={`${styles.memberWarn} text-(--hd-warning-ink)`}>
+          <Text role="meta" tone="warning" className={styles.memberWarn}>
             <ShieldOffIcon size={11} />
             cannot take jobs — tools not reachable
-          </span>
+          </Text>
         ) : inboundState ? (
           /* Second, above every other second line, because it is the one that
              changes what happens when you write to this member — and because
@@ -1719,10 +1722,10 @@ const MemberRow = ({
              the messages are going nowhere, which is the state this control
              exists to make visible. `accept` says nothing at all: it is the
              default on every member of every room. */
-          <span className={`${styles.memberInbound} text-(--hd-muted-foreground)`}>{inboundState}</span>
+          <span className={styles.memberInbound}>{inboundState}</span>
         ) : member.onTask ? (
           <>
-            <span className="text-(--hd-tint-violet-ink)">#{member.onTask.id}</span>{' '}
+            <Text role="meta" tint="violet">#{member.onTask.id}</Text>{' '}
             {member.onTask.title}
           </>
         ) : member.idleOnBoard ? (
@@ -1731,14 +1734,14 @@ const MemberRow = ({
              has seen. A member can read as able, take nothing, and until now
              nothing on screen said so. No glyph — it is a doubt, not a refusal,
              and it must not shout as loudly as one. */
-          <span className={`${styles.memberIdle} text-(--hd-muted-foreground) italic`}>has not used the board</span>
+          <span className={styles.memberIdle}>has not used the board</span>
         ) : !member.here ? (
           /* Last of the four, because the three above are all *more* specific
              and a row shows one. It is here at all because a dimmed mark on
              its own is a hint, and this row's whole job after a relaunch is to
              say that the room is intact and nothing is warm yet — including
              what will happen if you write to it. */
-          <span className={`${styles.memberIdle} text-(--hd-muted-foreground) italic`}>not open — a message opens it</span>
+          <span className={styles.memberIdle}>not open — a message opens it</span>
         ) : undefined,
       )}
       trail={
@@ -1891,7 +1894,7 @@ const RoomLiveLine = ({
      about the same run. */
   if (!waiting && stopText && !needsYou) {
     return (
-      <div data-slot="room-live-line" data-kind="stop" className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}>
+      <div data-slot="room-live-line" data-kind="stop" className="flex items-baseline gap-(--hd-space-1-5)">
         <Text role="meta">{stopText}</Text>
       </div>
     )
@@ -1907,7 +1910,7 @@ const RoomLiveLine = ({
       <div
         data-slot="room-live-line"
         data-kind="wait"
-        className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}
+        className="flex items-baseline gap-(--hd-space-1-5)"
         title={waits.length > 1 ? waits.map((one) => one.sentence).join('\n') : undefined}
       >
         {wait.waitingOn.kind === 'person' && <Dot state="limit" pulse />}
@@ -1925,18 +1928,26 @@ const RoomLiveLine = ({
   const session = snapshot.sessions.get(subject.key)
   const turn = session ? currentTurn(session) : undefined
   const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
+  const words = (
+    <>
+      {subject.peer.nickname} {waiting ? 'is waiting for your approval' : 'is working'}
+      {waiting && allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
+      {elapsed !== null && ` · ${formatDuration(elapsed)}`}
+    </>
+  )
+  /* Working is what is happening this second, so it is the transcript's own
+     live line — the same faint, moving words a conversation's turn shows
+     while it runs. Waiting on you is not motion but a stop, and keeps the
+     pulsing light the header's "Needs you" chip wears. */
+  if (!waiting) return <TurnWorkLive data-slot="room-live-line">{words}</TurnWorkLive>
   return (
     <div
       data-slot="room-live-line"
-      className={`${styles.trouble} flex items-center gap-(--hd-space-1-5)`}
-      title={waiting && allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
+      className="flex items-center gap-(--hd-space-1-5)"
+      title={allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
     >
-      {waiting ? <Dot state="limit" pulse /> : <Spinner size="sm" tone="brand" />}
-      <Text role="meta">
-        {subject.peer.nickname} {waiting ? 'is waiting for your approval' : 'is working'}
-        {waiting && allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
-        {elapsed !== null && ` · ${formatDuration(elapsed)}`}
-      </Text>
+      <Dot state="limit" pulse />
+      <Text role="meta">{words}</Text>
     </div>
   )
 }
@@ -2266,37 +2277,28 @@ const Room = ({
         )}
       </div>
 
-      {/* The thread's own tail: one live line, in the same reading column as
-          the stream and the composer under it — `.trouble`'s own measure,
-          which already answers "docked between the two, same width as
-          both" for the same reason. */}
-      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
-
-      {/* Two different failures, both said out loud. `problem` is the host's:
-          it could not keep the board, so what is on screen may not survive a
-          restart — the person needs to know before they act on it. `trouble`
-          is this surface's: the last thing you pressed did not land. */}
-      {problem && (
-        <p className={`${styles.trouble} pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
-          {problem}
-        </p>
-      )}
-      {trouble && (
-        <p className={`${styles.trouble} pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
-          {trouble}
-        </p>
-      )}
-
-      {/* The conversation's composer, not a lookalike: the same shell, the
-          same 14px text well, the same ghost anchor on the left and the same
-          round accent coin on the right — down to the weight that coin takes
-          when the host will hold the message until a turn ends. It sits one
-          click from the individual composer inside this very pane, and two
-          boxes that nearly match read worse than two that plainly differ.
-          What is different is what is genuinely different: the audience,
-          which lives with the words because choosing it is part of writing
-          the message. */}
-      <div className={`${styles.composer} px-[var(--room-dock)] pb-4`}>
+      {/* The conversation's composer dock, not a lookalike: the same inset
+          off the pane's edge (`ComposerDock`), the same shell, the same 14px
+          text well, the same ghost anchor on the left and the same round
+          accent coin on the right — down to the weight that coin takes when
+          the host will hold the message until a turn ends. It sits one click
+          from the individual composer inside this very pane, and two boxes
+          that nearly match read worse than two that plainly differ. What is
+          different is what is genuinely different: the audience, which lives
+          with the words because choosing it is part of writing the message. */}
+      <ComposerDock>
+        {/* The thread's own tail, docked with the composer in the same
+            reading column the stream hangs in: one live line, then two
+            different failures, both said out loud. `problem` is the host's:
+            it could not keep the board, so what is on screen may not survive
+            a restart — the person needs to know before they act on it.
+            `trouble` is this surface's: the last thing you pressed did not
+            land. */}
+        <div className={styles.tail}>
+          <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
+          {problem && <Note tone="bad" className={styles.tailLine}>{problem}</Note>}
+          {trouble && <Note tone="bad" className={styles.tailLine}>{trouble}</Note>}
+        </div>
         {/* The reading column, the same one the stream above hangs in. The
             wrapper rather than a prop: `RoomComposer` draws the shell and
             knows nothing about how wide the pane it sits in is, which is the
@@ -2368,7 +2370,7 @@ const Room = ({
               a person as while it works. */}
           {triggerStatus?.budget && <BudgetFooter state={triggerStatus.budget} now={now} />}
         </div>
-      </div>
+      </ComposerDock>
     </>
   )
 }

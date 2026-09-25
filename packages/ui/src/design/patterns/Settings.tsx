@@ -32,8 +32,35 @@ const cx = (...parts: readonly (string | false | undefined)[]): string =>
 
 /* --- readiness ----------------------------------------------------------- */
 
-export const Dot = ({ state, pulse = false, variant = 'default', className, ...props }: HTMLAttributes<HTMLSpanElement> & { state: Readiness; pulse?: boolean; variant?: 'default' | 'navigation' }) => (
-  <span {...props} className={cx(styles.dot, className)} data-slot="dot" data-state={state} data-variant={variant} {...(pulse ? { 'data-pulse': '' } : {})} />
+/**
+ * A state as a light. `presence` is a member's light on the corner of its
+ * tile — place the dot inside the tile's own positioned wrapper — ringed in
+ * the `ground` the tile stands on, so it reads as cut out of the tile rather
+ * than stuck on it.
+ */
+export const Dot = ({
+  state,
+  pulse = false,
+  variant = 'default',
+  ground = 'background',
+  className,
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & {
+  state: Readiness
+  pulse?: boolean
+  variant?: 'default' | 'navigation' | 'presence'
+  /** The surface a presence light's tile stands on. */
+  ground?: 'background' | 'popover'
+}) => (
+  <span
+    {...props}
+    className={cx(styles.dot, className)}
+    data-slot="dot"
+    data-state={state}
+    data-variant={variant}
+    {...(variant === 'presence' ? { 'data-ground': ground } : {})}
+    {...(pulse ? { 'data-pulse': '' } : {})}
+  />
 )
 
 const SPINNER_TONE: Record<Tone, string> = {

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { compile } from 'tailwindcss'
 
 import css from './TeamRoomPane.module.css?raw'
 import source from './TeamRoomPane.tsx?raw'
@@ -105,29 +104,35 @@ describe('watched conversation layout', () => {
 })
 
 describe('appearance ownership', () => {
-  it('composes the top-level room roles instead of redrawing them in the screen stylesheet', () => {
-    /* jsdom does not compute the Tailwind-backed role classes, so this is a
-       source assertion: the pane retains geometry in CSS while the public
-       system owns its surface, bar, text, border and status-light appearance. */
-    expect(source).toContain('h-(--hd-bar-h)')
-    expect(source).toContain('bg-(--hd-background)')
-    expect(source).toContain('border-b border-(--hd-border)')
-    expect(source).toContain('<Text role="meta" numeric')
+  it('composes the room roles instead of drawing them, and keeps only geometry in its stylesheet', () => {
+    /* A source assertion, because jsdom computes none of the roles' own
+       classes: the pane is the view's plate, its top row and a column's head
+       are the window's bar, the rail is the sidebar's sections, the presence
+       light is the system's dot, and the thread's tail docks with the
+       conversation's composer. */
+    for (const part of [
+      '<PaneSurface',
+      '<Bar as="header" corner inset="ink" rule="bottom"',
+      '<Bar as="header" rule="bottom"',
+      '<RailSection stretch="head" ruled',
+      '<RailSection stretch="list"',
+      '<NavigationGroupHeader label="Agents">',
+      '<Dot state="ready" variant="presence"',
+      '<ComposerDock>',
+    ]) expect(source, part).toContain(part)
+    // No colour, ground, edge or type step is spelled in the stylesheet.
+    const code = css.replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(code).not.toMatch(/^\s*(?:color|background[\w-]*|border[\w-]*|box-shadow|font[\w-]*|padding[\w-]*|line-height)\s*:/m)
   })
 
-  it('drops the rail border only below the room narrow breakpoint without returning its appearance to screen CSS', async () => {
-    /* The base edge is a public utility role. The same named room container
-       must remove it when the rail becomes the whole pane, or it leaves a
-       stray right rule at widths below 38rem. Tailwind's bare arbitrary
-       container form is min-width, so compile the actual class to hold the
-       wide and narrow meanings apart. */
-    expect(source).toContain('border-r border-(--hd-border)')
-    const reset = source.match(/@(?:max-\[38rem\]|\[38rem\])\/hd-room:border-r-0/)?.[0]
-    expect(reset).toBe('@max-[38rem]/hd-room:border-r-0')
-
-    const tailwind = await compile('@tailwind utilities;')
-    const generated = tailwind.build([reset!])
-    expect(generated).toContain('@container hd-room (width < 38rem)')
-    expect(generated).not.toContain('@container hd-room (width >= 38rem)')
+  it('takes the rail’s edge away only when the narrow room makes the rail the whole pane', () => {
+    /* The edge is a `Separator` beside the rail. The same named room
+       container that makes the rail the whole pane must drop it, or it leaves
+       a stray rule at widths below 38rem. */
+    expect(source).toContain('<Separator orientation="vertical" className={styles.railEdge} />')
+    const query = css.indexOf('@container hd-room (max-width: 38rem)')
+    expect(query).toBeGreaterThan(-1)
+    const block = css.slice(query, css.indexOf('\n}\n', query))
+    expect(block).toMatch(/\.railEdge\s*\{\s*display:\s*none;?\s*\}/)
   })
 })
