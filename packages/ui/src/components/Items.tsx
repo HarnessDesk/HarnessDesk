@@ -246,13 +246,14 @@ const StatusMark = ({ status }: { status: ItemStatus }) => {
  * diff, a list of arguments, a line of thought — is a design part that owns
  * its own box.
  *
- * `inset="title"` carries no end padding of its own (see `list-row.tsx`), so
- * every body already reaches the row's right edge without this component
- * doing anything about it — a plate, an argument panel, a result block and a
- * line of reasoning all end there alike. `bareBody` is purely a *vertical*
- * choice: a plate already carries its own visible edge right under the
- * header, so it keeps the inset's own tight step; text has none of its own,
- * so it takes the wider one and the gap between several parts.
+ * `inset="title"` carries no end padding of its own (see `list-row.tsx`).
+ * The end edge is the register's, never the body's kind: in a plain row every
+ * body reaches the row's right edge; in a bordered card every body keeps the
+ * card's inner edge. A plate, an argument panel, a result block and a line of
+ * reasoning end at the same place either way. `bareBody` is purely a
+ * *vertical* choice: a plate already carries its own visible edge right under
+ * the header, so it keeps the inset's own tight step; text has none of its
+ * own, so it takes the wider one and the gap between several parts.
  */
 const Row = ({
   icon,
@@ -298,6 +299,7 @@ const Row = ({
       {collapsible && open && (
         <ListRowDetail
           inset="title"
+          within={register === 'light' ? 'row' : 'card'}
           className={bareBody ? undefined : 'grid gap-(--hd-space-2) pt-(--hd-space-2) pb-(--hd-space-3)'}
         >
           {children}
@@ -986,7 +988,7 @@ const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
     // A command's own record (Antigravity's shell tool, among others) draws
     // as the same plate a `command` step does — the exit line included,
     // through the plate's own mechanism rather than a second one here.
-    return <CodeBlock key={key} command={reading.command} output={reading.output} exitCode={reading.exitCode} />
+    return <CodeBlock key={key} command={reading.command} output={reading.output ? stripAnsi(reading.output) : '(no output)'} exitCode={reading.exitCode} />
   }
   if (reading.kind === 'output') {
     // A bare `{output, isError}` pair (DeepSeek, among others): the text is
@@ -1043,6 +1045,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const relativePath = path ? relativeTo(path, root) : null
   const target = path ? fileLabel(path, root, labels) : null
   const command = toolCallCommandOf(item)
+  const recordsCommand = item.result?.some((part) => part.type === 'json' && readToolResult(part.value).kind === 'command') ?? false
   const commandOutputParts = command ? item.result?.map((part) => {
     if (part.type === 'text') return stripAnsi(part.text)
     if (part.type === 'json' && typeof part.value === 'string') return stripAnsi(part.value)
@@ -1110,7 +1113,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
       }
       status={effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
-      bareBody={Boolean(change) || Boolean(command)}
+      bareBody={Boolean(change) || Boolean(command) || recordsCommand}
     >
       {/* A plain wrapper, not `Text` itself: `Text` owns `data-role` for its
           own role, so a second meaning of the attribute has to sit outside it. */}
@@ -1133,7 +1136,10 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
               panel's business, so neither is repeated here as a field. */}
           {command ? (
             <CodeBlock command={shellCommandOf(command)} output={commandOutput} onCopyError={copyFailed} />
-          ) : (
+          ) : recordsCommand ? null : (
+            // A result that is its own command record already opens onto the
+            // command it ran; its arguments would only say it again, with the
+            // absolute folder it ran in beside it.
             <ArgsView args={item.args} root={root} />
           )}
           {commandOutput === undefined &&

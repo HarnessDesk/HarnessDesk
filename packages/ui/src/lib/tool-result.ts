@@ -20,7 +20,7 @@ export type ToolResultBlock =
 
 export type ToolResultReading =
   /** An MCP-shaped content array. */
-  | { readonly kind: 'blocks'; readonly blocks: readonly ToolResultBlock[] }
+  | { readonly kind: 'blocks'; readonly blocks: readonly ToolResultBlock[]; readonly error: boolean }
   /** A command's own record. */
   | { readonly kind: 'command'; readonly command: string; readonly output?: string; readonly exitCode?: number }
   /** A bare output-and-error pair. */
@@ -78,10 +78,14 @@ const blockOf = (value: unknown): ToolResultBlock | 'drawn' | null => {
  * `tool_reference` block, among others) falls back to plain JSON as a
  * whole, rather than drawing what it understood and dropping the rest.
  */
+/** Only these keys, so a result carrying anything more stays JSON and loses nothing. */
+const onlyKeys = (value: Record<string, unknown>, allowed: readonly string[]): boolean =>
+  Object.keys(value).every((key) => allowed.includes(key))
+
 const blocksOf = (value: unknown): readonly ToolResultBlock[] | null => {
   const array = Array.isArray(value)
     ? value
-    : isRecord(value) && Array.isArray(value['content'])
+    : isRecord(value) && Array.isArray(value['content']) && onlyKeys(value, ['content', 'isError'])
       ? value['content']
       : null
   if (!array || array.length === 0) return null
@@ -98,6 +102,7 @@ const blocksOf = (value: unknown): readonly ToolResultBlock[] | null => {
  */
 const commandOf = (value: unknown): ToolResultReading | null => {
   if (!isRecord(value)) return null
+  if (!onlyKeys(value, ['commandLine', 'workingDir', 'exitCode', 'exit_code', 'combinedOutput', 'formatted_output'])) return null
   const command = value['commandLine']
   if (typeof command !== 'string') return null
   const output = value['combinedOutput'] ?? value['formatted_output']
@@ -108,7 +113,7 @@ const commandOf = (value: unknown): ToolResultReading | null => {
 
 /** A bare `{output, isError}` pair, carried on every one of some runtimes' results. */
 const outputOf = (value: unknown): ToolResultReading | null => {
-  if (!isRecord(value)) return null
+  if (!isRecord(value) || !onlyKeys(value, ['output', 'isError'])) return null
   const output = value['output']
   if (typeof output !== 'string') return null
   if (typeof value['isError'] !== 'boolean') return null
@@ -118,6 +123,6 @@ const outputOf = (value: unknown): ToolResultReading | null => {
 /** What a tool's own JSON result reads as, for the transcript to draw. */
 export const readToolResult = (value: unknown): ToolResultReading => {
   const blocks = blocksOf(value)
-  if (blocks) return { kind: 'blocks', blocks }
+  if (blocks) return { kind: 'blocks', blocks, error: isRecord(value) && value['isError'] === true }
   return commandOf(value) ?? outputOf(value) ?? { kind: 'json' }
 }

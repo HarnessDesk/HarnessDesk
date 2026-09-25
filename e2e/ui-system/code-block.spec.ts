@@ -71,7 +71,7 @@ test('command output and fenced prose share one code plate', async ({ page }) =>
   expect(accented).toBe(1)
 })
 
-test('an argument panel and a result share the command plate\'s edges: title-left and row-right, within 1px', async ({ page }) => {
+test('an argument panel and a result share the command plate\'s edges: title-left, and the card\'s inner right edge, within 1px', async ({ page }) => {
   // The defect this guards: an opened step's body that is not a plate — an
   // argument panel, a text result — used to carry its own end padding, so it
   // sat short of the row's right edge while a plate right below it, in the
@@ -110,10 +110,12 @@ test('an argument panel and a result share the command plate\'s edges: title-lef
   expect(Math.abs(resultBox.x - titleBox.x)).toBeLessThanOrEqual(1)
   expect(Math.abs(commandBox.x - titleBox.x)).toBeLessThanOrEqual(1)
 
-  // Right: every box ends at its own row's right edge, whatever it holds.
-  expect(Math.abs(argsBox.x + argsBox.width - (row0Box.x + row0Box.width))).toBeLessThanOrEqual(1)
-  expect(Math.abs(resultBox.x + resultBox.width - (row0Box.x + row0Box.width))).toBeLessThanOrEqual(1)
-  expect(Math.abs(commandBox.x + commandBox.width - (row1Box.x + row1Box.width))).toBeLessThanOrEqual(1)
+  // Right: in a bordered card every body keeps the card's inner edge, the
+  // same 12px for a plate and for what is not one, so all three end together.
+  const inner = (box: { x: number; width: number }) => box.x + box.width - 12
+  expect(Math.abs(argsBox.x + argsBox.width - inner(row0Box))).toBeLessThanOrEqual(1)
+  expect(Math.abs(resultBox.x + resultBox.width - inner(row0Box))).toBeLessThanOrEqual(1)
+  expect(Math.abs(commandBox.x + commandBox.width - inner(row1Box))).toBeLessThanOrEqual(1)
 })
 
 for (const theme of ['light', 'dark'] as const) {

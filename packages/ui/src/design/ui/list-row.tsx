@@ -251,15 +251,25 @@ const ListRows = ({
 const ListRowDetail = ({
   className,
   inset = false,
+  within = 'row',
   ...props
-}: React.ComponentProps<'div'> & { inset?: boolean | 'title' }) => (
+}: React.ComponentProps<'div'> & {
+  inset?: boolean | 'title'
+  /**
+   * What the row sits in, for a title-hung body's end edge: a plain row lets
+   * everything it holds reach the row's own edge; a bordered card keeps its
+   * inner edge for every body alike, plate or prose.
+   */
+  within?: 'row' | 'card'
+}) => (
   <div
     data-slot="list-row-detail"
     {...(inset === true ? { 'data-inset': '' } : {})}
     {...(inset === 'title' ? { 'data-inset': 'title' } : {})}
+    {...(inset === 'title' && within === 'card' ? { 'data-within': 'card' } : {})}
     className={cn(
       inset === 'title'
-        ? 'pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)'
+        ? cn('pt-(--hd-space-0-5) pb-(--hd-space-1-5) ps-(--hd-space-6)', within === 'card' && 'pe-(--hd-space-3)')
         : cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2'),
       className,
     )}

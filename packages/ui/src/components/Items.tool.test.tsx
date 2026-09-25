@@ -130,13 +130,14 @@ describe('an opened tool step', () => {
     // carries no end padding of its own, so the plate's right edge is
     // already the row's — nothing here needs to cancel a padded box a step
     // further in.
-    expect(body?.className).not.toMatch(/(?:^|\s)pe-/)
+    // In a bordered card every body keeps the card's inner edge, plate or not.
+    expect(body?.className).toMatch(/(?:^|\s)pe-\(--hd-space-3\)/)
     // Retired along with the CSS class it lived in: the shared part now
     // owns the alignment every step body used to redraw its own margin for.
     expect(itemsCss).not.toMatch(/\.rowBody\b/)
   })
 
-  it('keeps an argument panel and a text result at the same right edge as a bare plate', () => {
+  it('keeps an argument panel and a text result at the same end edge as a bare plate, the card\'s own', () => {
     // The defect this guards: an opened step's body that is not a plate
     // (arguments, a result) used to add its own end padding, so it sat
     // short of the row's right edge while a command's plate reached it.
@@ -148,7 +149,8 @@ describe('an opened tool step', () => {
 
     const body = container.querySelector('[data-slot="list-row-detail"]')
     expect(body?.getAttribute('data-inset')).toBe('title')
-    expect(body?.className).not.toMatch(/(?:^|\s)pe-/)
+    // In a bordered card every body keeps the card's inner edge, plate or not.
+    expect(body?.className).toMatch(/(?:^|\s)pe-\(--hd-space-3\)/)
   })
 
   it('draws a two-line Write with one marker, not a second + in the file text', () => {
@@ -339,6 +341,8 @@ describe('an opened tool step', () => {
   it("draws a runtime's own command record as a command plate, with a failing exit code shown", () => {
     open(call({
       tool: 'run_command',
+      // Its arguments name the command again, and the absolute folder it ran in.
+      args: { CommandLine: 'pnpm test', Cwd: '/abs/work' },
       result: [{
         type: 'json',
         value: {
@@ -357,6 +361,7 @@ describe('an opened tool step', () => {
     expect(blocks[0]?.querySelector('[data-slot="code-block-body"]')?.textContent).toBe('Tests 1 failed')
     expect(blocks[0]?.querySelector('[data-slot="code-block-exit"]')?.textContent).toBe('Exit code 1')
     expect(container.textContent).not.toContain('/w')
+    expect(container.querySelector('[data-role="arguments"]')).toBeNull()
   })
 
   it("draws a runtime's own {output, isError} pair as output", () => {
