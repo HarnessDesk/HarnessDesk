@@ -104,8 +104,14 @@ it('a transcript-only conversation surfaces with the store’s matching line mar
 
   expect(request).toHaveBeenCalledWith('transcripts/search', { query: 'treasure' })
   expect(container.textContent).toContain('The forgotten thread')
-  const mark = container.querySelector('mark')
+  // The matched words are lifted to full ink and the semibold weight inside
+  // the match line — the text role's own ink step, not a ground of their own,
+  // so they still read on a highlighted row whose line is already full ink.
+  const mark = container.querySelector('strong[data-slot="text"]')
   expect(mark?.textContent).toBe('treasure')
+  expect(mark?.getAttribute('data-role')).toBe('meta')
+  expect(mark?.getAttribute('data-ink')).toBe('primary')
+  expect(mark?.className).toContain('font-semibold')
 })
 
 it('nothing is asked for a single character', async () => {

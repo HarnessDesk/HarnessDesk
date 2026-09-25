@@ -5,10 +5,6 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   Chip,
   CodeText,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   MetaList,
   Monogram,
   Note,
@@ -206,40 +202,3 @@ it('draws row marks and compact facts as named roles', () => {
   expect(list?.textContent).toBe('3 copiesLast Tuesday')
 })
 
-it('keeps every library reach state named by shape', () => {
-  act(() => root.render(
-    <>
-      <LibraryReachMark state="reaches" label="Loaded" placement="cell" />
-      <LibraryReachMark state="off" label="Switched off" />
-      <LibraryReachMark state="unscanned" label="Outside scan paths" />
-      <LibraryReachMark state="hollow" label="Empty on disk" />
-    </>,
-  ))
-  const marks = [...container.querySelectorAll<HTMLElement>('[data-slot="library-reach-mark"]')]
-  expect(marks.map((mark) => mark.dataset['state'])).toEqual(['reaches', 'off', 'unscanned', 'hollow'])
-  expect(marks[0]?.dataset['placement']).toBe('cell')
-  expect(marks[0]?.className).toContain('h-(--hd-control-h)')
-  expect(marks.every((mark) => mark.getAttribute('role') === 'img')).toBe(true)
-})
-
-it('keeps agent identity content while reach controls only its plate', () => {
-  const face = draw(<LibraryReachFace state="hollow" label="Agent A: empty on disk">A</LibraryReachFace>)
-  expect(face.dataset['slot']).toBe('skill-reach')
-  expect(face.dataset['state']).toBe('hollow')
-  expect(face.dataset['problem']).toBe('')
-  expect(face.getAttribute('aria-label')).toBe('Agent A: empty on disk')
-  expect(face.textContent).toBe('A')
-})
-
-it('names operation marks and keeps a one-operation preview composed', () => {
-  act(() => root.render(
-    <LibraryOperationList>
-      <div role="listitem"><LibraryOperationMark state="planned" />Create skill</div>
-      <div role="listitem"><LibraryOperationMark state="done" />Done</div>
-    </LibraryOperationList>,
-  ))
-  const list = container.querySelector<HTMLElement>('[data-slot="library-operation-list"]')
-  expect(list?.getAttribute('role')).toBe('list')
-  expect(list?.className).toContain('min-h-18')
-  expect([...container.querySelectorAll<HTMLElement>('[data-slot="library-operation-mark"]')].map((mark) => mark.dataset['state'])).toEqual(['planned', 'done'])
-})

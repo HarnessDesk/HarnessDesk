@@ -538,12 +538,6 @@
   color: var(--hd-muted-foreground);
 }
 
-.searchMatch {
-  padding: 0 1px;
-  border-radius: var(--hd-radius-2xs);
-  background: var(--hd-hover-solid);
-  color: var(--hd-foreground);
-}
 
 /* A form: fields stacked with a step of air between them. */
 .formStack {
@@ -1228,13 +1222,6 @@
 
 /* --- odds and ends the pages share -------------------------------------- */
 
-.sectionToggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-}
 
 .mono {
   font-family: var(--hd-font-code);
@@ -1289,11 +1276,6 @@
 
 /* A tool's wire name. It is what you need to write a permission rule and not
    what you need to read a history, so it appears only where it is the answer. */
-.wire {
-  font-family: var(--hd-font-code);
-  font-size: 12px;
-  color: var(--hd-muted-foreground);
-}
 
 .field {
   height: var(--hd-field-h); /* desk: 26 → 30, the text-control rung */

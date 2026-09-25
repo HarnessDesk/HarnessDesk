@@ -1,17 +1,14 @@
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
 
-import { isReachProblem, type ReachState } from '@harnessdesk/protocol'
-
 import { READINESS_LABEL, type Readiness } from '../../lib/readiness'
-import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
+import { ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, FilterIcon, SearchIcon, StaleIcon } from '../../components/Icons'
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
-import { IconTile } from '../ui/icon-tile'
 import { inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
@@ -94,120 +91,6 @@ export const Spinner = ({ className, tone = 'neutral', size = 'default', ...prop
     {...props}
   />
 )
-
-const REACH_INK: Partial<Record<ReachState, string>> = {
-  hollow: 'text-(--hd-warning-ink)',
-  rejected: 'text-(--hd-warning-ink)',
-  differs: 'text-(--hd-warning-ink)',
-  unscanned: 'text-(--hd-warning-ink)',
-  unhostable: 'text-(--hd-muted-foreground)',
-}
-
-/** One state in the Library matrix, distinguished by shape before colour. */
-export const LibraryReachMark = ({
-  state,
-  label,
-  placement = 'inline',
-  className,
-  ...props
-}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
-  state: ReachState
-  label: string
-  placement?: 'inline' | 'cell'
-}) => {
-  let mark: ReactNode
-  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
-  else if (state === 'differs') mark = <DiffIcon size={13} />
-  else if (state === 'unhostable') mark = <CrossIcon size={13} />
-  else if (state === 'unscanned') mark = <span className="size-2 rounded-full border border-(--hd-warning-ink)" />
-  else if (state === 'stale') mark = <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
-  else if (state === 'reaches') mark = <span className="size-1.5 rounded-full bg-(--hd-success)" />
-  else if (state === 'off') {
-    mark = (
-      <span className="relative inline-flex size-3 items-center justify-center">
-        <span className="size-1.5 rounded-full bg-(--hd-muted-foreground)" />
-        <span className="absolute h-px w-3 bg-(--hd-muted-foreground)" />
-      </span>
-    )
-  } else mark = <span className="h-px w-2 bg-(--hd-border-emphasis)" />
-
-  return (
-    <span
-      {...props}
-      data-slot="library-reach-mark"
-      data-state={state}
-      data-placement={placement}
-      role="img"
-      aria-label={label}
-      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'h-(--hd-control-h) w-full' : 'size-3.5'} ${REACH_INK[state] ?? 'text-(--hd-muted-foreground)'} ${className ?? ''}`}
-    >
-      {mark}
-    </span>
-  )
-}
-
-/** An agent's identity mark, with reach expressed only by the plate around it. */
-export const LibraryReachFace = ({
-  state,
-  label,
-  children,
-  className,
-  ...props
-}: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & {
-  state: ReachState
-  label: string
-  children?: ReactNode
-}) => (
-  <span
-    {...props}
-    data-slot="skill-reach"
-    data-state={state}
-    {...(isReachProblem(state) ? { 'data-problem': '' } : {})}
-    role="img"
-    aria-label={label}
-    className={`inline-flex size-5 shrink-0 items-center justify-center rounded-full text-(--hd-muted-foreground) opacity-40 data-[state=reaches]:bg-(--hd-muted) data-[state=reaches]:text-(--hd-foreground) data-[state=reaches]:opacity-100 data-[problem]:bg-(--hd-warning-dim) data-[problem]:text-(--hd-warning-ink) data-[problem]:opacity-100 ${className ?? ''}`}
-  >
-    {children}
-  </span>
-)
-
-type LibraryOperationState = 'planned' | 'refuse' | 'done' | 'failed' | 'skipped'
-
-/** The list's floor keeps a one-change plan reading as a composed preview. */
-export const LibraryOperationList = ({
-  children,
-  className,
-  ...props
-}: HTMLAttributes<HTMLDivElement>) => (
-  <div
-    {...props}
-    data-slot="library-operation-list"
-    role="list"
-    className={`flex min-h-18 flex-col ${className ?? ''}`}
-  >
-    {children}
-  </div>
-)
-
-/** One planned operation or result, using the glyph the Library already taught. */
-export const LibraryOperationMark = ({ state }: { state: LibraryOperationState }) => {
-  const mark =
-    state === 'refuse' ? <AlertIcon size={13} />
-      : state === 'done' ? <CheckIcon size={13} />
-        : state === 'failed' ? <CrossIcon size={13} />
-          : state === 'skipped' ? <span className="opacity-60">·</span>
-            : <span className="size-1.5 rounded-full bg-current opacity-70" />
-  return (
-    <span
-      data-slot="library-operation-mark"
-      data-state={state}
-      aria-hidden="true"
-      className="inline-flex w-4 shrink-0 items-center justify-center self-center text-(--hd-muted-foreground) data-[state=done]:text-(--hd-success) data-[state=failed]:text-(--hd-warning-ink) data-[state=refuse]:text-(--hd-warning-ink)"
-    >
-      {mark}
-    </span>
-  )
-}
 
 type ChipBaseProps = {
   label?: ReactNode
@@ -437,11 +320,6 @@ export const NavigationList = ({ className, ...props }: ComponentProps<'div'>) =
 /** A keyboard name shown as a physical key rather than explanatory copy. */
 export const Keycap = ({ className, ...props }: ComponentProps<'kbd'>) => (
   <kbd data-slot="keycap" className={cx(styles.keycap, className)} {...props} />
-)
-
-/** The exact part of a search result that matched the query. */
-export const SearchMatch = ({ className, ...props }: ComponentProps<'mark'>) => (
-  <mark data-slot="search-match" className={cx(styles.searchMatch, className)} {...props} />
 )
 
 /** What `Field` hands its control: the id its label points at, and the wiring to its note. */
@@ -824,16 +702,20 @@ export const Text = ({
  */
 export const TextMark = ({
   role = 'navigation',
+  tone,
   className,
   children,
 }: {
   role?: TextRole
+  /** A mark that judges — a finished step, a failed one — takes its tone's ink; every other mark is muted. */
+  tone?: Tone
   className?: string
   children: ReactNode
 }) => (
   <Text
     role={role}
     ink="muted"
+    {...(tone ? { tone } : {})}
     aria-hidden="true"
     data-mark=""
     className={cx('inline-flex w-3 shrink-0 items-center justify-center', className)}
@@ -1310,10 +1192,6 @@ export const DetailMark = ({ children, className }: { children: ReactNode; class
   <span className={cx(styles.detailMark, className)}>{children}</span>
 )
 
-export const SectionToggle = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.sectionToggle, className)}>{children}</span>
-)
-
 /**
  * Code and output in the code face.
  *
@@ -1362,10 +1240,6 @@ export const Monogram = ({ children, className }: { children: ReactNode; classNa
 /** Compact facts whose dot separators belong to the role, not to each caller. */
 export const MetaList = ({ children, className }: { children: ReactNode; className?: string }) => (
   <span data-slot="meta-list" className={cx(styles.metaList, className)}>{children}</span>
-)
-
-export const WireText = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={cx(styles.wire, className)}>{children}</span>
 )
 
 export const AccountMark = ({

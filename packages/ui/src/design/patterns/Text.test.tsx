@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { CodeText, Keycap, SearchMatch, Text, TextMark } from './Settings'
+import { CodeText, Keycap, Text, TextMark } from './Settings'
 import styles from './Settings.module.css'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -61,16 +61,26 @@ it('keeps the wordmark and navigation-name roles distinct from page and row titl
   expect(navigation?.className).not.toContain('truncate')
 })
 
-it('owns the keycap and matched-text roles used by search surfaces', () => {
+it('owns the keycap role used by search surfaces', () => {
+  act(() => root.render(<Keycap>esc</Keycap>))
+  expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
+})
+
+it('gives a text mark a tone only when it judges, and the muted ink otherwise', () => {
   act(() => root.render(
     <>
-      <Keycap>esc</Keycap>
-      <SearchMatch>sett</SearchMatch>
+      <TextMark role="row">•</TextMark>
+      <TextMark role="row" tone="success">✓</TextMark>
     </>,
   ))
-
-  expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
-  expect(container.querySelector('mark[data-slot="search-match"]')?.textContent).toBe('sett')
+  const [plain, judged] = [...container.querySelectorAll<HTMLElement>('[data-mark]')]
+  expect(plain?.dataset['role']).toBe('row')
+  expect(plain?.dataset['ink']).toBe('muted')
+  expect(plain?.hasAttribute('data-tone')).toBe(false)
+  expect(judged?.dataset['role']).toBe('row')
+  expect(judged?.dataset['tone']).toBe('success')
+  expect(judged?.className).toContain('text-(--hd-success-ink)')
+  expect(judged?.className).not.toContain('text-(--hd-muted-foreground)')
 })
 
 it('strikes a finished item through and steps it back, and leaves the rest alone', () => {

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import type { JsonSchema } from '@harnessdesk/protocol'
 
-import { Button, Input, Note, Row, Rows, Segmented, Switch, WireText } from '../design'
+import { Button, CodeText, Input, Note, Row, Rows, Segmented, Switch, Text } from '../design'
 import styles from './SchemaForm.module.css'
 
 /**
@@ -174,7 +174,7 @@ export const SchemaForm = ({
                   }
                 />
               ) : (
-                <WireText>{JSON.stringify(draft[property.key] ?? null)}</WireText>
+                <Text role="meta"><CodeText>{JSON.stringify(draft[property.key] ?? null)}</CodeText></Text>
               )
             }
           />

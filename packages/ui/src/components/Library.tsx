@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
   entryHasProblem,
@@ -39,7 +39,7 @@ import {
   Alert,
   Chip,
   CodeText,
-  LibraryReachMark,
+  Dot,
   Menu,
   MenuItem,
   MenuLabel,
@@ -159,6 +159,53 @@ type Filter =
  * key that explains five things absent from the table is furniture. On a
  * healthy machine this is two entries wide.
  */
+/**
+ * One state in the matrix, told apart by shape before colour. The marks are
+ * set in the meta role's ink — a warning's where the copy needs mending, the
+ * muted one everywhere else — so a state reads the same in a cell, in the
+ * legend and beside a row: a problem is an icon (empty, refused, differs,
+ * cannot host it), a copy that loads is the readiness light every roster
+ * uses, and "not installed" is the table's own no-value dash.
+ */
+const ReachMark = ({
+  state,
+  label,
+  placement = 'inline',
+}: {
+  state: ReachState
+  label: string
+  placement?: 'inline' | 'cell'
+}) => {
+  let mark: ReactNode
+  if (state === 'hollow' || state === 'rejected') mark = <AlertIcon size={13} />
+  else if (state === 'differs') mark = <DiffIcon size={13} />
+  else if (state === 'unhostable') mark = <CrossIcon size={13} />
+  else if (state === 'reaches') mark = <Dot state="ready" />
+  else if (state === 'unscanned') mark = <span className="size-2 rounded-full border border-current" />
+  else if (state === 'stale') mark = <span className="size-1.5 rounded-full bg-current" />
+  else if (state === 'off') {
+    mark = (
+      <span className="relative inline-flex size-3 items-center justify-center">
+        <span className="size-1.5 rounded-full bg-current" />
+        <span className="absolute h-px w-3 bg-current" />
+      </span>
+    )
+  } else mark = '—'
+  const warning = state === 'hollow' || state === 'rejected' || state === 'differs' || state === 'unscanned'
+  return (
+    <Text
+      role="meta"
+      {...(warning ? { tone: 'warning' as const } : { ink: 'muted' as const })}
+      data-reach={state}
+      data-placement={placement}
+      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'w-full' : ''}`}
+    >
+      {/* The mark is a picture of its label; `Text`'s own `role` is its type role. */}
+      <span role="img" aria-label={label} className="inline-flex items-center justify-center">{mark}</span>
+    </Text>
+  )
+}
+
 const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
   const present = useMemo(() => {
     const order: readonly ReachState[] = [
@@ -181,7 +228,7 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
       <Text as="p" role="meta" className={styles.legend}>
         {present.map((state) => (
           <span key={state} className={styles.legendItem}>
-            <LibraryReachMark state={state} label={REACH_NAME[state]} />
+            <ReachMark state={state} label={REACH_NAME[state]} />
             {REACH_NAME[state]}
           </span>
         ))}
@@ -1216,7 +1263,7 @@ const Entry = ({
               {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
               title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
             >
-              <LibraryReachMark state={reach.state} label={label} placement="cell" />
+              <ReachMark state={reach.state} label={label} placement="cell" />
             </TableCell>
           )
         })}

@@ -59,10 +59,6 @@ import {
   RowChoice,
   Rows,
   Lightbox,
-  LibraryOperationList,
-  LibraryOperationMark,
-  LibraryReachFace,
-  LibraryReachMark,
   MetaList,
   Monogram,
   MessageQueueActions,
@@ -77,11 +73,11 @@ import {
   PopoverSurface,
   RefusedAction,
   SectionHead,
-  SearchMatch,
   Segmented,
   StatePill,
   Spinner,
   Text,
+  TextMark,
   Switch,
   SwitchShape,
   ToggleGroup,
@@ -265,20 +261,10 @@ const StateBoard = () => (
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
       </Case>
-      <Case label="library reach">
-        <LibraryReachMark state="reaches" label="Reaches" placement="cell" />
-        <LibraryReachMark state="off" label="Switched off" />
-        <LibraryReachMark state="unscanned" label="Not scanned" />
-        <LibraryReachMark state="hollow" label="Empty on disk" />
-        <LibraryReachFace state="reaches" label="Agent A: reaches">A</LibraryReachFace>
-        <LibraryReachFace state="hollow" label="Agent B: empty on disk">B</LibraryReachFace>
-      </Case>
-      <Case label="library operations">
-        <LibraryOperationList>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="planned" />Planned</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="done" />Done</div>
-          <div className="flex items-center gap-2" role="listitem"><LibraryOperationMark state="failed" />Failed</div>
-        </LibraryOperationList>
+      <Case label="text marks">
+        <span className="flex items-baseline gap-2"><TextMark role="row">•</TextMark><Text role="row">Planned</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="success"><CheckIcon size={12} /></TextMark><Text role="row">Done</Text></span>
+        <span className="flex items-baseline gap-2"><TextMark role="row" tone="warning"><CrossIcon size={12} /></TextMark><Text role="row">Failed</Text></span>
       </Case>
       <Case label="library row facts">
         <Monogram>CR</Monogram>
@@ -670,7 +656,7 @@ const QueueBoard = () => (
         <Button variant="navigation" size="navigation" className="w-full">/review</Button>
       </PopoverSurface>
       <Text role="muted" as="div">
-        Press <Keycap>esc</Keycap> to close; “Set<SearchMatch>tings</SearchMatch>” shows the matched text.
+        Press <Keycap>esc</Keycap> to close; “Set<Text as="strong" role="meta" ink="primary" className="font-semibold">tings</Text>” shows the matched text at full ink and weight.
       </Text>
       <NoteList><li>A short supporting fact keeps its list anatomy.</li></NoteList>
       <ComposerShell className="relative min-h-20">

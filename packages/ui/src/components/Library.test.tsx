@@ -954,14 +954,20 @@ it('writes a skill’s name as the command that fires it', async () => {
 
 it('a row says who loads it without a table, and names each state for readers', async () => {
   await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
-  const faces = [...document.body.querySelectorAll('[data-slot="skill-reach"]')].map((node) => ({
-    state: node.getAttribute('data-state'),
+  // Each agent's mark on a round IconTile: the neutral ground where it loads,
+  // the same tile faded for every other "not this one".
+  const faces = [...document.body.querySelectorAll('[data-reach][data-tone]')].map((node) => ({
+    state: node.getAttribute('data-reach'),
+    tone: node.getAttribute('data-tone'),
+    faded: node.classList.contains('opacity-40'),
     label: node.getAttribute('aria-label'),
   }))
   expect(faces).toEqual([
-    { state: 'reaches', label: 'First Agent: Loads it' },
+    { state: 'reaches', tone: 'neutral', faded: false, label: 'First Agent: Loads it' },
     {
       state: 'unscanned',
+      tone: 'neutral',
+      faded: true,
       label: 'Second Agent: Installed where this agent does not look',
     },
   ])
@@ -1435,6 +1441,20 @@ it('the matrix says what its marks mean, on screen', async () => {
   expect(legend?.textContent).toContain('Not read')
   // Only what is on screen: a key explaining five absent states is furniture.
   expect(legend?.textContent).not.toContain('Cannot host')
+})
+
+it('draws each matrix state in the meta ink it judges by, loads-it as the readiness light', async () => {
+  await mount(library([entry('alpha', ['reaches', 'unscanned'])]))
+  await showMatrix()
+  const marks = [...document.body.querySelectorAll<HTMLElement>('td [data-reach]')]
+  const [loads, unread] = marks
+  expect(marks.map((mark) => mark.dataset['reach'])).toEqual(['reaches', 'unscanned'])
+  expect(loads?.dataset['role']).toBe('meta')
+  expect(loads?.dataset['placement']).toBe('cell')
+  expect(loads?.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe('ready')
+  expect(loads?.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('Reaches')
+  expect(unread?.dataset['tone']).toBe('warning')
+  expect(unread?.querySelector('[data-slot="dot"]')).toBeNull()
 })
 
 it('a copy an agent has not read back yet says so, and is not filed as a fault', async () => {
