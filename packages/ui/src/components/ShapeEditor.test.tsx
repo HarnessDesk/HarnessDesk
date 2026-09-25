@@ -98,6 +98,17 @@ const button = (label: string): HTMLButtonElement => {
   if (!found) throw new Error(`no button “${label}”`)
   return found
 }
+const byAriaLabel = (label: string): HTMLElement => {
+  const found = [...document.body.querySelectorAll('[aria-label]')].find((one) => one.getAttribute('aria-label') === label)
+  if (!found) throw new Error(`no element with aria-label “${label}”`)
+  return found as HTMLElement
+}
+/** A row's overflow menu item — Base UI's `Menu.Item` renders a `<div role="menuitem">` by default, never a `<button>`. */
+const menuItem = (label: string): HTMLElement => {
+  const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
+  if (!found) throw new Error(`no menu item “${label}”`)
+  return found as HTMLElement
+}
 
 it('adding an Agent, a check and a person step, then a rule, renders through the one host call — never a private grammar', async () => {
   const store = new AppStore('ws://localhost:0/')
@@ -141,12 +152,12 @@ it('reordering roles keeps a rule pointed at the same role, never at a position'
   const rule = beforeMove.rules[0]!
   const targetRoleId = rule.then.role
 
-  // Move the first role down past the second (there are now three roles: the
-  // original seed person, the added agent, and whichever role the rule's own
-  // target happens to be — moving index 0 down is enough to prove the point).
-  const moveButtons = [...document.body.querySelectorAll('button[aria-label^="Move"][aria-label$="down"]')]
-  expect(moveButtons.length).toBeGreaterThan(0)
-  act(() => (moveButtons[0] as HTMLButtonElement).click())
+  // Move the seed role ("review", index 0) down past the added agent. Move
+  // up/down live behind each row's own "… actions" overflow menu now, not as
+  // standalone buttons — open it, then act on the item inside.
+  act(() => byAriaLabel('review actions').click())
+  await settle()
+  act(() => menuItem('Move down').click())
   await settle()
 
   const afterMove = (spy.mock.calls.filter((call) => call[0] === 'authoring/shape/render').at(-1)![1] as { policy: FlowPolicy }).policy
@@ -226,4 +237,63 @@ it('Steps, Graph and Source all read one document, and Graph is absent until its
   act(() => button('Steps').click())
   await settle()
   expect(document.body.textContent).toContain('Uses')
+})
+
+it('a step reads as a form, not a toy: no bare per-row move buttons, no duplicate "Steps" heading, and fields sit in a padded card', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  // Move up/down live behind each row's own overflow menu, never as
+  // standing buttons a person has to scan past on every row.
+  expect(document.body.querySelectorAll('button[aria-label^="Move"]')).toHaveLength(0)
+  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move up')).toBe(false)
+  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move down')).toBe(false)
+
+  // The Tabs trigger says "Steps" once; there is no second, duplicate
+  // section heading repeating it right underneath.
+  const stepsHeadings = [...document.body.querySelectorAll('[data-slot="section-name"]')].filter((one) => one.textContent?.trim() === 'Steps')
+  expect(stepsHeadings).toHaveLength(0)
+
+  // The step's own fields (Step name, Kind, …) sit inside a padded card,
+  // not bare against the row list's edge.
+  const stepNameLabel = [...document.body.querySelectorAll('label')].find((one) => one.textContent?.startsWith('Step name'))
+  expect(stepNameLabel?.closest('[data-slot="card"]')).not.toBeNull()
+})
+
+it('the footer has exactly one primary action; the rest are secondary, an overflow, or quiet', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  const primaries = document.body.querySelectorAll('[data-slot="button"][data-variant="default"]')
+  expect(primaries).toHaveLength(1)
+  expect(primaries[0]?.textContent?.trim()).toBe('Start')
+
+  // A dialog footer's own rule (design/usage.ts, slot "dialogFooter") is one
+  // ink action and every other button `secondary` — never `ghost`, which
+  // reads as a link in a footer where every choice should look equally
+  // pressable. Close is the ordinary, enclosed action the footer already is.
+  expect(button('Close').getAttribute('data-variant')).toBe('secondary')
+
+  // "Every time…" is not a standing button of its own any more — it moved
+  // behind the overflow next to Save.
+  expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Every time…')).toBe(false)
+})
+
+it('removing a step uses the destructive tone, and only there', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  act(() => byAriaLabel('review actions').click())
+  await settle()
+  const remove = menuItem('Remove step')
+  expect(remove.getAttribute('data-variant')).toBe('destructive')
+  // Neither of its siblings in the same menu carries the same tone.
+  expect(menuItem('Move up').getAttribute('data-variant')).not.toBe('destructive')
+  expect(menuItem('Move down').getAttribute('data-variant')).not.toBe('destructive')
 })

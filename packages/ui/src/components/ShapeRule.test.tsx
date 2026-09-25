@@ -43,14 +43,13 @@ const RULE: FlowPolicyRule = { id: 'to-merge', on: 'writer', then: { role: 'merg
 const render = (rule: FlowPolicyRule) => {
   const onChange = vi.fn((next: FlowPolicyRule) => {
     act(() => {
-      root.render(<ShapeRule rule={next} policy={POLICY} onChange={onChange} onRemove={onRemove} />)
+      root.render(<ShapeRule rule={next} policy={POLICY} onChange={onChange} />)
     })
   })
-  const onRemove = vi.fn()
   act(() => {
-    root.render(<ShapeRule rule={rule} policy={POLICY} onChange={onChange} onRemove={onRemove} />)
+    root.render(<ShapeRule rule={rule} policy={POLICY} onChange={onChange} />)
   })
-  return { onChange, onRemove }
+  return { onChange }
 }
 
 const textareaFor = (label: string): HTMLTextAreaElement => {

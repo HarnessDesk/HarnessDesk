@@ -7,7 +7,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import {
-  ActionError, Banner, Button, CodeText, Dialog, Field, Input, NativeSelect, Note, NoteList, Row, RowChoice, Rows, SectionHead, Switch,
+  ActionError, Banner, Button, CodeText, Dialog, Field, FormStack, Input, NativeSelect, Note, NoteList, Row, RowChoice, Rows, SectionHead, Switch,
 } from '../design'
 import { triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerSentence } from '../lib/intake'
 import { wholeTextDiff } from '../lib/diff'
@@ -213,7 +213,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
             ))}
           </Rows>
 
-          <Field label="Id">
+          <Field label="Trigger name" hint="Shown wherever this trigger is listed.">
             {(control) => <Input {...control} value={id} onChange={(event) => changeId(event.target.value)} />}
           </Field>
 
@@ -377,18 +377,20 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
               <section aria-label="Budget">
                 <SectionHead name="Budget" />
                 <Note>{triggerBudgetWords(budget)}</Note>
-                <Field label="USD">
-                  {(control) => <Input {...control} type="number" min={0.01} step={0.01} value={budget.usd} onChange={(event) => edit({ budget: { ...budget, usd: Number(event.target.value) || budget.usd } })} />}
-                </Field>
-                <Field label="Rounds">
-                  {(control) => <Input {...control} type="number" min={1} value={budget.rounds} onChange={(event) => edit({ budget: { ...budget, rounds: Number(event.target.value) || budget.rounds } })} />}
-                </Field>
-                <Field label="Hours">
-                  {(control) => <Input {...control} type="number" min={0.01} step={0.01} value={budget.hours} onChange={(event) => edit({ budget: { ...budget, hours: Number(event.target.value) || budget.hours } })} />}
-                </Field>
-                <Field label="Rounds without progress">
-                  {(control) => <Input {...control} type="number" min={1} value={budget.withoutProgress} onChange={(event) => edit({ budget: { ...budget, withoutProgress: Number(event.target.value) || budget.withoutProgress } })} />}
-                </Field>
+                <FormStack>
+                  <Field label="USD">
+                    {(control) => <Input {...control} type="number" min={0.01} step={0.01} value={budget.usd} onChange={(event) => edit({ budget: { ...budget, usd: Number(event.target.value) || budget.usd } })} />}
+                  </Field>
+                  <Field label="Rounds">
+                    {(control) => <Input {...control} type="number" min={1} value={budget.rounds} onChange={(event) => edit({ budget: { ...budget, rounds: Number(event.target.value) || budget.rounds } })} />}
+                  </Field>
+                  <Field label="Hours">
+                    {(control) => <Input {...control} type="number" min={0.01} step={0.01} value={budget.hours} onChange={(event) => edit({ budget: { ...budget, hours: Number(event.target.value) || budget.hours } })} />}
+                  </Field>
+                  <Field label="Rounds without progress">
+                    {(control) => <Input {...control} type="number" min={1} value={budget.withoutProgress} onChange={(event) => edit({ budget: { ...budget, withoutProgress: Number(event.target.value) || budget.withoutProgress } })} />}
+                  </Field>
+                </FormStack>
                 <Note tone="warn">Stops when reported spend reaches the limit. Work already running can cost more before it stops.</Note>
               </section>
 

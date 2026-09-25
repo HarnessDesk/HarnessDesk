@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { FlowPolicy } from '@harnessdesk/protocol'
 
-import { Button, Field, Input, Note, Row, RowButton, Rows, SectionHead } from '../design'
+import { Button, Card, Field, Input, Note, Row, RowButton, Rows, SectionHead } from '../design'
 import { boundedPosition, defaultGraphPosition, readGraphPositions, ROLE_KIND_WORDS, type GraphPoint } from '../lib/shapes'
 import styles from './ShapeGraph.module.css'
 
@@ -175,28 +175,30 @@ export const ShapeGraph = ({ policy, selected, onSelect, onPositions, onEditRule
       {selected && policy.roles.some((role) => role.id === selected) && (
         <section aria-label={`Position of ${selected}`}>
           <SectionHead name={`Position — ${selected}`} />
-          <span className={styles.moveFields}>
-            <Field label="Horizontal">
-              {(control) => (
-                <Input
-                  {...control}
-                  type="number"
-                  value={Math.round(positionOf(selected, indexOf.get(selected) ?? 0).x)}
-                  onChange={(event) => commit(selected, { x: Number(event.target.value) || 0, y: positionOf(selected, indexOf.get(selected) ?? 0).y })}
-                />
-              )}
-            </Field>
-            <Field label="Vertical">
-              {(control) => (
-                <Input
-                  {...control}
-                  type="number"
-                  value={Math.round(positionOf(selected, indexOf.get(selected) ?? 0).y)}
-                  onChange={(event) => commit(selected, { x: positionOf(selected, indexOf.get(selected) ?? 0).x, y: Number(event.target.value) || 0 })}
-                />
-              )}
-            </Field>
-          </span>
+          <Card spacing="compact">
+            <span className={styles.moveFields}>
+              <Field label="Horizontal">
+                {(control) => (
+                  <Input
+                    {...control}
+                    type="number"
+                    value={Math.round(positionOf(selected, indexOf.get(selected) ?? 0).x)}
+                    onChange={(event) => commit(selected, { x: Number(event.target.value) || 0, y: positionOf(selected, indexOf.get(selected) ?? 0).y })}
+                  />
+                )}
+              </Field>
+              <Field label="Vertical">
+                {(control) => (
+                  <Input
+                    {...control}
+                    type="number"
+                    value={Math.round(positionOf(selected, indexOf.get(selected) ?? 0).y)}
+                    onChange={(event) => commit(selected, { x: positionOf(selected, indexOf.get(selected) ?? 0).x, y: Number(event.target.value) || 0 })}
+                  />
+                )}
+              </Field>
+            </span>
+          </Card>
         </section>
       )}
     </div>

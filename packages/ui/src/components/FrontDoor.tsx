@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { AgentEntry, FlowEntry, FlowExecution, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Dialog, Field, Input, Note, Row, RowButton, Rows } from '../design'
+import { ActionError, Banner, Button, Dialog, Field, FormStack, Input, Note, Row, RowButton, Rows } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
@@ -278,29 +278,31 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
       {chosen && (
         <>
-          <Field label="What finishes this?" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
-            {(control) => (
-              <Input
-                {...control}
-                aria-label="What finishes this?"
-                value={sentence}
-                onChange={(event) => {
-                  sentenceTouched.current = true
-                  setSentence(event.target.value)
-                }}
-              />
-            )}
-          </Field>
-
-          {problem && <ActionError>That shape could not be checked. {problem}</ActionError>}
-
-          {inputs.map((input) => (
-            <Field key={input.id} label={input.label}>
+          <FormStack>
+            <Field label="What finishes this?" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
               {(control) => (
-                <Input {...control} value={vars[input.id] ?? ''} onChange={(event) => setVar(input.id, event.target.value)} />
+                <Input
+                  {...control}
+                  aria-label="What finishes this?"
+                  value={sentence}
+                  onChange={(event) => {
+                    sentenceTouched.current = true
+                    setSentence(event.target.value)
+                  }}
+                />
               )}
             </Field>
-          ))}
+
+            {problem && <ActionError>That shape could not be checked. {problem}</ActionError>}
+
+            {inputs.map((input) => (
+              <Field key={input.id} label={input.label}>
+                {(control) => (
+                  <Input {...control} value={vars[input.id] ?? ''} onChange={(event) => setVar(input.id, event.target.value)} />
+                )}
+              </Field>
+            ))}
+          </FormStack>
 
           {preview && (
             <Row

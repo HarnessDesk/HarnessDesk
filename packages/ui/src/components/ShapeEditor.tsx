@@ -5,11 +5,12 @@ import type {
 } from '@harnessdesk/protocol'
 
 import {
-  ActionError, Banner, Button, Dialog, Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
+  ActionError, Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+  Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
 } from '../design'
 import { useStore } from '../state/context'
 import { defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
-import { PlusIcon, MoveDownIcon, MoveUpIcon } from './Icons'
+import { PlusIcon, MoveDownIcon, MoveUpIcon, TrashIcon } from './Icons'
 import { FlowPreviewReport } from './FlowStart'
 import { ShapeGraph } from './ShapeGraph'
 import { ShapeRule } from './ShapeRule'
@@ -255,19 +256,22 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
             {starting ? 'Starting…' : 'Start'}
           </Button>
           <Button variant="secondary" disabled={!policy} onClick={() => setShowSave(true)}>Save…</Button>
-          <Button
-            variant="secondary"
-            disabled={!policy}
-            onClick={() => {
-              if (savedFlowId) setEveryTime(true)
-              else {
-                setSaveForTrigger(true)
-                setShowSave(true)
-              }
-            }}
-          >
-            Every time…
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger disabled={!policy} render={<BoardMenuButton aria-label="More ways to save" disabled={!policy} />} />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => {
+                  if (savedFlowId) setEveryTime(true)
+                  else {
+                    setSaveForTrigger(true)
+                    setShowSave(true)
+                  }
+                }}
+              >
+                Every time…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="secondary" onClick={onClose}>Close</Button>
         </>
       )}
@@ -301,16 +305,11 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
           {tab === 'steps' && policy && (
             <>
               <section aria-label="Steps">
-                <SectionHead
-                  name="Steps"
-                  action={(
-                    <span className="flex gap-(--hd-space-2)">
-                      <Button size="sm" variant="outline" onClick={() => addRole('agent')}><PlusIcon size={14} />Agent</Button>
-                      <Button size="sm" variant="outline" onClick={() => addRole('check')}><PlusIcon size={14} />Check</Button>
-                      <Button size="sm" variant="outline" onClick={() => addRole('person')}><PlusIcon size={14} />Person</Button>
-                    </span>
-                  )}
-                />
+                <div className="flex justify-end gap-(--hd-space-2)">
+                  <Button size="sm" variant="outline" onClick={() => addRole('agent')}><PlusIcon size={14} />Agent</Button>
+                  <Button size="sm" variant="outline" onClick={() => addRole('check')}><PlusIcon size={14} />Check</Button>
+                  <Button size="sm" variant="outline" onClick={() => addRole('person')}><PlusIcon size={14} />Person</Button>
+                </div>
                 <Rows>
                   {policy.roles.map((role, index) => (
                     <div key={role.id}>
@@ -318,17 +317,35 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
                         title={`${index + 1}. ${role.id}`}
                         desc={role.kind === 'agent' ? 'Agent' : role.kind === 'check' ? 'Check' : 'Person'}
                         control={(
-                          <span className="flex gap-1">
-                            <Button size="sm" variant="outline" disabled={index === 0} aria-label={`Move ${role.id} up`} onClick={() => moveRole(index, -1)}><MoveUpIcon size={14} /></Button>
-                            <Button size="sm" variant="outline" disabled={index === policy.roles.length - 1} aria-label={`Move ${role.id} down`} onClick={() => moveRole(index, 1)}><MoveDownIcon size={14} /></Button>
-                          </span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger disabled={!policy} render={<BoardMenuButton aria-label={`${role.id} actions`} />} />
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem disabled={index === 0} onClick={() => moveRole(index, -1)}>
+                                <MoveUpIcon size={14} />
+                                Move up
+                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled={index === policy.roles.length - 1} onClick={() => moveRole(index, 1)}>
+                                <MoveDownIcon size={14} />
+                                Move down
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                variant="destructive"
+                                disabled={!roleRemovable(policy, role.id)}
+                                title={roleRemovable(policy, role.id) ? undefined : 'The seed step, and a step a rule still points at, cannot be removed.'}
+                                onClick={() => removeRole(index)}
+                              >
+                                <TrashIcon size={14} />
+                                Remove step
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       />
                       <ShapeStep
                         role={role}
                         agents={[...roster.values()]}
                         onChange={(next) => updateRole(index, next)}
-                        onRemove={() => removeRole(index)}
                       />
                     </div>
                   ))}
@@ -346,13 +363,27 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
                         title={`${index + 1}. ${rule.id}`}
                         desc={`${rule.on} → ${rule.then.role}`}
                         control={(
-                          <span className="flex gap-1">
-                            <Button size="sm" variant="outline" disabled={index === 0} aria-label={`Move rule ${rule.id} up`} onClick={() => moveRule(index, -1)}><MoveUpIcon size={14} /></Button>
-                            <Button size="sm" variant="outline" disabled={index === policy.rules.length - 1} aria-label={`Move rule ${rule.id} down`} onClick={() => moveRule(index, 1)}><MoveDownIcon size={14} /></Button>
-                          </span>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Rule ${rule.id} actions`} />} />
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem disabled={index === 0} onClick={() => moveRule(index, -1)}>
+                                <MoveUpIcon size={14} />
+                                Move up
+                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled={index === policy.rules.length - 1} onClick={() => moveRule(index, 1)}>
+                                <MoveDownIcon size={14} />
+                                Move down
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem variant="destructive" onClick={() => removeRule(index)}>
+                                <TrashIcon size={14} />
+                                Remove rule
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       />
-                      <ShapeRule rule={rule} policy={policy} onChange={(next) => updateRule(index, next)} onRemove={() => removeRule(index)} />
+                      <ShapeRule rule={rule} policy={policy} onChange={(next) => updateRule(index, next)} />
                     </div>
                   ))}
                 </Rows>
