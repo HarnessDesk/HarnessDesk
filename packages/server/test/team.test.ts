@@ -3340,6 +3340,81 @@ test('every stored root is resolved at once, not one project at a time', async (
 })
 
 /**
+ * The launch-time migration moves a root on the board already held.
+ *
+ * #888. It used to swap a copy into place, and a verb holding the board across
+ * an await — a post waiting on its send — then finished on the copy nobody
+ * reads: the delivered row was never on the board, and its save wrote the old
+ * root back.
+ */
+test('a root migrated while a post waits on its send keeps both the new root and the post', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'harnessdesk-team-reroot-inplace-'))
+  t.after(async () => {
+    await rm(dir, { recursive: true, force: true })
+  })
+  const worker: TeamPeer = {
+    runtime: 'codex' as RuntimeId, sessionId: 'worker', title: null, cwd: '/old', agent: 'codex',
+    busy: false, canSteer: false, queuedByUser: 0, here: true,
+  }
+  const port: TeamPort = {
+    peers: () => [worker],
+    rootOf: async (cwd) => cwd,
+    send: async () => {},
+    steer: async () => {},
+    changed: () => {},
+    removed: () => {},
+    membershipChanged: () => {},
+    audit: () => {},
+  }
+  const before = new Team(dir, port)
+  const room = (await before.createRoom('/old', 'Room')).id
+  await before.joinRoom(room, 'codex' as RuntimeId, 'worker')
+  await before.flush()
+
+  let asked!: () => void
+  const resolving = new Promise<void>((resolve) => { asked = resolve })
+  let answer!: () => void
+  const answered = new Promise<void>((resolve) => { answer = resolve })
+  let sending!: () => void
+  const inSend = new Promise<void>((resolve) => { sending = resolve })
+  let deliver!: () => void
+  const delivered = new Promise<void>((resolve) => { deliver = resolve })
+  const after = new Team(dir, {
+    ...port,
+    rootOf: async (cwd) => {
+      asked()
+      await answered
+      return cwd === '/old' ? '/old/repo' : cwd
+    },
+    send: async () => {
+      sending()
+      await delivered
+    },
+  }, { migrationBudgetMs: 10_000 })
+  const loading = after.load()
+  await resolving
+  const posting = after.post(room, 'Hello')
+  await inSend
+  answer()
+  await loading
+  assert.equal(after.stateFor(room).root, '/old/repo')
+  deliver()
+  await posting
+  await after.flush()
+  const state = after.stateFor(room)
+  assert.equal(state.root, '/old/repo', 'the post’s save kept the migrated root')
+  assert.equal(state.channel.filter((entry) => entry.kind === 'message' && entry.text === 'Hello' && entry.state === 'delivered').length, 1,
+    'and its delivered row is on the board everybody reads')
+
+  const reread = new Team(dir, { ...port, rootOf: async (cwd) => cwd })
+  await reread.load()
+  const stored = reread.stateFor(room)
+  assert.equal(stored.root, '/old/repo', 'on disk too')
+  assert.equal(stored.channel.filter((entry) => entry.kind === 'message' && entry.text === 'Hello').length, 1)
+  await reread.flush()
+})
+
+/**
  * A room refuses a conversation from another project whichever way it is
  * described to it.
  *

@@ -1256,7 +1256,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     root: atMost(4096, isFilled),
     runtime: optional(isFilled),
   }),
-  'attachment/approve': goalShape({ token: atMost(200, isFilled) }),
+  'attachment/approve': goalShape({ token: atMost(200, isFilled), acknowledgeHidden: optional(isBoolean) }),
   'attachment/seat': goalShape({ seat: isFilled }),
 
   'evidence/seat': shape({ runtime: isFilled, sessionId: isFilled }),

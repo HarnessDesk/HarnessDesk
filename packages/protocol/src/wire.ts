@@ -2103,8 +2103,12 @@ export interface HostMethods {
     params: { readonly id: string; readonly origin: AgentOrigin; readonly root: string; readonly runtime?: string }
     result: AttachmentReview
   }
-  /** Records a person's approval of exactly the reviewed token. */
-  'attachment/approve': { params: { readonly token: string }; result: null }
+  /**
+   * Records a person's approval of exactly the reviewed token. A review that
+   * showed any value only as set (`AttachmentReview.hidden`) is refused unless
+   * `acknowledgeHidden` says the person knows what those values are.
+   */
+  'attachment/approve': { params: { readonly token: string; readonly acknowledgeHidden?: boolean }; result: null }
   /** A Seat's frozen attachment identities and load history, by immutable Seat id — never by an Agent's current name or file. */
   'attachment/seat': { params: { readonly seat: SeatId }; result: SeatAttachmentsRecord | null }
   /**

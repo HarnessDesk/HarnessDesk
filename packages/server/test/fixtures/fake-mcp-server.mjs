@@ -37,19 +37,20 @@ const toolCount = process.env['FAKE_MCP_TOOL_COUNT'] ? Number(process.env['FAKE_
  *  - FAKE_MCP_IGNORE_TERM=1: shrugs off SIGTERM and a closed stdin; only SIGKILL ends it.
  *  - FAKE_MCP_PID_FILE=<path>: writes its pid there on start.
  *  - FAKE_MCP_CWD_FILE=<path>: writes the folder it runs in there on start.
- *  - FAKE_MCP_HANG_CALL=1: `tools/call` is never answered.
+ *  - FAKE_MCP_HANG_CALL=1: `tools/call` is never answered (with FAKE_MCP_MARKER, `held` is appended once it arrives).
  */
 const emptyPages = process.env['FAKE_MCP_EMPTY_PAGES'] === '1'
 const pageDelay = process.env['FAKE_MCP_PAGE_DELAY_MS'] ? Number(process.env['FAKE_MCP_PAGE_DELAY_MS']) : null
 const hangCall = process.env['FAKE_MCP_HANG_CALL'] === '1'
 const flooding = Boolean(process.env['FAKE_MCP_STDERR_BYTES'])
-if (process.env['FAKE_MCP_PID_FILE']) writeFileSync(process.env['FAKE_MCP_PID_FILE'], String(process.pid))
-if (process.env['FAKE_MCP_CWD_FILE']) writeFileSync(process.env['FAKE_MCP_CWD_FILE'], process.cwd())
 if (process.env['FAKE_MCP_IGNORE_TERM'] === '1') {
   process.on('SIGTERM', () => {})
   // And outlives its closed stdin too: only SIGKILL ends it.
   setInterval(() => {}, 1000)
 }
+// Written once SIGTERM is already ignored, so a test that waits for the pid is past that point.
+if (process.env['FAKE_MCP_PID_FILE']) writeFileSync(process.env['FAKE_MCP_PID_FILE'], String(process.pid))
+if (process.env['FAKE_MCP_CWD_FILE']) writeFileSync(process.env['FAKE_MCP_CWD_FILE'], process.cwd())
 if (process.env['FAKE_MCP_STDERR_BYTES']) {
   const total = Number(process.env['FAKE_MCP_STDERR_BYTES'])
   const chunk = 'e'.repeat(64 * 1024)
@@ -101,7 +102,11 @@ function handle(line) {
     setTimeout(() => reply(request.id, { result: { tools: [], nextCursor: `c${request.id}` } }), pageDelay)
     return
   }
-  if (request.method === 'tools/call' && hangCall) return
+  if (request.method === 'tools/call' && hangCall) {
+    // Said once the call is held, so a test knows the server has nothing more to write.
+    if (marker) appendFileSync(marker, 'held\n')
+    return
+  }
   if (request.method === 'tools/list') {
     const flagIssue = {
       name: 'flag_issue',

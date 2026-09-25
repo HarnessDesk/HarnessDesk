@@ -217,3 +217,18 @@ test('a linked worktree is refused when any hop points outside its repository’
     await assert.rejects(admitMemoryRoot(lane), /external object alternates/)
   }
 })
+
+/*
+ * #895. `.git` as an ordinary folder skipped the `commondir` check a linked
+ * worktree gets, and Git follows a `commondir` there too: the checkout's
+ * history would be read from wherever it points.
+ */
+test('admitMemoryRoot refuses an ordinary .git folder that names a commondir', async () => {
+  const elsewhere = await repo('hd-memory-commondir-elsewhere-')
+  await mkdir(join(elsewhere, '.harnessdesk', 'memory'), { recursive: true })
+  await writeFile(join(elsewhere, '.harnessdesk', 'memory', 'notes.md'), 'Not this project’s.\n')
+  await commit(elsewhere, 'elsewhere')
+  const project = await repo('hd-memory-commondir-')
+  await writeFile(join(project, '.git', 'commondir'), `${join(elsewhere, '.git')}\n`)
+  await assert.rejects(admitMemoryRoot(project), /points at another repository/)
+})

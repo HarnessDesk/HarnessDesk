@@ -1036,3 +1036,91 @@ it('Seats’ own Edit… opens the same authoring path for prefer, and a legacy-
     { key: 'prefer', value: [] },
   )
 })
+
+/*
+ * #897. An Agent whose ceiling is above edit could only ever be seated at edit
+ * from the app, so an MCP server — which needs a Seat that may merge — never
+ * loaded there. Its page now offers the level to start at, up to its ceiling,
+ * by a person's explicit choice, each level saying how the runtime that would
+ * take the seat keeps to it; the plain Start is unchanged.
+ */
+const higher = (ceiling: 'edit' | 'merge', holds: readonly string[], unheld: 'seat' | 'refuse' = 'seat') => {
+  const entry: AgentEntry = {
+    ...ROSTER[2]!,
+    definition: { ...ROSTER[2]!.definition!, ceiling, ceilingFrom: 'ceiling', mcp: ['review-tools'] } as AgentEntry['definition'],
+  }
+  const snapshot = {
+    ...snapshotFor(SEATING),
+    agents: [entry],
+    runtimes: [{
+      id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' },
+      ceilings: Object.fromEntries(holds.map((level) => [level, { how: 'its own control' }])),
+    } as unknown as RuntimeInfo],
+  } as unknown as AppSnapshot
+  const store = storeFor(snapshot, { loadUnheldCeilings: vi.fn(async () => unheld) })
+  const onLeave = vi.fn()
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentPage entry={entry} onBack={() => {}} onLeave={onLeave} />
+      </StoreProvider>,
+    )
+  })
+  return { store, onLeave }
+}
+
+const radios = () => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] [role="radio"]')]
+const confirmButton = () => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((one) => one.textContent?.startsWith('Start at'))!
+
+it('an Agent above edit can be started at a higher ceiling by choice, says how each is kept, and what merge loads', async () => {
+  const { store, onLeave } = higher('merge', ['edit', 'publish', 'merge'])
+  await settle()
+  act(() => button('Start at a higher ceiling…').click())
+  await settle()
+  expect(radios().map((one) => one.textContent)).toEqual([
+    expect.stringContaining('Edit'),
+    expect.stringContaining('Publish'),
+    expect.stringContaining('Merge'),
+  ])
+  expect(radios()[0]!.getAttribute('aria-checked')).toBe('true')
+  expect(radios()[2]!.textContent).toContain('Held: its own control.')
+  expect(radios()[2]!.textContent).toContain('Seat at Merge to load its MCP server.')
+  expect(confirmButton().textContent).toBe('Start at Edit')
+  act(() => radios()[2]!.click())
+  expect(confirmButton().textContent).toBe('Start at Merge')
+  act(() => confirmButton().click())
+  await settle()
+  expect(store.startAsAgent).toHaveBeenCalledWith('judge', { ceiling: 'merge' })
+  expect(onLeave).toHaveBeenCalled()
+})
+
+it('a level its runtime can only be asked to keep says so, and is offered only while this Mac seats such a ceiling', async () => {
+  const seats = higher('merge', ['edit'])
+  await settle()
+  act(() => button('Start at a higher ceiling…').click())
+  await settle()
+  expect(radios()[2]!.disabled).toBe(false)
+  expect(radios()[2]!.textContent).toContain('Asked, not held')
+  expect(radios()[2]!.textContent).toContain('The desk\'s own tools still refuse anything above it.')
+  act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((one) => one.textContent === 'Keep')!.click())
+  await settle()
+  act(() => button('Start a conversation as Judge').click())
+  await settle()
+  expect(seats.store.startAsAgent).toHaveBeenCalledWith('judge')
+  act(() => root.unmount())
+  root = createRoot(container)
+
+  higher('merge', ['edit'], 'refuse')
+  await settle()
+  act(() => button('Start at a higher ceiling…').click())
+  await settle()
+  expect(radios()[0]!.disabled).toBe(false)
+  expect(radios()[2]!.disabled).toBe(true)
+  expect(radios()[2]!.textContent).toContain('does not seat a ceiling its runtime cannot hold')
+})
+
+it('an Agent whose ceiling is edit offers no higher start', async () => {
+  higher('edit', ['edit', 'publish', 'merge'])
+  await settle()
+  expect(hasButton('Start at a higher ceiling…')).toBe(false)
+})

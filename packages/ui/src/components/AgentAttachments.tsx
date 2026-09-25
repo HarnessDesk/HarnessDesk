@@ -240,6 +240,9 @@ const AttachmentReviewDialog = ({
   const [problem, setProblem] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [approved, setApproved] = useState(false)
+  // A value shown only as set can change what a server does; approving asks the person to say they know it.
+  const [acknowledged, setAcknowledged] = useState(false)
+  const hidden = review?.hidden ?? []
 
   useEffect(() => {
     let live = true
@@ -270,7 +273,7 @@ const AttachmentReviewDialog = ({
       // Approving is not destroying anything, and nothing can be approved
       // before the exact content it approves has been read and shown.
       tone="default"
-      pending={!review}
+      pending={!review || (hidden.length > 0 && !acknowledged)}
       busy={busy}
       onCancel={onClose}
       onConfirm={() => {
@@ -279,7 +282,7 @@ const AttachmentReviewDialog = ({
         setProblem(null)
         void (async () => {
           try {
-            await store.approveAttachments(review.token)
+            await store.approveAttachments(review.token, hidden.length > 0 && acknowledged)
             setApproved(true)
           } catch (error) {
             setBusy(false)
@@ -299,6 +302,16 @@ const AttachmentReviewDialog = ({
               <CodeText as="pre">{file.text}</CodeText>
             </div>
           ))}
+          {hidden.length > 0 && (
+            <Rows>
+              <Row
+                title="I know what the hidden values are"
+                // A fact that varies: which values this review could not show.
+                desc={`Shown only as set: ${hidden.join(', ')}. A value like this can change what the server does, and the approval covers it exactly.`}
+                control={<Checkbox checked={acknowledged} onCheckedChange={(next) => setAcknowledged(next === true)} aria-label="I know what the hidden values are" />}
+              />
+            </Rows>
+          )}
         </div>
       )}
     </ConfirmDialog>

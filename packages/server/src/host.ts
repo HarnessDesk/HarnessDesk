@@ -879,6 +879,13 @@ export class Host {
         permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
         support: (subject) => this.#attachmentSupport(subject),
         suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
+        // Words only, for a Seat whose seating fell back to a runtime its review was not for (#895).
+        reviewedElsewhere: async (subject, identity) => {
+          const [reviewed] = await this.#attachmentTrust.approvedOnOtherRuntimes(subject, identity)
+          if (!reviewed) return null
+          const nameOf = (id: string): string => this.#runtimes.get(id as RuntimeId)?.info.presentation.name ?? 'another agent'
+          return { reviewed: nameOf(reviewed), seated: nameOf(subject.runtime) }
+        },
       },
       {
         staging: join(this.#state.directory, 'attachments', 'staged'),
@@ -974,6 +981,14 @@ export class Host {
       canMutateBoard: (goal) => {
         try {
           const document = this.#goalStore.read(goal)
+          if (!document.restored && document.goal.state === 'open' && document.operation !== null && this.#goals.isStuck(goal)) {
+            /* The Goal's own board is the one a person working in it touches,
+               and a stuck operation refuses every change to it: this change is
+               where the set-aside is tried again, behind whatever holds the
+               Goal queue — never awaited here (review P2-1 on #940). */
+            this.#retryStuckGoals()
+            return { ok: false as const, reason: 'This Goal’s last assignment or release could not be set aside, and it is being set aside again now. Try this again in a moment.' }
+          }
           return !document.restored && document.goal.state === 'open' && document.operation === null
             ? { ok: true as const }
             : { ok: false as const, reason: 'This Goal is closing or wrapped. Start another Goal for new work.' }
@@ -992,7 +1007,13 @@ export class Host {
       // A refused save is put back before the Goal's queue runs anything else.
       mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
         try {
-          await this.#saveTeamProjection(snapshot())
+          const state = snapshot()
+          // Carried, whole, by a Goal-plane write that landed: nothing is left to save.
+          if (state !== null) await this.#saveTeamProjection(state)
+          /* A board write landed (this one, or the one that carried it), so
+             whatever refused setting aside a stuck assignment or release may
+             be gone: try it again, behind this task in the Goal queue. */
+          this.#retryStuckGoals()
         } catch (error) {
           refused?.(error instanceof Error ? error : new Error(String(error)))
           throw error
@@ -1924,6 +1945,14 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    /* Staged copies no Seat and no approval references are collected once
+       per launch, before any Seat can open on one (#895). Kept on any doubt:
+       a copy left behind costs disk, one removed too eagerly costs a Seat. */
+    await this.#attachmentTrust.digests()
+      .then((approved) => (approved === null ? 0 : this.#attachments.collectStaged(approved)))
+      .catch((error: unknown) => {
+        this.#logger.warn('staged attachment copies could not be collected', { error: error instanceof Error ? error.message : String(error) })
+      })
     await migrateDesk(
       this.#state.directory,
       (seats) => importMigrationSeats(seats, this.#evidence.seats),
@@ -2586,12 +2615,27 @@ export class Host {
         const intents = patch(now.board.intents)
         if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
       }
-      : (state: TeamState) => this.#writeGoalBoard(goal, state)
-    if (await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged })) return
-    const document = this.#goalStore.read(goal)
-    const intents = patch(document.board.intents)
-    if (intents === document.board.intents) return
-    await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+      /* Whole: a Team save this write carries is answered as done once it
+         lands, so its name, messaging and plans have to land here too. */
+      : (state: TeamState) => this.#writeGoalBoard(goal, state, { whole: true })
+    if (!(await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged }))) {
+      const document = this.#goalStore.read(goal)
+      const intents = patch(document.board.intents)
+      if (intents === document.board.intents) return
+      await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
+    }
+    this.#retryStuckGoals()
+  }
+
+  /**
+   * Queues a retry of every stuck set-aside behind whatever holds the Goal
+   * queue. Never awaited: every caller is inside that queue, or answering a
+   * verb that must not wait on it. Cheap when nothing is stuck.
+   */
+  #retryStuckGoals(): void {
+    void this.#goals.retryStuck().catch((error: unknown) => {
+      this.#logger.warn('goal set-aside retry failed', { error: error instanceof Error ? error.message : String(error) })
+    })
   }
 
   /**
@@ -2599,23 +2643,35 @@ export class Host {
    * the board. Refused once the Goal is wrapped or was brought by a backup;
    * allowed while one of the Goal plane's own operations — a release, the
    * wrap's own releases — is in progress, since that operation is what is
-   * writing.
+   * writing. `whole` writes the rest of the Team's copy with them — the name,
+   * messaging, and a legacy room's plans, nicknames and roster — exactly as
+   * `#saveTeamProjection` would.
    */
-  async #writeGoalBoard(goal: string, state: TeamState): Promise<void> {
+  async #writeGoalBoard(goal: string, state: TeamState, options: { readonly whole?: boolean } = {}): Promise<void> {
     const document = this.#goalStore.read(goal)
     if (document.restored || document.goal.state === 'wrapped') {
       throw new Error('This Goal is read-only. Start another Goal for new work.')
     }
     const at = Date.now()
+    const legacy = options.whole && document.legacy ? this.#team.legacyFor(goal) : null
     await this.#goalStore.save({
       ...document,
       board: {
         ...document.board,
         nextIntent: Math.max(1, document.board.nextIntent, ...state.intents.map((intent) => intent.id + 1)),
+        ...(options.whole ? { messaging: state.messaging } : {}),
         intents: state.intents,
         channel: state.channel,
       },
-      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
+      goal: {
+        ...document.goal,
+        ...(options.whole ? { sentence: state.name || document.goal.sentence } : {}),
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+      ...(legacy && document.legacy ? {
+        legacy: { ...document.legacy, plans: legacy.plans, nicknames: legacy.nicknames, roster: legacy.roster },
+      } : {}),
     }, document.goal.revision)
   }
 
@@ -2967,7 +3023,7 @@ export class Host {
         declarations: (entry, root) => this.#attachmentDeclarations(entry, root),
         carriesFilter: async (runtime, id) => {
           const seat = this.#evidence.seats.latestKeptOf(runtime, id)
-          return seat !== null && (await this.#carriesFilter(seat))
+          return seat !== null && (await this.#carriesFilter(seat, 'reopen'))
         },
         forkRefusal: (runtime, id) => this.#forkRefusal(runtime, id),
       },
@@ -3959,18 +4015,30 @@ export class Host {
     if (await this.#attachments.lostFilter(seat.id)) {
       return 'This conversation’s record of its Agent’s approved attachments is missing or damaged, so it is not reopened or forked on the agent’s own defaults. Seat the Agent again to carry them.'
     }
-    if (await this.#agentDeclaresAttachments(seat)) {
+    const declares = await this.#agentDeclaresAttachments(seat)
+    // Only for a Seat still kept: a reopen or a fork would put it back to work on the agent's defaults (review P3-3 on #940).
+    if (declares === 'unreadable' && seat.closed === null) {
+      return 'This conversation was seated as an Agent whose file can no longer be read, and it kept no record of what that Agent approved — so it is not reopened or forked on the agent’s own defaults. Seat an Agent again.'
+    }
+    if (declares) {
       return 'This conversation was seated before Agents carried attachments, and its Agent now declares skills or servers this conversation never loaded — so it is not reopened or forked on the agent’s own defaults. Seat the Agent afresh to carry them.'
     }
     return null
   }
 
-  /** Whether the Agent a Seat was seated as declares any skill or server today. */
-  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean> {
+  /**
+   * Whether the Agent a Seat was seated as declares any skill or server today
+   * — or `'unreadable'` when it was seated as an Agent whose file is gone or
+   * will not parse, so nobody can say (#895). Read as "it might": with no
+   * frozen filter and no receipt, a crash right after the session opened
+   * would otherwise let the reopen go ahead unfiltered.
+   */
+  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean | 'unreadable'> {
     if (!seat.agent) return false
     const entry = await this.#agents.read(seat.agent.id, seat.checkout.project ?? undefined).catch(() => null)
     const definition = entry?.definition
-    return Boolean(definition && (definition.skills.length > 0 || definition.mcp.length > 0))
+    if (!definition) return 'unreadable'
+    return definition.skills.length > 0 || definition.mcp.length > 0
   }
 
   /**
@@ -3981,7 +4049,7 @@ export class Host {
    */
   async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void> {
     try {
-      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key)
+      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key, { reopen: reopened.prepared, seatKeys: this.#attachments.keysOf(reopened.seat.id) })
       await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
       this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     } catch (error) {
@@ -4012,20 +4080,25 @@ export class Host {
     if (this.#reattaching.has(`${runtime.info.id}\u0000${id}`)) return null
     const seat = this.#evidence.seats.latestKeptOf(runtime.info.id, id)
     if (!seat) return null
-    if (!(await this.#carriesFilter(seat))) return null
+    if (!(await this.#carriesFilter(seat, 'read'))) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
     if (kept) return kept
     const live = await this.#liveFor(runtime.info.id, id)
     return this.#transcripts.enrich(await runtime.readSession(live.id))
   }
 
-  /** Whether a Seat carries — or should carry — a filter: a frozen one, a lost one, or an Agent that now declares attachments. */
-  async #carriesFilter(seat: SeatRecord): Promise<boolean> {
-    return (
-      (await this.#attachments.frozen(seat.id)) ||
-      (await this.#attachments.lostFilter(seat.id)) ||
-      (await this.#agentDeclaresAttachments(seat))
-    )
+  /**
+   * Whether a Seat carries — or should carry — a filter: a frozen one, a lost
+   * one, or an Agent that now declares attachments. For a `reopen` of a Seat
+   * still kept, an Agent file that can no longer be read counts too, so the
+   * reopen goes the scoped way and is refused there (`#unreadableFilter`). A
+   * `read` of an old conversation never counts it: reading it stays possible
+   * (review P3-3 on #940).
+   */
+  async #carriesFilter(seat: SeatRecord, purpose: 'read' | 'reopen'): Promise<boolean> {
+    if ((await this.#attachments.frozen(seat.id)) || (await this.#attachments.lostFilter(seat.id))) return true
+    const declares = await this.#agentDeclaresAttachments(seat)
+    return declares === true || (declares === 'unreadable' && purpose === 'reopen' && seat.closed === null)
   }
 
   /** A read for the host's own bookkeeping — the same rule as a client's: a filtered Seat's conversation is never opened unfiltered. */
