@@ -152,9 +152,10 @@ export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
         </>
       )}
     >
-      {setupProblem && <Banner tone="danger" title="Racing needs its comparison file">{setupProblem}</Banner>}
-      {!setupProblem && source && (
-        <FormStack>
+      <FormStack>
+        {setupProblem && <Banner tone="danger" title="Racing needs its comparison file">{setupProblem}</Banner>}
+        {!setupProblem && source && (
+        <>
           <Field label="Agent">
             {(control) => (
               <NativeSelect
@@ -200,8 +201,9 @@ export const RaceStart = ({ root, task, onClose }: RaceStartProps) => {
           {previewProblem && <Banner tone="danger" title="This comparison will not run yet">{previewProblem}</Banner>}
           {preview && !identical && <FlowPreviewReport preview={preview} flow={preview.compiled.document.format === 'agents' ? preview.compiled.document.flow : null} warnings={preview.problems.filter((one) => one.level === 'warning')} roster={new Map(roster.map((entry) => [entry.id, entry]))} />}
           {startProblem && <ActionError>{startProblem}</ActionError>}
-        </FormStack>
+        </>
       )}
+      </FormStack>
     </Dialog>
   )
 }

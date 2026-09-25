@@ -445,6 +445,52 @@ const GOAL: GoalView = {
   activity: 'working', waitingOn: [], members: [], board: state, receipt: null, problem: null,
 } as unknown as GoalView
 
+const FLOW_DOCUMENT = { format: 'agents' as const, flow: { version: 2 as const, name: 'Review', inputs: [], roles: [], rules: [], seed: { role: 'reviewer', title: 'Go' }, messaging: 'board-only' as const, wait: 240 } }
+
+/**
+ * The commit a review run is pinned to, in the header's own meta line — moved
+ * here from `FlowRunStatus` once #905 gave every Goal or room one header, so
+ * the fact is said once rather than in two places that could disagree.
+ */
+it('names the pinned revision in the header’s meta, from the run’s own target', async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
+    rounds: [], operations: [], legacyRun: null, reason: null,
+    // The host's own label for a branch target, verbatim (authoring/start.ts): "branch <name>", never the bare name.
+    target: { kind: 'branch', label: 'branch feature', base: null, head: 'a1b2c3d4e5f6', pr: null, dirty: false },
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+
+  const facts = container.querySelector(`.${styles.barFacts}`)
+  expect(facts?.textContent).toContain('at a1b2c3d on branch feature')
+  // The full sha is still reachable, on hover, behind the short one shown.
+  expect(facts?.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
+})
+
+/** A Goal pinned directly — a front-door review with no flow driving it — names its commit the same way, without a branch to join it to. */
+it('names the pinned revision from Goal.at when there is no flow run to name it', async () => {
+  const PINNED_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, at: 'deadbeefcafe' },
+  } as unknown as GoalView
+  const { store } = rig(undefined, undefined, {}, PINNED_GOAL)
+  await render(store)
+
+  const facts = container.querySelector(`.${styles.barFacts}`)
+  expect(facts?.textContent).toContain('at deadbee')
+  expect(facts?.textContent).not.toContain('on ')
+})
+
+/** An ordinary Goal, working wherever its checkout does, has nothing to pin. */
+it('names no pinned revision for a Goal with neither a flow target nor Goal.at', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  await render(store)
+
+  const facts = container.querySelector(`.${styles.barFacts}`)
+  expect(facts?.textContent).not.toContain(' at ')
+})
+
 it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
   const { store } = rig(undefined, undefined, {}, GOAL)
   const loadFindings = vi.fn().mockResolvedValue(undefined)
@@ -1422,6 +1468,62 @@ it("the room's own live line names who is waiting for your approval, ahead of an
   expect(line.textContent).toBe('Codex is waiting for your approval')
 })
 
+/** More than one member holding a question is a count, not a fact the line drops (#917). */
+it("the room's own live line counts every waiting member, not only the first", async () => {
+  const { store } = rig()
+  const withApprovals = {
+    ...store.getSnapshot(),
+    approvals: [
+      { key: sessionKey('codex', 'c1'), approval: { id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo' } },
+      { key: sessionKey('claude', 'k1'), approval: { id: 'a2', type: 'command', kind: 'shell', command: 'rm -rf tmp', cwd: '/repo' } },
+    ] as never,
+  }
+  Object.assign(store, { getSnapshot: () => withApprovals })
+  await render(store)
+
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe('Codex is waiting for your approval · 1 more')
+  expect(line.getAttribute('title')).toBe('Codex\nOpus')
+})
+
+/**
+ * A flow a person started carries no trigger status, so its own stop reason
+ * is what the live line has left to read (#917). The host's own default —
+ * `stop(id, why = 'the person stopped this flow')` in flow-execution.ts — is
+ * a lowercase fragment, not a sentence, so the live line reads it as one.
+ */
+it("names a person-started flow's own stop reason on the live line, as a proper sentence, since no trigger status carries one for it", async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped',
+    rounds: [], operations: [], legacyRun: null, reason: 'the person stopped this flow',
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe('The person stopped this flow')
+  expect(line.getAttribute('data-kind')).toBe('stop')
+})
+
+/**
+ * The header reads "Needs you" over "Stopped" for an open person wait
+ * (`runState`'s own ternary order); the live line now agrees, rather than
+ * naming the stop while the header already moved past it.
+ */
+it('agrees with the header rather than naming a stop reason when a stopped run still has an open person wait', async () => {
+  const { store } = triggerRig([], { stop: { reason: 'needs a person', detail: 'It needs a person.', at: Date.now() } }, [
+    wait({ id: 'w1', kind: 'question', waitingOn: { kind: 'person', label: 'you' }, sentence: 'A Seat asked a question and nobody answered in time.' }),
+  ])
+  await render(store)
+  await act(async () => {})
+
+  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.getAttribute('data-kind')).toBe('wait')
+  expect(line.textContent).toContain('A Seat asked a question and nobody answered in time.')
+  expect(line.textContent).not.toContain('It needs a person.')
+})
+
 /**
  * The owner's own design for #905's four body elements: nothing sits between
  * the one-row header and the conversation — the origin line, the budget
@@ -1618,7 +1720,12 @@ const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknow
     snapshot = { ...snapshot, approvals: next as never }
     for (const listener of listeners) listener()
   }
-  return { store, respondToApproval, raise }
+  /** A `trigger/attention` push landing in `snapshot.triggerAttention`, the way the real one does. */
+  const raiseAttention = (attention: { readonly id: string }): void => {
+    snapshot = { ...snapshot, triggerAttention: { ...snapshot.triggerAttention, [attention.id]: attention as never } }
+    for (const listener of listeners) listener()
+  }
+  return { store, respondToApproval, raise, raiseAttention, triggerGoal }
 }
 
 /** A key pressed where focus actually is — the event starts at that element and bubbles, as a real keystroke does. */
@@ -1832,17 +1939,50 @@ it.each([
  * A budget stop names its exact reason where the run's state is read — the
  * live line, and "Stopped" in the header — and the footer keeps what was
  * spent: the partial work stands, the meter says what it cost.
+ *
+ * A real host pairs every budget stop with a person-kind wait of its own
+ * (`packages/server/src/intake/waits.ts`'s own `if (input.stop)` branch), so
+ * that is the fixture here: the wait's sentence is what shows, the same rule
+ * that reads Needs you in the header for any other person-kind wait.
  */
-it('a budget stop names its exact reason on the live line, reads Stopped, and keeps the meter', async () => {
-  const { store } = triggerRig([], { stop: { reason: 'out of budget', detail: 'The daily cap was reached before this round closed.', at: Date.now() } }, [
-    wait({ id: 'wb', kind: 'budget', waitingOn: { kind: 'service', label: 'the daily cap' }, sentence: 'This Goal stopped: out of budget.', action: 'open-usage' }),
+it('a budget stop shows the person-kind wait a real host pairs with it, and reads Stopped in the header', async () => {
+  const detail = 'Out of budget: this Goal reached its round limit.'
+  const { store } = triggerRig([], { stop: { reason: 'out of budget', detail, at: Date.now() } }, [
+    wait({
+      id: 'wb', kind: 'budget', waitingOn: { kind: 'person', label: 'you' },
+      sentence: `This Goal stopped: ${detail} Its cards, answers and findings are kept.`,
+      action: 'open-usage',
+    }),
   ])
   await render(store)
   await act(async () => {})
 
-  expect(container.querySelector('header')!.textContent).toContain('Stopped')
-  expect(container.querySelector('[data-slot="room-live-line"]')!.textContent).toBe('Out of budget. The daily cap was reached before this round closed.')
+  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  // The label appears exactly once, inside the host's own sentence — never a
+  // second time from intakeStopWords's own fallback label (#917). The
+  // budget wait's own action ("open-usage") also draws an Open link, so the
+  // sentence is checked as a prefix rather than the row's whole text.
+  expect(line.textContent).toContain(`This Goal stopped: ${detail} Its cards, answers and findings are kept.`)
+  expect(line.textContent?.match(/Out of budget/g)).toHaveLength(1)
   expect(container.querySelector('[data-slot="room-budget"]')!.textContent).toContain('$3.80 left')
+})
+
+/**
+ * A `trigger/attention` push for this Goal re-asks right away rather than
+ * waiting out the slow poll — without shortening that poll itself, which
+ * still exists at its own 60s (never a faster interval added beside it).
+ */
+it("refreshes this Goal's waits the moment a trigger/attention push touches it, not once a minute", async () => {
+  const { store, triggerGoal, raiseAttention } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+  const before = triggerGoal.mock.calls.length
+
+  act(() => raiseAttention(wait({})))
+  await act(async () => {})
+
+  expect(triggerGoal.mock.calls.length).toBeGreaterThan(before)
 })
 
 /**
@@ -1930,6 +2070,46 @@ it('disables the bar\'s Wrap for a Goal that is wrapped, wrapping, or has a prob
   const { store: problem } = rig(undefined, undefined, {}, { ...GOAL, problem: 'The board could not be saved.' })
   await render(problem)
   expect(wrapButton().disabled).toBe(true)
+})
+
+/**
+ * A validator frame at 760px (a docked room rail, not the window's own
+ * width) showed the bar's own `overflow: hidden` clipping the whole verbs
+ * group off entirely rather than folding it — actions, unlike the muted
+ * facts beside them, that must stay reachable at any width. A first pass
+ * folded only Wrap, and a re-shot frame at the same width still showed
+ * nothing: the messaging toggle beside it was exactly as fixed-width, so the
+ * row still overflowed by its own icon button's worth. Both the full row and
+ * a two-item ⋯ menu exist in the DOM at once, and `hd-header` (a real
+ * `@container` query, not asserted here) decides which is visible; this pins
+ * that the menu calls the same presses, so it cannot drift from the buttons
+ * it stands in for.
+ */
+it('keeps messaging and Wrap reachable through one ⋯ menu when the bar is too narrow for their own buttons, calling the same presses', async () => {
+  const { store } = rig(undefined, undefined, {}, GOAL)
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const fullWrap = [...bar.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
+  expect(fullWrap).not.toBeUndefined()
+  const fullMessaging = bar.querySelector('[aria-label="Hold messages at the board"]')
+  expect(fullMessaging).not.toBeNull()
+
+  const more = [...bar.querySelectorAll('[title="More"]')][0] as HTMLElement | undefined
+  expect(more, 'a compact ⋯ trigger stands beside the full buttons').not.toBeUndefined()
+  act(() => more!.click())
+
+  const wrapItem = [...document.body.querySelectorAll('[role="menuitem"], button')].find((one) => one.textContent === 'Wrap…')
+  expect(wrapItem, 'the menu offers the same Wrap action').not.toBeUndefined()
+  const messagingItem = [...document.body.querySelectorAll('[role="menuitem"], button')].find(
+    (one) => one.textContent === 'Hold messages at the board',
+  )
+  expect(messagingItem, 'the menu offers the same messaging toggle').not.toBeUndefined()
+
+  act(() => (wrapItem as HTMLElement).click())
+  // GoalWrap only mounts once wrapping is asked for — the same effect the
+  // full button's own onClick has.
+  expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
 })
 
 it('draws the chat with no header of its own', async () => {

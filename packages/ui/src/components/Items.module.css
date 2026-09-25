@@ -185,15 +185,6 @@
   gap: var(--hd-space-2);
 }
 
-.chevron {
-  flex: none;
-  transition: transform var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
-}
-
-.chevron[data-open] {
-  transform: rotate(90deg);
-}
-
 /* --- reasoning ---------------------------------------------------------- */
 
 .reasoningSummary {

@@ -70,7 +70,7 @@ describe('ceilings in words and tones', () => {
 
   it('flags an Agent on the old key or with no ceiling, and offers the two lines Update… can write', () => {
     expect(flagWords(definition({ ceiling: 'edit', ceilingFrom: 'permission' }))).toBe(
-      'Written with permission, so it reads as edit.',
+      "Set by this file's older permission line, which counts as Edit.",
     )
     expect(flagWords(definition({ ceilingFrom: 'none' }))).toBe('No ceiling written, so it runs as read.')
     expect(flagWords(definition({}))).toBeNull()

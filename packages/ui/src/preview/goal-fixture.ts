@@ -41,8 +41,9 @@ const view = (
   sentence: string,
   activity: GoalActivity | null,
   state: 'open' | 'wrapping' | 'wrapped' = 'open',
-  options: Partial<Pick<GoalView, 'waitingOn' | 'problem' | 'receipt'>> & { readonly origin?: GoalOrigin } = {},
+  options: Partial<Pick<GoalView, 'waitingOn' | 'problem' | 'receipt' | 'reservation'>> & { readonly origin?: GoalOrigin } = {},
 ): GoalView => ({
+  ...(options.reservation ? { reservation: options.reservation } : {}),
   goal: {
     id,
     root: PREVIEW_ROOT,
@@ -81,8 +82,17 @@ export const PREVIEW_GOALS: readonly GoalView[] = [
   view('goal-trigger', 'Fix the retry bug', 'working', 'open', {
     origin: { kind: 'trigger', trigger: 'review-pr', event: 'e1' },
   }),
+  // A person's own front-door start, whose reservation names the v2 run the
+  // "flow scene" Dial's `flowExecutions` entries are keyed under — the same
+  // linkage `TeamRoomPane`'s own `run` computation reads, so its header can
+  // show what that run resolved: a pinned revision, or why it stopped.
+  view('goal-flow', 'Retry the checkout call on a 502', 'working', 'open', {
+    reservation: { run: 'preview-flow-run' },
+  }),
 ]
 
 export const PREVIEW_GOAL = PREVIEW_GOALS[1]!
+/** The one Goal a front-door start reserved, for the "flow scene" preview. */
+export const PREVIEW_FLOW_GOAL = PREVIEW_GOALS.find((one) => one.goal.id === 'goal-flow')!
 /** The one Goal a trigger opened, for the intake preview scenes. */
 export const PREVIEW_TRIGGER_GOAL = PREVIEW_GOALS.find((one) => one.goal.id === 'goal-trigger')!

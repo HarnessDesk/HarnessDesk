@@ -34,7 +34,7 @@ import { closeDesk, deskInUse, dismissNotices, launchDesk, seat, sleep, STORE } 
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable, refuseUnvouchedAccounts } from './audit.mjs'
 import { REPOS } from './cast.mjs'
-import { HOME, WORK, SHOT_ENV } from './seed.mjs'
+import { HOME, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 const run = promisify(execFile)
@@ -57,6 +57,8 @@ const REPO = join(WORK, REPOS[0].dir)
 const FRAMES = join(HOME, 'frames')
 const say = (line) => process.stdout.write(`  ${line}\n`)
 const q = (value) => JSON.stringify(value)
+
+requireSeeded()
 
 const busy = await deskInUse(HOME)
 if (busy) {
@@ -130,6 +132,11 @@ try {
      real home standing through the take that has no frame-by-frame backstop.
      One copy now, in `audit.mjs`. */
   await cdp.eval(TILDIFY(homedir()))
+  // `WORK` is a "person" folder nested one level inside the staged home
+  // (`config.mjs`), never under this machine's real home — so its *parent*,
+  // not `WORK` itself, is what gets hidden, leaving `work/<repo>` standing
+  // and a recorded frame reading `~/work/storefront` (`shoot.mjs` mirrors this).
+  await cdp.eval(TILDIFY(dirname(WORK)))
 
   const frames = []
   const collected = []

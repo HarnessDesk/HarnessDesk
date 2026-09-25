@@ -28,6 +28,8 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
+  Note,
+  Text,
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
@@ -502,7 +504,7 @@ export const RoomComposer = ({
           {chosen.map((one) => (
             <ComposerChip
               key={one.key}
-              className="bg-(--hd-accent-dim) text-(--hd-accent)"
+              tone="brand"
               /* No tooltip of its own. The card is on the mark and the name
                  inside this chip, so a `title` here stacked a second box on
                  the same rest — and what it said is already said elsewhere,
@@ -542,11 +544,9 @@ export const RoomComposer = ({
       />
 
       {notice && (
-        <div
-          className={`px-3.5 pb-1 text-xs ${notice.tone === 'warn' ? 'text-(--hd-warning-ink)' : 'text-(--hd-muted-foreground)'}`}
-        >
+        <Note className="px-3.5" {...(notice.tone === 'warn' ? { tone: 'warn' as const } : { ink: 'muted' as const })}>
           {notice.text}
-        </div>
+        </Note>
       )}
 
       <ComposerTools>
@@ -596,7 +596,7 @@ export const RoomComposer = ({
                   hint={one.title ?? one.peer.model ?? undefined}
                   value={
                     !one.canUseBoard ? (
-                      <span className="text-(--hd-warning-ink)">no tools</span>
+                      <Text role="meta" tone="warning">no tools</Text>
                     ) : one.busy ? (
                       'working'
                     ) : undefined
@@ -629,11 +629,9 @@ export const RoomComposer = ({
         {/* The count appears a thousand short of the ceiling and not before:
             a number on every message is a number nobody reads. */}
         {draft.length > limit - 1000 && (
-          <span
-            className={`text-xs tabular-nums ${over ? 'text-(--hd-warning-ink)' : 'text-(--hd-muted-foreground)'}`}
-          >
+          <Text role="meta" numeric {...(over ? { tone: 'warning' as const } : {})}>
             {draft.length.toLocaleString()} / {limit.toLocaleString()}
-          </span>
+          </Text>
         )}
 
         {/* `later` is a claim about the whole message, so it is spent only when

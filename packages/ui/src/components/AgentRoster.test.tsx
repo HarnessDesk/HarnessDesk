@@ -251,10 +251,10 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
       said('tidy', 'Tidy', 'user', 'ceiling'),
     ],
   })
-  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work. Written with permission, so it reads as edit.')
+  expect(sectionText('In storefront')).toContain("Storefront reviewer does the work. Set by this file's older permission line, which counts as Edit.")
   expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
   expect(sectionText('Yours')).toContain('Tidy does the work.')
-  expect(sectionText('Yours')).not.toContain('Tidy does the work. Written')
+  expect(sectionText('Yours')).not.toContain("Tidy does the work. Set by")
   expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
   const chip = container.querySelector('section[aria-label="In storefront"] [data-ceiling]')
   expect(chip?.getAttribute('data-hold')).toBe('asked')

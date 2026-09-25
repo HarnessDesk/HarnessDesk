@@ -101,6 +101,14 @@ it('the open filter shows a plain open row and a repaired-unconfirmed claim, eac
   // No confirmed/withdrawn row was in this filter’s answer, so none is drawn.
   expect(container.textContent).not.toContain('finding-withdrawn')
   expect(container.textContent).toContain('1 blocking')
+
+  // A plain "Open" finding is the normal, default state — never the amber a
+  // person must act on now. A claimed repair genuinely is one.
+  const chips = [...container.querySelectorAll('[data-slot="chip"]')]
+  const openChip = chips.find((one) => one.textContent === 'Open')
+  const claimChip = chips.find((one) => one.textContent === 'Repair claimed · awaiting review')
+  expect(openChip?.getAttribute('data-tone')).toBe('neutral')
+  expect(claimChip?.getAttribute('data-tone')).toBe('warning')
 })
 
 it('a carried row still shows its original origin round, not a new claim', async () => {

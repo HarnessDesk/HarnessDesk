@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { GoalView } from '@harnessdesk/protocol'
 
-import { Button, Dialog, Field, FormStack, Input, Note, Row, Rows, Switch } from '../design'
+import { Button, Checkbox, Dialog, Field, Fieldset, FormStack, Input, Note, Row, Rows } from '../design'
 import { agentName, inForce } from '../lib/agents'
 import { useSnapshot, useStore } from '../state/context'
 
@@ -114,29 +114,31 @@ export const GoalCreate = ({ root, onClose }: GoalCreateProps) => {
           <Row
             title="Use an isolated checkout"
             desc="New Seats get retained worktrees, ports and browser profiles."
-            control={<Switch checked={isolated} onCheckedChange={setIsolated} aria-label="Use an isolated checkout" />}
+            control={<Checkbox checked={isolated} onCheckedChange={(next) => setIsolated(next === true)} aria-label="Use an isolated checkout" />}
           />
         </Rows>
         {isolated && snapshot.lanePreferences?.browserProfile === false ? (
           <Note tone="warn">New lanes share the ordinary browser profile while browser isolation is off.</Note>
         ) : null}
         {agents.length > 0 ? (
-          <Rows aria-label="Seat Agents">
-            {agents.map((agent) => (
-              <Row
-                key={agent.id}
-                title={agentName(agent)}
-                control={
-                  <Switch
-                    checked={selected.has(agent.id)}
-                    disabled={seated.has(agent.id) || busy}
-                    onCheckedChange={(checked) => toggle(agent.id, checked)}
-                    aria-label={`Seat ${agentName(agent)}`}
-                  />
-                }
-              />
-            ))}
-          </Rows>
+          <Fieldset legend="Seat Agents">
+            <Rows>
+              {agents.map((agent) => (
+                <Row
+                  key={agent.id}
+                  title={agentName(agent)}
+                  control={
+                    <Checkbox
+                      checked={selected.has(agent.id)}
+                      disabled={seated.has(agent.id) || busy}
+                      onCheckedChange={(next) => toggle(agent.id, next === true)}
+                      aria-label={`Seat ${agentName(agent)}`}
+                    />
+                  }
+                />
+              ))}
+            </Rows>
+          </Fieldset>
         ) : <Note>Add work or seat an Agent after this Goal is created.</Note>}
         {problem ? <Note tone="bad">{problem}</Note> : null}
       </FormStack>

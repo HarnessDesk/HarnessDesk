@@ -209,7 +209,11 @@ const WAIT_SCENES: Readonly<Record<TriggerAttentionKind, TriggerAttention>> = {
   question: triggerAttention({ id: 'wait-question', kind: 'question', waitingOn: { kind: 'person', label: 'you' }, sentence: 'A Seat asked a question and nobody answered in time.', action: 'open-goal' }),
   'person-step': triggerAttention({ id: 'wait-person-step', kind: 'person-step', sentence: 'A round needs a person to take the next card.', action: 'open-goal' }),
   member: triggerAttention({ id: 'wait-member', kind: 'member', waitingOn: { kind: 'member', label: 'the reviewer' }, sentence: 'Waiting on the reviewer to finish its round.', action: 'open-goal' }),
-  budget: triggerAttention({ id: 'wait-budget', kind: 'budget', waitingOn: { kind: 'service', label: 'the daily cap' }, sentence: 'This Goal stopped: out of budget.', action: 'open-usage' }),
+  // A real host pairs every budget stop with a person-kind wait of its own
+  // (`packages/server/src/intake/waits.ts`'s own `if (input.stop)` branch),
+  // whose sentence embeds the stop's own detail verbatim — never a
+  // service-kind wait, and never the detail repeated behind a second label.
+  budget: triggerAttention({ id: 'wait-budget', kind: 'budget', waitingOn: { kind: 'person', label: 'you' }, sentence: 'This Goal stopped: Out of budget: the daily cap was reached before this round closed. Its cards, answers and findings are kept.', action: 'open-usage' }),
   source: triggerAttention({ id: 'wait-source', kind: 'source', waitingOn: { kind: 'service', label: 'the forge' }, sentence: 'The pull request could not be read.', action: 'open-trigger' }),
   publication: triggerAttention({ id: 'wait-publication', kind: 'publication', waitingOn: { kind: 'service', label: 'the pull request' }, sentence: 'A review could not be posted; the read-back was ambiguous.', action: 'open-goal' }),
   skipped: triggerAttention({ id: 'wait-skipped', kind: 'skipped', waitingOn: { kind: 'service', label: 'review-pr' }, sentence: 'A firing was skipped: out of budget for today.', action: 'open-trigger' }),
@@ -249,7 +253,7 @@ export const sceneGoalStatus = (scene: GoalIntakeScene): TriggerGoalStatus => {
   if (scene === 'person-step') return triggerGoalStatus({ waits: [sceneWait('person-step')] })
   if (scene === 'stopped') {
     return triggerGoalStatus({
-      budget: triggerBudgetState({ stop: { reason: 'out of budget', detail: 'The daily cap was reached before this round closed.', at: 1_700_014_000_000 } }),
+      budget: triggerBudgetState({ stop: { reason: 'out of budget', detail: 'Out of budget: the daily cap was reached before this round closed.', at: 1_700_014_000_000 } }),
       waits: [sceneWait('budget')],
     })
   }
