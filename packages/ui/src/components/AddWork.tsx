@@ -200,12 +200,11 @@ export const AddWork = ({
               {blockers.map((one) => (
                 <Checkbox
                   key={one.id}
-                  aria-label={`Waits for #${one.id}`}
                   checked={dependsOn.includes(one.id)}
                   onCheckedChange={() => toggle(one.id)}
                   label={
                     <>
-                      <Text role="meta" numeric>#{one.id}</Text>
+                      <Text role="meta" numeric>#{one.id}</Text>{' '}
                       <Text role="muted" ink="secondary" truncate className={styles.depTitle}>{one.title}</Text>
                     </>
                   }

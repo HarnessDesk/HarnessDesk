@@ -103,6 +103,19 @@ const field = (label: string): HTMLInputElement | HTMLTextAreaElement => {
   return found
 }
 
+/** A checkbox by its accessible name: the words of the label that names it. */
+const checkboxNamed = (name: string): HTMLElement => {
+  const found = [...document.querySelectorAll<HTMLElement>('[role="checkbox"]')].find(
+    (node) =>
+      (node.getAttribute('aria-labelledby') ?? '')
+        .split(' ')
+        .map((id) => document.getElementById(id)?.textContent ?? '')
+        .join(' ') === name,
+  )
+  if (!found) throw new Error(`no checkbox named ${name}`)
+  return found
+}
+
 const type = (label: string, value: string): void => {
   act(() => {
     const node = field(label)
@@ -170,7 +183,8 @@ it('records what a job waits for', async () => {
   render(store, intents)
 
   type('What needs doing', 'Round the money')
-  act(() => field('Waits for #4').click())
+  // The dependency is named by its label's words, as a role query would find it.
+  act(() => checkboxNamed('#4 The refill fix').click())
   press('Add to board')
   await act(async () => {
     await Promise.resolve()

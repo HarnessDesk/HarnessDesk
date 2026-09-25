@@ -64,9 +64,9 @@
   flex-direction: column;
 }
 
-/* An import candidate and the empty-copies line are labelled checkboxes: the
-   `Checkbox` label lays out the box and its words, and only their place in
-   the dialog is said here. */
+/* An import candidate is its labelled checkbox and the kind and description
+   beside it; the empty-copies line is a labelled checkbox alone. */
+.candidate,
 .choice,
 .historyRow,
 .historyWhat {
@@ -74,6 +74,7 @@
   align-items: baseline;
 }
 
+.candidate,
 .choice,
 .historyRow,
 .historyWhat {

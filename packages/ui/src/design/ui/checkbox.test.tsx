@@ -60,3 +60,24 @@ it('is the box alone without words', async () => {
   expect(box?.classList.contains('place')).toBe(true)
   expect(container.querySelector('label')).toBeNull()
 })
+
+it('sets the box first and every word after it, text nodes included', async () => {
+  await act(async () =>
+    root.render(<Checkbox label={<>Also remove <strong>2</strong> copies</>} />),
+  )
+  const label = container.firstElementChild as HTMLElement
+  const nodes = [...label.childNodes]
+  const box = nodes.findIndex((node) => node instanceof HTMLElement && node.getAttribute('role') === 'checkbox')
+  const words = nodes
+    .map((node, index) => ({ node, index }))
+    .filter(({ node }) => (node.nodeType === Node.TEXT_NODE ? node.textContent?.trim() : node instanceof HTMLElement && node.textContent?.trim() && node.getAttribute('role') !== 'checkbox'))
+  expect(box).toBe(0)
+  expect(words.map(({ node }) => node.textContent)).toEqual(['Also remove ', '2', ' copies'])
+  expect(words.every(({ index }) => index > box)).toBe(true)
+  // The name the box is given is those words, in that order.
+  const named = (label.querySelector('[role="checkbox"]')?.getAttribute('aria-labelledby') ?? '')
+    .split(' ')
+    .map((id) => document.getElementById(id)?.textContent)
+    .join(' ')
+  expect(named).toBe('Also remove 2 copies')
+})
