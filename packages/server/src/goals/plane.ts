@@ -260,6 +260,7 @@ export class GoalPlane {
       }),
       members, board, receipt: document.receipt,
       problem: document.restored ? 'This Goal came from a backup. Start a new Goal to continue its work.' : problem,
+      ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}),
     }
   }
 
@@ -817,6 +818,26 @@ export class GoalPlane {
     const view = await this.view(input.goal)
     this.#rememberAndPublish(view)
     return view
+  }
+
+  /**
+   * Lets go of a front-door reservation, in the same queue that made it:
+   * only the run and operation that hold it can, and the Goal's revision
+   * advances with it, so a preview taken while it was reserved is stale.
+   * Anyone else's release, or one already done, changes nothing.
+   */
+  async releaseFlowReservation(input: { readonly goal: string; readonly run: string; readonly operation: string }): Promise<void> {
+    const released = await this.serial.run(async () => {
+      const document = this.store.read(input.goal)
+      const held = document.flowReservation
+      if (held?.run !== input.run || held.operation !== input.operation) return false
+      const { flowReservation: _released, ...rest } = document
+      await this.store.save({ ...rest, goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: this.now() } }, document.goal.revision)
+      return true
+    })
+    if (!released) return
+    const view = await this.view(input.goal)
+    this.#rememberAndPublish(view)
   }
 
   openLegacySeat(input: Parameters<GoalPlanePort['openLegacySeat']>[0]): Promise<SeatRecord> {

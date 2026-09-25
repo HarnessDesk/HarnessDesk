@@ -274,6 +274,11 @@ export const goalRig = async (t: { after(fn: () => Promise<void>): void }): Prom
       // Found again by `goalsOf`, the way the host's store answers for a reservation.
       rig.goals.set(input.goal, input.run)
     },
+    releaseGoal: async (input) => {
+      if (rig.goals.get(input.goal) !== input.run) return
+      rig.events.push(`unreserve:${input.goal}:${input.run}`)
+      rig.goals.delete(input.goal)
+    },
     goalsOf: (run) => [...rig.goals.entries()].filter(([, owner]) => owner === run).map(([goal]) => goal),
     seatOf: (id) => rig.seats.get(id) ?? null,
     seatsOn: (goal) => [...rig.seats.values()].filter((seat) => seat.board === goal && seat.closed === null),

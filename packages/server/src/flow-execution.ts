@@ -175,6 +175,12 @@ export interface FlowExecutionPort {
    * again by `goalsOf` after a restart, like a Goal this run made.
    */
   reserveGoal?(input: { readonly goal: string; readonly revision: number; readonly run: string; readonly operation: string; readonly root: string }): Promise<void>
+  /**
+   * Lets go of this run's reservation of an existing Goal — only while it is
+   * still this run's, and a no-op otherwise — so a run that ended before its
+   * first round does not keep the Goal from every later start.
+   */
+  releaseGoal?(input: { readonly goal: string; readonly run: string; readonly operation: string }): Promise<void>
   /** Goals whose origin names this run: how an interrupted create is found instead of repeated. */
   goalsOf(run: string): readonly string[]
   seatOf(id: string): SeatRecord | null
@@ -1345,6 +1351,8 @@ export class FlowExecutions {
         // Nothing outside the desk happened: no Goal, no Seat, no lane. The refusal stands as the run's reason.
         const reason = error instanceof Error ? error.message : String(error)
         await this.#put(this.#operation({ ...this.#get(id), state: 'stopped', reason }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
+        // A reservation that landed before the refusal was said is this run's to let go: the run never starts.
+        await this.#letGo(id, request.goal.id)
         throw error
       }
       goal = { id: request.goal.id }
@@ -2237,12 +2245,23 @@ export class FlowExecutions {
     const run = this.#get(id)
     if (run.state === 'settled' || run.state === 'stopped') return
     await this.#put({ ...run, state, reason })
+    // Ended before its first round: the empty Goal it reserved is empty still, and free for another start.
+    if (run.reserving && run.rounds.length === 0) await this.#letGo(id, run.reserving.goal)
     // Kept Seats are released once. The Goal stays open for its person to wrap.
     const open = [...new Set(run.rounds.flatMap((round) => round.seats))]
       .filter((seat) => { const record = this.#port.seatOf(seat); return record !== null && record.closed === null })
     // A trigger's run interrupts every Seat it lets go: no turn it started outlives its stop.
     await this.#release(run.goal, open, run.intake !== undefined)
     this.#team.nudgeRoom(run.goal)
+  }
+
+  /** Best effort, and said when it fails: the reservation stays, visible on the Goal, for a person. */
+  async #letGo(id: string, goal: string): Promise<void> {
+    try {
+      await this.#port.releaseGoal?.({ goal, run: id, operation: 'start' })
+    } catch (error) {
+      this.#port.log('a flow run could not let go of the Goal it reserved', { run: id, goal, error: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   // ----------------------------------------------------------------- stop

@@ -221,4 +221,18 @@ test('two starts race for one empty Goal', async () => {
   await empty('g4')
   await assert.rejects(reserve('run-f', 0, 'g4', '/work/other'), /another project/)
   for (const id of ['g2', 'g3', 'g4']) assert.equal(store.read(id).flowReservation, undefined)
+  // The reservation is on the Goal's view, so a window finds its run after a reload.
+  assert.deepEqual((await plane.view('g1')).reservation, { run: winner })
+  // Let go only by the run that holds it, in the Goal queue, advancing the revision: another run's release changes nothing.
+  const other = winner === 'run-a' ? 'run-b' : 'run-a'
+  await plane.releaseFlowReservation({ goal: 'g1', run: other, operation: 'start' })
+  assert.deepEqual(store.read('g1').flowReservation, { run: winner, operation: 'start' })
+  assert.equal(store.read('g1').goal.revision, 1)
+  await plane.releaseFlowReservation({ goal: 'g1', run: winner, operation: 'start' })
+  assert.equal(store.read('g1').flowReservation, undefined)
+  assert.equal(store.read('g1').goal.revision, 2)
+  assert.equal((await plane.view('g1')).reservation, undefined)
+  // Empty and free again: a fresh start at the new revision reserves it.
+  await reserve('run-g', 2)
+  assert.deepEqual(store.read('g1').flowReservation, { run: 'run-g', operation: 'start' })
 })

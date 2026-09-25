@@ -151,6 +151,12 @@ export interface GoalView {
   readonly board: TeamState
   readonly receipt: GoalReceipt | null
   readonly problem: string | null
+  /**
+   * The front-door run this existing empty Goal was reserved for, while the
+   * reservation holds: how a window finds that run's pane after a reload,
+   * since the Goal's own origin still names the person who made it.
+   */
+  readonly reservation?: { readonly run: string }
 }
 
 export interface GoalCreateInput {

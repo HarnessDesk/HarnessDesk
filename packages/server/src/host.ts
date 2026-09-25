@@ -1079,6 +1079,8 @@ export class Host {
       createGoal: async (input) => (await this.#goals.create(input)).goal,
       // A front-door run's empty Goal, reserved in the Goal queue against the revision its preview saw.
       reserveGoal: async (input) => { await this.#goals.reserveEmptyFlowGoal(input) },
+      // Let go of again by the run that holds it, when that run ended before its first round.
+      releaseGoal: (input) => this.#goals.releaseFlowReservation(input),
       // A Goal this run made, or an existing one reserved for it: how an interrupted start is found rather than repeated.
       goalsOf: (run) => this.#goalStore.list()
         .filter((document) => (document.goal.origin.kind === 'flow' && document.goal.origin.run === run) || document.flowReservation?.run === run)

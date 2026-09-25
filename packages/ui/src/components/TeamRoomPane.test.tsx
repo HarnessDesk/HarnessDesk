@@ -429,6 +429,21 @@ it('Findings joins only a Goal’s own navigation; a loose conversation keeps no
   expect(container.textContent).toContain('Migrate auth callers')
 })
 
+it('a reused empty Goal reads the run its reservation names after a reload, and a plain Goal reads none', async () => {
+  const reserved = { ...GOAL, reservation: { run: 'flow-reused-1' } } as GoalView
+  const { store } = rig(undefined, undefined, {}, reserved)
+  const readFlowExecution = vi.fn().mockResolvedValue(undefined)
+  Object.assign(store, { readFlowExecution })
+  await render(store)
+  expect(readFlowExecution).toHaveBeenCalledWith('flow-reused-1')
+
+  const plain = rig(undefined, undefined, {}, GOAL)
+  const none = vi.fn().mockResolvedValue(undefined)
+  Object.assign(plain.store, { readFlowExecution: none })
+  await render(plain.store)
+  expect(none).not.toHaveBeenCalled()
+})
+
 it('a plain conversation room shows no Findings row and never asks for one', async () => {
   const { store } = rig(undefined, undefined, {}, null)
   const loadFindings = vi.fn().mockResolvedValue(undefined)

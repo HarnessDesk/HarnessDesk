@@ -250,3 +250,35 @@ test('a reused empty Goal is reserved before dispatch, and a lost race starts no
   await assert.rejects(rig.flows.startGoal({ ...request(1), requireHeld: undefined as never, authorization: { ...request(1).authorization, start: undefined as never } }), /Only a front-door start reuses an existing Goal/)
   await assert.rejects(rig.flows.startGoal({ ...request(1), authorization: { ...request(1).authorization, start: undefined as never } }), /does not match where it came from/)
 })
+
+test('a reserved run that stops before its first round lets its Goal go, so a later start can reserve it again', async (t) => {
+  const rig = await goalRig(t)
+  const agents = [agent('builder', ['done']), agent('reviewer', ['done'])]
+  const existing = await rig.team.createRoom('/repo', 'An empty Goal')
+  const request = (revision: number) => ({
+    root: '/repo', sentence: 'Build and review', source: BUILD_THEN_REVIEW, sourcePath: null, compiled: rig.compile(BUILD_THEN_REVIEW, agents),
+    requireHeld: true as const, goal: { id: existing.id, revision },
+    authorization: { sourceDigest: sourceDigest(BUILD_THEN_REVIEW), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' as const },
+  })
+  rig.reserve = async () => {}
+  // Reserved, then refused before any round opens: nothing seeded, the run waits for a person.
+  rig.dispatch = { ok: false, reason: 'This Goal is not ready for work yet.' }
+  const run = await rig.flows.startGoal(request(0))
+  assert.equal(run.goal, existing.id)
+  assert.equal(run.state, 'stalled')
+  assert.deepEqual(run.rounds, [])
+  assert.equal(rig.goals.get(existing.id), run.id, 'still reserved while the run waits to be looked at')
+  // In a fresh process the stalled run is read back, still holding its Goal; the person's Stop lets it go.
+  const restarted = await rig.restart()
+  await restarted.flows.stopRun(run.id)
+  assert.ok(rig.events.includes(`unreserve:${existing.id}:${run.id}`), rig.events.join(', '))
+  assert.equal(rig.goals.has(existing.id), false)
+  // A reservation that throws after it may have landed is let go too, and the run records why.
+  rig.dispatch = { ok: true }
+  rig.reserve = async (input) => {
+    rig.goals.set(input.goal, input.run)
+    throw new Error('The Goal view could not be read after it was reserved.')
+  }
+  await assert.rejects(rig.flows.startGoal(request(1)), /could not be read after it was reserved/)
+  assert.equal(rig.goals.has(existing.id), false, 'no reservation outlives a start that did not take')
+})

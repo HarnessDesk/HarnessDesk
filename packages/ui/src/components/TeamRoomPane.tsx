@@ -165,8 +165,10 @@ export const TeamRoomPane = ({
   // cached yet: read it once, the same pull `flow/execution-changed` is the
   // push half of.
   useEffect(() => {
-    if (flowExecution || goal?.goal.origin.kind !== 'flow') return
-    void store.readFlowExecution(goal.goal.origin.run).catch(() => {})
+    // A reused empty Goal's run is named by its reservation, not its origin.
+    const run = goal?.goal.origin.kind === 'flow' ? goal.goal.origin.run : goal?.reservation?.run
+    if (flowExecution || !run) return
+    void store.readFlowExecution(run).catch(() => {})
   }, [flowExecution, goal, store])
   const mount = useMount()
   /**
