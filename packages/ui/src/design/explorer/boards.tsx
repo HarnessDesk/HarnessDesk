@@ -16,13 +16,6 @@ import {
   Banner,
   BannerAction,
   ActionError,
-  AccessCode,
-  AccessDetail,
-  AccessFact,
-  AccessRail,
-  AccessRailFooter,
-  AccessRailHeader,
-  AccessRailList,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -88,8 +81,6 @@ import {
   Segmented,
   StatePill,
   Spinner,
-  StateStrip,
-  StatusSummary,
   Text,
   Switch,
   SwitchShape,
@@ -273,30 +264,6 @@ const StateBoard = () => (
       </Case>
       <Case label="running operation">
         <Spinner size="sm" tone="brand" aria-label="Loading" />
-      </Case>
-      <Case label="account-access status">
-        <div className="flex w-full flex-col gap-3">
-          <StateStrip states={['ready', 'signin', 'limit', 'broken']} />
-          <StatusSummary
-            tone="success"
-            icon={<CheckIcon size={16} />}
-            title="Account connected"
-            description="Ready to start a conversation."
-          />
-        </div>
-      </Case>
-      <Case label="account-access sheet anatomy">
-        <div className="grid w-full grid-cols-[10rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
-          <AccessRail aria-label="Agents">
-            <AccessRailHeader>Your agents</AccessRailHeader>
-            <AccessRailList>Agent rows</AccessRailList>
-            <AccessRailFooter>Credentials stay local.</AccessRailFooter>
-          </AccessRail>
-          <AccessDetail>
-            <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
-            <AccessCode>ABCD-EFGH</AccessCode>
-          </AccessDetail>
-        </div>
       </Case>
       <Case label="library reach">
         <LibraryReachMark state="reaches" label="Reaches" placement="cell" />

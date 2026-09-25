@@ -252,9 +252,13 @@ it('shows a connected account once, with its credential home on a line of its ow
   expect(emails).toHaveLength(1)
   expect(card.textContent).toContain('team')
 
-  // The path is its own element, so it can wrap instead of overrunning.
-  const path = [...container.querySelectorAll('code')].map((node) => node.textContent)
-  expect(path).toContain('~/.codex')
+  // The path is a fact of its own — the facts card's path row, which gives up
+  // its middle rather than overrunning the column — with its consequence as
+  // that fact's note.
+  const fact = card.querySelector('[data-slot="summary-item"][data-kind="path"]')
+  expect(fact?.querySelector('dt')?.textContent).toBe('Credential')
+  expect(fact?.querySelector('[data-slot="middle-truncate"]')?.textContent).toContain('~/.codex')
+  expect(fact?.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Signing out here signs that CLI out too')
 
   // Both actions on one row, the one you came for first.
   const actions = [...container.querySelectorAll('button')]
@@ -274,10 +278,68 @@ it('composes the shared roster, state and text roles', async () => {
     },
   } as never)
 
-  expect(container.querySelector('[data-slot="state-strip"]')).not.toBeNull()
+  // The rail is the window rail, in the rail's own two stretches, closed by
+  // a section's footer; the work beside it is the dialog's reading body.
+  const rail = container.querySelector('nav[aria-label="Agents"]')
+  expect(rail?.getAttribute('data-slot')).toBe('app-window-nav')
+  expect([...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])].map((node) => node.getAttribute('data-stretch')))
+    .toEqual(['head', 'list'])
+  expect(rail?.querySelector(':scope > [data-slot="section-footer"]')?.textContent).toContain('Credentials stay on this machine')
+  expect(detail().getAttribute('data-slot')).toBe('modal-dialog-body')
+  expect(detail().getAttribute('data-layout')).toBe('reading')
+
+  // The roster reading is one readiness light per agent — the rows' own Dot —
+  // named once in words.
+  const lights = container.querySelector('[data-slot="roster-lights"]')
+  expect(lights?.getAttribute('role')).toBe('img')
+  expect(lights?.getAttribute('aria-label')).toBe('2 agents: 1 ready, 1 needs sign-in')
+  expect([...(lights?.querySelectorAll('[data-slot="dot"]') ?? [])].map((dot) => dot.getAttribute('data-state')))
+    .toEqual(['ready', 'signin'])
+
+  // An account's state is a toned round tile beside the subject and muted roles.
   expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
-  expect(detail().querySelector('[data-slot="status-summary"]')).not.toBeNull()
-  expect(detail().querySelector('[data-slot="text"][data-role="subject"]')).not.toBeNull()
+  const summary = detail().querySelector('[data-slot="status-summary"]')
+  expect(summary?.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tone')).toBe('success')
+  expect(summary?.querySelector('[data-slot="text"][data-role="subject"]')?.textContent).toBe('ada@example.com')
+  expect(summary?.querySelector('[data-slot="text"][data-role="muted"]')?.textContent).toBe('team')
+})
+
+it('sets a one-time code verbatim on the code plate, at the page step', async () => {
+  await mount({
+    accountsByRuntime: { codex: status([], ['deviceCode']) },
+    logins: {
+      codex: {
+        method: 'm0',
+        start: { type: 'deviceCode', loginId: 'l1', url: 'https://example.com/device', code: 'WDJB-MJHT' },
+        outcome: { type: 'pending' },
+      },
+    },
+  } as never)
+
+  const code = detail().querySelector('[aria-label="One-time code"]')
+  expect(code?.tagName).toBe('CODE')
+  expect(code?.getAttribute('data-slot')).toBe('code-text')
+  expect(code?.hasAttribute('data-block')).toBe(true)
+  expect(code?.getAttribute('data-ground')).toBe('muted')
+  const words = code?.querySelector('[data-slot="text"]')
+  expect(words?.getAttribute('data-role')).toBe('page')
+  expect(words?.textContent).toBe('WDJB-MJHT')
+})
+
+it('labels a way in it cannot drive the way it labels every group, with its sentence under it', async () => {
+  await mount({
+    accountsByRuntime: {
+      codex: {
+        accounts: [],
+        signInMethods: [{ id: 'x', flow: 'external', label: 'Signed in from a terminal', description: 'Run codex login.' }],
+      },
+    },
+  } as never)
+
+  const label = [...detail().querySelectorAll('[data-slot="section-name"]')].find((node) => node.textContent === 'Signed in from a terminal')
+  expect(label).toBeTruthy()
+  expect(label?.closest('[data-section-head]')?.nextElementSibling?.getAttribute('data-slot')).toBe('note')
+  expect(label?.closest('[data-section-head]')?.nextElementSibling?.textContent).toBe('Run codex login.')
 })
 
 it('wears the head every dialog wears, and its way out closes the sheet', async () => {
@@ -288,7 +350,6 @@ it('wears the head every dialog wears, and its way out closes the sheet', async 
   const dialog = container.querySelector('[role=dialog]')
   const head = dialog?.querySelector('[data-slot="dialog-head"]')
   expect(head?.textContent).toBe('Sign in')
-  expect(dialog?.querySelector('[data-slot="access-header"]')).toBeNull()
   const close = head?.querySelector('button[aria-label="Close"]')
   expect(close).toBeTruthy()
   // The way out is the dialog's own step: a 13px cross, as on every dialog.
