@@ -21,6 +21,7 @@ import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
+import { Prose } from './Prose'
 import {
   AlertIcon,
   CheckIcon,
@@ -44,12 +45,16 @@ import {
   DialogHead,
   DialogRoot,
   Dot,
+  Field,
   IconTile,
   Input,
   ListRow,
   ListRows,
   Note,
   RailSection,
+  Row as SettingsRow,
+  RowButton,
+  Rows,
   Search,
   SectionFooter,
   SectionHead,
@@ -82,9 +87,14 @@ import own from './SignIn.module.css'
  *   deviceCode  a code to type on another device.
  *   external    HarnessDesk cannot drive it; say what to do instead.
  *
- * The rail counts what is connected and what is not, because the reason
- * anyone opens this window is that one of four agents is asleep — and until
- * the count is on screen, finding which one is the whole task.
+ * The rail is split by what each agent needs from you: the ones not
+ * connected first, then the ones that are, each group counted. The reason
+ * anyone opens this window is that one agent of many is asleep, and sorting
+ * by that answer makes finding it the first glance rather than the task.
+ *
+ * Beside it, the selected agent is a sign-in card — its face, its name and
+ * its ways in, one column wide and centred, the anatomy every sign-in page
+ * shares — so a person who has signed in anywhere knows where to look.
  *
  * Below the roster, the rail carries the public ACP registry: every agent
  * the protocol's own list names that is not registered here yet. Selecting
@@ -205,9 +215,6 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   const row = fromRegistry
     ? null
     : rows.find((entry) => entry.info.id === selected) ?? rows[0] ?? null
-  // An account still starting is not connected and is not disconnected; it is
-  // not an answer yet, so it counts as neither.
-  const connected = rows.filter((entry) => entry.status !== 'out' && entry.status !== 'asking').length
   const nextUp = rows.find((entry) => entry.status === 'out' && entry.info.id !== row?.info.id)
 
   useEffect(() => {
@@ -217,6 +224,11 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
   const close = (): void => {
     onClose()
   }
+
+  const groups = [
+    { name: 'Not connected', rows: rows.filter((entry) => !isConnected(entry)) },
+    { name: 'Connected', rows: rows.filter(isConnected) },
+  ].filter((group) => group.rows.length > 0)
 
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) close() }}>
@@ -233,45 +245,40 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
         <div className={own.split}>
           {/* The rail is the window rail — the plate Settings and the
-              dashboard stand their rosters on — under the dialog's own head,
-              so its head opens with the short step a ruled head takes. */}
+              dashboard stand their rosters on — under the dialog's own head. */}
           <AppWindowRail aria-label="Agents" className={own.rail}>
-            <RailSection stretch="head" density="comfortable" ruled>
-              <Text as="div" role="subject">Your agents</Text>
-              <Text as="div" role="muted" className={own.spineCount}>
-                {connected} of {rows.length} connected
-              </Text>
-              <RosterLights states={rows.map((entry) => entry.state)} />
-            </RailSection>
-
             <RailSection stretch="list" density="comfortable" className={own.railList}>
-              <ListRows size="sm">
-              {rows.map((entry) => (
-                <ListRow
-                  key={entry.info.id}
-                  as="button"
-                  size="sm"
-                  interactive
-                  selected={entry.info.id === row?.info.id}
-                  onClick={() => setSelected(entry.info.id)}
-                  lead={<RuntimeMark runtime={entry.info} size={16} />}
-                  title={<Text role="row">{entry.info.presentation.name}</Text>}
-                  subtitle={
-                    <Text role="meta" tone={entry.state === 'signin' ? 'brand' : entry.state === 'limit' ? 'warning' : undefined}>
-                      {entry.pending ? 'Waiting…' : entry.detail}
-                    </Text>
-                  }
-                  trail={entry.pending ? (
-                    <Spinner size="sm" tone="brand" aria-hidden="true" />
-                  ) : (
-                    <Dot state={entry.state} />
-                  )}
-                />
+              {groups.map((group) => (
+                <section key={group.name} aria-label={`${group.name}: ${group.rows.length}`} className={own.group}>
+                  <SectionHead
+                    name={group.name}
+                    action={<Text role="meta" numeric>{group.rows.length}</Text>}
+                  />
+                  <ListRows size="sm">
+                  {group.rows.map((entry) => (
+                    <ListRow
+                      key={entry.info.id}
+                      as="button"
+                      size="sm"
+                      interactive
+                      selected={entry.info.id === row?.info.id}
+                      onClick={() => setSelected(entry.info.id)}
+                      lead={<RuntimeMark runtime={entry.info} size={16} />}
+                      title={<Text role="row">{entry.info.presentation.name}</Text>}
+                      subtitle={railLine(entry)}
+                      trail={entry.pending ? (
+                        <Spinner size="sm" tone="brand" aria-hidden="true" />
+                      ) : entry.state === 'limit' || entry.state === 'broken' ? (
+                        <Dot state={entry.state} />
+                      ) : undefined}
+                    />
+                  ))}
+                  </ListRows>
+                </section>
               ))}
-              </ListRows>
 
               {registryRows.length > 0 && (
-                <>
+                <section aria-label="From the ACP registry" className={own.group}>
                   <SectionHead name="From the ACP registry" />
                   {/* Two agents need no finding aid; forty do. */}
                   {registryRows.length > 8 && (
@@ -306,13 +313,13 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   {listedRegistry.length === 0 && (
                     <Text as="div" role="meta" className={own.railNote}>Nothing in the registry matches.</Text>
                   )}
-                </>
+                </section>
               )}
               {registryRows.length === 0 && registry?.unavailable && (
-                <>
+                <section aria-label="From the ACP registry" className={own.group}>
                   <SectionHead name="From the ACP registry" />
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
-                </>
+                </section>
               )}
             </RailSection>
 
@@ -325,46 +332,49 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
           </AppWindowRail>
 
           {/* The work beside the roster is the dialog's body: a reading
-              body, inset the dialog's step, that scrolls on its own. */}
+              body, inset the dialog's step, that scrolls on its own. The
+              card inside it is one column, centred, the width of a form. */}
           <DialogBody layout="reading" className={own.detail}>
-            {fromRegistry ? (
-              <RegistryAgent
-                key={fromRegistry.id}
-                agent={fromRegistry}
-                onAdded={(added) => setSelected(added)}
-              />
-            ) : row ? (
-              <Agent key={row.info.id} row={row} onSelect={setSelected} />
-            ) : (
-              <Note>No agents are registered yet.</Note>
-            )}
+            <div className={own.card} data-slot="sign-in-card">
+              {fromRegistry ? (
+                <RegistryAgent
+                  key={fromRegistry.id}
+                  agent={fromRegistry}
+                  onAdded={(added) => setSelected(added)}
+                />
+              ) : row ? (
+                <Agent key={row.info.id} row={row} onSelect={setSelected} />
+              ) : (
+                <Note>No agents are registered yet.</Note>
+              )}
 
-            {row && row.status !== 'out' ? (
-              <Alert tone="neutral" variant="soft" className={own.next}>
-                {/* The mark belongs to the alert's headline, and wears its ink. */}
-                <Text role="subject" className={own.nextMark}>
-                  <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
-                </Text>
-                <AlertContent className={own.nextText}>
-                  <AlertTitle>
-                    {nextUp
-                      ? `${nextUp.info.presentation.name} is still waiting`
-                      : 'Everything else is already connected'}
-                  </AlertTitle>
-                  <AlertDescription>
-                    {nextUp
-                      ? 'One more sign-in and every agent here can take a turn.'
-                      : 'Nothing left to sign in — close this and start a conversation.'}
-                  </AlertDescription>
-                </AlertContent>
-                <Button
-                  variant="default"
-                  onClick={() => (nextUp ? setSelected(nextUp.info.id) : close())}
-                >
-                  {nextUp ? 'Sign in' : 'Done'}
-                </Button>
-              </Alert>
-            ) : null}
+              {row && isConnected(row) ? (
+                <Alert tone="neutral" variant="soft" className={own.next}>
+                  {/* The mark belongs to the alert's headline, and wears its ink. */}
+                  <Text role="subject" className={own.nextMark}>
+                    <RuntimeMark runtime={(nextUp ?? row).info} size={20} />
+                  </Text>
+                  <AlertContent className={own.nextText}>
+                    <AlertTitle>
+                      {nextUp
+                        ? `${nextUp.info.presentation.name} is still waiting`
+                        : 'Everything else is already connected'}
+                    </AlertTitle>
+                    <AlertDescription>
+                      {nextUp
+                        ? 'One more sign-in and every agent here can take a turn.'
+                        : 'Nothing left to sign in — close this and start a conversation.'}
+                    </AlertDescription>
+                  </AlertContent>
+                  <Button
+                    variant="default"
+                    onClick={() => (nextUp ? setSelected(nextUp.info.id) : close())}
+                  >
+                    {nextUp ? 'Sign in' : 'Done'}
+                  </Button>
+                </Alert>
+              ) : null}
+            </div>
           </DialogBody>
         </div>
       </DialogContent>
@@ -373,28 +383,29 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 }
 
 /**
- * The whole roster in one glance: each agent's readiness light, in roster
- * order — the same `Dot` its row carries below, so the summary and the rows
- * it summarises are one vocabulary. Named once, in words, for a reader.
+ * Whether a row belongs under "Connected". An account still starting is not
+ * connected and is not signed out either — it has not answered — so it waits
+ * with the ones that are not connected, where its "Starting…" is read, and is
+ * never counted as connected.
  */
-const ROSTER_WORDS: readonly (readonly [Readiness, string])[] = [
-  ['ready', 'ready'],
-  ['signin', 'needs sign-in'],
-  ['limit', 'at a limit'],
-  ['broken', 'unavailable'],
-  ['available', 'not added'],
-]
+const isConnected = (row: Row): boolean => row.status !== 'out' && row.status !== 'asking'
 
-const RosterLights = ({ states }: { states: readonly Readiness[] }) => {
-  const counts = new Map<Readiness, number>()
-  for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1)
-  const named = ROSTER_WORDS
-    .flatMap(([state, word]) => counts.has(state) ? [`${counts.get(state)} ${word}`] : [])
-    .join(', ')
+/**
+ * A rail row's second line: only what its group does not already say. Under
+ * "Not connected", a plain "Not connected" on every row is the group's own
+ * sentence repeated, so the line is kept for what differs — a sign-in under
+ * way, an agent starting, one that did not start.
+ */
+const railLine = (row: Row): ReactNode => {
+  if (row.pending) return <Text role="meta" tone="brand">Waiting…</Text>
+  if (!isConnected(row)) {
+    if (row.state === 'broken') return <Text role="meta" tone="danger">Did not start</Text>
+    return row.status === 'asking' ? <Text role="meta">{row.detail}</Text> : undefined
+  }
   return (
-    <span data-slot="roster-lights" role="img" aria-label={`${states.length} agents: ${named}`} className={own.lights}>
-      {states.map((state, index) => <Dot key={`${state}:${index}`} state={state} aria-hidden="true" />)}
-    </span>
+    <Text role="meta" tone={row.state === 'limit' ? 'warning' : undefined}>
+      {row.detail}
+    </Text>
   )
 }
 
@@ -420,6 +431,11 @@ const StatusSummary = ({
       {description != null ? <Text role="muted">{description}</Text> : null}
     </span>
   </div>
+)
+
+/** A state's round mark, as a row's lead: the same tile `StatusSummary` wears. */
+const StateMark = ({ tone, children }: { tone: Tone; children: ReactNode }) => (
+  <IconTile shape="round" size="sm" tone={tone}>{children}</IconTile>
 )
 
 /** The glyph a way in wears: what it opens, not what it is called. */
@@ -491,6 +507,64 @@ const peerAccount = (info: RuntimeInfo, snapshot: AppSnapshot): string | null =>
   return null
 }
 
+/**
+ * The top of the card: the agent's face in a tile, its name at the page's
+ * step, and one line of what it is — centred, because it is the subject of
+ * everything under it, the way every sign-in page opens on whose door this
+ * is. The name is the subject's step, under the dialog's own title. The meta line is only for a registry entry, whose version and licence
+ * are the facts that vary.
+ */
+const CardHead = ({
+  mark,
+  name,
+  meta,
+  children,
+}: {
+  mark: ReactNode
+  name: string
+  meta?: string
+  children: ReactNode
+}) => (
+  <header className={own.head} data-slot="sign-in-head">
+    {/* The mark stands in its name's ink: the tile's own is for glyphs. */}
+    <IconTile size="lg" className={own.headTile}>
+      <Text role="subject" className={own.headMark}>{mark}</Text>
+    </IconTile>
+    <Text as="h3" role="subject" align="center" className={own.headName}>{name}</Text>
+    {meta ? <Text as="div" role="meta" align="center">{meta}</Text> : null}
+    <Text as="p" role="muted" align="center" className={own.headLine}>{children}</Text>
+  </header>
+)
+
+/**
+ * The small print under the card, for what the card is doing rather than
+ * what it is: a sign-in under way says what this window can and cannot see.
+ */
+const FinePrint = ({ children }: { children: ReactNode }) => (
+  <Text as="p" role="meta" align="center" className={own.fine}>
+    {children}
+  </Text>
+)
+
+/**
+ * One way in, as a drill row: what it opens, what it is called, and the
+ * agent's own sentence under it, whole, when it has one — agents write real
+ * sentences here, and a one-line button cut them (#749). The ways in are
+ * actions, not a choice held open, so they are rows of one group card with
+ * hairlines between them, never a radio list or a wall of framed boxes.
+ */
+const MethodRow = ({ method, onChoose }: { method: AuthMethod; onChoose: () => void }) => {
+  const Glyph = METHOD_ICON[method.flow]
+  return (
+    <RowButton
+      mark={<Glyph size={16} />}
+      title={method.label}
+      {...(method.description ? { desc: <Prose text={method.description} />, wrapDesc: true } : {})}
+      onClick={onChoose}
+    />
+  )
+}
+
 /** The selected agent: who it is, what state it is in, and the way in. */
 const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => void }) => {
   const store = useStore()
@@ -509,11 +583,15 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   const [adding, setAdding] = useState(false)
   const driveable = row.methods.filter((method) => method.flow !== 'external')
   const external = row.methods.filter((method) => method.flow === 'external')
-  // One way in that needs a field is not a choice — open it. Two or more, and
-  // the choice is the question, so the cards come first.
-  const only = driveable.length === 1 && driveable[0]!.flow === 'apiKey' ? driveable[0]! : null
-  const [opened, setOpened] = useState<string | null>(only?.id ?? null)
-  const openedMethod = row.methods.find((method) => method.id === opened) ?? null
+  // The ways in that are a press come first, as rows. A key is a field, and
+  // one key is not a choice — it is drawn open, under the rows. Two or more
+  // keys are a choice again, and join the rows.
+  const presses = driveable.filter((method) => method.flow !== 'apiKey')
+  const keys = driveable.filter((method) => method.flow === 'apiKey')
+  const inlineKey = keys.length === 1 ? keys[0]! : null
+  const choices = inlineKey ? presses : driveable
+  const [opened, setOpened] = useState<string | null>(null)
+  const openedMethod = keys.find((method) => method.id === opened) ?? null
 
   // A browser flow ends in another application. Open it once, and only where
   // "open" means the system browser: in a plain web build an automatic
@@ -527,22 +605,20 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   }, [login?.start.loginId, login?.outcome.type, login?.start])
 
   const signedIn = account && account.kind !== 'apiKey' && account.kind !== 'externalKey'
+  const pending = login?.outcome.type === 'pending'
+  const keyProps = {
+    runtime: info.id,
+    stored: account?.kind === 'apiKey',
+    ...(account?.kind === 'externalKey' ? { elsewhere: account.planType ?? 'its own configuration' } : {}),
+  }
 
   return (
     <>
-      <div className={own.who}>
-        {/* The agent's mark stands in its name's role and ink: the reading
-            body's secondary ink is for prose, not for a head. */}
-        <Text role="subject" className={own.whoMark}>
-          <RuntimeMark runtime={info} size={22} />
-        </Text>
-        <Text role="subject" truncate>{info.presentation.name}</Text>
-      </div>
-      <Note className={own.blurb}>
+      <CardHead mark={<RuntimeMark runtime={info} size={20} />} name={info.presentation.name}>
         {info.presentation.tagline ?? `${STATUS_LABEL[row.status]}.`}
-      </Note>
+      </CardHead>
 
-      {login?.outcome.type === 'pending' ? (
+      {login && pending ? (
         <Pending
           runtime={info.id}
           login={login}
@@ -556,94 +632,80 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           alreadyAs={peerAccount(info, snapshot)}
         />
       ) : login?.outcome.type === 'failed' ? (
-        <div className={own.waiting}>
+        <div className={own.stack}>
           <ActionError>{login.outcome.error}</ActionError>
           <div className={own.row}>
             <Button variant="secondary" onClick={() => store.dismissLogin(info.id)}>Try again</Button>
           </div>
         </div>
       ) : signedIn ? (
-        <div className={own.waiting}>
-          <StatusSummary
-            tone="success"
-            icon={<CheckIcon size={16} />}
-            title={account.label || 'Already connected'}
-            description={connectedHint(account)}
-          />
-          <CredentialHome info={info} label="Credential" />
+        <div className={own.stack}>
+          <Rows>
+            <SettingsRow
+              data-slot="sign-in-account"
+              mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
+              title={account.label || 'Already connected'}
+              desc={connectedHint(account)}
+            />
+          </Rows>
           <SignOut
-            runtime={info.id}
-            lead={
-              info.slot?.canAdd ? (
-                <Button
-                  variant="default"
-                  disabled={adding}
-                  onClick={() => {
-                    // A second identity needs a second credential home, or the
-                    // sign-in would land on top of the one shown above. The
-                    // host holds the answer until the new account can be
-                    // signed in, so the button says it is working — and is
-                    // held as well as disabled, because `disabled` only lands
-                    // on the next render and two slots is what a second press
-                    // buys.
-                    if (adding) return
-                    setAdding(true)
-                    void store
-                      .addAccount(info.id)
-                      .then((added) => {
-                        if (added) onSelect(added)
-                      })
-                      .finally(() => setAdding(false))
-                  }}
-                >
-                  {adding ? 'Adding…' : 'Add another account'}
-                </Button>
-              ) : null
-            }
-          />
+              runtime={info.id}
+              lead={
+                info.slot?.canAdd ? (
+                  <Button
+                    variant="default"
+                    disabled={adding}
+                    onClick={() => {
+                      // A second identity needs a second credential home, or the
+                      // sign-in would land on top of the one shown above. The
+                      // host holds the answer until the new account can be
+                      // signed in, so the button says it is working — and is
+                      // held as well as disabled, because `disabled` only lands
+                      // on the next render and two slots is what a second press
+                      // buys.
+                      if (adding) return
+                      setAdding(true)
+                      void store
+                        .addAccount(info.id)
+                        .then((added) => {
+                          if (added) onSelect(added)
+                        })
+                        .finally(() => setAdding(false))
+                    }}
+                  >
+                    {adding ? 'Adding…' : 'Add another account'}
+                  </Button>
+                ) : null
+              }
+            />
+          <CredentialHome info={info} label="Credential" />
         </div>
-      ) : openedMethod && openedMethod.flow === 'apiKey' ? (
-        <KeyField
-          runtime={info.id}
-          method={openedMethod}
-          stored={account?.kind === 'apiKey'}
-          {...(only ? {} : { onBack: () => setOpened(null) })}
-          {...(account?.kind === 'externalKey'
-            ? { elsewhere: account.planType ?? 'its own configuration' }
-            : {})}
-        />
+      ) : openedMethod ? (
+        <KeyField {...keyProps} method={openedMethod} onBack={() => setOpened(null)} />
       ) : driveable.length > 0 ? (
-        <div>
-          <SectionHead name="How would you like to connect it?" />
-          <ListRows size="sm" className={own.methods}>
-            {driveable.map((method) => {
-              const Glyph = METHOD_ICON[method.flow]
-              /* `row`, not `sm`: a method card is a name with the agent's own
-                 sentence under it, and every button size below `row` is one
-                 line of a fixed height with `whitespace-nowrap`. At `sm` the
-                 four methods Antigravity declares wrapped nowhere, and once
-                 they wrapped they drew over each other (#749). `row` is the
-                 design system's own multi-line row: `h-auto`, a min-height,
-                 and `whitespace-normal`. */
-              return (
-                <ListRow
+        <div className={own.stack}>
+          {/* What the agent said when it refused to start signed out. Said
+              once, above every way in, because it answers all of them. */}
+          {status?.refusal ? (
+            <Note className={own.noteFlush} icon={<AlertIcon size={14} />}><Prose text={status.refusal} /></Note>
+          ) : null}
+          {choices.length > 0 ? (
+            <Rows role="group" aria-label="Ways to connect">
+              {choices.map((method) => (
+                <MethodRow
                   key={method.id}
-                  as="button"
-                  size="sm"
-                  interactive
-                  onClick={() => {
+                  method={method}
+                  onChoose={() => {
                     if (method.flow === 'apiKey') setOpened(method.id)
                     else void store.startLogin(info.id, method.id)
                   }}
-                  lead={<Glyph size={18} />}
-                  title={<Text role="subject">{method.label}</Text>}
-                  subtitle={method.description ? <Text role="muted">{method.description}</Text> : undefined}
-                  wrapSubtitle
-                  trail={<ChevronIcon size={16} />}
                 />
-              )
-            })}
-          </ListRows>
+              ))}
+            </Rows>
+          ) : null}
+          {inlineKey ? (
+            <KeyField {...keyProps} method={inlineKey} autoFocus={choices.length === 0} />
+          ) : null}
           <CredentialHome info={info} label="Where the credential lands" />
           {/* An account added and then thought better of. Removable here so it
               does not have to be walked back through the settings page. No
@@ -665,7 +727,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
       {external.map((method) => (
         <div key={method.id} className={own.aside}>
           <SectionHead name={method.label} />
-          {method.description ? <Note className={own.noteFlush}>{method.description}</Note> : null}
+          {method.description ? <Note className={own.noteFlush}><Prose text={method.description} /></Note> : null}
         </div>
       ))}
 
@@ -678,17 +740,19 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
           "did not come up", and a second account is never the active runtime,
           so this is the one place that reads it. Without this the pane spins
           on "as soon as it answers" for an answer that is not coming. */}
-      {row.methods.length === 0 ? (
+      {/* A signed-in agent that offers no way in has nothing missing: its
+          account is the answer, and "needs no account" would contradict it. */}
+      {row.methods.length === 0 && !account ? (
         status === null ? (
           broken ? (
-            <div className={own.waiting}>
+            <div className={own.stack}>
               <StatusSummary
                 tone="danger"
                 icon={<AlertIcon size={16} />}
                 title={`${info.presentation.name} did not start`}
                 description={broken.message}
               />
-              {broken.remediation ? <Note className={own.note}>{broken.remediation}</Note> : null}
+              {broken.remediation ? <Note className={own.noteFlush}>{broken.remediation}</Note> : null}
               {info.slot?.removable ? (
                 <div className={own.actions}>
                   <Button variant="ghost" onClick={() => void store.removeAccount(info.id)}>
@@ -711,6 +775,13 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
               : '.'}
           </Note>
         )
+      ) : null}
+
+      {pending ? (
+        <FinePrint>
+          HarnessDesk never sees your password — it reads only whether the agent's own
+          sign-in worked.
+        </FinePrint>
       ) : null}
     </>
   )
@@ -751,23 +822,18 @@ const RegistryAgent = ({
 
   return (
     <>
-      <div className={own.who}>
-        {/* The agent's mark stands in its name's role and ink: the reading
-            body's secondary ink is for prose, not for a head. */}
-        <Text role="subject" className={own.whoMark}>
-          <RuntimeMark runtime={{ id: agent.id, presentation: { name: agent.name } }} size={22} />
-        </Text>
-        <Text role="subject" truncate>{agent.name}</Text>
-        <Text role="meta" className={own.whoMeta}>{meta}</Text>
-      </div>
-      <Note className={own.blurb}>
+      <CardHead
+        mark={<RuntimeMark runtime={{ id: agent.id, presentation: { name: agent.name } }} size={20} />}
+        name={agent.name}
+        meta={meta}
+      >
         {agent.description ?? 'An agent from the public ACP registry.'}
-      </Note>
+      </CardHead>
 
       {error ? <ActionError className={own.actionError}>{error}</ActionError> : null}
 
       {agent.available ? (
-        <div className={own.waiting}>
+        <div className={own.stack}>
           <Note className={own.noteFlush}>
             {registryRunSentence(agent)}
           </Note>
@@ -781,14 +847,14 @@ const RegistryAgent = ({
               </Button>
             ) : null}
           </div>
-          <Note className={own.note}>
+          <Note className={own.noteFlush}>
             {agent.run === 'binary'
               ? 'The agent keeps its own account, configuration and history. Removing it from HarnessDesk later deletes the downloaded build and nothing else.'
               : 'Registering points HarnessDesk at it and nothing more — the agent keeps its own account, configuration and history, and removing it later uninstalls nothing.'}
           </Note>
         </div>
       ) : (
-        <div className={own.waiting}>
+        <div className={own.stack}>
           <StatusSummary
             tone="danger"
             icon={<AlertIcon size={16} />}
@@ -823,6 +889,7 @@ const KeyField = ({
   stored,
   elsewhere,
   onBack,
+  autoFocus = true,
 }: {
   runtime: RuntimeId
   method: AuthMethod
@@ -836,6 +903,8 @@ const KeyField = ({
   elsewhere?: string
   /** Absent when this is the agent's only way in — there is nothing to go back to. */
   onBack?: () => void
+  /** Take focus on arrival — when the key is the card's first way in, not one under a button. */
+  autoFocus?: boolean
 }) => {
   const store = useStore()
   const protection = useSnapshot().credentialProtection
@@ -858,16 +927,7 @@ const KeyField = ({
   }
 
   return (
-    <div className={own.waiting}>
-      <SectionHead
-        name={label}
-        action={onBack ? (
-          <Button variant="outline" size="sm" onClick={onBack}>
-            Other ways in
-          </Button>
-        ) : undefined}
-      />
-
+    <div className={own.stack} data-slot="sign-in-key">
       {elsewhere && !stored ? (
         <StatusSummary
           tone="success"
@@ -880,59 +940,63 @@ const KeyField = ({
 
       {editing ? (
         <>
-          <div className={own.keyRow}>
-            <Text role="muted" className={own.keyIcon} aria-hidden="true">
-              <KeyIcon size={13} />
-            </Text>
-            <Input
-              ref={field}
-              type="password"
-              variant="code"
-              className={own.keyInput}
-              value={value}
-              autoFocus
-              spellCheck={false}
-              autoComplete="off"
-              placeholder={`Paste your ${label}`}
-              aria-label={label}
-              onChange={(event) => setValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') void save()
-              }}
-            />
-            <Button variant="default" disabled={!value.trim() || busy} onClick={() => void save()}>
-              {busy ? 'Saving…' : 'Save'}
+          <Field
+            label={label}
+            hint={method.description || method.helpUrl ? (
+              <>
+                {method.description ? <Prose text={method.description} /> : null}
+                {method.helpUrl ? (
+                  <>
+                    {method.description ? ' ' : ''}
+                    <Button variant="ghost" size="inline"
+                      type="button"
+                      onClick={() => openExternal(method.helpUrl!)}
+                    >
+                      Where do I get one?
+                    </Button>
+                  </>
+                ) : null}
+              </>
+            ) : undefined}
+          >
+            {(control) => (
+              <Input
+                {...control}
+                ref={field}
+                type="password"
+                variant="code"
+                value={value}
+                autoFocus={autoFocus}
+                spellCheck={false}
+                autoComplete="off"
+                placeholder={`Paste your ${label}`}
+                onChange={(event) => setValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') void save()
+                }}
+              />
+            )}
+          </Field>
+          <div className={own.row}>
+            <Button variant="default" className={own.grow} disabled={!value.trim() || busy} onClick={() => void save()}>
+              {busy ? 'Saving…' : 'Save key'}
             </Button>
             {stored ? <Button variant="secondary" onClick={() => setReplacing(false)}>Cancel</Button> : null}
+            {onBack ? <Button variant="ghost" onClick={onBack}>Other ways in</Button> : null}
           </div>
-          <Note className={own.note}>
-            {method.description ? `${method.description} ` : ''}
-            The key is kept on this machine ({protection}) and handed to the agent when
-            it starts; this window never sees it again.
-            {method.helpUrl ? (
-              <>
-                {' '}
-                <Button variant="ghost" size="inline"
-                  type="button"
-                  className={`break-all`}
-                  onClick={() => openExternal(method.helpUrl!)}
-                >
-                  Where do I get one?
-                </Button>
-              </>
-            ) : null}
-          </Note>
         </>
       ) : (
         <>
-          <StatusSummary
-            tone="success"
-            icon={<CheckIcon size={16} />}
-            title={`${label} stored`}
-            description={<>Kept on this machine ({protection}). Restart a conversation to pick up a
-              change.</>}
-          />
-          <div className={own.row}>
+          <Rows>
+            <SettingsRow
+              data-slot="sign-in-account"
+              mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
+              title={`${label} stored`}
+              desc={`Kept on this machine (${protection}). Restart a conversation to pick up a change.`}
+              wrapDesc
+            />
+          </Rows>
+          <div className={own.actions}>
             <Button variant="secondary"
               onClick={() => {
                 setReplacing(true)
@@ -944,6 +1008,7 @@ const KeyField = ({
             <Button variant="destructive" onClick={() => void store.clearApiKey(runtime, method.id)}>
               Remove
             </Button>
+            {onBack ? <Button variant="ghost" onClick={onBack}>Other ways in</Button> : null}
           </div>
         </>
       )}
@@ -1010,7 +1075,7 @@ const Pending = ({
   const store = useStore()
   const start = login.start
   return (
-    <div className={own.waiting}>
+    <div className={own.stack}>
       <StatusSummary
         tone="brand"
         icon={<Spinner size="sm" tone="brand" aria-hidden="true" />}
@@ -1055,10 +1120,6 @@ const Pending = ({
         </div>
       ) : null}
 
-      <Note className={own.note}>
-        HarnessDesk never sees your password — it reads only whether the agent's own
-        sign-in worked.
-      </Note>
     </div>
   )
 }

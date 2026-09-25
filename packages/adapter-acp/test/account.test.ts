@@ -256,17 +256,15 @@ test('an agent that refuses a session for want of a sign-in says so, in its decl
     assert.equal(status.signInMethods[0]?.id, 'acp:device')
     assert.equal(status.signInMethods[0]?.label, 'Sign in on the agent side')
     assert.equal(status.signInMethods[0]?.flow, 'browser', 'the agent asked to be called, so the desk offers a button')
-    assert.match(status.signInMethods[0]?.description ?? '', /Run the agent login\./)
-    assert.match(status.signInMethods[0]?.description ?? '', /Authentication required/)
-    /* The whole line, because this is a line a person reads and it used to
-       show the agent's `error.data` as a brace: `Authentication required:
-       {"message":"No authentication method selected.` — cut mid-record,
-       since the sentence it is trimmed to ended inside the JSON. The fake
-       refuses in Antigravity's own shape, `data.message` (#749). */
-    assert.equal(
-      status.signInMethods[0]?.description,
-      'Run the agent login. — Authentication required: No authentication method selected.',
-    )
+    /* The method keeps its own words, and the refusal is said once, for the
+       account: appended to every method it printed the same sentence under
+       each of them. The whole line, because it used to show the agent's
+       `error.data` as a brace: `Authentication required: {"message":"No
+       authentication method selected.` — cut mid-record, since the sentence
+       it is trimmed to ended inside the JSON. The fake refuses in
+       Antigravity's own shape, `data.message` (#749). */
+    assert.equal(status.signInMethods[0]?.description, 'Run the agent login.')
+    assert.equal(status.refusal, 'Authentication required: No authentication method selected.')
   } finally {
     await runtime.dispose()
   }
@@ -333,7 +331,7 @@ test('a prompt-time auth refusal moves an observed agent to sign-in required', a
     assert.equal(status.signInMethods[0]?.id, 'acp:devin-browser')
     assert.equal(status.signInMethods[0]?.label, 'Log in with browser')
     assert.equal(status.signInMethods[0]?.flow, 'browser')
-    assert.match(status.signInMethods[0]?.description ?? '', /Please log in to use Devin/)
+    assert.match(status.refusal ?? '', /Please log in to use Devin/)
     assert.ok(
       events.some((event) => event.type === 'account/changed'),
       'account/changed event was announced on prompt-time auth refusal',

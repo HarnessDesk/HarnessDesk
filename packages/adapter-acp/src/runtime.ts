@@ -1481,12 +1481,14 @@ export class AcpRuntime implements AgentRuntime {
       return {
         accounts: [...status.accounts, ...keyAccounts, ...observed.accounts],
         signInMethods: [...status.signInMethods, ...keyMethods, ...observed.signInMethods],
+        ...(observed.refusal ? { refusal: observed.refusal } : {}),
       }
     }
     const observed = this.#observedAccount(keyAccounts.length > 0)
     return {
       accounts: [...keyAccounts, ...observed.accounts],
       signInMethods: [...keyMethods, ...observed.signInMethods],
+      ...(observed.refusal ? { refusal: observed.refusal } : {}),
     }
   }
 
@@ -2041,8 +2043,9 @@ export class AcpRuntime implements AgentRuntime {
           id: `${ACP_METHOD}${method.id}`,
           label: method.name,
           flow: 'browser' as const,
-          description: [method.description ?? '', said].filter((part) => part.length > 0).join(' — '),
+          ...(method.description ? { description: method.description } : {}),
         })),
+        ...(said ? { refusal: said } : {}),
       }
     }
     return { accounts: [], signInMethods: [] }
@@ -2717,7 +2720,12 @@ const isAuthRefusal = (error: unknown): boolean =>
 
 /** The first sentence of what an agent said, for a line a person reads. */
 const firstSentence = (text: string): string => {
-  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+  const first = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? ''
+  // An agent's `error.data` that is neither a string nor `{details}` nor
+  // `{message}` arrives as JSON after a colon — Qwen Code refuses with
+  // `…authenticate first.: {"authMethods":[…]}`. The record is for a program,
+  // and the sentence before it is the part a person reads.
+  const line = first.replace(/\s*:\s*[{[].*$/, '').trim()
   const cut = line.search(/[.!?](\s|$)/)
   return (cut === -1 ? line : line.slice(0, cut + 1)).slice(0, 200)
 }

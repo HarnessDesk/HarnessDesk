@@ -108,6 +108,13 @@ export interface AccountStatus {
   readonly accounts: readonly Account[]
   /** How to sign in from here. Empty when the runtime has nothing it can drive. */
   readonly signInMethods: readonly AuthMethod[]
+  /**
+   * What the agent said when it refused to work signed out, as one sentence.
+   * It is said once for the whole account, not once per method: every way in
+   * answers the same refusal, and appending it to each method's description
+   * printed the same sentence under every one of them.
+   */
+  readonly refusal?: string
 }
 
 /**

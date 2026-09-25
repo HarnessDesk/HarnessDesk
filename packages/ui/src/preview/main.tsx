@@ -1,4 +1,4 @@
-import { StrictMode, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { StrictMode, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { runtimeId, sessionKey, type Worktree, type WorktreeChanges } from '@harnessdesk/protocol'
@@ -26,6 +26,7 @@ import { SaveAsAgentDialog } from '../components/SaveAsAgent'
 import { Settings, WorkspacesSection, type Section } from '../components/Settings'
 import { Usage } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
+import { SIGN_IN_SCENES, SIGN_IN_SELECTED, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
 import { TeamBoardPane } from '../components/TeamBoardPane'
@@ -43,6 +44,7 @@ import {
   PREVIEW_PLANS,
   PREVIEW_ROOM,
   PREVIEW_SESSION_KEY,
+  previewStore,
   runtime,
   store,
 } from './harness'
@@ -242,6 +244,19 @@ const WorktreeDialogs = ({ which, onClose }: { which: 'remove' | 'bring back'; o
   )
 }
 
+/**
+ * Sign-in on a roster of its own: every state the dialog draws is one scene
+ * of `signin-fixture.ts`, and each scene opens on the agent that shows it.
+ */
+const SignInPreview = ({ scene, onClose }: { scene: SignInScene; onClose: () => void }) => {
+  const own = useMemo(() => previewStore(signInSeed(scene)), [scene])
+  return (
+    <StoreProvider store={own}>
+      <SignIn runtime={SIGN_IN_SELECTED[scene]} onClose={onClose} />
+    </StoreProvider>
+  )
+}
+
 const Dial = <T extends string>({
   label,
   value,
@@ -305,6 +320,7 @@ const Preview = () => {
     | 'trigger arm'
   >('off')
   const [armScene, setArmScene] = useState<TriggerArmScene>('ready')
+  const [signInScene, setSignInScene] = useState<SignInScene>('refused')
   const [goalScene, setGoalScene] = useState<GoalIntakeScene>('pull-request')
   const [flowScene, setFlowScene] = useState<FlowExecutionScene>('pinned')
   // The Agents window's own rail selection: the overview, or one Agent's own page.
@@ -354,6 +370,7 @@ const Preview = () => {
           onChange={setDialog}
         />
         <Dial label="trigger arm scene" value={armScene} options={TRIGGER_ARM_SCENES} onChange={setArmScene} />
+        <Dial label="sign in scene" value={signInScene} options={SIGN_IN_SCENES} onChange={setSignInScene} />
         <Dial
           label="goal intake scene"
           value={goalScene}
@@ -371,7 +388,7 @@ const Preview = () => {
           reads the roster, which the fixture already has, and it is the one
           screen here that is *only* ever a dialog — so at a narrow window
           nothing else on the page shows what it does. */}
-      {dialog === 'sign in' && <SignIn onClose={() => setDialog('off')} />}
+      {dialog === 'sign in' && <SignInPreview key={signInScene} scene={signInScene} onClose={() => setDialog('off')} />}
       {dialog === 'what was observed' && (
         <ObservedDialog
           id={1}
