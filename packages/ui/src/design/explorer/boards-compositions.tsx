@@ -108,6 +108,7 @@ import {
   SegmentMeter,
   Sparkline,
   Stat,
+  Tick,
   StatRow,
   Stepper,
   Table,
@@ -968,6 +969,14 @@ const SparkBoard = () => (
           <div className="text-base font-semibold tabular-nums">100</div>
         </Donut>
       </Case>
+      <Case label="ticks — a strip index, the asked and the answered">
+        <div className="flex w-10 flex-col gap-2">
+          <Tick emphasis="strong" className="w-3" />
+          <Tick className="w-2" />
+          <Tick emphasis="strong" className="w-5" />
+          <Tick className="w-2" />
+        </div>
+      </Case>
     </div>
     <Rule>
       Not a charting library and not trying to be one: no axes, no legend, no dependency. The job is
@@ -1174,6 +1183,9 @@ const AdoptedBoard = () => {
           </Card>
           <Card spacing="compact" radius="sm" className="w-full" data-catalog-size="compact">
             A dense report keeps one inset and one rhythm.
+          </Card>
+          <Card variant="plate" spacing="compact" className="w-full">
+            The app&rsquo;s own card: it follows the interface&rsquo;s card family, as the files card under an answer does.
           </Card>
         </Case>
 
