@@ -383,6 +383,34 @@ it('the rail is the roster: who is here, and what each of them is holding', asyn
   expect(unnamed.textContent).not.toContain('Claude Code')
 })
 
+/**
+ * A trigger seats an agent under its own name, so an untitled conversation's
+ * nickname and its title are the same word — "Triager" the agent, "Triager"
+ * the conversation nobody renamed. The row used to print both: "Triager
+ * Triager", the name and the role read back as if they were two facts.
+ */
+it('does not repeat the conversation’s title when it is the same word as the agent’s own nickname', async () => {
+  const TRIAGER: TeamPeerInfo = {
+    runtime: 'codex' as never,
+    // Not 'c1': the rig's own live session carries that id with a title of
+    // its own ('API migration'), which — since a live conversation's title
+    // wins over the roster's — would mask the exact case this pins: no live
+    // session yet, so the roster's own answer is all there is.
+    sessionId: 't1',
+    title: 'Triager',
+    agent: 'Triager',
+    busy: false,
+    nickname: 'Triager',
+    here: true,
+    inbound: 'accept',
+  }
+  const { store } = rig([TRIAGER])
+  await render(store)
+
+  const named = row('Triager')
+  expect(named.textContent?.match(/Triager/g)?.length, 'said once, not "Triager Triager"').toBe(1)
+})
+
 it('pressing an agent shows that agent’s own conversation, scoped to its session', async () => {
   const { store } = rig()
   await render(store)
@@ -510,9 +538,7 @@ it('board-only is one press from the room’s header, and says which way it is s
   const { store } = rig()
   await render(store)
 
-  const toggle = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'messaging on',
-  )
+  const toggle = container.querySelector('[aria-label="Hold messages at the board"]') as HTMLButtonElement | null
   if (!toggle) throw new Error('no messaging switch')
   act(() => toggle.click())
   expect(store.teamMessaging).toHaveBeenCalledWith(ROOM, false)
@@ -1183,7 +1209,8 @@ it('names the room once, on a row that is also the window’s handle', async () 
   // The room's name, its live counts and the switch, all on one row.
   expect(bar.textContent).toContain('Checkout rewrite')
   expect(bar.textContent).toContain('1 working')
-  expect(bar.textContent).toContain('messaging on')
+  const toggle = bar.querySelector('[aria-label="Hold messages at the board"]')
+  expect(toggle, 'the messaging toggle is on this row').not.toBeNull()
   // Said once. The name used to be printed by the strip above and the rail
   // head below it, so a room called "Checkout rewrite" said so twice before
   // anything in it had been read.
@@ -1194,10 +1221,55 @@ it('names the room once, on a row that is also the window’s handle', async () 
   // property is Electron's and jsdom has never heard of it.
   expect(bar.className).toContain('hd-drag')
   // And its controls opt back out, or the press is eaten by the drag.
-  const toggle = [...bar.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'messaging on',
-  )
   expect(toggle?.closest('.hd-no-drag'), 'the switch is out of the drag region').not.toBeNull()
+})
+
+/**
+ * A Goal or room page used to stack two headers: a `DetailHead` naming the
+ * Goal, its state and its full folder — the folder run across two visible
+ * lines — directly over this row naming the room again with its own facts.
+ * Redesigned into the one row above: this pins that the page now renders
+ * exactly one `<header>`, that it names the Goal once, and that no absolute
+ * folder path ever appears as visible text — the project's own short name is
+ * what shows, and its home-shortened path is one hover away.
+ */
+it('renders exactly one header, naming the Goal once, with the project’s short name and no absolute path as visible text', async () => {
+  const { store } = rig(undefined, undefined, { root: '/Users/dev/work/widgets' }, GOAL)
+  // `useSyncExternalStore` needs a stable reference back for an unchanged
+  // snapshot, so this is computed once rather than on every read.
+  const withHome = { ...store.getSnapshot(), home: '/Users/dev' }
+  Object.assign(store, { getSnapshot: () => withHome })
+  await render(store)
+
+  const headers = container.querySelectorAll('header')
+  expect(headers.length, 'exactly one header').toBe(1)
+  const bar = headers[0]!
+  expect(container.textContent?.split('Checkout rewrite').length ?? 1, 'named once').toBe(2)
+  // The state, on the header's own line, as a chip.
+  expect(bar.textContent).toContain('Working')
+  // The project's short name is visible; its absolute path is not, anywhere.
+  expect(bar.textContent).toContain('widgets')
+  expect(container.textContent).not.toContain('/Users/dev/work/widgets')
+  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'widgets')
+  expect(projectMark?.getAttribute('title'), 'the full path is one hover away, home-shortened').toBe('~/work/widgets')
+})
+
+it('a trigger Goal’s header carries its origin as one short meta segment; the full origin and its budget stay in the page body', async () => {
+  const TRIGGER_GOAL: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, origin: { kind: 'trigger', trigger: 'triage-issue', event: 'e1' } },
+  }
+  const { store } = rig(undefined, undefined, {}, TRIGGER_GOAL)
+  const triggerGoal = vi.fn(async () => ({
+    goal: ROOM, trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
+  }))
+  Object.assign(store, { triggerGoal })
+  await render(store)
+  await act(async () => {})
+
+  const bar = container.querySelector('header')!
+  expect(bar.textContent).toContain('from issue #43')
+  expect(triggerGoal).toHaveBeenCalledWith(ROOM)
 })
 
 it('draws the chat with no header of its own', async () => {
@@ -1253,9 +1325,7 @@ it('says so when the host will not take the board-only switch', async () => {
   } as unknown as AppStore
   await render(refusing)
 
-  const toggle = [...container.querySelectorAll('button')].find(
-    (one) => one.textContent?.trim() === 'messaging on',
-  )
+  const toggle = container.querySelector('[aria-label="Hold messages at the board"]') as HTMLButtonElement | null
   if (!toggle) throw new Error('no messaging switch')
   await act(async () => {
     toggle.click()
@@ -1265,7 +1335,7 @@ it('says so when the host will not take the board-only switch', async () => {
   const alert = container.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('The host did not take the change')
   // And the switch still reads as it really is, rather than as it was pressed.
-  expect(container.textContent).toContain('messaging on')
+  expect(container.querySelector('[aria-label="Hold messages at the board"]')).not.toBeNull()
 })
 
 /**

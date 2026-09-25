@@ -7,6 +7,23 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A Goal or room now has one header, and it says what it should.** A Goal's
+  page used to stack two headers naming it — its own, then the room's, one
+  of them running its full folder path across two lines — and named the
+  person as a card's author when a trigger's own run had opened it
+  unattended. Now there is one row: the Goal or room's name, its state as a
+  chip, the project's short name (its full path a hover away, never the raw
+  folder), who is here, and — for a Goal a trigger opened — where it came
+  from. Messaging is a plain icon toggle instead of the words "board-only"
+  or "messaging on". The sidebar names every Goal by its own sentence
+  instead of leaving it bare beside a status chip, gives each "Needs you"
+  row a reason so two conversations under the same agent's name no longer
+  read as one row twice, and a project reached through a macOS symlink
+  (temporary folders behind `/var` → `/private/var`) is one row, not two.
+  Every Agent's ceiling chip now reads in the same neutral tone; "asked" is
+  the ordinary state for a runtime with no control that holds one, not a
+  warning.
+
 - **A project can open bounded work on its own, and you decide exactly what that means before it ever runs** —
   a project's own `.harnessdesk/triggers.yml` declares what opens work: a
   pull request, an issue, or a schedule. A project's page now has a Triggers

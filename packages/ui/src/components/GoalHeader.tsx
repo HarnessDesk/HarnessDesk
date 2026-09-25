@@ -1,24 +1,28 @@
 import type { GoalView } from '@harnessdesk/protocol'
 
-import { Button, Chip, DetailHead, Note, RowButton, Rows } from '../design'
-import { goalActions, goalWords } from '../lib/goals'
+import { Note, RowButton, Rows } from '../design'
+import { goalActions } from '../lib/goals'
 import { useStore } from '../state/context'
 import { GoalIntake } from './GoalIntake'
 
-export const GoalHeader = ({ view, onWrap }: { readonly view: GoalView; readonly onWrap: () => void }) => {
+/**
+ * A Goal's body: what it is waiting on, why it cannot be wrapped, and — for
+ * one a trigger opened — where it came from and what has to be answered.
+ *
+ * The title, its state chip and the Wrap action used to live here too, in a
+ * `DetailHead` stacked over the room's own header — two rows naming the same
+ * Goal, one of them running its full folder across two lines. Both moved into
+ * that single row (`TeamRoomPane`'s own bar, the one every Goal or room page
+ * now has), which is where the design already put a conversation's title,
+ * status and actions; a Goal's is no different a fact.
+ */
+export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
   const store = useStore()
-  const words = goalWords({ goal: view.goal, activity: view.activity })
   const action = goalActions(view.goal)
   const reason = view.problem ?? action.reason
 
   return (
     <>
-      <DetailHead
-        name={view.goal.sentence}
-        owner={<Chip tone={words.tone}>{words.label}</Chip>}
-        blurb={view.goal.cwd}
-        actions={<Button disabled={action.disabled || view.problem !== null} onClick={onWrap}>Wrap</Button>}
-      />
       {view.waitingOn.length > 0 ? (
         <Rows aria-label="Dependencies">
           {view.waitingOn.map((dependency) => (

@@ -2775,7 +2775,13 @@ export class Host {
       return NO_WAITS
     }
     const actor = (one: TeamActor | null | undefined): string =>
-      !one ? 'someone' : one.kind === 'user' ? 'you' : one.title || this.#conversationName(one.runtime, one.sessionId)
+      !one
+        ? 'someone'
+        : one.kind === 'user'
+          ? 'you'
+          : one.kind === 'trigger'
+            ? `the trigger ${one.trigger}`
+            : one.title || this.#conversationName(one.runtime, one.sessionId)
     const messages = board.channel.flatMap((entry) => entry.kind === 'message' && entry.state === 'held'
       ? [{ id: entry.id, from: actor(entry.from), to: entry.to ? (entry.to.nickname ?? entry.to.title) : 'everyone', reason: entry.reason ?? null }]
       : [])

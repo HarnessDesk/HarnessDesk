@@ -72,6 +72,7 @@
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis; /* desk: it now carries the project and origin too, and a bare clip mid-word read as broken. */
 }
 
 /* The line between what the row says and what it does. Same rule, same 18px,

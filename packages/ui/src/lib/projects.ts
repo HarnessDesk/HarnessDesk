@@ -1,5 +1,7 @@
 import type { SessionSummary, WorkspaceEntry } from '@harnessdesk/protocol'
 
+import { isPathInside } from './paths'
+
 /**
  * Sessions grouped by project, where a project is a repository rather than
  * a folder.
@@ -176,7 +178,7 @@ export const groupByProject = (
   }
 
   // A worktree is a checkout to work in, not a project to be homed at.
-  const claimant = current === null || currentIsWorktree(current) ? null : current.path
+  const claimant = current === null || currentIsWorktree(current) ? null : ownPathOf(current)
   return [...byKey.entries()].map(([key, { sessions, cwds }]) => {
     const root = homeOf(key, cwds, known, claimant)
     return {
@@ -192,6 +194,29 @@ const currentIsWorktree = (workspace: WorkspaceEntry): boolean =>
   workspace.repo ? workspace.repo.worktree : isWorktreePath(workspace.path)
 
 /**
+ * `workspace.path`, corrected for the one case a plain string cannot answer.
+ *
+ * The host keeps a workspace at the spelling it was opened at, deliberately
+ * not `realpath`'d (`describeWorkspace`) — a session with no git repository
+ * is matched against the open list by that same raw spelling, and resolving
+ * links here would strand that case. But git's own root for this folder
+ * (`checkoutRoot`, or `repo.root` outside a worktree) is computed by
+ * resolving them, so when the folder was reached through one — macOS keeps
+ * its own temporary folders behind `/var` → `/private/var` — that root is not
+ * a textual ancestor of the path that produced it. That disagreement can
+ * only be a spelling difference, never a real subfolder: an ordinary
+ * subfolder of an ordinary checkout always passes the lexical check, so this
+ * never touches the "home where you are standing" rule below, and resolves
+ * only the spelling a link introduced. Grouping sessions by `repo.root`
+ * while the workspace list kept the open folder's own spelling filed the same
+ * project under two keys, and it showed up twice in the sidebar (#898).
+ */
+const ownPathOf = (workspace: WorkspaceEntry): string => {
+  const checkout = workspace.checkoutRoot ?? workspace.repo?.root ?? null
+  return checkout && !isPathInside(workspace.path, checkout) ? checkout : workspace.path
+}
+
+/**
  * The row the folder you have open belongs to.
  *
  * The same answer `homeOf` gives, and it has to be: everything the list does
@@ -205,5 +230,5 @@ const currentIsWorktree = (workspace: WorkspaceEntry): boolean =>
  */
 export const projectRootOf = (workspace: WorkspaceEntry | null | undefined): string | null => {
   if (!workspace) return null
-  return currentIsWorktree(workspace) ? (workspace.repo?.root ?? workspace.path) : workspace.path
+  return currentIsWorktree(workspace) ? (workspace.repo?.root ?? workspace.path) : ownPathOf(workspace)
 }

@@ -1674,7 +1674,7 @@ export class FlowExecutions {
         ...(dependsOn.length ? { dependsOn } : {}),
         role: role.id,
         dispatch: `${id}:${round.n}:${index}`,
-      })
+      }, run.intake ? { kind: 'trigger', trigger: run.intake.trigger } : { kind: 'user' })
       cards.push(card.id)
     }
     if (JSON.stringify(cards) !== JSON.stringify(round.cards) || (plan && !run.checkPlans?.[String(round.n)])) {

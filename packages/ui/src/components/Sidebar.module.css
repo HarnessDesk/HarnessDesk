@@ -164,9 +164,23 @@
 
 .groupName,
 .rowTitle {
-  flex: 1;
-  min-width: 0;
+  /* `flex: 1` (a 0% basis) starts the name at nothing and hands it only
+     whatever is left once every sibling has taken its own full width — a
+     state chip alone was enough to crush a Goal's name to two letters, and a
+     state chip plus an origin chip crushed it to none at all. `1 1 auto`
+     starts it at its own full content width instead, so a tight row shares
+     the deficit between the name and its siblings rather than spending the
+     whole of it here first. `min-width` is a floor rather than 0: a row
+     carrying a state chip, an origin chip and two counters could still spend
+     the whole deficit on the name before touching any of them, which is what
+     crushed "Checkout rewrite" to "Chec" and a workspace's own name to
+     "stor" beside its "Capture stopped" chip. Below this floor it still gives
+     way, with an ellipsis, because a row narrower than the floor itself has
+     nowhere else left to take the deficit from. */
+  flex: 1 1 auto; /* desk: 1 → 1 1 auto, a state chip alone crushed the name to two letters */
+  min-width: min(60%, 100% - var(--hd-space-8)); /* desk: 0 → a 60% floor, the same crush with two chips and two counters */
   overflow: hidden;
+  text-overflow: ellipsis; /* desk: added — a name that gives way now shows it gave way */
   white-space: nowrap;
 }
 

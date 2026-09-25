@@ -16,6 +16,9 @@ import {
 
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
+import { goalActions, goalWords } from '../lib/goals'
+import { isPathInside, shortPath } from '../lib/paths'
+import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
@@ -24,7 +27,9 @@ import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
   ArrowLeftIcon,
+  CommentIcon,
   CrossIcon,
+  MessageOffIcon,
   PlanIcon,
   PlusIcon,
   ReviewIcon,
@@ -35,7 +40,6 @@ import {
 import { AddMember } from './AddMember'
 import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
-import { isPathInside } from '../lib/paths'
 import { Conversation } from './Conversation'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
@@ -51,6 +55,7 @@ import { FlowRunStatus } from './FlowRunStatus'
 import { WindowControls } from './WindowControls'
 import {
   Button,
+  Chip,
   EmptyState,
   IconTile,
   Input,
@@ -136,6 +141,7 @@ const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
  * needed: the way to put a member beside another is on every row, all the
  * time, rather than appearing only once something was already up.
  */
+
 export const TeamRoomPane = ({
   room,
   onChooseProject = () => undefined,
@@ -168,6 +174,26 @@ export const TeamRoomPane = ({
     if (flowExecution || goal?.goal.origin.kind !== 'flow') return
     void store.readFlowExecution(goal.goal.origin.run).catch(() => {})
   }, [flowExecution, goal, store])
+  /**
+   * A trigger Goal's origin, as one short segment of the header's own meta
+   * line — the host's short label ("from PR #12"), never a source token or a
+   * raw event id. The full origin sentence and its budget stay in the page
+   * body (`GoalIntake`); this is only what the row has room to say in
+   * passing, and it earns its `·` only once it actually has something to
+   * say — an unresolved fetch drops the segment rather than leaving a bare
+   * separator in front of nothing.
+   */
+  const triggerKind = goal?.goal.origin.kind === 'trigger'
+  const [originLabel, setOriginLabel] = useState<string | null>(null)
+  useEffect(() => {
+    if (!goal || !triggerKind) { setOriginLabel(null); return }
+    let live = true
+    store.triggerGoal(goal.goal.id).then(
+      (status) => { if (live) setOriginLabel(status?.label ?? null) },
+      () => { if (live) setOriginLabel(null) },
+    )
+    return () => { live = false }
+  }, [store, goal, triggerKind])
   const mount = useMount()
   /**
    * The roster, and the room it belongs to.
@@ -661,47 +687,25 @@ export const TeamRoomPane = ({
     <div className={`${styles.pane} h-full bg-(--hd-background)`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
-      {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
-      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
-      {goal?.receipt ? (
-        <>
-          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
-          <FindingCarry source={goal} />
-          <GoalReceiptCost receipt={goal.receipt} />
-          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
-        </>
-      ) : null}
 
       {/*
-        * The room's one top row, across both halves.
+        * The one header row, at the window's own bar height — the same one a
+        * conversation's own header stands at (`--hd-bar-h`, `--hd-titlebar-height`
+        * being that same token under the name every window-top row reads by).
         *
-        * It replaces three things that used to be stacked here, and the reason
-        * to say what they were is that each was defensible on its own:
-        *
-        *   The pane's strip     printed `Room — <name>` above a rail that
-        *                        printed `<name>` again, with a single expand
-        *                        button at the far end of an otherwise empty
-        *                        44px bar.
-        *   The rail's head      carried the room's mark, its name and its
-        *                        counts, in a block two lines tall whose bottom
-        *                        edge lined up with nothing on the other half.
-        *   The chat's head      said "Chat / Everyone in this room reads this"
-        *                        beside a rail row already reading "Chat /
-        *                        Everyone in this room".
-        *
-        * Three rows, two of them saying the room's name and one of them saying
-        * the selected row's name back to it. One row says all of it: which
-        * room, what is happening in it, and the verbs that act on it — and
-        * because it is one row across the whole pane, the rail and the body
-        * below it start at the same y, which is the thing the old arrangement
-        * could not do at all.
+        * A Goal or room page used to stack two of these: a `DetailHead` naming
+        * the Goal — its sentence, a state chip, its full folder run across two
+        * lines, a Wrap button — directly over this row naming the room again,
+        * with its own facts and verbs. Two headers, one of them repeating the
+        * other's title. This is the one row that is left, and it says
+        * everything either used to: which Goal or room this is and what state
+        * it is in (left), the project it runs in and who is here (middle,
+        * muted, the first to give way), and what can be done to it (right).
         *
         * It is also the window's top row when the sidebar is away, so it does
         * what every other top row in this app does: leaves room for the macOS
         * buttons (`--titlebar-inset`, spent in the stylesheet) and moves the
-        * window when dragged. The strip it replaces did neither, which is why
-        * a room could only be dragged by the conversation header underneath
-        * it.
+        * window when dragged.
         */}
       <header className={`${styles.bar} h-(--hd-bar-h) px-2 border-b border-(--hd-border) hd-drag`} style={{ paddingLeft: 'max(var(--hd-space-3), var(--titlebar-inset, 0px))' }}>
         {/* The window's own controls, as a conversation's header carries them
@@ -716,17 +720,37 @@ export const TeamRoomPane = ({
         <IconTile tint="violet" size="sm">
           <TeamIcon />
         </IconTile>
-        <span className={`${styles.barName} font-medium`}>{team?.name ?? 'Room'}</span>
-        {/* The room in one line, and every number in it is a live count of
-            something on this screen. `working` is first because it is the only
-            one that changes minute to minute — and the only one a person keeps
-            a room open in order to watch.
-
-            The two roster numbers are drawn only once the host has given a
-            roster. `0 here` from a request that failed is the same sentence as
-            `0 here` from an empty room, and only one of them is true. The
-            board's count survives, because it comes from the board. */}
+        {/* Truncated with a floor (`.barName`), never a second line — the full
+            name is one hover away. */}
+        <span className={`${styles.barName} font-medium`} title={team?.name ?? 'Room'}>{team?.name ?? 'Room'}</span>
+        {/* The state, on the label's own line, in a word — never a second row
+            (rule 9). Absent for a room with no Goal, which has no state to be
+            in. */}
+        {goal ? (() => {
+          const words = goalWords({ goal: goal.goal, activity: goal.activity })
+          return <Chip tone={words.tone}>{words.label}</Chip>
+        })() : null}
+        {/* The project, who is here, and — for a Goal a trigger opened — where
+            it came from: muted facts, joined by `·` and only between segments
+            that both have something to say. This gives way before the name
+            does, and drops a segment entirely rather than printing an empty
+            one. The project's own folder name is what shows; its full,
+            home-shortened path (never the raw absolute one) is one hover away —
+            the same helper (`shortPath`) every other folder mention in the app
+            already reads against. */}
         <span className={`${styles.barFacts} text-xs text-(--hd-muted-foreground)`}>
+          {root && (
+            <>
+              <span title={shortPath(root, snapshot.home)}>{folderName(root)}</span>
+              {' · '}
+            </>
+          )}
+          {originLabel && (
+            <>
+              {originLabel}
+              {' · '}
+            </>
+          )}
           {peers !== null && (
             <>
               {working > 0 && (
@@ -758,19 +782,22 @@ export const TeamRoomPane = ({
             box, and a boxless wrapper leaves its buttons inside the drag
             region, where a click moves the window instead of pressing them. */}
         <div className={`${styles.barVerbs} hd-no-drag`}>
-          {/* Board-only used to live in the chat's header, one surface down.
-              It governs *messages* — every one of them, from every member, in
-              this room — so it belongs on the room's own row rather than on
-              one of the three things the room can be showing. Warning ink when
-              it is off, because a board where agents cannot talk is a state
-              worth noticing rather than a setting to find out about later. */}
+          {/* Board-only used to live in the chat's header, one surface down,
+              spelled out in the app's own name for it. It governs *messages* —
+              every one of them, from every member, in this room — so it
+              belongs on the room's own row: an icon toggle, in words nobody
+              needs the feature's name to read, with the sentence itself one
+              hover away. Warning ink when messages are held, because a board
+              nobody can talk on is a state worth noticing rather than a
+              setting to find out about later. */}
           <Button
-            variant={messaging ? 'muted' : 'warning'}
-            size="sm"
+            variant={messaging ? 'ghost' : 'warning'}
+            size="icon-sm"
+            aria-label={messaging ? 'Hold messages at the board' : 'Let members message each other'}
             title={
               messaging
-                ? 'Agents may message each other. Turn on board-only to stop messages; claims and signals continue.'
-                : 'Board-only: agents may claim and signal, but not message. Press to let them talk again.'
+                ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
+                : 'Messages wait for the board. Press to let members message each other again.'
             }
             onClick={() =>
               void store
@@ -781,17 +808,36 @@ export const TeamRoomPane = ({
                 )
             }
           >
-            {messaging ? 'messaging on' : 'board-only'}
+            {messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}
           </Button>
-          {/* The panel's verbs — fill the window, close, move — at the end of
-              the room's own row, which is the bargain `ownsChrome` names: a
-              view that draws a header with somewhere to put them gets no
-              strip above it. Nothing outside the panel system (the preview
+          {/* The panel's verbs — fill the window, close, move — behind the
+              divider that separates what the tool can do from what can be
+              done to its panel. Nothing outside the panel system (the preview
               page, the design explorer) has a mount, and there this draws
               nothing at all. */}
           <PanelActions />
+          {/* The Goal's own verb, last: a Goal a trigger opened or a plain
+              room has none. */}
+          {goal ? (() => {
+            const action = goalActions(goal.goal)
+            return (
+              <Button size="sm" disabled={action.disabled || goal.problem !== null} onClick={() => setWrapping(true)}>
+                Wrap
+              </Button>
+            )
+          })() : null}
         </div>
       </header>
+      {goal ? <GoalHeader view={goal} /> : null}
+      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
+      {goal?.receipt ? (
+        <>
+          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+          <FindingCarry source={goal} />
+          <GoalReceiptCost receipt={goal.receipt} />
+          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
+        </>
+      ) : null}
       {/* The one failure this row can have, said out loud and across the whole
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
@@ -1384,10 +1430,16 @@ const MemberRow = ({
               and identical, and used to draw three rows all reading "Cursor". */}
           {peer.nickname}
           {/* What the conversation calls itself, when it has a name of its
-              own. Beside the nickname rather than under it: a member holding a
-              job has not stopped being the conversation somebody named, and
-              the line below is spoken for. */}
-          {member.title && <span className="text-xs text-(--hd-muted-foreground)"> {member.title}</span>}
+              own *and* that name says something the nickname does not — the
+              same guard `cardFacts` already reads this member's hover card
+              through. A trigger seats an agent under its own name, so an
+              untitled conversation's title and its nickname are the same
+              word: "Triager" the agent, "Triager" the conversation nobody
+              renamed. Printed both, the row read "Triager Triager" — the name
+              and the role said back as if they were two facts. */}
+          {member.title && member.title !== peer.nickname && (
+            <span className="text-xs text-(--hd-muted-foreground)"> {member.title}</span>
+          )}
           {member.busy && <span className="sr-only"> — working</span>}
           {!member.here && <span className="sr-only"> — not open</span>}
         </>

@@ -225,4 +225,32 @@ describe('projectRootOf', () => {
       groupByProject([session('a', sub, null, 1, { root: '/w/main', worktree: false })], [], open)[0]?.root,
     ).toBe(projectRootOf(open))
   })
+
+  /**
+   * The host keeps a workspace at the spelling it was opened at
+   * (`describeWorkspace` never `realpath`s it, on purpose — a session with no
+   * git repository is matched against the open list by that same raw
+   * spelling). But its own sessions are grouped by `repo.root`, which git
+   * resolves through a link — macOS keeps its temporary folders behind
+   * `/var` → `/private/var` — so a project opened at its own top through such
+   * a link used to be homed at the raw, un-resolved spelling while its
+   * sessions grouped under the resolved one: the same folder, filed under two
+   * keys, showed up twice in the sidebar (#898).
+   */
+  it('is not fooled by a link: opened at its own top through one, it still homes at the canonical root', () => {
+    const real = '/private/var/folders/x/work/widgets'
+    const link = '/var/folders/x/work/widgets'
+    const open = workspace(link, { root: real, worktree: false })
+    expect(projectRootOf(open)).toBe(real)
+    const groups = groupByProject([session('a', real, null, 1, { root: real, worktree: false })], [], open)
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.root).toBe(real)
+    expect(groups[0]?.root).toBe(projectRootOf(open))
+  })
+
+  it('still leaves a genuine subfolder alone when the workspace also carries a checkoutRoot', () => {
+    const sub = '/w/main/packages/ui'
+    const open: WorkspaceEntry = { ...workspace(sub, { root: '/w/main', worktree: false }), checkoutRoot: '/w/main' }
+    expect(projectRootOf(open)).toBe(sub)
+  })
 })

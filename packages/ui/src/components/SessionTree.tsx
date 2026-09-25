@@ -29,6 +29,7 @@ import { ACTIVE_STATES, TRACE_LABEL, traceOf } from '../lib/trace'
 import { panes, sessionOf } from '../state/layout'
 
 import { useSnapshot, useStore } from '../state/context'
+import type { AppSnapshot } from '../state/store'
 import {
   ArchiveIcon,
   BranchIcon,
@@ -94,11 +95,21 @@ const SessionRow = ({
   summary,
   now,
   onDelete,
+  context,
 }: {
   summary: SessionSummary
   now: number
   /** Raises the confirmation; the dialog belongs to the list, not to a row. */
   onDelete: (summary: SessionSummary) => void
+  /**
+   * A short, earned second line naming what this row is for — the Goal or
+   * issue behind it, and the kind of wait — shown whatever the density,
+   * because two "Needs you" rows both named after their agent ("Triager",
+   * "Triager") are indistinguishable without it (rule 9: a fact that varies
+   * earns its own line). Takes the density-gated meta line's place rather
+   * than adding a third row.
+   */
+  context?: string
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -285,7 +296,11 @@ const SessionRow = ({
                   </span>
                 )}
               </span>
-              {snapshot.listPrefs.density === 'comfortable' && (
+              {context ? (
+                <span className={styles.rowMeta}>
+                  <Text role="meta" tone="warning" truncate className={styles.rowMetaItem}>{context}</Text>
+                </span>
+              ) : snapshot.listPrefs.density === 'comfortable' && (
                 <span className={styles.rowMeta}>
                   {snapshot.runtimes.length > 1 && (
                     <>
@@ -638,6 +653,33 @@ const RoomOrigin = ({ goal }: { readonly goal: string }) => {
   return label ? <Chip tone="neutral">{label}</Chip> : null
 }
 
+/**
+ * A room's members, resolved against what the tree is *showing* — the agent
+ * filter applies here as it does everywhere else, and the live session map is
+ * read too, because a conversation reaches `sessions` a beat before it
+ * reaches `history`. Shared between `RoomRow`'s own render and the group's
+ * "which empty room says so" pick, which has to agree with it exactly: a
+ * room `RoomRow` reads as empty only once the filter is applied is a room the
+ * group must also read as empty, or the one row that actually draws "No
+ * agents in here yet" is not the row the group picked to draw it on.
+ */
+const roomMembers = (
+  room: TeamState,
+  sessions: readonly SessionSummary[],
+  snapshot: AppSnapshot,
+): SessionSummary[] => {
+  const shown = new Map(
+    sessions.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
+  )
+  const filtered = snapshot.listPrefs.agent !== null
+  return room.members
+    .map((key) => shown.get(String(key)) ?? snapshot.sessions.get(key))
+    .filter((one): one is SessionSummary => one !== undefined)
+    .filter(
+      (one) => !filtered || agentKeyOf(one.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
+    )
+}
+
 const RoomRow = ({
   room,
   sessions,
@@ -673,16 +715,8 @@ const RoomRow = ({
      member resolved to nothing and a full room read "No agents in here yet"
      under a filter its members matched. Saying which conversations the
      filter keeps is the rule; where they were found is not. */
-  const shown = new Map(
-    sessions.map((summary) => [String(sessionKey(summary.runtime, summary.id)), summary]),
-  )
   const filtered = snapshot.listPrefs.agent !== null
-  const members = room.members
-    .map((key) => shown.get(String(key)) ?? snapshot.sessions.get(key))
-    .filter((one): one is SessionSummary => one !== undefined)
-    .filter(
-      (one) => !filtered || agentKeyOf(one.runtime, snapshot.runtimes) === snapshot.listPrefs.agent,
-    )
+  const members = roomMembers(room, sessions, snapshot)
   const claimed = room.intents.filter((one) => one.state === 'claimed').length
   const held = room.channel.filter(
     (entry) => entry.kind === 'message' && entry.state === 'held',
@@ -733,12 +767,29 @@ const RoomRow = ({
         <Text role="meta" tint="violet" className={styles.roomIcon}>
           <TeamIcon size={12} />
         </Text>
-        <Text role="navigation" fade className={styles.groupName}>{room.name}</Text>
-        {goal ? (() => {
-          const words = goalWords({ goal: goal.goal, activity: goal.activity })
-          return <Chip tone={words.tone}>{words.label}</Chip>
-        })() : null}
-        {goal?.goal.origin.kind === 'trigger' && <RoomOrigin goal={goal.goal.id} />}
+        {/* The name and its state chip on one protected line (`rowHead`,
+            `SessionRow`'s own idiom): each was a sibling of the state chip,
+            the origin chip and both counts on one shared flex line, all
+            `flex: 1` and each as entitled to the row's width as the name —
+            two of them together (a state and an issue's origin) left the name
+            a `flex-basis` of zero and nothing to grow into: the room read as a
+            bare chevron, an icon, and "Working" with no name in front of it.
+            The origin now earns a second line of its own instead (rule 9: a
+            fact that varies), which nothing here shares a flex row with. */}
+        <span className={styles.rowBody}>
+          <span className={styles.rowHead}>
+            <Text role="navigation" fade className={styles.rowTitle}>{room.name}</Text>
+            {goal ? (() => {
+              const words = goalWords({ goal: goal.goal, activity: goal.activity })
+              return <Chip tone={words.tone}>{words.label}</Chip>
+            })() : null}
+          </span>
+          {goal?.goal.origin.kind === 'trigger' && (
+            <span className={styles.rowMeta}>
+              <RoomOrigin goal={goal.goal.id} />
+            </span>
+          )}
+        </span>
         {/* A state and a size, and they must not read as one number. Drawn
             plainly the row said "1 0" — two counts in the same grey, the same
             size, a gap apart, and the second with nothing on it to say what it
@@ -770,15 +821,16 @@ const RoomRow = ({
           {members.length}
         </Text>
       </Button>
-      {open && (
+      {/* A navigation tree never renders an empty-state sentence — several
+          freshly opened Goals, none seated yet, used to repeat "No agents in
+          here yet — open it to add one." under every one of them. The row
+          above already says 0: that is what a tree shows for empty, nothing
+          more, so an empty room opened here draws no second row at all. */}
+      {open && members.length > 0 && (
         <div className={styles.nested}>
-          {members.length === 0 ? (
-            <Text as="div" role="meta" className={styles.groupBlank}>No agents in here yet — open it to add one.</Text>
-          ) : (
-            members.map((summary) => (
-              <SessionRow key={summary.id} summary={summary} now={now} onDelete={onDelete} />
-            ))
-          )}
+          {members.map((summary) => (
+            <SessionRow key={summary.id} summary={summary} now={now} onDelete={onDelete} />
+          ))}
         </div>
       )}
     </div>
@@ -859,6 +911,26 @@ const PROJECT_MIME = 'application/x-harnessdesk-project'
  * rather than guessed: the grouping already folds a worktree path onto its
  * checkout, which is the case this was found in.
  */
+/**
+ * What a "Needs you" row is for, and what kind of wait it is holding — the
+ * Goal or room it belongs to, if any, and whether it is an approval, a held
+ * message, or an unanswered question. Two conversations that never got their
+ * own title — a trigger seats every one of them under its agent's own name —
+ * used to read as one row, twice: both said only "Triager".
+ */
+const needsYouHint = (summary: SessionSummary, snapshot: AppSnapshot): string => {
+  const key = sessionKey(summary.runtime, summary.id)
+  const room = [...snapshot.teams.values()].find((team) =>
+    team.members.some((member) => String(member) === String(key)),
+  )
+  const kind = snapshot.approvals.some((entry) => entry.key === key)
+    ? 'needs your approval'
+    : snapshot.queues.get(key)?.status === 'paused'
+      ? 'a queued message needs you'
+      : 'waiting for your answer'
+  return room ? `${room.name} — ${kind}` : kind
+}
+
 const rowOf = (session: Session): SessionSummary => ({
   id: session.id,
   runtime: session.runtime,
@@ -1322,6 +1394,7 @@ export const SessionTree = ({ now }: { now: number }) => {
               summary={summary}
               now={now}
               onDelete={setDeleting}
+              context={needsYouHint(summary, snapshot)}
             />
           ))}
           <Separator />

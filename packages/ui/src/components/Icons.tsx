@@ -90,6 +90,7 @@ import {
   Minimize2,
   MessageCircleQuestionMark,
   MessageSquare,
+  MessageSquareOff,
   MessageSquarePlus,
   Monitor,
   MonitorSmartphone,
@@ -295,6 +296,8 @@ export const PullRequestClosedIcon = icon(GitPullRequestClosed, 'PullRequestClos
 export const IssueIcon = icon(CircleDot, 'IssueIcon')
 /** A comment on the forge. */
 export const CommentIcon = icon(MessageSquare, 'CommentIcon')
+/** Messages held at the board — a room's messaging turned off. */
+export const MessageOffIcon = icon(MessageSquareOff, 'MessageOffIcon')
 /** A branch wound back to an earlier commit. */
 export const ResetIcon = icon(RotateCcw, 'ResetIcon')
 /** One checkout of the repository — a folder the repository is open in. */

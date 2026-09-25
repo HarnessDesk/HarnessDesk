@@ -78,7 +78,7 @@ test('old run recovery never replays an uncertain check', async (t) => {
   }
   const worker = { kind: 'agent', id: 'worker', count: 1, seats: [{ runtime: 'alpha' }], permission: 'edit', outcomes: ['done'], order: 'Work.' }
   const gate = { kind: 'check', id: 'gate', count: 1, seats: [], outcomes: [], check: { run: 'make verify', timeout: 30, exits: { '0': 'pass' }, otherwise: 'fail' } }
-  const cardFor = (room: string, role: string) => team.addIntentForFlow(room, { title: 'Open work', role }).id
+  const cardFor = (room: string, role: string) => team.addIntentForFlow(room, { title: 'Open work', role }, { kind: 'user' }).id
   const old = (id: string, room: string, state: string, sessionId: string, role: 'worker' | 'gate') => ({
     version: 1, id, room, state, startedAt: 1, vars: {}, record: [],
     flow: { name: id, roles: [worker, gate], rules: [], inputs: [], seed: { role, title: 'Open work' } },
