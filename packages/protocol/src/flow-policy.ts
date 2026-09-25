@@ -172,6 +172,27 @@ export interface FlowExecution {
    * not stops the run rather than seating under a weaker policy.
    */
   readonly requireHeld?: true
+  /**
+   * Set on a run started from a front-door preview of a branch, a pull
+   * request, a diff or a working tree: what it works on, as the host
+   * resolved it when the preview was taken and the token bound it.
+   */
+  readonly target?: FlowStartTarget
+}
+
+/**
+ * What a front-door run works on, resolved on the host and never taken from
+ * a request. `head` is the commit every Seat of the run works at — each in
+ * its own checkout of it — and null for a working tree, whose uncommitted
+ * snapshot is only ever read in the project's own checkout.
+ */
+export interface FlowStartTarget {
+  readonly kind: 'branch' | 'pull-request' | 'diff' | 'working-diff'
+  readonly label: string
+  readonly base: string | null
+  readonly head: string | null
+  readonly pr: number | null
+  readonly dirty: boolean
 }
 
 // ---------------------------------------------------------------- review

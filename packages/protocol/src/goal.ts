@@ -58,6 +58,12 @@ export interface Goal {
    * local-only without one. A person's preference, never a Seat's.
    */
   readonly findingPublication?: boolean
+  /**
+   * The commit every Seat of this Goal works at, each in a checkout of its
+   * own cut from it: set by the host alone, for a front-door review of a
+   * branch, a pull request or a diff. Absent, Seats work where the Goal does.
+   */
+  readonly at?: Sha
 }
 
 export interface GoalCitation {

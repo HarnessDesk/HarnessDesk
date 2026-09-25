@@ -107,6 +107,11 @@ export const flowMethods = {
       ...(params.vars ? { vars: params.vars } : {}),
       ...(bound ? { requireHeld: true as const } : {}),
       ...(bound?.goal ? { goal: bound.goal } : {}),
+      /* Where the run works and what it works on, as the host resolved them
+         for the token — the folder its context named, and the commit every
+         Seat is pinned to — never re-read from the request. */
+      ...(bound ? { cwd: bound.target.context.root } : {}),
+      ...(bound?.target.resolved ? { target: bound.target.resolved } : {}),
       authorization: {
         sourceDigest: sourceDigest(params.source),
         commandDigest: sourceDigest(JSON.stringify(redeemed.commands)),

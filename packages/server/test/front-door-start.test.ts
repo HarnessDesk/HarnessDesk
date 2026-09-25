@@ -12,6 +12,7 @@ import { Agents } from '../src/agents.js'
 import { NOT_HELD } from '../src/ceilings/held-seat.js'
 import type { SeatHold } from '../src/ceilings/hold.js'
 import { sourceDigest } from '../src/flow-execution.js'
+import { executionOf } from '../src/flow-recovery.js'
 import { Host, StateStore } from '../src/index.js'
 import { seatAgent } from '../src/methods/agents.js'
 import type { HostContext } from '../src/methods/context.js'
@@ -281,4 +282,42 @@ test('a reserved run that stops before its first round lets its Goal go, so a la
   }
   await assert.rejects(rig.flows.startGoal(request(1)), /could not be read after it was reserved/)
   assert.equal(rig.goals.has(existing.id), false, 'no reservation outlives a start that did not take')
+})
+
+test('a run pinned to one commit hands no work to a Seat whose checkout is anywhere else', async (t) => {
+  const rig = await goalRig(t)
+  const agents = [agent('builder', ['done']), agent('reviewer', ['done'])]
+  const head = 'a'.repeat(40)
+  const request = {
+    root: '/repo', sentence: 'Review the branch', source: BUILD_THEN_REVIEW, sourcePath: null, compiled: rig.compile(BUILD_THEN_REVIEW, agents),
+    requireHeld: true as const,
+    target: { kind: 'branch' as const, label: 'branch feature', base: null, head, pr: null, dirty: false },
+    authorization: { sourceDigest: sourceDigest(BUILD_THEN_REVIEW), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' as const },
+  }
+  // The Seat opens on what the project has checked out, not on the branch.
+  rig.heads.set('/repo', { at: 'b'.repeat(40), dirty: false })
+  const run = await rig.flows.startGoal(request)
+  assert.equal(run.state, 'stalled')
+  assert.match(run.reason ?? '', /did not open at the commit this run reviews, so it was given no work/)
+  assert.deepEqual([...rig.orderTexts.keys()], [], 'no card, brief or order reached it')
+  assert.ok(rig.events.includes('release:seat-1'), 'the Seat it opened was let go')
+  // At the reviewed commit, the same start hands the card over.
+  rig.heads.set('/repo', { at: head, dirty: false })
+  const second = await rig.flows.startGoal(request)
+  assert.equal(second.state, 'running', second.reason ?? '')
+  assert.deepEqual(second.target, request.target)
+  assert.deepEqual([...rig.orderTexts.keys()], ['seat-2'])
+  // Read back in a fresh process with its target; a record whose target cannot be described is not read at all.
+  const restarted = await rig.restart()
+  assert.deepEqual(restarted.flows.executionOf(second.id)?.target, request.target)
+  const stored = JSON.parse(JSON.stringify(restarted.executions.stored(second.id)))
+  assert.doesNotThrow(() => executionOf(stored))
+  for (const target of [{ ...request.target, head: 'HEAD' }, { ...request.target, kind: 'working-diff' }, { ...request.target, pr: '7' }]) {
+    assert.throws(() => executionOf({ ...stored, target }), /names a start target it cannot describe/, JSON.stringify(target))
+  }
+  assert.throws(() => executionOf({ ...stored, authorization: { ...stored.authorization, start: undefined }, requireHeld: undefined }), /start target/)
+  // A person's own Goal was never pinned: a review of a commit refuses to land on one.
+  const existing = await rig.team.createRoom('/repo', 'An empty Goal')
+  rig.reserve = async () => {}
+  await assert.rejects(rig.flows.startGoal({ ...request, goal: { id: existing.id, revision: 0 } }), /starts a Goal of its own/)
 })

@@ -196,7 +196,7 @@ test('strict token cannot downgrade', async () => {
     flowPreviews: previews,
     flows: { startGoal: async (request: never) => { started.push(request); return { id: 'run' } } },
   } as never
-  const binding = { requireHeld: true as const, target: { context: { kind: 'project' as const, root: '/repo' }, facts: 'facts-1' }, goal: { id: 'goal-1', revision: 4 } }
+  const binding = { requireHeld: true as const, target: { context: { kind: 'project' as const, root: '/repo' }, facts: 'facts-1', resolved: null }, goal: { id: 'goal-1', revision: 4 } }
   const strict = async () => (await previews.preview('/repo', FLOW, {}, undefined, binding)).token!
   // The dry run itself was strict: every seat plan was asked for held Seats.
   const first = await strict()

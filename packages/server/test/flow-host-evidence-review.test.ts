@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import {
-  board, claimed, cwdOf, desk, E2E, git, person, review, scopeOf, settled, shipped, start, TASK, type Behaviour, whenChanged, workInsideTheBrief, write,
+  answer, board, claimed, cwdOf, desk, E2E, git, person, review, scopeOf, settled, shipped, start, TASK, type Behaviour, whenChanged, workInsideTheBrief, write,
 } from './fixtures/flow-host-evidence.js'
 
 /*
- * Review shapes: the shipped `independent-review`, `fan-out` and `review-pr` flows, and
+ * Review shapes: the shipped `review`, `independent-review`, `fan-out` and `review-pr` flows, and
  * a hand-written flow whose `to-ship` rule waits on three evidence guards
  * at once (a check, green CI, an open pull request). Split out of
  * `flow-host-evidence.test.ts` (see that file's sibling `-comparison`,
@@ -46,6 +46,16 @@ test('the independent review flow reaches its end', E2E, async (t) => {
   await write(d, (await claimed(d, run.goal, 'build', 1))[0]!, 'built')
   for (const card of await claimed(d, run.goal, 'specialists', 3)) await review(d, card, 'approve')
   await person(d, run.goal, 'ship', 'shipped')
+  await settled(d, run.id)
+})
+
+test('the review flow reaches its end: three read-only specialists, then the person', E2E, async (t) => {
+  const d = await desk(t)
+  // Started from the project, its bound inputs take their written defaults; a front-door start fills them from the target.
+  const run = await start(d, await shipped(d, 'review'), {})
+  // A seed round has no predecessor subject to be offered as a candidate, so its verdict is its card's own answer.
+  for (const card of await claimed(d, run.goal, 'specialists', 3)) await answer(d, card, 'approve')
+  await person(d, run.goal, 'decide', 'done')
   await settled(d, run.id)
 })
 

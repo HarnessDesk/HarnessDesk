@@ -25,7 +25,7 @@ import { tempDir } from './scratch.js'
  * the shape itself is ordinary data today.
  */
 
-const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr']
+const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr', 'review']
 
 /** What a later phase would need to actually start this shape unattended — recorded, not implemented. */
 const FUTURE_TRIGGER_REQUIREMENTS: Readonly<Record<string, string>> = {
@@ -53,10 +53,10 @@ const compileShape = (source: string, agents: readonly AgentEntry[]) => {
   return compiled
 }
 
-test('the eight shipped flows parse, and name only Agents that actually ship', async () => {
+test('the nine shipped flows parse, and name only Agents that actually ship', async () => {
   const agents = await agentsOf()
   const files = (await readdir(builtinFlowRoot())).filter((name) => /\.ya?ml$/i.test(name)).map((name) => name.replace(/\.ya?ml$/i, ''))
-  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the eight named shapes ship, nothing else')
+  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the nine named shapes ship, nothing else')
   for (const id of SHIPPED) {
     const source = await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8')
     const compiled = compileShape(source, agents)

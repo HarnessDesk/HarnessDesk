@@ -10,6 +10,7 @@ import {
   type FlowPreviewSeat,
   type FlowProblem,
   type FlowSeat,
+  type FlowStartTarget,
   type SeatPlan,
   type StartContext,
 } from '@harnessdesk/protocol'
@@ -77,7 +78,12 @@ interface HeldPreview {
  */
 export interface FrontDoorBinding {
   readonly requireHeld: true
-  readonly target: { readonly context: StartContext; readonly facts: string }
+  /**
+   * `facts` is the canonical form a start compares against a fresh read;
+   * `resolved` is what the run is handed — null for a plain project, which
+   * works where the project is.
+   */
+  readonly target: { readonly context: StartContext; readonly facts: string; readonly resolved: FlowStartTarget | null }
   readonly goal: { readonly id: string; readonly revision: number } | null
 }
 

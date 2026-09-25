@@ -256,3 +256,102 @@ test('Every time saves disarmed; the identical file, once committed, is what the
   const armed = await host.call('trigger/arm', { root: work, id: 'nightly', token: afterCommit.token! }) as TriggerView
   assert.equal(armed.state, 'armed')
 })
+
+/** A fresh desk: the Agents and flows that ship, one runtime, no configuration file anywhere, and a project with a branch. */
+const freshDesk = async (t: TestContext, runtime: HoldFake | FakeRuntime) => {
+  const stateDir = tempDir('hd-front-door-fresh-state-')
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), catalogRefreshMs: 0 })
+  host.register(runtime)
+  await host.start()
+  t.after(() => host.dispose())
+  const work = await repo()
+  const main = await git(work, 'rev-parse', 'HEAD')
+  await git(work, 'checkout', '-q', '-b', 'feature')
+  await writeFile(join(work, 'feature.txt'), 'the change under review\n')
+  await git(work, 'add', '.')
+  await git(work, 'commit', '-q', '-m', 'the change')
+  const feature = await git(work, 'rev-parse', 'HEAD')
+  // The person is back on main: the review must not care what is checked out.
+  await git(work, 'checkout', '-q', 'main')
+  await host.call('workspace/open', { path: work })
+  return { host, work, main, feature }
+}
+
+test('one held-read runtime runs a fresh branch review: three held Seats, every one working at the branch’s head while main stays checked out, and the policy it ran saves exactly', async (t) => {
+  // The shipped specialists prefer this runtime first; it holds read.
+  const runtime = new HoldFake('claude-code')
+  const { host, work, main, feature } = await freshDesk(t, runtime)
+  const catalogue = await host.call('flow/catalog', { root: work }) as readonly { id: string; frontDoor?: { contexts?: readonly string[] } }[]
+  const offered = catalogue.filter((one) => !one.frontDoor?.contexts || one.frontDoor.contexts.includes('branch')).map((one) => one.id)
+  assert.ok(offered.includes('review'))
+  assert.ok(!offered.includes('independent-review') && !offered.includes('fan-out'), 'no shape that opens with an edit step is offered for a branch')
+  const source = await host.call('flow/source', { root: work, id: 'review' }) as string
+
+  const context = { kind: 'branch' as const, root: work, branch: 'feature' }
+  const preview = await host.call('authoring/start/preview', { context, source, vars: {} }) as FrontDoorPreview
+  assert.ok(preview.flow.token, JSON.stringify(preview.flow.problems))
+  assert.equal(preview.target.head, feature)
+  assert.equal(preview.target.independence, 'unknown', 'the branch’s author is not a Seat of this run')
+  assert.equal(preview.vars['head'], feature)
+  const seats = preview.flow.seats
+  assert.equal(seats.length, 3)
+  for (const one of seats) assert.deepEqual(one.plan.ceiling, { level: 'read', hold: 'held' })
+
+  const run = await host.call('flow/start-goal', { root: work, source, token: preview.flow.token!, sentence: preview.sentence, vars: preview.vars }) as FlowExecution
+  assert.equal(run.requireHeld, true)
+  assert.deepEqual(run.target, { kind: 'branch', label: 'branch feature', base: null, head: feature, pr: null, dirty: false })
+  const cards = await claimedOf(host, run.goal, 'specialists', 3)
+  for (const card of cards) assert.match(card.title, new RegExp(feature), 'the card names the commit it reviews')
+
+  const view = await host.call('goal/read', { goal: run.goal }) as GoalView
+  assert.equal(view.goal.at, feature, 'the Goal is pinned to the reviewed commit')
+  assert.equal(view.members.length, 3)
+  for (const member of view.members) {
+    assert.deepEqual(member.ceiling, { level: 'read', hold: 'held' })
+    assert.notEqual(member.checkout.cwd, work, 'no Seat works in the project’s own checkout')
+    assert.equal(await git(member.checkout.cwd, 'rev-parse', 'HEAD'), feature, `${member.checkout.cwd} is at the branch’s head`)
+  }
+  assert.equal(new Set(view.members.map((one) => one.checkout.cwd)).size, 3, 'each Seat has a checkout of its own')
+  // The person's own checkout is exactly where they left it.
+  assert.equal(await git(work, 'rev-parse', '--abbrev-ref', 'HEAD'), 'main')
+  assert.equal(await git(work, 'rev-parse', 'HEAD'), main)
+
+  // Three blind reviews on a board-only run: no reviewer reads another's before the round closes, and none can message another.
+  const ran0 = run.document.format === 'agents' ? run.document.flow : null
+  assert.equal(ran0?.messaging, 'board-only')
+  const specialists = ran0?.roles.find((one) => one.id === 'specialists')
+  assert.ok(specialists?.kind === 'agent' && specialists.blind !== false)
+  // The round closes as any review round does, and hands the person their step.
+  for (const card of cards) await host.call('team/intent', { room: run.goal, id: card.id, action: 'done', outcome: 'approve' } as never)
+  const decide = await personCardOf(host, run.goal, 'decide')
+  await host.call('team/intent', { room: run.goal, id: decide.id, action: 'done', outcome: 'done' } as never)
+  await waitUntil(async () => ((await host.call('flow/execution', { run: run.id })) as FlowExecution).state === 'settled' ? true : null, 'settled')
+
+  // "The flow this wrote": what ran saves byte for byte as the project's own file.
+  const ran = await host.call('flow/execution/source', { run: run.id }) as { source: string }
+  assert.equal(ran.source, source)
+  const target = { kind: 'flow' as const, origin: 'project' as const, id: 'review', root: work }
+  const save = await host.call('authoring/save/preview', { target, expected: null, source: ran.source }) as { token: string | null; issues: readonly unknown[] }
+  assert.ok(save.token, JSON.stringify(save.issues))
+  assert.equal((await host.call('authoring/save/apply', { token: save.token! }) as { state: string }).state, 'applied')
+  assert.equal(await readFile(join(work, '.harnessdesk', 'flows', 'review.yml'), 'utf8'), source)
+})
+
+test('an asked fresh runtime refuses the same branch review truthfully: no token, every candidate’s reason, nothing opened', async (t) => {
+  const runtime = new FakeRuntime({ id: runtimeId('claude-code') })
+  const { host, work } = await freshDesk(t, runtime)
+  const source = await host.call('flow/source', { root: work, id: 'review' }) as string
+  const preview = await host.call('authoring/start/preview', { context: { kind: 'branch', root: work, branch: 'feature' }, source, vars: {} }) as FrontDoorPreview
+  assert.equal(preview.flow.token, null)
+  assert.equal(preview.flow.seats.length, 3)
+  for (const one of preview.flow.seats) {
+    assert.equal(one.plan.winner, null)
+    assert.ok(one.plan.candidates.length > 0)
+    // The runtime that is here is refused for not holding; every other preferred one says why it is not here.
+    const here = one.plan.candidates.find((candidate) => candidate.seat.runtime === 'claude-code')
+    assert.deepEqual(here?.reason, { kind: 'unheld', level: 'read', detail: null, required: true })
+    for (const candidate of one.plan.candidates) assert.notEqual(candidate.reason, null, JSON.stringify(candidate))
+  }
+  assert.equal(runtime.sessions.size, 0, 'no conversation was opened')
+  assert.deepEqual((await host.call('goal/list', {}) as readonly unknown[]).length, 0, 'no Goal was made')
+})

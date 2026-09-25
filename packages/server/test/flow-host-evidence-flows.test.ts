@@ -45,5 +45,5 @@ test('the staged relay flow reaches its end', E2E, async (t) => {
 
 test('every flow that ships is one the flow-host-evidence files run to its end', async () => {
   const ids = (await readdir(builtinFlowRoot())).filter((one) => one.endsWith('.yml')).map((one) => one.slice(0, -4)).sort()
-  assert.deepEqual(ids, ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'review-pr', 'staged-relay'])
+  assert.deepEqual(ids, ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay'])
 })

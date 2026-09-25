@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -8,7 +9,10 @@ import { promisify } from 'node:util'
 import { parseClientMessage, ValidationError, type AgentEntry, type SeatPlan } from '@harnessdesk/protocol'
 
 import { factsKey, hostContextPort, previewStart, resolveContext, type FrontDoorPort } from '../src/authoring/start.js'
+import { REVIEW_OWN_GOAL } from '../src/flow-execution.js'
+import { parseFlowPolicy } from '../src/flow-policy.js'
 import { CHANGED_PREVIEW, FlowPreviews } from '../src/flow-preview.js'
+import { builtinFlowRoot } from '../src/host.js'
 import { flowMethods } from '../src/methods/flows.js'
 import type { HostContext } from '../src/methods/context.js'
 import { tempDir } from './scratch.js'
@@ -177,4 +181,71 @@ test('host resolves PR without following input URL', async () => {
   const foreign = tempDir('hd-front-door-foreign-')
   await assert.rejects(previewStart(port, { context: { kind: 'pull-request', root: foreign, number: 7 }, source: shape('pr', 'pull-request'), vars: {} }), /outside every open workspace/)
   assert.deepEqual(calls, [])
+})
+
+const REVIEW = readFileSync(join(builtinFlowRoot(), 'review.yml'), 'utf8')
+
+test('a branch review hands its run the head, the base and the pull request it resolved, and the folder it works in', async () => {
+  const root = await repository()
+  await git(root, 'checkout', '-q', 'feature')
+  await writeFile(join(root, 'app.txt'), 'feature work\n')
+  await git(root, 'commit', '-q', '-am', 'feature work')
+  await git(root, 'checkout', '-q', 'main')
+  const head = await git(root, 'rev-parse', 'feature')
+  const { port, ctx, started } = frontDoor()
+  // The shipped review shape names Agents this fake roster does not have; only its bindings are under test here.
+  const preview = await previewStart(port, { context: { kind: 'branch', root, branch: 'feature' }, source: REVIEW, vars: {} })
+  const inputs = parseFlowPolicy(REVIEW).document?.flow.inputs ?? []
+  const fallback = (id: string) => inputs.find((one) => one.id === id)?.default
+  // A branch has a head; it has no pull request and, with no default branch recorded, no base: those take the shape's written defaults.
+  assert.deepEqual(preview.vars, { head, base: fallback('base'), pr: fallback('pr') })
+  assert.equal(preview.target.head, head)
+  // Typed over, a bound input is refused, even one that fell back to its default.
+  const typed = await previewStart(port, { context: { kind: 'branch', root, branch: 'feature' }, source: REVIEW, vars: { pr: '12' } })
+  assert.ok(typed.flow.problems.some((one) => one.at === 'inputs.pr' && /cannot be typed/.test(one.text)))
+
+  // What start-goal hands the run: the folder and the resolved target, from the token — never from the request.
+  const own = shape('head', 'branch')
+  const bound = await previewStart(port, { context: { kind: 'branch', root, branch: 'feature' }, source: own, vars: {} })
+  assert.ok(bound.flow.token, JSON.stringify(bound.flow.problems))
+  await flowMethods['flow/start-goal'](ctx, { root, source: own, token: bound.flow.token!, sentence: bound.sentence, vars: bound.vars })
+  const request = started[0] as { cwd?: string; target?: { kind: string; head: string | null; base: string | null; pr: number | null; dirty: boolean; label: string } }
+  assert.equal(request.cwd, root)
+  assert.deepEqual(request.target, { kind: 'branch', label: 'branch feature', base: null, head, pr: null, dirty: false })
+})
+
+test('independence from the author is known only when the author is a Seat of the run', async () => {
+  const root = await repository()
+  const { port } = frontDoor()
+  const builtThenReviewed = [
+    'version: 2',
+    'name: Build then review',
+    'roles:',
+    '  builder: { kind: agent, uses: [reviewer], grant: read }',
+    '  reviewer: { kind: agent, uses: [reviewer], grant: read, independentOf: [builder] }',
+    'seed: { role: builder, title: Build it }',
+    'rules:',
+    '  - { id: review, on: builder, then: { role: reviewer, title: Review it } }',
+    'layout: { frontDoor: { contexts: [project, branch] } }',
+    '',
+  ].join('\n')
+  const fromProject = await previewStart(port, { context: { kind: 'project', root }, source: builtThenReviewed, vars: {} })
+  assert.equal(fromProject.target.independence, 'known', 'the builder is a Seat of this run')
+  // The branch was written by somebody outside the run: its author's provider is not known, whatever the shape says.
+  const fromBranch = await previewStart(port, { context: { kind: 'branch', root, branch: 'feature' }, source: builtThenReviewed, vars: {} })
+  assert.equal(fromBranch.target.independence, 'unknown')
+})
+
+test('a review of a committed change starts a Goal of its own, and a pull request whose head is not here is refused before any preview', async () => {
+  const root = await repository()
+  const { port } = frontDoor()
+  const reuse = await previewStart(port, { context: { kind: 'branch', root, branch: 'feature' }, source: shape('head', 'branch'), vars: {}, goal: { id: 'goal-1', revision: 0 } })
+  assert.equal(reuse.flow.token, null)
+  assert.ok(reuse.flow.problems.some((one) => one.text === REVIEW_OWN_GOAL))
+  const absent = 'f'.repeat(40)
+  const remote = frontDoor(async () => ({ stdout: JSON.stringify({ number: 9, headRefOid: absent, baseRefOid: await git(root, 'rev-parse', 'HEAD'), headRefName: 'elsewhere' }), exitCode: 0 }))
+  await assert.rejects(
+    previewStart(remote.port, { context: { kind: 'pull-request', root, number: 9 }, source: shape('pr', 'pull-request'), vars: {} }),
+    /Pull request #9’s head commit is not in this project yet\. Fetch it/,
+  )
 })

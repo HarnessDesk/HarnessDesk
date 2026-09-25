@@ -307,12 +307,18 @@ export class GoalPlane {
     }
   }
 
-  async create(input: GoalCreateInput): Promise<GoalView> {
+  /**
+   * `pin` is the host's alone — a front-door review's resolved commit, never
+   * a wire field: every Seat of a pinned Goal is given a checkout of its own
+   * cut from exactly that commit, whatever the project has checked out.
+   */
+  async create(input: GoalCreateInput, pin: { readonly at?: string } = {}): Promise<GoalView> {
     return this.serial.run(async () => {
       const ready = this.port.ready()
       if (!ready.ok) throw new Error(ready.reason)
       const sentence = input.sentence.trim()
       if (!sentence || sentence.length > 2000) throw new Error('Write a Goal in 1 to 2000 characters.')
+      if (pin.at !== undefined && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(pin.at)) throw new Error('A Goal is pinned to one complete commit id.')
       const { root, cwd } = await this.port.confine(input)
       const at = this.now()
       const goal: Goal = {
@@ -320,6 +326,7 @@ export class GoalPlane {
         state: 'open', revision: 0, checkout: input.checkout ?? 'shared',
         dependsOn: [], origin: input.origin ?? { kind: 'person' },
         createdAt: at, updatedAt: at, receipt: null,
+        ...(pin.at !== undefined ? { at: pin.at } : {}),
       }
       const dependsOn = checkedDependencies(goal, input.dependsOn ?? [], this.store.list().map((one) => one.goal))
       await this.store.save({
@@ -767,7 +774,9 @@ export class GoalPlane {
       const goal = this.store.read(input.goal).goal
       // Unattended from the Goal's own origin; held-only from the run that asked, which read it from its own stored policy.
       const policy = { unattended: goal.origin.kind === 'trigger', ...(input.requireHeld === true ? { requireHeld: true as const } : {}) }
-      const record = await this.#withLane(goal, input.isolate ?? goal.checkout === 'isolated', (where) => this.port.seatAgent(input, where, policy))
+      // A Goal pinned to a commit seats nobody in the project's own checkout: each Seat gets its own, cut from that commit.
+      const isolate = goal.at !== undefined || (input.isolate ?? goal.checkout === 'isolated')
+      const record = await this.#withLane(goal, isolate, (where) => this.port.seatAgent(input, where, policy))
       if (input.card !== undefined) {
         try {
           await this.port.claim(input.goal, input.card, record)

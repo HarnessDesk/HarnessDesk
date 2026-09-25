@@ -19,7 +19,11 @@ move is real work and is not news to a person weighing an upgrade.
   honest refusal and its fix rather than starting under a weaker policy, so a
   fresh install with one ready runtime still gets exactly what it asked for.
   The same door opens from a branch's own menu, a pull request's row, ⌘K, and
-  an empty Goal's board, prefilled with what that place already knows.
+  an empty Goal's board, prefilled with what that place already knows. A
+  **Review…** of a branch, a pull request or a diff runs three read-only
+  specialists at the commit it resolved — each in a checkout of its own cut
+  from that commit, whatever you have checked out — and never offers a shape
+  that starts by editing.
   **Your own shape…**, the catalogue's last row, is an ordered editor for
   Agents, checks and person steps and the rules between them — no YAML to
   write — with the exact file shown and updated as you go, a graph view of

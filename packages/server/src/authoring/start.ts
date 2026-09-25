@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import type {
   FlowPreview,
   FlowProblem,
+  FlowStartTarget,
   FrontDoorPreview,
   FrontDoorPreviewInput,
   GoalView,
@@ -13,6 +14,7 @@ import type {
 
 import { CHANGED_PREVIEW, type FlowPreviews } from '../flow-preview.js'
 import { parseFlowPolicy } from '../flow-policy.js'
+import { REVIEW_OWN_GOAL } from '../flow-execution.js'
 import { GOAL_TAKEN } from '../goals/operations.js'
 import { isRevisionName } from '../git-revision.js'
 import { readShapeLayout } from './model.js'
@@ -128,6 +130,10 @@ export async function resolveContext(port: ContextPort, context: StartContext): 
       const pr = await port.pullRequest(root, context.number)
       if (!pr) throw new Error(`There is no pull request #${context.number} in this project.`)
       if (!FULL_SHA.test(pr.head) || !FULL_SHA.test(pr.base)) throw new Error(`Pull request #${context.number} could not be read to its commits.`)
+      // Its Seats work at its head, each in a checkout cut from it, so that commit has to be here already.
+      if (await commitOf(port, root, pr.head).catch(() => null) !== pr.head) {
+        throw new Error(`Pull request #${context.number}’s head commit is not in this project yet. Fetch it, then review it again.`)
+      }
       return {
         kind: 'pull-request', label: `pull request #${context.number}`, branch: isRevisionName(pr.headRef) ? pr.headRef : null,
         pr: context.number, base: pr.base, head: pr.head, diff: null, dirty: false,
@@ -159,6 +165,12 @@ export async function resolveContext(port: ContextPort, context: StartContext): 
     }
   }
 }
+
+/** What a run is handed of its target; null for a plain project, which works where the project is. */
+export const startTarget = (facts: TargetFacts): FlowStartTarget | null =>
+  facts.kind === 'project'
+    ? null
+    : { kind: facts.kind, label: facts.label, base: facts.base, head: facts.head, pr: facts.pr, dirty: facts.dirty }
 
 /** The canonical form a token binds: key order fixed. */
 export const factsKey = (facts: TargetFacts): string =>
@@ -195,7 +207,11 @@ export async function previewStart(port: FrontDoorPort, input: FrontDoorPreviewI
       problems.push({ level: 'error', at: 'layout.frontDoor.contexts', text: `This shape does not start from ${facts.label}. Choose a start it names, or edit the shape.` })
     }
     for (const binding of front?.bindings ?? []) {
-      const value = boundValue(facts, binding.value)
+      /* A fact this start does not have falls back to the input's own
+         written default — a branch has no pull request, a working tree no
+         committed head — and a shape that wrote none is refused. Either way
+         the value is the start's, never typed over. */
+      const value = boundValue(facts, binding.value) ?? policy.inputs.find((one) => one.id === binding.input)?.default ?? null
       if (value === null) {
         problems.push({ level: 'error', at: `inputs.${binding.input}`, text: `This shape fills “${binding.input}” from the ${binding.value}, which ${facts.label} does not have.` })
         continue
@@ -208,6 +224,10 @@ export async function previewStart(port: FrontDoorPort, input: FrontDoorPreviewI
     }
   }
   let goal: FrontDoorPreview['goal'] = null
+  if (input.goal && facts.head !== null) {
+    // A Goal a person made was never pinned to this commit: a review of it starts its own.
+    problems.push({ level: 'error', at: 'goal', text: REVIEW_OWN_GOAL })
+  }
   if (input.goal) {
     goal = { id: input.goal.id, revision: input.goal.revision }
     let view: GoalView | null = null
@@ -224,11 +244,15 @@ export async function previewStart(port: FrontDoorPort, input: FrontDoorPreviewI
   }
   const flow = await port.previews.preview(context.root, input.source, vars, undefined, {
     requireHeld: true,
-    target: { context, facts: factsKey(facts) },
+    target: { context, facts: factsKey(facts), resolved: startTarget(facts) },
     goal,
   })
   const blocked = problems.some((one) => one.level === 'error')
-  const independence = policy?.roles.some((role) => role.kind === 'agent' && role.independentOf.length > 0) ? 'known' : 'unknown'
+  /* Decision 6: independence from the author is known only when the author
+     is a Seat of this run — a project start whose shape keeps a reviewer
+     independent of its own builder. A branch, a pull request or a diff was
+     written by somebody outside the run, whose provider nothing here knows. */
+  const independence = context.kind === 'project' && policy?.roles.some((role) => role.kind === 'agent' && role.independentOf.length > 0) ? 'known' : 'unknown'
   return {
     flow: blocked || problems.length > 0 ? (blocked ? refusedPreview(flow, problems) : { ...flow, problems: [...flow.problems, ...problems] }) : flow,
     target: { label: facts.label, base: facts.base, head: facts.head, dirty: facts.dirty, independence },

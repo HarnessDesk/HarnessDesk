@@ -124,6 +124,19 @@ export const executionOf = (raw: unknown): StoredFlowExecution => {
   if (reserving !== undefined && (!object(reserving) || !text(reserving['goal']) || !reserving['goal'] || !integer(reserving['revision']))) {
     bad('names a Goal reservation it cannot describe')
   }
+  /* What a front-door run works on: only ever on a front-door start, and a
+     head, when there is one, is one complete commit — the one its Seats'
+     checkouts are cut from and checked against before any work. */
+  const target = raw['target']
+  if (target !== undefined) {
+    const sha = (value: unknown): boolean => typeof value === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(value)
+    if (start !== 'front-door' || !object(target) || !['branch', 'pull-request', 'diff', 'working-diff'].includes(String(target['kind'])) ||
+      !text(target['label']) || !(target['base'] === null || sha(target['base'])) || !(target['head'] === null || sha(target['head'])) ||
+      !(target['pr'] === null || integer(target['pr'])) || typeof target['dirty'] !== 'boolean' ||
+      (target['kind'] === 'working-diff') !== (target['head'] === null)) {
+      bad('names a start target it cannot describe')
+    }
+  }
   if (!object(raw['operationTimes'])) bad('has unreadable operation times')
   for (const time of Object.values(raw['operationTimes'] as Record<string, unknown>)) {
     if (!object(time) || !finite(time['preparedAt']) || !(time['startedAt'] === null || finite(time['startedAt'])) ||

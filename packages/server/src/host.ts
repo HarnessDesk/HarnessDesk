@@ -746,7 +746,8 @@ export class Host {
       available: availablePorts,
       create: async (id, goal) => {
         const document = this.#goalStore.read(goal)
-        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}` })
+        // A Goal pinned to a commit cuts every lane from that commit, never from whatever the project has checked out.
+        const checkout = await this.#worktrees.create(document.goal.cwd, { name: `lane-${id}`, ...(document.goal.at ? { base: document.goal.at } : {}) })
         if (!checkout.branch) throw new Error('The lane checkout has no branch. Its reservation was kept.')
         return { cwd: checkout.path, branch: checkout.branch }
       },
@@ -1076,7 +1077,10 @@ export class Host {
       },
       release: (goal, seat) => this.#goals.release(goal, seat as SeatId),
       canDispatch: (goal) => this.#goals.canDispatch(goal),
-      createGoal: async (input) => (await this.#goals.create(input)).goal,
+      createGoal: async (input) => {
+        const { at, ...goal } = input
+        return (await this.#goals.create(goal, at ? { at } : {})).goal
+      },
       // A front-door run's empty Goal, reserved in the Goal queue against the revision its preview saw.
       reserveGoal: async (input) => { await this.#goals.reserveEmptyFlowGoal(input) },
       // Let go of again by the run that holds it, when that run ended before its first round.

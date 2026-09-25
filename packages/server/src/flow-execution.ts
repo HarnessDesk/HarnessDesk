@@ -18,6 +18,7 @@ import type {
   FlowPolicy,
   FlowPolicyRule,
   FlowRoundState,
+  FlowStartTarget,
   FlowSeat,
   FlowThen,
   GoalCreateInput,
@@ -118,6 +119,8 @@ export interface FlowStartRequest {
   readonly requireHeld?: true
   /** From a strict preview token only: the empty Goal this run lands on, at the revision the preview saw. */
   readonly goal?: { readonly id: string; readonly revision: number }
+  /** From a strict preview token only: what the run works on, as the host resolved it. A head pins every Seat to it. */
+  readonly target?: FlowStartTarget
 }
 
 /**
@@ -150,6 +153,11 @@ export class TriggerRefusal extends Error {
 /** How long a released trigger Seat's interrupted turn is waited for before its release is tried anyway. */
 const RELEASE_WAIT_MS = 10_000
 export const CHECK_INTERRUPTED = 'This check was stopped part-way when unattended work was paused or stopped. Inspect its effects, then choose Run again.'
+/** Why a Seat of a run pinned to one commit was given no work: its checkout is somewhere else. */
+export const NOT_AT_TARGET = (card: number): string =>
+  `The Seat for card #${card} did not open at the commit this run reviews, so it was given no work. Start the review again.`
+/** Why a review of a branch, a pull request or a diff does not land on an existing Goal. */
+export const REVIEW_OWN_GOAL = 'A review of a branch, a pull request or a diff starts a Goal of its own. Start it from the project instead of this Goal.'
 export const DISPATCH_HELD = 'This run is waiting for its trigger firing to be recorded before it sends any work.'
 /** What a trigger's run says when what it would run no longer matches what was armed. */
 export const TRIGGER_CLOSURE_CHANGED = 'What this trigger runs changed after it fired, so nothing was started. Arm it again, then start this work.'
@@ -167,7 +175,8 @@ export interface FlowExecutionPort {
   openSeat(input: GoalSeatRequest): Promise<SeatRecord>
   release(goal: string, seat: string): Promise<void>
   canDispatch(goal: string): { ok: true } | { ok: false; reason: string }
-  createGoal(input: GoalCreateInput): Promise<{ readonly id: string }>
+  /** `at`, host-only: the commit every Seat of the new Goal works at, each in a checkout of its own cut from it. */
+  createGoal(input: GoalCreateInput & { readonly at?: string }): Promise<{ readonly id: string }>
   /**
    * Reserves an existing empty Goal for this run, in the Goal queue, against
    * the revision its preview saw: open, same project, no card, no Seat, ready
@@ -338,6 +347,7 @@ export const projectExecution = (run: StoredFlowExecution): FlowExecution => ({
   ...(run.findings ? { findings: run.findings } : {}),
   ...(run.intake ? { intake: run.intake } : {}),
   ...(run.requireHeld ? { requireHeld: true as const } : {}),
+  ...(run.target ? { target: run.target } : {}),
 })
 
 /** A new-format run's findings bookkeeping, frozen at its start: the budget its file named, or the default. */
@@ -1329,6 +1339,9 @@ export class FlowExecutions {
       throw new Error('This start’s held-seat policy does not match where it came from. Review the dry run again before starting.')
     }
     if (request.goal && !request.requireHeld) throw new Error('Only a front-door start reuses an existing Goal.')
+    if (request.target && !request.requireHeld) throw new Error('Only a front-door start names what it works on.')
+    // A Goal made by a person was never pinned to a commit, so a review of one starts a Goal of its own.
+    if (request.goal && request.target?.head) throw new Error(REVIEW_OWN_GOAL)
     if (request.goal && !this.#port.reserveGoal) throw new Error('This desk cannot reuse a Goal for a run.')
     const id = `flow-${this.#now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
     const at = this.#now()
@@ -1342,6 +1355,7 @@ export class FlowExecutions {
       // Frozen with it: every Seat this run ever opens holds its ceiling, later and recovered rounds too.
       ...(request.requireHeld ? { requireHeld: true as const } : {}),
       ...(request.goal ? { reserving: { goal: request.goal.id, revision: request.goal.revision } } : {}),
+      ...(request.target ? { target: request.target } : {}),
     }, 'start', { kind: 'round', state: 'started', card: null, seat: null }))
     let goal: { readonly id: string }
     if (request.goal) {
@@ -1360,6 +1374,8 @@ export class FlowExecutions {
       goal = await this.#port.createGoal({
         root: request.root, ...(request.cwd ? { cwd: request.cwd } : {}), sentence: request.sentence.trim() || policy.name,
         origin: { kind: 'flow', run: id },
+        // Every Seat of a review of a branch, a pull request or a diff works at the commit its preview resolved.
+        ...(request.target?.head ? { at: request.target.head } : {}),
       })
     }
     run = await this.#put(this.#operation({ ...this.#get(id), goal: goal.id }, 'start', { kind: 'round', state: 'finished', card: null, seat: null }))
@@ -1883,6 +1899,11 @@ export class FlowExecutions {
         const lane = this.#port.laneOf(record)
         if (!lane || lane.cwd !== record.checkout.cwd || lane.ports.end < lane.ports.start || !lane.browserProfile) return fail(LANE_REFUSED)
       }
+      /* A run that works on one commit hands work only to a Seat whose own
+         checkout is at that commit, read fresh from git — never to one that
+         opened on whatever the project had checked out. */
+      const pinned = this.#get(id).target?.head ?? null
+      if (pinned !== null && (await this.#port.headOf(record.checkout.cwd, null)).at !== pinned) return fail(NOT_AT_TARGET(card))
       try {
         this.#team.setRole(run.goal, record.session.runtime, record.session.sessionId, round.role)
       } catch (error) {

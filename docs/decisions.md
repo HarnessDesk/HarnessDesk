@@ -595,6 +595,35 @@ whether the result is valid.
 already trusts nothing else in the file; the day it grants something is the
 day it needs to be a different key.
 
+## A review works at the commit it resolved, in checkouts of its own
+
+A "Review…" of a branch, a pull request or a diff used to guard only its
+Start: the resolved head and base were bound to the token, and then the run
+opened its Seats in the project's own checkout — whatever happened to be
+checked out — starting with a step that could edit it. The target decided
+whether Start was allowed, not what was reviewed.
+
+Now the resolved target travels from the token to the run (`target`), the
+run's Goal is pinned to its head (`Goal.at`, set by the host alone), and
+every Seat of a pinned Goal gets a lane cut from exactly that commit — the
+phase-6 lane an isolating role already gets, with its own ports and browser
+profile. Before a Seat is handed any work, git is read fresh in its
+checkout; a Seat anywhere else is released and the run stops with the
+reason. The shipped `review` shape reads only, is offered only for such
+starts, and the edit-first shapes are offered only for a plain project. A
+working tree has no commit to pin, so its reviewers read the project's own
+checkout and the token binds its snapshot. A reused Goal was never pinned,
+so a review of a committed change starts a Goal of its own.
+
+The alternatives were a single worktree for the whole Goal, or pinning by
+instruction alone. A single worktree would be a second checkout plane beside
+lanes, with its own recovery; an instruction is exactly the kind of claim
+that is worth only its recording. Lanes already had recovery, retention on
+wrap and a registry.
+
+**The rule:** a run that says what it reviews works there, and proves it
+before any work is handed out.
+
 ## A declared attachment is a catalogue name, never an executable spec
 
 An Agent's `skills:`/`mcp:` lines name entries by identifier, not by command

@@ -173,6 +173,7 @@ export function documentOf(value: unknown): GoalDocument {
     !object(goal.origin) || !['person', 'legacy', 'flow', 'trigger'].includes(String(goal.origin.kind)) ||
     !(goal.receipt === null || typeof goal.receipt === 'string') ||
     !(goal.findingPublication === undefined || typeof goal.findingPublication === 'boolean') ||
+    !(goal.at === undefined || (typeof goal.at === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(goal.at))) ||
     'members' in goal || 'members' in board || 'roles' in board || 'plans' in board ||
     !Number.isSafeInteger(board.nextIntent) || Number(board.nextIntent) < 1 ||
     typeof board.messaging !== 'boolean' || !Array.isArray(board.intents) || !Array.isArray(board.channel) ||

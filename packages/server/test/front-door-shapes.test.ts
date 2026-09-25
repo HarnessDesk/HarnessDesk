@@ -100,3 +100,50 @@ test('flow/catalog itself surfaces the packaged order and contexts for a real pr
   }
   assert.equal(byId.get('mechanical-contest')?.frontDoor?.order ?? null, null)
 })
+
+const NOT_A_PROJECT = ['branch', 'pull-request', 'diff', 'working-diff'] as const
+
+test('a start from a branch, a pull request or a diff is offered only shapes that read: the edit-first shapes start from a plain project alone', async () => {
+  for (const id of ['independent-review', 'fan-out']) {
+    const parsed = parseFlowPolicy(await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8'))
+    assert.equal(parsed.document?.format, 'agents')
+    if (parsed.document?.format !== 'agents') continue
+    assert.deepEqual(readShapeLayout(parsed.document.flow).layout.frontDoor?.contexts, ['project'], `${id} opens with an edit step, so it starts from a project only`)
+  }
+  // Every packaged shape that names such a start: each of its Agent steps is granted read, and nothing more.
+  for (const name of (await readdir(builtinFlowRoot())).filter((one) => one.endsWith('.yml'))) {
+    const parsed = parseFlowPolicy(await readFile(join(builtinFlowRoot(), name), 'utf8'))
+    if (parsed.document?.format !== 'agents') continue
+    const contexts = readShapeLayout(parsed.document.flow).layout.frontDoor?.contexts ?? []
+    if (!contexts.some((one) => (NOT_A_PROJECT as readonly string[]).includes(one))) continue
+    for (const role of parsed.document.flow.roles) {
+      if (role.kind === 'agent') assert.equal(role.grant, 'read', `${name}: ${role.id} starts from a change it must only read`)
+    }
+  }
+})
+
+test('the review shape reads its target: three read-only specialists, seeded with the head, the base and the pull request the start resolved', async () => {
+  const parsed = parseFlowPolicy(await readFile(join(builtinFlowRoot(), 'review.yml'), 'utf8'))
+  assert.equal(parsed.document?.format, 'agents', JSON.stringify(parsed.problems))
+  if (parsed.document?.format !== 'agents') return
+  const flow = parsed.document.flow
+  const layout = readShapeLayout(flow)
+  assert.deepEqual(layout.issues, [])
+  assert.deepEqual(layout.layout.frontDoor?.contexts, [...NOT_A_PROJECT], 'every start that is a change, and never a plain project')
+  assert.deepEqual(
+    Object.fromEntries((layout.layout.frontDoor?.bindings ?? []).map((one) => [one.input, one.value])),
+    { head: 'head', base: 'base', pr: 'pr' },
+  )
+  // A fact a start does not have — a branch's pull request, a working tree's head — falls back to a written default, never a guess.
+  for (const input of ['head', 'base', 'pr']) assert.ok(flow.inputs.find((one) => one.id === input)?.default, `${input} has a default`)
+  const seed = flow.roles.find((role) => role.id === flow.seed.role)
+  assert.ok(seed?.kind === 'agent')
+  assert.deepEqual(seed.uses, ['security-reviewer', 'performance-reviewer', 'api-reviewer'])
+  for (const role of flow.roles) if (role.kind === 'agent') assert.equal(role.grant, 'read')
+  assert.match(flow.seed.title, /\{\{head\}\}/)
+  assert.match(`${flow.seed.title} ${flow.seed.detail ?? ''}`, /\{\{base\}\}/)
+  assert.match(`${flow.seed.title} ${flow.seed.detail ?? ''}`, /\{\{pr\}\}/)
+  const compiled = compileFlowPolicy(parsed.document!, await agentsOf())
+  assert.deepEqual(compiled.problems, [], JSON.stringify(compiled.problems))
+  assert.equal(compiled.bindings.filter((binding) => binding.role === seed.id).length, 3)
+})

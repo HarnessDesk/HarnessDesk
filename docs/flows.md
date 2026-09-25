@@ -467,10 +467,28 @@ places a shape among the shipped choices, and `contexts` names which starts
 accepts — absence of either is never a refusal, only the absence of an
 opinion. `packages/server/flows/` sets `order: 1`–`6` on
 `independent-review`, `fan-out`, `comparison`, `staged-relay`, `investigation`
-and `alignment`; `mechanical-contest` stays an unordered custom starting
-point. Like `layout.positions`, none of this grants, seats or routes
-anything — an authoring shortcut only, read defensively and never trusted for
-more than display.
+and `alignment`, each of which starts from a plain project only;
+`mechanical-contest` stays an unordered custom starting point. A branch, a
+pull request, a diff or the working tree is offered `review`: three
+read-only specialists, and nothing that opens with an edit step. Its
+`bindings` fill its `head`, `base` and `pr` inputs from what the host
+resolved — a fact that start does not have (a branch's pull request, a
+working tree's head) takes the input's written default — and a bound input
+is never typed over. Like `layout.positions`, none of this grants, seats or
+routes anything — an authoring shortcut only, read defensively and never
+trusted for more than display.
+
+A start from a branch, a pull request or a diff works at the commit it
+resolved, whatever the project has checked out. The token carries that
+commit; the run records it as its `target`, its Goal is pinned to it (`at`),
+and every Seat of a pinned Goal is given a lane of its own cut from exactly
+that commit — the same lanes an isolating role gets — and is handed no work
+until git, read fresh in its checkout, says it is there. A working tree has
+no commit to pin: its reviewers read the project's own checkout, and its
+snapshot is what the token binds. A review of a committed change starts a
+Goal of its own rather than landing on one a person made. Independence from
+the author is reported as unknown for every such start: the change was
+written outside the run, and nothing here knows its author's provider.
 
 *Save* previews the exact diff — new Agents the shape names, then the flow
 file itself — for the project or for you, through the same guarded
