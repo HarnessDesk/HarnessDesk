@@ -210,11 +210,31 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   )
   if (!usage) throw new Error('no Usage remaining row')
   expect(usage.getAttribute('aria-expanded')).toBe('false')
+  // The one trailing fold: down while folded, up while open.
+  const mark = () => usage.querySelector('[data-slot="disclosure-chevron"]')
+  expect(mark()?.getAttribute('data-placement')).toBe('trailing')
+  expect(mark()?.hasAttribute('data-open')).toBe(false)
   click(usage)
 
   expect(usage.getAttribute('aria-expanded')).toBe('true')
+  expect(mark()?.hasAttribute('data-open')).toBe(true)
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
+})
+
+it.each([
+  ['with room', 40, 'neutral'],
+  ['running low', 88, 'warning'],
+  ['spent', 100, 'warning'],
+] as const)('folds Usage remaining under a mark in the figure\'s trouble — %s', (_state, usedPercent, tone) => {
+  // A fold has one trouble tone: a spent window's red figure folds under the
+  // warning mark, a low one's amber figure too, and room is neutral.
+  mount({ usage: [usageReport(CLAUDE, [lane({ id: 'weekly', label: 'Weekly', usedPercent })])] })
+  click(row())
+  const usage = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
+    item.textContent?.includes('Usage remaining'),
+  )
+  expect(usage?.querySelector('[data-slot="disclosure-chevron"]')?.getAttribute('data-tone')).toBe(tone)
 })
 
 it('resets expanded account and usage state when the trigger closes and reopens the menu', () => {

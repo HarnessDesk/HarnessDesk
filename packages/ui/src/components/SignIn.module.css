@@ -9,10 +9,6 @@
   overflow: hidden;
 }
 
-.fill {
-  flex: 1;
-}
-
 .split {
   flex: 1;
   min-height: 0;
