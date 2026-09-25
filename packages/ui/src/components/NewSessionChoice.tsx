@@ -1,69 +1,69 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import type { AgentEntry } from '@harnessdesk/protocol'
+import type { AgentEntry, SeatPlan } from '@harnessdesk/protocol'
 
-import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
-import { ActionError, Button, Dialog, Field, IconTile, Input, Note, Text } from '../design'
+import { agentName, firstReason, inForce, markFor, seatTaken } from '../lib/agents'
+import {
+  ActionError,
+  Button,
+  ChoiceList,
+  Dialog,
+  Field,
+  Input,
+  NativeSelect,
+  Text,
+} from '../design'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { AgentIcon, BriefIcon, FlowIcon, TeamIcon } from './Icons'
+import { AgentIcon, BriefIcon, FlowIcon, GoalIcon, TeamIcon } from './Icons'
 import { FlowStart, type FlowChoice } from './FlowStart'
 import { FrontDoor } from './FrontDoor'
 import { GoalCreate } from './GoalCreate'
-import styles from './NewSessionChoice.module.css'
+
+/** What this dialog can start. Order is the order a person reads them in. */
+type Kind = 'session' | 'goal' | 'flow' | 'team'
+
+const PLAIN = 'plain'
 
 /**
- * The button asks whether to begin an ordinary conversation or a finishable
- * Goal. Keyboard shortcuts still call `newDraft` directly; this chooser keeps
- * its plain row focused for the same reason.
+ * What an Agent says in the "Run as" list and under it: its name and mark
+ * for the row, and one line — its description with the seat it would take,
+ * or the reason it cannot be seated here — for the hint under the Select.
+ * One place to work this out, so the closed trigger, the open list and the
+ * hint underneath it can never disagree about a given Agent.
+ */
+const runAsInfo = (entry: AgentEntry, agentPlans: ReadonlyMap<string, SeatPlan>) => {
+  const plan = agentPlans.get(entry.id)
+  const seat = seatTaken(plan)
+  const refused = plan !== undefined && seat === null
+  const reason = refused && plan ? firstReason(plan) : null
+  return { name: agentName(entry), seat, refused, reason }
+}
+
+/**
+ * "What are you starting?" asks one question first — a Session, a Goal, a
+ * Flow, or a team shape — and only then, for a Session, who runs it. Every
+ * created Agent used to lead this dialog as its own row; with more than a
+ * couple in force that was a scrolling column of identical tiles with the
+ * plain choice — what ⌘N does — buried under all of them. An Agent is now an
+ * answer to "who runs the session", not a fifth kind of thing to start.
  */
 export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const root = projectRootOf(snapshot.workspace)
+  const [kind, setKind] = useState<Kind>('session')
+  const [runAs, setRunAs] = useState<string>(PLAIN)
   const [creatingGoal, setCreatingGoal] = useState(false)
   const [startingFlow, setStartingFlow] = useState(false)
   const [startingFrontDoor, setStartingFrontDoor] = useState(false)
 
   useEffect(() => { void store.loadAgents() }, [store])
   const agents = inForce(snapshot.agents ?? [])
-  /*
-   * The plain choice sits under every Agent row, so a plain `autoFocus`
-   * scrolls the whole "As an Agent" roster up to bring it into view the
-   * moment this dialog mounts — on a roster long enough that the plain
-   * choice starts below the fold, that slides the top rows up toward the
-   * header until a click meant for a row's centre can land on the header
-   * instead, silently (#870). Keeping this choice focused is still right —
-   * Enter still starts a plain session, whatever else is listed above it —
-   * it just must never move the roster to do it. A callback ref rather than
-   * an effect: the dialog's content mounts into a portal a render after this
-   * component's own effects already ran once with static dependencies, so an
-   * effect keyed to "run on mount" can fire before the button exists. A
-   * callback ref runs exactly when React attaches the node, on whichever
-   * render that turns out to be.
-   *
-   * `useCallback` with an empty dependency list, deliberately: Base UI's
-   * Button merges refs by identity, so a new function every render calls
-   * this again — refocusing the plain choice and throwing a keyboard user
-   * on an Agent row back to it the next time anything in this dialog
-   * re-renders (the roster's plans refreshing after a dry-run seat check,
-   * for one). A stable identity means React calls it once, when the node
-   * first attaches, and never again just because the component re-rendered.
-   *
-   * This chooses `preventScroll` over reshaping the header and list so
-   * focus never lands under it: on a roster long enough to push the plain
-   * choice below the fold, showing every row *and* keeping the freshly
-   * mounted choice on screen are the same fold fighting itself — the roster
-   * cannot both stay where a person is looking and bring an off-screen row
-   * into view without moving it. Between "the plain choice is initially
-   * off-screen, reachable by Tab or by Enter, exactly the keyboard shortcut
-   * this focus exists for" and "the rows this dialog leads with are
-   * unclickable," the second is the bug a person actually filed.
-   */
-  const focusWithoutScrolling = useCallback((node: HTMLButtonElement | null): void => {
-    node?.focus({ preventScroll: true })
-  }, [])
+  const showRunAs = kind === 'session' && agents.length > 0
+  const chosenAgent = runAs === PLAIN ? null : agents.find((one) => one.id === runAs) ?? null
+  const chosenInfo = chosenAgent ? runAsInfo(chosenAgent, snapshot.agentPlans) : null
 
   if (creatingGoal && root) return <GoalCreate root={root} onClose={onClose} />
   if (startingFlow && root) return <FlowGoalCreate root={root} onClose={onClose} />
@@ -80,74 +80,131 @@ export const NewSessionChoice = ({ onClose }: { readonly onClose: () => void }) 
     )
   }
 
-  const startPlain = (): void => {
-    onClose()
-    store.newDraft()
+  const needsRoot = kind !== 'session'
+  const primaryDisabled = needsRoot && !root
+
+  const activate = (): void => {
+    if (primaryDisabled) return
+    if (kind === 'session') {
+      onClose()
+      if (runAs === PLAIN) store.newDraft()
+      else void store.startAsAgent(runAs)
+      return
+    }
+    if (kind === 'goal') setCreatingGoal(true)
+    else if (kind === 'flow') setStartingFlow(true)
+    else setStartingFrontDoor(true)
   }
 
+  const openAgents = (): void => {
+    onClose()
+    store.showView('agents')
+  }
+
+  /*
+   * Enter answers the dialog from anywhere in it — the plain choice is still
+   * what it starts by default, whatever else is selected above it — except
+   * inside "Run as" itself, where Enter is the platform's own way to close
+   * its list on the highlighted Agent. `capture` runs ahead of a radio row's
+   * own native Enter-activates-a-button behaviour, so pressing Enter on
+   * "Goal" proceeds to Goal rather than merely confirming it as the answer a
+   * second time.
+   */
+  const onKeyDownCapture = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Enter' || event.target instanceof HTMLSelectElement) return
+    event.preventDefault()
+    event.stopPropagation()
+    activate()
+  }
+
+  const rootDescription = (own: string): string => (root ? own : 'Open a folder to start one.')
+
   return (
-    <Dialog title="What are you starting?" size="sm" onClose={onClose}>
-      <div className={styles.choices}>
-        {agents.length > 0 && (
-          <div className={styles.group} role="group" aria-label="As an Agent">
-            <Note>As an Agent</Note>
-            {agents.map((entry) => <AgentChoice key={entry.id} entry={entry} onClose={onClose} />)}
-          </div>
+    <Dialog
+      title="What are you starting?"
+      size="sm"
+      onClose={onClose}
+      footer={(
+        <>
+          <Button variant="default" onClick={activate} disabled={primaryDisabled}>
+            {kind === 'session' ? 'Start' : 'Continue'}
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        </>
+      )}
+      footerAside={<Button type="button" variant="quiet" onClick={openAgents}>Manage Agents…</Button>}
+    >
+      <div onKeyDownCapture={onKeyDownCapture}>
+        <ChoiceList
+          label="What are you starting?"
+          value={kind}
+          onChange={setKind}
+          autoFocusSelected
+          onActivate={activate}
+          options={[
+            {
+              value: 'session',
+              title: 'Session',
+              description: 'One agent working in this folder.',
+              icon: <AgentIcon size={16} />,
+              trailing: <Text as="span" role="meta">⌘N</Text>,
+            },
+            {
+              value: 'goal',
+              title: 'Goal',
+              description: rootDescription('A finishable effort with a shared board and a receipt.'),
+              icon: <GoalIcon size={16} />,
+              disabled: !root,
+            },
+            {
+              value: 'flow',
+              title: 'Flow',
+              description: rootDescription('Routes work between several Agents on one Goal.'),
+              icon: <FlowIcon size={16} />,
+              disabled: !root,
+            },
+            {
+              value: 'team',
+              title: 'Team',
+              description: rootDescription('Starts from a shape this project ships.'),
+              icon: <TeamIcon size={16} />,
+              disabled: !root,
+            },
+          ]}
+        />
+        {showRunAs && (
+          <Field
+            label="Run as"
+            hint={chosenInfo ? (chosenInfo.refused ? chosenInfo.reason : `${chosenAgent?.definition?.description ?? ''} It would sit on ${chosenInfo.seat?.label}.`) : 'One agent, working in this folder.'}
+          >
+            {(control) => (
+              <span className="flex items-center gap-2">
+                {chosenAgent && (
+                  <span className="flex flex-none items-center" aria-hidden="true">
+                    {chosenInfo?.seat ? <RuntimeMark runtime={markFor(chosenInfo.seat, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
+                  </span>
+                )}
+                <NativeSelect
+                  id={control.id}
+                  aria-describedby={control['aria-describedby']}
+                  className="flex-1"
+                  value={runAs}
+                  onChange={(event) => setRunAs(event.target.value)}
+                >
+                  <option value={PLAIN}>Plain session</option>
+                  {agents.map((entry) => {
+                    const info = runAsInfo(entry, snapshot.agentPlans)
+                    return (
+                      <option key={entry.id} value={entry.id}>
+                        {info.refused ? `${info.name} — ${info.reason}` : info.name}
+                      </option>
+                    )
+                  })}
+                </NativeSelect>
+              </span>
+            )}
+          </Field>
         )}
-        <Button
-          type="button"
-          ref={focusWithoutScrolling}
-          variant="choice" size="row" className={styles.choice}
-          onClick={startPlain}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              startPlain()
-            }
-          }}
-        >
-          <IconTile tint="blue"><AgentIcon size={16} /></IconTile>
-          <span className={styles.text}>
-            <Text role="row">A session</Text>
-            <Text role="muted">One agent, working in this folder. What ⌘N does.</Text>
-          </span>
-        </Button>
-        <Button
-          type="button"
-          variant="choice" size="row" className={styles.choice}
-          disabled={!root}
-          onClick={() => setCreatingGoal(true)}
-        >
-          <IconTile tint="violet"><TeamIcon size={16} /></IconTile>
-          <span className={styles.text}>
-            <Text role="row">A Goal</Text>
-            <Text role="muted">A finishable effort with a shared board, durable Seats and an immutable receipt.</Text>
-          </span>
-        </Button>
-        <Button
-          type="button"
-          variant="choice" size="row" className={styles.choice}
-          disabled={!root}
-          onClick={() => setStartingFlow(true)}
-        >
-          <IconTile tint="violet"><FlowIcon size={16} /></IconTile>
-          <span className={styles.text}>
-            <Text role="row">A flow</Text>
-            <Text role="muted">An editable policy that routes work between several Agents on one Goal.</Text>
-          </span>
-        </Button>
-        <Button
-          type="button"
-          variant="choice" size="row" className={styles.choice}
-          disabled={!root}
-          onClick={() => setStartingFrontDoor(true)}
-        >
-          <IconTile tint="violet"><TeamIcon size={16} /></IconTile>
-          <span className={styles.text}>
-            <Text role="row">Start with a team</Text>
-            <Text role="muted">Choose a shape this project ships, read what it would do, then start it.</Text>
-          </span>
-        </Button>
       </div>
     </Dialog>
   )
@@ -212,35 +269,5 @@ const FlowGoalCreate = ({ root, onClose }: { readonly root: string; readonly onC
       <FlowStart root={root} disabled={busy} onChange={setChoice} />
       {problem && <ActionError>{problem}</ActionError>}
     </Dialog>
-  )
-}
-
-const AgentChoice = ({ entry, onClose }: { readonly entry: AgentEntry; readonly onClose: () => void }) => {
-  const store = useStore()
-  const snapshot = useSnapshot()
-  const plan = snapshot.agentPlans.get(entry.id)
-  const seat = seatTaken(plan)
-  const refused = plan !== undefined && seat === null
-  const reason = refused ? firstReason(plan) : null
-  const name = entry.definition?.name ?? entry.id
-  return (
-    <Button
-      type="button"
-      variant="choice" size="row" className={styles.choice}
-      data-refused={refused ? '' : undefined}
-      title={seat ? `${entry.definition?.description ?? name} It would sit on ${seat.label}.` : 'Can’t be seated here — press to see every seat it would take, and what stands in the way.'}
-      onClick={() => {
-        onClose()
-        void store.startAsAgent(entry.id)
-      }}
-    >
-      <IconTile tint="blue">
-        {seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={16} /> : <BriefIcon size={16} />}
-      </IconTile>
-      <span className={styles.text}>
-        <Text role="row">{name}</Text>
-        {reason && <Text role="muted">{reason}</Text>}
-      </span>
-    </Button>
   )
 }
