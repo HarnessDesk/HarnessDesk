@@ -662,9 +662,10 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
       <CeilingsSection focus={focus} />
 
       {groups.length > 0 && (
-        <>
-          <SectionHead name="Approvals" />
-          <Note>What a new session starts with. An agent that decides this per conversation says so.</Note>
+        <Section title="Approvals" description="What a new session starts with. An agent that decides this per conversation says so.">
+          {/* Each runtime's head is a sub-head of this section — a step
+              tighter than a section's — so twelve runtimes read as twelve
+              groups of one section rather than twelve sections. */}
           {groups.map((group) => (
             <NewSessionDefaults
               key={group.info.id}
@@ -675,7 +676,7 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
               empty="Decided when a session starts"
             />
           ))}
-        </>
+        </Section>
       )}
 
       <Section

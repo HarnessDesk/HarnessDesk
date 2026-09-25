@@ -236,7 +236,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Triggers', 'Provenance'])
+  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Triggers', 'Provenance', 'Memory'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())
@@ -288,7 +288,11 @@ it('asking for “Triggers on this Mac” while a project is open returns to the
 it('plain project stays plain: no explicit memory use, no Memory section, no memory read', async () => {
   const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
-  expect(container.querySelector('section[aria-label="Memory"]')).toBeNull()
+  // Memory is a section of its own even closed, so it never hangs off the
+  // card above it, but closed it holds only the row that opens it.
+  const memory = container.querySelector('section[aria-label="Memory"]')
+  expect([...(memory?.querySelectorAll('button') ?? [])].map((one) => one.textContent)).toEqual(['Project memoryCommitted notes a Goal can cite.'])
+  expect(memory?.querySelector('select')).toBeNull()
   expect(container.textContent).toContain('Project memory')
   expect((store as unknown as { transport?: { request: unknown } }).transport).toBeUndefined()
 })

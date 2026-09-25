@@ -37,7 +37,12 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
     catch { if (activeRoot.current === root) setProblem(enabled === undefined ? 'Capture could not be retried.' : 'The capture preference could not be saved.') }
     finally { if (activeRoot.current === root) setBusy(false) }
   }
-  return <Section title="Provenance">
+  // Retrying is the section's own action, at its heading's end, rather than
+  // a lone button left hanging over whatever card comes next.
+  const retry = snapshot.status === 'open' && !knownNonGit && !loading && !failed && health
+    ? <Button variant="outline" size="sm" disabled={busy || !health.enabled} onClick={() => void change()}>Retry capture</Button>
+    : undefined
+  return <Section title="Provenance" {...(retry ? { action: retry } : {})}>
     {snapshot.status !== 'open' ? <Note>Capture status is unavailable while disconnected.</Note>
       : knownNonGit ? <><Rows><Row title="Capture on this machine" control={<Switch checked={false} disabled aria-label="Capture provenance on this machine" />} /></Rows><Note>This folder has no Git history to capture.</Note></>
       : loading ? <Note>Reading capture status…</Note>
@@ -50,7 +55,6 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
       {health.pending > 0 && <Note>{`${health.pending} commits are waiting for capture.`}</Note>}
       {health.gaps > 0 && <Note>Some historical transitions are unavailable. Retrying cannot recreate history Git no longer has.</Note>}
       {problem && <Note>{problem}</Note>}
-      <Button variant="secondary" disabled={busy || !health.enabled} onClick={() => void change()}>Retry capture</Button>
       {!health.enabled && <Note>Turn capture on before retrying.</Note>}</>}
   </Section>
 }

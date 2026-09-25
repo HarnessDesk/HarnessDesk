@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
-import { Button, Chip, Note, Row, Rows, Section } from '../design'
+import { Button, Chip, Note, Row, Rows, Section, SectionHead } from '../design'
 import { useStore } from '../state/context'
 import { FlowUpdate } from './FlowUpdate'
 
@@ -11,7 +11,17 @@ export interface ProjectFlowsProps {
   readonly current: boolean
 }
 
-const ORIGIN_WORDS: Readonly<Record<FlowOrigin, string>> = { project: 'Project', user: 'Your Mac', builtin: 'Ships with HarnessDesk' }
+/*
+ * The layers, in the order they are read. Each is a sub-group of the section
+ * under its own label, not a chip repeated on every row: "Ships with
+ * HarnessDesk" beside eight rows was one fact paid for eight times, and the
+ * chip is the part of a row a label does better once.
+ */
+const LAYERS: readonly { readonly origin: FlowOrigin; readonly label: string }[] = [
+  { origin: 'project', label: 'In this project' },
+  { origin: 'user', label: 'Yours' },
+  { origin: 'builtin', label: 'Built in' },
+]
 
 /**
  * Workspaces › a project › its flows: the layered catalogue a Goal would
@@ -56,14 +66,24 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
       title="Flows"
       description={<>Files in <code>.harnessdesk/flows</code>, versioned with its code: its own first, then yours, then the ones that ship.</>}
     >
-      <Rows>
-        {problem && <Row title={problem} />}
-        {!problem && entries === null && <Row title="Reading…" />}
-        {entries?.length === 0 && <Row title="No flows of its own" desc="Customize a shipped one, below, to give this project its own." />}
-        {entries?.map((entry) => (
-          <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} />
-        ))}
-      </Rows>
+      {(problem || entries === null || entries.length === 0) && (
+        <Rows>
+          {problem && <Row title={problem} />}
+          {!problem && entries === null && <Row title="Reading…" />}
+          {entries?.length === 0 && <Row title="No flows of its own" desc="Customize a shipped one, below, to give this project its own." />}
+        </Rows>
+      )}
+      {!problem && entries && LAYERS.map(({ origin, label }) => {
+        const layer = entries.filter((entry) => entry.origin === origin)
+        return layer.length === 0 ? null : [
+          <SectionHead key={`${origin}-head`} name={label} />,
+          <Rows key={origin} aria-label={label}>
+            {layer.map((entry) => (
+              <FlowRow key={entry.id} root={root} entry={entry} onOpen={(mode) => setDialog({ id: entry.id, mode })} />
+            ))}
+          </Rows>,
+        ]
+      })}
       {!current && entries && entries.length > 0 && <Note>Open this project to start its flow.</Note>}
       {dialog && (
         <FlowUpdate
@@ -113,12 +133,7 @@ const FlowRow = ({
       title={entry.name}
       wrapDesc
       {...(desc ? { desc } : {})}
-      control={(
-        <span className="inline-flex items-center gap-(--hd-space-2)">
-          <Chip tone="neutral">{ORIGIN_WORDS[entry.origin]}</Chip>
-          {action}
-        </span>
-      )}
+      control={action}
     />
   )
 }

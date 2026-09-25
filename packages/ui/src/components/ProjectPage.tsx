@@ -180,13 +180,15 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
           <MemoryCitation root={root} goal={(citeInto || null) as GoalId | null} />
         </Section>
       ) : (
-        <Rows>
-          <RowButton
-            title="Project memory"
-            desc="Committed notes a Goal can cite."
-            onClick={() => setMemoryOpen(true)}
-          />
-        </Rows>
+        <Section title="Memory">
+          <Rows>
+            <RowButton
+              title="Project memory"
+              desc="Committed notes a Goal can cite."
+              onClick={() => setMemoryOpen(true)}
+            />
+          </Rows>
+        </Section>
       )}
     </>
   )
