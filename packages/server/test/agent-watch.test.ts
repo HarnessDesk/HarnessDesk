@@ -246,58 +246,118 @@ test('a root created in the gap between the ancestor check and the watch attachi
 })
 
 /*
- * #938 — the review that found #933's own fix still short: `#899`'s immediate
- * re-check above runs right after `#watch` arms the ancestor, but arming a
- * watcher and that watcher's native listener actually being ready to report
- * something are not the same moment, and on a loaded machine the gap between
- * them can outlast an instant. A name that appears strictly after the
- * immediate check already ran and found nothing, and strictly before the
- * listener would have been live to catch it, is invisible to both — so this
- * test hands back a watcher that is deliberately quiet forever, standing in
- * for exactly that: a real listener whose native side never caught the
- * change. The only way it can still pass is the fix's own delayed re-check,
- * run once the listener is treated as confirmed ready (`READY_MS`) — never a
- * real event, and never the immediate check, which this test proves empty-
- * handed first. A fake clock drives that delay by hand, so "confirmed ready"
- * here means exactly what the test says it means, not a guess at how long a
- * real one happens to take. Before the fix — there is no second re-check —
- * this test times out.
+ * #938 — the review that found #933's own fix still short, twice over.
+ *
+ * First: `#899`'s immediate re-check runs right after `#watch` arms the
+ * ancestor, but arming a watcher and that watcher's native listener actually
+ * being ready to report something are not the same moment, and on a loaded
+ * machine the gap between them can outlast a single fixed wait. A one-shot
+ * delayed re-check only narrows that window; it does not close it.
+ *
+ * Second, on review of the first attempt at closing it: a single delayed
+ * re-check is a guess at how long a native listener takes to start, and the
+ * guess is exactly the thing under test here, not the timer's existence. So
+ * these two tests never assert on how long anything took — only on the
+ * property #938 actually asks for: a name that appears before the watcher
+ * has proved itself is still found, by a re-check that keeps recurring for
+ * as long as the watcher stays unproven, and a watcher that *has* proved
+ * itself (any event of its own, not necessarily the name being waited for)
+ * is trusted from then on, with no further polling needed.
+ *
+ * Both hand back a watcher this test controls entirely by hand — quiet
+ * unless a test fires it — and synchronize on `watchFn` itself having been
+ * called (`until`, never a fixed pause) before touching the filesystem, so
+ * neither test's outcome depends on how long a real walk-up takes to arm on
+ * whatever machine runs it. The one real-time pause each uses afterward
+ * waits out a single already-started `reach` (one `realpath` call) settling,
+ * a far smaller and more predictable gap than the arming itself. Before this
+ * fix — a single fixed delay, or none at all — both time out or find
+ * nothing when the assertion is reached.
  */
-test('a name that appears after the immediate re-check, but before the watch is confirmed ready, is not missed (#938)', async (t) => {
+test('a name that appears while the watch is unproven is found by the backoff across several steps, even if the watcher never fires (#938)', async (t) => {
   const home = tempDir('hd-agent-watch-')
   const root = join(home, 'agents')
   const { said, changed } = heard()
   const clock = fakeClock()
-  const watchFn: WatchFn = () => quietWatcher()
+  let watchCalled = false
+  const watchFn: WatchFn = () => {
+    watchCalled = true
+    // Deliberately quiet forever: stands in for a native listener that never
+    // manages to prove itself, so only the backoff's own direct look at the
+    // filesystem — never an event — can be what finds the root.
+    return quietWatcher()
+  }
   const watchInstance = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn, clock })
   t.after(() => watchInstance.dispose())
 
-  // Real time, briefly: lets `#follow`'s own walk-up — a real `realpath` on a
-  // root that does not exist yet, then the immediate re-check right after the
-  // ancestor watch arms — actually run to completion and find nothing, the
-  // same way it would before any real listener could have caught anything
-  // either. Nothing here depends on how fast or slow a real `fs.watch`
-  // reports an event; only on ordinary promises settling.
-  await pause(50)
+  await until(() => watchCalled, 'the ancestor watch to arm')
+  await pause(20)
   assert.deepEqual(said, [], 'nothing to notice yet: the root the immediate re-check looked for is not there')
 
-  // The root appears in exactly the gap neither the immediate re-check nor a
-  // native listener still starting up can see across, and the deliberately
-  // quiet watcher above never reports it on its own.
-  mkdirSync(root, { recursive: true })
-  await pause(50)
-  assert.deepEqual(said, [], 'the immediate re-check alone, and a watcher that never fires, must not have found the root yet')
+  // Several backoff steps in a row, each looking and finding nothing — the
+  // property under test is that it keeps looking, not that one look happens.
+  // A step size well past `RETRY_MAX_MS` always covers whatever the next
+  // scheduled wait is, however many times it has doubled or capped by then.
+  for (let step = 1; step <= 3; step++) {
+    clock.advance(10_000)
+    await pause(20)
+    assert.deepEqual(said, [], `still nothing after backoff step ${step}: the root is not there yet`)
+  }
 
-  // The listener is now treated as confirmed ready, by construction: moving
-  // the clock forward — past `READY_MS`, whatever it is — fires the delayed
-  // re-check, and it looks again.
+  // The root appears only now — after checks that already came back empty —
+  // and the quiet watcher above never reports it on its own.
+  mkdirSync(root, { recursive: true })
+  clock.advance(10_000)
+  await pause(20) // lets that step's own `reach` (finding the root this time) settle before its notice's settle timer exists to move past
   clock.advance(1_000)
-  // Its own look is a real `reach` (a real `realpath`), so it settles on real
-  // time before the notice it causes (`#poke`) lands on the fake clock.
-  await pause(50)
-  // Only now does the notice's own settle timer exist to be moved past.
-  clock.advance(1_000)
-  assert.ok(said.length > 0, 'the delayed re-check must have found the root created after the immediate one ran')
+  assert.ok(said.length > 0, 'a later backoff step must have found the root once it existed, with no event from the watcher at all')
+})
+
+test('a watcher’s own event — even one naming nothing the walk-up is waiting for — stops the backoff, and is relied on from then on (#938)', async (t) => {
+  const home = tempDir('hd-agent-watch-')
+  const root = join(home, 'agents')
+  const { said, changed } = heard()
+  const clock = fakeClock()
+  // A box, not a bare closed-over variable: the listener is set from inside
+  // `watchFn`, called later and asynchronously by `AgentWatch` itself, and a
+  // plain field on an object this test also holds is what lets it be read
+  // and called back from outside that closure.
+  const box: { listener: Parameters<WatchFn>[2] | null } = { listener: null }
+  const watchFn: WatchFn = (_dir, _options, listener) => {
+    box.listener = listener
+    return quietWatcher() // never fires on its own; this test fires it by hand
+  }
+  const watchInstance = new AgentWatch({ roots: [root], changed, settleMs: 30, watchFn, clock })
+  t.after(() => watchInstance.dispose())
+
+  await until(() => box.listener !== null, 'the ancestor watch to arm')
+  await pause(20)
+  assert.deepEqual(said, [], 'nothing to notice yet')
+
+  // The root appears, but the deliberately quiet watcher above has reported
+  // nothing about it — exactly the state a native listener still starting up
+  // would leave things in. The only thing that follows is an event naming
+  // something else entirely in the watched ancestor: not the name the
+  // walk-up wants, but proof enough — of any kind — that the listener is now
+  // live. That proof alone must be what triggers one last look, finding the
+  // root that was already there; the ordinary per-event filename filter, on
+  // its own, would have thrown this particular event away without ever
+  // checking anything, which is exactly what a plain filename match (no
+  // notion of "first event proves it live") does on unfixed code, and why
+  // this fails there rather than on a real future event happening to name
+  // the right thing.
+  mkdirSync(root, { recursive: true })
+  box.listener?.('change', 'unrelated.txt')
+  await pause(20)
+  clock.advance(1_000) // lets the notice this proof's own check causes (`#poke`'s settle timer) land
+  assert.ok(said.length > 0, 'the event that first proved the watcher live must have triggered one last look, finding the root that was already there')
+  said.length = 0
+
+  // Fully proved now: the backoff that would otherwise still be polling must
+  // have stopped, so moving the clock forward on its own raises nothing more.
+  clock.advance(1_000_000)
+  await pause(20)
+  assert.deepEqual(said, [], 'once proved live, the backoff must not still be running underneath the watcher')
 })
 
 test('a project is watched while it is open, named as it was opened, and not after', async (t) => {

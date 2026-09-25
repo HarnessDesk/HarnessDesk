@@ -128,12 +128,14 @@ const SETTLE_MS = 150
 const RETRY_MS = 200
 const RETRY_MAX_MS = 5_000
 /**
- * How long a walk-up's own re-check waits before trusting a "not there yet"
- * a second time — see `#follow`'s own comment where this is used (#938).
- * `node:fs`'s `watch` gives no "now listening" signal to wait on instead,
- * so this stands in for one: short enough not to be felt on an ordinary
- * open, long enough that a native listener still catching up under load has
- * had the chance to.
+ * The first wait of a walk-up's own backoff of re-checks, doubling from here
+ * up to `RETRY_MAX_MS` and then repeating at that cap — see `#follow`'s own
+ * comment where this is used (#938). `node:fs`'s `watch` gives no "now
+ * listening" signal to wait for, so this stands in for one: a native
+ * listener that proves itself with an event of its own stops the backoff at
+ * once (one last check, then nothing further needed), and one that never
+ * does is still bounded to a check every `RETRY_MAX_MS` for as long as the
+ * name it wants keeps not being there.
  */
 const READY_MS = 100
 
@@ -228,12 +230,15 @@ export class AgentWatch {
   /** A watch that could not be made, waiting on its backoff to retry through `#follow`. */
   readonly #retries = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /**
-   * A walk-up's own delayed re-check (`READY_MS`), waiting to run — see
-   * `#follow`'s own comment on why this exists (#938). Cancelled everywhere
-   * `#retries` is: the follow it was checking for may have moved on (found
-   * through an event, refollowed, or dropped) before it ever fires, and a
-   * stale check is merely wasted work — `#alive` guards every path it can
-   * still reach — but never left to run past a follow's own life on purpose.
+   * A walk-up's own backoff of re-checks (`READY_MS`, doubling), waiting to
+   * run its next step — see `#follow`'s own comment on why this exists
+   * (#938). Cancelled everywhere `#retries` is, and also the moment the
+   * watcher it backs proves itself with a native event: the follow it was
+   * checking for may have moved on (found through an event, refollowed, or
+   * dropped) before it ever fires, and a stale check is merely wasted work —
+   * `#alive` guards every path it can still reach — but never left to run
+   * past a follow's own life, or past the point its watcher stopped needing
+   * help, on purpose.
    */
   readonly #readyTimers = new Map<string, { readonly scope: string | null; readonly timer: ClockTimer }>()
   /**
@@ -378,19 +383,26 @@ export class AgentWatch {
   }
 
   /**
-   * `noticeIfThere`, run once more after `READY_MS` — see the long comment
-   * where this is called, in `#follow`'s walk-up (#938). Replaces any check
+   * `noticeIfThere`, run again on a backoff from `delay` (`READY_MS` the
+   * first time, doubling, capped at `RETRY_MAX_MS` and repeating there) —
+   * see the long comment where this is first called, in `#follow`'s walk-up
+   * (#938). Each firing checks once, then reschedules itself at the next
+   * step unless `isLive` now says the watcher has proved itself with a
+   * native event of its own — in which case this step's check was the last
+   * one needed, and nothing further is scheduled. Replaces any check
    * already waiting for this key rather than piling up beside it, the same
    * way `#scheduleRescan` replaces its own pending timer.
    */
-  #scheduleReady(follow: Follow, noticeIfThere: () => void): void {
+  #scheduleReady(follow: Follow, noticeIfThere: () => void, isLive: () => boolean, delay: number = READY_MS): void {
     if (!this.#alive(follow.scope)) return
     const key = keyOf(follow)
     this.#cancelReady(key)
     const timer = this.#clock.setTimeout(() => {
       this.#readyTimers.delete(key)
       noticeIfThere()
-    }, READY_MS)
+      if (isLive()) return
+      this.#scheduleReady(follow, noticeIfThere, isLive, Math.min(delay * 2, RETRY_MAX_MS))
+    }, delay)
     timer.unref?.()
     this.#readyTimers.set(key, { scope: follow.scope, timer })
   }
@@ -545,7 +557,25 @@ export class AgentWatch {
             this.#refollow(follow)
           })
         }
+        /* Whether this walk-up's own watch has proved itself: any native
+           event at all, whether or not its name is the one being waited for
+           — a sibling touched in `above` is just as much proof the listener
+           is live as the name itself arriving. Local to this one watch
+           attempt: a fresh `#follow` for this key (`#refollow`, a retry)
+           starts a fresh attempt with its own proof, never inheriting an
+           earlier one's. */
+        let live = false
         this.#watch(follow, seen, false, (filename) => {
+          if (!live) {
+            // The first event of any kind: proof enough that the backoff
+            // below no longer has to guess when the listener started
+            // working, so it stops here — after one more look, in case the
+            // very event that proved it arrived under a name the filter
+            // just below would otherwise have thrown away.
+            live = true
+            this.#cancelReady(keyOf(follow))
+            noticeIfThere()
+          }
           if (filename !== null && filename !== name) return
           noticeIfThere()
         })
@@ -559,22 +589,27 @@ export class AgentWatch {
            watch is armed, the name it wants appears in the window it could
            not see, and nothing after that ever tells it so. */
         noticeIfThere()
-        /* And once more, on a delay (#938): `#watch`, just above, calls
-           `node:fs`'s own `watch` synchronously, but a watcher made is not
-           the same promise as a watcher listening — on a loaded machine the
-           native listener behind it can take a moment longer to actually
-           start reporting than this call takes to return. A name that lands
-           in exactly that gap is invisible to both the watcher (which never
-           proves it saw a change it missed; it only ever reports a future
-           one) and to the look just above (which already ran, and found
-           nothing, before the name existed). `node:fs` gives no "now
-           listening" signal to wait for instead, so `READY_MS` stands in for
-           one — see its own comment. `#refollow`, `#retry` and `#drop`
+        /* And again, on a backoff, for as long as the watch above has not
+           yet proved itself (#938): `#watch`, just above, calls `node:fs`'s
+           own `watch` synchronously, but a watcher made is not the same
+           promise as a watcher listening — on a loaded machine the native
+           listener behind it can take a moment longer to actually start
+           reporting than this call takes to return, and `node:fs` gives no
+           "now listening" signal to wait for instead. A name that lands in
+           that gap is invisible to both the watcher (which never proves it
+           saw a change it missed; it only ever reports a future one) and to
+           the look just above (which already ran, and found nothing, before
+           the name existed). `#scheduleReady` keeps checking — 100ms,
+           200ms, 400ms and on, capped and then repeating at `RETRY_MAX_MS`
+           — until either it finds the name itself, or `live` above says the
+           watch no longer needs the help: a creation after that proof
+           raises its own event, and one from before it is caught by the
+           check the proof itself runs. `#refollow`, `#retry` and `#drop`
            cancel this the same way they cancel a pending retry, so a follow
-           that has moved on before it fires — the name already found some
-           other way, or the project closed — never re-checks a name that is
-           no longer this key's concern. */
-        this.#scheduleReady(follow, noticeIfThere)
+           that has moved on before it next fires — the name already found
+           some other way, or the project closed — never re-checks a name
+           that is no longer this key's concern. */
+        this.#scheduleReady(follow, noticeIfThere, () => live)
         return
       }
       if (above === follow.within || dirname(above) === above) return

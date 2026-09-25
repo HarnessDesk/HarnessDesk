@@ -10,28 +10,30 @@ import type { MethodsUnder } from './context.js'
 export const workspaceMethods = {
   'workspace/recent': async (ctx) => {
     // The most recent workspace is the one the renderer selects at
-    // startup, so it alone carries git info: one status call, not one
-    // per folder ever opened.
+    // startup, so it alone carries git info and a live `realPath`: one
+    // status call and one `realpath`, not one of each per folder ever
+    // opened.
+    //
+    // Every other entry's `realPath` is read straight off the stored record
+    // instead — `#openWorkspace` (host.ts) puts one there the moment a
+    // folder is opened — rather than resolved again here. Up to 50 entries
+    // are remembered, and a live resolve for every one of them, unbounded,
+    // let a single stale mount hold up the whole list; a comparison key that
+    // is a reload or two behind costs nothing worse than an extra row until
+    // the folder is opened again (#943). An entry from before this field
+    // existed simply has none yet, which is the same "no comparison key"
+    // state `ownPathOf` already tolerates.
     const [latest, ...rest] = ctx.state.state.workspaces
     if (!latest) return []
-    // `realPath` is a plain `realpath` (or its nearest existing ancestor's),
-    // never a git call, so every entry gets one — not only `latest` — the
-    // same way `#openWorkspace` puts one on the folder it just opened. Without
-    // it here, the renderer's own comparison key (`ownPathOf`,
-    // `projectGroupRootOf`) has nothing to correct a non-git alias with once
-    // the workspace it was opened with is replaced by one read back from this
-    // list — on a reload while the app keeps running, and again after a
-    // relaunch (#943).
-    const [git, repo, checkoutRoot, latestReal, restReal] = await Promise.all([
+    const [git, repo, checkoutRoot, latestReal] = await Promise.all([
       gitService.status(latest.path).catch(() => null),
       ctx.workspaces.repoOf(latest.path),
       ctx.workspaces.topLevel(latest.path).catch(() => null),
       ctx.workspaces.realPath(latest.path),
-      Promise.all(rest.map((entry) => ctx.workspaces.realPath(entry.path))),
     ])
     return [
       { ...latest, git: git ? { branch: git.branch } : null, repo, checkoutRoot, realPath: latestReal },
-      ...rest.map((entry, index) => ({ ...entry, git: null, realPath: restReal[index] })),
+      ...rest.map((entry) => ({ ...entry, git: null })),
     ]
   },
 

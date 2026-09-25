@@ -765,11 +765,21 @@ test('workspaces persist across host restarts', async (t) => {
  * did not, so the moment the open workspace is replaced by an entry read back
  * from that list — a plain reload while the app keeps running, or the first
  * read after a relaunch — the comparison key is gone and the alias splits
- * back into two rows (#943). `realPath` is a comparison key only: this test
- * never uses it to open, read or write anything, only to compare it against
- * what a real `realpath` of the same link answers.
+ * back into two rows (#943).
+ *
+ * `#openWorkspace` now stores `realPath` on the persisted record itself
+ * (`WorkspaceRecord`, `state.ts`) at the moment a folder is opened, and
+ * `workspace/recent` reads it straight back for every entry but the single
+ * one it also resolves live (`latest`, which alone still carries fresh git
+ * facts too) — never a filesystem call per remembered entry. So this test
+ * opens a second folder after the alias, on purpose: the alias is then read
+ * out of the `rest` branch, which does no live resolve at all, and its
+ * `realPath` must still be there — read from what was recorded when it was
+ * opened, not from anything asked again just now. `realPath` is a comparison
+ * key only throughout: never used here to open, read or write anything, only
+ * compared against what a real `realpath` of the same link answers.
  */
-test('a non-git folder opened through an alias keeps its realPath through a recent-list reload and a relaunch (#943)', async (t) => {
+test('a non-git folder opened through an alias keeps its realPath through a recent-list reload and a relaunch, once it is no longer latest (#943)', async (t) => {
   const scratch = await mkdtemp(join(tmpdir(), 'hd-workspace-alias-'))
   t.after(() => rm(scratch, { recursive: true, force: true }))
   const real = join(scratch, 'real')
@@ -787,19 +797,28 @@ test('a non-git folder opened through an alias keeps its realPath through a rece
   assert.equal(opened.path, link, 'kept at the spelling it was opened at')
   assert.equal(opened.realPath, resolved, "workspace/open's own return already carries realPath (#907)")
 
+  // A second folder, opened after it: the alias is no longer `latest`, so the
+  // list's answer for it comes from the `rest` branch — the one with no live
+  // resolve of its own — rather than from the one entry `workspace/recent`
+  // still asks the filesystem about directly.
+  const second = join(scratch, 'second')
+  await mkdir(second)
+  await client.call('workspace/open', { path: second })
+
   // A reload while the app keeps running: `workspace/recent`, on the same
-  // host, must answer the alias with the same key.
+  // host, must answer the alias — now in `rest` — with the same key.
   const reloaded = (await client.call('workspace/recent', {})) as { path: string; realPath?: string }[]
+  assert.equal(reloaded[0]?.path, second, 'the alias is no longer the most recent entry')
   const entry = reloaded.find((one) => one.path === link)
-  assert.equal(entry?.realPath, resolved, 'a list reload must not drop the comparison key #931s dedupe relies on')
+  assert.equal(entry?.realPath, resolved, 'a list reload must not drop the stored comparison key for an entry that is not `latest`')
   client.close()
   await harness.server.close()
   await harness.host.dispose()
 
-  // A relaunch: a fresh host over the same state directory, which only ever
-  // wrote `path`/`name`/`lastOpenedAt` to disk (`WorkspaceRecord` carries no
-  // `realPath` of its own — it is a comparison key, not something to persist)
-  // must still answer `realPath` freshly, resolved the same way, once asked.
+  // A relaunch: a fresh host over the same state directory, reading back
+  // whatever `#openWorkspace` persisted onto the record itself — not
+  // resolving anything fresh for an entry that is not `latest` — must still
+  // answer with the same key.
   const runtime = new FakeRuntime()
   const host = new Host({ logger: silent, state: new StateStore(join(harness.stateDir, 'state.json')) })
   host.register(runtime)
@@ -813,8 +832,9 @@ test('a non-git folder opened through an alias keeps its realPath through a rece
   const reconnected = await Client.connect(server)
   t.after(() => reconnected.close())
   const afterRelaunch = (await reconnected.call('workspace/recent', {})) as { path: string; realPath?: string }[]
+  assert.equal(afterRelaunch[0]?.path, second, 'the remembered order survives the relaunch too')
   const relaunched = afterRelaunch.find((one) => one.path === link)
-  assert.equal(relaunched?.realPath, resolved, 'a relaunch must not drop the comparison key either')
+  assert.equal(relaunched?.realPath, resolved, 'a relaunch must not drop the stored comparison key either')
 })
 
 test('interrupt and steer route to the live session', async (t) => {

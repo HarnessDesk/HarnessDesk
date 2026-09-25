@@ -27,6 +27,16 @@ export interface WorkspaceRecord {
   readonly lastOpenedAt: number
   /** Opaque and minted once; survives renames, moves and schema migrations. */
   readonly id?: string
+  /**
+   * `path`, with every symlink resolved, as `#openWorkspace` found it the
+   * moment this folder was last opened — a comparison key only (#907, #943),
+   * never a launch path or an input to anything. Recorded here, rather than
+   * resolved again whenever the recent list is read, so `workspace/recent`
+   * never has to make a filesystem call per remembered entry: absent on a
+   * record from before this field existed, in which case that one entry
+   * simply carries no comparison key until it is opened again.
+   */
+  readonly realPath?: string
 }
 
 export interface AppState {
