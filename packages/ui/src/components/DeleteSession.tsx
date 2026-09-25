@@ -78,7 +78,7 @@ export const DeleteSession = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="destructive" disabled={busy} onClick={() => void remove()}>
+          <Button variant="danger" disabled={busy} onClick={() => void remove()}>
             {busy ? 'Deleting…' : 'Delete'}
           </Button>
           {/* Not offered from the archive screen: it is already archived

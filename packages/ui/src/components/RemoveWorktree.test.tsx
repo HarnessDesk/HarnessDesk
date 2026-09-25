@@ -119,7 +119,7 @@ it('names what git ignores before it deletes the folder, and tells a file from a
   })
 
   const text = document.body.textContent ?? ''
-  expect(text).toContain('the folder goes, with anything git ignores in it')
+  expect(text).toContain('The folder goes, with anything git ignores in it')
   expect(text).toContain('This also deletes 1 file and 1 folder git ignores here')
   expect(text).toContain('.env')
   expect(text).toContain('node_modules/')

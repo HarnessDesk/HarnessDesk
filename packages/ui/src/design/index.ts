@@ -94,6 +94,7 @@ export { Textarea } from './ui/textarea'
 export { Switch } from './ui/switch'
 export { NativeSelect } from './ui/native-select'
 export { Dialog } from './patterns/ModalDialog'
+export { ChoiceList, Fieldset } from './patterns/DialogForm'
 export {
   Dialog as DialogRoot,
   DialogClose,

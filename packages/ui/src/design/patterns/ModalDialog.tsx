@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
+import { cn } from '../../lib/utils'
 import { buttonVariants } from '../ui/button'
 import {
   Dialog as DialogRoot,
@@ -8,6 +9,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '../ui/dialog'
+import { dialogStackClass, DialogFormScope } from './DialogForm'
 import styles from './ModalDialog.module.css'
 
 const WIDTH = {
@@ -18,9 +20,26 @@ const WIDTH = {
 } as const
 
 /**
+ * The first control a person types into: a text field, a text area or a
+ * select. A checkbox, a radio or a button is not a field — landing on one
+ * would draw its ring on open and invite Space or Return to answer for you.
+ */
+const FIELD = [
+  'input:not([type=hidden],[type=checkbox],[type=radio],[type=button],[type=submit],[type=reset],[type=range],[type=color],[type=file]):not(:disabled,[readonly])',
+  'textarea:not(:disabled,[readonly])',
+  'select:not(:disabled)',
+].join(',')
+
+/**
  * The application dialog pattern: Base UI owns focus, dismissal, stacking,
  * the portal and accessibility; this layer owns HarnessDesk's header, body,
  * footer and measured sizes.
+ *
+ * The body is a form stack (`DialogForm`) unless it is `flush`: its children
+ * are 16px apart, a `SectionHead` in it is a legend on the group it names,
+ * and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
+ * Nothing in the body needs spacing of its own. A `flush` body is a list and
+ * is not a form, so it keeps the page's parts.
  */
 export const Dialog = ({
   title,
@@ -54,26 +73,49 @@ export const Dialog = ({
     <DialogRoot open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent
         ref={surface}
-        initialFocus={surface}
+        /* The first field when there is one, so a dialog that asks for a
+           name is ready for it; otherwise the surface, so Escape reaches it
+           and a reader lands inside. The surface wears no ring (the
+           primitive's `SURFACE_FOCUS`), whatever opened it. */
+        initialFocus={() => surface.current?.querySelector<HTMLElement>(`[data-slot="modal-dialog-body"] :is(${FIELD})`) ?? surface.current}
         showCloseButton={false}
         aria-label={title}
         aria-describedby={undefined}
-        className={`${WIDTH[size]} ${tall ? 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]' : ''} flex max-h-[min(72vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)`}
+        /* The ceiling is 80% of the window up to 720px: a form of a few
+           fields and two short choice lists stands whole in a 900px window
+           rather than scrolling its last answer out of sight (it was 72%,
+           which cut Save as an Agent by 28px). `tall` states its own bound,
+           and `cn` lets it replace the ceiling rather than tie with it. */
+        className={cn(
+          WIDTH[size],
+          'flex max-h-[min(80vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)',
+          tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
+        )}
       >
         <div className={styles.header} data-tone={tone === 'destructive' ? 'destructive' : undefined}>
           {icon && <span className={styles.icon}>{icon}</span>}
-          <DialogTitle className={styles.title}>{title}</DialogTitle>
+          {/* The subject step, said as utilities so `cn` replaces the
+              primitive's `text-base leading-none`: a module rule saying the
+              same tied with them, and the preview drew 16px titles. */}
+          <DialogTitle className={cn(styles.title, 'text-(length:--hd-text) leading-(--hd-line) font-medium')}>{title}</DialogTitle>
           <DialogClose
-            className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: styles.close })}
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
             aria-label="Close"
           >
             <CrossIcon size={13} />
           </DialogClose>
         </div>
         {subhead && <div className={styles.subhead}>{subhead}</div>}
-        {children && <div className={`${styles.body} ${flush ? styles.flush : ''}`}>{children}</div>}
+        {children && (
+          <div className={`${styles.body} ${flush ? styles.flush : dialogStackClass}`} data-slot="modal-dialog-body">
+            {/* A flush body is a list, not a form: it keeps the page's parts. */}
+            {flush ? children : <DialogFormScope>{children}</DialogFormScope>}
+          </div>
+        )}
         {(footer || footerAside) && (
-          <div className={styles.footer}>
+          /* `dialog-footer` is what the button reads to draw an ordinary
+             action quiet here, so the confirm is the one filled button. */
+          <div className={styles.footer} data-slot="dialog-footer">
             {footer}
             {footerAside && <span className={styles.footerAside}>{footerAside}</span>}
           </div>

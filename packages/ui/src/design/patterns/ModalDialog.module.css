@@ -9,56 +9,14 @@
  *
  * The one thing the six did NOT agree on is the footer, because four of them
  * do not have one. It is written once here, and the rule is at the bottom.
+ *
+ * The surface itself — its four widths (460, 520, 560, 620: counted, not
+ * chosen), the tall floor, the shadow and the focus it takes without a ring —
+ * is said as utilities in ModalDialog.tsx, because the primitive under it
+ * says its own box as utilities and a module rule here would only tie with
+ * them. The `.dialog`, `.sm`…`.xl`, `.tall` and `.overlay` rules that used to
+ * sit here were never applied to anything.
  */
-
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--hd-z-dialog);
-  display: grid;
-  place-items: center;
-  padding: var(--hd-space-6);
-  background: var(--hd-scrim);
-}
-
-.dialog {
-  display: flex;
-  flex-direction: column;
-  max-height: min(72vh, 720px);
-  border-radius: var(--hd-surface-radius);
-  background: var(--hd-surface-fill);
-  color: var(--hd-popover-foreground);
-  /* The edge is a shadow, not a border: it costs no layout, and it survives
-     `overflow: hidden` on a rounded corner where a border does not. */
-  box-shadow: var(--hd-surface-shadow);
-  overflow: hidden;
-}
-
-/* The surface takes focus when it opens, so Escape reaches it and a reader
-   lands inside rather than behind. That is a mechanism, not a state worth
-   announcing — and the element is `tabindex="-1"`, so nobody can Tab to it
-   and be left wondering where the ring went. */
-.dialog:focus,
-.dialog:focus-visible {
-  outline: none;
-}
-
-/* --- the four widths ------------------------------------------------------
-   Counted, not chosen: 460 was the hand-off sheet, 520 the install and remove
-   dialogs, 560 the folder picker, 620 the approval. Every dialog in the app
-   already stood at one of these. */
-.sm { width: min(460px, 100%); }
-.md { width: min(520px, 100%); }
-.lg { width: min(560px, 100%); }
-.xl { width: min(620px, 100%); }
-
-/* A body that is a list wants a floor as well as a ceiling: without one the
-   surface grows and shrinks as you walk into folders, and the buttons move
-   under the pointer. */
-.tall {
-  height: min(62vh, 560px);
-  max-height: min(62vh, 560px);
-}
 
 .header {
   flex: none;
@@ -81,19 +39,14 @@
   color: var(--hd-destructive);
 }
 
+/* A dialog names one question, and a page names a place, so the title is the
+   subject step (14/21, medium) and not the page one — held by weight rather
+   than by size. The step is said as utilities in ModalDialog.tsx, because
+   the title primitive carries `text-base leading-none` and a rule here tied
+   with them. */
 .title {
   flex: 1;
   min-width: 0;
-  /* A dialog names one question, and a page names a place, so this is the
-     subject step and not the page one — held by weight rather than by size,
-     which is what the page step is for. */
-  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
-  line-height: var(--hd-line); /* desk: var(--hd-line-lg) → 21, its step’s own line */
-  font-weight: var(--hd-weight-medium); /* desk: var(--hd-weight-semibold) → var(--hd-weight-medium) */
-}
-
-.close {
-  flex-shrink: 0;
 }
 
 /* Under the header, above the body, and outside the scroll — so a breadcrumb
@@ -127,14 +80,15 @@
   padding: 0;
 }
 
-/* Paragraphs space themselves, so a screen never reaches for a `.blurb` class
-   to say "the sentence under the title" — that is just the body. */
+/* The body's stack spaces its paragraphs, so a screen never reaches for a
+   `.blurb` class to say "the sentence under the title" — that is just the
+   body. A flush body is a list, and a paragraph in one keeps its own step. */
 .body > p {
-  margin: 0 0 var(--hd-space-3);
+  margin: 0; /* desk: 0 0 12 → 0, the body's stack spaces its paragraphs */
 }
 
-.body > p:last-child {
-  margin-bottom: 0;
+.flush > p {
+  margin: 0 0 var(--hd-space-3);
 }
 
 /* --- the footer -----------------------------------------------------------

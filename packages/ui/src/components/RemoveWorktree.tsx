@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { Worktree, WorktreeChanges } from '@harnessdesk/protocol'
 import { isBusy } from '@harnessdesk/protocol'
 
-import { ConfirmDialog } from '../design'
+import { ConfirmDialog, MiddleTruncate, Text } from '../design'
 import { isPathInside } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 import { BranchIcon } from './Icons'
@@ -92,15 +92,20 @@ export const RemoveWorktree = ({
       onConfirm={() => void remove(dirty)}
       onCancel={onClose}
     >
+      {/* The folder is the subject, so it stands on its own line above the
+          sentence about it, rather than opening that sentence. A folder and a
+          branch are names, so they are set in the interface's face, not the
+          code face (docs/design.md); a long path gives way in its middle, so
+          the worktree's own name at the end stays whole. The two lines are one
+          paragraph, so the name sits on its sentence and the paragraphs after
+          it keep the body's rhythm. */}
       <p>
-        <span className="font-mono break-all">{worktree.path}</span>
-        {worktree.branch && (
-          <>
-            {' '}
-            on branch <span className="font-mono">{worktree.branch}</span>
-          </>
-        )}
-        . The branch is kept either way; the folder goes, with anything git ignores in it.
+        <Text as="span" role="subject">
+          <MiddleTruncate>{worktree.path}</MiddleTruncate>
+        </Text>
+        <br />
+        The folder goes, with anything git ignores in it.
+        {worktree.branch && ` Its branch, ${worktree.branch}, is kept either way.`}
       </p>
 
       {error && <WorktreeProblem className={RHYTHM}>{error}</WorktreeProblem>}

@@ -21,7 +21,7 @@ import ts from 'typescript'
 
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
-import { attributes, slotOffenders } from './design-usage.mjs'
+import { attributes, footerOffenders, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
 import { repositoryFiles } from './lib/repository-files.mjs'
@@ -3286,6 +3286,10 @@ for (const file of tsxFiles()) {
   // form, and this one did not — so a commented-out `<SectionHead action={…}>`
   // in a doc comment was scanned as if it rendered.
   for (const hit of slotOffenders(code, name)) findings.wrongVariant.push(hit)
+  // A dialog's footer is read from the syntax tree, every branch of it: its
+  // rule is about the buttons together, and the source keeps its comments
+  // for a parser that understands them (the stripped text broke on a URL).
+  for (const hit of footerOffenders(source, name)) findings.wrongVariant.push(hit)
 
   /** Local binding → the classes that stylesheet declares. */
   const { sheets, crossImports } = sheetsOf(dir, file, name, source, UI_SRC)
