@@ -6,7 +6,6 @@ import {
   NavigationList,
   PopoverGroupLabel,
   Search,
-  SearchMatch,
   Separator,
   Text,
 } from '../design'
@@ -670,7 +669,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                       {entry.matchStart != null && entry.matchEnd != null ? (
                         <>
                           {entry.matchLine.slice(0, entry.matchStart)}
-                          <SearchMatch>{entry.matchLine.slice(entry.matchStart, entry.matchEnd)}</SearchMatch>
+                          <Text as="b" role="meta" ink="primary" weight="semibold">{entry.matchLine.slice(entry.matchStart, entry.matchEnd)}</Text>
                           {entry.matchLine.slice(entry.matchEnd)}
                         </>
                       ) : entry.matchLine}

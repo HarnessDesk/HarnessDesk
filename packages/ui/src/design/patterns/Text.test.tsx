@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { CodeText, Keycap, SearchMatch, Text, TextMark } from './Settings'
+import { CodeText, Keycap, Text, TextMark } from './Settings'
 import styles from './Settings.module.css'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -61,16 +61,26 @@ it('keeps the wordmark and navigation-name roles distinct from page and row titl
   expect(navigation?.className).not.toContain('truncate')
 })
 
-it('owns the keycap and matched-text roles used by search surfaces', () => {
+it('owns the keycap role used by search surfaces', () => {
+  act(() => root.render(<Keycap>esc</Keycap>))
+  expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
+})
+
+it('gives a text mark a tone only when it judges, and the muted ink otherwise', () => {
   act(() => root.render(
     <>
-      <Keycap>esc</Keycap>
-      <SearchMatch>sett</SearchMatch>
+      <TextMark role="row">•</TextMark>
+      <TextMark role="row" tone="success">✓</TextMark>
     </>,
   ))
-
-  expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
-  expect(container.querySelector('mark[data-slot="search-match"]')?.textContent).toBe('sett')
+  const [plain, judged] = [...container.querySelectorAll<HTMLElement>('[data-mark]')]
+  expect(plain?.dataset['role']).toBe('row')
+  expect(plain?.dataset['ink']).toBe('muted')
+  expect(plain?.hasAttribute('data-tone')).toBe(false)
+  expect(judged?.dataset['role']).toBe('row')
+  expect(judged?.dataset['tone']).toBe('success')
+  expect(judged?.className).toContain('text-(--hd-success-ink)')
+  expect(judged?.className).not.toContain('text-(--hd-muted-foreground)')
 })
 
 it('strikes a finished item through and steps it back, and leaves the rest alone', () => {
@@ -136,4 +146,14 @@ it('sets a sentence at the reading size without the tabular figures a value line
   // …and only the value's figures are tabular.
   expect(prose?.className).not.toContain('tabular-nums')
   expect(value?.className).toContain('tabular-nums')
+})
+
+it('takes a weight rung in place of its role\u2019s own, keeping the role\u2019s size and ink', () => {
+  act(() => root.render(<Text as="b" role="meta" ink="primary" weight="semibold">match</Text>))
+  const word = container.querySelector<HTMLElement>('b[data-slot="text"]')
+  expect(word?.dataset['weight']).toBe('semibold')
+  expect(word?.className).toContain('font-semibold')
+  expect(word?.className).not.toContain('font-normal')
+  expect(word?.className).toContain('text-xs')
+  expect(word?.className).toContain('text-(--hd-foreground)')
 })

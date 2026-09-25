@@ -66,15 +66,6 @@ const ChangeStats = ({
   </span>
 )
 
-/** One section of a patch, separated from the hunk before it. */
-const PatchSection = ({ className, ...props }: React.ComponentProps<'section'>) => (
-  <section
-    data-slot="patch-section"
-    className={cn('border-t border-(--hd-border-strong) first:border-t-0', className)}
-    {...props}
-  />
-)
-
 /** The named bar above a file or hunk in a patch. */
 const PatchHeader = ({
   className,
@@ -97,4 +88,4 @@ const PatchHeader = ({
   />
 )
 
-export { ChangeStats, FileState, PatchHeader, PatchSection, type FileStateValue }
+export { ChangeStats, FileState, PatchHeader, type FileStateValue }

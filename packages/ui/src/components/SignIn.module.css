@@ -1,5 +1,6 @@
-/* Sign-in composes its appearance from the access, list, text, alert and
-   control roles. This sheet only places those roles in the two-pane flow. */
+/* Sign-in composes its appearance from the window rail, the rail sections,
+   the dialog body, list, text, facts, alert and control roles. This sheet only
+   places those roles in the two-pane flow. */
 
 .dialog {
   display: flex;
@@ -21,6 +22,36 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(88px, 0.9fr) minmax(0, 1.4fr);
   }
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.railList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.lights {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-1);
+}
+
+.fact {
+  max-width: 520px;
+  margin-bottom: var(--hd-space-4);
 }
 
 .spineCount {
@@ -104,10 +135,6 @@
   max-width: 520px;
 }
 
-.aside {
-  margin-top: var(--hd-space-5);
-}
-
 .note {
   margin: var(--hd-space-4) 0 0;
   max-width: 66ch;
@@ -115,6 +142,16 @@
 
 .noteFlush {
   margin: 0;
+}
+
+.aside {
+  margin-top: var(--hd-space-5);
+}
+
+/* The credential's facts card under the ways in: a step of air, so the card
+   does not butt against the last method row. */
+.methods + .fact {
+  margin-top: var(--hd-space-3);
 }
 
 .actionError {
@@ -146,4 +183,6 @@
 
 .code {
   margin: var(--hd-space-1) 0 var(--hd-space-4);
+  text-align: center;
+  user-select: all;
 }

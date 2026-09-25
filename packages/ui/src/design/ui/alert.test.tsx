@@ -14,3 +14,10 @@ it('says which tone it is in, so a reader can ask the alert rather than its clas
   expect(renderToStaticMarkup(<Alert tone="danger">Failed</Alert>)).toContain('data-tone="danger"')
   expect(renderToStaticMarkup(<Alert>Ready</Alert>)).toContain('data-tone="neutral"')
 })
+
+it('sets a neutral alert’s title in the primary ink, whatever ink the alert stands in', () => {
+  const markup = renderToStaticMarkup(<Alert tone="neutral">Ready</Alert>)
+  expect(markup).toContain('[&amp;_[data-slot=alert-title]]:text-(--hd-foreground)')
+  // A toned alert's ink is its tone's business, not this rule's.
+  expect(renderToStaticMarkup(<Alert tone="warning">Careful</Alert>)).not.toContain('data-slot=alert-title]]:text-(--hd-foreground)')
+})

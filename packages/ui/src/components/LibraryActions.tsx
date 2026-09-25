@@ -21,18 +21,17 @@ import {
   Field,
   FormStack,
   Input,
-  LibraryOperationMark,
-  LibraryOperationList,
   SectionHead,
   Separator,
   Text,
+  TextMark,
   Textarea,
 } from '../design'
 import { Checkbox, DisclosureChevron, EmptyState, Fieldset, Segmented } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
-import { AlertIcon, ImportIcon, PlusIcon } from './Icons'
+import { AlertIcon, CheckIcon, CrossIcon, ImportIcon, PlusIcon, TodoPendingIcon } from './Icons'
 import styles from './LibraryActions.module.css'
 
 /**
@@ -130,7 +129,23 @@ const Mark = ({ op, result }: { op: LibraryPlannedOp; result?: LibraryOpResult }
       : op.action === 'skip'
         ? 'skipped'
         : 'planned'
-  return <LibraryOperationMark state={state} />
+  /* The mark at the head of the operation's name, in the name's own role —
+     the task list's own vocabulary: a step still to run is the pending ring,
+     a finished one its check, in the tone's ink where the step is judged. */
+  return (
+    <TextMark
+      role="row"
+      {...(state === 'done' ? { tone: 'success' as const } : state === 'failed' || state === 'refuse' ? { tone: 'warning' as const } : {})}
+    >
+      <span data-operation={state} className={state === 'skipped' ? 'opacity-60' : undefined}>
+        {state === 'refuse' ? <AlertIcon size={12} />
+          : state === 'done' ? <CheckIcon size={12} />
+            : state === 'failed' ? <CrossIcon size={12} />
+              : state === 'skipped' ? '·'
+                : <TodoPendingIcon size={12} />}
+      </span>
+    </TextMark>
+  )
 }
 
 /**
@@ -273,7 +288,7 @@ export const PlanDialog = ({
       ) : plan.ops.length === 0 ? (
         <EmptyState variant="inline" className={styles.loading} title="Nothing to do." />
       ) : (
-        <LibraryOperationList>
+        <div role="list" className="flex flex-col">
           {plan.ops.map((op, index) => {
             const result = resultOf(op.id)
             const expandable = op.preview !== undefined && op.preview !== ''
@@ -335,7 +350,7 @@ export const PlanDialog = ({
               </div>
             )
           })}
-        </LibraryOperationList>
+        </div>
       )}
     </Dialog>
   )
