@@ -48,10 +48,12 @@ const open = async (onClose = () => {}) => {
 
 const close = () => document.querySelector<HTMLButtonElement>('[data-lightbox] [data-slot="dialog-close"]')
 
-it('moves focus to the safe close action and returns it to the opener', async () => {
+it('takes the focus on its own sheet, which wears no ring, and gives it back to the opener', async () => {
   const opener = await open()
-  expect(close()).not.toBeNull()
-  expect(document.activeElement).toBe(close())
+  const sheet = document.querySelector<HTMLElement>('[data-lightbox]')
+  expect(sheet).not.toBeNull()
+  expect(document.activeElement).toBe(sheet)
+  expect(sheet?.className).toContain('focus-visible:outline-none')
 
   await act(() => close()!.click())
   await frame()
@@ -137,4 +139,40 @@ it('answers the arrows from inside the sheet even when the key never reaches the
   } finally {
     document.removeEventListener('keydown', stop)
   }
+})
+
+const three = [
+  { name: 'First image', url: 'data:image/png;base64,AA==' },
+  { name: 'Second image', url: 'data:image/png;base64,AQ==' },
+  { name: 'Third image', url: 'data:image/png;base64,Ag==' },
+] as const
+
+const title = () => document.querySelector('[data-slot="dialog-title"]')?.textContent
+const press = (key: string) => act(() => document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })))
+
+it('steps back with ← and on with →, round the ends, in a gallery of three', async () => {
+  await act(() => root.render(<Lightbox images={three} index={0} onClose={() => {}} />))
+  await frame()
+  await press('ArrowLeft')
+  expect(title()).toBe('Third image')
+  await press('ArrowLeft')
+  expect(title()).toBe('Second image')
+  await press('ArrowRight')
+  expect(title()).toBe('Third image')
+  await press('ArrowRight')
+  expect(title()).toBe('First image')
+  await act(() => (document.querySelector('[aria-label="Previous image"]') as HTMLButtonElement).click())
+  expect(title()).toBe('Third image')
+})
+
+it('reads the picture’s size from the picture once it has loaded', async () => {
+  await act(() => root.render(<Lightbox images={three} index={1} onClose={() => {}} />))
+  await frame()
+  const description = () => document.querySelector('[data-slot="dialog-description"]')?.textContent ?? ''
+  expect(description()).not.toContain('×')
+  const img = document.querySelector('img')!
+  Object.defineProperty(img, 'naturalWidth', { configurable: true, value: 1280 })
+  Object.defineProperty(img, 'naturalHeight', { configurable: true, value: 800 })
+  await act(() => { img.dispatchEvent(new Event('load')) })
+  expect(description()).toMatch(/^1280 × 800 · .+ · 2 of 3$/)
 })

@@ -43,9 +43,9 @@ export const Lightbox = ({
 }) => {
   const [current, setCurrent] = useState(index)
   const [dimensions, setDimensions] = useState<string | null>(null)
-  const sheet = useRef<HTMLDivElement>(null)
   const image = images[current]
   const several = images.length > 1
+  const sheet = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     setCurrent(index)
@@ -75,9 +75,12 @@ export const Lightbox = ({
       <DialogContent
         ref={sheet}
         data-lightbox=""
+        /* The sheet takes the focus, as every sheet here does (SkillSheet,
+           ModalDialog with no field): it wears no ring, Escape and the arrows
+           reach it, and Tab goes on to its controls. Base UI's own default
+           would put a ring on the first of them, the Previous step. */
+        initialFocus={() => sheet.current}
         onKeyDown={step}
-        /* The safe action takes the focus: the dialog's own close. */
-        initialFocus={() => sheet.current?.querySelector<HTMLElement>('[data-slot="dialog-close"]') ?? true}
         className="h-[min(88vh,900px)] w-[min(88vw,1200px)] grid-rows-[auto_minmax(0,1fr)] sm:max-w-none"
       >
         {/* The end margin keeps a long name clear of the close in the corner. */}
