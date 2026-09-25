@@ -23,10 +23,10 @@ import {
   MenuSeparator,
   NavigationGroupHeader,
   Popover,
+  RailSection,
   RefusedAction,
   Search,
   Text,
-  WorkbenchRailSection,
   buttonVariants,
   type Tone,
 } from '../design'
@@ -164,7 +164,7 @@ export const Sidebar = ({
           on-purpose visits. Changes lives in every conversation's header, and
           ⌘K reaches the rest. */}
       {starting && <NewSessionChoice onClose={() => setStarting(false)} />}
-      <WorkbenchRailSection as="nav" part="places" className={styles.nav} aria-label="Workspace actions">
+      <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
         <div className={styles.navRow}>
           <Button
             variant="navigation" size="navigation" className={styles.navItem}
@@ -213,7 +213,7 @@ export const Sidebar = ({
             <Text role="meta" numeric className={styles.navCount}>{pluginCount}</Text>
           )}
         </Button>
-      </WorkbenchRailSection>
+      </RailSection>
 
       {/* The list's own row: what the list is, the field that narrows it, and
           the two things you do to it. It sits outside the scroller so that
@@ -255,7 +255,7 @@ export const Sidebar = ({
         </Button>
       </NavigationGroupHeader>
 
-      <WorkbenchRailSection part="list" className={styles.list} ref={listRef} onScroll={onScroll}>
+      <RailSection stretch="list" className={styles.list} ref={listRef} onScroll={onScroll}>
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
           <EmptyState
             variant="inline"
@@ -269,7 +269,7 @@ export const Sidebar = ({
           />
         )}
         <SessionTree now={now} />
-      </WorkbenchRailSection>
+      </RailSection>
 
       <Slot name="sidebar.panel" />
 

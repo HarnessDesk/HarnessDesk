@@ -74,38 +74,54 @@ export const WorkbenchRail = forwardRef<HTMLDivElement, React.ComponentProps<'di
 WorkbenchRail.displayName = 'WorkbenchRail'
 
 /**
- * The rail's two stretches between its bars: the short column of places at
- * its head (`places`), and the long list that scrolls under it (`list`).
+ * A navigation rail's two stretches: the short column of places at its head,
+ * and the long list that scrolls under it.
  *
- * Both hold their rows on the rail's gutter, `--hd-bar-pad` — the same side
- * the rail's bars stand on — which is what puts a row's ink on the line the
- * bar and the group label above it start their words at (`--hd-bar-ink` is
- * that gutter plus a row's own inset). `places` closes with the short step
- * that separates it from the list's label; `list` keeps a hair of air under
- * that label and a longer one after its last row, so the last row can be
- * scrolled clear of whatever is docked below the rail.
+ * One part for both rails the app has — the workbench's sidebar and the
+ * rail down the side of a full window (Settings, the dashboard, Agents). Both
+ * hold their rows on a gutter, close the head with a short step before the
+ * list's first label, keep a hair of air under that label, and leave a longer
+ * step after the last row so it can be scrolled clear of what sits below.
+ *
+ * `density` is the one way they differ, and it is the rail's own density, the
+ * word the window rail already carries as `data-hd-density`: `compact` is the
+ * sidebar, whose rows stand on the bars' gutter (`--hd-bar-pad`) so their ink
+ * lines up with the bars above them; `comfortable` is the window rail, whose
+ * rows carry a second line and take a wider gutter and longer steps.
+ *
+ * `corner` puts the head below the band the native window buttons sit in,
+ * for a rail that owns the window's top-left corner with no bar of its own.
  */
-export const WorkbenchRailSection = forwardRef<
+export const RailSection = forwardRef<
   HTMLDivElement,
-  React.ComponentProps<'div'> & { part: 'places' | 'list'; as?: 'div' | 'nav' }
->(({ part, as = 'div', className, ...props }, ref) => {
+  React.ComponentProps<'div'> & {
+    stretch: 'head' | 'list'
+    density?: 'compact' | 'comfortable'
+    corner?: boolean
+    as?: 'div' | 'nav'
+  }
+>(({ stretch, density = 'compact', corner = false, as = 'div', className, ...props }, ref) => {
   const Component = as
+  const compact = density === 'compact'
   return (
     <Component
       ref={ref}
-      data-slot="workbench-rail-section"
-      data-part={part}
+      data-slot="rail-section"
+      data-stretch={stretch}
+      data-density={density}
       className={cn(
-        'px-(--hd-bar-pad)',
-        part === 'places' && 'pb-(--hd-space-1)',
-        part === 'list' && 'pt-(--hd-space-0-5) pb-(--hd-space-3)',
+        compact ? 'px-(--hd-bar-pad)' : 'px-3',
+        stretch === 'head' && corner && 'pt-(--hd-titlebar-height)',
+        stretch === 'head' && (compact ? 'pb-(--hd-space-1)' : 'pb-2'),
+        stretch === 'list' && (compact ? 'pt-(--hd-space-0-5)' : 'pt-1.5'),
+        stretch === 'list' && 'pb-3',
         className,
       )}
       {...props}
     />
   )
 })
-WorkbenchRailSection.displayName = 'WorkbenchRailSection'
+RailSection.displayName = 'RailSection'
 
 /** The dim between a floating rail and the workbench it covers. */
 export const WorkbenchScrim = ({ className, ...props }: React.ComponentProps<'div'>) => (
