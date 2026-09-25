@@ -94,9 +94,26 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
     sourceRef.current = text
     setSource(text)
   }
-  /** Whether a step or rule edit's own `authoring/shape/render` is still out — narrower than `previewPending`, which a plain dry run also sets. */
-  const renderPending = useRef(false)
-  /** A var typed while `renderPending` was true, not yet given its own dry run. */
+  /**
+   * Whether a step or rule edit's own `authoring/shape/render` is still out —
+   * narrower than `previewPending`, which a plain dry run also sets.
+   *
+   * Derived, never set directly, so it cannot stick: `renderIssued` counts
+   * every `editPolicy` call, `renderSettled` is a high-water mark carried to
+   * at least that call's own number on *every* exit path — success, failure,
+   * or one this file's own `sequence` check finds superseded — so an edit
+   * that answers stale (its `mine` no longer the current `sequence`, because
+   * something unrelated to any other step edit moved it, `editSource`, say)
+   * still marks its own render settled. A plain boolean cleared only on the
+   * paths that also apply the render's result stayed true forever the moment
+   * every edit still in flight happened to settle stale — from then on a
+   * typed var deferred here (`varEditPending`) never got its own dry run,
+   * and Start never saw it.
+   */
+  const renderIssued = useRef(0)
+  const renderSettled = useRef(0)
+  const renderPending = (): boolean => renderIssued.current !== renderSettled.current
+  /** A var typed while `renderPending()` was true, not yet given its own dry run. */
   const varEditPending = useRef(false)
 
   useEffect(() => {
@@ -202,6 +219,21 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
     void runDryRun(text)
   }
 
+  /**
+   * A var deferred by `setVar` while a step or rule edit's own render was
+   * out, given the dry run it never got — once no render is pending any
+   * more, against the last known-good source. A no-op otherwise. Called only
+   * from a path that will not itself call `runDryRun` — the clean success
+   * path already does, reading `varsRef.current` fresh, and calling this
+   * first there would bump the shared sequence out from under that call's
+   * own `mine` check and lose it.
+   */
+  const flushDeferredVar = (): void => {
+    if (!varEditPending.current || renderPending()) return
+    varEditPending.current = false
+    void runDryRun(sourceRef.current)
+  }
+
   const editPolicy = useCallback(
     async (next: FlowPolicy): Promise<void> => {
       // Retires a dry run already in flight (a var edit's, say) the instant a
@@ -218,7 +250,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
       // it, rather than re-enabling Start or racing it into `runDryRun` with
       // the wrong policy.
       const mine = ++sequence.current
-      renderPending.current = true
+      const myRender = ++renderIssued.current
       setPolicy(next)
       setFormIssues([])
       setPreviewPending(true)
@@ -226,28 +258,30 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
       try {
         rendered = await store.renderShape(next)
       } catch (error) {
-        if (mine !== sequence.current) return
-        renderPending.current = false
+        // Settled on every exit from here, including a `mine` that no longer
+        // matches `sequence` — which used to return before either this or
+        // `renderPending()`'s clearing ever ran, and left it true forever the
+        // moment nothing with a *matching* sequence was ever going to settle
+        // again (`editSource`'s own dry run, say, answering in between).
+        renderSettled.current = Math.max(renderSettled.current, myRender)
+        if (mine !== sequence.current) {
+          flushDeferredVar()
+          return
+        }
         setFormIssues([{ at: 'file', text: error instanceof Error ? error.message : 'This change could not be checked.', fix: 'Try again.' }])
         setPreviewPending(false)
-        // A var typed while this render was out got no dry run of its own —
-        // give it one now, against the last known-good source, rather than
-        // losing it because the edit that deferred it failed.
-        if (varEditPending.current) {
-          varEditPending.current = false
-          void runDryRun(sourceRef.current)
-        }
+        flushDeferredVar()
         return
       }
-      if (mine !== sequence.current) return
-      renderPending.current = false
+      renderSettled.current = Math.max(renderSettled.current, myRender)
+      if (mine !== sequence.current) {
+        flushDeferredVar()
+        return
+      }
       if (rendered.issues.length > 0) {
         setFormIssues(rendered.issues)
         setPreviewPending(false)
-        if (varEditPending.current) {
-          varEditPending.current = false
-          void runDryRun(sourceRef.current)
-        }
+        flushDeferredVar()
         return
       }
       varEditPending.current = false
@@ -317,7 +351,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
   const setVar = (varId: string, value: string): void => {
     const next = { ...varsRef.current, [varId]: value }
     setVars(next)
-    if (renderPending.current) {
+    if (renderPending()) {
       // A step or rule edit's own render is still out, so `source` here is
       // the shape from before it — a dry run against it would preview, and
       // once that edit's own answer lands stale, permanently show, the edit

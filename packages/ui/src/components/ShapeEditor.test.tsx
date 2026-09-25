@@ -605,6 +605,77 @@ it('a var edit while a step edit’s own render is still out never reverts the s
   expect(button('Start').hasAttribute('disabled')).toBe(false)
 })
 
+it('a superseded step edit answering stale never leaves a var typed afterward unpreviewed — renderPending cannot stick', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let resolveRender!: (value: { readonly source: string; readonly issues: readonly unknown[] }) => void
+  const previews: { readonly source: string; readonly vars: Readonly<Record<string, string>> }[] = []
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'authoring/shape/render') return new Promise((resolve) => { resolveRender = resolve as never })
+    if (method === 'authoring/start/preview') {
+      const { source, vars } = params as { source: string; vars: Readonly<Record<string, string>> }
+      previews.push({ source, vars })
+      const policy = JSON.parse(source) as FlowPolicy
+      return previewFor(policy, { vars })
+    }
+    if (method === 'agent/list') return [AGENT]
+    return null
+  }) as never)
+
+  const startPolicy: FlowPolicy = {
+    version: 2, name: 'Review', inputs: [{ id: 'task', label: 'Task' }],
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }], rules: [], seed: { role: 'review', title: '{{task}}' },
+    messaging: 'board-only', wait: 240,
+  }
+  renderWithSource(store, JSON.stringify(startPolicy))
+  await settle()
+  const afterMount = previews.length
+
+  // A step edit's own render goes out and hangs.
+  act(() => button('Agent').click())
+  expect(button('Start').hasAttribute('disabled')).toBe(true)
+
+  // An unrelated dry run — the raw Source tab, which calls `runDryRun`
+  // directly and shares its sequence with every edit — settles first and
+  // bumps that shared sequence, without a second step edit ever existing.
+  act(() => button('Source').click())
+  await settle()
+  const textarea = document.body.querySelector('textarea') as HTMLTextAreaElement
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
+    setter.call(textarea, JSON.stringify({ ...startPolicy, name: 'Renamed on the Source tab' }))
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+  expect(previews.length).toBeGreaterThan(afterMount)
+
+  // The step edit's own render now answers stale — its sequence no longer
+  // matches the one the Source tab's edit just took.
+  await act(async () => {
+    resolveRender({
+      source: JSON.stringify({ ...startPolicy, name: 'Your own shape', roles: [...startPolicy.roles, { id: 'agent-1', kind: 'agent', uses: [], seats: [], isolate: false, grant: 'read', independentOf: [] }] }),
+      issues: [],
+    })
+  })
+  await settle()
+
+  const before = previews.length
+
+  // A var typed after that stale answer is still previewed — never dropped
+  // because a superseded render left `renderPending` stuck true forever.
+  const label = [...document.body.querySelectorAll('label')].find((one) => one.textContent === 'Task')!
+  const field = document.getElementById(label.getAttribute('for')!) as HTMLInputElement
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    setter.call(field, 'typed')
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await settle()
+
+  expect(previews.length).toBeGreaterThan(before)
+  expect(previews.at(-1)!.vars).toEqual({ task: 'typed' })
+  expect(button('Start').hasAttribute('disabled')).toBe(false)
+})
+
 it('a bound input takes the start target’s own value, never its own YAML default — a hand-written binding from a branch is not refused', async () => {
   const bound: FlowPolicy = {
     version: 2, name: 'Review', inputs: [{ id: 'branch', label: 'Branch', default: 'placeholder-default' }],
