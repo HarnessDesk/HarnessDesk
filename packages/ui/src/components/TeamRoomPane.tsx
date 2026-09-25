@@ -1894,9 +1894,9 @@ const RoomLiveLine = ({
      about the same run. */
   if (!waiting && stopText && !needsYou) {
     return (
-      <div data-slot="room-live-line" data-kind="stop" className="flex items-baseline gap-(--hd-space-1-5)">
-        <Text role="meta">{stopText}</Text>
-      </div>
+      <TurnWorkLive settled data-slot="room-live-line" data-kind="stop">
+        {stopText}
+      </TurnWorkLive>
     )
   }
   if (!waiting && waits.length > 0) {
@@ -1907,19 +1907,21 @@ const RoomLiveLine = ({
         ? () => store.askSettings('permissions', 'ceilings')
         : null
     return (
-      <div
+      <TurnWorkLive
+        settled
         data-slot="room-live-line"
         data-kind="wait"
-        className="flex items-baseline gap-(--hd-space-1-5)"
         title={waits.length > 1 ? waits.map((one) => one.sentence).join('\n') : undefined}
+        /* The way to act on it sits beside the words, outside the region: a
+           control is not news. */
+        {...(open ? { trail: <Button variant="link" size="inline" onClick={open}>Open</Button> } : {})}
       >
         {wait.waitingOn.kind === 'person' && <Dot state="limit" pulse />}
-        <Text role="meta">
+        <span>
           {wait.sentence}
           {waits.length > 1 && ` · ${waits.length - 1} more`}
-        </Text>
-        {open && <Button variant="link" size="inline" onClick={open}>Open</Button>}
-      </div>
+        </span>
+      </TurnWorkLive>
     )
   }
   const busy = waiting ? null : members.find((one) => one.busy) ?? null
@@ -1928,27 +1930,35 @@ const RoomLiveLine = ({
   const session = snapshot.sessions.get(subject.key)
   const turn = session ? currentTurn(session) : undefined
   const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
-  const words = (
-    <>
-      {subject.peer.nickname} {waiting ? 'is waiting for your approval' : 'is working'}
-      {waiting && allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
-      {elapsed !== null && ` · ${formatDuration(elapsed)}`}
-    </>
-  )
-  /* Working is what is happening this second, so it is the transcript's own
-     live line — the same faint, moving words a conversation's turn shows
-     while it runs. Waiting on you is not motion but a stop, and keeps the
-     pulsing light the header's "Needs you" chip wears. */
-  if (!waiting) return <TurnWorkLive data-slot="room-live-line">{words}</TurnWorkLive>
+  /* One voice for the tail: every line is the transcript's own live line,
+     at its size and in its ink. Working is motion, so its words shimmer, and
+     its clock ticks beside them, outside the live region — a screen reader
+     hears who is working when that changes, never the seconds. A line that
+     waits on a person is a state, not motion, and leads with the one light
+     the tail has, the pulsing one the header's "Needs you" chip wears: a
+     leading light here always means you are needed. */
+  if (!waiting) {
+    return (
+      <TurnWorkLive
+        data-slot="room-live-line"
+        {...(elapsed !== null ? { trail: ` · ${formatDuration(elapsed)}` } : {})}
+      >
+        {subject.peer.nickname} is working
+      </TurnWorkLive>
+    )
+  }
   return (
-    <div
+    <TurnWorkLive
+      settled
       data-slot="room-live-line"
-      className="flex items-center gap-(--hd-space-1-5)"
       title={allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
     >
       <Dot state="limit" pulse />
-      <Text role="meta">{words}</Text>
-    </div>
+      <span>
+        {subject.peer.nickname} is waiting for your approval
+        {allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
+      </span>
+    </TurnWorkLive>
   )
 }
 
@@ -2296,8 +2306,16 @@ const Room = ({
             land. */}
         <div className={styles.tail}>
           <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
-          {problem && <Note tone="bad" className={styles.tailLine}>{problem}</Note>}
-          {trouble && <Note tone="bad" className={styles.tailLine}>{trouble}</Note>}
+          {problem && (
+            <TurnWorkLive settled role="alert" aria-live="assertive">
+              <Text role="value" tone="danger">{problem}</Text>
+            </TurnWorkLive>
+          )}
+          {trouble && (
+            <TurnWorkLive settled role="alert" aria-live="assertive">
+              <Text role="value" tone="danger">{trouble}</Text>
+            </TurnWorkLive>
+          )}
         </div>
         {/* The reading column, the same one the stream above hangs in. The
             wrapper rather than a prop: `RoomComposer` draws the shell and

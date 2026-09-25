@@ -28,8 +28,8 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
-  Note,
   Text,
+  TurnWorkLive,
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
@@ -488,13 +488,15 @@ export const RoomComposer = ({
 
   return (
     <>
-    {/* What sending will do, said over the box rather than inside it — on
-        the reading column's edge, as the room's own live line above it is,
-        so the box itself holds only the words and the ways to send them. */}
+    {/* What sending will do, said over the box rather than inside it, as one
+        more line of the room's tail: the transcript's live line, settled —
+        the same box, size and ink as who is working above it — so the tail
+        speaks in one voice and the box holds only the words and the ways to
+        send them. It changes only when the audience does. */}
     {notice && (
-      <Note {...(notice.tone === 'warn' ? { tone: 'warn' as const } : { ink: 'muted' as const })}>
-        {notice.text}
-      </Note>
+      <TurnWorkLive settled data-slot="room-composer-notice">
+        {notice.tone === 'warn' ? <Text role="value" tone="warning">{notice.text}</Text> : notice.text}
+      </TurnWorkLive>
     )}
     <ComposerShell className="relative">
       {mention && (

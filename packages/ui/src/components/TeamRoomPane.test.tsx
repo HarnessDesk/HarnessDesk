@@ -1461,6 +1461,52 @@ it("the room's own live line names who is working, with the elapsed time once th
   expect(container.textContent).toMatch(/Codex is working · \d+(\.\d+)?s/)
 })
 
+/**
+ * The tail under the chat speaks in one voice: who is working and what
+ * sending will do are both the transcript's live line, in its one box, size
+ * and ink — not a 14px line over a 12px one.
+ */
+it("draws the room's tail — the live line and the composer's notice — as one line, in one box", async () => {
+  const { store } = rig()
+  await render(store)
+  const line = container.querySelector<HTMLElement>('[data-slot="room-live-line"]')
+  const notice = container.querySelector<HTMLElement>('[data-slot="room-composer-notice"]')
+  expect(line?.textContent).toContain('is working')
+  expect(notice?.textContent).toContain('is working — that copy waits')
+  expect(notice?.getAttribute('role')).toBe('status')
+  expect(notice?.hasAttribute('data-settled')).toBe(true)
+  // One part draws both, so their box is one box.
+  expect(notice?.className).toBe(line?.className)
+})
+
+/**
+ * The clock ticks every second and the live region must not: a screen reader
+ * would read it out once a second. Only who is working is announced, when
+ * that changes; the elapsed reading sits beside the region.
+ */
+it("the room's working line announces who is working, never the seconds ticking", async () => {
+  const { store } = rig()
+  const base = store.getSnapshot()
+  const withTurn = {
+    ...base,
+    sessions: new Map(base.sessions).set(sessionKey('codex', 'c1'), {
+      ...base.sessions.get(sessionKey('codex', 'c1')),
+      turns: [{ id: 't1', status: 'inProgress', startedAt: Date.now() - 42_000, items: [] }],
+    } as never),
+  }
+  Object.assign(store, { getSnapshot: () => withTurn })
+  await render(store)
+
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  const live = line.querySelector('[role="status"]')!
+  expect(line.getAttribute('role'), 'the line itself is not the region').toBeNull()
+  expect(live.textContent).toBe('Codex is working')
+  const before = line.textContent
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1_100)) })
+  expect(line.textContent, 'the clock did tick').not.toBe(before)
+  expect(live.textContent, 'and the region did not').toBe('Codex is working')
+})
+
 it("the room's own live line names who is waiting for your approval, ahead of anyone merely working", async () => {
   const { store } = rig()
   const withApproval = {

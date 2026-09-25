@@ -329,10 +329,6 @@
   margin-inline: auto;
 }
 
-.tailLine {
-  margin: 0;
-}
-
 /* The composer's own measure, inside the dock: the reading column the stream
    above hangs in, so the box is exactly as wide as the words. */
 .composerShell {
