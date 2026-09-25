@@ -1612,7 +1612,7 @@ const MemberRow = ({
       wrapSubtitle
       selected={selected}
       onClick={onOpen}
-      className="group/member"
+      className={`${styles.memberRow} group/member`}
       lead={
         /* A member the desk does not have open is drawn quieter — the mark
            loses its full weight, the way an unread row differs from a read

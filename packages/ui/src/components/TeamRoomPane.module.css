@@ -35,6 +35,15 @@
   align-items: center;
   gap: var(--hd-space-2); /* desk: 10 → 8, one row rather than the rail head's two-line block */
   flex: none; /* desk: the rail head's growing text box is a fixed-height row now */
+  /* `.barName` and `.barFacts` shrink to their own floors before anything
+     else does, but the row's own fixed-width members — the window's own
+     controls, the state chip, the origin chip, the rule, the verbs — do not
+     shrink at all, and a room narrower than their sum still has to fit
+     somewhere. Clipped here, at the row's own edge, rather than spilling past
+     the pane's bounds into whatever a split view puts beside it — a docked
+     board's own tab strip, measured colliding with an unclipped header at a
+     narrow room width. */
+  overflow: hidden;
 }
 
 .barName {
@@ -112,6 +121,30 @@
   flex-shrink: 0;
   width: 232px;
   min-height: 0;
+  /* Its own container, nested inside the room's: a split view can hand the
+     rail a width far narrower than 232px regardless of the room pane's own
+     size, and the roster row below reads that width directly rather than
+     the room's. */
+  container: hd-room-rail / inline-size;
+}
+
+/* Below this a roster row has no room left for either the name or the job to
+   read as words — avatars only. The name and the job stay reachable through
+   the hover card every row already opens (MemberCard/MemberHoverCard), so
+   nothing here is lost, only not printed where it cannot be read. */
+@container hd-room-rail (max-width: 7rem) {
+  .memberRow [data-slot="list-row-content"] {
+    display: none;
+  }
+}
+
+/* The job line's own "#1 Seat 1" pairs a number with a name a person did
+   not write to fit this column — `wrapSubtitle` wraps it, correctly, but the
+   shared row's own `overflow-wrap: anywhere` will still split a word that
+   does not fit rather than only breaking between words. A member's name is
+   not the unbroken URL or hash that rule exists for. */
+.memberRow [data-slot="list-row-subtitle"] {
+  overflow-wrap: normal;
 }
 
 @keyframes hd-room-pulse {
