@@ -456,13 +456,14 @@ it('names the pinned revision in the header’s meta, from the run’s own targe
   const execution: FlowExecution = {
     version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'running',
     rounds: [], operations: [], legacyRun: null, reason: null,
-    target: { kind: 'branch', label: 'feature', base: null, head: 'a1b2c3d4e5f6', pr: null, dirty: false },
+    // The host's own label for a branch target, verbatim (authoring/start.ts): "branch <name>", never the bare name.
+    target: { kind: 'branch', label: 'branch feature', base: null, head: 'a1b2c3d4e5f6', pr: null, dirty: false },
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
 
   const facts = container.querySelector(`.${styles.barFacts}`)
-  expect(facts?.textContent).toContain('at a1b2c3d on feature')
+  expect(facts?.textContent).toContain('at a1b2c3d on branch feature')
   // The full sha is still reachable, on hover, behind the short one shown.
   expect(facts?.querySelector('[title="a1b2c3d4e5f6"]')).not.toBeNull()
 })
@@ -1485,17 +1486,22 @@ it("the room's own live line counts every waiting member, not only the first", a
   expect(line.getAttribute('title')).toBe('Codex\nOpus')
 })
 
-/** A flow a person started carries no trigger status, so its own stop reason is what the live line has left to read (#917). */
-it("names a person-started flow's own stop reason on the live line, since no trigger status carries one for it", async () => {
+/**
+ * A flow a person started carries no trigger status, so its own stop reason
+ * is what the live line has left to read (#917). The host's own default —
+ * `stop(id, why = 'the person stopped this flow')` in flow-execution.ts — is
+ * a lowercase fragment, not a sentence, so the live line reads it as one.
+ */
+it("names a person-started flow's own stop reason on the live line, as a proper sentence, since no trigger status carries one for it", async () => {
   const execution: FlowExecution = {
     version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped',
-    rounds: [], operations: [], legacyRun: null, reason: 'Nobody has been in the room for a while.',
+    rounds: [], operations: [], legacyRun: null, reason: 'the person stopped this flow',
   }
   const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
   await render(store)
 
   const line = container.querySelector('[data-slot="room-live-line"]')!
-  expect(line.textContent).toBe('Nobody has been in the room for a while.')
+  expect(line.textContent).toBe('The person stopped this flow')
   expect(line.getAttribute('data-kind')).toBe('stop')
 })
 
@@ -1933,19 +1939,32 @@ it.each([
  * A budget stop names its exact reason where the run's state is read — the
  * live line, and "Stopped" in the header — and the footer keeps what was
  * spent: the partial work stands, the meter says what it cost.
+ *
+ * A real host pairs every budget stop with a person-kind wait of its own
+ * (`packages/server/src/intake/waits.ts`'s own `if (input.stop)` branch), so
+ * that is the fixture here: the wait's sentence is what shows, the same rule
+ * that reads Needs you in the header for any other person-kind wait.
  */
-it('a budget stop names its exact reason on the live line, reads Stopped, and keeps the meter', async () => {
-  const { store } = triggerRig([], { stop: { reason: 'out of budget', detail: 'The daily cap was reached before this round closed.', at: Date.now() } }, [
-    wait({ id: 'wb', kind: 'budget', waitingOn: { kind: 'service', label: 'the daily cap' }, sentence: 'This Goal stopped: out of budget.', action: 'open-usage' }),
+it('a budget stop shows the person-kind wait a real host pairs with it, and reads Stopped in the header', async () => {
+  const detail = 'Out of budget: this Goal reached its round limit.'
+  const { store } = triggerRig([], { stop: { reason: 'out of budget', detail, at: Date.now() } }, [
+    wait({
+      id: 'wb', kind: 'budget', waitingOn: { kind: 'person', label: 'you' },
+      sentence: `This Goal stopped: ${detail} Its cards, answers and findings are kept.`,
+      action: 'open-usage',
+    }),
   ])
   await render(store)
   await act(async () => {})
 
-  expect(container.querySelector('header')!.textContent).toContain('Stopped')
-  // The host's own detail already carries the label ("Out of budget: …"), so
-  // it is shown alone rather than after intakeStopWords's own "Out of
-  // budget." — which said the same thing twice on a real host (#917).
-  expect(container.querySelector('[data-slot="room-live-line"]')!.textContent).toBe('The daily cap was reached before this round closed.')
+  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  // The label appears exactly once, inside the host's own sentence — never a
+  // second time from intakeStopWords's own fallback label (#917). The
+  // budget wait's own action ("open-usage") also draws an Open link, so the
+  // sentence is checked as a prefix rather than the row's whole text.
+  expect(line.textContent).toContain(`This Goal stopped: ${detail} Its cards, answers and findings are kept.`)
+  expect(line.textContent?.match(/Out of budget/g)).toHaveLength(1)
   expect(container.querySelector('[data-slot="room-budget"]')!.textContent).toContain('$3.80 left')
 })
 

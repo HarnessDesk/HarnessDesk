@@ -120,6 +120,17 @@ const relativeTo = (path: string, root: string | undefined): string => {
 
 const EMPTY_SENTENCES = new Map<string, string>()
 
+/** A plain word for a sub-agent's own state, never the bridge's wire value. */
+const MEMBER_STATE_WORDS: Readonly<Record<string, string>> = {
+  running: 'Running',
+  completed: 'Completed',
+  failed: 'Failed',
+  stopped: 'Stopped',
+}
+
+/** A chip's own word, sentence case — never a phrase's own lowercase start. */
+const capitalize = (text: string): string => (text.length > 0 ? text[0]!.toUpperCase() + text.slice(1) : text)
+
 /** A path argument shared by the adapters' read, search, and edit tools. */
 const pathArgument = (args: unknown): string | null => {
   if (typeof args !== 'object' || args === null || Array.isArray(args)) return null
@@ -241,7 +252,7 @@ const Row = ({
         {collapsible && <DisclosureChevron open={open} size="lg" />}
       </Button>
       {collapsible && open && (
-        <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} pt-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6)`}>{children}</div>
+        <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6)`}>{children}</div>
       )}
     </>
   )
@@ -249,7 +260,7 @@ const Row = ({
   return register === 'light' ? (
     <div className={styles.row}>{inner}</div>
   ) : (
-    <Card variant="plate" className={`${styles.row} !gap-0 !py-0`}>{inner}</Card>
+    <Card variant="plate" className={styles.row}>{inner}</Card>
   )
 }
 
@@ -1091,11 +1102,11 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                     })}
               >
                 <AgentIcon size={12} />
-                <span className={`${styles.filePath} font-(family-name:--hd-font-code) text-sm`}>
+                <span className={`${styles.filePath} text-sm`}>
                   {member.nickname ?? member.sessionId.slice(0, 8)}
                 </span>
-                {member.role && <Chip tone="neutral" size="sm">{member.role}</Chip>}
-                {member.state && <Chip tone="neutral" size="sm">{member.state}</Chip>}
+                {member.role && <Chip tone="neutral" size="sm">{capitalize(member.role)}</Chip>}
+                {member.state && <Chip tone="neutral" size="sm">{MEMBER_STATE_WORDS[member.state] ?? capitalize(member.state)}</Chip>}
                 {member.usage && member.usage.totalTokens > 0 && (
                   <Chip
                     tone="neutral" size="sm"

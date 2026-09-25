@@ -111,12 +111,14 @@ test('a question that timed out and a budget stop each name their exact reason, 
   await expect(liveLine(frame)).toContainText('nobody answered in time')
 
   await scene(page, 'stopped')
-  await expect(stateChip(frame)).toHaveText('Stopped')
-  // The host's own detail already carries the label, so it is shown alone
-  // rather than after the generic "Out of budget." — which said the same
-  // thing twice on a real host (#917).
-  await expect(liveLine(frame)).toContainText('The daily cap was reached before this round closed.')
-  await expect(liveLine(frame)).not.toContainText('Out of budget.')
+  // A real host pairs every budget stop with a person-kind wait of its own,
+  // so the header reads Needs you and the live line shows that wait's
+  // sentence — the stop's own detail appears exactly once inside it, never
+  // a second time behind a generic "Out of budget." fallback label (#917).
+  await expect(stateChip(frame)).toHaveText('Needs you')
+  await expect(liveLine(frame)).toContainText('Out of budget: the daily cap was reached before this round closed.')
+  const lineText = await liveLine(frame).innerText()
+  expect(lineText.match(/Out of budget/g)).toHaveLength(1)
   // What the stopped run already spent is kept and said.
   await expect(budget(frame)).toContainText('left')
 

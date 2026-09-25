@@ -98,7 +98,11 @@ describe('an opened tool step', () => {
     // The row itself is the shared `Card variant="plate"` surface.
     expect(row?.getAttribute('data-slot')).toBe('card')
     expect(row?.getAttribute('data-variant')).toBe('plate')
-    expect(body?.className).toContain('pt-(--hd-space-2)')
+    // The top gap between the header and the body is the card's own
+    // (`gap-4`, from Card's default spacing) rather than a second, doubled
+    // inset the body adds for itself.
+    expect(body?.className).toContain('px-(--hd-space-3)')
+    expect(body?.className).not.toContain('pt-(--hd-space-2)')
     expect(body?.getAttribute('data-slot')).not.toBe('card')
     expect(body?.className).not.toContain('rounded-(--hd-radius)')
   })

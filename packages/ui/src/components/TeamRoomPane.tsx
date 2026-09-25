@@ -250,16 +250,28 @@ export const TeamRoomPane = ({
     void store.readFlowExecution(run).catch(() => {})
   }, [flowExecution, run, store])
   /**
-   * The commit every Seat of this Goal works at, for the header's meta line —
-   * a flow run's own resolved target first, since it names the branch too
-   * ("at a1b2c3d on feature"); `Goal.at` otherwise, for a front-door review
-   * this Goal was pinned to directly. Absent for an ordinary Goal, which
-   * works wherever its checkout does and has nothing to pin.
+   * What this Goal reviews, for the header's meta line — a flow run's own
+   * resolved target first, since it names the branch too
+   * ("at a1b2c3d on branch feature"); `Goal.at` otherwise, for a front-door
+   * review this Goal was pinned to directly. Absent for an ordinary Goal,
+   * which works wherever its checkout does and has nothing to pin.
+   *
+   * A target with no sha to show still names its subject: `diff`'s own label
+   * already carries both ends of the range ("changes from abc123 to
+   * def456"), so pairing it with a repeated head would say the same commit
+   * twice, and a `working-diff` (or any future kind) with no resolved head
+   * has nothing else to pin. Both read as the label alone — never as
+   * nothing, which is what the old `FlowRunStatus` showed for every target
+   * and nowhere else said.
    */
   const pinnedAt = useMemo(() => {
     const target = flowExecution?.target
-    if (target && target.kind !== 'diff' && target.head) return { sha: target.head, on: target.label }
-    if (goal?.goal.at) return { sha: goal.goal.at, on: null }
+    if (target) {
+      return target.kind !== 'diff' && target.head
+        ? { sha: target.head, label: target.label }
+        : { sha: null, label: target.label }
+    }
+    if (goal?.goal.at) return { sha: goal.goal.at, label: null }
     return null
   }, [flowExecution, goal])
   /**
@@ -788,9 +800,19 @@ export const TeamRoomPane = ({
      member's approval does — a held message, a held action, a question —
      and a budget stop is a stop, whatever the run's own record says yet. */
   const personWaits = openTriggerWaits(originStatus).filter((wait) => wait.waitingOn.kind === 'person')
+  /**
+   * Everything beyond a member's own pending approval that makes this Goal
+   * read "Needs you" — a named person-kind wait, the Goal's own activity, or
+   * a stalled run. One rule, read by the header's chip below and handed to
+   * the live line (`Room` → `RoomLiveLine`) as `needsYou`, so a stop reason
+   * never shows on the live line while the header has already moved past it
+   * to "Needs you" — the two surfaces disagreeing about the same run is
+   * exactly the bug this constant exists to close.
+   */
+  const needsYou = personWaits.length > 0 || goal?.activity === 'needs-you' || flowExecution?.state === 'stalled'
   const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
     ? null
-    : pendingApproval || personWaits.length > 0 || goal.activity === 'needs-you' || flowExecution?.state === 'stalled'
+    : pendingApproval || needsYou
       ? { label: 'Needs you', tone: 'warning', pulse: true }
       : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
         ? { label: 'Done', tone: 'success', pulse: false }
@@ -932,14 +954,17 @@ export const TeamRoomPane = ({
           {peers !== null && (hereCount === roster.length
             ? `${roster.length} here`
             : `${hereCount} of ${roster.length} here`)}
-          {/* The commit this Goal is pinned to review, when it has one — a
-              short seven-character sha with the full value one hover away,
-              never a raw path or ref. */}
+          {/* What this Goal reviews, when it has a subject — a short
+              seven-character sha with the full value one hover away, never a
+              raw path or ref, or the target's own label alone when it has no
+              sha worth pinning (see pinnedAt above). */}
           {pinnedAt && (
             <>
               {(root || peers !== null) && ' · '}
-              <span title={pinnedAt.sha}>
-                {pinnedAt.on ? `at ${shortSha(pinnedAt.sha)} on ${pinnedAt.on}` : `at ${shortSha(pinnedAt.sha)}`}
+              <span title={pinnedAt.sha ?? undefined}>
+                {pinnedAt.sha
+                  ? (pinnedAt.label ? `at ${shortSha(pinnedAt.sha)} on ${pinnedAt.label}` : `at ${shortSha(pinnedAt.sha)}`)
+                  : pinnedAt.label}
               </span>
             </>
           )}
@@ -1334,7 +1359,7 @@ export const TeamRoomPane = ({
               })}
             </div>
           ) : (
-            <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} />
+            <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
           )}
         </div>
       </div>
@@ -1767,12 +1792,16 @@ const MemberRow = ({
  * whoever in roster order is on it, is enough; a member waiting on a person
  * outranks one merely working, matching the header's own rule.
  */
+/** A raw lowercase fragment from the host, read as a proper sentence. */
+const sentence = (text: string): string => (text.length > 0 ? text[0]!.toUpperCase() + text.slice(1) : text)
+
 const RoomLiveLine = ({
   members,
   snapshot,
   now,
   triggerStatus,
   flowExecution,
+  needsYou,
   room,
 }: {
   readonly members: readonly Member[]
@@ -1782,6 +1811,8 @@ const RoomLiveLine = ({
   readonly triggerStatus: TriggerGoalStatus | null
   /** A stop reason for a run this Goal's own trigger never opened — a flow a person started. */
   readonly flowExecution: FlowExecution | null
+  /** The header chip's own "Needs you" rule, beyond a member's pending approval — one rule, read by both surfaces. */
+  readonly needsYou: boolean
   readonly room: string
 }) => {
   const store = useStore()
@@ -1805,19 +1836,17 @@ const RoomLiveLine = ({
   const stopText = triggerStatus?.budget?.stop
     ? triggerStatus.budget.stop.detail || intakeStopWords(triggerStatus.budget.stop.reason)
     : flowExecution?.state === 'stopped' && flowExecution.reason
-      ? flowExecution.reason
+      ? sentence(flowExecution.reason)
       : null
   /* The header's own chip (`runState`, above) answers "Needs you" before
-     "Stopped" — a person wait outranks a stop the run has already settled
-     into, because it is the more urgent of the two facts. `waits` is sorted
-     person-first (`openTriggerWaits`), so its own head tells us whether one
-     is open: only then does the live line skip the stop line and agree with
-     the header, rather than the two surfaces telling different stories about
-     the same run. A stop with no open person wait still wins here even when
-     a non-person wait exists, matching the header, which does not raise
-     "Needs you" for one either. */
-  const personWaiting = waits[0]?.waitingOn.kind === 'person'
-  if (!waiting && stopText && !personWaiting) {
+     "Stopped" — a person wait, the Goal's own activity or a stalled run all
+     outrank a stop the run has already settled into, because each is the
+     more urgent fact. `needsYou` is that exact same rule, computed once by
+     `TeamRoomPane` and handed down here, so the live line skips the stop
+     line under precisely the conditions that moved the header off "Stopped"
+     — never a narrower or wider one — and the two surfaces cannot disagree
+     about the same run. */
+  if (!waiting && stopText && !needsYou) {
     return (
       <div data-slot="room-live-line" data-kind="stop" className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}>
         <Text role="meta">{stopText}</Text>
@@ -1927,6 +1956,7 @@ const Room = ({
   pendingApproval,
   triggerStatus,
   flowExecution,
+  needsYou,
 }: {
   readonly room: string
   /**
@@ -1956,6 +1986,8 @@ const Room = ({
   readonly triggerStatus: TriggerGoalStatus | null
   /** For the live line's stop reason, on a run this Goal's own trigger never opened. */
   readonly flowExecution: FlowExecution | null
+  /** The rest of the header's own "Needs you" rule, beyond a member's pending approval — see `TeamRoomPane`'s own `needsYou`. */
+  readonly needsYou: boolean
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -2196,7 +2228,7 @@ const Room = ({
           the stream and the composer under it — `.trouble`'s own measure,
           which already answers "docked between the two, same width as
           both" for the same reason. */}
-      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} room={room} />
+      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />
 
       {/* Two different failures, both said out loud. `problem` is the host's:
           it could not keep the board, so what is on screen may not survive a
