@@ -1,5 +1,4 @@
 import {
-  createElement,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -83,6 +82,8 @@ import {
   ToolPaneDocumentTab,
   ToolPaneEmptyState,
   ToolPaneFooter,
+  ToolPaneGuest,
+  ToolPaneStage,
   ToolPaneTabIcon,
   ToolPaneTabViewport,
   ToolPaneToolGroup,
@@ -517,40 +518,39 @@ const BrowserTabPage = ({
       aria-hidden={!active}
       {...(active ? { 'data-active': '' } : {})}
     >
-      <div
-        className={`${styles.stage}${spec.size ? ' bg-(--hd-muted)' : ''}`}
-        ref={stage}
-        {...(spec.size ? { 'data-framed': '' } : {})}
-      >
+      <ToolPaneStage ref={stage} framed={Boolean(spec.size)}>
         {inline
-          ? createElement('webview', {
-              key: guestKey,
-              ref: setElement,
-              src: bornAt,
-              partition,
-              /*
-                Without this a guest may not open windows at all, and the
-                shell's window-open handler — the thing that turns a page's
-                `target=_blank` into a tab here or a page in the OS browser —
-                is never consulted. Every request still ends in that handler,
-                which denies the window and routes the URL; no popup is ever
-                actually made.
-              */
-              allowpopups: 'true',
-              ...(spec.userAgent ? { useragent: spec.userAgent } : {}),
-              className: `${styles.webview} border-0 bg-(--hd-card)${spec.size ? ' rounded-(--hd-radius-sm) shadow-(--hd-hairline)' : ''}`,
-              style: framed,
-            })
+          ? (
+              <ToolPaneGuest
+                as="webview"
+                key={guestKey}
+                ref={setElement}
+                src={bornAt}
+                partition={partition}
+                /*
+                  Without this a guest may not open windows at all, and the
+                  shell's window-open handler — the thing that turns a page's
+                  `target=_blank` into a tab here or a page in the OS browser —
+                  is never consulted. Every request still ends in that handler,
+                  which denies the window and routes the URL; no popup is ever
+                  actually made.
+                */
+                allowpopups="true"
+                {...(spec.userAgent ? { useragent: spec.userAgent } : {})}
+                framed={Boolean(spec.size)}
+                style={framed}
+              />
+            )
           : tab.url !== BLANK && (
-              <iframe
-                className={`${styles.webview} border-0 bg-(--hd-card)${spec.size ? ' rounded-(--hd-radius-sm) shadow-(--hd-hairline)' : ''}`}
+              <ToolPaneGuest
+                framed={Boolean(spec.size)}
                 style={framed}
                 src={tab.url}
                 sandbox="allow-scripts allow-forms allow-same-origin"
                 title={tabName(tab)}
               />
             )}
-      </div>
+      </ToolPaneStage>
       {/*
         A blank page is white whatever the theme is: `about:blank` has no
         styles of its own and Chromium's base colour is white, which no

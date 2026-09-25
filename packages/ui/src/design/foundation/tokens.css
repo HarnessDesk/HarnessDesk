@@ -1021,6 +1021,10 @@ body {
 
   --hd-chip-radius: var(--hd-radius-full);
   --hd-chip-fill: var(--hd-muted);
+  /* A pressable pill under the pointer: its own fill a step toward the ink,
+     so the step is visible on the chip's ground rather than replacing it with
+     the translucent hover that reads as nothing over grey. */
+  --hd-chip-fill-hover: color-mix(in srgb, var(--hd-chip-fill) 92%, var(--hd-foreground));
 
   /* The switch, the checkbox and the radio: three shapes, one question, which
      is whether the control is on. On is the **accent**, and this token spent a
@@ -1106,6 +1110,10 @@ body {
  */
 body[data-hd-dark-theme] {
   --hd-sidebar-plate: var(--hdp-static-grey-850); /* desk: black → a plate above the page, the direction the column reads in */
+
+  /* A lighter grey needs a longer step to read as one: the same 8% on a dark
+     chip moved it by as little as the light theme's does, and read as none. */
+  --hd-chip-fill-hover: color-mix(in srgb, var(--hd-chip-fill) 86%, var(--hd-foreground));
 
   /* An elevation drawn in black does nothing on a black page: the smallest
      rung becomes a hairline of light instead. */

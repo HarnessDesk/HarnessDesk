@@ -32,22 +32,19 @@
   margin: 0;
 }
 
+/* Items a row's breath apart, by the gap between them rather than a height
+   each label claims; the list keeps the same breath above and below. */
 .list {
-  margin: 0;
+  margin: var(--hd-space-0-5) 0; /* desk: 0 → 2px 0, the breath each label's own padding gave the list's ends */
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-1);
 }
 
 .listItem {
   display: flex;
   gap: var(--hd-space-2);
-  align-items: flex-start;
-}
-
-.listBullet {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
+  align-items: first baseline; /* desk: flex-start → first baseline, the TextMark sits on the label's first line, not 4px above it */
 }
 
 .listLabel {
@@ -69,9 +66,6 @@
   flex: none;
 }
 
-.codeBody {
-  overflow: auto;
-}
 
 .document {
   display: flex;
@@ -89,6 +83,15 @@
 .documentChevron {
   flex: none;
   display: inline-flex;
+}
+
+/* An open section's text sits under its heading's words, clear of the
+   chevron, with a step before the next heading. Placed by margins because the
+   system has no part for a disclosure's body — the turn's step groups draw
+   theirs in their own sheet too — and a part with this one consumer would be
+   this rule moved, not composed. */
+.documentBody {
+  margin: 0 0 var(--hd-space-2) var(--hd-space-5);
 }
 
 .tableScroll {
@@ -121,6 +124,21 @@
 .treeSpacer {
   flex: none;
   width: 14px;
+}
+
+/* The label and its hint. The gap is the hint's floor of air (the row's 4px
+   and the 8px the hint used to pad itself with), so it stands only when a
+   hint does, and a label with none runs to the row's end. */
+.treeText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-3);
+}
+
+.treeLabel {
+  min-width: 0;
 }
 
 .treeHint {

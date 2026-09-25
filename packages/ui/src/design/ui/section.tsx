@@ -48,8 +48,11 @@ const sectionVariants = cva('flex flex-col', {
       /* A quiet inset panel: an aside, a summary block, a note. */
       quiet: 'rounded-(--hd-radius) bg-(--hd-muted)',
       /* A collapsible plugin panel inside a column: one separating rule and
-         the compact inset the block vocabulary has always used. */
-      panel: 'gap-2 border-t border-(--hd-border) px-2.5 py-2',
+         the compact inset the block vocabulary has always used. It stands no
+         taller than the column allots its panels (`--panel-max`, which the
+         column sets), so a long one scrolls inside itself instead of taking
+         the column's list away. */
+      panel: 'max-h-(--panel-max,none) gap-2 border-t border-(--hd-border) px-2.5 py-2',
       /* A section of a page, with its label outside and over its card. Drawn
          only through `title` (below), which is what gives it its head. */
       page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-4)! [&>button]:self-start',

@@ -238,6 +238,59 @@ const ToolPaneEmptyState = ({
   </div>
 )
 
+/**
+ * Where a tool shows a page that is not ours — a site in the browser, a file's
+ * rendered preview. It fills the body; `framed` is for a page shown at a
+ * device's size instead, set on the muted ground a device frame stands on so
+ * its edge reads as the device's and not the pane's.
+ */
+const ToolPaneStage = ({
+  className,
+  framed = false,
+  ...props
+}: React.ComponentProps<'div'> & { framed?: boolean }) => (
+  <div
+    data-slot="tool-pane-stage"
+    {...(framed ? { 'data-framed': '' } : {})}
+    className={cn('flex min-h-0 flex-1', framed && 'items-center justify-center overflow-hidden bg-(--hd-muted)', className)}
+    {...props}
+  />
+)
+
+/**
+ * The guest itself: the `<iframe>` or `<webview>` a stage holds.
+ *
+ * Its ground is the one a web page assumes when it paints none of its own —
+ * white, whatever the app's theme (`--hd-external-canvas`) — because a page
+ * with no background of its own set in dark ink on the app's dark card is a
+ * page nobody can read. `framed` gives it the device's corner and hairline.
+ * `as="webview"` is Electron's guest tag, which JSX has no type for; the
+ * attributes it takes (`partition`, `allowpopups`, `useragent`) pass through.
+ */
+const ToolPaneGuest = ({
+  as = 'iframe',
+  framed = false,
+  className,
+  ...props
+}: Omit<React.ComponentProps<'iframe'>, 'ref'> & {
+  as?: 'iframe' | 'webview'
+  framed?: boolean
+  /* Whichever element it is, typed by the caller: a `<webview>` ref is
+     Electron's own element type, which no DOM type describes. */
+  ref?: React.Ref<never>
+  [attribute: string]: unknown
+}) =>
+  React.createElement(as, {
+    ...props,
+    'data-slot': 'tool-pane-guest',
+    ...(framed ? { 'data-framed': '' } : {}),
+    className: cn(
+      'size-full flex-1 border-0 bg-(--hd-external-canvas)',
+      framed && 'rounded-(--hd-radius-sm) shadow-(--hd-hairline)',
+      className,
+    ),
+  })
+
 /** A manual document tab for native guests that must remain mounted. */
 const ToolPaneDocumentTab = ({ className, ...props }: React.ComponentProps<'span'>) => (
   <span
@@ -407,11 +460,13 @@ export {
   ToolPaneDocumentTab,
   ToolPaneEmptyState,
   ToolPaneFooter,
+  ToolPaneGuest,
   ToolPaneHeader,
   ToolPaneHeaderDivider,
   ToolPaneMessage,
   ToolPaneNotice,
   ToolPaneReading,
+  ToolPaneStage,
   ToolPaneTab,
   ToolPaneTabIcon,
   ToolPaneTabViewport,

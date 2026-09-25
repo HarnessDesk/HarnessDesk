@@ -84,6 +84,7 @@ export {
   RowValue,
   SectionToggle,
   Text,
+  TextMark,
   type TextProps,
   type TextRole,
   WireText,

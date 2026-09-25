@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import type { WorktreeChanges } from '@harnessdesk/protocol'
 
-import { Alert, AlertContent, AlertDescription, AlertTitle } from '../design'
+import { Alert, AlertContent, AlertDescription, AlertTitle, NoteList } from '../design'
 import { AlertIcon } from './Icons'
 
 /**
@@ -13,8 +13,9 @@ import { AlertIcon } from './Icons'
  * each drew it from a stylesheet of its own — one copied from the other value
  * for value, beside a dialog body that already sets and spaces its sentences.
  * Both are the design system's `Alert` now: a warning with the count as its
- * title and the files in the code face (a path is a thing a reader may have
- * to retype), and a danger alert for what went wrong, where it went wrong.
+ * title and the files as a `NoteList` — names, so in the interface's face like
+ * every other file name (docs/design.md, "The code face") — and a danger alert
+ * for what went wrong, where it went wrong.
  *
  * Each takes a `className` because it sits among the dialog body's
  * paragraphs, and the body spaces only its own paragraphs.
@@ -90,14 +91,14 @@ export const IgnoredEntries = ({
       <AlertIcon />
       <AlertContent>
         <AlertTitle>{`This also deletes ${describeIgnored(changes)} git ignores here`}</AlertTitle>
-        <ul className="my-1 list-disc pl-4 font-mono text-sm break-all text-(--hd-secondary-foreground)">
+        <NoteList className="my-1 break-all">
           {changes.ignored.map((entry) => (
             <li key={entry}>{entry}</li>
           ))}
           {changes.ignoredCount > changes.ignored.length && (
-            <li className="list-none font-sans">and {changes.ignoredCount - changes.ignored.length} more</li>
+            <li className="list-none">and {changes.ignoredCount - changes.ignored.length} more</li>
           )}
-        </ul>
+        </NoteList>
         <AlertDescription>
           {gone.length > 0 && (
             <>
@@ -128,11 +129,11 @@ export const UncommittedFiles = ({
     <AlertIcon />
     <AlertContent>
       <AlertTitle>{title}</AlertTitle>
-      <ul className="my-1 list-disc pl-4 font-mono text-sm break-all text-(--hd-secondary-foreground)">
+      <NoteList className="my-1 break-all">
         {changes.files.map((file) => (
           <li key={file}>{file}</li>
         ))}
-      </ul>
+      </NoteList>
       <AlertDescription>{children}</AlertDescription>
     </AlertContent>
   </Alert>

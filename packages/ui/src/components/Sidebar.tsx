@@ -12,6 +12,7 @@ import { SessionListControls, SessionTree } from './SessionTree'
 import './TaskPanel'
 import {
   AccountMark,
+  Bar,
   Button,
   Chip,
   Dot,
@@ -22,9 +23,9 @@ import {
   MenuSeparator,
   NavigationGroupHeader,
   Popover,
+  RailSection,
   RefusedAction,
   Search,
-  Separator,
   Text,
   buttonVariants,
   type Tone,
@@ -126,21 +127,15 @@ export const Sidebar = ({
 
   return (
     <div className={styles.sidebar}>
-      <div
-        className={`${styles.titlebar} hd-drag`}
-        style={{
-          height: 'var(--hd-titlebar-height)',
-          padding: '0 var(--hd-bar-pad) 0 max(var(--hd-bar-pad), var(--titlebar-inset, 0px))',
-        }}
-      >
+      <Bar corner className="hd-drag">
         <WindowControls />
-      </div>
+      </Bar>
 
       {/* The magnifier is search, not filtering: it opens the palette over
           everything — sessions, files, agents, commands — which is what a
           magnifier at the top of a window promises. Narrowing the list is the
           Workspaces row's job, down where the list is. */}
-      <div className={`${styles.header} h-(--hd-bar-h) pr-(--hd-bar-pad) pl-(--hd-bar-ink)`}>
+      <Bar inset="ink">
         <Text role="subject" className={styles.brandMark} aria-hidden>
           <HarnessMark size={14} />
         </Text>
@@ -156,7 +151,7 @@ export const Sidebar = ({
         >
           <SearchIcon size={13} />
         </Button>
-      </div>
+      </Bar>
 
       {/* Three slots, because the top of the sidebar is the most valuable
           space in the app and only what a person reaches for *while working*
@@ -169,7 +164,7 @@ export const Sidebar = ({
           on-purpose visits. Changes lives in every conversation's header, and
           ⌘K reaches the rest. */}
       {starting && <NewSessionChoice onClose={() => setStarting(false)} />}
-      <nav className={`${styles.nav} px-(--rail) pb-(--hd-space-1)`} aria-label="Workspace actions">
+      <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
         <div className={styles.navRow}>
           <Button
             variant="navigation" size="navigation" className={styles.navItem}
@@ -218,7 +213,7 @@ export const Sidebar = ({
             <Text role="meta" numeric className={styles.navCount}>{pluginCount}</Text>
           )}
         </Button>
-      </nav>
+      </RailSection>
 
       {/* The list's own row: what the list is, the field that narrows it, and
           the two things you do to it. It sits outside the scroller so that
@@ -260,7 +255,7 @@ export const Sidebar = ({
         </Button>
       </NavigationGroupHeader>
 
-      <div className={`${styles.list} px-(--rail) pt-(--hd-space-0-5) pb-(--hd-space-3)`} ref={listRef} onScroll={onScroll}>
+      <RailSection stretch="list" className={styles.list} ref={listRef} onScroll={onScroll}>
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
           <EmptyState
             variant="inline"
@@ -274,7 +269,7 @@ export const Sidebar = ({
           />
         )}
         <SessionTree now={now} />
-      </div>
+      </RailSection>
 
       <Slot name="sidebar.panel" />
 
@@ -589,8 +584,7 @@ export const AccountFooter = ({
   )
 
   return (
-    <div className={`${styles.account} h-(--hd-bar-h) px-(--rail) py-(--hd-space-1)`} ref={accountRef}>
-      <Separator className="absolute left-0 right-0 top-0" />
+    <Bar rule="top" ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         side="right"
@@ -735,17 +729,19 @@ export const AccountFooter = ({
             </MenuItem>
             {usageOpen && usageView && (
               <div className={styles.usageDetails} data-usage-details>
-                {usageView.all.map((lane) => (
-                  <div className={`${styles.usageLane} min-h-(--hd-nav-h)`} key={lane.id}>
-                    <Text role="muted" truncate className={styles.usageLaneName}>{lane.title}</Text>
-                    <Text role="muted" tone={usageReadingTone(lane.tone)} numeric className={styles.accountMenuMeta}>
-                      {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
-                    </Text>
-                    <Text role="meta" numeric className={styles.usageLaneReset}>
-                      {lane.shortCountdown ? `in ${lane.shortCountdown}` : '—'}
-                    </Text>
-                  </div>
-                ))}
+                <div className={styles.usageLanes}>
+                  {usageView.all.map((lane) => (
+                    <div className={styles.usageLane} key={lane.id}>
+                      <Text role="muted" truncate className={styles.usageLaneName}>{lane.title}</Text>
+                      <Text role="muted" tone={usageReadingTone(lane.tone)} numeric className={styles.accountMenuMeta}>
+                        {lane.remainingPercent === null ? '—' : `${lane.remainingPercent}%`}
+                      </Text>
+                      <Text role="meta" numeric className={styles.usageLaneReset}>
+                        {lane.shortCountdown ? `in ${lane.shortCountdown}` : '—'}
+                      </Text>
+                    </div>
+                  ))}
+                </div>
                 <MenuItem
                   label="Open usage dashboard"
                   value={<ChevronIcon size={11} />}
@@ -808,7 +804,6 @@ export const AccountFooter = ({
           </Menu>
         )}
       </Popover>
-
-    </div>
+    </Bar>
   )
 }

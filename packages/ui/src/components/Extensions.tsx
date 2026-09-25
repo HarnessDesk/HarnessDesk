@@ -207,21 +207,13 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         // drops catalogue URLs, because this renderer loads no remote images.
         // `onError` stays for the one case left: a logo file that will not decode.
         plugin.logoUrl && !logoBroken ? (
-          <img
-            src={plugin.logoUrl}
-            alt=""
-            width={20}
-            height={20}
-            style={{ borderRadius: 5 }}
-            onError={() => setLogoBroken(true)}
-          />
+          <IconTile size="xs">
+            <img src={plugin.logoUrl} alt="" onError={() => setLogoBroken(true)} />
+          </IconTile>
         ) : plugin.brandColor ? (
           // No logo but an accent: the listing's own colour under its
           // initial, the way the runtime's store draws it.
-          <IconTile
-            size="xs"
-            style={{ background: plugin.brandColor, color: 'var(--hd-accent-foreground)' }}
-          >
+          <IconTile size="xs" color={plugin.brandColor}>
             <Monogram>{plugin.name.charAt(0).toUpperCase()}</Monogram>
           </IconTile>
         ) : // No logo and no accent: the glyph. Most catalogue rows land here,

@@ -1104,24 +1104,19 @@ const skillScopeLabel = (scope: string | undefined): string | null => {
  */
 const SkillMark = ({ skill, size = 15 }: { skill: SkillInfo; size?: number }) => {
   const [broken, setBroken] = useState(false)
+  // The plugin row's drawing: the logo cropped in an icon tile, else the
+  // listing's colour under its initial, at the tile step the glyph matches.
+  const tile = size >= 20 ? 'sm' : 'xs'
   if (skill.iconUrl && !broken) {
     return (
-      <img
-        src={skill.iconUrl}
-        alt=""
-        width={size + 5}
-        height={size + 5}
-        style={{ borderRadius: 5 }}
-        onError={() => setBroken(true)}
-      />
+      <IconTile size={tile}>
+        <img src={skill.iconUrl} alt="" onError={() => setBroken(true)} />
+      </IconTile>
     )
   }
   if (skill.brandColor) {
     return (
-      <IconTile
-        size="xs"
-        style={{ background: skill.brandColor, color: 'var(--hd-accent-foreground)' }}
-      >
+      <IconTile size={tile} color={skill.brandColor}>
         <Monogram>{skillTitle(skill).charAt(0).toUpperCase()}</Monogram>
       </IconTile>
     )

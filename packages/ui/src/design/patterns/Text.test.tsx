@@ -2,7 +2,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { Keycap, SearchMatch, Text } from './Settings'
+import { CodeText, Keycap, SearchMatch, Text, TextMark } from './Settings'
+import styles from './Settings.module.css'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -70,4 +71,55 @@ it('owns the keycap and matched-text roles used by search surfaces', () => {
 
   expect(container.querySelector('kbd[data-slot="keycap"]')?.textContent).toBe('esc')
   expect(container.querySelector('mark[data-slot="search-match"]')?.textContent).toBe('sett')
+})
+
+it('strikes a finished item through and steps it back, and leaves the rest alone', () => {
+  act(() => root.render(<><Text role="navigation" done>Read it</Text><Text role="navigation">Fix it</Text></>))
+  const [done, open] = [...container.querySelectorAll<HTMLElement>('[data-slot="text"]')]
+  expect(done?.hasAttribute('data-done')).toBe(true)
+  expect(done?.className).toContain('line-through')
+  expect(done?.className).toContain('opacity-60')
+  expect(open?.hasAttribute('data-done')).toBe(false)
+  expect(open?.className).not.toContain('line-through')
+})
+
+it('sets code as a block only when asked', () => {
+  act(() => root.render(<><CodeText as="pre" block>a = 1</CodeText><CodeText>inline</CodeText></>))
+  const [block, inline] = [...container.querySelectorAll<HTMLElement>('[data-slot="code-text"]')]
+  expect(block?.tagName).toBe('PRE')
+  expect(block?.hasAttribute('data-block')).toBe(true)
+  expect(inline?.hasAttribute('data-block')).toBe(false)
+  expect(styles.monoBlock).toBeTruthy()
+  expect(block?.classList.contains(styles.monoBlock!)).toBe(true)
+  expect(inline?.classList.contains(styles.monoBlock!)).toBe(false)
+})
+
+it('gives a code block a muted plate and folded lines only when asked, and never to inline code', () => {
+  act(() => root.render(<>
+    <CodeText as="pre" block ground="muted" wrap>envelope</CodeText>
+    <CodeText as="pre" block>file</CodeText>
+    <CodeText ground="muted" wrap>inline</CodeText>
+  </>))
+  const [plate, bare, inline] = [...container.querySelectorAll<HTMLElement>('[data-slot="code-text"]')]
+  expect(plate?.dataset['ground']).toBe('muted')
+  expect(plate?.hasAttribute('data-wrap')).toBe(true)
+  expect(bare?.hasAttribute('data-ground')).toBe(false)
+  expect(bare?.hasAttribute('data-wrap')).toBe(false)
+  expect(inline?.hasAttribute('data-ground')).toBe(false)
+  expect(inline?.hasAttribute('data-wrap')).toBe(false)
+  // The plate's ground and fold are the block's own rules, not the screen's.
+  expect(getComputedStyle(plate!).borderRadius).not.toBe(getComputedStyle(bare!).borderRadius)
+  expect(getComputedStyle(plate!).whiteSpace).toBe('pre-wrap')
+  expect(getComputedStyle(bare!).whiteSpace).toBe('pre')
+})
+
+it('sets a line mark in its label\'s role, one of that label\'s lines tall, the mark centred in it', () => {
+  act(() => root.render(<><TextMark><svg /></TextMark><TextMark role="value"><svg /></TextMark></>))
+  const [nav, value] = [...container.querySelectorAll<HTMLElement>('[data-mark]')]
+  expect(nav?.dataset['role']).toBe('navigation')
+  expect(value?.dataset['role']).toBe('value')
+  // The strut is what makes the box a line tall; the centring puts the mark on it.
+  expect(nav?.firstChild?.textContent).toBe('\u200b')
+  expect(nav?.className).toContain('items-center')
+  expect(nav?.getAttribute('aria-hidden')).toBe('true')
 })

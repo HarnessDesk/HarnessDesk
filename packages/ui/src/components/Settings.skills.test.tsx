@@ -135,3 +135,18 @@ it('a scope that is really a scanned folder is not worn as a label', () => {
   ])
   expect(container.textContent).not.toContain('/Users/someone/repo')
 })
+
+it("draws a skill's colour and its logo as the plugin rows do, on the icon tile", () => {
+  mount([
+    { name: 'figma', description: 'Has a colour.', enabled: true, path: '/s/figma', scope: 'user', brandColor: '#7a5af8' } as SkillInfo,
+    { name: 'linear', description: 'Has a logo.', enabled: true, path: '/s/linear', scope: 'user', iconUrl: 'data:image/png;base64,AA==' } as SkillInfo,
+  ])
+  const tiles = [...container.querySelectorAll<HTMLElement>('[data-slot="icon-tile"]')]
+  const coloured = tiles.find((tile) => tile.hasAttribute('data-color'))
+  expect(coloured?.style.getPropertyValue('--tile-color')).toBe('#7a5af8')
+  expect(coloured?.getAttribute('style') ?? '').not.toContain('background')
+  expect(coloured?.textContent).toBe('F')
+  const logo = tiles.find((tile) => tile.querySelector('img'))
+  expect(logo).toBeDefined()
+  expect(logo?.querySelector('img')?.getAttribute('style')).toBeNull()
+})

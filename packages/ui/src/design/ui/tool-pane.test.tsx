@@ -1,8 +1,11 @@
 import { act } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import {
+  ToolPaneGuest,
+  ToolPaneStage,
   ToolPane,
   ToolPaneActivity,
   ToolPaneActivityMark,
@@ -92,4 +95,30 @@ it('owns the bars, messages, document tabs, activity and footer anatomy', () => 
   expect(container.querySelector('[data-slot="tool-pane-tab-viewport"]')?.hasAttribute('data-more-end')).toBe(true)
   expect(container.querySelector('[data-slot="tool-pane-notice"]')?.getAttribute('data-placement')).toBe('bottom')
   expect(container.querySelector('button')?.textContent).toBe('Reload')
+})
+
+it('grounds a guest page on the white a page assumes, whatever the theme', () => {
+  const guest = renderToStaticMarkup(<ToolPaneGuest title="page" src="about:blank" />)
+  expect(guest).toMatch(/^<iframe/)
+  expect(guest).toContain('bg-(--hd-external-canvas)')
+  expect(guest).not.toContain('bg-(--hd-card)')
+  expect(guest).not.toContain('data-framed')
+  expect(guest).not.toContain('shadow-(--hd-hairline)')
+
+  const framed = renderToStaticMarkup(<ToolPaneGuest as="webview" framed src="about:blank" />)
+  expect(framed).toMatch(/^<webview/)
+  expect(framed).toContain('data-framed')
+  expect(framed).toContain('rounded-(--hd-radius-sm)')
+  expect(framed).toContain('shadow-(--hd-hairline)')
+})
+
+it('sets a device-sized guest on the muted stage, and leaves an unframed stage bare', () => {
+  const bare = renderToStaticMarkup(<ToolPaneStage>guest</ToolPaneStage>)
+  expect(bare).not.toContain('bg-(--hd-muted)')
+  expect(bare).not.toContain('data-framed')
+
+  const framed = renderToStaticMarkup(<ToolPaneStage framed>guest</ToolPaneStage>)
+  expect(framed).toContain('data-framed')
+  expect(framed).toContain('bg-(--hd-muted)')
+  expect(framed).toContain('justify-center')
 })

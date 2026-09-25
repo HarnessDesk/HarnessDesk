@@ -223,4 +223,31 @@ const ListRows = ({
   />
 )
 
-export { ListRow, ListRows }
+/**
+ * What a row opens under itself — a file's patch, and what to do with it.
+ *
+ * One drawing for every list that unfolds a row in place: the inspector's
+ * Changes list and a commit's file list in the history pane. It starts a
+ * short step under the row and leaves a longer one before the next, so it
+ * reads as the row's and not as the start of the next.
+ *
+ * `inset` is where the list's rows keep their words. A list whose rows reach
+ * its edges (the inspector's) lets the detail reach them too, so a patch's
+ * edges carry on the row's; a list whose rows stand on an inner line (a
+ * commit's files) sets the detail on that line, and gives it the longer
+ * closing step its rows, which have no gap between them, do not.
+ */
+const ListRowDetail = ({
+  className,
+  inset = false,
+  ...props
+}: React.ComponentProps<'div'> & { inset?: boolean }) => (
+  <div
+    data-slot="list-row-detail"
+    {...(inset ? { 'data-inset': '' } : {})}
+    className={cn('pt-1', inset ? 'px-3 pb-3' : 'pb-2', className)}
+    {...props}
+  />
+)
+
+export { ListRow, ListRowDetail, ListRows }

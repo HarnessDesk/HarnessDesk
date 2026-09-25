@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
-import { ListRow } from './list-row'
+import { ListRow, ListRowDetail } from './list-row'
 
 it('lets an earned sentence wrap instead of cutting it into a caption', () => {
   const markup = renderToStaticMarkup(
@@ -44,4 +44,19 @@ it('keeps multiple lead marks beside rather than over one another', () => {
   expect(markup).toContain('data-slot="list-row-lead"')
   expect(markup).toContain('inline-flex')
   expect(markup).toContain('gap-2')
+})
+
+it('opens a row detail at the row\'s edges, or on the list\'s inner line when inset', () => {
+  const edge = renderToStaticMarkup(<ListRowDetail>patch</ListRowDetail>)
+  // A step under the row and a longer one before the next, no side inset.
+  expect(edge).toContain('pt-1')
+  expect(edge).toContain('pb-2')
+  expect(edge).not.toContain('px-3')
+  expect(edge).not.toContain('data-inset')
+
+  const inset = renderToStaticMarkup(<ListRowDetail inset>patch</ListRowDetail>)
+  expect(inset).toContain('data-inset')
+  expect(inset).toContain('px-3')
+  expect(inset).toContain('pb-3')
+  expect(inset).not.toContain('pb-2')
 })

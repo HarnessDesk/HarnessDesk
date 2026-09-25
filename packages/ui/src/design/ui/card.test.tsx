@@ -160,3 +160,31 @@ it('draws the plate card from the app card family, with its hairline inside the 
   expect(card?.className).not.toMatch(/(^|\s)border(\s|$)/)
   expect(card?.className).toContain('p-3')
 })
+
+it('bounds a lines viewport at the height it is given, and scrolls past it', () => {
+  act(() => root.render(<CardViewport size="lines" maxHeight={96}>code</CardViewport>))
+  const viewport = container.querySelector<HTMLElement>('[data-slot="card-viewport"]')
+  expect(viewport?.dataset['size']).toBe('lines')
+  expect(viewport?.style.maxHeight).toBe('96px')
+  expect(viewport?.className).toContain('overflow-auto')
+  expect(viewport?.className).not.toContain('h-44')
+})
+
+it('sets a cell flush right in figures when its column is aligned to the end', () => {
+  act(() => root.render(
+    <table><tbody><TableRow><TableCell>name</TableCell><TableCell align="end">12</TableCell></TableRow></tbody></table>,
+  ))
+  const [start, end] = [...container.querySelectorAll<HTMLElement>('[data-slot="table-cell"]')]
+  expect(start?.dataset['align']).toBe('start')
+  expect(start?.className).not.toContain('text-right')
+  expect(end?.dataset['align']).toBe('end')
+  expect(end?.className).toContain('text-right')
+  expect(end?.className).toContain('tabular-nums')
+})
+
+it('caps a panel section at the column\'s allotment for panels', () => {
+  act(() => root.render(<Section variant="panel">panel</Section>))
+  expect(container.querySelector('[data-slot="section"]')?.className).toContain('max-h-(--panel-max,none)')
+  act(() => root.render(<Section variant="plain">plain</Section>))
+  expect(container.querySelector('[data-slot="section"]')?.className).not.toContain('max-h-')
+})
