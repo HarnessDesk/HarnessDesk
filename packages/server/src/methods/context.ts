@@ -407,6 +407,20 @@ export interface HostContext {
     /** The top of the checkout a folder is in — a linked worktree's own — or null outside git. */
     topLevel(path: string): Promise<string | null>
     /**
+     * `path`, with every symlink in it resolved — the same comparison key
+     * `#openWorkspace` (host.ts) puts on `WorkspaceEntry.realPath` (#907), and
+     * on the persisted `WorkspaceRecord` it stores (#943, `state.ts`) so a
+     * non-git folder opened through an alias still has something to compare
+     * its own sessions against once the open workspace it was opened with is
+     * replaced by a remembered entry — after a reload or a relaunch. A
+     * comparison key only: never a launch path, never an input to anything
+     * that reads or writes. `workspace/recent` calls this live only for the
+     * one entry that also carries fresh git facts; every other entry reads
+     * the key it was given when it was last opened, never resolving it again
+     * here.
+     */
+    realPath(path: string): Promise<string>
+    /**
      * Refuses a folder for a room, where it works and where its flows are read
      * from, unless it is in a folder or a repository opened here, links
      * resolved. A relative one is refused.
