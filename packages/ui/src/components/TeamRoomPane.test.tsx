@@ -1467,6 +1467,57 @@ it("the room's own live line names who is waiting for your approval, ahead of an
   expect(line.textContent).toBe('Codex is waiting for your approval')
 })
 
+/** More than one member holding a question is a count, not a fact the line drops (#917). */
+it("the room's own live line counts every waiting member, not only the first", async () => {
+  const { store } = rig()
+  const withApprovals = {
+    ...store.getSnapshot(),
+    approvals: [
+      { key: sessionKey('codex', 'c1'), approval: { id: 'a1', type: 'command', kind: 'shell', command: 'ls -la', cwd: '/repo' } },
+      { key: sessionKey('claude', 'k1'), approval: { id: 'a2', type: 'command', kind: 'shell', command: 'rm -rf tmp', cwd: '/repo' } },
+    ] as never,
+  }
+  Object.assign(store, { getSnapshot: () => withApprovals })
+  await render(store)
+
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe('Codex is waiting for your approval · 1 more')
+  expect(line.getAttribute('title')).toBe('Codex\nOpus')
+})
+
+/** A flow a person started carries no trigger status, so its own stop reason is what the live line has left to read (#917). */
+it("names a person-started flow's own stop reason on the live line, since no trigger status carries one for it", async () => {
+  const execution: FlowExecution = {
+    version: 2, id: 'run-1', goal: ROOM, document: FLOW_DOCUMENT, state: 'stopped',
+    rounds: [], operations: [], legacyRun: null, reason: 'Nobody has been in the room for a while.',
+  }
+  const { store } = rig(undefined, undefined, {}, GOAL, new Map([['run-1', execution]]))
+  await render(store)
+
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.textContent).toBe('Nobody has been in the room for a while.')
+  expect(line.getAttribute('data-kind')).toBe('stop')
+})
+
+/**
+ * The header reads "Needs you" over "Stopped" for an open person wait
+ * (`runState`'s own ternary order); the live line now agrees, rather than
+ * naming the stop while the header already moved past it.
+ */
+it('agrees with the header rather than naming a stop reason when a stopped run still has an open person wait', async () => {
+  const { store } = triggerRig([], { stop: { reason: 'needs a person', detail: 'It needs a person.', at: Date.now() } }, [
+    wait({ id: 'w1', kind: 'question', waitingOn: { kind: 'person', label: 'you' }, sentence: 'A Seat asked a question and nobody answered in time.' }),
+  ])
+  await render(store)
+  await act(async () => {})
+
+  expect(container.querySelector('header')!.textContent).toContain('Needs you')
+  const line = container.querySelector('[data-slot="room-live-line"]')!
+  expect(line.getAttribute('data-kind')).toBe('wait')
+  expect(line.textContent).toContain('A Seat asked a question and nobody answered in time.')
+  expect(line.textContent).not.toContain('It needs a person.')
+})
+
 /**
  * The owner's own design for #905's four body elements: nothing sits between
  * the one-row header and the conversation — the origin line, the budget
@@ -1663,7 +1714,12 @@ const triggerRig = (approvals: readonly unknown[], budget: Record<string, unknow
     snapshot = { ...snapshot, approvals: next as never }
     for (const listener of listeners) listener()
   }
-  return { store, respondToApproval, raise }
+  /** A `trigger/attention` push landing in `snapshot.triggerAttention`, the way the real one does. */
+  const raiseAttention = (attention: { readonly id: string }): void => {
+    snapshot = { ...snapshot, triggerAttention: { ...snapshot.triggerAttention, [attention.id]: attention as never } }
+    for (const listener of listeners) listener()
+  }
+  return { store, respondToApproval, raise, raiseAttention, triggerGoal }
 }
 
 /** A key pressed where focus actually is — the event starts at that element and bubbles, as a real keystroke does. */
@@ -1886,8 +1942,28 @@ it('a budget stop names its exact reason on the live line, reads Stopped, and ke
   await act(async () => {})
 
   expect(container.querySelector('header')!.textContent).toContain('Stopped')
-  expect(container.querySelector('[data-slot="room-live-line"]')!.textContent).toBe('Out of budget. The daily cap was reached before this round closed.')
+  // The host's own detail already carries the label ("Out of budget: …"), so
+  // it is shown alone rather than after intakeStopWords's own "Out of
+  // budget." — which said the same thing twice on a real host (#917).
+  expect(container.querySelector('[data-slot="room-live-line"]')!.textContent).toBe('The daily cap was reached before this round closed.')
   expect(container.querySelector('[data-slot="room-budget"]')!.textContent).toContain('$3.80 left')
+})
+
+/**
+ * A `trigger/attention` push for this Goal re-asks right away rather than
+ * waiting out the slow poll — without shortening that poll itself, which
+ * still exists at its own 60s (never a faster interval added beside it).
+ */
+it("refreshes this Goal's waits the moment a trigger/attention push touches it, not once a minute", async () => {
+  const { store, triggerGoal, raiseAttention } = triggerRig([])
+  await render(store)
+  await act(async () => {})
+  const before = triggerGoal.mock.calls.length
+
+  act(() => raiseAttention(wait({})))
+  await act(async () => {})
+
+  expect(triggerGoal.mock.calls.length).toBeGreaterThan(before)
 })
 
 /**

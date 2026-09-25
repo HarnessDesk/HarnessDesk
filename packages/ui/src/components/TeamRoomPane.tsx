@@ -5,6 +5,7 @@ import {
   isBusy,
   sessionKey,
   splitSessionKey,
+  type FlowExecution,
   type Intent,
   type TeamActor,
   type TeamEntry,
@@ -271,6 +272,22 @@ export const TeamRoomPane = ({
   const triggerKind = goal?.goal.origin.kind === 'trigger'
   const goalId = goal?.goal.id ?? null
   const [triggerStatus, setTriggerStatus] = useState<TriggerGoalStatus | null>(null)
+  /**
+   * The live half of the refresh below: `trigger/attention` pushes every wait
+   * this window is told about into `snapshot.triggerAttention` the moment it
+   * opens or clears, so a signal of this Goal's own entries — not the whole
+   * map, which moves for every Goal's waits — re-asks right away rather than
+   * leaving a new or cleared wait to wait out the slow poll below it.
+   */
+  const attentionSignal = useMemo(
+    () =>
+      Object.values(snapshot.triggerAttention)
+        .filter((one) => one.goal === goalId)
+        .map((one) => `${one.id}:${one.resolvedAt ?? ''}`)
+        .sort()
+        .join('|'),
+    [snapshot.triggerAttention, goalId],
+  )
   useEffect(() => {
     if (!goalId || !triggerKind) { setTriggerStatus(null); return }
     let live = true
@@ -284,14 +301,16 @@ export const TeamRoomPane = ({
     // A budget's spend and its clock move on their own, between board
     // mutations that would otherwise be the only thing that re-asks. Once a
     // minute is enough to keep the composer's meter honest without asking
-    // the host on every render of a ticking second hand.
+    // the host on every render of a ticking second hand — the wait itself
+    // does not wait on this: `attentionSignal` above re-runs this effect,
+    // and so this same `read`, the moment a wait opens or clears.
     const timer = window.setInterval(read, 60_000)
     return () => { live = false; window.clearInterval(timer) }
     // Keyed on the Goal's own id, not the `GoalView` object: that object is a
     // fresh reference on every board mutation — a chat post, a claim signal,
     // anything — and refetching this on every one of them asked the host the
     // same question dozens of times a minute for a status that changes rarely.
-  }, [store, goalId, triggerKind])
+  }, [store, goalId, triggerKind, attentionSignal])
   const originStatus = triggerStatus && triggerStatus.goal === goalId ? triggerStatus : null
   const mount = useMount()
   /**
@@ -1315,7 +1334,7 @@ export const TeamRoomPane = ({
               })}
             </div>
           ) : (
-            <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} />
+            <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} />
           )}
         </div>
       </div>
@@ -1753,6 +1772,7 @@ const RoomLiveLine = ({
   snapshot,
   now,
   triggerStatus,
+  flowExecution,
   room,
 }: {
   readonly members: readonly Member[]
@@ -1760,20 +1780,47 @@ const RoomLiveLine = ({
   readonly now: number
   /** A trigger Goal's own status: its named waits and its stop reason live here, on this one line. */
   readonly triggerStatus: TriggerGoalStatus | null
+  /** A stop reason for a run this Goal's own trigger never opened — a flow a person started. */
+  readonly flowExecution: FlowExecution | null
   readonly room: string
 }) => {
   const store = useStore()
-  const waiting = members.find((one) => snapshot.approvals.some((entry) => entry.key === one.key))
+  /* Every member with a question for you now, roster order — not only the
+     first. One is shown; the rest are counted on it and named in full on
+     hover, the same rule the run's other waits already keep below. */
+  const allWaiting = members.filter((one) => snapshot.approvals.some((entry) => entry.key === one.key))
+  const waiting = allWaiting[0]
   /* The order a person needs them in: a member holding a question for you
-     now; why the run stopped; what else the run is waiting on, a person
-     first; and only then who is merely working. One line — the rest of the
+     now; what else the run is waiting on, a person first; why the run
+     stopped; and only then who is merely working. One line — the rest of the
      run's waits are counted on it, and named in full on its hover. */
-  const stop = triggerStatus?.budget?.stop ?? null
   const waits = openTriggerWaits(triggerStatus)
-  if (!waiting && stop) {
+  /* A stop reason from either source, said once: the host's own `detail` is
+     already a full sentence (`Out of budget: …`, `Timed out: …`) with the
+     label baked in, so it is shown alone rather than after
+     `intakeStopWords`'s own label — which is only a fallback for a stop with
+     no detail to give. A flow a person started carries no `TriggerGoalStatus`
+     at all, so its own `reason` is read directly once there is no trigger
+     stop to prefer. */
+  const stopText = triggerStatus?.budget?.stop
+    ? triggerStatus.budget.stop.detail || intakeStopWords(triggerStatus.budget.stop.reason)
+    : flowExecution?.state === 'stopped' && flowExecution.reason
+      ? flowExecution.reason
+      : null
+  /* The header's own chip (`runState`, above) answers "Needs you" before
+     "Stopped" — a person wait outranks a stop the run has already settled
+     into, because it is the more urgent of the two facts. `waits` is sorted
+     person-first (`openTriggerWaits`), so its own head tells us whether one
+     is open: only then does the live line skip the stop line and agree with
+     the header, rather than the two surfaces telling different stories about
+     the same run. A stop with no open person wait still wins here even when
+     a non-person wait exists, matching the header, which does not raise
+     "Needs you" for one either. */
+  const personWaiting = waits[0]?.waitingOn.kind === 'person'
+  if (!waiting && stopText && !personWaiting) {
     return (
       <div data-slot="room-live-line" data-kind="stop" className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}>
-        <Text role="meta">{intakeStopWords(stop.reason)} {stop.detail}</Text>
+        <Text role="meta">{stopText}</Text>
       </div>
     )
   }
@@ -1807,10 +1854,15 @@ const RoomLiveLine = ({
   const turn = session ? currentTurn(session) : undefined
   const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
   return (
-    <div data-slot="room-live-line" className={`${styles.trouble} flex items-center gap-(--hd-space-1-5)`}>
+    <div
+      data-slot="room-live-line"
+      className={`${styles.trouble} flex items-center gap-(--hd-space-1-5)`}
+      title={waiting && allWaiting.length > 1 ? allWaiting.map((one) => one.peer.nickname).join('\n') : undefined}
+    >
       {waiting ? <Dot state="limit" pulse /> : <Spinner size="sm" tone="brand" />}
       <Text role="meta">
         {subject.peer.nickname} {waiting ? 'is waiting for your approval' : 'is working'}
+        {waiting && allWaiting.length > 1 && ` · ${allWaiting.length - 1} more`}
         {elapsed !== null && ` · ${formatDuration(elapsed)}`}
       </Text>
     </div>
@@ -1874,6 +1926,7 @@ const Room = ({
   onShow,
   pendingApproval,
   triggerStatus,
+  flowExecution,
 }: {
   readonly room: string
   /**
@@ -1901,6 +1954,8 @@ const Room = ({
   readonly pendingApproval: Member | null
   /** For the composer's own budget meter — null off a plain room, or a Goal a person started. */
   readonly triggerStatus: TriggerGoalStatus | null
+  /** For the live line's stop reason, on a run this Goal's own trigger never opened. */
+  readonly flowExecution: FlowExecution | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -2141,7 +2196,7 @@ const Room = ({
           the stream and the composer under it — `.trouble`'s own measure,
           which already answers "docked between the two, same width as
           both" for the same reason. */}
-      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} room={room} />
+      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} room={room} />
 
       {/* Two different failures, both said out loud. `problem` is the host's:
           it could not keep the board, so what is on screen may not survive a
