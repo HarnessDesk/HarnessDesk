@@ -108,8 +108,8 @@ export const FindingCarry = ({ source }: { readonly source: GoalView }) => {
               {unresolved.map((one) => (
                 <label key={one.id} className="flex items-center gap-2">
                   <Switch checked={chosen.has(one.id)} disabled={pending} aria-label={`Carry ${one.id}`} onCheckedChange={() => toggle(one.id)} />
-                  <CodeText>{one.id}</CodeText>
                   <Text as="span" role="value" truncate>{one.title || 'Untitled finding'}</Text>
+                  <CodeText className="shrink-0">{one.id}</CodeText>
                 </label>
               ))}
             </div>
