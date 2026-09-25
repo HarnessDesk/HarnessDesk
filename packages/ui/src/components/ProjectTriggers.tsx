@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
-import { Button, Chip, Dialog, EmptyState, Field, NativeSelect, Note, Row, RowButton, Rows, SectionHead, Switch } from '../design'
+import { Button, Chip, Dialog, EmptyState, Field, NativeSelect, Note, Row, RowButton, Rows, Section, Switch } from '../design'
 import { triggerProblemPlace, triggerSentence, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -125,12 +125,11 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
 
   if ('problem' in read) {
     return (
-      <section aria-label="Triggers">
-        <SectionHead name="Triggers" />
+      <Section title="Triggers">
         <Rows>
           <Row title="Its triggers could not be read" desc={read.problem} />
         </Rows>
-      </section>
+      </Section>
     )
   }
 
@@ -138,8 +137,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
 
   if (!view.exists) {
     return (
-      <section aria-label="Triggers">
-        <SectionHead name="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>} />
+      <Section title="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
         <Rows>
           <EmptyState
             variant="row"
@@ -169,13 +167,12 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
             }}
           />
         )}
-      </section>
+      </Section>
     )
   }
 
   return (
-    <section aria-label="Triggers">
-      <SectionHead name="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>} />
+    <Section title="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
       <Note>
         {`Read from ${shortPath(view.path, snapshot.home)}, as committed. Nothing here runs until you arm it on this machine.`}
       </Note>
@@ -259,7 +256,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           }}
         />
       )}
-    </section>
+    </Section>
   )
 }
 

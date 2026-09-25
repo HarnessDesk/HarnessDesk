@@ -69,7 +69,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
       <SectionHead name="Historical seat costs" />
       {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <>
         <Rows>
-          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." wrapDesc /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
+          {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." wrapDesc /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={seat.briefDigest ? 'Recorded brief cohort' : 'Brief cohort unavailable'} control={<RowValue numeric>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
           {failedSources.map((source) => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} wrapDesc control={<Chip tone="warning">Unavailable</Chip>} />)}
         </Rows>
         {/* A gap belongs to the whole read, not to one row, and Note carries
@@ -83,7 +83,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
       {orderProblem && !preview ? <Note tone="warn">{orderProblem}</Note> : null}
       {preview && <Dialog title="Review local seat order" onClose={() => setPreview(null)} footer={<><Button disabled={!preview.stamp || applying} onClick={() => void apply()}>{applying ? 'Saving…' : 'Apply order'}</Button><Button variant="secondary" disabled={applying} onClick={() => setPreview(null)}>Cancel</Button></>}>
         <Note>This changes the order on this machine for this Agent ID.</Note>
-        <Rows><Row title="Current order" control={<RowValue>{preview.labels.join(', ')}</RowValue>} /><Row title="Proposed order" control={<RowValue>{preview.proposed.map((seat) => seat.model ?? seat.runtime).join(', ')}</RowValue>} /><Row title="Recorded cost" desc={metricWords(preview.report.leftPerGoalUsd, preview.report.sources, Date.now()).source} control={<RowValue>{metricWords(preview.report.leftPerGoalUsd, preview.report.sources, Date.now()).value}</RowValue>} /></Rows>
+        <Rows><Row title="Current order" control={<RowValue>{preview.labels.join(', ')}</RowValue>} /><Row title="Proposed order" control={<RowValue>{preview.proposed.map((seat) => seat.model ?? seat.runtime).join(', ')}</RowValue>} /><Row title="Recorded cost" desc={metricWords(preview.report.leftPerGoalUsd, preview.report.sources, Date.now()).source} control={<RowValue numeric>{metricWords(preview.report.leftPerGoalUsd, preview.report.sources, Date.now()).value}</RowValue>} /></Rows>
         {preview.reason ? <Note tone="warn">{preview.reason}</Note> : null}{orderProblem ? <Note tone="warn">{orderProblem}</Note> : null}
       </Dialog>}
     </section>

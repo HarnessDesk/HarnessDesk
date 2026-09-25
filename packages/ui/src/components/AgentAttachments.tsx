@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AgentAttachmentsView, AgentEntry, AttachmentEditPreview, AttachmentReview } from '@harnessdesk/protocol'
 
-import { Banner, Button, CodeText, ConfirmDialog, Dialog, Note, Checkbox, Row, Rows, SectionHead } from '../design'
+import { Banner, Button, CodeText, ConfirmDialog, Dialog, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { DiffView } from './Diff'
 
@@ -17,8 +17,21 @@ import { DiffView } from './Diff'
  * entry is still done the existing way, in the file itself ("Open in
  * editor"): this dialog edits what is there, it does not add to it from a
  * search a person has not been shown yet.
+ *
+ * Returns a bare fragment of `SummaryItem`s, meant as a direct child of the
+ * Agent page's own `SummaryList` — never a `Banner` of its own: a `<dl>`'s
+ * subgrid has no room for one, and a failed read still has to be said
+ * somewhere. `onProblem` hands that read-failure to the caller, which draws
+ * it outside the list, once, rather than in place of the row it would
+ * otherwise stand in.
  */
-export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
+export const AgentAttachments = ({
+  entry,
+  onProblem,
+}: {
+  readonly entry: AgentEntry
+  readonly onProblem?: (problem: string | null) => void
+}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [view, setView] = useState<AgentAttachmentsView | null>(null)
@@ -37,7 +50,15 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
     return () => { live = false }
   }, [entry.id, entry.origin, store])
 
-  if (problem) return <Banner tone="danger" title="Attachments could not be read">{problem}</Banner>
+  useEffect(() => {
+    onProblem?.(problem)
+    // Cleared on unmount too — a page that stops showing this Agent must not
+    // go on showing a Banner for it.
+    return () => onProblem?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problem])
+
+  if (problem) return null
   if (!view) return null
 
   const skillNames = view.declarations.filter((one) => one.kind === 'skill').map((one) => one.name)
@@ -51,26 +72,28 @@ export const AgentAttachments = ({ entry }: { readonly entry: AgentEntry }) => {
 
   return (
     <>
-      <SectionHead name="Skills" />
-      <Rows>
-        <Row
-          title={view.skillsMode === 'runtime-defaults' ? 'Runtime defaults' : skillNames.join(', ')}
-          control={editable ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit…</Button> : undefined}
-        />
-      </Rows>
-      <SectionHead name="Servers" />
-      <Rows>
-        <Row
-          title={view.mcpMode === 'runtime-defaults' ? 'Runtime defaults' : mcpNames.join(', ')}
-          control={editable ? <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit…</Button> : undefined}
-        />
-        {loadable && anyCapable && snapshot.workspace && (
-          <Row
-            title={`Review what this Agent would load in ${snapshot.workspace.name}`}
-            control={<Button size="sm" variant="outline" onClick={() => setReviewing(true)}>Review & Approve…</Button>}
-          />
-        )}
-      </Rows>
+      <SummaryItem
+        label="Skills"
+        {...(editable ? { action: <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit…</Button> } : {})}
+      >
+        {view.skillsMode === 'runtime-defaults' ? 'Runtime defaults' : skillNames.join(', ')}
+      </SummaryItem>
+      <SummaryItem
+        label="Servers"
+        {...(editable ? { action: <Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit…</Button> } : {})}
+        {...(loadable && anyCapable && snapshot.workspace
+          ? {
+              note: (
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  {`Review what this Agent would load in ${snapshot.workspace.name}`}
+                  <Button size="sm" variant="outline" onClick={() => setReviewing(true)}>Review & Approve…</Button>
+                </span>
+              ),
+            }
+          : {})}
+      >
+        {view.mcpMode === 'runtime-defaults' ? 'Runtime defaults' : mcpNames.join(', ')}
+      </SummaryItem>
       {editing && (
         <AttachmentEditDialog
           entry={entry}

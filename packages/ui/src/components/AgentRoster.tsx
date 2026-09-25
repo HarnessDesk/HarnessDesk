@@ -18,7 +18,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
-import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, SectionHead } from '../design'
+import { Button, Chip, Note, PageHead, Row, RowButton, RowValue, Rows, Section } from '../design'
 import styles from './AgentRoster.module.css'
 
 /**
@@ -130,8 +130,7 @@ export const AgentsRosterSection = ({
           winner.shadows.filter((one) => one.origin === origin).map((one) => ({ winner, path: one.path })),
         )
         return (
-          <section key={origin} aria-label={heading}>
-            <SectionHead name={heading} />
+          <Section key={origin} title={heading}>
             <Rows>
               {rows.length === 0 && shadowed.length === 0 && <Row title={EMPTY[origin]} />}
               {rows.map((entry) => (
@@ -154,7 +153,7 @@ export const AgentsRosterSection = ({
               ))}
             </Rows>
             <Note>{footnote(origin, snapshot)}</Note>
-          </section>
+          </Section>
         )
       })}
       {creating && (
@@ -302,8 +301,7 @@ const AuthoringPendingSection = () => {
   }
 
   return (
-    <section aria-label="Unfinished saves">
-      <SectionHead name="Unfinished saves" />
+    <Section title="Unfinished saves">
       <Rows>
         {pending.map((one) => (
           <Row
@@ -325,6 +323,6 @@ const AuthoringPendingSection = () => {
         ))}
       </Rows>
       {problem && <Note tone="bad">{problem}</Note>}
-    </section>
+    </Section>
   )
 }

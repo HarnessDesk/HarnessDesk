@@ -475,7 +475,16 @@ it('shows Remove’s own refusal in its dialog on a server-only host, and stays 
 
 /* --- On this Mac (Task 16) ------------------------------------------------ */
 
-const section = (label: string): string => container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? ''
+/**
+ * A named region's own text — a real `<section aria-label>` for most of the
+ * page, or, for a fact folded into the page-grammar batch's "Agent"
+ * `SummaryList` (File, Ceiling), the `SummaryItem` whose own `<dt>` reads
+ * this label exactly.
+ */
+const summaryItem = (label: string): HTMLElement | null =>
+  [...container.querySelectorAll('[data-slot="summary-item"]')].find((one) => one.querySelector('dt')?.textContent === label) as HTMLElement | null
+const section = (label: string): string =>
+  container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? summaryItem(label)?.textContent ?? ''
 /** Move up/down/remove live behind each "On this Mac" row's own "… actions" menu, in row order. */
 const seatMenus = (): HTMLButtonElement[] => [
   ...container.querySelectorAll<HTMLButtonElement>('section[aria-label="On this Mac"] [aria-label$=" actions"]'),
@@ -756,7 +765,7 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
 
 it('a legacy Agent’s Ceiling row offers one action, never both Update… and an always-refusing Edit…', () => {
   mount({ focus: 'code-reviewer' })
-  const ceiling = container.querySelector('section[aria-label="Ceiling"]')!
+  const ceiling = summaryItem('Ceiling')!
   const labels = [...ceiling.querySelectorAll('button')].map((one) => one.textContent?.trim())
   expect(labels).toContain('Update…')
   expect(labels).not.toContain('Edit…')
@@ -845,7 +854,7 @@ it('a migrated Agent’s ceiling offers Edit… beside the legacy Update…, thr
 
   // Nothing to update: this Agent already reads `ceiling:`.
   expect(section('Ceiling')).not.toContain('Update…')
-  const edit = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Ceiling"] button')].find((one) => one.textContent?.trim() === 'Edit…')
+  const edit = [...(summaryItem('Ceiling')?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((one) => one.textContent?.trim() === 'Edit…')
   if (!edit) throw new Error('no Edit… on the Ceiling row')
   // Disabled until its document is read — the digest an edit previews against.
   await vi.waitFor(() => expect(edit.hasAttribute('disabled')).toBe(false))
