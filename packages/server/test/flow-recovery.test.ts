@@ -143,16 +143,31 @@ const counts = (events: readonly string[]) => ({
 
 test('crash at each dispatch boundary preserves work without guessing', async (t) => {
   type Rig = Awaited<ReturnType<typeof goalRig>>
+  /* A restart's one act of its own: the Seats' turns went with the desk, so
+     each card still open on a running run is handed back to its Seat once,
+     under a key of its own (#915). Everything else is counted without them. */
+  const handedBack = (rig: Rig): number =>
+    rig.executions.runs().flatMap((run) => run.operations).filter((one) => one.key.includes(':relaunch:')).length
+  const sent = (rig: Rig) => {
+    const all = counts(rig.events)
+    return { opens: all.opens, orders: all.orders - handedBack(rig) }
+  }
   const twice = async (rig: Rig) => {
     const shapes: string[] = []
+    const back: number[] = []
+    let open = 0
     for (let restart = 0; restart < 2; restart += 1) {
+      const [was] = rig.executions.runs()
+      open = was?.state === 'running' ? rig.board(was.goal).intents.filter((card) => card.state !== 'done' && card.state !== 'abandoned').length : 0
       await rig.restart()
       await rig.flows.resume()
       await rig.flows.flush()
       const [run] = rig.executions.runs()
-      shapes.push(JSON.stringify({ ...counts(rig.events), cards: run ? rig.board(run.goal).intents.length : 0, state: run?.state, rounds: run?.rounds.length }))
+      shapes.push(JSON.stringify({ ...sent(rig), cards: run ? rig.board(run.goal).intents.length : 0, state: run?.state, rounds: run?.rounds.length }))
+      back.push(handedBack(rig))
     }
-    assert.equal(shapes[0], shapes[1], 'a second restart changes nothing')
+    assert.equal(shapes[0], shapes[1], 'a second restart opens, sends, adds and decides nothing new')
+    assert.equal(back[1]! - back[0]!, open, 'and hands each card still open back to its Seat, once')
     return rig.executions.runs()[0]!
   }
 
@@ -161,10 +176,10 @@ test('crash at each dispatch boundary preserves work without guessing', async (t
     const rig = await goalRig(t)
     rig.files.dieWhen = (run) => run.rounds.length === 1 && run.rounds[0]!.cards.length === 0
     await rig.start(TWO_STAGES, AGENTS)
-    assert.deepEqual(counts(rig.events), { opens: 0, orders: 0 })
+    assert.deepEqual(sent(rig), { opens: 0, orders: 0 })
     const run = await twice(rig)
     assert.equal(run.state, 'running')
-    assert.deepEqual(counts(rig.events), { opens: 1, orders: 1 })
+    assert.deepEqual(sent(rig), { opens: 1, orders: 1 })
     assert.equal(rig.board(run.goal).intents.length, 1)
   }
   // After the card is on the board but before its id is written: the replay finds it by its key.
@@ -175,7 +190,7 @@ test('crash at each dispatch boundary preserves work without guessing', async (t
     assert.equal(rig.board(started.goal).intents.length, 1)
     const run = await twice(rig)
     assert.equal(rig.board(run.goal).intents.length, 1, 'no second card')
-    assert.deepEqual(counts(rig.events), { opens: 1, orders: 1 })
+    assert.deepEqual(sent(rig), { opens: 1, orders: 1 })
   }
   // After the Seat opened and claimed its card, before that was written: its claim names it.
   {
@@ -184,7 +199,7 @@ test('crash at each dispatch boundary preserves work without guessing', async (t
     await rig.start(TWO_STAGES, AGENTS)
     const run = await twice(rig)
     assert.equal(run.state, 'running')
-    assert.deepEqual(counts(rig.events), { opens: 1, orders: 1 }, 'the Seat is adopted, not opened again')
+    assert.deepEqual(sent(rig), { opens: 1, orders: 1 }, 'the Seat is adopted, not opened again')
     assert.equal(run.operations.find((one) => one.key === 'seat:1:0')?.seat, 'seat-1')
   }
   // A conversation opened but its claim never landed: nothing says which Seat it is, so a person decides.
@@ -196,7 +211,7 @@ test('crash at each dispatch boundary preserves work without guessing', async (t
     const run = await twice(rig)
     assert.equal(run.state, 'stalled')
     assert.match(run.reason ?? '', /interrupted while the desk was stopped/)
-    assert.deepEqual(counts(rig.events), { opens: 1, orders: 0 })
+    assert.deepEqual(sent(rig), { opens: 1, orders: 0 })
   }
   // After the order was sent, before that was written: never sent a second time.
   {
@@ -206,7 +221,7 @@ test('crash at each dispatch boundary preserves work without guessing', async (t
     const run = await twice(rig)
     assert.equal(run.state, 'stalled')
     assert.match(run.reason ?? '', /may not have reached its Seat/)
-    assert.deepEqual(counts(rig.events), { opens: 1, orders: 1 })
+    assert.deepEqual(sent(rig), { opens: 1, orders: 1 })
   }
   // After the result, before the round's close was written: the board decides again, once.
   {
@@ -219,7 +234,7 @@ test('crash at each dispatch boundary preserves work without guessing', async (t
     assert.equal(rig.board(started.goal).intents.length, 1)
     const run = await twice(rig)
     assert.deepEqual(run.rounds.map((round) => [round.cause, round.state]), [['seed', 'closed'], ['after:1:review', 'running']])
-    assert.deepEqual(counts(rig.events), { opens: 2, orders: 2 })
+    assert.deepEqual(sent(rig), { opens: 2, orders: 2 })
     assert.equal(rig.board(run.goal).intents.length, 2)
   }
 })

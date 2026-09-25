@@ -89,6 +89,8 @@ export const intakeDesk = async (options: {
    * shipped default seat anyone at all.
    */
   readonly runtime?: 'holds' | 'asks'
+  /** Runs on the fake agent after it is registered and before the host starts. */
+  readonly before?: (runtime: FakeRuntime) => void
 } = {}): Promise<IntakeDesk> => {
   const repo = options.repo ?? await makeRepo('hd-intake-host-')
   if (!options.repo && options.triggers !== null) await commitTriggers(repo, options.triggers ?? TRIGGERS)
@@ -114,6 +116,7 @@ export const intakeDesk = async (options: {
   })
   const runtime = options.runtime === 'asks' ? new FakeRuntime({ capabilities: { metered: true } }) : holding()
   host.register(runtime)
+  options.before?.(runtime)
   const pushed: WireNotification[] = []
   host.addBroadcaster((notification) => { pushed.push(notification) })
   await host.start()
