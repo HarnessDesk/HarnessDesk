@@ -60,7 +60,6 @@ import {
   CodeText,
   DetailMark,
   DetailHead,
-  DisclosureChevron,
   Dot,
   Field,
   FormStack,
@@ -79,7 +78,6 @@ import {
   Section,
   SectionHead,
   Segmented,
-  Separator,
   SummaryItem,
   SummaryList,
   Switch,
@@ -487,19 +485,16 @@ const AgentBlock = ({
   return (
     <Rows className={styles.agent} {...(open ? { 'data-open': '' } : {})}>
       {/* Two targets, not one: the agent's name opens what belongs to the
-          runtime — health, version, behaviour — and the caret only decides
-          whether its accounts are on screen. Nesting them would make one of
-          the two unreachable. */}
-      <div className={styles.head}>
-        {/* The tagline rides on hover here. This card is about an agent you
+          runtime — health, version, behaviour — and the fold at the row's end
+          only decides whether its accounts are on screen. Nesting them would
+          make one of the two unreachable, so the row draws them side by side.
+
+          The tagline rides on hover here. This card is about an agent you
             already chose and installed; a definition of it cannot change what
             you do on a page for managing its accounts, and the one line it had
             was set to nowrap, so a longer one arrived cut. It still shows in
             full where choosing is the actual task — the Add a runtime list
             below, first run, and sign-in. */}
-        {/* Wrapped so it is its row's last child: the card draws the one
-            rule under an open head, and a closed card ends on its own edge. */}
-        <span className={styles.headOpenCell}>
         <RowButton
           className={styles.headOpen}
           onClick={onOpenAgent}
@@ -524,26 +519,15 @@ const AgentBlock = ({
             {count !== null && <Text role="muted" ink="muted" className="whitespace-nowrap">{count}</Text>}
             {state !== 'ready' && <Chip state={state} />}
           </span>}
+          fold={{
+            open,
+            onToggle,
+            label: `${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`,
+          }}
         />
-        </span>
-        {/* The fold is the head's other target, and its mark stands in the
-            column the chevrons of the account rows under it stand in. */}
-        <span className={styles.headToggle}>
-          <Button
-            type="button"
-            variant="quiet" size="icon"
-            aria-expanded={open}
-            aria-label={`${open ? 'Hide' : 'Show'} the accounts under ${info.presentation.name}`}
-            onClick={onToggle}
-          >
-            <DisclosureChevron open={open} size="lg" />
-          </Button>
-        </span>
-      </div>
 
       {open && (
       <>
-      <Separator />
       <div className={styles.list}>
         {rows.map(({ entry, account }) => {
           const key = accountKey(entry.id, account)

@@ -879,6 +879,46 @@
   font: inherit;
 }
 
+/* A row that opens and also folds (`RowButton fold`): the button and the fold
+   share the row's line, its inset and its one rule. The rule is the pair's,
+   so it runs under the fold too, and a card's last row draws none. */
+.rowFolding {
+  display: flex;
+  align-items: stretch;
+  border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+}
+
+.rowFolding:last-child {
+  border-bottom: none;
+}
+
+.rowFolding > .rowButton {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+  padding-inline-end: var(--hd-space-2); /* desk: var(--hd-card-padding) → var(--hd-space-2), the fold holds the row's end and the card's inset */
+}
+
+.rowFoldEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding-inline-end: var(--hd-card-padding);
+}
+
+/* The fold is a toggle, not a menu: the row's hover, and no fill for open —
+   its mark already says which way it is. */
+.rowFold {
+  display: inline-grid;
+  grid-template-columns: 1fr;
+  place-items: center;
+  width: var(--hd-btn-h);
+  height: var(--hd-btn-h);
+  border: none;
+  border-radius: var(--hd-btn-radius);
+  color: inherit;
+}
+
 /* Column, not row: the title and its description are two lines, and a flex
    parent would otherwise set them side by side. */
 .rowText {

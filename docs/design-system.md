@@ -1526,6 +1526,13 @@ row buttons) keeps its card, its edge and its ground.
 
 The same row, when the whole line opens something.
 
+With a `fold`, the row is two targets on one line: the button that opens,
+and at its end a fold that shows or hides what the row holds, wearing the
+trailing disclosure mark — down while folded, up while open — so it never
+reads as the drill-in chevron. The row keeps its inset and its one rule
+around both: the rule is the pair's, drawn under it unless it is its card's
+last row, as any row's is.
+
 ### `RowChoice`
 
 `packages/ui/src/design/patterns/Settings.tsx`

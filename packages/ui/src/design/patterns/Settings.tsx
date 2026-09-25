@@ -8,6 +8,7 @@ import { AlertIcon, ArrowLeftIcon, CheckIcon, ChevronIcon, CrossIcon, DiffIcon, 
 import { HarnessMark } from '../../components/BrandIcons'
 import { avatarSrc } from '../../lib/avatars'
 import { ToggleGroup, ToggleGroupItem } from '../ui/toggle-group'
+import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { buttonVariants } from '../ui/button'
 import { Input } from '../ui/input'
 import { IconTile } from '../ui/icon-tile'
@@ -1042,7 +1043,28 @@ export const Row = ({
   </div>
 )
 
-/** The same row, when the whole line opens something. */
+/**
+ * What a row that opens something also folds in place: the accounts under an
+ * agent. The fold is a second target at the row's end, beside the button
+ * rather than inside it.
+ */
+export interface RowFold {
+  readonly open: boolean
+  readonly onToggle: () => void
+  /** The fold's name, which says what it shows or hides. */
+  readonly label: string
+}
+
+/**
+ * The same row, when the whole line opens something.
+ *
+ * With a `fold`, the row is two targets on one line: the button that opens,
+ * and at its end a fold that shows or hides what the row holds, wearing the
+ * trailing disclosure mark — down while folded, up while open — so it never
+ * reads as the drill-in chevron. The row keeps its inset and its one rule
+ * around both: the rule is the pair's, drawn under it unless it is its card's
+ * last row, as any row's is.
+ */
 export const RowButton = ({
   mark,
   title,
@@ -1051,6 +1073,7 @@ export const RowButton = ({
   control,
   onClick,
   chevron = true,
+  fold,
   className,
   ...rest
 }: {
@@ -1062,6 +1085,8 @@ export const RowButton = ({
   control?: ReactNode
   onClick: () => void
   chevron?: boolean
+  /** A fold at the row's end, beside the button. */
+  fold?: RowFold
   className?: string
   /*
    * Anything else the caller needs on the button itself — `data-slot`, an
@@ -1070,33 +1095,54 @@ export const RowButton = ({
    * `border-bottom` and `.row:last-child`, so a wrapper around each row
    * makes every one of them a last child and the list loses every rule.
    */
-} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'className'>) => (
-  <Button variant="row" size="pattern"
-    type="button"
-    className={cx(styles.row, styles.rowButton, className)}
-    onClick={onClick}
-    {...rest}
-  >
-    {mark ? <span className={styles.rowMark}>{mark}</span> : null}
-    <span className={styles.rowText}>
-      <span className={styles.rowTitle}>{title}</span>
-      {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
-    </span>
-    {/* The control and the chevron are one trailing item, so a row too narrow
-        for them beside the title wraps them together and they keep the row's
-        end on either line. */}
-    {control || chevron ? (
-      <span className={styles.rowEnd}>
-        {control ? <span className={styles.rowCtl}>{control}</span> : null}
-        {chevron ? (
-          <span className={styles.rowChev}>
-            <ChevronIcon size={15} />
-          </span>
-        ) : null}
+} & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'onClick' | 'className'>) => {
+  const button = (
+    <Button variant="row" size="pattern"
+      type="button"
+      className={cx(styles.row, styles.rowButton, className)}
+      onClick={onClick}
+      {...rest}
+    >
+      {mark ? <span className={styles.rowMark}>{mark}</span> : null}
+      <span className={styles.rowText}>
+        <span className={styles.rowTitle}>{title}</span>
+        {desc ? <span className={cx(styles.rowDesc, wrapDesc && styles.rowDescWrap)} data-wrap={wrapDesc || undefined}>{desc}</span> : null}
       </span>
-    ) : null}
-  </Button>
-)
+      {/* The control and the chevron are one trailing item, so a row too narrow
+          for them beside the title wraps them together and they keep the row's
+          end on either line. */}
+      {control || (chevron && !fold) ? (
+        <span className={styles.rowEnd}>
+          {control ? <span className={styles.rowCtl}>{control}</span> : null}
+          {chevron && !fold ? (
+            <span className={styles.rowChev}>
+              <ChevronIcon size={15} />
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+    </Button>
+  )
+  if (!fold) return button
+  return (
+    <div className={styles.rowFolding} data-slot="row-folding" {...(fold.open ? { 'data-open': '' } : {})}>
+      {button}
+      <span className={styles.rowFoldEnd}>
+        <Button
+          variant="row"
+          size="pattern"
+          type="button"
+          className={styles.rowFold}
+          aria-expanded={fold.open}
+          aria-label={fold.label}
+          onClick={fold.onToggle}
+        >
+          <DisclosureChevron open={fold.open} placement="trailing" size="lg" />
+        </Button>
+      </span>
+    </div>
+  )
+}
 
 /**
  * A row that is one of several answers to the same question.

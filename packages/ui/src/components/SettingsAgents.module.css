@@ -1,5 +1,5 @@
 /* One agent as one card: the header names the runtime, the body holds the
-   accounts under it, and the caret decides whether the body is on screen.
+   accounts under it, and the fold decides whether the body is on screen.
    Two clicks, two different pages — the name opens the agent, a row opens
    the account. */
 
@@ -9,21 +9,6 @@
    because it opens to hold its own accounts, and that is all this says now. */
 .agent {
   margin-bottom: var(--hd-space-2-5);
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  gap: 0; /* desk: var(--hd-space-3) → 0, the name's row keeps its own inset and the fold meets it */
-}
-
-/* The name's row, alone in a cell of its own so it is its row's last child:
-   a settings row draws its rule under itself unless it is last, and here the
-   card draws the one rule under an open head. */
-.headOpenCell {
-  flex: 1;
-  min-width: 0;
-  display: flex;
 }
 
 /* The name half of the header. It is a button because it opens a page — the
@@ -54,16 +39,6 @@
   display: flex;
   align-items: center;
   gap: var(--hd-space-2-5); /* desk: 10 → var(--hd-space-2-5), on the scale */
-}
-
-.headToggle {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  /* Its mark stands where a row button's chevron does — on the card's inset,
-     centred in the chevron's width — so the fold and the account rows' own
-     chevrons under it make one column. */
-  width: calc(var(--hd-card-padding) * 2 + 15px); /* desk: 26px → 47px, the fold's cell reaches the card's edge and centres on the chevron column */
 }
 
 /* The account rows. Not a `Rows` card — the card is the agent, and a second
