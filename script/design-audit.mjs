@@ -48,7 +48,7 @@ const BASELINE = path.join(root, 'packages/ui/src/design/audit-baseline.json')
  * that has reached the floor is an ordinary category, and holding it at a
  * ceiling of nought would say the same thing in a more complicated way.
  */
-const BURN_DOWN = new Set(['patternClass', 'screenAppearance', 'uppercaseLabel'])
+const BURN_DOWN = new Set(['patternClass', 'screenAppearance', 'singleAreaPrimitive', 'uppercaseLabel'])
 
 /**
  * Everywhere UI is written, not just the screens.
@@ -1731,6 +1731,7 @@ const findings = {
   rawWeight: [],
   patternClass: [],
   screenAppearance: [],
+  singleAreaPrimitive: [],
   uppercaseLabel: [],
   screenUnclassified: [],
   visualKindUnion: [],
@@ -1766,97 +1767,160 @@ export const visualKindUnionsOf = (source) => {
 }
 
 /**
- * The screen family a source belongs to.
- *
- * Most screens own their basename. The Git surface is deliberately spread
- * across several source files, so its recorded family prefixes collapse to
- * one area. A new multi-file family has to be named here; an unknown screen
- * must never become `null`, because `null` used to exempt every non-Git
- * consumer from the single-area pattern ledger.
- *
- * Git was the only family named until #914: a pattern only the conversation
- * transcript's files used still read as cross-area, because Items,
- * Conversation, TurnWork and StepGroup were each their own area. Every family
- * below is named the same way Git was checked, not derived from an import
- * walk — deriving from "every screen the family's root imports" would also
- * pull in whatever else that root happens to mount (Settings.tsx alone mounts
- * a dozen unrelated sections), so each family here is the answer to "which
- * files are reachable *only* as part of this one screen", checked by hand
- * against the real import graph, not a naming coincidence.
+ * Every value import in one source: named (`{ X, Y as Z }`), default (`X`),
+ * namespace (`* as X`), or default-and-named together (`X, { Y }`) — never a
+ * whole-statement `import type ...`, and never a `type X` specifier inside an
+ * otherwise-value import. A type import names a shape, not a use:
+ * `CommandPalette.tsx` and `Sidebar.tsx` both `import type { Section } from
+ * './Settings'`, and counting that as importing Settings.tsx made a pattern
+ * used only by Settings.tsx read as shared with whichever screen merely
+ * borrowed its type (#914 review, P2). Shared by the screen-family closure
+ * below and `designImportsOf` further down, so both read imports the same
+ * way.
  */
+export const importsIn = (code) => {
+  const found = []
+  const IMPORT = /\bimport\s+(?!type(?:\s|\{))([\s\S]*?)\s*from\s*['"]([^'"]+)['"]/g
+  for (const match of code.matchAll(IMPORT)) {
+    const clause = match[1].trim()
+    const spec = match[2]
+    const bindings = []
+    const braceStart = clause.indexOf('{')
+    const before = (braceStart === -1 ? clause : clause.slice(0, braceStart)).replace(/,\s*$/, '').trim()
+    for (const part of before.split(',').map((piece) => piece.trim()).filter(Boolean)) {
+      const namespaceImport = /^\*\s+as\s+(\w+)$/.exec(part)
+      if (namespaceImport) bindings.push({ kind: 'namespace', localBinding: namespaceImport[1] })
+      else if (/^\w+$/.test(part)) bindings.push({ kind: 'default', name: 'default', localBinding: part })
+    }
+    if (braceStart !== -1) {
+      const named = clause.slice(braceStart + 1, clause.lastIndexOf('}'))
+      for (const part of named.split(',')) {
+        const trimmed = part.trim()
+        if (!trimmed || /^type\s+/.test(trimmed)) continue
+        const words = trimmed.split(/\s+as\s+/)
+        const name = words[0]?.trim()
+        const localBinding = words.at(-1)?.trim()
+        if (name && localBinding) bindings.push({ kind: 'named', name, localBinding })
+      }
+    }
+    if (bindings.length > 0) found.push({ spec, bindings })
+  }
+  return found
+}
+
+/** A screen's own stylesheet, as opposed to the system's. Moved up from
+ * further down this file so the closure below, which needs it to find the
+ * screen files in the first place, can run before anything asks
+ * `screenAreaOf` a question. */
+const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
 
 /**
- * The conversation transcript, spread across seven files exactly as #914
- * named them: the turn list (Items) grew a peer/tool/step vocabulary of its
- * own, split into StepGroup and TurnWork; TurnFiles is the attached-file
- * rail, Trajectory the token/time readout, ConversationMap the scroll
- * overview. All seven are reachable only from Conversation.tsx (or from each
- * other) — never from a second, unrelated screen.
+ * The pane registry mounts screens; it is not a screen family of its own, and
+ * it never hosts one. Every pane is registered in `panels/builtins.tsx`, so
+ * treating it as a real importer made every pane's pattern cross-area — and,
+ * later, would have folded every registered screen into one family (#912:
+ * GitHistory's only consumer is GitPane, and it read as shared with the
+ * registry). Its imports are skipped outright when the family graph below is
+ * built, rather than filtered back out at every query site.
  */
-const CONVERSATION_FAMILY = /^components\/(?:Items|Conversation|TurnWork|StepGroup|TurnFiles|Trajectory|ConversationMap)(?:\.|$)/
+const PANE_REGISTRIES = new Set(['panels/builtins.tsx'])
+const isPaneRegistry = (file) => PANE_REGISTRIES.has(path.relative(UI_SRC, file).split(path.sep).join('/'))
 
 /**
- * Settings is one page with three sections it alone mounts: SettingsAgents,
- * SettingsCeilings and SettingsYou. Everything else Settings.tsx also
- * renders — Archive, Library, Plugins, Extensions, ProjectPage, LaneSettings,
- * TriggerSettings — has its own door elsewhere in the app (a project's lane
- * and trigger settings are reached from the project, not only from here), so
- * none of those are named here: folding them in would merge screens that are
- * not the same one.
+ * A screen file's own name, lowercased — the family every screen falls back
+ * to when nothing hosts it, or when what hosts it does not agree on one.
  */
-const SETTINGS_FAMILY = /^components\/Settings(?:Agents|Ceilings|You)?(?:\.|$)/
-
-/**
- * The agent roster window, one chain top to bottom: AgentsWindow mounts
- * AgentRoster, which mounts AgentNew and AgentPage, which mounts
- * AgentSeatCosts, AgentAttachments, AgentFields and AgentNotes. Nothing here
- * is reachable any other way.
- *
- * AgentCards (hover cards shown from the sidebar, the room, Publication and
- * SessionTree) and `Agents.tsx` (one session's own delegated sub-agents,
- * shown in the right-dock inspector via `Details.tsx`) share the word
- * "Agent" but are different screens entirely, and neither is named here —
- * #914 asked for an "Agents/Goals" family, but merging either of those in
- * would be exactly the false merge the single-area rule exists to avoid.
- */
-const AGENT_ROSTER_FAMILY = /^components\/(?:AgentsWindow|AgentRoster|AgentPage|AgentNew|AgentSeatCosts|AgentAttachments|AgentFields|AgentNotes)(?:\.|$)/
-
-/**
- * The room's board is not a separate screen from its chat — TeamRoomPane
- * embeds TeamBoardPane directly — and every Goal* and Finding* file below is
- * reached only through one or the other of them (checked against the real
- * import graph, not assumed from the name: GoalCreate, reached from
- * NewSessionChoice, and GoalMigrationBanner, reached from the app's own
- * chrome, are *not* included, and stay their own areas). These are the
- * "Goals" half of #914's "Agents/Goals" ask; they are named for the screen
- * they are actually part of — the room — rather than folded into
- * `AGENT_ROSTER_FAMILY` above, which is a different screen they never appear
- * in.
- */
-const ROOM_FAMILY = /^components\/(?:TeamRoomPane|TeamBoardPane|GoalAssign|GoalFindings|GoalHeader|GoalReceipt|GoalReceiptCost|GoalWrap|RoomComposer|FindingCarry|FindingDecision|FindingDetail|FindingPublications|FindingRoundStatus)(?:\.|$)/
-
-export const screenAreaOf = (file) => {
+const defaultAreaOf = (file) => {
   const relative = path.relative(UI_SRC, file).split(path.sep).join('/')
-  if (/^components\/(?:Git|Branch|Changes|Details(?:\.|$)|NewWorktree)/.test(relative)) return 'git'
-  if (CONVERSATION_FAMILY.test(relative)) return 'conversation'
-  if (SETTINGS_FAMILY.test(relative)) return 'settings'
-  if (AGENT_ROSTER_FAMILY.test(relative)) return 'agentroster'
-  if (ROOM_FAMILY.test(relative)) return 'room'
   const match = /^(?:components|slots|panels)\/([^/]+)\.tsx$/.exec(relative)
   return match?.[1]?.toLowerCase() ?? null
 }
 
 /**
- * The pane registry mounts screens; it is not a screen family of its own.
- * Following a consumer into its hosts is right when the host is another
- * screen (a pattern used by Approvals, which the room also embeds, is used in
- * two places), but every pane is registered in `panels/builtins.tsx`, so
- * counting the registry as a host made every pane's pattern cross-area — and
- * the single-area pass below counted nothing at all (#912: GitHistory's only
- * consumer is GitPane, and it read as shared with the registry).
+ * Every screen file that value-imports another screen file, excluding the
+ * pane registry as a source (see `isPaneRegistry` above) — the graph the
+ * closure below walks, and the same graph `singleScreenAreaOf` walks one hop
+ * at a time for a pattern's own consumers.
  */
-const PANE_REGISTRIES = new Set(['panels/builtins.tsx'])
-const isPaneRegistry = (file) => PANE_REGISTRIES.has(path.relative(UI_SRC, file).split(path.sep).join('/'))
+const screenSources = tsxFiles().filter((candidate) => isScreenSheet(candidate))
+export const importersByFile = new Map()
+for (const importer of screenSources) {
+  if (isPaneRegistry(importer)) continue
+  for (const { spec, bindings } of importsIn(codeOf(importer))) {
+    if (bindings.length === 0) continue
+    if (!spec.startsWith('.') && !spec.startsWith('@/')) continue
+    const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(path.dirname(importer), spec)
+    const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
+    if (!tracked.has(imported) || !isScreenSheet(imported)) continue
+    importersByFile.set(imported, [...(importersByFile.get(imported) ?? []), importer])
+  }
+}
+
+/**
+ * The screen family a source belongs to.
+ *
+ * A handful of screens are named roots: not because their file is special,
+ * but because they are the one screen a reader would actually call this
+ * family, and a closure has to start somewhere. Every other screen's family
+ * is the closure of single-host files: a screen file whose value importers
+ * (in `importersByFile` above) all already resolve to the *same* one family
+ * belongs to it too, iterated to a fixed point (#914 review, P2) — so a file
+ * hosted only by a root's own child inherits the root two hops later, and a
+ * file with no host, or with hosts that disagree, keeps its own name
+ * (`defaultAreaOf`). `familyOf` memoizes every screen file once; `visiting`
+ * only guards one resolution's own recursion against a cycle, returning the
+ * file's own name rather than looping forever (none exists in the tree
+ * today, but a graph should not assume its input has none).
+ *
+ * Deriving this from the import graph, rather than asserting membership by
+ * hand, is what caught two wrong assumptions the first pass made: Trajectory
+ * is not reachable from Conversation.tsx at all — its one real importer is
+ * Details.tsx, which is itself unhosted, so Trajectory (and Activity.tsx and
+ * the inspector's own Agents.tsx, Details's other two children) fold into
+ * `details`, not `conversation`. And Branch/Changes/NewWorktree were never
+ * Git's: `BranchSwitcher.tsx`'s one real importer is Conversation.tsx (a
+ * branch switcher lives in the transcript's own header), and
+ * `ChangesReview.tsx`/`NewWorktree.tsx` are reached only from `app/App.tsx`,
+ * which is not a screen source at all, so they stay their own areas.
+ * `GitDialogs`, `GitAskAgent`, `GitGraph`, `GitWorktrees` and
+ * `CommitProvenance` are GitPane's real children and close onto `git`
+ * correctly. `LaneSettings` and `TriggerSettings` are imported only by
+ * Settings.tsx and close onto `settings` the same way.
+ */
+export const NAMED_ROOTS = new Map([
+  [path.join(UI_SRC, 'components', 'Conversation.tsx'), 'conversation'],
+  [path.join(UI_SRC, 'components', 'Settings.tsx'), 'settings'],
+  [path.join(UI_SRC, 'components', 'TeamRoomPane.tsx'), 'room'],
+  [path.join(UI_SRC, 'components', 'TeamBoardPane.tsx'), 'room'],
+  [path.join(UI_SRC, 'components', 'AgentsWindow.tsx'), 'agentroster'],
+  [path.join(UI_SRC, 'components', 'GitPane.tsx'), 'git'],
+  [path.join(UI_SRC, 'panels', 'Workbench.tsx'), 'workbench'],
+])
+
+const familyOf = new Map()
+const resolveFamily = (file, visiting) => {
+  if (familyOf.has(file)) return familyOf.get(file)
+  if (NAMED_ROOTS.has(file)) {
+    const area = NAMED_ROOTS.get(file)
+    familyOf.set(file, area)
+    return area
+  }
+  if (visiting.has(file)) return defaultAreaOf(file)
+  visiting.add(file)
+  const importers = importersByFile.get(file) ?? []
+  const area = importers.length === 0
+    ? defaultAreaOf(file)
+    : (() => {
+        const families = new Set(importers.map((importer) => resolveFamily(importer, visiting)))
+        return families.size === 1 ? [...families][0] : defaultAreaOf(file)
+      })()
+  visiting.delete(file)
+  familyOf.set(file, area)
+  return area
+}
+for (const file of screenSources) resolveFamily(file, new Set())
+
+export const screenAreaOf = (file) => familyOf.get(file) ?? defaultAreaOf(file)
 
 /** One owning screen area, or `null` when a pattern is genuinely cross-area. */
 export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
@@ -1891,9 +1955,6 @@ export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
  * different check from this one.
  */
 const PATTERN_STEMS = new Set(['empty'])
-
-/** A screen's own stylesheet, as opposed to the system's. */
-const isScreenSheet = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
 
 /**
  * Specialized renderers whose appearance is their content rather than a role.
@@ -2301,11 +2362,26 @@ const enclosingScopes = (node) => {
 /** A `const`/`let`/`var` declared directly in `scope`'s own statement list —
  * not in a nested block, which is a different scope with its own turn in
  * `enclosingScopes`. */
+/**
+ * A `const`/`let`/`var` or an `export function` declared directly in
+ * `scope`'s own statement list. A function declaration has no `.initializer`
+ * of its own, so it is normalized to the same `{ initializer, pos }` shape a
+ * `const` already has — `.initializer` is its body block, the subtree a
+ * caller scopes an appearance or a usage check into — with `parent: null`
+ * marking it as not reassignable the way a `const` is not (`nearestDeclaration`
+ * below reads that rather than `declaration.parent.flags`, which a synthetic
+ * node does not have). `export function` composers were invisible here
+ * before #914 review's P3: a design pattern written that way lost its
+ * design-to-design reach entirely.
+ */
 const directDeclarationIn = (scope, name) => {
   for (const statement of scope.statements) {
-    if (!ts.isVariableStatement(statement)) continue
-    for (const declaration of statement.declarationList.declarations) {
-      if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) return declaration
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) return declaration
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name?.text === name && statement.body) {
+      return { initializer: statement.body, pos: statement.pos, parent: null }
     }
   }
   return null
@@ -2336,7 +2412,7 @@ const nearestDeclaration = (refNode, name) => {
   for (const scope of enclosingScopes(refNode)) {
     const declaration = directDeclarationIn(scope, name)
     if (!declaration) continue
-    if ((declaration.parent.flags & ts.NodeFlags.Const) !== 0) {
+    if (!declaration.parent || (declaration.parent.flags & ts.NodeFlags.Const) !== 0) {
       return { pos: declaration.pos, nodes: [declaration.initializer] }
     }
     const assignments = []
@@ -3350,6 +3426,11 @@ for (const file of [...cssFiles(), ...tsxFiles()]) {
  */
 const moduleFileFor = (spec, fromDir) => {
   if (!spec.startsWith('.') && !spec.startsWith('@/')) return null
+  // A spec carrying some other extension (`./X.module.css`, an SVG, a JSON
+  // fixture) names a real file this must not try to parse as TypeScript — a
+  // default import of a CSS module used to reach here and crash the whole
+  // audit trying to read style rules as source code (#914 review, P3).
+  if (/\.[A-Za-z0-9]+$/.test(spec) && !/\.tsx?$/.test(spec)) return null
   const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(fromDir, spec)
   if (fs.existsSync(base) && fs.statSync(base).isDirectory()) {
     for (const name of ['index.ts', 'index.tsx']) {
@@ -3419,6 +3500,16 @@ export const exportedNamesOf = (file, seen = new Set()) => {
   for (const match of code.matchAll(/^export\s+(?:function|class)\s+([A-Za-z_$][\w$]*)/gm)) {
     byName.set(match[1], { file, localName: match[1] })
   }
+  // `export default function Name(...)` and `export default Name` (a local
+  // declared earlier and exported by name at the bottom) — the two default
+  // shapes with a name this can point `directDeclarationIn` at. A fully
+  // anonymous default (`export default () => …`) has no name to resolve to
+  // and is left unmapped, the same way a dynamic reference this cannot
+  // follow anywhere else in this file is (#914 review, P3).
+  const defaultFunction = /^export\s+default\s+(?:async\s+)?function\s+([A-Za-z_$][\w$]*)/m.exec(code)
+  const defaultIdentifier = /^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s*$/m.exec(code)
+  const defaultName = defaultFunction?.[1] ?? defaultIdentifier?.[1]
+  if (defaultName) byName.set('default', { file, localName: defaultName })
   // A footer re-export with no `from` — InspectorPanel.tsx declares Counts,
   // GroupLine, PanelRow and the rest as local `const`s and exports them all
   // together at the bottom. The lookahead excludes the "from" shape above so
@@ -3452,17 +3543,29 @@ export const exportedNamesOf = (file, seen = new Set()) => {
  */
 export const designImportsOf = (file) => {
   const found = []
-  for (const match of codeOf(file).matchAll(/\bimport\s+(?:type\s+)?\{([\s\S]*?)\}\s*from\s*['"]([^'"]+)['"]/g)) {
-    const target = moduleFileFor(match[2], path.dirname(file))
+  const code = codeOf(file)
+  const isDesignFile = (target) => target.file.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)
+  let ast = null
+  for (const { spec, bindings } of importsIn(code)) {
+    const target = moduleFileFor(spec, path.dirname(file))
     if (!target) continue
     const exported = exportedNamesOf(target)
-    for (const part of match[1].split(',')) {
-      const words = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/)
-      const importedName = words[0]?.trim()
-      const localBinding = words.at(-1)?.trim()
-      if (!importedName || !localBinding) continue
-      const ref = exported.get(importedName)
-      if (ref && ref.file.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) found.push({ ...ref, localBinding })
+    for (const binding of bindings) {
+      if (binding.kind === 'namespace') {
+        // `import * as D from 'x'` reaches for whichever exports its own
+        // `D.X` (or `<D.X>`) sites name in `file` — found the same way a
+        // CSS-module binding's `styles.X` sites are, over the whole file
+        // rather than assumed used just because the import exists (#914
+        // review, P3).
+        ast ??= parseScreenSource(file, code)
+        for (const name of moduleClassReferences(ast, binding.localBinding)) {
+          const ref = exported.get(name)
+          if (ref && isDesignFile(ref)) found.push({ ...ref, localBinding: `${binding.localBinding}.${name}` })
+        }
+        continue
+      }
+      const ref = exported.get(binding.name)
+      if (ref && isDesignFile(ref)) found.push({ ...ref, localBinding: binding.localBinding })
     }
   }
   return found
@@ -3525,24 +3628,171 @@ export const moduleClassReferences = (root, bindingName) => {
  * `AppWindowSurface`, `AppWindowRail` and `AppWindowPage` do not (#914
  * review, transitive design-to-design use below).
  */
+/**
+ * Which of `ast`'s own top-level EXPORTED declarations reference `localName`
+ * anywhere in their own subtree — directly, a JSX tag or a bare identifier,
+ * not a `styles.X` property access (`moduleClassReferences`'s job, just
+ * above) — or *transitively*, through a local (unexported) helper component
+ * or function it calls, resolved to that helper's own body rather than
+ * stopping at its name (#914 review, P3: a composer that delegates its own
+ * drawing to a private helper must not read as not composing anything).
+ * Every top-level `const`/`function`, exported or not, is collected first so
+ * a helper's own uses can be found; `usesLocalName`'s `visiting` guards
+ * against two helpers calling each other in a cycle.
+ */
 export const exportsReferencing = (ast, localName) => {
-  const found = []
+  // `localName` names a namespace member (`D.RailSection`, from a namespace
+  // import's own `moduleClassReferences`-found access) when it carries a
+  // dot; matched as the property access it actually is, not as a single
+  // identifier whose text happens to contain one (#914 review, P3).
+  const namespaceAccess = localName.includes('.') ? localName.split('.') : null
+  const namesTarget = (node) =>
+    namespaceAccess
+      ? ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+        && node.expression.text === namespaceAccess[0] && node.name.text === namespaceAccess[1]
+      : ts.isIdentifier(node) && node.text === localName
+  const declarations = new Map()
+  const exportedNames = new Set()
+  const isExported = (modifiers) => modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
   for (const statement of ast.statements) {
-    if (!ts.isVariableStatement(statement)) continue
-    for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
-      let used = false
+    if (ts.isVariableStatement(statement)) {
+      const exported = isExported(statement.modifiers)
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+        declarations.set(declaration.name.text, declaration.initializer)
+        if (exported) exportedNames.add(declaration.name.text)
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      declarations.set(statement.name.text, statement.body)
+      if (isExported(statement.modifiers)) exportedNames.add(statement.name.text)
+    }
+  }
+
+  const usesCache = new Map()
+  const usesLocalName = (name, visiting) => {
+    if (usesCache.has(name)) return usesCache.get(name)
+    if (visiting.has(name)) return false
+    visiting.add(name)
+    const body = declarations.get(name)
+    const helperCalls = new Set()
+    let found = false
+    if (body) {
       const visit = (node) => {
-        if (used) return
-        if (ts.isIdentifier(node) && node.text === localName) { used = true; return }
+        if (found) return
+        if (namesTarget(node)) { found = true; return }
+        if (ts.isIdentifier(node) && node.text !== name && declarations.has(node.text)) helperCalls.add(node.text)
         ts.forEachChild(node, visit)
       }
-      visit(declaration.initializer)
-      if (used) found.push(declaration.name.text)
+      visit(body)
+    }
+    if (!found) {
+      for (const helper of helperCalls) {
+        if (usesLocalName(helper, visiting)) { found = true; break }
+      }
+    }
+    usesCache.set(name, found)
+    return found
+  }
+
+  const found = []
+  for (const name of exportedNames) {
+    if (usesLocalName(name, new Set())) found.push(name)
+  }
+  return found
+}
+
+/**
+ * Every dynamic `import('spec')` inside one of `ast`'s own top-level
+ * exported declarations — written directly, or wrapped in `lazy(() =>
+ * import('spec'))` — resolved to the target file it names. Which of the
+ * target's exports the caller actually destructures is not visible here
+ * (`const { X } = await import(...)`, `.then((m) => m.X)`, a bare default —
+ * any of these could follow), so a dynamic import this cannot resolve to
+ * specific names is read as reaching for the target's *entire* surface:
+ * conservative, because it can only ever add a consumer a design part
+ * genuinely has, never remove one it does not (#914 review, P3).
+ */
+export const dynamicImportUsesOf = (ast, fromDir) => {
+  const found = []
+  const isDynamicImportCall = (node) => ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
+  const visit = (node, exportName) => {
+    if (isDynamicImportCall(node)) {
+      const argument = node.arguments[0]
+      if (argument && ts.isStringLiteral(argument)) {
+        const target = moduleFileFor(argument.text, fromDir)
+        if (target) found.push({ exportName, target })
+      }
+    }
+    ts.forEachChild(node, (child) => visit(child, exportName))
+  }
+  for (const statement of ast.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const exported = statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+      if (!exported) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) visit(declaration.initializer, declaration.name.text)
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      if (statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) visit(statement.body, statement.name.text)
     }
   }
   return found
 }
+
+/**
+ * Every CSS-module class name referenced anywhere in a module, mapped to the
+ * set of top-level declarations — `const` or `function`, exported or not —
+ * that reference it. A class two or more declarations reach for is shared
+ * vocabulary, not one export's own appearance, even when each reference sits
+ * lexically inside a different export's own body: `Settings.tsx`'s
+ * `RowMark` alone draws `.rowMark`, but so do `Row` and `RowButton` in the
+ * same file, and those are used everywhere. Charging `.rowMark` to
+ * `RowMark`'s single area regardless was the false positive #914 review
+ * found (P1).
+ */
+export const classOwnersOf = (ast, stylesBinding) => {
+  const owners = new Map()
+  const record = (name, body) => {
+    for (const className of moduleClassReferences(body, stylesBinding)) {
+      if (!owners.has(className)) owners.set(className, new Set())
+      owners.get(className).add(name)
+    }
+  }
+  for (const statement of ast.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) record(declaration.name.text, declaration.initializer)
+      }
+    } else if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) {
+      record(statement.name.text, statement.body)
+    }
+  }
+  return owners
+}
+
+/**
+ * The workbench dock's own chrome — `panels/Workbench.tsx` is the only place
+ * a dock can exist, by design, so a second consumer for these thirteen
+ * exports of `design/patterns/DockPanel.tsx` is never coming. The
+ * single-consumer rule exists to find a screen's appearance that could be
+ * composed generically instead; these have nowhere else to be composed
+ * *into* — moving `WorkbenchRail`'s own drawing into `panels/` would leave
+ * it exactly as uncomposed as it is in `design/`, in a different directory,
+ * which is not what this category is for. Named the same way
+ * `SCREEN_APPEARANCE_EXEMPTIONS` above is, and for the same reason: an
+ * explicit list a reviewer can read in full, checked before #838 turns this
+ * ceiling into a hard zero, not a pattern a future rename could quietly
+ * widen or narrow. `RailSection`, DockPanel.tsx's other export, is not
+ * listed here because it is not single-area at all (AppWindow.tsx composes
+ * it too) and is never charged in the first place.
+ */
+const WORKBENCH_DOCK_MODULE = path.join(UI_SRC, 'design', 'patterns', 'DockPanel.tsx')
+const WORKBENCH_DOCK_EXEMPTIONS = new Set([
+  'PaneSurface', 'DockPanelActions', 'DockPanelBar', 'DockDropEdge', 'DockDropTarget',
+  'WorkbenchCanvas', 'WorkbenchRail', 'WorkbenchScrim', 'DockPanel', 'DockPanelBody',
+  'DockPanelTab', 'DockPanelTabs', 'PanelSeam',
+])
+export const isWorkbenchDockExempt = (module, localName) => module === WORKBENCH_DOCK_MODULE && WORKBENCH_DOCK_EXEMPTIONS.has(localName)
 
 /**
  * Which of a module's exports are single-area, and the appearance each
@@ -3594,14 +3844,23 @@ export const patternExportAppearanceOf = (
       }
     }
   }
+  // Parsed once for the whole module, not once per single-area export: a
+  // pattern with a dozen exports used to re-walk its own stylesheet a dozen
+  // times for the same answer (#914 review, perf).
+  let sheetDeclarationsByClass = null
   const chargeSheetClasses = (area, classes) => {
     if (sheetSource == null || classes.size === 0) return
-    for (const { classes: ruleClasses, property, value } of declarationsByClassIn(sheetSource)) {
+    sheetDeclarationsByClass ??= declarationsByClassIn(sheetSource)
+    for (const { classes: ruleClasses, property, value } of sheetDeclarationsByClass) {
       if (![...ruleClasses].some((name) => classes.has(name))) continue
       if (screenPropertySideOf(property, value) === 'appearance') {
         findings.push(`${label(sheet)} [${area} screen area]: ${property}`)
       }
     }
+  }
+
+  if (module === WORKBENCH_DOCK_MODULE && withAreas.every(({ localName }) => isWorkbenchDockExempt(module, localName))) {
+    return findings
   }
 
   if (areas.size === 1 && !areas.has(null)) {
@@ -3618,15 +3877,30 @@ export const patternExportAppearanceOf = (
 
   if (!ast) return findings
   const stylesBinding = stylesheetImports(moduleSource, module, { strict: true })[0]?.binding ?? null
+  const classOwners = stylesBinding ? classOwnersOf(ast, stylesBinding) : null
   for (const { localName, area } of withAreas) {
-    if (!area) continue
+    if (!area || isWorkbenchDockExempt(module, localName)) continue
     const root = directDeclarationIn(ast, localName)?.initializer
     if (!root) continue
     for (const line of patternSourceAppearanceOf(module, moduleSource, ast, countedDefs, root)) {
       const at = line.lastIndexOf(': ')
       findings.push(`${line.slice(0, at)} [${area} screen area]: ${line.slice(at + 2)}`)
     }
-    if (stylesBinding) chargeSheetClasses(area, moduleClassReferences(root, stylesBinding))
+    if (stylesBinding) {
+      // Only a class *exclusively* this export's own — no other declaration
+      // in the module, whether exported or not, also reaches for it — is
+      // that export's own appearance. `RowMark` draws `.rowMark`, but so do
+      // `Row` and `RowButton` in the same module, and those are shared
+      // vocabulary (#914 review, P1).
+      const referenced = moduleClassReferences(root, stylesBinding)
+      const exclusive = new Set(
+        [...referenced].filter((name) => {
+          const owners = classOwners.get(name)
+          return owners?.size === 1 && owners.has(localName)
+        }),
+      )
+      chargeSheetClasses(area, exclusive)
+    }
   }
   return findings
 }
@@ -3637,22 +3911,9 @@ export const patternExportAppearanceOf = (
  * family that owns it. This is a burn-down rather than a blanket refusal:
  * layout may legitimately live with a typed cross-screen renderer, while its
  * copied type, ink, ground and inner box remain an honest part of the screen
- * appearance count.
+ * appearance count. `screenSources` and `importersByFile` are the same ones
+ * the family closure above already built.
  */
-const screenSources = tsxFiles().filter((candidate) => isScreenSheet(candidate))
-const importersByFile = new Map()
-for (const importer of screenSources) {
-  for (const match of codeOf(importer).matchAll(/\bfrom\s*['"]([^'"]+)['"]/g)) {
-    const spec = match[1]
-    if (!spec.startsWith('.') && !spec.startsWith('@/')) continue
-    const base = spec.startsWith('@/')
-      ? path.join(UI_SRC, spec.slice(2))
-      : path.resolve(path.dirname(importer), spec)
-    const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
-    if (!tracked.has(imported) || !isScreenSheet(imported)) continue
-    importersByFile.set(imported, [...(importersByFile.get(imported) ?? []), importer])
-  }
-}
 /** Direct screen consumers only — a design export's own importers among
  * `components/slots/panels`, before a design-to-design use is followed. */
 const consumersByExport = new Map()
@@ -3684,20 +3945,34 @@ for (const file of screenSources) {
  */
 const designSources = tsxFiles().filter((file) => /[\\/]design[\\/]/.test(file))
 const designUsersByExport = new Map()
+const addComposer = (targetFile, targetName, designFile, localName) => {
+  const key = `${targetFile}::${targetName}`
+  let entry = designUsersByExport.get(key)
+  if (!entry) {
+    entry = { file: targetFile, localName: targetName, users: [] }
+    designUsersByExport.set(key, entry)
+  }
+  entry.users.push({ file: designFile, localName })
+}
 for (const designFile of designSources) {
   const uses = designImportsOf(designFile)
-  if (uses.length === 0) continue
-  const designAst = parseScreenSource(designFile, read(designFile))
+  const designSourceCode = read(designFile)
+  const designAst = uses.length > 0 || /\bimport\s*\(/.test(designSourceCode)
+    ? parseScreenSource(designFile, designSourceCode)
+    : null
   for (const ref of uses) {
-    const composingExports = exportsReferencing(designAst, ref.localBinding)
-    if (composingExports.length === 0) continue
-    const key = `${ref.file}::${ref.localName}`
-    let entry = designUsersByExport.get(key)
-    if (!entry) {
-      entry = { file: ref.file, localName: ref.localName, users: [] }
-      designUsersByExport.set(key, entry)
+    for (const localName of exportsReferencing(designAst, ref.localBinding)) {
+      addComposer(ref.file, ref.localName, designFile, localName)
     }
-    for (const localName of composingExports) entry.users.push({ file: designFile, localName })
+  }
+  // A dynamic import's target might not even be a named design import above
+  // (it may be the only way the module is reached), so every export it
+  // conservatively reaches for is added the same way.
+  if (designAst) {
+    for (const { exportName, target } of dynamicImportUsesOf(designAst, path.dirname(designFile))) {
+      if (!target.startsWith(`${path.join(UI_SRC, 'design')}${path.sep}`)) continue
+      for (const [targetName] of exportedNamesOf(target)) addComposer(target, targetName, designFile, exportName)
+    }
   }
 }
 
@@ -3743,35 +4018,33 @@ for (const key of new Set([...consumersByExport.keys(), ...designUsersByExport.k
 export const stylesheetFor = (module) => (module.endsWith('.tsx') ? module.replace(/\.tsx$/, '.module.css') : null)
 
 /**
- * Charged only under `design/patterns/` — a typed, product-specific
- * composition contract, which is what "a screen's appearance parked in the
- * design folder" actually describes. `design/ui/` holds shadcn-registry
- * primitives and their compositions (the chart kit, `Board`, `ToolPane`,
- * `Card`, `Bar`, `KeyValue`, `Spark`, `Dialog`, `Breadcrumb`, `Delta`…):
- * generic vocabulary that is meant to exist before it has a second consumer,
- * the way a design system's own primitives always are. Charging one for
- * having one caller today would make the strict zero unreachable without
- * inventing a second, pointless caller — the ceiling this category holds is
- * meant to fall by composing more, not by faking use. A single-area
- * primitive is still worth a human's attention, so it is listed under
- * `--verbose` (below), outside `SECTIONS` and the saved baseline, the same
- * way `unmappedScreenUtility` is a hint rather than a second strict
- * category (#914 review).
+ * `screenAppearance` is charged only under `design/patterns/` — a typed,
+ * product-specific composition contract, which is what "a screen's
+ * appearance parked in the design folder" actually describes. `design/ui/`
+ * holds shadcn-registry primitives and their compositions (the chart kit,
+ * `Board`, `ToolPane`, `Card`, `Bar`, `KeyValue`, `Spark`, `Dialog`,
+ * `Breadcrumb`, `Delta`…): generic vocabulary that is meant to exist before
+ * it has a second consumer, the way a design system's own primitives always
+ * are. Charging one under `screenAppearance` for having one caller today
+ * would make that strict zero unreachable without inventing a second,
+ * pointless caller.
+ *
+ * That does not make a single-area primitive nothing, though — a primitive
+ * this narrow is still worth a human's attention, and a rule that only ever
+ * watched would let one sit unexamined forever, or let a pattern move out of
+ * `design/patterns/` specifically to dodge the charge. `singleAreaPrimitive`
+ * is the escape hatch's own ceiling: every one of these exports, named under
+ * `--verbose`, held to the same "may only fall" burn-down every other
+ * category here is (#914 review, P3's escape-hatch finding).
  */
 export const isPatternModule = (module) => /[\\/]design[\\/]patterns[\\/]/.test(module)
-
-/** `{ module, localName, area }` for every `design/ui/` (or other
- * non-pattern) export whose resolved reach is single-area — reported only
- * under `--verbose`, never counted or held to a ceiling. See
- * `isPatternModule` just above for why. */
-const singleAreaPrimitives = []
 
 const patternCountedDefs = new Set()
 for (const [module, exportsHere] of exportsByModule) {
   if (!isPatternModule(module)) {
     for (const { localName, consumers } of exportsHere) {
       const area = singleScreenAreaOf(consumers, importersByFile)
-      if (area) singleAreaPrimitives.push({ module, localName, area })
+      if (area) findings.singleAreaPrimitive.push(`${label(module)}: ${localName} [${area} screen area]`)
     }
     continue
   }
@@ -4006,17 +4279,6 @@ if (isMain) {
   if (verbose && findings.unmappedScreenUtility.length > 0) {
     console.log(`${String(findings.unmappedScreenUtility.length).padStart(4)}  Unmapped utility (not counted; looks like appearance)`)
     for (const line of findings.unmappedScreenUtility) console.log(`        ${line}`)
-    console.log('')
-  }
-  // Outside SECTIONS and the baseline on purpose — see `isPatternModule`
-  // above. A single-area design/ui/ primitive is a fact worth a human's
-  // attention, not a defect to charge: it is generic vocabulary that has not
-  // grown a second caller yet, not a screen's appearance hiding in design/.
-  if (verbose && singleAreaPrimitives.length > 0) {
-    console.log(`${String(singleAreaPrimitives.length).padStart(4)}  Single-area primitives (watch; not counted)`)
-    for (const { module, localName, area } of singleAreaPrimitives) {
-      console.log(`        ${label(module)}: ${localName} [${area} screen area]`)
-    }
     console.log('')
   }
   console.log(`${total} findings.`)

@@ -16,9 +16,15 @@ import {
   rawColours,
   rawZIndexes,
   looksLikeUnmappedAppearanceUtility,
+  classOwnersOf,
   declarationsByClassIn,
+  dynamicImportUsesOf,
   exportsReferencing,
+  importersByFile,
+  importsIn,
   isPatternModule,
+  isWorkbenchDockExempt,
+  NAMED_ROOTS,
   parseScreenSource,
   patternExportAppearanceOf,
   resolvedConsumersOf,
@@ -114,7 +120,13 @@ test('single-screen pattern accounting follows a pattern consumer into its scree
   const room = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
   const builtins = path.join(repoRoot, 'packages/ui/src/panels/builtins.tsx')
   const importers = new Map([[approval, [room, builtins]]])
-  assert.equal(singleScreenAreaOf([approval], importers), null)
+  // The registry (excluded) also mounts Approvals beside Conversation, but
+  // that is not a screen import the family closure ever sees; Approvals'
+  // one real, non-registry importer is TeamRoomPane.tsx, so the closure
+  // folds it into `room` — screenAreaOf(approval) already says `room` before
+  // this call ever walks its passed-in `importers`, which is why a pattern
+  // used only by [approval] now reads as `room` rather than cross-area.
+  assert.equal(singleScreenAreaOf([approval], importers), 'room')
 })
 
 test('the pane registry mounts a screen without making its patterns shared', () => {
@@ -157,9 +169,12 @@ test('single-screen pattern accounting names the settings, agent roster and room
   const agentPage = path.join(repoRoot, 'packages/ui/src/components/AgentPage.tsx')
   assert.equal(singleScreenAreaOf([agentsWindow, agentRoster, agentPage]), 'agentroster')
   // Agents.tsx (a session's own delegated sub-agents, in the right-dock
-  // inspector) is a different screen and must stay out of that family.
+  // inspector) is a different screen and must stay out of that family — it
+  // does, but not by keeping its own name: its one real importer is
+  // Details.tsx, which is itself unhosted, so the closure folds it (and
+  // Activity.tsx, and Trajectory.tsx) into `details` instead.
   const agentsInspector = path.join(repoRoot, 'packages/ui/src/components/Agents.tsx')
-  assert.equal(screenAreaOf(agentsInspector), 'agents')
+  assert.equal(screenAreaOf(agentsInspector), 'details')
   assert.notEqual(screenAreaOf(agentsInspector), 'agentroster')
 
   const teamRoomPane = path.join(repoRoot, 'packages/ui/src/components/TeamRoomPane.tsx')
@@ -375,6 +390,367 @@ test('the CSS-module classes a single-area export reaches for are charged, readi
 test('a plain .ts design module has no stylesheet to charge (#914)', () => {
   assert.equal(stylesheetFor(patternTsx('Widget.tsx')), patternTsx('Widget.module.css'))
   assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/adapters/terminal.ts')), null)
+})
+
+test('stylesheetFor rejects a .ts pattern module too, not only an adapter (#914 review, item 7)', () => {
+  assert.equal(stylesheetFor(path.join(repoRoot, 'packages/ui/src/design/patterns/Foo.ts')), null)
+})
+
+/*
+ * #914 review, P1: `RowMark` alone draws `.rowMark`, but `Row` and
+ * `RowButton` in the same module also reach for it, and those are used
+ * everywhere. Before this, a class was charged to any single-area export
+ * that referenced it in its own scoped subtree, without asking whether some
+ * *other* declaration in the module — exported or not — reached for the same
+ * class. Only a class exclusively one export's own may be charged.
+ */
+test('a class shared with another export in the same module is not charged to a single-area export (#914 review, P1)', () => {
+  const source = [
+    "import styles from './Widget.module.css'",
+    'export const Row = ({ className }) => <span className={styles.rowMark + " " + className} />',
+    'export const RowButton = () => <span className={styles.rowMark} />',
+    'export const RowMark = () => <span className={styles.rowMark + " " + styles.soloOnly} />',
+    '',
+  ].join('\n')
+  const owners = classOwnersOf(parseScreenSource('Widget.tsx', source), 'styles')
+  // .rowMark is Row's, RowButton's and RowMark's — shared, whichever export
+  // is later found single-area.
+  assert.deepEqual(owners.get('rowMark'), new Set(['Row', 'RowButton', 'RowMark']))
+  // .soloOnly is reached only from RowMark's own body.
+  assert.deepEqual(owners.get('soloOnly'), new Set(['RowMark']))
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const widelyUsed = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const css = ['.rowMark { color: red; }', '.soloOnly { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Row', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowButton', consumers: [onlyConsumer, widelyUsed] },
+    { localName: 'RowMark', consumers: [onlyConsumer] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: padding',
+  ])
+})
+
+/*
+ * #914 review, item 7: the whole-module path must still work when a module
+ * has a local (unexported) helper and a class nothing references at all —
+ * neither should crash the walk or leak into a charge.
+ */
+test('the whole-module path tolerates a local helper and a class nothing references (#914 review, item 7)', () => {
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const source = [
+    "import styles from './Widget.module.css'",
+    'const cx = (...parts) => parts.filter(Boolean).join(" ")',
+    'export const Head = () => <span className={cx(styles.head, "tabular-nums")} />',
+    'export const Foot = () => <span className={styles.head} />',
+    '',
+  ].join('\n')
+  const css = ['.head { color: red; }', '.unused { padding: 4px; }', ''].join('\n')
+  const exportsAndConsumers = [
+    { localName: 'Head', consumers: [onlyConsumer] },
+    { localName: 'Foot', consumers: [onlyConsumer] },
+  ]
+  // The whole-module path charges the whole sheet, `.unused` included: every
+  // export here reaches the same one area, so the entire module is that
+  // screen's appearance moved into design/ in full, not only the classes an
+  // export happens to reach today — unchanged from before this review, and
+  // this fixture is here so a future change to that rule has to notice it.
+  assert.deepEqual(patternExportAppearanceOf(module, source, patternTsx('Widget.module.css'), css, exportsAndConsumers), [
+    'design/patterns/Widget.module.css [git screen area]: color',
+    'design/patterns/Widget.module.css [git screen area]: padding',
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, item 6: the workbench dock chrome is exempt by name, not by
+ * pattern — the real DockPanel.tsx module, where every listed export is
+ * genuinely single-area (`workbench`), still charges nothing.
+ */
+test('the workbench dock chrome is a named exemption, not a pattern match (#914 review, DockPanel policy)', () => {
+  const dockPanel = path.join(repoRoot, 'packages/ui/src/design/patterns/DockPanel.tsx')
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'WorkbenchRail'), true)
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'DockPanelTab'), true)
+  // RailSection is DockPanel.tsx's other export, and is not on the list:
+  // it is not single-area at all (AppWindow.tsx composes it too), so
+  // whether it would be exempt never comes up.
+  assert.equal(isWorkbenchDockExempt(dockPanel, 'RailSection'), false)
+  // The same export name in a different module is not exempt — this is a
+  // named list, not a rule about the word "WorkbenchRail".
+  assert.equal(isWorkbenchDockExempt(patternTsx('Widget.tsx'), 'WorkbenchRail'), false)
+
+  const moduleSource = fs.readFileSync(dockPanel, 'utf8')
+  const sheet = stylesheetFor(dockPanel)
+  const sheetSource = sheet && fs.existsSync(sheet) ? fs.readFileSync(sheet, 'utf8') : null
+  const workbench = path.join(repoRoot, 'packages/ui/src/panels/Workbench.tsx')
+  const exportsAndConsumers = [
+    { localName: 'WorkbenchRail', consumers: [workbench] },
+    { localName: 'DockPanelTab', consumers: [workbench] },
+  ]
+  assert.deepEqual(patternExportAppearanceOf(dockPanel, moduleSource, sheet, sheetSource, exportsAndConsumers), [])
+})
+
+/*
+ * #914 review, P3: a `const` export was the only shape `directDeclarationIn`
+ * and `exportsReferencing` could scope into. An `export function` composer
+ * lost its design-to-design reach entirely — neither shape existed in the
+ * tree, so nothing today depended on the gap, but a future pattern written
+ * this way must not silently stop composing.
+ */
+test('directDeclarationIn and exportsReferencing read an export function declaration (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'export function AppWindowRailTop(props) {',
+    '  return <RailSection {...props} />',
+    '}',
+    'export function AppWindowSurface(props) {',
+    '  return <div {...props} />',
+    '}',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+
+  const module = patternTsx('Widget.tsx')
+  const onlyConsumer = path.join(repoRoot, 'packages/ui/src/components/GitPane.tsx')
+  const fnSource = [
+    'export function Solo() {',
+    '  return <span className="tabular-nums" />',
+    '}',
+    '',
+  ].join('\n')
+  const exportsAndConsumers = [{ localName: 'Solo', consumers: [onlyConsumer] }]
+  assert.deepEqual(patternExportAppearanceOf(module, fnSource, patternTsx('Widget.module.css'), null, exportsAndConsumers), [
+    'design/patterns/Widget.tsx [git screen area]: tabular-nums (font-variant-numeric)',
+  ])
+})
+
+/*
+ * #914 review, P3: a composer that delegates its own drawing to a private,
+ * unexported helper must not read as composing nothing — the helper's own
+ * body is where the import is actually used.
+ */
+test('exportsReferencing resolves a local helper component to its own body (#914 review, P3)', () => {
+  const source = [
+    "import { RailSection } from './DockPanel'",
+    'const Inner = () => <RailSection stretch="head" />',
+    'export const AppWindowRailTop = () => <Inner />',
+    'export const AppWindowSurface = () => <div />',
+    '',
+  ].join('\n')
+  const ast = parseScreenSource('AppWindow.tsx', source)
+  assert.deepEqual(exportsReferencing(ast, 'RailSection'), ['AppWindowRailTop'])
+})
+
+/*
+ * #914 review, P3: `import X, { Y }` names a default and a named specifier
+ * in one statement; both must be read as real bindings.
+ */
+test('importsIn reads a default-and-named import together, and a type-only import is invisible (#914 review, P2/P3)', () => {
+  const code = [
+    "import type { Foo } from './Foo'",
+    "import Default, { Bar, type Baz, Qux as Quux } from './Bar'",
+    '',
+  ].join('\n')
+  const found = importsIn(code)
+  assert.equal(found.length, 1)
+  assert.equal(found[0].spec, './Bar')
+  assert.deepEqual(found[0].bindings, [
+    { kind: 'default', name: 'default', localBinding: 'Default' },
+    { kind: 'named', name: 'Bar', localBinding: 'Bar' },
+    { kind: 'named', name: 'Qux', localBinding: 'Quux' },
+  ])
+})
+
+/*
+ * #914 review, P2: a type-only import must not register as a real screen
+ * import, in either consumer path. The real shape review found:
+ * CommandPalette.tsx and Sidebar.tsx both `import type { Section } from
+ * './Settings'` — a type import, not a use, so it must not make a pattern
+ * used only by Settings.tsx read as shared with either of them.
+ */
+test('a type-only import does not register as a real screen import (#914 review, P2)', () => {
+  const settings = path.join(repoRoot, 'packages/ui/src/components/Settings.tsx')
+  const commandPalette = path.join(repoRoot, 'packages/ui/src/components/CommandPalette.tsx')
+  const sidebar = path.join(repoRoot, 'packages/ui/src/components/Sidebar.tsx')
+  const realImporters = importersByFile.get(settings) ?? []
+  assert.equal(realImporters.includes(commandPalette), false)
+  assert.equal(realImporters.includes(sidebar), false)
+})
+
+/*
+ * #914 review, P2: the reviewer's own gate — a screen file whose only real
+ * importer already has a resolved family must sit inside that family too.
+ * Rebuilt independently from `importsIn` and the real tree, rather than
+ * inspecting the audit's own internal map, so a regression in either the
+ * closure or this check would still be caught.
+ */
+test('every single-host screen file sits inside its host\'s family (#914 review, P2 gate)', () => {
+  const uiSrc = path.join(repoRoot, 'packages/ui/src')
+  const isScreen = (file) => !/[\\/]design[\\/]/.test(file) && /[\\/](components|slots|panels)[\\/]/.test(file)
+  const walk = (dir) =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) return walk(full)
+      return entry.name.endsWith('.tsx') && !entry.name.includes('.test.') ? [full] : []
+    })
+  const screens = new Set(['components', 'slots', 'panels'].flatMap((dir) => walk(path.join(uiSrc, dir))).filter(isScreen))
+  const registry = path.join(uiSrc, 'panels', 'builtins.tsx')
+  const importersOf = new Map()
+  for (const importer of screens) {
+    if (importer === registry) continue
+    for (const { spec, bindings } of importsIn(fs.readFileSync(importer, 'utf8'))) {
+      if (bindings.length === 0 || (!spec.startsWith('.') && !spec.startsWith('@/'))) continue
+      const base = spec.startsWith('@/') ? path.join(uiSrc, spec.slice(2)) : path.resolve(path.dirname(importer), spec)
+      const imported = base.endsWith('.tsx') ? base : `${base}.tsx`
+      if (!screens.has(imported)) continue
+      importersOf.set(imported, [...(importersOf.get(imported) ?? []), importer])
+    }
+  }
+  const violations = []
+  for (const file of screens) {
+    if (NAMED_ROOTS.has(file)) continue // a root's family is a fixed seed, not derived from its own host
+    const hosts = importersOf.get(file) ?? []
+    if (hosts.length !== 1) continue
+    const hostArea = screenAreaOf(hosts[0])
+    const ownArea = screenAreaOf(file)
+    if (ownArea !== hostArea) {
+      violations.push(`${path.relative(uiSrc, file)}: reads ${ownArea}, single host ${path.relative(uiSrc, hosts[0])} reads ${hostArea}`)
+    }
+  }
+  assert.deepEqual(violations, [])
+})
+
+/*
+ * #914 review, item 7: families have live effect, not just a one-hop
+ * assertion that happened to already be true — Library.tsx is folded into
+ * `settings` two hops deep (Settings.tsx -> ProjectPage.tsx -> Library.tsx),
+ * and BranchSwitcher.tsx into `conversation` (Conversation.tsx's own header),
+ * which the closure only finds by iterating to a fixed point.
+ */
+test('the family closure iterates more than one hop, with a real effect on real files (#914 review, item 7)', () => {
+  const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
+  const branchSwitcher = path.join(repoRoot, 'packages/ui/src/components/BranchSwitcher.tsx')
+  assert.equal(screenAreaOf(library), 'settings')
+  assert.equal(screenAreaOf(branchSwitcher), 'conversation')
+})
+
+/*
+ * #914 review, P3: a namespace import reaches for whichever exports its own
+ * `D.X` sites actually name, found the same way a CSS-module binding's
+ * `styles.X` sites are — not assumed used just because the import exists,
+ * and not invisible just because it is not a named import.
+ */
+test('a namespace import reaches for the specific exports its own D.X sites name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-namespace-'))
+  try {
+    const designIndex = path.join(repoRoot, 'packages/ui/src/design/index.ts')
+    const relative = path.relative(dir, designIndex).replace(/\.ts$/, '')
+    const spec = relative.startsWith('.') ? relative : `./${relative}`
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(
+      screenPath,
+      `import * as D from '${spec}'\nexport const Widget = () => <D.Button>{D.Chip}</D.Button>\n`,
+    )
+    const names = designImportsOf(screenPath).map((ref) => ref.localName).sort()
+    assert.ok(names.includes('Button'), `expected Button among ${names.join(', ')}`)
+    assert.ok(names.includes('Chip'), `expected Chip among ${names.join(', ')}`)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: an aliased design-to-design import must be traced by its
+ * local binding, not the name it was exported under — `RailSection`
+ * imported as `Rail` is found by looking for `Rail` in the importing file's
+ * own body, not by looking for `RailSection`.
+ */
+test('a design-to-design edge follows an aliased import by its local binding (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-aliased-design-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const composerPath = path.join(dir, 'Composer.tsx')
+    fs.writeFileSync(targetPath, 'export const RailSection = () => null\n')
+    fs.writeFileSync(composerPath, "import { RailSection as Rail } from './Target'\nexport const Outer = () => <Rail />\n")
+    const found = designImportsOf(composerPath)
+    assert.equal(found.length, 0) // Target.tsx is not under design/, so this is not counted as reaching design/
+    // The mechanism itself, proven directly: exportsReferencing is asked
+    // about the *local* binding a design-to-design scan would resolve to.
+    const composerAst = parseScreenSource(composerPath, fs.readFileSync(composerPath, 'utf8'))
+    assert.deepEqual(exportsReferencing(composerAst, 'Rail'), ['Outer'])
+    assert.deepEqual(exportsReferencing(composerAst, 'RailSection'), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a default export — either `export default function Name`
+ * or `export default Name` naming an earlier local — is a name
+ * `directDeclarationIn` can now scope into, the same as a named export.
+ */
+test('exportedNamesOf recognizes a default export, named or re-exported by name (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-default-export-'))
+  try {
+    const fnPath = path.join(dir, 'FnDefault.tsx')
+    fs.writeFileSync(fnPath, 'export default function Widget() {\n  return null\n}\n')
+    assert.deepEqual(exportedNamesOf(fnPath).get('default'), { file: fnPath, localName: 'Widget' })
+
+    const namedPath = path.join(dir, 'NamedDefault.tsx')
+    fs.writeFileSync(namedPath, 'const Widget = () => null\nexport default Widget\n')
+    assert.deepEqual(exportedNamesOf(namedPath).get('default'), { file: namedPath, localName: 'Widget' })
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/*
+ * #914 review, P3: a dynamic `import('spec')` inside an exported
+ * declaration — directly, or wrapped in `lazy(() => import('spec'))` —
+ * cannot be resolved to specific names, so it is read as reaching for the
+ * target's entire surface. Conservative: it can only add a consumer a part
+ * genuinely has, never remove one it does not.
+ */
+test('a dynamic import reaches for every export of its target, conservatively (#914 review, P3)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-dynamic-import-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const callerPath = path.join(dir, 'Caller.tsx')
+    fs.writeFileSync(targetPath, 'export const A = () => null\nexport const B = () => null\n')
+    fs.writeFileSync(
+      callerPath,
+      [
+        "const lazy = (f) => f",
+        'export const Direct = () => { import("./Target"); return null }',
+        'export const Lazied = lazy(() => import("./Target"))',
+        'export const Untouched = () => null',
+        '',
+      ].join('\n'),
+    )
+    const ast = parseScreenSource(callerPath, fs.readFileSync(callerPath, 'utf8'))
+    const uses = dynamicImportUsesOf(ast, dir)
+    assert.deepEqual(uses.map((use) => use.exportName).sort(), ['Direct', 'Lazied'])
+    for (const use of uses) assert.equal(use.target, targetPath)
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('designImportsOf never resolves a target outside design/ (#914 review, item 7)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-design-filter-'))
+  try {
+    const targetPath = path.join(dir, 'Target.tsx')
+    const screenPath = path.join(dir, 'Screen.tsx')
+    fs.writeFileSync(targetPath, 'export const Foo = () => null\n')
+    fs.writeFileSync(screenPath, "import { Foo } from './Target'\n")
+    assert.deepEqual(designImportsOf(screenPath), [])
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 /*

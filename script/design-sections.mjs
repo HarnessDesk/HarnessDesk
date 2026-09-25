@@ -39,8 +39,14 @@ export const SECTIONS = [
   [
     'screenAppearance',
     'Appearance a screen draws instead of composing it',
-    'A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does.',
+    'A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen\'s own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design.',
     'Compose the role from packages/ui/src/design: Row/Rows, PageHead/SectionHead, Search/Field, Alert, EmptyState, Chip, Card, KeyValue, Table, StatePill. Keep only layout in the screen sheet, className, or style, and add a component to the design system when the role has none. Markdown and Diff keep prose\'s ratio ladder and a diff viewer\'s specialized ink; both their `.module.css` and their `.tsx` are exempt, alongside the icon and data-geometry files the loose-icon rule already names. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'singleAreaPrimitive',
+    'Single-area design/ui/ primitives',
+    'A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen\'s own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever.',
+    'Nothing to fix by itself: read the listed export under `--verbose` and judge whether it is genuinely reusable vocabulary (leave it) or a screen\'s own composition that was placed in `design/ui/` rather than `design/patterns/` (move it, which moves the finding to `screenAppearance` instead). This category is a burn-down: its ceiling may only fall.',
   ],
   [
     'uppercaseLabel',
