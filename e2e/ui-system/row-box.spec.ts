@@ -51,6 +51,8 @@ const mount = async (page: Page, width: number) => {
             h(RowButton, { 'data-testid': 'rowfx-sentence-button', title: 'Round two', control: h(RowValue, null, ${JSON.stringify(SENTENCE)}), onClick: () => {} }),
             h(Row, { 'data-testid': 'rowfx-short', title: 'Round three', control: h(RowValue, null, 'Twice') }),
             h(RowButton, { 'data-testid': 'rowfx-medium', title: 'Checkout hardening', desc: 'Goal', control: h(RowValue, null, '$12.34 · 3 seats'), onClick: () => {} }),
+            h(Row, { 'data-testid': 'rowfx-wrapped', title: 'Checkout hardening review', control: h(RowValue, null, 'Twelve dollars · three seats · two lanes') }),
+            h(RowButton, { 'data-testid': 'rowfx-wrapped-button', title: 'Checkout hardening review', control: h(RowValue, null, 'Twelve dollars · three seats · two lanes'), onClick: () => {} }),
           ),
         ));
       `,
@@ -136,6 +138,37 @@ test('a sentence in a narrow row wraps under a title that keeps its words', asyn
   expect(readings.find(r => r.id === 'sentence')?.controlBelow).toBe(true)
   expect(readings.find(r => r.id === 'sentence-button')?.controlBelow).toBe(true)
   expect(readings.find(r => r.id === 'short')?.controlBelow).toBe(false)
+})
+
+/**
+ * One rule for a wrapped control, whichever row it is in: it keeps the row's
+ * end. A row button's control travels with its chevron, which cannot leave
+ * the end, so a plain row's control goes there too rather than jumping to the
+ * start under the title (#901's review) — the card's trailing edge stays the
+ * one column every control is found in.
+ */
+test('a wrapped control keeps the row end in a plain row and in a row button alike', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 700 })
+  await mount(page, 400)
+  const ends = await page.evaluate(() => ['wrapped', 'wrapped-button'].map(id => {
+    const row = document.querySelector(`[data-testid="rowfx-${id}"]`) as HTMLElement
+    const title = row.querySelector('[class*="rowTitle"]')!.getBoundingClientRect()
+    // The trailing item: a plain row's control, or a row button's control-and-chevron.
+    const trailing = (row.querySelector('[class*="rowEnd"]') ?? row.querySelector('[class*="rowCtl"]'))!.getBoundingClientRect()
+    const inner = row.getBoundingClientRect().right - parseFloat(getComputedStyle(row).paddingRight)
+    return {
+      id,
+      below: trailing.top >= title.bottom - 1,
+      end: Math.round(inner - trailing.right),
+      indent: Math.round(trailing.left - title.left),
+    }
+  }))
+  for (const reading of ends) {
+    expect(reading.below, `${reading.id}: the control did not wrap`).toBe(true)
+    expect(Math.abs(reading.end), `${reading.id}: the control left the row end`).toBeLessThanOrEqual(1)
+    expect(reading.indent, `${reading.id}: the control started under the title`).toBeGreaterThan(8)
+  }
+  await page.getByRole('region', { name: 'Row fixture' }).screenshot({ path: test.info().outputPath('wrapped-controls.png') })
 })
 
 test('at a normal width a short control keeps its place beside the title', async ({ page }) => {

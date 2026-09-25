@@ -278,6 +278,14 @@ export const ELEMENTS: readonly UsageRule[] = [
       'Eight label-plus-one-row-card sections made the Agent page a column of floating grey words. One card of facts is read top to bottom like an inspector, with the actions in one column at the end.',
   },
   {
+    family: 'row',
+    variant: 'wrapped control',
+    when: 'A control too wide to share a narrow row with its title drops under it and keeps the row\'s end — in a plain `Row` and a `RowButton` alike.',
+    never: 'Starting under the title in one kind of row and at the end in the other.',
+    because:
+      'A row button\'s control travels with its chevron, which cannot leave the end, and a card\'s trailing edge is the column every control is found in. One rule both rows can keep is the end.',
+  },
+  {
     family: 'key-value',
     variant: 'default',
     when: 'Facts about one thing, read as an inspector: muted keys in one column of a shared width, values left-aligned and wrapping as sentences.',

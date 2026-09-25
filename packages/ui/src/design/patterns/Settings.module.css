@@ -886,13 +886,20 @@
 
 /* Beside the title the control keeps its own width, as before: the title
    takes the free space and nothing has to shrink. Once it has wrapped onto its
-   own line, under the title and starting where the title starts, it may
-   narrow to that line, so a sentence wraps inside it rather than running off
-   the card — names truncate, sentences wrap. */
+   own line it may narrow to that line, so a sentence wraps inside it rather
+   than running off the card — names truncate, sentences wrap.
+
+   Wrapped or not, it keeps the row's end. That is the one rule a plain `Row`
+   and a `RowButton` can both keep: the button's control travels with its
+   chevron, which cannot leave the end, and a card's trailing edge is the
+   column the eye runs down to find every control on it. A control that
+   jumped to the start when its row narrowed broke that column on the one
+   row that was already hardest to read. */
 .rowCtl {
   flex: 0 1 auto; /* desk: none → 0 1 auto, it only shrinks once alone on a line */
   min-width: 0;
   max-width: 100%;
+  margin-inline-start: auto; /* desk: 0 → auto, a wrapped control keeps the row's end, as a row button's does */
   display: flex;
   align-items: center;
   gap: 8px;
