@@ -1,6 +1,7 @@
 import { useRef, type ReactNode } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
+import { cn } from '../../lib/utils'
 import { buttonVariants } from '../ui/button'
 import {
   Dialog as DialogRoot,
@@ -83,9 +84,12 @@ export const Dialog = ({
       >
         <div className={styles.header} data-tone={tone === 'destructive' ? 'destructive' : undefined}>
           {icon && <span className={styles.icon}>{icon}</span>}
-          <DialogTitle className={styles.title}>{title}</DialogTitle>
+          {/* The subject step, said as utilities so `cn` replaces the
+              primitive's `text-base leading-none`: a module rule saying the
+              same tied with them, and the preview drew 16px titles. */}
+          <DialogTitle className={cn(styles.title, 'text-(length:--hd-text) leading-(--hd-line) font-medium')}>{title}</DialogTitle>
           <DialogClose
-            className={buttonVariants({ variant: 'ghost', size: 'icon-sm', className: styles.close })}
+            className={buttonVariants({ variant: 'ghost', size: 'icon-sm' })}
             aria-label="Close"
           >
             <CrossIcon size={13} />

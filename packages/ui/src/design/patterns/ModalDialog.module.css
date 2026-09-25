@@ -39,19 +39,14 @@
   color: var(--hd-destructive);
 }
 
+/* A dialog names one question, and a page names a place, so the title is the
+   subject step (14/21, medium) and not the page one — held by weight rather
+   than by size. The step is said as utilities in ModalDialog.tsx, because
+   the title primitive carries `text-base leading-none` and a rule here tied
+   with them. */
 .title {
   flex: 1;
   min-width: 0;
-  /* A dialog names one question, and a page names a place, so this is the
-     subject step and not the page one — held by weight rather than by size,
-     which is what the page step is for. */
-  font-size: var(--hd-text); /* desk: 16 → 14, the subject step */
-  line-height: var(--hd-line); /* desk: var(--hd-line-lg) → 21, its step’s own line */
-  font-weight: var(--hd-weight-medium); /* desk: var(--hd-weight-semibold) → var(--hd-weight-medium) */
-}
-
-.close {
-  flex-shrink: 0;
 }
 
 /* Under the header, above the body, and outside the scroll — so a breadcrumb

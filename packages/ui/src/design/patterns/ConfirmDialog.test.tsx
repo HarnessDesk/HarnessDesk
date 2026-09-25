@@ -1,6 +1,9 @@
 import { act, useState, type ComponentProps } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { compile } from 'tailwindcss'
+import themeSheet from 'tailwindcss/theme.css?raw'
+import utilitiesSheet from 'tailwindcss/utilities.css?raw'
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import { ConfirmDialog } from './ConfirmDialog'
 
@@ -34,6 +37,35 @@ type Props = ComponentProps<typeof ConfirmDialog>
 
 let container: HTMLDivElement
 let root: Root
+
+/*
+ * The confirm's box is said as utilities (its sheet says only what no utility
+ * on the same element says — Dialog.box.test.tsx), so the utilities it wears
+ * are compiled by Tailwind itself, once, for every class both tones and the
+ * waiting state put on screen, and kept in the document for the file.
+ */
+beforeAll(async () => {
+  const probe = document.createElement('div')
+  document.body.appendChild(probe)
+  const probeRoot = createRoot(probe)
+  const classes = new Set<string>()
+  for (const props of [{ tone: 'destructive' as const }, { tone: 'default' as const, pending: true }]) {
+    act(() => probeRoot.render(
+      <ConfirmDialog title="Probe" confirmLabel="Go" onConfirm={() => {}} onCancel={() => {}} {...props}>
+        <pre>probe</pre>
+      </ConfirmDialog>,
+    ))
+    for (const element of document.querySelectorAll('[class]')) {
+      for (const one of (element.getAttribute('class') ?? '').split(/\s+/)) if (one) classes.add(one)
+    }
+  }
+  act(() => probeRoot.unmount())
+  probe.remove()
+  const compiler = await compile([themeSheet, utilitiesSheet].join('\n'), { base: '/' })
+  const style = document.createElement('style')
+  style.textContent = compiler.build([...classes])
+  document.head.append(style)
+})
 
 beforeEach(() => {
   container = document.createElement('div')
@@ -263,7 +295,7 @@ it('a confirm holds whatever it is asked to confirm: the popup is bounded by the
   )
   const surface = document.querySelector<HTMLElement>('[role="alertdialog"]')!
   const content = getComputedStyle(surface)
-  // The sheet arrived — a stubbed module would read as a block with no bound.
+  // The utilities arrived — without them the popup would read as a block with no bound.
   expect(content.display).toBe('flex')
   expect(content.flexDirection).toBe('column')
   expect(content.maxHeight).toMatch(/--hd-dialog-max-height|100dvh/)

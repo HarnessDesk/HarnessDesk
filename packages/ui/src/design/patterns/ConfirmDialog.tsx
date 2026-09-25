@@ -91,14 +91,17 @@ export const ConfirmDialog = ({
    */
   <AlertDialog open onOpenChange={(next) => { if (!next) onCancel() }}>
     <AlertDialogContent
-      /* The column and its bound are said as utilities too: the primitive's
-         own `grid` is a utility, and a module rule can lose to it depending on
-         which stylesheet a build happens to load last. `cn` settles it here. */
-      className={cn(styles.content, 'flex max-h-(--hd-dialog-max-height) flex-col overflow-hidden')}
+      /* The box is said once, as utilities: a column, bounded by the window,
+         with no padding or gap of its own — header, body and footer pad
+         themselves. The primitive's `grid gap-3 p-4` are utilities too, so
+         `cn` drops them here. A module rule saying the same would tie with
+         them, and which won depended on the order a build loaded the sheets:
+         the preview drew every confirm with a second 16px frame. */
+      className="flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0"
       initialFocus={false}
     >
       <AlertDialogHeader
-        className={cn(styles.header, 'shrink-0 flex-row items-center')}
+        className={cn(styles.header, 'shrink-0 flex-row items-center gap-2')}
         data-tone={tone === 'destructive' ? 'destructive' : undefined}
       >
         <span className={styles.icon}>
@@ -114,7 +117,7 @@ export const ConfirmDialog = ({
       {/* The body is the only part that scrolls: a confirm can be asked to
           hold what it confirms — a whole skill, a server's command line — and
           the question and both answers stay on screen however long that is. */}
-      <AlertDialogDescription render={<div />} className={cn(styles.body, 'min-h-0 flex-1 overflow-y-auto')} data-slot="confirm-body">
+      <AlertDialogDescription render={<div />} className={cn(styles.body, 'min-h-0 min-w-0 flex-auto overflow-y-auto')} data-slot="confirm-body">
         {children}
       </AlertDialogDescription>
       {/* The proceeding action is written first. The footer is `row-reverse`,
@@ -125,7 +128,7 @@ export const ConfirmDialog = ({
           and a Return keep things as they are. Written the other way round,
           every confirm in the app put the verb for leaving things alone where
           the pointer goes to proceed, and a Tab and a Return confirmed. */}
-      <AlertDialogFooter className={cn(styles.footer, 'shrink-0')}>
+      <AlertDialogFooter className={cn(styles.footer, 'mt-0 shrink-0')}>
         {/* One filled button: the act, red when it destroys. The way to keep
             things as they are is quiet — it is the answer that changes
             nothing, and it should not compete with the one that does. */}
