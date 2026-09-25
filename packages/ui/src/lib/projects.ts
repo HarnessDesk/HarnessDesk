@@ -211,12 +211,12 @@ const currentIsWorktree = (workspace: WorkspaceEntry): boolean =>
 /**
  * `workspace.path`, corrected for the one case a plain string cannot answer.
  *
- * The host keeps a workspace at the spelling it was opened at, deliberately
- * not `realpath`'d (`describeWorkspace`) — a session with no git repository
- * is matched against the open list by that same raw spelling, and resolving
- * links here would strand that case. But git's own root for this folder
- * (`checkoutRoot`, or `repo.root` outside a worktree) is computed by
- * resolving them, so when the folder was reached through one — macOS keeps
+ * The host keeps `workspace.path` at the spelling it was opened at,
+ * deliberately not `realpath`'d (`describeWorkspace`) — a session with no
+ * git repository is matched against the open list by that same raw spelling,
+ * and resolving links there would strand that case. But git's own root for
+ * this folder (`checkoutRoot`, or `repo.root` outside a worktree) is computed
+ * by resolving them, so when the folder was reached through one — macOS keeps
  * its own temporary folders behind `/var` → `/private/var` — that root is not
  * a textual ancestor of the path that produced it. That disagreement can
  * only be a spelling difference, never a real subfolder: an ordinary
@@ -225,10 +225,21 @@ const currentIsWorktree = (workspace: WorkspaceEntry): boolean =>
  * only the spelling a link introduced. Grouping sessions by `repo.root`
  * while the workspace list kept the open folder's own spelling filed the same
  * project under two keys, and it showed up twice in the sidebar (#898).
+ *
+ * Outside git there is no `repo.root` to disagree with — `checkout` is
+ * `null` — but the same link can still be in the opened spelling, and the
+ * folder's own sessions still report their real `cwd` (an agent process
+ * started at a link answers `getcwd` resolved, same as git does). `path`
+ * itself is not the answer there either, so this reads `workspace.realPath`
+ * — the host's own resolution of the same folder, kept separate from `path`
+ * for exactly this reason — with the identical lexical test: only a link
+ * fails it, an ordinary folder passes and is left alone (#907).
  */
 const ownPathOf = (workspace: WorkspaceEntry): string => {
   const checkout = workspace.checkoutRoot ?? workspace.repo?.root ?? null
-  return checkout && !isPathInside(workspace.path, checkout) ? checkout : workspace.path
+  if (checkout) return isPathInside(workspace.path, checkout) ? workspace.path : checkout
+  const real = workspace.realPath ?? null
+  return real && !isPathInside(workspace.path, real) ? real : workspace.path
 }
 
 /**

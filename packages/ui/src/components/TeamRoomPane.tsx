@@ -1094,7 +1094,13 @@ export const TeamRoomPane = ({
         </ToolPaneNotice>
       )}
 
-      <div className={styles.split}>
+      {/* `data-notice-yield`: the notice system's own contract (app.css,
+          beside `.hd-floatingNotices`) for a pane that can sit under the
+          floating stack. Applied here rather than on the rail alone, so the
+          rail, the reading side and Board's own header row all move together
+          instead of the rail dropping onto a reading side that never did
+          (#913). */}
+      <div className={styles.split} data-notice-yield>
         <aside className={styles.rail}>
           {/* The work before the chatter: a reader arriving at a group project
               wants the state of the board before they want the conversation.

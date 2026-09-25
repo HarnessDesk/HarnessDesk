@@ -203,7 +203,7 @@ const treeWith = (
   live: readonly SessionSummary[] = [],
   prefs: Partial<AppSnapshot['listPrefs']> = {},
   /** The folder the desk has open, when it is not the plain repository root. */
-  open: { path: string; name: string; lastOpenedAt: number; repo?: unknown } = {
+  open: { path: string; name: string; lastOpenedAt: number; repo?: unknown; realPath?: string } = {
     path: '/repo',
     name: 'repo',
     lastOpenedAt: 1,
@@ -645,6 +645,37 @@ it('a project opened through a symlink is one row, not two', () => {
     (one) => one.textContent?.includes('widgets'),
   )
   expect(widgetsRows).toHaveLength(1)
+})
+
+/**
+ * The public report (#907), for a folder no git repository names: opened
+ * through the same kind of alias, a non-git project also showed up as two
+ * rows, and folding it needed the host's own `realPath` (`WorkspaceEntry`
+ * now carries one for exactly this). But `realPath` is a comparison key,
+ * never something to act on — reopening at it instead of the spelling the
+ * person actually opened would have undone the fold this same row proves,
+ * the moment its own "+" ran (review of #931, round 3).
+ */
+it('starts a new session at the spelling the person opened, from a non-git alias row that folded to one (#907)', () => {
+  const real = '/private/var/folders/x/work/scratch'
+  const link = '/var/folders/x/work/scratch'
+  const startSessionIn = vi.fn()
+  const { container: tree } = treeWith(
+    [],
+    [summary({ id: 'session-1', cwd: real, repo: null })],
+    [],
+    {},
+    { path: link, name: 'scratch', lastOpenedAt: 1, realPath: real },
+    null,
+    new Map(),
+    { startSessionIn },
+  )
+  const scratchRows = [...tree.querySelectorAll('button')].filter((one) => one.textContent?.includes('scratch'))
+  expect(scratchRows).toHaveLength(1)
+  const plus = tree.querySelector('[aria-label^="New session in "]')
+  if (!plus) throw new Error('no "New session in" button on the folded row')
+  act(() => (plus as HTMLElement).click())
+  expect(startSessionIn).toHaveBeenCalledWith(link)
 })
 
 it('two rooms of one name in a project outside the tree are two rows', () => {

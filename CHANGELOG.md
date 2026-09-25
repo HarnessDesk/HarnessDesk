@@ -7,6 +7,17 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **A standing notice stays in its own pane.** The floating banner stack (a
+  Library import offer, an account warning) used to span the whole workbench,
+  so it could sit squarely over a room's Board row, cut through the top of
+  Chat, or spill into a docked browser pane's own toolbar and catch a click
+  meant for its reload button — all unclickable until the notice was
+  dismissed. A room now leaves room for whatever notice is showing, its rail
+  and reading side moving together. The notice itself rides the pane being
+  read — a panel zoomed to fill the window, or laid over a narrow one, takes
+  it along — never narrower than a card can be read at, and always below
+  that pane's toolbars rather than over them.
+
 - **An Agent can be started at a higher ceiling, and its MCP servers load.**
   An Agent whose ceiling is publish or merge was always seated at edit from
   the app, so an MCP server it declared — which needs a Seat that may merge
