@@ -55,8 +55,10 @@ import { COMPOSER_SESSION_KEY, composerStore } from './composer-fixture'
 import { MessageQueue } from '../components/MessageQueue'
 import '../styles/app.css'
 
-const composerWaiting = composerStore(store.getSnapshot())
-const composerPaused = composerStore(store.getSnapshot(), true)
+const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
+/* Painted only when asked for: the fixture draws its two pictures at load. */
+const composerWaiting = SHOW_COMPOSER ? composerStore(store.getSnapshot()) : store
+const composerPaused = SHOW_COMPOSER ? composerStore(store.getSnapshot(), true) : store
 
 const previewProvenance = commitProvenance({ seats: [{ ...provenanceSeat(7), runtime: 'codex', session: { runtime: 'codex', sessionId: 'conversation-7' } }] })
 const previewMutable = store as unknown as { patch(partial: Partial<AppSnapshot>): void }
@@ -548,7 +550,10 @@ const Preview = () => {
       {/* The composer holding everything it can at once, on a store of its
           own: a model list that folds behind a filter, a build with a newer
           one out, three messages waiting, and a sent message with two
-          pictures to open in the lightbox. */}
+          pictures to open in the lightbox. Only on `preview.html?composer`:
+          a second conversation on the page would give every spec that finds
+          "the" model trigger or "the" transcript two of them. */}
+      {SHOW_COMPOSER && <>
       <Frame title="Composer — its pickers, the queue and a picture">
         <div className="h-[820px]" data-preview="composer">
           <StoreProvider store={composerWaiting}>
@@ -584,6 +589,7 @@ const Preview = () => {
           </StoreProvider>
         </div>
       </Frame>
+      </>}
 
       <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[380px_1fr]">
         {/* The two right-dock panels, at the width the dock actually gives
