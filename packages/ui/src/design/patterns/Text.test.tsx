@@ -93,3 +93,22 @@ it('sets code as a block only when asked', () => {
   expect(block?.classList.contains(styles.monoBlock!)).toBe(true)
   expect(inline?.classList.contains(styles.monoBlock!)).toBe(false)
 })
+
+it('gives a code block a muted plate and folded lines only when asked, and never to inline code', () => {
+  act(() => root.render(<>
+    <CodeText as="pre" block ground="muted" wrap>envelope</CodeText>
+    <CodeText as="pre" block>file</CodeText>
+    <CodeText ground="muted" wrap>inline</CodeText>
+  </>))
+  const [plate, bare, inline] = [...container.querySelectorAll<HTMLElement>('[data-slot="code-text"]')]
+  expect(plate?.dataset['ground']).toBe('muted')
+  expect(plate?.hasAttribute('data-wrap')).toBe(true)
+  expect(bare?.hasAttribute('data-ground')).toBe(false)
+  expect(bare?.hasAttribute('data-wrap')).toBe(false)
+  expect(inline?.hasAttribute('data-ground')).toBe(false)
+  expect(inline?.hasAttribute('data-wrap')).toBe(false)
+  // The plate's ground and fold are the block's own rules, not the screen's.
+  expect(getComputedStyle(plate!).borderRadius).not.toBe(getComputedStyle(bare!).borderRadius)
+  expect(getComputedStyle(plate!).whiteSpace).toBe('pre-wrap')
+  expect(getComputedStyle(bare!).whiteSpace).toBe('pre')
+})

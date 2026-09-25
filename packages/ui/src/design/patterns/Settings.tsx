@@ -1279,14 +1279,21 @@ export const SectionToggle = ({ children, className }: { children: ReactNode; cl
 /**
  * Code and output in the code face.
  *
- * `block` is a file's text set as a block — laid out line for line, at the
- * code step and its leading, inset from the box it fills — for text that
- * stands in a card where an editor or a patch would otherwise be.
+ * `block` is text set as a block — laid out line for line, at the code step
+ * and its leading, inset from the box it fills: a file's text standing in a
+ * card where an editor would be (a plugin panel's code block), a raw envelope
+ * a message was sent in, the detail of an Agent that could not be read.
+ * `ground="muted"` gives the block a plate of its own, on the muted ground at
+ * the small corner and in the secondary ink, for one that sits among
+ * sentences rather than filling a card. `wrap` folds long lines instead of
+ * scrolling them, for text read as prose rather than aligned as code.
  */
 export const CodeText = ({
   as = 'span',
   size = 'default',
   block = false,
+  ground = 'none',
+  wrap = false,
   className,
   children,
   ...props
@@ -1294,12 +1301,18 @@ export const CodeText = ({
   as?: 'span' | 'code' | 'pre'
   size?: 'default' | 'inherit'
   block?: boolean
+  /** A block's own plate; only a `block` takes one. */
+  ground?: 'none' | 'muted'
+  /** Fold a block's long lines; only a `block` takes it. */
+  wrap?: boolean
   children: ReactNode
 }) => createElement(as, {
   ...props,
   'data-slot': 'code-text',
   'data-size': size,
   ...(block ? { 'data-block': '' } : {}),
+  ...(block && ground !== 'none' ? { 'data-ground': ground } : {}),
+  ...(block && wrap ? { 'data-wrap': '' } : {}),
   className: cx(styles.mono, size === 'inherit' && styles.monoInherit, block && styles.monoBlock, className),
 }, children)
 
