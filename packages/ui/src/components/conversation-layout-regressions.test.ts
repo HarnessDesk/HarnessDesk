@@ -15,9 +15,11 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   expect(itemsCss).not.toMatch(/@keyframes\s+(spin|blink)/)
   expect(conversationTsx).toMatch(/animate-\[hd-spin_/)
   expect(conversationTsx).toMatch(/animate-\[hd-pulse_/)
-  expect(itemsTsx).toMatch(/animate-\[hd-spin_/)
   expect(itemsTsx).toMatch(/animate-\[hd-blink_/)
-  // A step group's running mark is the system spinner, not a fourth drawing.
+  // A step's own running mark is the system spinner, not a fourth drawing —
+  // the same rule the step group's already kept.
+  expect(itemsTsx).toMatch(/<Spinner size="sm" tone="brand" \/>/)
+  expect(itemsTsx).not.toMatch(/animate-\[hd-spin_/)
   expect(stepGroupTsx).toMatch(/<Spinner size="sm" tone="brand" \/>/)
   expect(stepGroupTsx).not.toMatch(/animate-\[hd-spin_/)
 })
