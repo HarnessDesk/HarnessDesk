@@ -469,7 +469,11 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
   const [preview, setPreview] = useState<number | null>(null)
 
   return (
-    <div className={styles.userRow}>
+    /* No shared part owns a message row's own vertical rhythm — `TurnItem`
+       gives every transcript item the same 4px, and the user row's 12px
+       above / 4px below is this row's alone. Restored as the utility it was
+       rather than invented as a new one. */
+    <div className={`${styles.userRow} py-(--hd-space-3) pb-(--hd-space-1)`}>
       {(injections.length > 0 || (item.context?.length ?? 0) > 0) && (
         <div style={{ alignSelf: 'stretch' }}>
           {injections.map((injection, index) => (
@@ -637,7 +641,10 @@ const AssistantMessage = ({
   item: AssistantMessageItem
   streaming: boolean
 }) => (
-  <Text as="div" role="prose" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
+  /* No shared part owns a message row's own vertical rhythm (see the same
+     note on UserMessage above); this row's 6px above and below is restored
+     as the utility it was. */
+  <Text as="div" role="prose" className="py-(--hd-space-1-5)" {...(item.phase === 'commentary' ? { ink: 'secondary' as const } : {})}>
     <Markdown text={item.text} />
     {/* Still writing: the system's running mark, the one the inspector's
         running rows and the header's status wear. */}
