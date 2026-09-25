@@ -11,6 +11,10 @@ import { parseSeating } from '../packages/server/dist/src/agent-seating-file.js'
 import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
+import { Assignments } from '../packages/server/dist/src/goals/assignments.js'
+import { GoalStore } from '../packages/server/dist/src/goals/store.js'
+import { EvidenceStore } from '../packages/server/dist/src/evidence/store.js'
+import { SeatBook } from '../packages/server/dist/src/evidence/seats.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
@@ -261,4 +265,80 @@ test('the Intake acceptance rig owns a disposable home and never runs the live g
   const live = script.slice(script.indexOf("if (mode === 'live')"), script.indexOf("if (mode !== 'rig')"))
   assert.match(live, /HD_INTAKE_ACCEPTANCE_REPO/)
   assert.match(live, /process\.exit\(1\)/)
+})
+
+test('reseeding clears a leftover Goal, and does not leave the Seat it held open for the next room to collide with', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-goal-leak-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  seed()
+  const storefront = join(work, 'storefront')
+
+  // What one un-reseeded take of the room (or board, or flow-board) scene
+  // leaves behind: a Goal document on disk, and — because nothing in that
+  // scene ever releases it — a still-open Seat bound to the session id the
+  // fake agent's own per-process counter hands out first (`s-1`) on every
+  // fresh launch. The next take's first session on that runtime gets that
+  // same id back, which is exactly what made `--scene room` fail outright
+  // with "This conversation already holds a Seat." rather than merely
+  // leaving a stray sidebar row.
+  const goals = new GoalStore(home)
+  mkdirSync(join(home, 'goals'), { recursive: true })
+  const now = Date.now()
+  await goals.save({
+    version: 1,
+    goal: {
+      id: 'stale-room', root: storefront, cwd: storefront, sentence: 'Checkout hardening',
+      state: 'open', revision: 0, checkout: 'shared', dependsOn: [],
+      createdAt: now, updatedAt: now, origin: { kind: 'person' }, receipt: null,
+    },
+    board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+    citations: [], receipt: null, operation: null,
+  }, null)
+  const evidence = new EvidenceStore(join(home, 'evidence'))
+  const seats = new SeatBook(evidence)
+  await seats.opened({
+    agent: null, briefDigest: null, seat: { runtime: 'codex' }, seatLabel: 'Seat 1',
+    passedOver: [], standing: { kind: 'permission', permission: 'read' }, ceiling: null,
+    cwd: storefront, session: { runtime: 'codex', sessionId: 's-1' }, board: 'stale-room', role: null,
+  })
+
+  // A fresh room's own assignment, checked against that stale Seat exactly as
+  // `team/add` + `assignGoal` would: this is the same collision Assignments
+  // reports as "already holds a Seat", read here without needing Electron.
+  const assignInto = async (book) => {
+    const assignments = new Assignments({
+      goal: () => ({ id: 'fresh-room', state: 'open', root: storefront }),
+      seats: () => book.all(),
+      known: async () => ({ project: storefront, busy: false }),
+      claimable: () => true,
+      commit: async (goal, card, session) => ({ id: 'seat-x', session, board: goal, closed: null, restored: undefined }),
+    })
+    return assignments.assign('fresh-room', 1, { runtime: 'codex', sessionId: 's-1' })
+  }
+
+  const staleSeats = new SeatBook(new EvidenceStore(join(home, 'evidence')))
+  await staleSeats.load()
+  await assert.rejects(
+    () => assignInto(staleSeats),
+    /already holds a Seat/,
+    'the scenario is not actually reproducing the reported collision',
+  )
+
+  // The next take reseeds, exactly as seed.mjs's own doc comment says to do
+  // before every one.
+  seed()
+
+  assert.equal(existsSync(join(home, 'goals')), false, 'a leftover Goal survived reseeding')
+
+  const freshSeats = new SeatBook(new EvidenceStore(join(home, 'evidence')))
+  await freshSeats.load()
+  assert.deepEqual(freshSeats.of('codex', 's-1'), [], 'a stale Seat still blocks the session id the next take will reuse')
+  await assignInto(freshSeats)
 })

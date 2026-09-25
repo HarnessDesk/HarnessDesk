@@ -63,11 +63,45 @@ const say = (line) => process.stdout.write(`  ${line}\n`)
  * and a ledger that ever ran unstubbed has this machine's real spend in it.
  * Deleting it every take means a stale one can never be photographed.
  *
+ * `goals/` is the one that bites hardest. Every Goal — the room the board and
+ * room scenes build, and the one the flow and flow-board scenes create fresh
+ * — lives there as its own document, with the Seats assigned to it inside.
+ * Left unswept, a Goal from take one is still on disk for take two: its
+ * sentence is a leftover row in the sidebar forever ("Working"/"Needs you"
+ * with nothing behind it, because the room and its agents are gone), and its
+ * still-open Seat is still bound to whatever session id the fixture handed
+ * out — which the fake agents mint as `s-1`, `s-2`, … from zero on every
+ * fresh launch, so the *next* take's first session collides with it. That is
+ * exactly `assignGoal`'s "This conversation already holds a Seat. Release it
+ * before assigning it elsewhere.", which is why `--scene room` failed outright
+ * rather than merely leaving a stray row. The memory citation archive lives
+ * under `goals/memory-archive`, so clearing the one directory clears both.
+ *
+ * The rest of this list is every other place a later phase taught the host to
+ * write beside `goals/`: the Flows engine's own run records (`flows/`,
+ * `flows-v2/`, and the change-notice snapshot in `flow-updates/`), a Seat's
+ * attachment receipts and staged/frozen copies (`attachments/` and
+ * `attachment-trust.json`), a trigger's consent, cursor and post bookkeeping
+ * (`intake.json` and the `triggers-*` files), the session archive and its
+ * names (`archive.json`, `names.json`), stored credentials nothing here
+ * should ever populate (`credentials.json`), the worktree-lane allocator
+ * (`lanes/`, `worktrees/`), and the desk's own write lease, which a killed
+ * take can leave mid-recovery (`desk-writer.lock`, `desk-writer-recovery`).
+ *
  * The Chromium profile under `electron/` is left alone — it is a browser
  * profile, not app state, and rebuilding it costs seconds of cold start for
  * nothing.
  */
-const RESIDUE = ['team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json', 'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence', 'provenance', 'provenance-preferences.json', 'provenance-shots.json', 'commands-seen.json', 'commands-seen.key', 'seat-record-scene.json']
+const RESIDUE = [
+  'team', 'transcripts', 'cache', 'stores', 'usage.sqlite', 'audit.ndjson', 'state.json',
+  'agents.json', 'agents', 'seating.json', 'window.json', 'codex-version', 'evidence',
+  'provenance', 'provenance-preferences.json', 'provenance-shots.json', 'commands-seen.json',
+  'commands-seen.key', 'seat-record-scene.json',
+  'goals', 'flows', 'flows-v2', 'flow-updates', 'attachments', 'attachment-trust.json',
+  'intake.json', 'triggers-machine.json', 'triggers-key.bin', 'triggers-preferences.json',
+  'triggers-desk-posts.json', 'triggers-cursors.json', 'archive.json', 'names.json',
+  'credentials.json', 'lanes', 'worktrees', 'desk-writer.lock', 'desk-writer-recovery',
+]
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
 
 if (process.argv.includes('--clean')) {
