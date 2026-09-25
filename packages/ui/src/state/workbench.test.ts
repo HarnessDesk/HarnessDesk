@@ -19,6 +19,7 @@ import {
   focusedMount,
   mountOfTerminal,
   moveView,
+  noticeArea,
   readWorkbench,
   removeAt,
   replaceView,
@@ -499,6 +500,27 @@ describe('size and visibility', () => {
   test('docking into a collapsed area opens it, since something was just asked for', () => {
     const workbench = dock(collapseDock(dock(emptyWorkbench(), 'right', CHANGES), 'right', true), 'right', ACTIVITY)
     expect(workbench.right.collapsed).toBe(false)
+  })
+})
+
+describe('noticeArea — which area the desk’s floating notices ride (#896)', () => {
+  test('the main area, normally, whatever sits beside it', () => {
+    expect(noticeArea(emptyWorkbench(), false)).toBe('main')
+    expect(noticeArea(dock(emptyWorkbench(), 'right', CHANGES), false)).toBe('main')
+    expect(noticeArea(dock(emptyWorkbench(), 'bottom', TERM), false)).toBe('main')
+  })
+
+  test('a zoomed right or bottom panel takes the notices with the room', () => {
+    expect(noticeArea(zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content'), false)).toBe('right')
+    expect(noticeArea(zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window'), false)).toBe('bottom')
+    expect(noticeArea(zoomArea(emptyWorkbench(), 'main', 'content'), false)).toBe('main')
+  })
+
+  test('a narrow window’s right panel, laid over the main area, takes them too — but only while it is drawn', () => {
+    const right = dock(emptyWorkbench(), 'right', CHANGES)
+    expect(noticeArea(right, true)).toBe('right')
+    expect(noticeArea(collapseDock(right, 'right', true), true)).toBe('main')
+    expect(noticeArea(emptyWorkbench(), true)).toBe('main')
   })
 })
 

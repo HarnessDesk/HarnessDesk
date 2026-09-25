@@ -265,11 +265,13 @@ a:hover {
 
 .hd-floatingNotices {
   position: absolute;
+  /* `top`, `left` and `right` are all set inline, in `App.tsx`, from
+     `lib/notice-bounds.ts`: over the pane or panel being read, never the
+     sidebar or an unrelated pane beside it, at a width a card can be read
+     at, and below every toolbar it would otherwise cover (#896). These are
+     only the values before that effect has ever run; `46px` is
+     `NOTICE_FLOOR`, just under the window's header strip. */
   top: 46px;
-  /* `left` and `right` are both set inline, in `App.tsx`, confining this to
-     the main content it is about — never the sidebar, a right panel or an
-     unrelated second pane beside it in a split (#896). `0` here is only the
-     value before that effect has ever run. */
   left: 0;
   right: 0;
   z-index: var(--hd-z-notice);
@@ -280,6 +282,7 @@ a:hover {
   padding: 0 16px;
   pointer-events: none;
   transition:
+    top var(--hd-duration-slow) var(--hd-ease),
     left var(--hd-duration-slow) var(--hd-ease),
     right var(--hd-duration-slow) var(--hd-ease);
 }

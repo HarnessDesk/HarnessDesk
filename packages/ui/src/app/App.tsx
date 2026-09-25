@@ -21,7 +21,7 @@ import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
 import { RaceStart } from '../components/RaceStart'
 import { projectRootOf } from '../lib/projects'
-import { noticeBounds } from '../lib/notice-bounds'
+import { NOTICE_BAR_SELECTOR, noticePlacement } from '../lib/notice-bounds'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { routeFor } from './seat-fixes'
 import { Sidebar } from '../components/Sidebar'
@@ -342,37 +342,50 @@ export const App = () => {
   }, [])
 
   /*
-   * A standing banner belongs to the pane being read, never a right panel or
-   * an unrelated second pane beside it in a split — reconstructing that
-   * width from the sizes those panels were last dragged to was wrong (#896):
-   * a zoom or a narrow window overrides a saved size without changing it, so
-   * a zoomed right or bottom panel, or a right panel a narrow window widened,
-   * still took the click a card floating past the real boundary caught. This
-   * reads `[data-notice-pane]` — the split tree's own primary leaf, marked in
-   * `Panes.tsx` — directly instead, live, on whatever actually changed its
-   * box: the pane element's own `ResizeObserver` fires for a window resize,
-   * a split drag, a zoom or a panel opening alike, because every one of them
-   * changes what that box measures. The effect itself only has to run again
-   * when the marked element could be a *different* one — the layout's own
-   * identity changing is what `snapshot.layout` already means.
+   * A standing banner rides the pane being read (#896) — `noticeArea` in
+   * `state/workbench.ts` says which one, from the layout model, and marks it
+   * `[data-notice-host]`: the split tree's expanded or first pane, or the
+   * panel a zoom or a narrow window has given the room. This reads that box
+   * live rather than reconstructing it from saved sizes, which a zoom or a
+   * narrow window overrides without changing, and `noticePlacement` keeps
+   * the stack at a readable width and below every bar it would otherwise lie
+   * across, so it never takes a click meant for another pane's toolbar. The
+   * observers fire for a window resize, a split drag, a zoom or a panel
+   * opening alike; the effect itself only runs again when the marked element
+   * could be a different one.
    */
   useLayoutEffect(() => {
     const stack = notices.current
     const area = stack?.parentElement
     if (!stack || !area) return
-    const pane = document.querySelector<HTMLElement>('[data-notice-pane]')
+    const content = document.querySelector<HTMLElement>('[data-notice-bounds]')
+    const host = document.querySelector<HTMLElement>('[data-notice-host]')
     const apply = (): void => {
-      const bounds = noticeBounds(area.getBoundingClientRect(), pane?.getBoundingClientRect() ?? null)
-      stack.style.left = `${bounds.left}px`
-      stack.style.right = `${bounds.right}px`
+      const box = area.getBoundingClientRect()
+      const bars = [...document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)]
+        // A hidden tab, a zoomed-away area or the collapsed half of an
+        // expansion keeps its box but is not on screen.
+        .filter((bar) => bar.checkVisibility?.({ visibilityProperty: true }) ?? true)
+        .map((bar) => bar.getBoundingClientRect())
+      const placement = noticePlacement({
+        container: box,
+        content: content?.getBoundingClientRect() ?? box,
+        host: host?.getBoundingClientRect() ?? null,
+        bars,
+      })
+      stack.style.left = `${placement.left}px`
+      stack.style.right = `${placement.right}px`
+      stack.style.top = `${placement.top}px`
     }
     apply()
-    if (!pane) return
     const observer = new ResizeObserver(apply)
-    observer.observe(pane)
     observer.observe(area)
+    if (content) observer.observe(content)
+    if (host) observer.observe(host)
+    // A bar that wraps onto a second line moves the edge the stack clears.
+    for (const bar of document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)) observer.observe(bar)
     return () => observer.disconnect()
-  }, [snapshot.layout])
+  }, [snapshot.layout, snapshot.workbench, snapshot.narrowWindow])
 
   return (
     /* One shell, one set of actions — including the app windows mounted

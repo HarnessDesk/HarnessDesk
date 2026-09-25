@@ -39,6 +39,8 @@ import {
   dockViews,
   MAX_RATIO,
   MIN_RATIO,
+  noticeArea,
+  rightPanelDrawn,
   sidebarPlacement,
   stackOf,
   stackView,
@@ -261,7 +263,9 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
         <AreaSeam area="sidebar" orientation="vertical" label="Resize the sidebar" direction={1} />
       )}
 
-      <div ref={content} className={styles.content}>
+      {/* `data-notice-bounds`: the box the desk's floating notices never
+          leave (#896) — every pane and panel, never the sidebar. */}
+      <div ref={content} className={styles.content} data-notice-bounds="">
         {/* The row holding the split tree and the right panel. It collapses as
             a unit when neither is on screen — a zoomed bottom panel would
             otherwise sit under the empty space where they were, which reads as
@@ -294,10 +298,6 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   )
 }
 
-/** Whether the right panel draws a panel at all, rather than only its drop zone. */
-const rightPanelDrawn = (workbench: WorkbenchModel): boolean =>
-  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
-
 const RightPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -327,7 +327,13 @@ const RightPanel = () => {
       {sized && (
         <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} />
       )}
-      <div className={styles.right} style={sized ? { width: 'var(--panel-right)' } : undefined}>
+      <div
+        className={styles.right}
+        style={sized ? { width: 'var(--panel-right)' } : undefined}
+        /* Zoomed, or laid over a narrow window's main area, this is the
+           panel being read, and the desk's notices ride it (#896). */
+        {...(noticeArea(workbench, snapshot.narrowWindow) === 'right' ? { 'data-notice-host': '' } : {})}
+      >
         <PanelArea area="right" />
       </div>
     </>
@@ -347,7 +353,12 @@ const BottomPanel = () => {
       {!dock.collapsed && !zoomed && (
         <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />
       )}
-      <div className={styles.bottom} style={height ? { height } : undefined}>
+      <div
+        className={styles.bottom}
+        style={height ? { height } : undefined}
+        /* Zoomed, the one place `noticeArea` answers `bottom`. */
+        {...(zoomed ? { 'data-notice-host': '' } : {})}
+      >
         <PanelArea area="bottom" />
       </div>
     </>

@@ -8,19 +8,21 @@ import tokensCss from '../design/foundation/tokens.css?raw'
 /**
  * Global chrome still has to respect the workbench geometry.
  *
- * The floating notice stack reads the split tree's own primary pane
- * (`[data-notice-pane]`, marked in `Panes.tsx`) live, rather than
- * reconstructing its box from the sizes a right or bottom panel were last
- * dragged to — a zoom or a narrow window overrides a saved size without
- * changing it, so a reconstruction still let a banner spill past the real
- * boundary and catch a click meant for the pane beside it (#896). The pure
- * math this measurement feeds is `lib/notice-bounds.ts`'s own tests; this
- * checks that `App.tsx` actually wires the measurement up.
+ * The floating notice stack reads the pane or panel being read
+ * (`[data-notice-host]`, marked from `noticeArea` in `Panes.tsx` and
+ * `Workbench.tsx`) live, rather than reconstructing its box from the sizes a
+ * right or bottom panel were last dragged to — a zoom or a narrow window
+ * overrides a saved size without changing it (#896). The pure placement
+ * this measurement feeds is `lib/notice-bounds.ts`'s own tests; this checks
+ * that `App.tsx` actually wires the measurement up.
  */
-it('confines standing notices to the split tree’s own primary pane', () => {
-  expect(app).toContain("document.querySelector<HTMLElement>('[data-notice-pane]')")
-  expect(app).toContain('noticeBounds(')
-  expect(app).toContain('observer.observe(pane)')
+it('places standing notices over the pane being read, clear of every bar', () => {
+  expect(app).toContain("document.querySelector<HTMLElement>('[data-notice-host]')")
+  expect(app).toContain("document.querySelector<HTMLElement>('[data-notice-bounds]')")
+  expect(app).toContain('document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)')
+  expect(app).toContain('noticePlacement(')
+  expect(app).toContain('stack.style.top =')
+  expect(app).toContain('observer.observe(host)')
   expect(appCss).toMatch(/\.hd-shellBody\s*{[^}]*position:\s*relative/s)
   expect(appCss).toMatch(/\.hd-floatingNotices\s*{[^}]*transition:\s*[\s\S]*left/)
 })

@@ -13,10 +13,10 @@ move is real work and is not news to a person weighing an upgrade.
   Chat, or spill into a docked browser pane's own toolbar and catch a click
   meant for its reload button — all unclickable until the notice was
   dismissed. A room now leaves room for whatever notice is showing, its rail
-  and reading side moving together; the notice itself now confines its own
-  width to the pane it's about — reading the pane's own box directly, so a
-  zoomed right or bottom panel, or a right panel a narrow window widened,
-  is never mistaken for room the notice can spill into either.
+  and reading side moving together. The notice itself rides the pane being
+  read — a panel zoomed to fill the window, or laid over a narrow one, takes
+  it along — never narrower than a card can be read at, and always below
+  that pane's toolbars rather than over them.
 
 - **A Goal's work survives a relaunch.** Quitting while a Goal's agent was
   working, or waiting for you to approve a command, used to leave the Goal

@@ -1,78 +1,137 @@
 import { describe, expect, it } from 'vitest'
 
-import { noticeBounds, rangesOverlap, type RectLike } from './notice-bounds'
+import {
+  NOTICE_FLOOR,
+  NOTICE_MIN_WIDTH,
+  boxesOverlap,
+  noticePlacement,
+  type BoxLike,
+} from './notice-bounds'
 
-/** The box the notice stack would end up with, given these two rects. */
-const stackBox = (container: RectLike, pane: RectLike | null): RectLike => {
-  const bounds = noticeBounds(container, pane)
-  return { left: container.left + bounds.left, right: container.right - bounds.right }
+/*
+ * Every rect below is a plausible one for its scenario, not a live
+ * measurement: jsdom's own `getBoundingClientRect` cannot produce one, which
+ * is why this is a unit test on the rects rather than a rendered one. The
+ * shapes come from the stylesheets: `.main[data-hidden]` is `flex: 0 0 0`
+ * (a zero-width pane, still in the row), a zoomed dock is `flex: 1`, and a
+ * narrow window's `.right` is `position: absolute; inset: 0` over the main
+ * area. The bars are the heights the design system gives them: a panel's
+ * strip and a tool's header at 38, a browser's address bar at 40.
+ */
+
+const box = (left: number, top: number, right: number, bottom: number): BoxLike => ({ left, top, right, bottom })
+
+/** A window 1440 × 900, sidebar 240 wide; the stack is positioned in the whole of it. */
+const WINDOW = box(0, 0, 1440, 900)
+const CONTENT = box(240, 0, 1440, 900)
+
+/** A panel's strip, then a browser's header and address bar under it, over `[left, right]`. */
+const browserBars = (left: number, right: number): BoxLike[] => [
+  box(left, 0, right, 38),
+  box(left, 38, right, 76),
+  box(left, 76, right, 116),
+]
+
+/** The tallest a card is likely to be: two lines and a button row. */
+const CARD_HEIGHT = 120
+
+/** The stack's own box, as the page would lay it out, for one card. */
+const stackOf = (container: BoxLike, placement: ReturnType<typeof noticePlacement>): BoxLike =>
+  box(
+    container.left + placement.left,
+    container.top + placement.top,
+    container.right - placement.right,
+    container.top + placement.top + CARD_HEIGHT,
+  )
+
+/** The two promises every shape must keep: readable, and clear of every bar. */
+const expectReadableAndClear = (container: BoxLike, content: BoxLike, stack: BoxLike, bars: readonly BoxLike[]) => {
+  expect(stack.right - stack.left).toBeGreaterThanOrEqual(Math.min(NOTICE_MIN_WIDTH, content.right - content.left))
+  expect(stack.left).toBeGreaterThanOrEqual(content.left)
+  expect(stack.right).toBeLessThanOrEqual(content.right)
+  for (const bar of bars) expect(boxesOverlap(stack, bar), JSON.stringify(bar)).toBe(false)
+  expect(stack.top - container.top).toBeGreaterThanOrEqual(NOTICE_FLOOR)
 }
 
-describe('noticeBounds', () => {
-  it('is the whole container when the pane fills it, with nothing else beside it', () => {
-    const container = { left: 240, right: 1024 }
-    expect(noticeBounds(container, { left: 240, right: 1024 })).toEqual({ left: 0, right: 0 })
+describe('noticePlacement', () => {
+  it('rides a conversation that fills the content area, just under the header strip', () => {
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars: [] })
+    expect(placement).toEqual({ left: 240, right: 0, top: NOTICE_FLOOR })
   })
 
-  it('confines to a pane narrower than the container, on both sides at once', () => {
-    const container = { left: 240, right: 1024 }
-    const pane = { left: 240, right: 690 }
-    expect(noticeBounds(container, pane)).toEqual({ left: 0, right: 334 })
+  it('stops at the seam when a docked browser sits beside the conversation, and does not drop for bars it does not cross', () => {
+    const bars = browserBars(900, 1440)
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: box(240, 0, 899, 900), bars })
+    expect(placement).toEqual({ left: 240, right: 541, top: NOTICE_FLOOR })
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
   })
 
-  it('answers 0/0 — unconfined — only when no primary pane has ever mounted', () => {
-    expect(noticeBounds({ left: 0, right: 1024 }, null)).toEqual({ left: 0, right: 0 })
+  it('a zoomed right panel: rides the panel below its strip and address bar, never a sliver over Reload', () => {
+    // The main area is zero wide at the panel's left edge, and unmarked:
+    // `noticeArea` hands the notices to the panel being read.
+    const bars = browserBars(240, 1440)
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars })
+    expect(placement).toEqual({ left: 240, right: 0, top: 124 })
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
   })
 
-  /**
-   * The three shapes measured live and found still broken (#896): the right
-   * edge came from `workbench.right.size`, the width a panel was last
-   * *dragged* to — not what a zoom or a narrow window resize it to on
-   * screen — so each of these still let a banner spill past the real
-   * boundary and cover the other pane's own toolbar. Every rect below is a
-   * plausible one for its scenario, not a live measurement; jsdom's own
-   * `getBoundingClientRect` cannot produce one, which is why this is a unit
-   * test on the rects rather than a rendered one (`Panes.module.css`'s own
-   * comment on `.main[data-hidden]` is where the zero-width, correctly
-   * positioned shape below comes from: `flex: 0 0 0`, not `display: none`,
-   * so the collapsed pane keeps its real position in the row).
-   */
-  describe('the three shapes that broke the saved-size version', () => {
-    it('a right panel zoomed over the main pane: the main pane collapses to zero width at the true boundary, not the panel’s own last-dragged width', () => {
-      const container = { left: 240, right: 1280 }
-      // `.main[data-hidden]` keeps the row's order: a zero-width pane sits at
-      // the boundary the zoomed panel now starts from, not at `container.right`.
-      const collapsedMain = { left: 240, right: 240 }
-      const zoomedRightPanel = { left: 240, right: 1280 }
-      const stack = stackBox(container, collapsedMain)
-      expect(stack).toEqual({ left: 240, right: 240 })
-      expect(rangesOverlap(stack, zoomedRightPanel)).toBe(false)
-    })
+  it('a zoomed bottom panel: rides it below its strip and the terminal’s own bar', () => {
+    const bars = [box(240, 0, 1440, 38), box(240, 38, 1440, 70)]
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars })
+    expect(placement).toEqual({ left: 240, right: 0, top: 78 })
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
+  })
 
-    it('a bottom panel zoomed over the whole content row: the main pane collapses the same way, whichever area actually took the zoom', () => {
-      // `areaVisible` answers the same "not this one" for `main` whether the
-      // zoom names `right` or `bottom` — the shape a zoomed-away pane leaves
-      // behind does not depend on which sibling area took its place.
-      const container = { left: 240, right: 1280 }
-      const collapsedMain = { left: 240, right: 240 }
-      const zoomedBottomPanel = { left: 240, right: 1280 }
-      const stack = stackBox(container, collapsedMain)
-      expect(stack).toEqual({ left: 240, right: 240 })
-      expect(rangesOverlap(stack, zoomedBottomPanel)).toBe(false)
-    })
+  it('an expanded second pane: rides the pane on screen, below its strip and its tools', () => {
+    // The hidden first half's bars are filtered out before they get here
+    // (`checkVisibility`), so only the expanded pane's own count.
+    const bars = [box(240, 0, 1440, 38), box(240, 38, 1440, 74)]
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars })
+    expect(placement.top).toBe(82)
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
+  })
 
-    it('a narrow window with the right panel open: the right panel overlays rather than sharing the row, so the main pane is not narrowed by the panel’s saved width at all', () => {
-      // `.shell[data-narrow] .right` becomes `position: absolute; inset: 0` —
-      // out of the flex row the saved `workbench.right.size` sized it in —
-      // so the main pane takes the row's whole width rather than that saved
-      // width's worth less of it. Confining to the main pane's own (now
-      // full-width) box does not, on its own, avoid the overlay above it;
-      // it only stops answering a boundary partway across the window that
-      // nothing on screen actually draws.
-      const container = { left: 0, right: 768 }
-      const mainAtFullWidth = { left: 0, right: 768 }
-      const stack = stackBox(container, mainAtFullWidth)
-      expect(stack).toEqual(container)
-    })
+  it('a 900px window with the right panel open: rides the panel laid over the whole main area, below its toolbar', () => {
+    const container = box(0, 0, 900, 700)
+    const content = box(0, 0, 900, 700)
+    const bars = browserBars(0, 900)
+    const placement = noticePlacement({ container, content, host: content, bars })
+    expect(placement).toEqual({ left: 0, right: 0, top: 124 })
+    expectReadableAndClear(container, content, stackOf(container, placement), bars)
+  })
+
+  it('a pane dragged thinner than a card widens around its centre, inside the content area, and drops below what it now crosses', () => {
+    const bars = browserBars(441, 1440)
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: box(240, 0, 440, 900), bars })
+    // Centred on 340 it would start at 140, inside the sidebar; held at 240.
+    expect(placement.left).toBe(240)
+    expect(WINDOW.right - placement.right - (WINDOW.left + placement.left)).toBe(NOTICE_MIN_WIDTH)
+    expect(placement.top).toBe(124)
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
+  })
+
+  it('a zero-width host — a collapsed pane — is never a zero-width stack', () => {
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: box(240, 0, 240, 900), bars: [] })
+    expect(WINDOW.right - placement.right - (WINDOW.left + placement.left)).toBe(NOTICE_MIN_WIDTH)
+    expect(placement.left).toBe(240)
+  })
+
+  it('with no host marked (a zoomed sidebar) falls back to the content area, still clear of every bar', () => {
+    const bars = [box(240, 0, 1440, 38)]
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: null, bars })
+    expect(placement).toEqual({ left: 240, right: 0, top: NOTICE_FLOOR })
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
+  })
+
+  it('takes the content area’s whole width when even that is narrower than a card', () => {
+    const container = box(0, 0, 360, 700)
+    const placement = noticePlacement({ container, content: container, host: box(0, 0, 0, 700), bars: [] })
+    expect(placement).toMatchObject({ left: 0, right: 0 })
+  })
+
+  it('ignores a bar that is not in the run from the host’s top — a bottom panel’s strip, a hidden tab’s empty box', () => {
+    const bars = [box(240, 600, 1440, 638), box(240, 0, 240, 0)]
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: box(240, 0, 1440, 600), bars })
+    expect(placement.top).toBe(NOTICE_FLOOR)
   })
 })
