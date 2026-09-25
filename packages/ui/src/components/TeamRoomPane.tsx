@@ -184,16 +184,21 @@ export const TeamRoomPane = ({
    * separator in front of nothing.
    */
   const triggerKind = goal?.goal.origin.kind === 'trigger'
+  const goalId = goal?.goal.id ?? null
   const [originLabel, setOriginLabel] = useState<string | null>(null)
   useEffect(() => {
-    if (!goal || !triggerKind) { setOriginLabel(null); return }
+    if (!goalId || !triggerKind) { setOriginLabel(null); return }
     let live = true
-    store.triggerGoal(goal.goal.id).then(
+    store.triggerGoal(goalId).then(
       (status) => { if (live) setOriginLabel(status?.label ?? null) },
       () => { if (live) setOriginLabel(null) },
     )
     return () => { live = false }
-  }, [store, goal, triggerKind])
+    // Keyed on the Goal's own id, not the `GoalView` object: that object is a
+    // fresh reference on every board mutation — a chat post, a claim signal,
+    // anything — and refetching this on every one of them asked the host the
+    // same question dozens of times a minute for a status that changes rarely.
+  }, [store, goalId, triggerKind])
   const mount = useMount()
   /**
    * The roster, and the room it belongs to.
@@ -721,8 +726,12 @@ export const TeamRoomPane = ({
           <TeamIcon />
         </IconTile>
         {/* Truncated with a floor (`.barName`), never a second line — the full
-            name is one hover away. */}
-        <span className={`${styles.barName} font-medium`} title={team?.name ?? 'Room'}>{team?.name ?? 'Room'}</span>
+            name is one hover away. The Goal's own sentence first: `team.name`
+            is the room's, and a room the board has not answered about yet
+            drew the placeholder word "Room" here — a name that reads as real
+            for the beat before the real one arrives is worse than showing
+            nothing. */}
+        <span className={`${styles.barName} font-medium`} title={goal?.goal.sentence ?? team?.name ?? ''}>{goal?.goal.sentence ?? team?.name ?? ''}</span>
         {/* The state, on the label's own line, in a word — never a second row
             (rule 9). Absent for a room with no Goal, which has no state to be
             in. */}
@@ -741,7 +750,20 @@ export const TeamRoomPane = ({
         <span className={`${styles.barFacts} text-xs text-(--hd-muted-foreground)`}>
           {root && (
             <>
-              <span title={shortPath(root, snapshot.home)}>{folderName(root)}</span>
+              {/* The project's own folder, and — when a Goal's own working
+                  folder is a different one, an own checkout or a subfolder —
+                  the folder the work actually runs in, one hover away with
+                  it. A review of #905 caught this fact dropped entirely once
+                  the removed `DetailHead` stopped showing `goal.cwd`. */}
+              <span
+                title={
+                  goal && goal.goal.cwd !== goal.goal.root
+                    ? `${shortPath(root, snapshot.home)} — working in ${shortPath(goal.goal.cwd, snapshot.home)}`
+                    : shortPath(root, snapshot.home)
+                }
+              >
+                {folderName(root)}
+              </span>
               {' · '}
             </>
           )}
@@ -793,7 +815,14 @@ export const TeamRoomPane = ({
           <Button
             variant={messaging ? 'ghost' : 'warning'}
             size="icon-sm"
-            aria-label={messaging ? 'Hold messages at the board' : 'Let members message each other'}
+            /* A stable label naming what the button governs, not the verb it
+               currently offers: a label that swaps between "Hold messages"
+               and "Let members message" announces two different controls to
+               a screen reader tracking focus by name, and neither swap said
+               whether the toggle was on or off. `aria-pressed` says that now,
+               and the title (sighted, on hover) keeps the fuller sentence. */
+            aria-label="Hold messages at the board"
+            aria-pressed={!messaging}
             title={
               messaging
                 ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
@@ -816,8 +845,10 @@ export const TeamRoomPane = ({
               page, the design explorer) has a mount, and there this draws
               nothing at all. */}
           <PanelActions />
-          {/* The Goal's own verb, last: a Goal a trigger opened or a plain
-              room has none. */}
+          {/* The Goal's own verb, last: a room with no Goal at all has none.
+              Shown for a Goal a trigger opened exactly as for one a person
+              started — `goalActions` disables it on its own terms (waiting
+              on a dependency, already wrapped), never on who opened it. */}
           {goal ? (() => {
             const action = goalActions(goal.goal)
             return (
@@ -1191,7 +1222,13 @@ const withCeiling = (shown: SeatCeilingShown | null, line: ReactNode): ReactNode
   shown ? (
     <span className="flex min-w-0 items-center gap-1.5">
       <CeilingChip ceiling={shown.ceiling} note={shown.note} />
-      {line !== undefined && <span className="min-w-0 truncate">{line}</span>}
+      {/* `flex-1`, not just `min-w-0 truncate`: without a grow factor this
+          span sits at its own content width (`flex: 0 1 auto`'s default
+          basis), so a job's title clipped to "Do t…" beside a chip with
+          plenty of the card still unclaimed — the flex row simply never
+          handed it the width that was sitting there unused. `flex-1` is what
+          claims it, before the truncate ellipsis has anything to decide. */}
+      {line !== undefined && <span className="min-w-0 flex-1 truncate">{line}</span>}
     </span>
   ) : (
     line

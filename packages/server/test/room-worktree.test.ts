@@ -385,19 +385,15 @@ test('a room made through a symlinked path is keyed the same way its sessions ar
 
   try {
     // Opened, and the room made, through the link — the path a person's
-    // shortcut or scratch directory actually hands over.
-    const opened = (await client.call('workspace/open', { path: alias })) as { path: string; repo?: { root: string } | null }
-    // The workspace keeps the spelling it was opened at (`alias`) — a session
-    // with no git repository is matched against the open list by that same
-    // raw spelling, so canonicalising it here would strand that case. But its
-    // `repo.root`, read the same way every session's own `repo.root` is, is
-    // already the real path: that is the one identity the renderer's project
-    // grouping should key this folder by, never the raw `path`. Keying the
-    // sidebar's "current folder" row by `path` while its "sessions and rooms"
-    // row read `repo.root` left one project keyed two ways, and the folder
-    // showed up twice (#898).
-    assert.equal(opened.path, alias, 'the workspace keeps the spelling it was opened at')
-    assert.equal(opened.repo?.root, repo, 'its repo root is read the real path, the same one git and the session list use')
+    // shortcut or scratch directory actually hands over. `workspace/open`'s
+    // own answer (the workspace keeps the raw spelling, its `repo.root`
+    // reads the real path) is a fact about the host that has not changed
+    // here — the renderer's project grouping is what reads it, and
+    // `packages/ui/src/lib/projects.test.ts` is where that reading is
+    // pinned and provably fails without its own fix (#905's review: an
+    // assertion repeated here proved nothing, since nothing on this side of
+    // the wire moved).
+    await client.call('workspace/open', { path: alias })
     const room = await createGoal(client, alias, 'Through the link')
     const started = (await client.call('session/create', {
       runtime: 'fake',

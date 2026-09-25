@@ -1272,6 +1272,64 @@ it('a trigger Goal’s header carries its origin as one short meta segment; the 
   expect(triggerGoal).toHaveBeenCalledWith(ROOM)
 })
 
+/**
+ * The removed `DetailHead` used to show `goal.cwd` directly; folded into one
+ * header row, that fact had nowhere left until a review of #905 asked for it
+ * back — an own checkout or a subfolder is a different folder than the
+ * project's own root, and a person working in one needs to be able to tell.
+ */
+it('names the Goal\'s own working folder on the project fact\'s hover, when it differs from the Goal\'s root', async () => {
+  const OWN_CHECKOUT: GoalView = {
+    ...GOAL,
+    goal: { ...GOAL.goal, root: '/repo', cwd: '/repo/.harnessdesk/agents/reviewer/checkout' },
+  }
+  const { store } = rig(undefined, undefined, { root: '/repo' }, OWN_CHECKOUT)
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'repo')
+  expect(projectMark?.getAttribute('title')).toBe('/repo — working in /repo/.harnessdesk/agents/reviewer/checkout')
+})
+
+it('says nothing extra on the hover when the Goal works at its own root, unchanged from before', async () => {
+  const { store } = rig(undefined, undefined, { root: '/repo' }, GOAL)
+  await render(store)
+
+  const bar = container.querySelector('header')!
+  const projectMark = [...bar.querySelectorAll('[title]')].find((one) => one.textContent === 'repo')
+  expect(projectMark?.getAttribute('title')).toBe('/repo')
+})
+
+/**
+ * The bar's own Wrap button used to be tested only for its presence; a
+ * review of #905 pointed out nothing pinned when it is refused — wrapped,
+ * still wrapping, or the board could not be saved (the one case
+ * `goalActions` itself does not cover, read straight off `problem`).
+ */
+it('disables the bar\'s Wrap for a Goal that is wrapped, wrapping, or has a problem — and only then', async () => {
+  const wrapButton = (): HTMLButtonElement => {
+    const found = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
+    if (!found) throw new Error('no Wrap button')
+    return found
+  }
+
+  const { store: open } = rig(undefined, undefined, {}, GOAL)
+  await render(open)
+  expect(wrapButton().disabled).toBe(false)
+
+  const { store: wrapped } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapped' } })
+  await render(wrapped)
+  expect(wrapButton().disabled).toBe(true)
+
+  const { store: wrapping } = rig(undefined, undefined, {}, { ...GOAL, goal: { ...GOAL.goal, state: 'wrapping' } })
+  await render(wrapping)
+  expect(wrapButton().disabled).toBe(true)
+
+  const { store: problem } = rig(undefined, undefined, {}, { ...GOAL, problem: 'The board could not be saved.' })
+  await render(problem)
+  expect(wrapButton().disabled).toBe(true)
+})
+
 it('draws the chat with no header of its own', async () => {
   const { store } = rig()
   await render(store)

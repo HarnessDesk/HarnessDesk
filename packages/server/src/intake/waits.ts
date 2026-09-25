@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 
-import type { TriggerStopReason } from '@harnessdesk/protocol'
+import type { TeamActor, TriggerStopReason } from '@harnessdesk/protocol'
 
 import type { AttentionInput } from './attention.js'
 
@@ -15,6 +15,29 @@ import type { AttentionInput } from './attention.js'
  * Each wait's key names the request or reason it stands for, so the same
  * wait read again is the same attention, and another one never replaces it.
  */
+
+/**
+ * Who sent a held message, in the words `HostWaits.messages[].from` — and so
+ * the "A message from … is held for you" sentence built from it — both read:
+ * "you", "the trigger triage-issue", a conversation's own title, or its name
+ * resolved by whatever the host is running now. A free function, pulled out
+ * of the host's own private `#triggerWaits` so the branch a trigger reaches
+ * is provable without the whole intake apparatus — today that is only a card
+ * a trigger's own run adds (`Team.addIntentForFlow`'s `by`); nothing yet
+ * composes a message this way, so this is the one seam a future caller can
+ * reach without teaching the host anything new.
+ */
+export const actorWords = (
+  actor: TeamActor | null | undefined,
+  conversationName: (runtime: string, sessionId: string) => string,
+): string =>
+  !actor
+    ? 'someone'
+    : actor.kind === 'user'
+      ? 'you'
+      : actor.kind === 'trigger'
+        ? `the trigger ${actor.trigger}`
+        : actor.title || conversationName(actor.runtime, actor.sessionId)
 
 /** What the host itself holds on a Goal for a person, read as a snapshot. */
 export interface HostWaits {

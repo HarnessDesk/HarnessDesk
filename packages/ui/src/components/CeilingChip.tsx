@@ -12,6 +12,6 @@ export const CeilingChip = ({ ceiling, note }: { readonly ceiling: SeatCeiling; 
     data-ceiling={ceiling.level}
     data-hold={ceiling.hold}
   >
-    <Chip tone={ceilingTone(ceiling)}>{seatCeilingWords(ceiling)}</Chip>
+    <Chip tone={ceilingTone()}>{seatCeilingWords(ceiling)}</Chip>
   </span>
 )

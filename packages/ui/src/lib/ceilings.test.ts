@@ -32,9 +32,7 @@ describe('ceilings in words and tones', () => {
    * the same tone rule (#898).
    */
   it('draws every ceiling chip in the neutral tone — held or asked, the words on the chip and its hover say which', () => {
-    expect(ceilingTone({ level: 'read', hold: 'asked' })).toBe('neutral')
-    expect(ceilingTone({ level: 'read', hold: 'held' })).toBe('neutral')
-    expect(ceilingTone({ level: 'edit', hold: 'asked' })).toBe('neutral')
+    expect(ceilingTone()).toBe('neutral')
   })
 
   it('says what a ceiling means, and how it holds or why it is only asked', () => {

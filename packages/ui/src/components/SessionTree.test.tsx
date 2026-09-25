@@ -479,7 +479,7 @@ it('names a trigger Goal’s room by its own sentence, keeps the state as a chip
   await act(async () => { await Promise.resolve() })
 
   const row = roomRow(tree, board.name)
-  const title = [...row.querySelectorAll<HTMLElement>('[class*="rowTitle"], [class*="groupName"]')].find(
+  const title = [...row.querySelectorAll<HTMLElement>('[class*="rowTitle"], [class*="roomTitle"], [class*="groupName"]')].find(
     (one) => one.textContent === board.name,
   )
   if (!title) throw new Error('the room’s own name never rendered at all')

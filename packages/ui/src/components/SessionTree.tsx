@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent as Re
 import { openingOf, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
-import { folderName, groupByProject, isWorktreeSession, projectRootOf, type ProjectGroup } from '../lib/projects'
+import { folderName, groupByProject, isWorktreeSession, migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { captureForRoot } from '../lib/provenance'
 import { sessionLabel } from '../lib/sessions'
 import { goalWords } from '../lib/goals'
@@ -50,6 +50,7 @@ import {
   PlusIcon,
   RowsLooseIcon,
   RowsTightIcon,
+  SessionIcon,
   SlidersIcon,
   SortNameIcon,
   TeamIcon,
@@ -426,7 +427,8 @@ export const SessionListControls = () => {
   const filtered = prefs.agent !== null
   const groups = useProjectGroups()
   const roots = groups.map((group) => group.root)
-  const openCount = roots.filter((root) => !prefs.collapsed.includes(root)).length
+  const collapsedRoots = migratedRoots(prefs.collapsed, snapshot.workspace)
+  const openCount = roots.filter((root) => !collapsedRoots.includes(root)).length
 
   return (
     <span className={styles.listControls} {...(filtered ? { 'data-filtered': '' } : {})}>
@@ -547,12 +549,12 @@ const GroupHead = ({
   const stopped = projectRoots(group)
     .map((root) => captureForRoot(root, snapshot.captureHealth, snapshot.workspaces))
     .find((health) => health?.state === 'stopped')
-  const pinned = snapshot.listPrefs.pinned.includes(group.root)
+  const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace).includes(group.root)
   // The folder the app is working in. It used to be marked only by leading
   // the list, which says nothing once you have arranged the list yourself —
   // and "which project is this about" is the question every worktree, every
   // ⌘N and every terminal here is answered by.
-  const current = projectRootOf(snapshot.workspace) === group.root
+  const current = projectGroupRootOf(snapshot.workspace) === group.root
   const edge = drag.over?.root === group.root ? drag.over.edge : null
   return (
     <div
@@ -646,6 +648,11 @@ const GroupHead = ({
  * A trigger Goal's origin, on its own room row — the host's own short label
  * ("from PR #12"), never a source token or a raw event id. Fetched only for
  * a room whose Goal a trigger opened; a plain conversation's row never asks.
+ *
+ * Plain muted text, not a chip: a chip is a pill that could carry a colour
+ * or a click, and this carries neither — it is a fact on its own line (rule
+ * 9), and a taste sweep of #905 found a pill spent on a fact with no state
+ * to show read as clutter next to the row's one real chip, the Goal's own.
  */
 const RoomOrigin = ({ goal }: { readonly goal: string }) => {
   const store = useStore()
@@ -658,18 +665,18 @@ const RoomOrigin = ({ goal }: { readonly goal: string }) => {
     )
     return () => { live = false }
   }, [store, goal])
-  return label ? <Chip tone="neutral">{label}</Chip> : null
+  return label ? <Text role="meta" className={styles.rowMetaItem}>{label}</Text> : null
 }
 
 /**
  * A room's members, resolved against what the tree is *showing* — the agent
  * filter applies here as it does everywhere else, and the live session map is
  * read too, because a conversation reaches `sessions` a beat before it
- * reaches `history`. Shared between `RoomRow`'s own render and the group's
- * "which empty room says so" pick, which has to agree with it exactly: a
- * room `RoomRow` reads as empty only once the filter is applied is a room the
- * group must also read as empty, or the one row that actually draws "No
- * agents in here yet" is not the row the group picked to draw it on.
+ * reaches `history`: adding an agent from the room's own rail put it in the
+ * roster while the tree still said "0" beneath, for as long as the history
+ * took to catch up. `RoomRow`'s own count and its nested member list both
+ * read this, so the two can never disagree about how many the row is
+ * showing.
  */
 const roomMembers = (
   room: TeamState,
@@ -786,7 +793,7 @@ const RoomRow = ({
             fact that varies), which nothing here shares a flex row with. */}
         <span className={styles.rowBody}>
           <span className={styles.rowHead}>
-            <Text role="navigation" fade className={styles.rowTitle}>{room.name}</Text>
+            <Text role="navigation" fade className={styles.roomTitle}>{room.name}</Text>
             {goal ? (() => {
               const words = goalWords({ goal: goal.goal, activity: goal.activity })
               return <Chip tone={words.tone}>{words.label}</Chip>
@@ -800,8 +807,9 @@ const RoomRow = ({
         </span>
         {/* A state and a size, and they must not read as one number. Drawn
             plainly the row said "1 0" — two counts in the same grey, the same
-            size, a gap apart, and the second with nothing on it to say what it
-            counted. The project row one line above already answers this: a
+            size, a gap apart, and neither with a glyph to say what it
+            counted, which a taste sweep of #905 flagged as unreadable at a
+            glance. The project row one line above already answers this: a
             glyph qualifies the count beside it, so what is a state looks like
             a state. */}
         {claimed > 0 && (
@@ -826,6 +834,7 @@ const RoomRow = ({
                 : `${members.length} conversations in this room`
           }
         >
+          <SessionIcon size={11} />
           {members.length}
         </Text>
       </Button>
@@ -1020,13 +1029,13 @@ export const useProjectGroups = (): ProjectGroup[] => {
     // The open workspace leads, then what the user pinned in the order they
     // pinned it, then the rest by the chosen order. A worktree you have open
     // is the project it is a checkout of, so the row it leads is that one.
-    const current = projectRootOf(snapshot.workspace)
+    const current = projectGroupRootOf(snapshot.workspace)
     const list = groupByProject(
       filtered,
       snapshot.workspaces.map((workspace) => workspace.path),
       snapshot.workspace,
     )
-    const pinned = snapshot.listPrefs.pinned
+    const pinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace)
     // A folder just opened has no sessions to be grouped by, and a list that
     // does not mention the folder you are in leaves "where am I" to the branch
     // chip. It gets its row — empty — until the first conversation fills it.
@@ -1099,8 +1108,8 @@ export const SessionTree = ({ now }: { now: number }) => {
   const snapshot = useSnapshot()
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const collapsed = useMemo(
-    () => new Set(snapshot.listPrefs.collapsed),
-    [snapshot.listPrefs.collapsed],
+    () => new Set(migratedRoots(snapshot.listPrefs.collapsed, snapshot.workspace)),
+    [snapshot.listPrefs.collapsed, snapshot.workspace],
   )
   const groups = useProjectGroups()
 
@@ -1153,10 +1162,11 @@ export const SessionTree = ({ now }: { now: number }) => {
   // one can be open, and a row that unmounts while its own dialog was open —
   // which is exactly what a delete does — would take the dialog with it.
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
-  const currentRoot = projectRootOf(snapshot.workspace)
+  const currentRoot = projectGroupRootOf(snapshot.workspace)
+  const pinnedRoots = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace)
   const near = groups.filter(
     (group) =>
-      group.root === currentRoot || snapshot.listPrefs.pinned.includes(group.root) || groups.length <= 2,
+      group.root === currentRoot || pinnedRoots.includes(group.root) || groups.length <= 2,
   )
   const far = groups.filter((group) => !near.includes(group))
 
@@ -1224,16 +1234,17 @@ export const SessionTree = ({ now }: { now: number }) => {
       // Only the project you dragged joins the run: moving one thing must not
       // quietly arrange the others, and the folder you happen to have open is
       // in this list for a different reason than the ones you put here.
-      const keep = new Set([...snapshot.listPrefs.pinned, root])
+      const existingPinned = migratedRoots(snapshot.listPrefs.pinned, snapshot.workspace)
+      const keep = new Set([...existingPinned, root])
       const shown = arranged.filter((entry) => keep.has(entry))
       // A pinned project whose sessions have all been archived has no row to
       // be arranged among. It keeps its pin rather than losing it to a drag
       // that was never about it.
-      const offscreen = snapshot.listPrefs.pinned.filter((entry) => !shown.includes(entry))
+      const offscreen = existingPinned.filter((entry) => !shown.includes(entry))
       store.setListPrefs({ pinned: [...shown, ...offscreen] })
       setAnnouncement(`Moved to position ${shown.indexOf(root) + 1} of ${shown.length}`)
     },
-    [near, snapshot.listPrefs.pinned, store],
+    [near, snapshot.listPrefs.pinned, snapshot.workspace, store],
   )
 
   const drag: DragHandlers = {

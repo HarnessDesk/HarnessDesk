@@ -13,7 +13,9 @@ import {
 import { ceilingMeaning, ceilingWords } from './agents'
 
 /**
- * The tone a seat's ceiling chip is drawn in — neutral, always.
+ * The tone a seat's ceiling chip is drawn in — neutral, always, and a
+ * constant rather than a function of the ceiling because nothing about a
+ * ceiling ever changes it.
  *
  * `hold` alone answered this once: `asked` drew the warning tone, `held` the
  * neutral one. But most runtimes have no control that holds a ceiling at
@@ -23,9 +25,10 @@ import { ceilingMeaning, ceilingWords } from './agents'
  * second field to ask instead: `held`/`asked` is a fact about the runtime's
  * own machinery, not a verdict on how risky this particular seat is, and the
  * chip's own words ("Held", "Asked, not held…") plus its hover explanation
- * already say which is which, in the sentence rather than the colour.
+ * already say which is which, in the sentence rather than the colour. See
+ * `docs/decisions.md` for the reversal this recorded.
  */
-export const ceilingTone = (_ceiling: SeatCeiling): 'warning' | 'neutral' => 'neutral'
+export const ceilingTone = (): 'neutral' => 'neutral'
 
 /** What a seat's ceiling means and how it holds, for the chip's hover. */
 export const ceilingTitle = (ceiling: SeatCeiling, note?: string | null): string =>
