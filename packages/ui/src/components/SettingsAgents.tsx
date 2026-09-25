@@ -1324,6 +1324,7 @@ const AccountDetail = ({
         <ConfirmDialog
           title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}
           confirmLabel={info.slot?.removable ? 'Remove account' : 'Sign out'}
+          tone="destructive"
           onCancel={() => setConfirmingSignOut(false)}
           onConfirm={() => {
             setConfirmingSignOut(false)
@@ -1809,6 +1810,7 @@ const AgentDetail = ({ info, onBack }: { info: RuntimeInfo; onBack: () => void }
         <ConfirmDialog
           title={`Remove ${info.presentation.name}?`}
           confirmLabel="Remove agent"
+          tone="destructive"
           onCancel={() => setConfirmingRemove(false)}
           onConfirm={() => {
             void store.removeAgent(info.id).then((removed) => {

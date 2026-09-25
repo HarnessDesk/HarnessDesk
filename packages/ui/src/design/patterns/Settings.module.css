@@ -802,8 +802,12 @@
    settings rows ran together into a single block of text. */
 .row {
   display: flex;
+  /* A control too wide to sit beside a readable title drops under it rather
+     than squeezing the title to a letter a line (#885). Wrapping only happens
+     when the two cannot share a line, so a row that fits is unchanged. */
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--hd-space-6); /* desk: 18 → 24, the gap between a row's words and its control */
+  gap: var(--hd-space-2) var(--hd-space-6); /* desk: 24 → 8 24, the row gap only exists once a control has wrapped, and 8 keeps it with its title */
   padding: var(--hd-space-3) var(--hd-card-padding); /* desk: 14 → 12, a 58px row where there was a 68 */
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
 }
@@ -821,17 +825,20 @@
   border-radius: 0;
   border: none;
   border-bottom: var(--hd-border-width) solid var(--hd-card-divider, var(--hd-border));
+  /* The row's ink is this sheet's to say, once: the Button's `pattern` size
+     brings no colour. Its alignment and cursor are the Button's (`text-left`,
+     `cursor-pointer`), so they are not said here a second time. */
   color: inherit;
   font: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
 /* Column, not row: the title and its description are two lines, and a flex
    parent would otherwise set them side by side. */
 .rowText {
   flex: 1;
-  min-width: 0;
+  /* The title's floor: about a dozen characters, or the whole row when the
+     row is narrower than that. Below it the control wraps instead. */
+  min-width: min(100%, 10em); /* desk: 0 → min(100%, 10em), a title never shrinks to a letter a line */
   display: flex;
   flex-direction: column;
 }
@@ -869,11 +876,32 @@
   overflow-wrap: anywhere;
 }
 
+/* Beside the title the control keeps its own width, as before: the title
+   takes the free space and nothing has to shrink. Once it has wrapped onto its
+   own line, under the title and starting where the title starts, it may
+   narrow to that line, so a sentence wraps inside it rather than running off
+   the card — names truncate, sentences wrap. */
 .rowCtl {
-  flex: none;
+  flex: 0 1 auto; /* desk: none → 0 1 auto, it only shrinks once alone on a line */
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* A row button's trailing item: its control and its chevron, which wrap as
+   one and stay at the row's end whether they sit beside the title or under
+   it. The gap between them is the row's own, so a row that fits is drawn
+   exactly as when they were two items of the row. */
+.rowEnd {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--hd-space-6);
 }
 
 /* A row that answers with a word instead of a control, because there is
