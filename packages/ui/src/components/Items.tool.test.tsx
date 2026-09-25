@@ -291,6 +291,68 @@ describe('an opened tool step', () => {
     expect(outputs()).toEqual(['{\n  "ok": true\n}'])
   })
 
+  it('unwraps a JSON content array into the same output plate as a text result', () => {
+    // Claude Code's Agent/Task tool answers this way: without the unwrap a
+    // person sees the array's own `"type": "text"` punctuation.
+    open(call({ tool: 'Task', result: [{ type: 'json', value: [{ type: 'text', text: 'Sub-agent finished.' }] }] }))
+    expect(outputs()).toEqual(['Sub-agent finished.'])
+    expect(container.textContent).not.toContain('"type"')
+  })
+
+  it('unwraps a JSON content array of an image block through the image path', () => {
+    open(call({
+      tool: 'Task',
+      result: [{ type: 'json', value: [{ type: 'image', url: 'data:image/png;base64,iVBORw0KGgo=', mimeType: 'image/png' }] }],
+    }))
+    expect(container.querySelectorAll('img[src="data:image/png;base64,iVBORw0KGgo="]').length).toBe(1)
+  })
+
+  it('unwraps a {content: [...]} wrapper the same way as a bare content array', () => {
+    open(call({ tool: 'Task', result: [{ type: 'json', value: { content: [{ type: 'text', text: 'Wrapped reply.' }] } }] }))
+    expect(outputs()).toEqual(['Wrapped reply.'])
+  })
+
+  it('falls back to plain JSON for a content array carrying a block it does not know', () => {
+    open(call({
+      tool: 'Task',
+      result: [{ type: 'json', value: [{ type: 'text', text: 'part one' }, { type: 'tool_reference', id: 'ref-1' }] }],
+    }))
+    expect(outputs()).toEqual([JSON.stringify([{ type: 'text', text: 'part one' }, { type: 'tool_reference', id: 'ref-1' }], null, 2)])
+  })
+
+  it("draws a runtime's own command record as a command plate, with a failing exit code shown", () => {
+    open(call({
+      tool: 'run_command',
+      result: [{
+        type: 'json',
+        value: {
+          commandLine: 'pnpm test',
+          workingDir: '/w',
+          exitCode: 1,
+          exit_code: 1,
+          combinedOutput: 'Tests 1 failed',
+          formatted_output: 'Tests 1 failed (formatted)',
+        },
+      }],
+    }))
+    const blocks = container.querySelectorAll('[data-slot="code-block"]')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]?.querySelector('[data-slot="code-block-command"]')?.textContent).toContain('$pnpm test')
+    expect(blocks[0]?.querySelector('[data-slot="code-block-body"]')?.textContent).toBe('Tests 1 failed')
+    expect(blocks[0]?.querySelector('[data-slot="code-block-exit"]')?.textContent).toBe('Exit code 1')
+    expect(container.textContent).not.toContain('/w')
+  })
+
+  it("draws a runtime's own {output, isError} pair as output", () => {
+    open(call({ tool: 'run_query', result: [{ type: 'json', value: { output: 'no rows', isError: false } }] }))
+    expect(outputs()).toEqual(['no rows'])
+  })
+
+  it("draws a runtime's own {output, isError} pair as output even when it reports an error", () => {
+    open(call({ tool: 'run_query', result: [{ type: 'json', value: { output: 'connection refused', isError: true } }] }))
+    expect(outputs()).toEqual(['connection refused'])
+  })
+
   it('names a result part it cannot draw as an image, instead of drawing a broken one', () => {
     // #79: a PDF went into an <img>.
     open(call({ tool: 'browser_page', result: [{ type: 'image', url: 'data:application/pdf;base64,JVBERi0xLjcK', mimeType: 'application/pdf' }] }))

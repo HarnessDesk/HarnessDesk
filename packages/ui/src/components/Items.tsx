@@ -25,6 +25,7 @@ import type {
   SessionId,
   SubagentItem,
   ToolCallItem,
+  ToolResultContent,
   UserMessageItem,
   WebSearchItem,
 } from '@harnessdesk/protocol'
@@ -71,6 +72,7 @@ import {
 } from '../lib/group-items'
 import { editOf } from '../lib/handoff'
 import { findTodos, type Todo } from '../lib/todos'
+import { readToolResult } from '../lib/tool-result'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   shellCommandOf,
@@ -937,6 +939,59 @@ const ArgsView = ({ args, root }: { args: unknown; root?: string }) => {
   )
 }
 
+/**
+ * One part of a tool's result, drawn the way its shape earns: text and image
+ * parts are already what a top-level result carries, so a content array
+ * found inside a `json` part recurses through this same function rather
+ * than a second copy of the same two cases.
+ *
+ * The recognition itself — which runtime's envelope this is — is
+ * `readToolResult`'s job, kept free of rendering so it can be run straight
+ * over stored transcripts. This function only decides how each kind draws.
+ */
+const resultPartView = (part: ToolResultContent, key: string): ReactNode => {
+  if (part.type === 'text') {
+    return <CodeBlock key={key} output={stripAnsi(part.text)} />
+  }
+  if (part.type === 'image') {
+    // An <img> only for what one can draw: a PDF in one was a broken image
+    // (#79), and so was a link that declares a PDF (review, round 1).
+    // Anything else is named, with its type and size.
+    return <ResultImage key={key} url={part.url} mimeType={part.mimeType} />
+  }
+  // A JSON part carrying a bare string is output, not a document. Encoding it
+  // turns every newline into a literal \n and every quote into \" — the
+  // shell transcript arrives as its own source.
+  if (typeof part.value === 'string') {
+    return <CodeBlock key={key} output={stripAnsi(part.value)} />
+  }
+  const reading = readToolResult(part.value)
+  if (reading.kind === 'blocks') {
+    // Some runtimes (Claude Code's Agent tool among them) answer a call with
+    // an MCP content array rather than the plain value the call produced.
+    // Unwrapped, its blocks draw exactly as a top-level result would; still
+    // wrapped, a person sees the array's own `"type": "text"` punctuation.
+    return <>{reading.blocks.map((block, index) => resultPartView(block, `${key}-${index}`))}</>
+  }
+  if (reading.kind === 'command') {
+    // A command's own record (Antigravity's shell tool, among others) draws
+    // as the same plate a `command` step does — the exit line included,
+    // through the plate's own mechanism rather than a second one here.
+    return <CodeBlock key={key} command={reading.command} output={reading.output} exitCode={reading.exitCode} />
+  }
+  if (reading.kind === 'output') {
+    // A bare `{output, isError}` pair (DeepSeek, among others): the text is
+    // drawn the same way `item.error` already is, whichever it says.
+    return <CodeBlock key={key} output={stripAnsi(reading.text)} />
+  }
+  const todos = findTodos(part.value)
+  if (todos) return <TodoListView key={key} todos={todos} />
+  const diff = findDiff(part.value)
+  if (diff) return <DiffView key={key} diff={diff} inline />
+  // Structured output is output: the same plate as a text result.
+  return <CodeBlock key={key} output={JSON.stringify(part.value, null, 2)} />
+}
+
 /** The glyph for what a tool call was, not which tool it went through. */
 const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
   command: TerminalIcon,
@@ -1072,35 +1127,8 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
           ) : (
             <ArgsView args={item.args} root={root} />
           )}
-          {commandOutput === undefined && item.result?.map((part, index) => {
-            if (part.type === 'text') {
-              return (
-                <CodeBlock key={index} output={stripAnsi(part.text)} />
-              )
-            }
-            if (part.type === 'image') {
-              // An <img> only for what one can draw: a PDF in one was a broken
-              // image (#79), and so was a link that declares a PDF (review,
-              // round 1). Anything else is named, with its type and size.
-              return <ResultImage key={index} url={part.url} mimeType={part.mimeType} />
-            }
-            // A JSON part carrying a bare string is output, not a document.
-            // Encoding it turns every newline into a literal \n and every
-            // quote into \" — the shell transcript arrives as its own source.
-            if (typeof part.value === 'string') {
-              return (
-                <CodeBlock key={index} output={stripAnsi(part.value)} />
-              )
-            }
-            const todos = findTodos(part.value)
-            if (todos) {
-              return <TodoListView key={index} todos={todos} />
-            }
-            const diff = findDiff(part.value)
-            if (diff) return <DiffView key={index} diff={diff} inline />
-            // Structured output is output: the same plate as a text result.
-            return <CodeBlock key={index} output={JSON.stringify(part.value, null, 2)} />
-          })}
+          {commandOutput === undefined &&
+            item.result?.map((part, index) => resultPartView(part, String(index)))}
         </>
       )}
     </Row>
