@@ -33,18 +33,13 @@ import {
   SearchIcon,
   TrashIcon,
 } from './Icons'
-import { ActionError, Chip, CodeText, LibraryReachMark, MetaList, PageHead, Search, Text } from '../design'
+import { ActionError, Alert, Chip, CodeText, LibraryReachMark, MetaList, PageHead, PanelPill, Search, Segmented, Text } from '../design'
 import {
   Button,
   EmptyState,
   Label,
   NativeSelect,
   Switch,
-  ToggleGroup,
-  ToggleGroupItem,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   Table,
   TableBody,
   TableCaption,
@@ -58,8 +53,6 @@ import {
   installSource,
   LibraryFlows,
   LibraryHistory,
-  SWITCH_ITEM,
-  SWITCH_TRACK,
   type LibraryColumn,
   type LibraryFlow,
 } from './LibraryActions'
@@ -181,30 +174,27 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
 }
 
 /*
- * The kind switcher, and the list/matrix switch below it, wear shadcn `Tabs`'
- * own clothes without being tabs: a Base UI tab activates on `mousedown`,
- * which a plain `element.click()` never fires, and these have to answer to
- * tests and keyboards alike. So the mechanism is a `ToggleGroup` and the
- * appearance is `tabsListVariants` — now named once, in `LibraryActions`,
- * where the agent pickers use it too.
+ * The kind switcher and the list/matrix switch are the system's `Segmented`,
+ * the same control as the import dialog's agent pickers: a `ToggleGroup`
+ * underneath, because a Base UI tab activates on `mousedown`, which a plain
+ * `element.click()` never fires, and these have to answer to tests and
+ * keyboards alike.
  */
 
 /**
  * One count, which is also the filter that isolates it.
  *
- * Three shapes, in order. First six dashboard tiles, which promised a
+ * Four shapes, in order. First six dashboard tiles, which promised a
  * *metric* — something you came to read — when every one of them is a filter
- * nobody opens this page to admire. Then outlined pills, which fixed the
- * weight and introduced a shape the app does not have anywhere else, drawn
- * with a bare `border` that Tailwind painted in ink (see the note in
- * shadcn.css).
+ * nobody opens this page to admire. Then outlined pills; then the app's own
+ * outlined `Button`, which drew six bordered controls under a toolbar that
+ * already had four.
  *
- * Now it is the app's own `Button`. A filter is a thing you press, the app
- * already has a component for things you press, and using it means the
- * height, the radius, the border token, the hover and the focus ring all
- * arrive correct and stay correct — none of them is a number in this file to
- * drift from the button beside it. The set is single-select, so the active
- * one takes `secondary`, the app's spelling of "this one is on".
+ * Now it is the inspectors' filter pill, `PanelPill`: the one drawing for a
+ * filter you press, lit in the accent while it is on. A count of none draws
+ * nothing — a row of "0 reach some", "0 copies differ" was a row of controls
+ * that would each empty the list — except the one that is on, which stays so
+ * it can be released. The set is single-select.
  */
 const Count = ({
   value,
@@ -220,28 +210,23 @@ const Count = ({
   title?: string
   active: boolean
   onClick: () => void
-}) => (
-  <Button
-    type="button"
-    data-slot="library-count"
-    {...(active ? { 'data-active': '' } : {})}
-    variant={active ? 'secondary' : 'outline'}
-    size="sm"
-    {...(title ? { title } : {})}
-    disabled={value === 0 && !active}
-    onClick={onClick}
-  >
-    {/* Amber on the number, never the whole control: a filter row wearing
-        five warning colours is five warnings, and the count is the only part
-        that is news. */}
-    <span
-      className={`font-semibold tabular-nums ${tone === 'warn' && value > 0 ? 'text-(--hd-warning-ink)' : ''}`}
+}) =>
+  value === 0 && !active ? null : (
+    <PanelPill
+      data-slot="library-count"
+      {...(active ? { 'data-on': '' } : {})}
+      {...(title ? { title } : {})}
+      onClick={onClick}
     >
-      {value}
-    </span>
-    <span className="font-normal text-(--hd-muted-foreground)">{label}</span>
-  </Button>
-)
+      {/* Amber on the number, never the whole control: a filter row wearing
+          five warning colours is five warnings, and the count is the only
+          part that is news. */}
+      <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : { ink: 'primary' as const })}>
+        {value}
+      </Text>
+      {label}
+    </PanelPill>
+  )
 
 export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' | null } = {}) => {
   const store = useStore()
@@ -623,18 +608,19 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 
       {kind === 'skill' && (hollowCopies.length > 0 || overloaded.length > 0) && (
-        <div
-          data-slot="library-attention"
-          className="mb-4 flex flex-col gap-1 rounded-lg border bg-card px-3 py-2"
-        >
+        /* The page's callout: the system's neutral alert, one line per thing
+           that needs a hand, each with its amber mark and its way out. */
+        <Alert data-slot="library-attention" className="mb-4 flex-col gap-1">
           {hollowCopies.length > 0 && (
-            <p className="m-0 flex items-center gap-2 text-sm text-(--hd-secondary-foreground) [&>svg]:flex-none [&>svg]:text-(--hd-warning-ink)">
-              <AlertIcon size={13} />
-              <span className="min-w-0 flex-1">
+            <p className="m-0 flex w-full items-center gap-2">
+              <Text tone="warning" className="flex-none">
+                <AlertIcon size={13} />
+              </Text>
+              <Text role="muted" className="min-w-0 flex-1">
                 {hollowCopies.length} {hollowCopies.length === 1 ? 'directory holds' : 'directories hold'} a
                 skill’s name and no definition — an agent that scans them lists the name and loads
                 nothing.
-              </span>
+              </Text>
               <Button
                 variant="outline"
                 size="sm"
@@ -656,17 +642,16 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             </p>
           )}
           {overloaded.map(({ column, total, neverFired }) => (
-            <p
-              key={column.id}
-              className="m-0 flex items-center gap-2 text-sm text-(--hd-secondary-foreground) [&>svg]:flex-none [&>svg]:text-(--hd-warning-ink)"
-            >
-              <AlertIcon size={13} />
-              <span className="min-w-0 flex-1">
+            <p key={column.id} className="m-0 flex w-full items-center gap-2">
+              <Text tone="warning" className="flex-none">
+                <AlertIcon size={13} />
+              </Text>
+              <Text role="muted" className="min-w-0 flex-1">
                 ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
                 {neverFired !== null && neverFired > 0
                   ? ` — ${neverFired} of its skills never fired in a conversation this desk stores.`
                   : '.'}
-              </span>
+              </Text>
               {neverFired !== null && neverFired > 0 && (
                 <Button variant="outline" size="sm" className="flex-none" onClick={() => setFilter('unused')}>
                   Show never fired
@@ -674,33 +659,22 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               )}
             </p>
           ))}
-        </div>
+        </Alert>
       )}
 
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
-        {/* A ToggleGroup rather than Tabs, dressed as one: a tab
-            trigger activates on mousedown, which a plain click() never
-            fires — and this switcher has to answer to tests and keyboards
-            alike. Ignoring the empty value is what stops a second press
-            from deselecting both. */}
-        <ToggleGroup
-          type="single"
+        <Segmented
+          label="What the library is listing"
           value={kind}
-          aria-label="What the library is listing"
-          className={SWITCH_TRACK}
-          onValueChange={(next) => {
-            if (next !== 'skill' && next !== 'mcp') return
+          options={[
+            { value: 'skill', label: `Skills · ${kindCounts.skill}` },
+            { value: 'mcp', label: `MCP servers · ${kindCounts.mcp}` },
+          ]}
+          onChange={(next) => {
             setKind(next)
             setOpen(null)
           }}
-        >
-          <ToggleGroupItem value="skill" className={SWITCH_ITEM}>
-            Skills · {kindCounts.skill}
-          </ToggleGroupItem>
-          <ToggleGroupItem value="mcp" className={SWITCH_ITEM}>
-            MCP servers · {kindCounts.mcp}
-          </ToggleGroupItem>
-        </ToggleGroup>
+        />
         {/* Wide enough to type a skill name into, and capped: at the width
             the settings pane actually is, `flex-1` gave the search box four
             hundred pixels of empty field and pushed nothing useful anywhere
@@ -727,61 +701,31 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             ))}
           </NativeSelect>
         )}
-        <Label className="gap-1.5 text-sm font-normal whitespace-nowrap text-(--hd-secondary-foreground)">
+        <Label className="gap-1.5 whitespace-nowrap">
           <Switch
             checked={filter === 'problems'}
             onCheckedChange={() => toggle('problems')}
             aria-label="Show only entries with something wrong"
           />
-          Only problems
+          <Text role="muted">Only problems</Text>
         </Label>
         {/*
          * Two ways to read the same list, and the switch says which by
-         * drawing it. Icons rather than words: the shapes are the standard
-         * ones, the tooltips carry the names, and two more words in a
-         * toolbar this busy would push the search box onto its own line at
-         * the width the settings pane actually is.
+         * drawing it — and by naming it: a glyph with its name only in a
+         * tooltip is a control you have to hover to read.
          */}
-        <ToggleGroup
-          type="single"
+        <Segmented
+          label="How to show the library"
           value={view}
-          aria-label="How to show the library"
-          className={SWITCH_TRACK}
-          onValueChange={(next) => {
-            if (next !== 'list' && next !== 'matrix') return
+          options={[
+            { value: 'list', label: <><RowsLooseIcon size={13} />List</> },
+            { value: 'matrix', label: <><MatrixIcon size={13} />Matrix</> },
+          ]}
+          onChange={(next) => {
             setView(next)
             setOpen(null)
           }}
-        >
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ToggleGroupItem
-                  value="list"
-                  aria-label="Show each entry as a row"
-                  className={SWITCH_ITEM}
-                />
-              }
-            >
-              <RowsLooseIcon size={13} />
-            </TooltipTrigger>
-            <TooltipContent>List — read what each one does</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ToggleGroupItem
-                  value="matrix"
-                  aria-label="Show every entry against every agent"
-                  className={SWITCH_ITEM}
-                />
-              }
-            >
-              <MatrixIcon size={13} />
-            </TooltipTrigger>
-            <TooltipContent>Matrix — every entry against every agent</TooltipContent>
-          </Tooltip>
-        </ToggleGroup>
+        />
       </div>
 
       {agentFilter && (
@@ -856,19 +800,16 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               />
             ) : (
               /* The first usage read walks every stored conversation, so this
-                 tile arrives late. Holding its place is what keeps the strip
+                 pill arrives late. Holding its place is what keeps the strip
                  from jumping when it does. */
-              <Button
-                type="button"
+              <PanelPill
                 data-slot="library-count"
-                variant="outline"
-                size="sm"
                 disabled
                 title="Counting activations in the stored conversations…"
               >
-                <span className="font-semibold tabular-nums">…</span>
-                <span className="font-normal text-(--hd-muted-foreground)">never fired</span>
-              </Button>
+                <Text role="meta" ink="primary">…</Text>
+                never fired
+              </PanelPill>
             ))}
         </div>
       )}

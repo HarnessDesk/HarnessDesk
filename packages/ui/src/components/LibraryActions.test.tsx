@@ -379,12 +379,11 @@ it('authoring composes the frontmatter and refuses a name that cannot be a direc
     setArea?.call(textarea, 'Read the changelog, write the notes.')
     textarea?.dispatchEvent(new Event('input', { bubbles: true }))
   })
-  // The agent picker is the app's own switcher in its many-valued form —
-  // the same control the import dialog's From/To use, so it is visible before
-  // it is pressed.
+  // Several agents at once, so a checkbox per agent: visible before it is
+  // ticked, and nothing is installed until the preview is confirmed.
   await click(
-    [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')].find(
-      (one) => one.textContent === 'Second Agent',
+    [...document.body.querySelectorAll('[data-slot="checkbox"]')].find(
+      (one) => one.getAttribute('aria-label') === 'Install for Second Agent',
     ),
   )
   await click(buttonNamed('Preview the install'))

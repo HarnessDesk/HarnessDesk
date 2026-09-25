@@ -160,13 +160,13 @@ const mount = async (
  *
  * The page opens on cards, which is the point of the redesign; everything
  * that reads the table, its footers or its drawer has to say so first. Found
- * by the toggle's own accessible name rather than by position, so a third
- * view added later cannot silently re-point these at the wrong one.
+ * by the segment's own name rather than by position, so a third view added
+ * later cannot silently re-point these at the wrong one.
  */
 const showMatrix = async (): Promise<void> => {
-  const button = [...document.body.querySelectorAll('button')].find(
-    (node) => node.getAttribute('aria-label') === 'Show every entry against every agent',
-  )
+  const button = [
+    ...document.body.querySelectorAll('[role="radiogroup"][aria-label="How to show the library"] [role="radio"]'),
+  ].find((node) => node.textContent === 'Matrix') as HTMLButtonElement | undefined
   expect(button, 'the view switch should offer the matrix').toBeTruthy()
   await act(async () => button?.click())
 }
@@ -238,12 +238,13 @@ it('only-problems means defects and strandings, never mere non-reach', async () 
   expect(rows).toEqual(['empty', 'stranded'])
 })
 
-it('a count with nothing to show cannot be pressed', async () => {
+it('a count with nothing to show is not drawn', async () => {
+  // A zero-count filter is a control that would empty the list, so it is not
+  // offered at all — and the count that is always a way back, "in all", is.
   await mount(library([entry('good', ['reaches', 'reaches'])]))
-  const button = [...document.body.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('empty on disk'),
-  )
-  expect((button as HTMLButtonElement | undefined)?.disabled).toBe(true)
+  const counts = [...document.body.querySelectorAll('[data-slot="library-count"]')].map((node) => node.textContent)
+  expect(counts.some((text) => text?.includes('empty on disk'))).toBe(false)
+  expect(counts.some((text) => text?.includes('in all'))).toBe(true)
 })
 
 it('opening a row shows every copy and who reads it', async () => {
@@ -1319,12 +1320,16 @@ it('a count counts what pressing it will show, search included', async () => {
   expect(cards().length).toBe(1)
   expect(cards()[0]?.textContent).toContain('alpha')
 
-  // Release it, and a search that leaves nothing in that state disables the
-  // chip rather than offering a press that would empty the list.
-  await act(async () => chipNamed('reach none')?.click())
+  // Pressed, it stays drawn at zero so it can be released: search for the
+  // one entry that reaches everything and the pressed chip reads 0.
   await typeSearch('gamma')
   expect(chipNamed('reach none')?.textContent).toContain('0')
-  expect(chipNamed('reach none')?.disabled).toBe(true)
+  expect(chipNamed('reach none')?.hasAttribute('data-on')).toBe(true)
+
+  // Released, a search that leaves nothing in that state withdraws the chip
+  // rather than offering a press that would empty the list.
+  await act(async () => chipNamed('reach none')?.click())
+  expect(chipNamed('reach none')).toBeUndefined()
 })
 
 it('an empty list blames whichever of the two narrowings actually emptied it', async () => {
