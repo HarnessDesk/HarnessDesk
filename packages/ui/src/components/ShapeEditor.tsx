@@ -8,9 +8,10 @@ import {
   ActionError, Banner, Button, Dialog, Field, Input, Note, NoteList, Row, Rows, SectionHead, Tabs, TabsList, TabsTrigger, Textarea,
 } from '../design'
 import { useStore } from '../state/context'
-import { defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId } from '../lib/shapes'
+import { defaultRole, defaultRule, emptyShapePolicy, renameRoleReferences, roleRemovable, uniqueId, withGraphPositions } from '../lib/shapes'
 import { PlusIcon, MoveDownIcon, MoveUpIcon } from './Icons'
 import { FlowPreviewReport } from './FlowStart'
+import { ShapeGraph } from './ShapeGraph'
 import { ShapeRule } from './ShapeRule'
 import { ShapeSave } from './ShapeSave'
 import { ShapeStep } from './ShapeStep'
@@ -41,7 +42,8 @@ export interface ShapeEditorProps {
 
 export const ShapeEditor = ({ root, context, document, initialSource, onClose, onStarted }: ShapeEditorProps) => {
   const store = useStore()
-  const [tab, setTab] = useState<'steps' | 'source'>('steps')
+  const [tab, setTab] = useState<'steps' | 'graph' | 'source'>('steps')
+  const [selectedRole, setSelectedRole] = useState<string | null>(null)
   const [source, setSource] = useState<string>(document?.source ?? initialSource ?? '')
   const [loadingDraft, setLoadingDraft] = useState(document === undefined && initialSource === undefined)
   const [policy, setPolicy] = useState<FlowPolicy | null>(null)
@@ -257,9 +259,10 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
 
       {!loadingDraft && (
         <>
-          <Tabs value={tab} onValueChange={(next) => setTab(next as 'steps' | 'source')}>
+          <Tabs value={tab} onValueChange={(next) => setTab(next as 'steps' | 'graph' | 'source')}>
             <TabsList aria-label="Shape view">
               <TabsTrigger value="steps">Steps</TabsTrigger>
+              <TabsTrigger value="graph">Graph</TabsTrigger>
               <TabsTrigger value="source">Source</TabsTrigger>
             </TabsList>
           </Tabs>
@@ -338,6 +341,19 @@ export const ShapeEditor = ({ root, context, document, initialSource, onClose, o
                 </Rows>
               </section>
             </>
+          )}
+
+          {tab === 'graph' && policy && (
+            <ShapeGraph
+              policy={policy}
+              selected={selectedRole}
+              onSelect={setSelectedRole}
+              onPositions={(positions) => void editPolicy(withGraphPositions(policy, positions))}
+              onEditRule={(ruleId) => {
+                setTab('steps')
+                setSelectedRole(policy.rules.find((rule) => rule.id === ruleId)?.on ?? null)
+              }}
+            />
           )}
 
           {tab === 'source' && (

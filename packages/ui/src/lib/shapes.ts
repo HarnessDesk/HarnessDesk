@@ -1,5 +1,7 @@
-import type {
-  CeilingLevel, FlowAgentRole, FlowCheck, FlowPolicy, FlowPolicyRole, FlowPolicyRule, FlowThen,
+import {
+  SHAPE_LAYOUT_LIMIT,
+  SHAPE_POSITION_LIMIT,
+  type CeilingLevel, type FlowAgentRole, type FlowCheck, type FlowPolicy, type FlowPolicyRole, type FlowPolicyRule, type FlowThen,
 } from '@harnessdesk/protocol'
 
 /**
@@ -113,3 +115,65 @@ export const parseExitLines = (text: string): Record<string, string> => {
   }
   return out
 }
+
+// ------------------------------------------------------------------- graph
+
+export type GraphPoint = { readonly x: number; readonly y: number }
+const PROTOTYPE_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const asRecord = (value: unknown): Record<string, unknown> | null => (
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+)
+
+/**
+ * `layout.positions`, read defensively for display: an unrecognized shape,
+ * an unknown role, a prototype key or a coordinate outside
+ * `SHAPE_POSITION_LIMIT` is dropped rather than shown or crashing the
+ * canvas — the decision "ignore invalid untrusted layout only for safe read
+ * display... never erase it on read" (this never writes anything; the file's
+ * own bytes are untouched either way). `invalid` says whether anything was
+ * dropped, so the graph can show that it happened without guessing what a
+ * broken entry meant.
+ */
+export const readGraphPositions = (policy: FlowPolicy): { readonly positions: Readonly<Record<string, GraphPoint>>; readonly invalid: boolean } => {
+  const layout = asRecord(policy.layout)
+  const raw = layout ? asRecord(layout['positions']) : null
+  if (!raw) return { positions: {}, invalid: false }
+  const roles = new Set(policy.roles.map((role) => role.id))
+  const positions: Record<string, GraphPoint> = {}
+  let invalid = false
+  const keys = Object.keys(raw).slice(0, SHAPE_LAYOUT_LIMIT)
+  if (Object.keys(raw).length > SHAPE_LAYOUT_LIMIT) invalid = true
+  for (const key of keys) {
+    if (PROTOTYPE_KEYS.has(key) || !roles.has(key)) { invalid = true; continue }
+    const point = asRecord(raw[key])
+    const x = point?.['x']
+    const y = point?.['y']
+    const bounded = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= SHAPE_POSITION_LIMIT
+    if (point && bounded(x) && bounded(y) && Object.keys(point).every((name) => name === 'x' || name === 'y')) {
+      positions[key] = { x, y }
+    } else {
+      invalid = true
+    }
+  }
+  return { positions, invalid }
+}
+
+/** A position a drag or a keyboard move may propose: finite, bounded, and rounded to a whole number the file can spell exactly. */
+export const boundedPosition = (x: number, y: number): GraphPoint | null => {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null
+  const clamp = (value: number): number => Math.max(-SHAPE_POSITION_LIMIT, Math.min(SHAPE_POSITION_LIMIT, Math.round(value)))
+  return { x: clamp(x), y: clamp(y) }
+}
+
+/**
+ * `layout` with `positions` replaced, every other field — `frontDoor`, or a
+ * sibling tool's own key — preserved exactly. The one path both the drag
+ * handle and the keyboard Move fields commit through.
+ */
+export const withGraphPositions = (policy: FlowPolicy, positions: Readonly<Record<string, GraphPoint>>): FlowPolicy => {
+  const layout = asRecord(policy.layout) ?? {}
+  return { ...policy, layout: { ...layout, positions } }
+}
+
+/** Stable, deterministic rows — the view default used until a person actually moves a node; never written on its own. */
+export const defaultGraphPosition = (index: number): GraphPoint => ({ x: 40, y: 40 + index * 96 })

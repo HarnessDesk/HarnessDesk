@@ -196,3 +196,34 @@ it('the plain path never opens this editor or calls its authoring methods', asyn
   await settle()
   expect(spy.mock.calls.filter((call) => String(call[0]).startsWith('authoring/'))).toHaveLength(0)
 })
+
+it('Steps, Graph and Source all read one document, and Graph is absent until its tab is opened', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  fakeHost(store)
+  render(store)
+  await settle()
+
+  // No graph node exists yet — its own read/edit surfaces mount only once selected.
+  const graphNode = () => [...document.body.querySelectorAll('button')].some((one) => one.getAttribute('aria-label')?.startsWith('review —'))
+  expect(graphNode()).toBe(false)
+
+  act(() => button('Agent').click())
+  await settle()
+  const stepsPolicy = document.body.textContent
+  expect(stepsPolicy).toContain('Uses')
+
+  act(() => button('Graph').click())
+  await settle()
+  // The same two roles (the seed person and the agent just added) are visible on the graph.
+  expect(graphNode()).toBe(true)
+
+  act(() => button('Source').click())
+  await settle()
+  const textarea = document.body.querySelector('textarea') as HTMLTextAreaElement
+  const parsed = JSON.parse(textarea.value) as FlowPolicy
+  expect(parsed.roles.map((role) => role.kind).sort()).toEqual(['agent', 'person'])
+
+  act(() => button('Steps').click())
+  await settle()
+  expect(document.body.textContent).toContain('Uses')
+})

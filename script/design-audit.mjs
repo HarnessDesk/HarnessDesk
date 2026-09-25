@@ -1954,6 +1954,9 @@ const ICON_MODULES = new Set([
   'chart.tsx',
   'AppearancePreview.tsx',
   'GitGraph.tsx',
+  // A shape's own roles and rules, drawn to scale — the same exception as
+  // GitGraph's commit graph, not a second icon set.
+  'ShapeGraph.tsx',
 ])
 
 /** Existing screen families only, capped at eleven additional owners. An
