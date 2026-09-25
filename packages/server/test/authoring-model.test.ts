@@ -154,6 +154,21 @@ test('writeShape round-trips through the flow parser or refuses', () => {
   assert.throws(() => writeShape({ ...shaped, layout: { positions: { reviewer: { x: 1e-9, y: 0 } } } }), /written/)
 })
 
+test('writeShape round-trips a shape with no rules yet — a bare "rules:" key is null, not the empty list a fresh draft needs', () => {
+  // Found through the front door's own "your own shape" empty draft, which
+  // is exactly this: one step, no rules until a person adds one.
+  const empty: FlowPolicy = {
+    version: 2, name: 'Draft', inputs: [], messaging: 'board-only', wait: 240,
+    roles: [{ id: 'review', kind: 'person', outcomes: ['done'] }],
+    rules: [],
+    seed: { role: 'review', title: 'Go' },
+    budget: DEFAULT_FLOW_BUDGET,
+  }
+  const written = writeShape(empty)
+  assert.match(written, /^rules: \[\]$/m)
+  assert.deepEqual(parseFlowPolicy(written).document?.flow, empty)
+})
+
 const definitions: TriggerDefinition[] = [
   {
     id: 'review-pr', on: { kind: 'pull-request', events: ['opened', 'pushed'] }, opens: { flow: 'review-pr' },

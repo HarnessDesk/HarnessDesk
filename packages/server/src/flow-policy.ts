@@ -463,7 +463,10 @@ export const serializeFlowPolicy = (policy: FlowPolicy): string => {
       if (role.check.cwd) lines.push(`    cwd: ${scalar(role.check.cwd)}`)
     }
   }
-  lines.push(`seed: ${thenValue(policy.seed)}`, 'rules:')
+  // An empty list still has to read back as one: a bare `rules:` key is a
+  // null scalar to the parser, not `[]`, and "rules is a list" would refuse
+  // exactly the shape a fresh, ruleless draft is.
+  lines.push(`seed: ${thenValue(policy.seed)}`, policy.rules.length === 0 ? 'rules: []' : 'rules:')
   for (const rule of policy.rules) {
     lines.push(`  - id: ${scalar(rule.id)}`, `    on: ${scalar(rule.on)}`)
     if (rule.when) {
