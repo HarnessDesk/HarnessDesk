@@ -59,6 +59,30 @@ import { CAST, rigRuntimeId } from './cast.mjs'
 export const USER = homedir().split('/').filter(Boolean).pop() ?? ''
 
 /**
+ * Escaped for literal use inside a `RegExp` source string — every character
+ * `RegExp` would otherwise read as a metacharacter, neutralized.
+ */
+const escapeForRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * A path starts here: at the very beginning of the string, or just past
+ * whitespace, a quote or an opening bracket — never in the middle of a longer
+ * run of characters. Captured, so the substitution can put it back: it is
+ * context before the path, not part of it.
+ */
+const PATH_START = '(^|[\\s"\'`([{])'
+/** And a candidate only counts where it actually ends a path component: a
+ *  slash that continues it, or the end of the string. */
+const PATH_CONTINUES = '(?=[/\\\\]|$)'
+
+/**
+ * One pattern for every candidate worth trying, longest first, so a shorter
+ * one that happens to also match cannot pre-empt a more specific one.
+ */
+const prefixPattern = (homes) =>
+  `${PATH_START}(?:${[...new Set(homes.filter(Boolean))].sort((a, b) => b.length - a.length).map(escapeForRegExp).join('|')})${PATH_CONTINUES}`
+
+/**
  * Write this machine's home as `~`, the way the app writes it elsewhere.
  *
  * `shortPath` is applied in the Library, the skill sheet and every diff label,
@@ -78,20 +102,41 @@ export const USER = homedir().split('/').filter(Boolean).pop() ?? ''
  * the real home was substituted before a photograph and left standing through
  * a recording — the recording being the take that cannot be audited frame by
  * frame. One copy, and the drift cannot come back.
+ *
+ * **It only redacts a whole path prefix, and it tries more than one
+ * candidate.** macOS resolves `/var` and `/tmp` to `/private/var` and
+ * `/private/tmp`, so a rig home built from the as-given, pre-resolution path
+ * never carries the leading `/private` the window actually shows. A plain
+ * `split(home).join('~')` found the as-given string in the *middle* of the
+ * resolved one and replaced only that, leaving `/private~/storefront`
+ * standing — a corrupted path published in its place (#904). `home` may
+ * therefore be one string or several: every one worth trying, longest first,
+ * each anchored so it only ever matches a whole path component. The same
+ * anchor is what stops a shorter candidate from truncating an unrelated,
+ * longer name that merely starts with the same characters.
  */
-export const TILDIFY = (home) => `(() => {
-  const home = ${JSON.stringify(home)}
-  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
-  let node
-  while ((node = walk.nextNode())) {
-    if (node.nodeValue?.includes(home)) node.nodeValue = node.nodeValue.split(home).join('~')
-  }
-  for (const element of document.querySelectorAll('[title]')) {
-    const title = element.getAttribute('title')
-    if (title?.includes(home)) element.setAttribute('title', title.split(home).join('~'))
-  }
-  return true
-})()`
+export const TILDIFY = (home) => {
+  const homes = Array.isArray(home) ? home : [home]
+  const pattern = homes.some(Boolean) ? prefixPattern(homes) : null
+  return `(() => {
+    const pattern = ${JSON.stringify(pattern)}
+    const regex = pattern ? new RegExp(pattern, 'g') : null
+    const shorten = (value) =>
+      typeof value === 'string' && regex ? value.replace(regex, (match, lead) => \`\${lead}~\`) : value
+    const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    let node
+    while ((node = walk.nextNode())) {
+      const shortened = shorten(node.nodeValue)
+      if (shortened !== node.nodeValue) node.nodeValue = shortened
+    }
+    for (const element of document.querySelectorAll('[title]')) {
+      const title = element.getAttribute('title')
+      const shortened = shorten(title)
+      if (shortened !== title) element.setAttribute('title', shortened)
+    }
+    return true
+  })()`
+}
 
 /**
  * Every string the window is showing, collected in the renderer.

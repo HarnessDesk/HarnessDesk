@@ -404,3 +404,45 @@ test('the substitution both drivers run covers attributes, not only text (#296)'
   assert.deepEqual(asked, ['[title]'])
   assert.equal(titled.value, '~/work/storefront', 'the tooltip the recording used to leave standing')
 })
+
+test('tildify redacts a whole path prefix only, and covers a symlink-resolved home as well as the as-given one (#904)', () => {
+  /* macOS resolves `/var` (and `/tmp`) to `/private/var` (`/private/tmp`), so
+     a rig home built from the as-given, pre-resolution path never carries the
+     leading "/private" the window actually shows. The old substitution was a
+     plain `split(home).join('~')`: it found the as-given string in the
+     *middle* of the resolved one and replaced only that, leaving
+     "/private~/storefront" standing — a corrupted path, not a shortened one.
+     `TILDIFY` now takes every candidate worth trying (the resolved form and
+     the as-given one), longest first, and only redacts one where a path
+     actually starts — never mid-string, which is also what stops a shorter
+     candidate from truncating an unrelated, longer name that merely begins
+     with the same characters. */
+  const asGiven = '/var/folders/xx/home' // hd-secrets-ok
+  const resolved = '/private/var/folders/xx/home' // hd-secrets-ok
+  const text = [
+    { nodeValue: `Opened ${resolved}/storefront` },
+    // Same prefix, but continuing into a longer, different directory name —
+    // must be left whole rather than truncated at "home".
+    { nodeValue: `Opened ${asGiven}work/elsewhere` },
+    { nodeValue: 'nothing to change' },
+  ]
+  const titled = {
+    value: `${resolved}/storefront`,
+    getAttribute: (name) => (name === 'title' ? titled.value : null),
+    setAttribute: (name, value) => {
+      titled.value = value
+    },
+  }
+  let next = 0
+  const document = {
+    body: {},
+    createTreeWalker: () => ({ nextNode: () => text[next++] ?? null }),
+    querySelectorAll: () => [titled],
+  }
+  new Function('document', 'NodeFilter', `return ${TILDIFY([asGiven, resolved])}`)(document, { SHOW_TEXT: 4 })
+  assert.equal(text[0].nodeValue, 'Opened ~/storefront')
+  assert.doesNotMatch(text[0].nodeValue, /private~/, 'a resolved prefix must not leave "/private" stranded')
+  assert.equal(text[1].nodeValue, `Opened ${asGiven}work/elsewhere`, 'a same-prefix longer name must survive untouched')
+  assert.equal(text[2].nodeValue, 'nothing to change')
+  assert.equal(titled.value, '~/storefront')
+})

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -105,19 +105,24 @@ test('every seeded camera agent stays on its scripted process even with real CLI
   const openCode = configs.find(agent => agent.brand === 'opencode')
   assert.ok(openCode)
   assert.equal(await service.launchFor(openCode), null, 'the row must not be replaced with installed OpenCode')
+  // config.mjs resolves `WORK` through any symlink in its own path (macOS's
+  // `/var` and `/tmp` are themselves symlinks to `/private/var`/`/private/tmp`
+  // — #904), so a seeded conversation's `cwd` carries the resolved prefix even
+  // though this test's own `directory` is the as-given, pre-resolution one.
+  const work = realpathSync(join(directory, 'work'))
   for (const agent of configs) {
     assert.equal(service.knowledgeFor(agent), undefined, `${agent.id} must not inherit vendor stores or launch policy`)
     assert.equal(await service.launchFor(agent), null)
     assert.equal(agent.command, 'node')
     assert.deepEqual(agent.args, [join(root, 'script/shots/agent.mjs')])
     const sessions = Object.values(JSON.parse(readFileSync(agent.env.SHOT_STORE, 'utf8')))
-    assert.ok(sessions.every(session => session.cwd.startsWith(join(directory, 'work') + '/')))
+    assert.ok(sessions.every(session => session.cwd.startsWith(work + '/')))
     const runtime = new AcpRuntime({ ...agent, resolveLaunch: occasion => service.launchFor(agent, occasion) })
     try {
       await runtime.start()
       const listed = await runtime.listSessions()
       assert.deepEqual(listed.data.map(session => session.id).sort(), sessions.map(session => session.sessionId).sort())
-      assert.ok(listed.data.every(session => session.cwd.startsWith(join(directory, 'work') + '/')))
+      assert.ok(listed.data.every(session => session.cwd.startsWith(work + '/')))
     } finally {
       await runtime.dispose()
     }
