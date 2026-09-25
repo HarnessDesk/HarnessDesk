@@ -106,9 +106,25 @@ const EmptyBody = ({ children }: { children: ReactNode }) => (
   </Text>
 )
 
-/** The pane's status, as a tone: the same judgement the chip and its dot both wear. */
+/** The dot's own tone: brand while a turn is running, so the one moving mark
+    is the one that says so. */
 const STATUS_TONE: Record<PaneStatus, Tone> = {
   running: 'brand',
+  waiting: 'warning',
+  failed: 'danger',
+  idle: 'neutral',
+}
+
+/**
+ * The pill's own ground — its own judgement, not the dot's.
+ *
+ * Running is the most common live state, so its pill stays the neutral tone
+ * idle already wears; only the dot inside it turns brand. A pill that also
+ * went brand while running left the header shouting through most of a turn,
+ * and named only "failed" as worth a colour of its own.
+ */
+const STATUS_PILL_TONE: Record<PaneStatus, Tone> = {
+  running: 'neutral',
   waiting: 'warning',
   failed: 'danger',
   idle: 'neutral',
@@ -632,7 +648,7 @@ export const Conversation = ({
         <HeaderTitle session={session} />        {session && <span className="hd-no-drag inline-flex flex-none"><HeaderCeiling session={session} /></span>}
         {session && (
           <span
-            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${softTone({ tone: STATUS_TONE[status] })}`}
+            className={`${styles.status} h-[22px] px-(--hd-space-2) rounded-(--hd-radius-md) text-base hd-no-drag ${softTone({ tone: STATUS_PILL_TONE[status] })}`}
             data-status={status}
             title={STATUS_LABEL[status]}
           >
