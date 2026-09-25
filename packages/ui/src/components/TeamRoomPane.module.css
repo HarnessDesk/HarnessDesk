@@ -130,6 +130,17 @@
      size, and the roster row below reads that width directly rather than
      the room's. */
   container: hd-room-rail / inline-size;
+  /* The app's floating notice stack starts at the same 46px the room's own
+     header ends at, over the pane area rather than under it — so a standing
+     banner landed on Board and cut through the top of Chat, both unclickable
+     until it was dismissed (#913). `App.tsx` already measures the stack's
+     height onto the pane area as `--hd-notice-inset`; `Conversation.tsx`
+     reads it as scroll padding for the same reason, which this file's own
+     "geometry only" rule below refuses as a property — margin says the same
+     thing about where the rail starts. The rail reads it here, so Board,
+     Chat and Findings always start below whatever notice is showing, at
+     zero cost the rest of the time. */
+  margin-top: var(--hd-notice-inset, 0px);
 }
 
 /* Below this a roster row has no room left for either the name or the job to
