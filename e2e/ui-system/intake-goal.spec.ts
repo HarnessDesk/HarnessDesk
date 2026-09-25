@@ -112,8 +112,11 @@ test('a question that timed out and a budget stop each name their exact reason, 
 
   await scene(page, 'stopped')
   await expect(stateChip(frame)).toHaveText('Stopped')
-  await expect(liveLine(frame)).toContainText('Out of budget.')
+  // The host's own detail already carries the label, so it is shown alone
+  // rather than after the generic "Out of budget." — which said the same
+  // thing twice on a real host (#917).
   await expect(liveLine(frame)).toContainText('The daily cap was reached before this round closed.')
+  await expect(liveLine(frame)).not.toContainText('Out of budget.')
   // What the stopped run already spent is kept and said.
   await expect(budget(frame)).toContainText('left')
 
