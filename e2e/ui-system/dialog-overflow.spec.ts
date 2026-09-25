@@ -92,7 +92,8 @@ for (const [where, width, height] of [
     await page.getByLabel('dialog').selectOption('sign in')
     const dialog = page.getByRole('dialog').first()
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Your agents')).toBeVisible()
+    // The roster is grouped by what each agent needs; the page's agents are all signed in.
+    await expect(dialog.getByText('Connected', { exact: true })).toBeVisible()
 
     const held = await dialog.evaluate(node => {
       const box = node.getBoundingClientRect()
