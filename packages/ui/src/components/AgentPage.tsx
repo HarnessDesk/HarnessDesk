@@ -31,7 +31,7 @@ import {
   stateWords,
   wordList,
 } from '../lib/agents'
-import { shortPath } from '../lib/paths'
+import { relativeTo, shortPath } from '../lib/paths'
 import { flagWords } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -133,6 +133,12 @@ export const AgentPage = ({
   const shadows = shadowWords(entry)
   const plan = snapshot.agentPlans.get(entry.id)
   const ceilingFlag = definition ? flagWords(definition) : null
+  // Relative to the project's own root when there is one to be relative to —
+  // the header above already says "In storefront", so a project Agent's file
+  // repeats nothing by starting from `.harnessdesk/agents/...` rather than
+  // the whole checkout path. The absolute path still rides along in `title`.
+  const fileLabel =
+    entry.origin === 'project' && snapshot.agentsProject ? relativeTo(entry.path, snapshot.agentsProject) : fileWords(entry, snapshot.home)
   const canUpdateCeiling = ceilingFlag !== null && (entry.origin === 'user' || entry.origin === 'project')
   /** Builtins are read-only until Customize copies them, exactly like the fields below. */
   const editable = entry.origin !== 'builtin'
@@ -270,6 +276,7 @@ export const AgentPage = ({
               <SummaryItem
                 label="File"
                 kind="path"
+                title={entry.path}
                 {...(shadows ? { note: shadows } : {})}
                 action={
                   <span className={styles.actions}>
@@ -282,7 +289,7 @@ export const AgentPage = ({
                   </span>
                 }
               >
-                {fileWords(entry, snapshot.home)}
+                {fileLabel}
               </SummaryItem>
             )}
             {definition && (

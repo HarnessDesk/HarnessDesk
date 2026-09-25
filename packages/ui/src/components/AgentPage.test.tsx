@@ -276,6 +276,14 @@ it('opens from its roster row, names its file, and opens or reveals it', () => {
   expect(onLeave).toHaveBeenCalled()
 })
 
+it('names a project Agent’s File relative to the project, since the header already says which one, with the full path on hover', () => {
+  mount({ focus: 'code-reviewer' })
+  const file = summaryItem('File')!
+  expect(file.textContent).toContain('.harnessdesk/agents/code-reviewer/AGENT.md')
+  expect(file.textContent).not.toContain('/w/storefront')
+  expect(file.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents/code-reviewer/AGENT.md')
+})
+
 it('opens on the Agent Settings was asked for, and goes back to the roster', () => {
   mount({ focus: 'scout' })
   expect(container.textContent).toContain('Scout does the work.')
@@ -745,7 +753,7 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
     diff: `--- a/AGENT.md\n+++ b/AGENT.md\n@@ -3 +3 @@\n-permission: read\n+ceiling: ${level}\n`,
   }))
   project.store.writeCeiling = vi.fn(async (entry) => entry)
-  expect(section('Ceiling')).toContain('Written with permission,')
+  expect(section('Ceiling')).toContain("this file's older permission line")
   act(() => button('Update…').click())
   await settle()
   expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Update Code reviewer')
@@ -808,7 +816,7 @@ it('a successful update removes the flag, and project navigation closes an old p
   await vi.waitFor(() => expect(button('Write this line').disabled).toBe(false))
   act(() => button('Write this line').click())
   await settle()
-  expect(section('Ceiling')).not.toContain('Written with permission,')
+  expect(section('Ceiling')).not.toContain("this file's older permission line")
   expect(section('Ceiling')).not.toContain('Update…')
 
   act(() => {
