@@ -31,14 +31,15 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 import { answerApprovals, closeDesk, deskInUse, dismissNotices, launchDesk, makeRoom, seat, sleep, splitKey, STORE, waitForSnapshot } from '../lib/desk.mjs'
 import { RUNTIME_ACCOUNTS as ACCOUNTS, ANONYMOUS, VOUCHED } from './accounts.mjs'
 import { TILDIFY, USER, refuseUnpublishable } from './audit.mjs'
 import { CAST, CONVERSATIONS, REPOS, rigRuntimeId } from './cast.mjs'
-import { HOME, WORK, SHOT_ENV } from './config.mjs'
+import { HOME, WORK, SHOT_ENV, requireSeeded } from './config.mjs'
 import { runScene } from './scene.mjs'
+import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
 
 /**
@@ -81,6 +82,8 @@ const PROVENANCE_SHOTS = (() => {
   const file = join(HOME, 'provenance-shots.json')
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return [] }
 })()
+
+requireSeeded()
 
 const busy = await deskInUse(HOME)
 if (busy) {
@@ -202,10 +205,13 @@ try {
   /** Hide this machine's home, the one substitution a frame is allowed. */
   const tildify = async () => {
     await cdp.eval(TILDIFY(homedir()))
-    // Native verification repositories may live in a unique temporary root.
-    // Normalize that synthetic path too so concurrency-safe random suffixes
-    // never become public screenshot content.
-    await cdp.eval(TILDIFY(WORK))
+    // `WORK` itself is never shortened: it is a "person" folder nested one
+    // level inside the staged home (`config.mjs`), and shortening `WORK`
+    // outright would collapse `~/work/storefront` down to `~/storefront`.
+    // Its *parent* — the "person" folder, or a native-verification run's own
+    // temporary root — is what the drivers give a home's worth of meaning, so
+    // that is what is hidden, leaving `work/<repo>` standing underneath it.
+    await cdp.eval(TILDIFY(dirname(WORK)))
     await sleep(150)
   }
 
@@ -579,6 +585,9 @@ rules:
    * same staged state — re-running the setup per theme would send a second
    * turn and photograph a different conversation each time.
    */
+  /** The `browser` scene's loopback server, open only while that scene runs. */
+  let browserServer = null
+
   const SCENES = {
     ...(PROVENANCE_SHOTS.length === 2 ? {
       'provenance-history': {
@@ -830,15 +839,28 @@ rules:
       await sleep(2400)
     } },
 
-    /** The browser pane — a real `<webview>`, driven by the agent's tools. */
+    /**
+     * The browser pane — a real `<webview>`, driven by the agent's tools.
+     *
+     * Its page is served over loopback HTTP, never opened as a `file://`
+     * URL. A `file://` address always carries this machine's directory
+     * layout — the real home before this rig kept its own, an anonymous OS
+     * temp path after — and the address bar is a React-controlled input
+     * that writes its "real" value back mid-take (`audit.mjs`), so a `TILDIFY`
+     * substitution over the DOM cannot be trusted to survive to the
+     * screenshot. `http://127.0.0.1:<port>/…` (`static-server.mjs`) never
+     * carries a filesystem path at all, so there is nothing left to leak.
+     */
     browser: { leaveOverlay: true, run: async () => {
-      const fixture = join(WORK, 'browser-fixture.html')
-      writeFileSync(fixture, `<!doctype html>
+      const browseDir = join(WORK, 'browse')
+      mkdirSync(browseDir, { recursive: true })
+      writeFileSync(join(browseDir, 'index.html'), `<!doctype html>
 <meta charset="utf-8">
 <title>HarnessDesk browser fixture</title>
 <style>body{font:16px system-ui;margin:4rem;color:#253047;background:#f7f9fc}h1{font-size:2rem}</style>
 <h1>Storefront preview</h1><p>A deterministic local page inside the production Electron webview.</p>`)
-      const url = pathToFileURL(fixture).href
+      browserServer = await startStaticServer(browseDir)
+      const url = `${browserServer.url}/index.html`
       await cdp.eval(`${STORE}.openBrowser(${q(url)}); true`)
       let title = ''
       for (let attempt = 0; attempt < 40; attempt += 1) {
@@ -852,6 +874,9 @@ rules:
       if (!opened || title !== 'HarnessDesk browser fixture') {
         throw new Error(`the inline browser did not load its local fixture (title ${q(title)})`)
       }
+    }, finish: async () => {
+      await browserServer?.close()
+      browserServer = null
     } },
   }
 

@@ -1,5 +1,5 @@
-import { mkdirSync, realpathSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { existsSync, lstatSync, mkdirSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -21,14 +21,86 @@ const APP = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
  * `realpathSync` needs the folder to exist, so it is created first — harmless
  * even when a driver only wants the name, since every driver creates it
  * itself moments later regardless.
+ *
+ * The leaf itself is refused if it is a symlink, before anything reads
+ * through it, writes into it or deletes what `seed.mjs`'s `RESIDUE` names
+ * inside it. This resolves every symlink *in* a path's ancestors on purpose
+ * (`/tmp` to `/private/tmp`) — the leaf is the one component that has to be a
+ * real folder this rig controls: `HD_SHOTS_HOME`/`HD_SHOTS_WORK`, or their
+ * defaults, followed blindly through a link would read, write and delete
+ * wherever that link points instead of this rig's own folder, which is the
+ * same mistake `seed.mjs`'s non-empty-unmarked-folder guard exists to catch,
+ * wearing a different shape. Caught here rather than left to whichever
+ * `fs` call happens to hit it first, because every driver imports this
+ * module before it does anything else.
  */
+const refuseSymlink = (path) => {
+  let info
+  try {
+    info = lstatSync(path)
+  } catch (error) {
+    if (error.code === 'ENOENT') return
+    throw error
+  }
+  if (info.isSymbolicLink()) {
+    throw new Error(
+      `${path} is a symlink, not a real folder. This rig will not read, write or delete through a link — ` +
+        'point HD_SHOTS_HOME/HD_SHOTS_WORK at the real folder, or remove the link.',
+    )
+  }
+}
+
 const canonical = (path) => {
+  refuseSymlink(path)
   mkdirSync(path, { recursive: true })
   return realpathSync(path)
 }
 
-export const HOME = canonical(process.env['HD_SHOTS_HOME'] ?? join(homedir(), '.harnessdesk-shots'))
-export const WORK = canonical(process.env['HD_SHOTS_WORK'] ?? join(homedir(), 'work'))
+/**
+ * Off the real machine's home entirely — a fixed folder under the OS temp
+ * directory, not `~/.harnessdesk-shots`. The staged desk, the fake Codex home
+ * and every repository this rig builds live under here, so nothing it writes
+ * or photographs can carry this machine's actual home path.
+ */
+export const HOME = canonical(process.env['HD_SHOTS_HOME'] ?? join(tmpdir(), 'harnessdesk-shots'))
+
+/**
+ * A "person" folder inside the staged home, one level above where the
+ * repositories actually sit.
+ *
+ * The project path is on camera — the board header prints it and so does the
+ * approval dialog — and the app writes it with a tilde where it can. Nesting
+ * `work` a level under a folder the drivers shorten to `~` (`shoot.mjs` and
+ * `gif.mjs` both tildify `dirname(WORK)`, not `WORK` itself) means a frame
+ * still reads `~/work/storefront`, the way a real checkout would, without the
+ * repositories ever sitting under this machine's actual home.
+ *
+ * The default is deliberately *not* created here the way `canonical()`
+ * creates everything else. `HOME` is already resolved through every symlink
+ * in its own path, and `person`/`work` are plain literal segments with none
+ * of their own to resolve — so the string is already in the same form
+ * `canonical()` would hand back, without the `mkdirSync` that earns it
+ * elsewhere. That `mkdirSync` is exactly what must not happen before
+ * `seed.mjs` has had a chance to ask whether this home is `seed.mjs`'s own:
+ * importing this module used to leave an empty `person/work` scaffold
+ * sitting inside a brand-new default `HOME` on its own, which made every
+ * later `seed.mjs` run see a non-empty, unmarked folder and refuse to seed
+ * it — the #909 guard doing exactly its job against a mess this module
+ * caused. `refuseSymlink` still runs, because a link can sit at a path that
+ * does not exist yet just as well as one that does.
+ *
+ * An override (`HD_SHOTS_WORK`) is a different folder from `HOME` by
+ * definition, so creating it here cannot poison that check — it keeps the
+ * full `canonical()` treatment, the same as always.
+ */
+export const WORK = process.env['HD_SHOTS_WORK']
+  ? canonical(process.env['HD_SHOTS_WORK'])
+  : (() => {
+      const path = join(HOME, 'person', 'work')
+      refuseSymlink(join(HOME, 'person'))
+      refuseSymlink(path)
+      return path
+    })()
 
 // The built-in adapter is constructed even when a camera ACP row replaces it.
 // Capture and seed both use this inert configuration; importing it never stages
@@ -38,4 +110,29 @@ export const SHOT_ENV = {
   CODEX_HOME: join(HOME, 'codex-home'),
   HARNESSDESK_CODEX_BINARY: join(APP, 'packages/adapter-codex/test/fixtures/fake-codex.mjs'),
   FAKE_CODEX_VERSION_FILE: join(HOME, 'codex-version'),
+}
+
+/**
+ * Refuses to drive the real app against a home nothing has seeded, rather
+ * than launching it onto an empty desk and failing confusingly several steps
+ * later — a missing runtime, a scene that cannot find a workspace, or a
+ * blank window an unattended run has no way to explain.
+ *
+ * The two facts this checks for are the same two `seed.mjs`'s own guard
+ * tracks: the marker an earlier seed wrote, and `agents.json`, one of the
+ * files that seed writes alongside it. Either missing means this home has
+ * never been seeded, or was seeded and then emptied — the new default lives
+ * under the OS temp directory, which macOS (and most Linux distributions) is
+ * free to clear on every reboot, so "just seeded yesterday" is not something
+ * a driver can assume.
+ *
+ * `seed.mjs` never calls this — importing `config.mjs` is the one thing it
+ * does before it goes on to seed exactly this home, and refusing here would
+ * make seeding a home impossible the first time. It is for `shoot.mjs` and
+ * `gif.mjs`, the drivers, to ask before they launch the real app.
+ */
+export const requireSeeded = () => {
+  if (existsSync(join(HOME, '.rig-home.json')) && existsSync(join(HOME, 'agents.json'))) return
+  process.stderr.write(`\n  ${HOME} has not been seeded. Run \`node script/shots/seed.mjs\` first.\n\n`)
+  process.exit(1)
 }

@@ -16,11 +16,11 @@
  * to draw, and the workspace list that ties them together. It is idempotent —
  * run it before every take, because a take leaves its own turns behind.
  *
- *   node script/shots/seed.mjs            # stage ~/.harnessdesk-shots
+ *   node script/shots/seed.mjs            # stage the rig's own temp-dir home
  *   node script/shots/seed.mjs --clean    # tear it down and stage it again
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -40,13 +40,16 @@ const REGISTERED_CAST = process.env['HD_SHOTS_NATIVE_CODEX'] === '1'
   : CAST
 
 /**
- * The repositories live under the real `$HOME`, not under the staged home.
+ * The repositories live under `WORK`, a "person" folder nested one level
+ * inside the staged home — never under this machine's real `$HOME`.
  *
  * The project path is on camera — the board header prints it and so does the
- * approval dialog — and the app writes it with a tilde where it can. A folder
- * under `~/work` photographs as `~/work/storefront`, which reads like
- * somebody's checkout. A folder under `~/.harnessdesk-shots/work` photographs
- * as a rig.
+ * approval dialog — and the app writes it with a tilde where it can. The
+ * drivers (`shoot.mjs`, `gif.mjs`) shorten `WORK`'s parent folder to `~`
+ * rather than `WORK` itself, so a folder that physically sits under
+ * `HOME/person/work` still photographs as `~/work/storefront`, which reads
+ * like somebody's checkout, without ever putting a real repository under this
+ * machine's actual home (`config.mjs`).
  */
 const say = (line) => process.stdout.write(`  ${line}\n`)
 
@@ -124,9 +127,13 @@ const RESIDUE = [
  * raises what a mistaken `HD_SHOTS_HOME` costs: pointed at a real desk's
  * `~/.harnessdesk`, or at `$HOME` itself, either one would now delete real
  * credentials, real Goals and real git worktrees rather than a rig's own
- * (#909 review, P3-3). The default path is trusted outright, the same way it
- * always implicitly was. Anything else has to prove it is this rig's own
- * folder, which it does by carrying the marker an earlier seed wrote.
+ * (#909 review, P3-3). Anything has to prove it is this rig's own folder,
+ * which it does by carrying the marker an earlier seed wrote, or by being
+ * empty. That includes the default path: it earned no special trust here —
+ * `config.mjs` already refuses to hand back a default that is a symlink
+ * rather than a real folder, but a real folder holding somebody else's
+ * files is a mistake this guard exists to catch regardless of whether the
+ * path came from an override or was never asked for at all.
  *
  * A first version of this guard skipped the deletions on an unmarked folder
  * but still wrote the marker and then went on to overwrite `agents.json`,
@@ -140,16 +147,47 @@ const RESIDUE = [
  */
 const MARKER_NAME = '.rig-home.json'
 const MARKER = join(HOME, MARKER_NAME)
-const usingDefaultHome = !process.env['HD_SHOTS_HOME']
 const empty = !existsSync(HOME) || readdirSync(HOME).length === 0
-const rigOwnsHome = usingDefaultHome || existsSync(MARKER)
+const rigOwnsHome = empty || existsSync(MARKER)
 
-if (!rigOwnsHome && !empty) {
+if (!rigOwnsHome) {
   process.stderr.write(
     `\n  HD_SHOTS_HOME (${HOME}) is not empty and carries no ${MARKER_NAME} from an earlier seed, so this rig cannot tell it apart from a real desk's home. Refusing to write anything here.\n` +
-      `  Point HD_SHOTS_HOME at an empty folder, the default (~/.harnessdesk-shots), or one seed.mjs has already staged.\n\n`,
+      `  Point HD_SHOTS_HOME at an empty folder, the default (a fixed folder under the OS temp directory), or one seed.mjs has already staged.\n\n`,
   )
   process.exit(1)
+}
+
+/**
+ * Refuses the whole run, before a single deletion, if any entry `RESIDUE` is
+ * about to clear is a symlink rather than a real file or folder this rig
+ * staged.
+ *
+ * `rmSync(recursive: true)` never follows a symlink it is handed directly —
+ * given one, it unlinks the link itself and leaves whatever it points to
+ * alone, proven in this file's own tests — so a link left in `RESIDUE`'s
+ * place is not a deletion hazard by itself. It is still refused: a link
+ * standing where this rig's own file belongs means something other than a
+ * normal take put it there, and continuing would seed a fresh file or folder
+ * right beside a stranger's link rather than say so. Checked as one pass
+ * over every entry before any of them is touched, so a link found on entry
+ * twelve does not leave the first eleven already deleted.
+ */
+for (const name of RESIDUE) {
+  let info
+  try {
+    info = lstatSync(join(HOME, name))
+  } catch (error) {
+    if (error.code === 'ENOENT') continue
+    throw error
+  }
+  if (info.isSymbolicLink()) {
+    process.stderr.write(
+      `\n  ${join(HOME, name)} is a symlink, not a file or folder this rig staged. Refusing to delete through it.\n` +
+        `  Remove it by hand if you put it there on purpose, then reseed.\n\n`,
+    )
+    process.exit(1)
+  }
 }
 
 for (const name of RESIDUE) rmSync(join(HOME, name), { recursive: true, force: true })
@@ -311,6 +349,21 @@ writeFileSync(
   )}\n`,
 )
 
+/**
+ * `preferences` starts empty on every seed, deliberately — it is not merged
+ * with whatever a previous take's app process wrote here while it ran.
+ *
+ * `preferences.layouts` is where the renderer persists each workspace's pane
+ * arrangement (`packages/ui/src/state/store.ts`'s `#keepWorkbench`), and a
+ * layout can hold a docked browser pane — its tabs, and each tab's URL. An
+ * earlier `browser` take leaves exactly that behind: run it, then shoot a
+ * later scene against the same un-reseeded home, and that scene's window
+ * restores with the previous take's browser panel still docked, address bar
+ * and all. Writing `{}` here rather than reading and merging the file this
+ * would otherwise overwrite is what clears it — RESIDUE already deletes this
+ * file outright, so a hand-merge would have nothing of the rig's own to lose,
+ * only ever a previous take's panel and dock state.
+ */
 writeFileSync(
   join(HOME, 'state.json'),
   `${JSON.stringify(
