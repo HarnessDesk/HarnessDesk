@@ -166,9 +166,16 @@ export interface Intent {
 
 // ---------------------------------------------------------------- the channel
 
-/** Who wrote a channel entry. The user's posts carry authority; agents' never do. */
+/**
+ * Who wrote a channel entry. The user's posts carry authority; agents' never
+ * do. A trigger's own run adds cards unattended — nobody read a dry run or
+ * pressed anything — so its signals are attributed to the trigger that opened
+ * the run, never to the person, and never folded into `'agent'`, which always
+ * names a conversation the entry can point back to.
+ */
 export type TeamActor =
   | { readonly kind: 'user' }
+  | { readonly kind: 'trigger'; readonly trigger: string }
   | {
       readonly kind: 'agent'
       readonly runtime: RuntimeId

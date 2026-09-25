@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import {
+  currentTurn,
   isBusy,
   sessionKey,
   splitSessionKey,
@@ -12,11 +13,20 @@ import {
   type SessionId,
   type SessionKey,
   type TeamPeerInfo,
+  type TriggerBudgetState,
+  type TriggerGoalStatus,
 } from '@harnessdesk/protocol'
 
 import { runtimeTint, type Tint } from '../lib/accounts'
 import { brandForRuntime } from '../lib/brands'
+import { elapsedSince } from '../lib/clock'
+import { goalActions, goalName } from '../lib/goals'
+import { openExternal } from '../lib/desktop'
+import { budgetMeterWords, formatMeterUsd, intakeStopWords, openTriggerWaits, originHoverWords, originSubject } from '../lib/intake'
+import { isPathInside } from '../lib/paths'
+import { folderName } from '../lib/projects'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
 import { PanelActions } from '../panels/PanelActions'
@@ -24,9 +34,14 @@ import { BrandMark } from './BrandIcons'
 import {
   AgentIcon,
   ArrowLeftIcon,
+  ClockIcon,
+  CommentIcon,
   CrossIcon,
+  IssueIcon,
+  MessageOffIcon,
   PlanIcon,
   PlusIcon,
+  PullRequestIcon,
   ReviewIcon,
   SearchIcon,
   ShieldOffIcon,
@@ -35,11 +50,11 @@ import {
 import { AddMember } from './AddMember'
 import { MemberHoverCard, type MemberCardFacts } from './AgentCards'
 import { Approvals } from './Approvals'
-import { isPathInside } from '../lib/paths'
 import { Conversation } from './Conversation'
 import { ChannelStream, readChannel } from './Channel'
 import { RoomComposer, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
+import { formatDuration } from './TurnTail'
 import { GoalFindings } from './GoalFindings'
 import { GoalHeader } from './GoalHeader'
 import { GoalWrap } from './GoalWrap'
@@ -51,12 +66,23 @@ import { FlowRunStatus } from './FlowRunStatus'
 import { WindowControls } from './WindowControls'
 import {
   Button,
+  Chip,
+  Dot,
   EmptyState,
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
   IconTile,
   Input,
+  KeyValue,
+  KeyValueRow,
   ListRow,
   ListRows,
+  Note,
+  ProgressRing,
+  Spinner,
   Text,
+  type Tone,
 } from '../design'
 import styles from './TeamRoomPane.module.css'
 
@@ -136,6 +162,41 @@ const AT_THE_FLOOR = { rows: 0, onlyMessages: true } as const
  * needed: the way to put a member beside another is on every row, all the
  * time, rather than appearing only once something was already up.
  */
+
+/**
+ * A trigger Goal's origin, as a chip in the header's own meta line: the
+ * forge's own icon and the bare number — "#42" — never a raw event id or a
+ * source token. The full origin used to be a sentence of its own in the page
+ * body ("Opened from issue #42 — Open"); it is a hover away from this chip
+ * now, and nowhere else. `null` for a schedule, or a source whose subject the
+ * host could not resolve — there is no number for the chip to show then, and
+ * this earns its place in the header only by being short.
+ */
+const OriginChip = ({ status, name }: { readonly status: TriggerGoalStatus; readonly name: string }) => {
+  const subject = originSubject(status)
+  if (!subject) return null
+  const Icon = status.source === 'pull-request' ? PullRequestIcon : status.source === 'issue' ? IssueIcon : ClockIcon
+  return (
+    <HoverCard>
+      <HoverCardTrigger render={<span className="inline-flex" />}>
+        <Chip tone="neutral">
+          <Icon size={11} />
+          {subject}
+        </Chip>
+      </HoverCardTrigger>
+      <HoverCardContent side="bottom" align="start">
+        <Text role="subject">{name}</Text>
+        <Text role="meta" as="div">{originHoverWords(status, name)}</Text>
+        {status.url && (
+          <div className="mt-2">
+            <Button variant="link" size="inline" onClick={() => openExternal(status.url!)}>Open</Button>
+          </div>
+        )}
+      </HoverCardContent>
+    </HoverCard>
+  )
+}
+
 export const TeamRoomPane = ({
   room,
   onChooseProject = () => undefined,
@@ -185,6 +246,38 @@ export const TeamRoomPane = ({
     if (flowExecution || !run) return
     void store.readFlowExecution(run).catch(() => {})
   }, [flowExecution, run, store])
+  /**
+   * A trigger Goal's own status — its origin, and its live budget — read
+   * once per Goal and polled while it is open, since both change under a
+   * running trigger: a poll's spend, a round closing, a clock ticking down.
+   * The origin chip and the composer's own meter both read this; neither
+   * asks Intake a second time.
+   */
+  const triggerKind = goal?.goal.origin.kind === 'trigger'
+  const goalId = goal?.goal.id ?? null
+  const [triggerStatus, setTriggerStatus] = useState<TriggerGoalStatus | null>(null)
+  useEffect(() => {
+    if (!goalId || !triggerKind) { setTriggerStatus(null); return }
+    let live = true
+    const read = (): void => {
+      store.triggerGoal(goalId).then(
+        (status) => { if (live) setTriggerStatus(status) },
+        () => { if (live) setTriggerStatus(null) },
+      )
+    }
+    read()
+    // A budget's spend and its clock move on their own, between board
+    // mutations that would otherwise be the only thing that re-asks. Once a
+    // minute is enough to keep the composer's meter honest without asking
+    // the host on every render of a ticking second hand.
+    const timer = window.setInterval(read, 60_000)
+    return () => { live = false; window.clearInterval(timer) }
+    // Keyed on the Goal's own id, not the `GoalView` object: that object is a
+    // fresh reference on every board mutation — a chat post, a claim signal,
+    // anything — and refetching this on every one of them asked the host the
+    // same question dozens of times a minute for a status that changes rarely.
+  }, [store, goalId, triggerKind])
+  const originStatus = triggerStatus && triggerStatus.goal === goalId ? triggerStatus : null
   const mount = useMount()
   /**
    * The roster, and the room it belongs to.
@@ -633,9 +726,43 @@ export const TeamRoomPane = ({
     ],
   )
 
-  const working = roster.filter((one) => one.busy).length
   /** Members whose conversation the desk actually has open. See the head. */
   const hereCount = roster.filter((one) => one.here).length
+  /* The page's name: the Goal's own (`goalName` — for a trigger's Goal, its
+     subject, "Issue #42", never the trigger's id the chip beside it already
+     answers for), then the room's. Never the placeholder word "Room" for the
+     beat before the board answers — a name that reads as real and then
+     changes is worse than none. */
+  const title = goal ? goalName(goal.goal) : team?.name ?? ''
+  /**
+   * The one member (if any) a runtime is waiting on a person for, in room
+   * order — the header's own state chip pulses for this, the room's chat
+   * carries its live line, and the composer's own slot is this member's
+   * `Approvals`, not the room's plain one. A room rarely holds two pending
+   * approvals at once; where it does, the first in roster order is shown and
+   * the rest wait their turn exactly as they would in that member's own pane.
+   */
+  const pendingApproval = roster.find((one) => snapshot.approvals.some((entry) => entry.key === one.key)) ?? null
+  /**
+   * The header's own single state chip: what this Goal's run is doing right
+   * now, in the words this design settled on — Running, Needs you, Stopped
+   * or Done. `FlowRunStatus` used to draw a second chip under this one, in
+   * a wordier vocabulary that never actually disagreed with it; it draws
+   * neither now.
+   */
+  /* A trigger's own named waits count as a person being needed exactly as a
+     member's approval does — a held message, a held action, a question —
+     and a budget stop is a stop, whatever the run's own record says yet. */
+  const personWaits = openTriggerWaits(originStatus).filter((wait) => wait.waitingOn.kind === 'person')
+  const runState: { readonly label: string; readonly tone: Tone; readonly pulse: boolean } | null = !goal
+    ? null
+    : pendingApproval || personWaits.length > 0 || goal.activity === 'needs-you' || flowExecution?.state === 'stalled'
+      ? { label: 'Needs you', tone: 'warning', pulse: true }
+      : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
+        ? { label: 'Done', tone: 'success', pulse: false }
+        : flowExecution?.state === 'stopped' || originStatus?.budget?.stop
+          ? { label: 'Stopped', tone: 'neutral', pulse: false }
+          : { label: 'Running', tone: 'info', pulse: false }
   /* Matched on everything a person might type: the room name, the harness, the
      model, the conversation's own title. A filter that only matched the
      nickname would be useless in the room it exists for — four Cursor
@@ -678,47 +805,25 @@ export const TeamRoomPane = ({
     <div className={`${styles.pane} h-full bg-(--hd-background)`} data-showing={onRail ? 'rail' : 'body'}>
       {adding && goal ? <AddMember room={room} root={root} onClose={() => setAdding(false)} /> : null}
       {wrapping && goal ? <GoalWrap view={goal} onClose={() => setWrapping(false)} /> : null}
-      {goal ? <GoalHeader view={goal} onWrap={() => setWrapping(true)} /> : null}
-      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
-      {goal?.receipt ? (
-        <>
-          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
-          <FindingCarry source={goal} />
-          <GoalReceiptCost receipt={goal.receipt} />
-          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
-        </>
-      ) : null}
 
       {/*
-        * The room's one top row, across both halves.
+        * The one header row, at the window's own bar height — the same one a
+        * conversation's own header stands at (`--hd-bar-h`, `--hd-titlebar-height`
+        * being that same token under the name every window-top row reads by).
         *
-        * It replaces three things that used to be stacked here, and the reason
-        * to say what they were is that each was defensible on its own:
-        *
-        *   The pane's strip     printed `Room — <name>` above a rail that
-        *                        printed `<name>` again, with a single expand
-        *                        button at the far end of an otherwise empty
-        *                        44px bar.
-        *   The rail's head      carried the room's mark, its name and its
-        *                        counts, in a block two lines tall whose bottom
-        *                        edge lined up with nothing on the other half.
-        *   The chat's head      said "Chat / Everyone in this room reads this"
-        *                        beside a rail row already reading "Chat /
-        *                        Everyone in this room".
-        *
-        * Three rows, two of them saying the room's name and one of them saying
-        * the selected row's name back to it. One row says all of it: which
-        * room, what is happening in it, and the verbs that act on it — and
-        * because it is one row across the whole pane, the rail and the body
-        * below it start at the same y, which is the thing the old arrangement
-        * could not do at all.
+        * A Goal or room page used to stack two of these: a `DetailHead` naming
+        * the Goal — its sentence, a state chip, its full folder run across two
+        * lines, a Wrap button — directly over this row naming the room again,
+        * with its own facts and verbs. Two headers, one of them repeating the
+        * other's title. This is the one row that is left, and it says
+        * everything either used to: which Goal or room this is and what state
+        * it is in (left), the project it runs in and who is here (middle,
+        * muted, the first to give way), and what can be done to it (right).
         *
         * It is also the window's top row when the sidebar is away, so it does
         * what every other top row in this app does: leaves room for the macOS
         * buttons (`--titlebar-inset`, spent in the stylesheet) and moves the
-        * window when dragged. The strip it replaces did neither, which is why
-        * a room could only be dragged by the conversation header underneath
-        * it.
+        * window when dragged.
         */}
       <header className={`${styles.bar} h-(--hd-bar-h) px-2 border-b border-(--hd-border) hd-drag`} style={{ paddingLeft: 'max(var(--hd-space-3), var(--titlebar-inset, 0px))' }}>
         {/* The window's own controls, as a conversation's header carries them
@@ -733,39 +838,66 @@ export const TeamRoomPane = ({
         <IconTile tint="violet" size="sm">
           <TeamIcon />
         </IconTile>
-        <span className={`${styles.barName} font-medium`}>{team?.name ?? 'Room'}</span>
-        {/* The room in one line, and every number in it is a live count of
-            something on this screen. `working` is first because it is the only
-            one that changes minute to minute — and the only one a person keeps
-            a room open in order to watch.
-
-            The two roster numbers are drawn only once the host has given a
-            roster. `0 here` from a request that failed is the same sentence as
-            `0 here` from an empty room, and only one of them is true. The
-            board's count survives, because it comes from the board. */}
+        {/* Truncated with a floor (`.barName`), never a second line — the full
+            name is one hover away. The Goal's own sentence first: `team.name`
+            is the room's, and a room the board has not answered about yet
+            drew the placeholder word "Room" here — a name that reads as real
+            for the beat before the real one arrives is worse than showing
+            nothing. */}
+        <span className={`${styles.barName} font-medium`} title={title}>{title}</span>
+        {/* The state, on the label's own line, in a word — never a second row
+            (rule 9). Absent for a room with no Goal, which has no state to be
+            in. One chip for the whole run: `FlowRunStatus` used to draw a
+            second one in the body, in a wordier vocabulary that never
+            actually disagreed with this one — this is the only state this
+            page says now, and it pulses while it is naming an approval a
+            person is holding up. */}
+        {runState && (
+          <Chip tone={runState.tone}>
+            {runState.pulse && <Dot state="limit" pulse />}
+            {runState.label}
+          </Chip>
+        )}
+        {/* Where a trigger's Goal came from, beside its state rather than
+            among the muted facts: those are the first thing a narrow room
+            gives up, and the origin is the one fact this page's name does
+            not already carry. */}
+        {originStatus && <OriginChip status={originStatus} name={title} />}
+        {/* The project, who is here, and — for a Goal a trigger opened — where
+            it came from: muted facts, joined by `·` and only between segments
+            that both have something to say. This gives way before the name
+            does, and drops a segment entirely rather than printing an empty
+            one. The project's own folder name is what shows; its full path
+            is one hover away, where a person looking for exactly which folder
+            this is can read it whole. */}
         <span className={`${styles.barFacts} text-xs text-(--hd-muted-foreground)`}>
-          {peers !== null && (
+          {root && (
             <>
-              {working > 0 && (
-                <>
-                  <span className={`${styles.pulse} h-1.5 rounded-full bg-(--hd-success)`} aria-hidden />
-                  <span className="text-(--hd-foreground)">{working} working</span>
-                  {' · '}
-                </>
-              )}
-              {/* Two numbers when they differ, because they are two facts: how
-                  many agents are in this room, and how many of their
-                  conversations the desk currently has open. After a relaunch
-                  the second is zero and the first is not, and a bar that
-                  printed only one of them would either read as an empty room
-                  or hide that nothing is warm yet. */}
-              {hereCount === roster.length
-                ? `${roster.length} here`
-                : `${hereCount} of ${roster.length} here`}
-              {' · '}
+              {/* The project's own folder, and — when a Goal's own working
+                  folder is a different one, an own checkout or a subfolder —
+                  the folder the work actually runs in, one hover away with
+                  it. A review of #905 caught this fact dropped entirely once
+                  the removed `DetailHead` stopped showing `goal.cwd`. */}
+              <span
+                title={
+                  goal && goal.goal.cwd !== goal.goal.root
+                    ? `${root} — working in ${goal.goal.cwd}`
+                    : root
+                }
+              >
+                {folderName(root)}
+              </span>
+              {peers !== null && ' · '}
             </>
           )}
-          {intents.filter((one: Intent) => one.state === 'claimed').length} claimed
+          {/* One presence fact, not three. Who is working is the thread's own
+              live line, and what is claimed is the board's; this row keeps
+              only who is here — and two numbers when they differ, because
+              after a relaunch the room is intact and nothing is warm yet, and
+              "2 here" would hide that. */}
+          {peers !== null && (hereCount === roster.length
+            ? `${roster.length} here`
+            : `${hereCount} of ${roster.length} here`)}
         </span>
         {/* Everything to the left of this states a fact; everything to the
             right does something. The conversation's header draws the same
@@ -775,19 +907,29 @@ export const TeamRoomPane = ({
             box, and a boxless wrapper leaves its buttons inside the drag
             region, where a click moves the window instead of pressing them. */}
         <div className={`${styles.barVerbs} hd-no-drag`}>
-          {/* Board-only used to live in the chat's header, one surface down.
-              It governs *messages* — every one of them, from every member, in
-              this room — so it belongs on the room's own row rather than on
-              one of the three things the room can be showing. Warning ink when
-              it is off, because a board where agents cannot talk is a state
-              worth noticing rather than a setting to find out about later. */}
+          {/* Board-only used to live in the chat's header, one surface down,
+              spelled out in the app's own name for it. It governs *messages* —
+              every one of them, from every member, in this room — so it
+              belongs on the room's own row: an icon toggle, in words nobody
+              needs the feature's name to read, with the sentence itself one
+              hover away. Warning ink when messages are held, because a board
+              nobody can talk on is a state worth noticing rather than a
+              setting to find out about later. */}
           <Button
-            variant={messaging ? 'muted' : 'warning'}
-            size="sm"
+            variant={messaging ? 'ghost' : 'warning'}
+            size="icon-sm"
+            /* A stable label naming what the button governs, not the verb it
+               currently offers: a label that swaps between "Hold messages"
+               and "Let members message" announces two different controls to
+               a screen reader tracking focus by name, and neither swap said
+               whether the toggle was on or off. `aria-pressed` says that now,
+               and the title (sighted, on hover) keeps the fuller sentence. */
+            aria-label="Hold messages at the board"
+            aria-pressed={!messaging}
             title={
               messaging
-                ? 'Agents may message each other. Turn on board-only to stop messages; claims and signals continue.'
-                : 'Board-only: agents may claim and signal, but not message. Press to let them talk again.'
+                ? 'Members can message each other. Press to hold messages at the board — claims and signals continue.'
+                : 'Messages wait for the board. Press to let members message each other again.'
             }
             onClick={() =>
               void store
@@ -798,17 +940,38 @@ export const TeamRoomPane = ({
                 )
             }
           >
-            {messaging ? 'messaging on' : 'board-only'}
+            {messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}
           </Button>
-          {/* The panel's verbs — fill the window, close, move — at the end of
-              the room's own row, which is the bargain `ownsChrome` names: a
-              view that draws a header with somewhere to put them gets no
-              strip above it. Nothing outside the panel system (the preview
+          {/* The panel's verbs — fill the window, close, move — behind the
+              divider that separates what the tool can do from what can be
+              done to its panel. Nothing outside the panel system (the preview
               page, the design explorer) has a mount, and there this draws
               nothing at all. */}
           <PanelActions />
+          {/* The Goal's own verb, last: a room with no Goal at all has none.
+              Shown for a Goal a trigger opened exactly as for one a person
+              started — `goalActions` disables it on its own terms (waiting
+              on a dependency, already wrapped), never on who opened it. */}
+          {goal ? (() => {
+            const action = goalActions(goal.goal)
+            return (
+              <Button size="sm" disabled={action.disabled || goal.problem !== null} onClick={() => setWrapping(true)}>
+                Wrap
+              </Button>
+            )
+          })() : null}
         </div>
       </header>
+      {goal ? <GoalHeader view={goal} /> : null}
+      {flowExecution ? <FlowRunStatus execution={flowExecution} /> : null}
+      {goal?.receipt ? (
+        <>
+          <GoalReceipt receipt={goal.receipt} root={goal.goal.root} onOpenFinding={setReceiptFinding} />
+          <FindingCarry source={goal} />
+          <GoalReceiptCost receipt={goal.receipt} />
+          {receiptFinding ? <FindingDetail goal={goal.goal.id} finding={receiptFinding} onClose={() => setReceiptFinding(null)} /> : null}
+        </>
+      ) : null}
       {/* The one failure this row can have, said out loud and across the whole
           room: the chat's own trouble line is inside the chat, and a toggle
           that failed while the board was up had nowhere to say so. */}
@@ -1122,7 +1285,7 @@ export const TeamRoomPane = ({
               })}
             </div>
           ) : (
-            <Room room={room} members={roster} loaded={peers !== null} onShow={show} />
+            <Room room={room} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} />
           )}
         </div>
       </div>
@@ -1160,9 +1323,12 @@ type Member = {
 
 const withCeiling = (shown: SeatCeilingShown | null, line: ReactNode): ReactNode =>
   shown ? (
-    <span className="flex min-w-0 items-center gap-1.5">
+    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
       <CeilingChip ceiling={shown.ceiling} note={shown.note} />
-      {line !== undefined && <span className="min-w-0 truncate">{line}</span>}
+      {/* A job's title is a sentence, and sentences wrap (rule 9): beside the
+          chip when it fits, under it whole when it does not. Truncated here it
+          read "#1 Do t…" in a rail with the rest of the line to spare. */}
+      {line !== undefined && <span className="min-w-0">{line}</span>}
     </span>
   ) : (
     line
@@ -1369,6 +1535,7 @@ const MemberRow = ({
       size="sm"
       nav
       interactive
+      wrapSubtitle
       selected={selected}
       onClick={onOpen}
       className="group/member"
@@ -1401,10 +1568,16 @@ const MemberRow = ({
               and identical, and used to draw three rows all reading "Cursor". */}
           {peer.nickname}
           {/* What the conversation calls itself, when it has a name of its
-              own. Beside the nickname rather than under it: a member holding a
-              job has not stopped being the conversation somebody named, and
-              the line below is spoken for. */}
-          {member.title && <span className="text-xs text-(--hd-muted-foreground)"> {member.title}</span>}
+              own *and* that name says something the nickname does not — the
+              same guard `cardFacts` already reads this member's hover card
+              through. A trigger seats an agent under its own name, so an
+              untitled conversation's title and its nickname are the same
+              word: "Triager" the agent, "Triager" the conversation nobody
+              renamed. Printed both, the row read "Triager Triager" — the name
+              and the role said back as if they were two facts. */}
+          {member.title && member.title !== peer.nickname && (
+            <span className="text-xs text-(--hd-muted-foreground)"> {member.title}</span>
+          )}
           {member.busy && <span className="sr-only"> — working</span>}
           {!member.here && <span className="sr-only"> — not open</span>}
         </>
@@ -1534,11 +1707,143 @@ const MemberRow = ({
  * host per room, and the rail and the recipient menu can never disagree about
  * who is here.
  */
+/**
+ * The one live fact under the chat, at its tail: who is on it right now, and
+ * for how long, or what it is waiting on a person for. Reuses `TurnTail`'s
+ * own duration reading rather than inventing a second one — the header's
+ * chip already says the run's overall state; this says which member.
+ *
+ * A room rarely has more than one member genuinely busy at once — the board
+ * hands cards out one at a time in the common case — so one line, for
+ * whoever in roster order is on it, is enough; a member waiting on a person
+ * outranks one merely working, matching the header's own rule.
+ */
+const RoomLiveLine = ({
+  members,
+  snapshot,
+  now,
+  triggerStatus,
+  room,
+}: {
+  readonly members: readonly Member[]
+  readonly snapshot: AppSnapshot
+  readonly now: number
+  /** A trigger Goal's own status: its named waits and its stop reason live here, on this one line. */
+  readonly triggerStatus: TriggerGoalStatus | null
+  readonly room: string
+}) => {
+  const store = useStore()
+  const waiting = members.find((one) => snapshot.approvals.some((entry) => entry.key === one.key))
+  /* The order a person needs them in: a member holding a question for you
+     now; why the run stopped; what else the run is waiting on, a person
+     first; and only then who is merely working. One line — the rest of the
+     run's waits are counted on it, and named in full on its hover. */
+  const stop = triggerStatus?.budget?.stop ?? null
+  const waits = openTriggerWaits(triggerStatus)
+  if (!waiting && stop) {
+    return (
+      <div data-slot="room-live-line" data-kind="stop" className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}>
+        <Text role="meta">{intakeStopWords(stop.reason)} {stop.detail}</Text>
+      </div>
+    )
+  }
+  if (!waiting && waits.length > 0) {
+    const wait = waits[0]!
+    const open = wait.action === 'open-usage' || wait.action === 'open-trigger'
+      ? () => store.askSettings('workspaces', wait.action === 'open-trigger' ? triggerRootOf(snapshot, room) : 'triggers')
+      : wait.action === 'open-permissions'
+        ? () => store.askSettings('permissions', 'ceilings')
+        : null
+    return (
+      <div
+        data-slot="room-live-line"
+        data-kind="wait"
+        className={`${styles.trouble} flex items-baseline gap-(--hd-space-1-5)`}
+        title={waits.length > 1 ? waits.map((one) => one.sentence).join('\n') : undefined}
+      >
+        {wait.waitingOn.kind === 'person' && <Dot state="limit" pulse />}
+        <Text role="meta">
+          {wait.sentence}
+          {waits.length > 1 && ` · ${waits.length - 1} more`}
+        </Text>
+        {open && <Button variant="link" size="inline" onClick={open}>Open</Button>}
+      </div>
+    )
+  }
+  const busy = waiting ? null : members.find((one) => one.busy) ?? null
+  const subject = waiting ?? busy
+  if (!subject) return null
+  const session = snapshot.sessions.get(subject.key)
+  const turn = session ? currentTurn(session) : undefined
+  const elapsed = !waiting && turn ? elapsedSince(turn.startedAt, now) : null
+  return (
+    <div data-slot="room-live-line" className={`${styles.trouble} flex items-center gap-(--hd-space-1-5)`}>
+      {waiting ? <Dot state="limit" pulse /> : <Spinner size="sm" tone="brand" />}
+      <Text role="meta">
+        {subject.peer.nickname} {waiting ? 'is waiting for your approval' : 'is working'}
+        {elapsed !== null && ` · ${formatDuration(elapsed)}`}
+      </Text>
+    </div>
+  )
+}
+
+/** The project a trigger Goal's room belongs to — what "open its trigger" opens. */
+const triggerRootOf = (snapshot: AppSnapshot, room: string): string | null =>
+  snapshot.goals.get(room)?.goal.root ?? snapshot.teams.get(room)?.root ?? null
+
+/**
+ * The composer's own footer: a small meter ring, filled with what is left —
+ * the app's own convention, kept here too — plus the reading it rounds away.
+ * Hovering opens the exact numbers: spend, rounds and time, each as used of
+ * its own total, and the one footnote a trigger's budget always carries.
+ */
+const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; readonly now: number }) => {
+  const words = budgetMeterWords(state, now)
+  /* Brand ink while there is plenty left, like the context ring: in grey a
+     full 14px ring was the track's own colour one step darker, and read as
+     an empty outline at the very moment it was full. */
+  const tone: Tone = words.percentLeft === null ? 'neutral' : words.percentLeft <= 0 ? 'danger' : words.percentLeft < 20 ? 'warning' : 'brand'
+  /* A spend the host cannot read is not nothing spent: the host stops the run
+     on it (`budgetRefusal`), so the meter says so — an unfilled, dashed ring
+     and "Spend unknown" — rather than a full ring and the whole budget left. */
+  const reading = words.leftUsd === null ? 'Spend unknown' : `${formatMeterUsd(words.leftUsd)} left`
+  return (
+    <div data-slot="room-budget" className="mt-2 flex items-center justify-end gap-(--hd-space-2)">
+      <HoverCard>
+        <HoverCardTrigger render={<span className="inline-flex items-center gap-(--hd-space-1-5)" />}>
+          <ProgressRing value={words.percentLeft} size={14} tone={tone} label="Budget left" />
+          <Text role="meta">
+            {reading}
+            {words.roundNow !== null && ` · Round ${words.roundNow} of ${words.roundsTotal}`}
+          </Text>
+        </HoverCardTrigger>
+        <HoverCardContent side="top" align="end">
+          <KeyValue variant="panel">
+            <KeyValueRow label="Spend">{words.spentUsd === null ? 'Unknown' : formatMeterUsd(words.spentUsd)} of {formatMeterUsd(words.totalUsd)}</KeyValueRow>
+            {/* The footer's own meaning — the round being worked — so the two never disagree. */}
+            {words.roundNow !== null && <KeyValueRow label="Round">{words.roundNow} of {words.roundsTotal}</KeyValueRow>}
+            <KeyValueRow label="Time">{words.minutesUsed} of {words.minutesTotal} min</KeyValueRow>
+          </KeyValue>
+          <Note className="mt-2">
+            {words.spentUsd === null
+              ? 'The run stops while its spend cannot be read.'
+              : state.budget.withoutProgress === 1
+                ? 'Stops after a round with no progress.'
+                : `Stops after ${state.budget.withoutProgress} rounds with no progress.`}
+          </Note>
+        </HoverCardContent>
+      </HoverCard>
+    </div>
+  )
+}
+
 const Room = ({
   room,
   members,
   loaded,
   onShow,
+  pendingApproval,
+  triggerStatus,
 }: {
   readonly room: string
   /**
@@ -1557,6 +1862,15 @@ const Room = ({
   readonly loaded: boolean
   /** Put a member's own conversation up — the chat card's Open. */
   readonly onShow: (key: SessionKey) => void
+  /**
+   * The one member (if any) waiting on a person right now — the same fact
+   * `TeamRoomPane`'s own header chip pulses for. While it is set, this
+   * member's own `Approvals` takes the composer's slot; answering it, either
+   * way, is what clears it and brings the composer back.
+   */
+  readonly pendingApproval: Member | null
+  /** For the composer's own budget meter — null off a plain room, or a Goal a person started. */
+  readonly triggerStatus: TriggerGoalStatus | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -1565,6 +1879,46 @@ const Room = ({
      member from outside the box — a name card on a message, offering
      Message — and this is where it lands. */
   const composer = useRef<RoomComposerHandle>(null)
+  /* A tick every second, for the two readings on this page that move on
+     their own between board mutations: the live line's elapsed seconds, and
+     the budget meter's minutes. Local to the room, not a shared clock —
+     nothing outside this page needs a second hand this fine. */
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  /* The slot the composer and the card share, and whether focus is in it.
+     The card takes the focus only from the composer it replaces — a person
+     typing in the sidebar, the rail's filter or another pane keeps theirs —
+     and it is read at the render the approval arrives in, before the card
+     exists to take anything. Keyed by the approval's own id, so two in a row
+     for the same member are two arrivals. */
+  const slot = useRef<HTMLDivElement>(null)
+  const pendingId = pendingApproval
+    ? snapshot.approvals.find((entry) => entry.key === pendingApproval.key)?.approval.id ?? null
+    : null
+  const takeFocus = useMemo(() => {
+    if (pendingId === null) return false
+    const at = typeof document === 'undefined' ? null : document.activeElement
+    return Boolean(at && at !== document.body && slot.current?.contains(at))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once per arrival, on purpose
+  }, [pendingId])
+  /* The approval cleared — answered, either way. Focus goes back to the
+     composer only if the card took it from there and the person has not
+     since put it somewhere else: the card's answer button vanishing leaves
+     it on the page itself, and that is the only case this hands it back. */
+  const tookFocus = useRef(false)
+  const lastApproval = useRef<string | null>(null)
+  useEffect(() => {
+    if (pendingId !== null) tookFocus.current = takeFocus
+    else if (lastApproval.current !== null && tookFocus.current) {
+      tookFocus.current = false
+      const at = document.activeElement
+      if (!at || at === document.body) composer.current?.focus()
+    }
+    lastApproval.current = pendingId
+  }, [pendingId, takeFocus])
 
   const team = snapshot.teams.get(room)
   const entries = team?.channel ?? NO_ENTRIES
@@ -1753,17 +2107,23 @@ const Room = ({
         )}
       </div>
 
+      {/* The thread's own tail: one live line, in the same reading column as
+          the stream and the composer under it — `.trouble`'s own measure,
+          which already answers "docked between the two, same width as
+          both" for the same reason. */}
+      <RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} room={room} />
+
       {/* Two different failures, both said out loud. `problem` is the host's:
           it could not keep the board, so what is on screen may not survive a
           restart — the person needs to know before they act on it. `trouble`
           is this surface's: the last thing you pressed did not land. */}
       {problem && (
-        <p className={`${styles.trouble} px-[calc(var(--room-dock)+var(--hd-space-3))] pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
+        <p className={`${styles.trouble} pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
           {problem}
         </p>
       )}
       {trouble && (
-        <p className={`${styles.trouble} px-[calc(var(--room-dock)+var(--hd-space-3))] pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
+        <p className={`${styles.trouble} pb-1 text-xs text-(--hd-danger-ink)`} role="alert">
           {trouble}
         </p>
       )}
@@ -1782,37 +2142,72 @@ const Room = ({
             wrapper rather than a prop: `RoomComposer` draws the shell and
             knows nothing about how wide the pane it sits in is, which is the
             caller's business — exactly as `.streamColumn` is. */}
-        <div className={styles.composerShell}>
-          <RoomComposer
-            /* Keyed by the room, so moving between rooms is a new box rather
-               than the old one being talked out of its state. The audience
-               prunes itself against the new roster either way, but the *words*
-               would have come along — a half-written line to one room appearing
-               in another, one keystroke from being sent there. */
-            key={room}
-            ref={composer}
-            room={room}
-            members={loaded ? members : null}
-            messaging={messaging}
-            /* The same card the rail and the chat draw, off the same one reader.
-               `Open` is the only verb worth offering on a chip: the member is
-               already addressed, so Message would be the greyed verb the card
-               refuses to draw, and removing them is the ✕ they already carry. */
-            card={(key, node) => {
-              const entry = members.find((one) => one.key === key)
-              if (!entry) return node
-              return (
-                <MemberHoverCard
-                  member={cardFacts(entry)}
-                  actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
-                >
-                  {node}
-                </MemberHoverCard>
-              )
-            }}
-            onTrouble={setTrouble}
-            onPosted={toFloor}
-          />
+        <div ref={slot} className={styles.composerShell}>
+          {pendingApproval && (
+            /* The composer's own slot, taken by whichever member is waiting
+               on a person — the same `Approvals` a conversation's own pane
+               draws, docked: a card in flow where the composer stood, as
+               wide as it, with the thread above left whole and readable. No
+               scrim, no blur, not a dialog — the room is everyone's
+               conversation, and one member's question does not cover it.
+               `team-room:` as the pane id's root is `useIsFocusedPane`'s own
+               exception for this surface (see the per-member column below,
+               which reads the same way): answering an approval here must not
+               depend on bookkeeping meant for a split of panes this page does
+               not have. Answering it, either way, clears `pendingApproval`
+               and brings this composer back, focused — the effect above. */
+            <PaneProvider
+              scope={{
+                paneId: `team-room:approval:${pendingApproval.key}`,
+                view: { kind: 'conversation', session: pendingApproval.key },
+                sessionKey: pendingApproval.key,
+              }}
+            >
+              <Approvals placement="docked" takeFocus={takeFocus} />
+            </PaneProvider>
+          )}
+          {/* Mounted whatever holds the slot, and only hidden under the
+              card: an approval arriving mid-sentence must not throw away
+              the words or the audience being written — they are this
+              component's own state, and unmounting it was the loss. */}
+          <div hidden={pendingApproval !== null}>
+              <RoomComposer
+                /* Keyed by the room, so moving between rooms is a new box
+                   rather than the old one being talked out of its state. The
+                   audience prunes itself against the new roster either way,
+                   but the *words* would have come along — a half-written
+                   line to one room appearing in another, one keystroke from
+                   being sent there. */
+                key={room}
+                ref={composer}
+                room={room}
+                members={loaded ? members : null}
+                messaging={messaging}
+                /* The same card the rail and the chat draw, off the same one
+                   reader. `Open` is the only verb worth offering on a chip:
+                   the member is already addressed, so Message would be the
+                   greyed verb the card refuses to draw, and removing them is
+                   the ✕ they already carry. */
+                card={(key, node) => {
+                  const entry = members.find((one) => one.key === key)
+                  if (!entry) return node
+                  return (
+                    <MemberHoverCard
+                      member={cardFacts(entry)}
+                      actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
+                    >
+                      {node}
+                    </MemberHoverCard>
+                  )
+                }}
+                onTrouble={setTrouble}
+                onPosted={toFloor}
+              />
+          </div>
+          {/* The footer strip stays put under whichever of the two holds the
+              slot: what a run has left to spend is as true while it waits on
+              a person as while it works. */}
+          {triggerStatus?.budget && <BudgetFooter state={triggerStatus.budget} now={now} />}
         </div>
       </div>
     </>

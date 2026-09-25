@@ -97,9 +97,9 @@ it('an interrupted check requires fresh confirmation and preserves its Goal, on 
   })
   await settle()
 
-  expect(container.textContent).toContain('Interrupted')
-  expect(container.textContent).toContain(INTERRUPTED.reason)
-
+  // The run's own state and reason are the header's to say now
+  // (`TeamRoomPane`'s own state chip and the room's live line); this
+  // component's only remaining job is the recovery action itself.
   const reviewButton = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Review and run again…')!
   act(() => reviewButton.click())
   await settle()
@@ -117,4 +117,27 @@ it('an interrupted check requires fresh confirmation and preserves its Goal, on 
   // Still the same run and Goal: nothing here fabricated a new one.
   expect(INTERRUPTED.id).toBe('run-1')
   expect(INTERRUPTED.goal).toBe('goal-1')
+})
+
+/**
+ * The header keeps one state chip now (`TeamRoomPane`'s own), and this
+ * component drew a second one under it that said the same thing in
+ * different words — "Running" here, "Working" above. An ordinary run, on
+ * the current format, with nothing stalled, draws nothing at all.
+ */
+it('draws nothing for an ordinary run — no legacy format, nothing stalled', () => {
+  const RUNNING: FlowExecution = {
+    version: 2, id: 'run-2', goal: 'goal-1', document: DOCUMENT, state: 'running',
+    rounds: [{ n: 1, role: 'fixer', cards: [], seats: [], evidence: [], state: 'running', cause: 'seed' }],
+    operations: [], legacyRun: null, reason: null,
+  }
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot() } as unknown as AppStore
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <FlowRunStatus execution={RUNNING} />
+      </StoreProvider>,
+    )
+  })
+  expect(container.innerHTML).toBe('')
 })

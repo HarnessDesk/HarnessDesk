@@ -5,8 +5,6 @@ import type { AgentEntry, AgentOrigin, AuthoringPending } from '@harnessdesk/pro
 import {
   agentName,
   bySection,
-  ceilingMeaning,
-  ceilingWords,
   firstReason,
   markFor,
   originWords,
@@ -203,11 +201,14 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
       {...(desc ? { desc } : {})}
       control={
         <span className={`${styles.facts} text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-secondary-foreground)`}>
-          {plan?.ceiling ? (
-            <CeilingChip ceiling={plan.ceiling} />
-          ) : (
-            <span title={ceilingMeaning(definition.ceiling)}>{ceilingWords(definition.ceiling)}</span>
-          )}
+          {/* The declared ceiling, always through the one chip every governed
+              seat reads it through — held plan or none. A plan with no seat
+              (every candidate passed) and no plan at all are the same fact
+              here: nothing has held this ceiling yet, so it is only asked,
+              same as the row beside it whose plan did land one. A bare,
+              unstyled word here — no chip, no "asked" or "held" — was the one
+              row in the roster that did not read like the others. */}
+          <CeilingChip ceiling={plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' }} />
           {seat ? (
             <span className={`${styles.seat} text-(--hd-foreground)`}>
               <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} size={12} />

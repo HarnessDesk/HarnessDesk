@@ -2119,11 +2119,13 @@ export class Team {
   /**
    * A card a rule opened, addressed to the role the rule named.
    *
-   * The person's authority, because it is the person who started the flow:
+   * Attributed to whoever's authority started the run: a person's, because
    * they read the dry run, they pressed the thing, and every card it opens is
-   * theirs in exactly the way a card they typed is. It goes down the same path
-   * as one they typed, so there is one writer over a board and one set of
-   * rules about what may be on it.
+   * theirs in exactly the way a card they typed is — or a trigger's, because
+   * nobody read anything or pressed anything, and a card unattended admission
+   * opened is not a card the person added. Either way it goes down the same
+   * path as a card typed by hand, so there is one writer over a board and one
+   * set of rules about what may be on it.
    */
   addIntentForFlow(
     room: string,
@@ -2140,6 +2142,7 @@ export class Team {
        */
       dispatch?: string
     },
+    by: TeamActor,
   ): Intent {
     const board = this.#mutableBoardById(room)
     if (args.dispatch) {
@@ -2152,7 +2155,7 @@ export class Team {
         return found
       }
     }
-    return this.#addIntent(board, args, { kind: 'user' })
+    return this.#addIntent(board, args, by)
   }
 
   async claimNext(scope: TeamCallScope, files?: readonly string[]): Promise<string> {

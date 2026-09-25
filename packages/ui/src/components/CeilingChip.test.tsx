@@ -18,7 +18,14 @@ afterEach(() => {
   host.remove()
 })
 
-it('draws asked in the warning tone and says asked; held is neutral and says held', () => {
+/*
+ * Both draw neutral: `asked` used to draw the warning tone, which read as a
+ * warning on nearly every built-in Agent's chip, since most runtimes have no
+ * control that holds a ceiling at all — amber as the ordinary state is amber
+ * meaning nothing. The words "asked" and "held", not the chip's colour, carry
+ * the difference (#898).
+ */
+it('says asked or held in words; both draw the same neutral tone', () => {
   act(() => {
     root.render(
       <>
@@ -29,7 +36,7 @@ it('draws asked in the warning tone and says asked; held is neutral and says hel
   })
   const [asked, held] = [...host.querySelectorAll('[data-ceiling]')] as HTMLElement[]
   expect(asked?.textContent).toBe('Read · asked')
-  expect(asked?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
+  expect(asked?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(asked?.title).toMatch(/Asked, not held/)
   expect(held?.textContent).toBe('Read · held')
   expect(held?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')

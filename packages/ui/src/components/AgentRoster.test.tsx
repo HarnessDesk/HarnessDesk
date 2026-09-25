@@ -179,6 +179,25 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   expect(container.textContent).not.toContain('=opus')
 })
 
+/**
+ * `security-reviewer`'s plan has no seat (every candidate passed on it), so
+ * `plan.ceiling` is `null` — the same branch a runtime with no computed plan
+ * at all falls into. It used to fall out of `CeilingChip` entirely there,
+ * into a bare, unstyled ceiling word ("Edit") with no "asked"/"held" and no
+ * chip around it, the one row in the roster that did not read like the
+ * others (#898).
+ */
+it('draws every Agent’s ceiling through the same chip, held plan or none', () => {
+  mount()
+  const built = sectionText('Built in')
+  expect(built).toContain('Edit · asked')
+  const row = [...container.querySelectorAll('button')].find((one) =>
+    one.textContent?.includes('Security reviewer'),
+  )
+  const chip = row?.querySelector('[data-ceiling]')
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
+})
+
 it('keeps an Agent that cannot be seated here, with the first reason on screen', () => {
   mount()
   expect(sectionText('Built in')).toContain("Can't seat here · Cursor is signed out")
@@ -239,7 +258,9 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
   expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
   const chip = container.querySelector('section[aria-label="In storefront"] [data-ceiling]')
   expect(chip?.getAttribute('data-hold')).toBe('asked')
-  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('warning')
+  // Neutral: `asked` is the ordinary state for a ceiling with no runtime
+  // control that holds it, not a warning (#898).
+  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
   expect(sectionText('Yours')).toContain('Edit')
 })
 

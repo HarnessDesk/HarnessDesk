@@ -26,8 +26,8 @@ test('a claim records the commit its holder’s checkout was at when it took the
   t.after(async () => { team.stopWaiting('done'); await team.flush(); await rm(dir, { recursive: true, force: true }) })
   const room = (await team.createRoom('/repo', 'Goal')).id
   await team.joinRoom(room, 'codex' as RuntimeId, 'worker')
-  team.addIntentForFlow(room, { title: 'First', role: 'build', dispatch: 'run:1:0' })
-  team.addIntentForFlow(room, { title: 'Second', role: 'build', dispatch: 'run:1:1' })
+  team.addIntentForFlow(room, { title: 'First', role: 'build', dispatch: 'run:1:0' }, { kind: 'user' })
+  team.addIntentForFlow(room, { title: 'Second', role: 'build', dispatch: 'run:1:1' }, { kind: 'user' })
   team.setRole(room, 'codex', 'worker', 'build')
   const scope = { runtime: 'codex', sessionId: 'worker' }
   await team.claim(1, scope)
