@@ -200,6 +200,12 @@ const ChartAxis = ({
  *
  * Rendered inside the plot's own relative box, clamped so a tip on the first
  * or last column stays inside the card.
+ *
+ * Without `at`, the tip is only the plate, and whoever draws it places it.
+ * That is for a figure that is not a plot with columns: the conversation map
+ * offers a message's first words beside whichever dash the pointer is
+ * nearest, which is the same tip following a position — just down a rail
+ * rather than across an axis.
  */
 const ChartTip = ({
   className,
@@ -207,14 +213,15 @@ const ChartTip = ({
   children,
   ...props
 }: React.ComponentProps<'div'> & {
-  /** Where the tip points, 0..1 across the plot. */
-  at: number
+  /** Where the tip points, 0..1 across the plot. Omitted, the owner places the tip. */
+  at?: number
 }) => (
   <div
     data-slot="chart-tip"
     role="presentation"
+    {...(at === undefined ? { 'data-placement': 'owner' } : {})}
     className={cn(
-      'pointer-events-none absolute bottom-full z-10 mb-1.5 w-max max-w-56',
+      at !== undefined && 'pointer-events-none absolute bottom-full z-10 mb-1.5 w-max max-w-56',
       'rounded-(--hd-radius-sm) border border-(--hd-border) bg-(--hd-popover) px-2 py-1.5',
       'text-(--hd-popover-foreground) shadow-(--hd-shadow) text-xs',
       className,
@@ -226,7 +233,7 @@ const ChartTip = ({
        "centre with the class, nudge with the style", which meant every tip in
        the body of a chart lost its centring and sat with its left edge on the
        cursor, and a tip on the last column ran off the card entirely. */
-    style={{ left: `${(at * 100).toFixed(2)}%`, translate: `${tipShift(at)}% 0` }}
+    {...(at !== undefined ? { style: { left: `${(at * 100).toFixed(2)}%`, translate: `${tipShift(at)}% 0` } } : {})}
     {...props}
   >
     {children}

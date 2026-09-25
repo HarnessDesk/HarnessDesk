@@ -23,11 +23,16 @@
  * The target around one thing said. It is the canonical control at its
  * smallest, which is the 24px floor: the dash inside it is two pixels tall and
  * nobody can hit two pixels.
+ *
+ * It stands in from the rail's left edge rather than the rail padding itself,
+ * so the gutter to its left still belongs to the rail and a pointer there
+ * still drives the magnification.
  */
 .mark {
   flex: none;
   justify-content: flex-start;
-  width: 100%;
+  margin-left: var(--hd-space-2); /* desk: the rail's padding-left → the mark's margin, the same 8px */
+  width: calc(100% - var(--hd-space-2)); /* desk: 100% → less the margin, so the mark keeps its 24px */
 }
 
 /*
@@ -65,13 +70,17 @@
  *
  * It hangs to the right of the rail rather than over the column, because the
  * column is what the reader is looking for and covering it to describe it is
- * the wrong trade.
+ * the wrong trade. The plate is the system's tip; this places it, and stops it
+ * at four lines with an ellipsis rather than a cut through the fifth.
  */
 .preview {
   position: absolute;
   left: calc(100% + var(--hd-space-2));
   z-index: 2;
-  display: block;
+  display: -webkit-box; /* desk: block → -webkit-box, the box line-clamp needs */
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4; /* desk: max-height of four lines → line-clamp 4, an ellipsis instead of a cut */
+  line-clamp: 4;
   width: 280px;
   overflow: hidden;
   text-align: left;
