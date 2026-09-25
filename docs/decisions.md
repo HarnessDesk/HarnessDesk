@@ -657,7 +657,9 @@ a narrower Seat is less authority. An external server still needs a Seat that
 may merge, so the default (`edit`) seating of a merge-ceiling Agent loads its
 skills and says why its servers did not. A server's review shows the command,
 arguments and environment that will run (a credential's value is shown only
-as set), and its command runs only when the Seat lists or calls its tools,
+as set, and approving a review that hides any value asks the person to say
+they know what it is — a value that changes what the server does can hide
+behind a name that looks like a credential), and its command runs only when the Seat lists or calls its tools,
 through the desk's gate, in an empty host-owned folder — never the Seat's
 checkout, whose own configuration could change what an approved command
 resolves to.

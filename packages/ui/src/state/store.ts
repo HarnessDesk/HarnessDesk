@@ -4551,9 +4551,9 @@ export class AppStore {
     return this.transport.request('attachment/review', { id, origin, root })
   }
 
-  /** Records a person's approval of exactly the reviewed token. */
-  async approveAttachments(token: string): Promise<void> {
-    await this.transport.request('attachment/approve', { token })
+  /** Records a person's approval of exactly the reviewed token — acknowledging, when it showed any, the values it showed only as set. */
+  async approveAttachments(token: string, acknowledgeHidden = false): Promise<void> {
+    await this.transport.request('attachment/approve', { token, ...(acknowledgeHidden ? { acknowledgeHidden: true } : {}) })
   }
 
   /** A Seat's frozen attachment history, by its own immutable id — `null` when nothing was ever recorded for it. */

@@ -159,7 +159,7 @@ it('review asks the host for the Seat’s own runtime and names it by its presen
     ],
   } as unknown as AppSnapshot
   const reviewAttachments = vi.fn(async () => ({
-    token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c',
+    token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c', hidden: [],
   }))
   const store = { ...storeFor(view, { reviewAttachments }), getSnapshot: () => snapshot } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><AgentAttachments entry={ENTRY} /></StoreProvider>))
@@ -203,6 +203,44 @@ it('the review is not a destructive confirm, and Approve waits for the review it
   expect(surface.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBeNull()
   expect(approve().getAttribute('data-variant')).not.toBe('destructive')
 
-  await act(async () => { answer({ token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c' }) })
+  await act(async () => { answer({ token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c', hidden: [] }) })
   expect(approve().disabled).toBe(false)
+})
+
+/*
+ * #895. A server's value whose name looks like a credential is shown only as
+ * set, and a value that changes what the server does can hide behind such a
+ * name. Approving such a review asks the person to say they know what those
+ * values are, and says so to the host.
+ */
+it('a review with values shown only as set is approved only once the person says they know them', async () => {
+  const view: AgentAttachmentsView = {
+    ...emptyView,
+    mcpMode: 'allowlist',
+    declarations: [{ kind: 'mcp', name: 'tools', identity: { kind: 'mcp', name: 'tools', digest: 'e'.repeat(64), source: 'library', pathLabel: '~/tools' }, problem: null }],
+    support: [{ runtime: 'seat-runtime-id', build: '2', skills: 'scoped', mcp: 'scoped-gated', suppressUnapproved: true, reason: null }],
+  }
+  const snapshot = { ...SNAPSHOT, workspace: { name: 'demo', path: '/work/demo' }, runtimes: [{ id: 'seat-runtime-id', presentation: { name: 'Seat Agent' } }] } as unknown as AppSnapshot
+  const reviewAttachments = vi.fn(async () => ({
+    token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c', hidden: ['tools: SESSION_MODE'],
+  }))
+  const approveAttachments = vi.fn(async () => {})
+  const store = { ...storeFor(view, { reviewAttachments, approveAttachments }), getSnapshot: () => snapshot } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><AgentAttachments entry={ENTRY} /></StoreProvider>))
+  await settle()
+  act(() => [...document.body.querySelectorAll('button')].find((one) => one.textContent?.includes('Review'))!.click())
+  await settle()
+
+  const surface = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+  expect(surface.textContent).toContain('tools: SESSION_MODE')
+  const approve = () => [...surface.querySelectorAll('button')].find((one) => one.textContent?.trim() === 'Approve')!
+  expect(approve().disabled).toBe(true)
+  const box = surface.querySelector<HTMLElement>('[aria-label="I know what the hidden values are"]')!
+  expect(box).toBeTruthy()
+  act(() => box.click())
+  await settle()
+  expect(approve().disabled).toBe(false)
+  act(() => approve().click())
+  await settle()
+  expect(approveAttachments).toHaveBeenCalledWith('t', true)
 })

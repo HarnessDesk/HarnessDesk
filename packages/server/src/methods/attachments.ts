@@ -197,7 +197,7 @@ export const attachmentMethods = {
   },
 
   'attachment/approve': async (ctx, params) => {
-    await requireAttachments(ctx).trust.approve(params.token)
+    await requireAttachments(ctx).trust.approve(params.token, { acknowledgeHidden: params.acknowledgeHidden === true })
     return null
   },
 

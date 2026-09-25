@@ -857,6 +857,13 @@ export class Host {
         permits: (subject, identity) => this.#attachmentTrust.permits(subject, identity),
         support: (subject) => this.#attachmentSupport(subject),
         suppressUnapproved: async (subject) => this.#attachmentSupport(subject).suppressUnapproved,
+        // Words only, for a Seat whose seating fell back to a runtime its review was not for (#895).
+        reviewedElsewhere: async (subject, identity) => {
+          const [reviewed] = await this.#attachmentTrust.approvedOnOtherRuntimes(subject, identity)
+          if (!reviewed) return null
+          const nameOf = (id: string): string => this.#runtimes.get(id as RuntimeId)?.info.presentation.name ?? 'another agent'
+          return { reviewed: nameOf(reviewed), seated: nameOf(subject.runtime) }
+        },
       },
       {
         staging: join(this.#state.directory, 'attachments', 'staged'),
@@ -1911,6 +1918,14 @@ export class Host {
         error: error instanceof Error ? error.message : String(error),
       })
     })
+    /* Staged copies no Seat and no approval references are collected once
+       per launch, before any Seat can open on one (#895). Kept on any doubt:
+       a copy left behind costs disk, one removed too eagerly costs a Seat. */
+    await this.#attachmentTrust.digests()
+      .then((approved) => this.#attachments.collectStaged(approved))
+      .catch((error: unknown) => {
+        this.#logger.warn('staged attachment copies could not be collected', { error: error instanceof Error ? error.message : String(error) })
+      })
     await migrateDesk(
       this.#state.directory,
       (seats) => importMigrationSeats(seats, this.#evidence.seats),
@@ -3956,18 +3971,29 @@ export class Host {
     if (await this.#attachments.lostFilter(seat.id)) {
       return 'This conversation’s record of its Agent’s approved attachments is missing or damaged, so it is not reopened or forked on the agent’s own defaults. Seat the Agent again to carry them.'
     }
-    if (await this.#agentDeclaresAttachments(seat)) {
+    const declares = await this.#agentDeclaresAttachments(seat)
+    if (declares === 'unreadable') {
+      return 'This conversation was seated as an Agent whose file can no longer be read, and it kept no record of what that Agent approved — so it is not reopened or forked on the agent’s own defaults. Seat an Agent again.'
+    }
+    if (declares) {
       return 'This conversation was seated before Agents carried attachments, and its Agent now declares skills or servers this conversation never loaded — so it is not reopened or forked on the agent’s own defaults. Seat the Agent afresh to carry them.'
     }
     return null
   }
 
-  /** Whether the Agent a Seat was seated as declares any skill or server today. */
-  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean> {
+  /**
+   * Whether the Agent a Seat was seated as declares any skill or server today
+   * — or `'unreadable'` when it was seated as an Agent whose file is gone or
+   * will not parse, so nobody can say (#895). Read as "it might": with no
+   * frozen filter and no receipt, a crash right after the session opened
+   * would otherwise let the reopen go ahead unfiltered.
+   */
+  async #agentDeclaresAttachments(seat: SeatRecord): Promise<boolean | 'unreadable'> {
     if (!seat.agent) return false
     const entry = await this.#agents.read(seat.agent.id, seat.checkout.project ?? undefined).catch(() => null)
     const definition = entry?.definition
-    return Boolean(definition && (definition.skills.length > 0 || definition.mcp.length > 0))
+    if (!definition) return 'unreadable'
+    return definition.skills.length > 0 || definition.mcp.length > 0
   }
 
   /**
@@ -3978,7 +4004,7 @@ export class Host {
    */
   async #finishReopen(runtime: AgentRuntime, live: AgentSession, reopened: ReopenedSeat): Promise<void> {
     try {
-      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key)
+      const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key, { reopen: reopened.prepared })
       await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
       this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     } catch (error) {
@@ -4021,7 +4047,7 @@ export class Host {
     return (
       (await this.#attachments.frozen(seat.id)) ||
       (await this.#attachments.lostFilter(seat.id)) ||
-      (await this.#agentDeclaresAttachments(seat))
+      (await this.#agentDeclaresAttachments(seat)) !== false
     )
   }
 

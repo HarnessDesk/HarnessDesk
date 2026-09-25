@@ -81,6 +81,8 @@ interface PendingReview {
   readonly subject: AttachmentSubject
   readonly identities: readonly AttachmentIdentity[]
   readonly expiresAt: number
+  /** How many values the review showed only as set. */
+  readonly hidden: number
 }
 
 const consequenceOf = (runtimeName: string, subject: AttachmentSubject, entries: readonly ResolvedAttachment[]): string => {
@@ -104,6 +106,20 @@ const consequenceOf = (runtimeName: string, subject: AttachmentSubject, entries:
 const SECRET_NAME = /(token|secret|password|passwd|credential|api[-_]?key|private[-_]?key|auth|cookie|session)/i
 
 const shownValue = (name: string, value: string): string => (SECRET_NAME.test(name) ? `•••• (a secret, ${value.length} characters; the approval covers its exact value)` : value)
+
+/**
+ * Every value a server's review shows only as set, as `<server>: <NAME>` —
+ * what an approval has to acknowledge, since a value that changes what the
+ * server does can hide behind a name that looks like a credential (#895).
+ */
+export const hiddenValues = (spec: McpServerSpec): string[] =>
+  [...Object.keys(spec.env ?? {}), ...Object.keys(spec.headers ?? {})]
+    .filter((name) => SECRET_NAME.test(name))
+    .sort()
+    .map((name) => `${spec.name}: ${name}`)
+
+/** Why an approval of a review with hidden values was refused without an acknowledgement. */
+export const HIDDEN_UNACKNOWLEDGED = 'This review shows some values only as set. Confirm you know what they are before approving.'
 
 /**
  * What a server entry will actually run, as a person reads it: the command,
@@ -156,7 +172,8 @@ export class AttachmentTrust {
     const token = randomUUID()
     const expiresAt = this.#now() + REVIEW_TTL_MS
     this.#prune()
-    this.#pending.set(token, { subject, identities: entries.map((one) => one.identity), expiresAt })
+    const hidden = entries.flatMap((one) => (one.identity.kind === 'mcp' && one.server ? hiddenValues(one.server) : []))
+    this.#pending.set(token, { subject, identities: entries.map((one) => one.identity), expiresAt, hidden: hidden.length })
     const declarations: AttachmentDeclaration[] = entries.map((one) => ({
       kind: one.identity.kind,
       name: one.identity.name,
@@ -181,13 +198,22 @@ export class AttachmentTrust {
       runtime: subject.runtime,
       effectiveCeiling: subject.ceiling,
       consequence: consequenceOf(options.runtimeName ?? 'This agent', subject, entries),
+      hidden,
     }
   }
 
-  /** Records the person's own answer, verbatim, as of exactly what `preview` showed — and only that. */
-  async approve(token: string): Promise<void> {
+  /**
+   * Records the person's own answer, verbatim, as of exactly what `preview`
+   * showed — and only that. A review that showed any value only as set is
+   * approved only with `acknowledgeHidden`; refused without it, the token
+   * stays good, so the person can confirm and approve the same review.
+   */
+  async approve(token: string, options: { readonly acknowledgeHidden?: boolean } = {}): Promise<void> {
     this.#prune()
     const pending = this.#pending.get(token)
+    if (pending && pending.expiresAt >= this.#now() && pending.hidden > 0 && options.acknowledgeHidden !== true) {
+      throw new Error(HIDDEN_UNACKNOWLEDGED)
+    }
     // Single-use: taken out of the pending set the moment it is spent,
     // successfully or not, so the same token can never be replayed.
     this.#pending.delete(token)
@@ -248,6 +274,45 @@ export class AttachmentTrust {
         reaches(grant.ceiling, subject.ceiling) &&
         this.#verify(key, grant),
     )
+  }
+
+  /**
+   * The runtimes this exact identity was approved for, for this same Agent
+   * and repository incarnation and a ceiling covering this Seat's — any
+   * runtime but this Seat's own. A review is for the runtime `agent/seat`
+   * chooses by default, and a seating that fell back to another candidate
+   * finds nothing approved for it: this is what lets it say why (#895),
+   * never a permission — `permits` alone is that.
+   */
+  async approvedOnOtherRuntimes(subject: AttachmentSubject, identity: AttachmentIdentity): Promise<readonly string[]> {
+    const { file, key } = await this.#read()
+    if (!key) return []
+    const runtimes = new Set<string>()
+    for (const grant of file.grants) {
+      if (
+        grant.runtime !== subject.runtime &&
+        grant.incarnation === subject.incarnation &&
+        grant.agentOrigin === subject.origin &&
+        grant.agentId === subject.agent &&
+        grant.kind === identity.kind &&
+        grant.name === identity.name &&
+        grant.digest === identity.digest &&
+        (CEILING_LEVELS as readonly string[]).includes(grant.ceiling) &&
+        reaches(grant.ceiling, subject.ceiling) &&
+        this.#verify(key, grant)
+      ) runtimes.add(grant.runtime)
+    }
+    return [...runtimes].sort()
+  }
+
+  /**
+   * Every digest a grant here names, signed or not — what a collection of
+   * staged copies must keep. Read conservatively: a grant that would not
+   * verify still keeps its copy, since keeping costs only disk.
+   */
+  async digests(): Promise<ReadonlySet<string>> {
+    const { file } = await this.#read()
+    return new Set(file.grants.map((grant) => grant.digest))
   }
 
   /** Drops expired pending reviews so a long-running host does not keep them forever. */
