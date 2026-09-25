@@ -75,3 +75,25 @@ describe('progress variants', () => {
     expect(stack?.querySelectorAll('[data-slot="progress-stack-part"]')).toHaveLength(2)
   })
 })
+
+describe('ProgressStack colours', () => {
+  it('keeps the brand ramp for parts of one thing, and a kind colour for kinds', () => {
+    act(() => root.render(
+      <>
+        <ProgressStack label="What is in context" parts={[{ id: 'a', value: 60 }, { id: 'b', value: 40 }]} />
+        <ProgressStack
+          label="Measured time by kind of step"
+          parts={[{ id: 'reasoning', value: 70, tint: 'violet' }, { id: 'fileChange', value: 30, tone: 'success' }]}
+        />
+      </>,
+    ))
+    const [ramp, kinds] = [...container.querySelectorAll<HTMLElement>('[data-slot="progress-stack"]')]
+    const rampParts = [...(ramp?.querySelectorAll<HTMLElement>('[data-slot="progress-stack-part"]') ?? [])]
+    expect(rampParts.map((part) => part.dataset['part'])).toEqual(['0', '1'])
+    const kindParts = [...(kinds?.querySelectorAll<HTMLElement>('[data-slot="progress-stack-part"]') ?? [])]
+    expect(kindParts[0]?.dataset['part']).toBeUndefined()
+    expect(kindParts[0]?.className).toContain('bg-(--hd-tint-violet-ink)')
+    expect(kindParts[1]?.className).toContain('bg-(--hd-success)')
+    expect(kindParts[0]?.style.width).toBe('70%')
+  })
+})

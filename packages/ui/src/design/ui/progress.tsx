@@ -1,7 +1,7 @@
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { dotTone, type Tone } from './tone'
+import { dotTint, dotTone, type Tint, type Tone } from './tone'
 import styles from './progress.module.css'
 
 /**
@@ -156,6 +156,13 @@ const ProgressRing = ({
   )
 }
 
+/**
+ * One share of the whole. Without a colour of its own, a part takes the next
+ * step of the brand ramp, which is right when the parts are "more of the same
+ * thing" (what is in context). A part that names a *kind* — which of nine
+ * sorts of step the time went to — takes that kind's `tint` or `tone`, the
+ * same pair `SeriesDot` takes, so the bar and its key cannot disagree.
+ */
 type ProgressStackPart = {
   id: string
   value: number
@@ -163,7 +170,12 @@ type ProgressStackPart = {
   detail?: React.ReactNode
   reading?: React.ReactNode
   meta?: React.ReactNode
+  tint?: Tint
+  tone?: Tone
 }
+
+const stackFill = (part: ProgressStackPart): string | undefined =>
+  part.tone ? dotTone({ tone: part.tone }) : part.tint ? dotTint({ tint: part.tint }) : undefined
 
 type ProgressStackProps = Omit<React.ComponentProps<'div'>, 'children'> & {
   label: string
@@ -177,8 +189,8 @@ const ProgressStack = ({ label, parts, className, ...props }: ProgressStackProps
         <span
           key={part.id}
           data-slot="progress-stack-part"
-          data-part={index % 4}
-          className={cn('h-full rounded-(--hd-radius-2xs) transition-[width] duration-(--hd-duration) ease-(--hd-ease)', styles.stackPart)}
+          {...(stackFill(part) ? {} : { 'data-part': index % 4 })}
+          className={cn('h-full rounded-(--hd-radius-2xs) transition-[width] duration-(--hd-duration) ease-(--hd-ease)', stackFill(part) ?? styles.stackPart)}
           style={{ width: `${Math.max(1, part.value)}%` }}
         />
       ))}
@@ -187,7 +199,7 @@ const ProgressStack = ({ label, parts, className, ...props }: ProgressStackProps
       <div className="flex flex-col">
         {parts.map((part, index) => (
           <div key={part.id} data-slot="progress-stack-row" className="flex items-baseline gap-2 px-2 py-1 text-sm leading-(--hd-line-sm)">
-            <span aria-hidden data-part={index % 4} className={cn('size-2 shrink-0 self-center rounded-(--hd-radius-2xs)', styles.stackSwatch)} />
+            <span aria-hidden {...(stackFill(part) ? {} : { 'data-part': index % 4 })} className={cn('size-2 shrink-0 self-center rounded-(--hd-radius-2xs)', stackFill(part) ?? styles.stackSwatch)} />
             <span className="min-w-0 flex-1 text-(--hd-secondary-foreground)">
               {part.label}
               {part.detail != null && <span className="text-(--hd-muted-foreground) tabular-nums"> {part.detail}</span>}

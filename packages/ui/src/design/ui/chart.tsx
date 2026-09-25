@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode, type KeyboardEvent } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
-import { dotTint, inkTone, softTone, type Tint, type Tone } from './tone'
+import { dotTint, dotTone, inkTone, softTone, type Tint, type Tone } from './tone'
 
 /**
  * The card around the chart, and the four marks that go in it.
@@ -713,22 +713,39 @@ const DayColumns = ({
 /* --- which series is which ------------------------------------------------ */
 
 /**
+ * A series' colour, as the one prop that says which vocabulary it is from.
+ *
+ * Most series identify — "which agent" — and take a `tint`. Some keys name a
+ * kind that already carries a judgement or a role of its own: the person's
+ * own messages are neutral, the agent's answer is the brand, an edit is a
+ * success and an error is a danger. Those take a `tone`, and the type refuses
+ * both at once, the way `IconTile` does.
+ */
+type SeriesColour = { tint: Tint; tone?: never } | { tone: Tone; tint?: never }
+
+const seriesFill = ({ tint, tone }: { tint?: Tint; tone?: Tone }): string =>
+  tone ? dotTone({ tone }) : dotTint({ tint: tint ?? 'blue' })
+
+/**
  * The mark that says "this one".
  *
  * Exported because the legend is rarely the only place a series is named: a
  * ranked table beside a doughnut is keyed by the same colours, and a screen
  * that draws its own dot for that has quietly forked the palette. One dot,
- * one size, one radius, everywhere a series appears.
+ * one size, one radius, everywhere a series appears — the Usage table's rows
+ * and the trajectory ledger's steps alike.
  */
 const SeriesDot = ({
   className,
   tint,
+  tone,
   ...props
-}: Omit<React.ComponentProps<'span'>, 'children'> & { tint: Tint }) => (
+}: Omit<React.ComponentProps<'span'>, 'children'> & SeriesColour) => (
   <span
     data-slot="series-dot"
+    {...(tone ? { 'data-tone': tone } : { 'data-tint': tint })}
     aria-hidden
-    className={cn('inline-block size-2 shrink-0 rounded-full', dotTint({ tint }), className)}
+    className={cn('inline-block size-2 shrink-0 rounded-full', seriesFill({ tint, tone }), className)}
     {...props}
   />
 )
@@ -754,15 +771,16 @@ const ChartKeys = ({ className, ...props }: React.ComponentProps<'ul'>) => (
 const ChartKey = ({
   className,
   tint,
+  tone,
   label,
   ...props
-}: Omit<React.ComponentProps<'li'>, 'children'> & { tint: Tint; label: ReactNode }) => (
+}: Omit<React.ComponentProps<'li'>, 'children'> & SeriesColour & { label: ReactNode }) => (
   <li
     data-slot="chart-key"
     className={cn('text-(--hd-muted-foreground) flex items-center gap-1.5 text-xs', className)}
     {...props}
   >
-    <SeriesDot tint={tint} />
+    {tone ? <SeriesDot tone={tone} /> : <SeriesDot tint={tint as Tint} />}
     {label}
   </li>
 )

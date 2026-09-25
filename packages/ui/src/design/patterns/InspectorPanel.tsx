@@ -45,9 +45,20 @@ const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => 
   </div>
 )
 
-/** A count on the left, and a fact about the whole group on the right. */
-const GroupLine = ({ left, right }: { left: ReactNode; right?: ReactNode }) => (
-  <div data-slot="inspector-group" className="flex items-center gap-2 px-2 pt-2 pb-1">
+/**
+ * A count on the left, and a fact about the whole group on the right.
+ *
+ * `sticky` keeps the line at the top of the list while its rows scroll under
+ * it, on the panel's own ground, for a list long enough that a row can be read
+ * without the heading that says which group it is in — a turn of a
+ * trajectory, say.
+ */
+const GroupLine = ({ left, right, sticky = false }: { left: ReactNode; right?: ReactNode; sticky?: boolean }) => (
+  <div
+    data-slot="inspector-group"
+    {...(sticky ? { 'data-sticky': '' } : {})}
+    className={cn('flex items-center gap-2 px-2 pt-2 pb-1', sticky && 'sticky top-0 z-1 bg-(--hd-background)')}
+  >
     <Text role="muted" ink="secondary">{left}</Text>
     <span className="flex-1" />
     {right != null && <Text role="meta">{right}</Text>}
@@ -70,6 +81,7 @@ const PanelEmpty = ({ children }: { children: ReactNode }) => (
 )
 
 const PanelRow = ({
+  lead,
   mark,
   title,
   sub,
@@ -82,6 +94,12 @@ const PanelRow = ({
   tooltip,
   onClick,
 }: {
+  /**
+   * A word before the mark that says who or what produced the row — the
+   * trajectory's "You", "Shell", "Thinking". Set at the meta step in sentence
+   * case: a column of capitals is a column shouting its own heading.
+   */
+  lead?: ReactNode
   mark?: ReactNode
   title: ReactNode
   sub?: ReactNode
@@ -96,6 +114,9 @@ const PanelRow = ({
 }) => {
   const content = (
     <>
+      {lead != null ? (
+        <Text role="meta" className="shrink-0">{lead}</Text>
+      ) : null}
       {mark ? (
         <span
           data-slot="inspector-row-mark"
