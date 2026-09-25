@@ -364,8 +364,9 @@ export const App = () => {
       const box = area.getBoundingClientRect()
       const bars = [...document.querySelectorAll<HTMLElement>(NOTICE_BAR_SELECTOR)]
         // A hidden tab, a zoomed-away area or the collapsed half of an
-        // expansion keeps its box but is not on screen.
-        .filter((bar) => bar.checkVisibility?.({ visibilityProperty: true }) ?? true)
+        // expansion keeps its box but is not on screen; a header inside a
+        // notice is the stack's own, and would only chase it down the page.
+        .filter((bar) => !stack.contains(bar) && (bar.checkVisibility?.({ visibilityProperty: true }) ?? true))
         .map((bar) => bar.getBoundingClientRect())
       const placement = noticePlacement({
         container: box,

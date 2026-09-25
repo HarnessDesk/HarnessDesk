@@ -39,16 +39,21 @@ export const NOTICE_FLOOR = 46
 export const NOTICE_GAP = 8
 
 /**
- * The CSS selector for every bar a notice must never cover: a panel's own
- * strip (`DockPanelBar`), a tool's header (`ToolPaneHeader`) and a tool's
- * bars (`ToolPaneBar` — a browser's address bar, find, a repository's
- * actions). The design system's own slots, so a new screen built from those
- * parts is covered without being named here.
+ * The CSS selector for every bar a notice must never cover: the design
+ * system's bars — `Bar` (a room's header), a panel's strip (`DockPanelBar`),
+ * a tool's header and bars (`ToolPaneHeader`, `ToolPaneBar`: a browser's
+ * address bar, find, a repository's actions), a list's `Toolbar` — and any
+ * `<header>` at all, which is how a conversation draws its own. A new screen
+ * built from those parts is covered without being named here, and a bar
+ * further down a pane costs nothing: only bars in the stack's way move it.
  */
 export const NOTICE_BAR_SELECTOR = [
+  '[data-slot="bar"]',
   '[data-slot="dock-panel-bar"]',
   '[data-slot="tool-pane-header"]',
   '[data-slot="tool-pane-bar"]',
+  '[data-slot="toolbar"]',
+  'header',
 ].join(', ')
 
 export interface NoticePlacement {
@@ -71,11 +76,14 @@ const overlaps = (a: RectLike, b: RectLike): boolean => a.left < b.right && b.le
  *   main area is zero wide), when it widens around the host's centre, kept
  *   inside `content` (the workbench's panes and panels, never the sidebar).
  *   A missing host is `content` itself.
- * - **Down**: below the run of bars that starts at the host's top edge and
- *   crosses the stack's band — a panel's strip, then a browser's address bar
- *   under it, and so on while each one starts where the last ended. A bar
- *   further down (a bottom panel's strip, a pane's footer) is not in that run
- *   and does not move the stack.
+ * - **Down**: from just under the window's header strip (or the host's own
+ *   top, if lower), past every bar that crosses the stack's band and reaches
+ *   into its top edge — moved to below that bar and checked again, until no
+ *   bar does. Stacked headers are cleared however many there are (a room's
+ *   header over its one member's conversation header, a panel's strip over
+ *   a browser's address bar); a bar that only ends where the stack begins
+ *   is not in its way, and one further down (a bottom panel's strip, a
+ *   pane's footer) never moves it.
  */
 export const noticePlacement = ({
   container,
@@ -99,16 +107,16 @@ export const noticePlacement = ({
   const left = Math.min(Math.max(centre - width / 2, content.left), content.right - width)
   const band = { left, right: left + width }
 
-  let edge = at.top
+  let top = Math.max(container.top + NOTICE_FLOOR, at.top + NOTICE_GAP)
   for (let moved = true; moved; ) {
     moved = false
     for (const bar of bars) {
       if (bar.right <= bar.left || bar.bottom <= bar.top) continue
       if (!overlaps(bar, band)) continue
-      // One pixel of slack: a border or a sub-pixel seam between two bars
-      // stacked one under the other is still one run.
-      if (bar.top <= edge + 1 && bar.bottom > edge) {
-        edge = bar.bottom
+      // In the way: it reaches below the stack's top, and starts within a
+      // gap of it — so a bar a few pixels under the last still counts.
+      if (bar.top < top + NOTICE_GAP && bar.bottom > top) {
+        top = bar.bottom + NOTICE_GAP
         moved = true
       }
     }
@@ -117,7 +125,7 @@ export const noticePlacement = ({
   return {
     left: band.left - container.left,
     right: container.right - band.right,
-    top: Math.max(NOTICE_FLOOR, Math.ceil(edge + NOTICE_GAP - container.top)),
+    top: Math.ceil(top - container.top),
   }
 }
 

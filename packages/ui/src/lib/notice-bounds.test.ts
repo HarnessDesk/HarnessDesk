@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  NOTICE_BAR_SELECTOR,
   NOTICE_FLOOR,
   NOTICE_MIN_WIDTH,
   boxesOverlap,
@@ -52,6 +53,22 @@ const expectReadableAndClear = (container: BoxLike, content: BoxLike, stack: Box
   for (const bar of bars) expect(boxesOverlap(stack, bar), JSON.stringify(bar)).toBe(false)
   expect(stack.top - container.top).toBeGreaterThanOrEqual(NOTICE_FLOOR)
 }
+
+describe('NOTICE_BAR_SELECTOR', () => {
+  it('finds every bar a pane can stand at its top: the design system’s bars and any header', () => {
+    const host = document.createElement('div')
+    host.innerHTML = [
+      '<header data-slot="bar"></header>',
+      '<div data-slot="bar"></div>',
+      '<header data-slot="dock-panel-bar"></header>',
+      '<header data-slot="tool-pane-header"></header>',
+      '<div data-slot="tool-pane-bar"></div>',
+      '<div data-slot="toolbar"></div>',
+      '<header class="conversation"></header>',
+    ].join('')
+    expect(host.querySelectorAll(NOTICE_BAR_SELECTOR)).toHaveLength(7)
+  })
+})
 
 describe('noticePlacement', () => {
   it('rides a conversation that fills the content area, just under the header strip', () => {
@@ -127,6 +144,24 @@ describe('noticePlacement', () => {
     const container = box(0, 0, 360, 700)
     const placement = noticePlacement({ container, content: container, host: box(0, 0, 0, 700), bars: [] })
     expect(placement).toMatchObject({ left: 0, right: 0 })
+  })
+
+  it('a room with one member: clears the room’s own header and the member conversation’s header stacked under it', () => {
+    // The room's `Bar as="header"` (`data-slot="bar"`), then the nested
+    // conversation's own `<header>`, each 46 tall — two bars, one run.
+    const bars = [box(240, 0, 1440, 46), box(240, 46, 1440, 92)]
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars })
+    expect(placement.top).toBe(100)
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
+  })
+
+  it('clears any number of stacked bars, however they meet, and none it only touches', () => {
+    const bars = [box(240, 0, 1440, 46), box(240, 46, 1440, 92), box(240, 95, 1440, 131), box(240, 131, 1440, 170)]
+    const placement = noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars })
+    expect(placement.top).toBe(178)
+    expectReadableAndClear(WINDOW, CONTENT, stackOf(WINDOW, placement), bars)
+    // A single header ending exactly where the stack starts is not in its way.
+    expect(noticePlacement({ container: WINDOW, content: CONTENT, host: CONTENT, bars: [box(240, 0, 1440, 46)] }).top).toBe(NOTICE_FLOOR)
   })
 
   it('ignores a bar that is not in the run from the host’s top — a bottom panel’s strip, a hidden tab’s empty box', () => {
