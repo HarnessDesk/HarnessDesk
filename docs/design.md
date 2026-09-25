@@ -231,7 +231,7 @@ do not remain as a second public vocabulary:
 
 | variant | where |
 | --- | --- |
-| `secondary` | the ordinary action (grey frame); drawn quiet in a dialog footer |
+| `secondary` | the ordinary action (grey frame); drawn quiet in a dialog footer beside a filled act |
 | `default` | the one action a group exists for — at most one per group (ink fill) |
 | `outline` | bordered action on a transparent ground |
 | `ghost` | no frame until hover, for an action that repeats down a list |
@@ -250,15 +250,28 @@ Two rules keep red meaning something:
    (`destructive`), because a column of filled red buttons is a column nobody
    reads.
 
-**A dialog footer has one filled button.** The confirm is `default`, or
-`danger` when it destroys; Cancel and Close are `secondary`, which the footer
-draws quiet (no fill, secondary ink), or `quiet` itself. Write the proceeding
+**A dialog footer has one filled button.** A footer of two or more buttons
+has exactly one filled act: the confirm, `default`, or `danger` when it
+destroys — never none (three text buttons with no default) and never two. A
+lone button is exempt: a sheet with only Close has nothing to act, and its
+Close keeps its frame. Beside a filled act, `secondary` is drawn quiet (no
+fill, secondary ink; the footer reads the act's `data-filled`), or write
+`quiet` itself. `destructive` never stands in a footer. Write the proceeding
 action first: the footer is `row-reverse`, so it paints rightmost and is the
-first a Tab reaches. A disabled confirm stays the confirm — its own fill
-softened toward the ground and its label faded into it
-(`--hd-btn-primary-disabled-*`) — rather than half opacity, which on the grey
-footer drew a mid-grey slab that read as a second, secondary button. The
-design audit counts filled buttons in every `Dialog` footer.
+first a Tab reaches.
+
+A disabled filled act — ink or red — is drawn one way: its fill kept at 16%
+over the footer's ground and its label in its own ink at 60%
+(`--hd-btn-disabled-*-share`, `--hd-btn-{primary,danger}-disabled-*`). It
+stays the act, in its own hue, and is clearly weaker than enabled: measured,
+the label goes from 17.2:1 to 3.2:1 on the ink button in light (10.5 → 3.1
+dark) and from 4.9:1 to 2.1:1 on the red one (2.3 dark). Half opacity mixed
+the button into whatever lay under it — a mid-grey slab on the grey footer.
+
+The design audit reads every `Dialog` footer as a syntax tree: both arms of
+each `?:`, with and without each `&&`, the `footerAside`, a hoisted `const`,
+and a control drawn with `buttonVariants(...)`. All 54 footers in the app are
+read; one it cannot read is reported, not passed.
 
 ### Dialog forms
 

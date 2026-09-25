@@ -809,13 +809,19 @@ body {
   --hd-btn-danger-fill: var(--hdp-static-red-600);
   --hd-btn-danger-fill-hover: color-mix(in srgb, var(--hdp-static-red-600) 84%, var(--hdp-static-red-900));
   --hd-btn-danger-foreground: var(--hd-destructive-foreground);
-  /* A primary that cannot be pressed yet stays the primary: its own fill,
-     softened toward the ground, and its label faded into that fill. Half
-     opacity on the whole button mixed the ink with whatever ground it stood
-     on, and on a dialog's grey footer that is a mid-grey slab that reads as
-     the secondary button beside it. */
-  --hd-btn-primary-disabled-fill: color-mix(in srgb, var(--hd-btn-primary-fill) 70%, var(--hd-background));
-  --hd-btn-primary-disabled-foreground: color-mix(in srgb, var(--hd-btn-primary-foreground) 50%, var(--hd-btn-primary-disabled-fill));
+  /* A filled act that cannot be pressed yet — the primary or the red one —
+     is drawn one way: its fill kept at a sixth, laid over the footer's ground,
+     and its label in the button's own ink at three fifths. It still reads as
+     the act, in its own hue, and clearly weaker than it will be. Half
+     opacity mixed the button into whatever was under it, which on the grey
+     footer was a mid-grey slab with a white label; a dark fill with a faded
+     label stayed nearly as strong as the enabled button. */
+  --hd-btn-disabled-fill-share: 16%;
+  --hd-btn-disabled-ink-share: 60%;
+  --hd-btn-primary-disabled-fill: color-mix(in srgb, var(--hd-btn-primary-fill) var(--hd-btn-disabled-fill-share), var(--hd-muted));
+  --hd-btn-primary-disabled-foreground: color-mix(in srgb, var(--hd-btn-primary-fill) var(--hd-btn-disabled-ink-share), var(--hd-muted));
+  --hd-btn-danger-disabled-fill: color-mix(in srgb, var(--hd-btn-danger-fill) var(--hd-btn-disabled-fill-share), var(--hd-muted));
+  --hd-btn-danger-disabled-foreground: color-mix(in srgb, var(--hd-btn-danger-ink) var(--hd-btn-disabled-ink-share), var(--hd-muted));
 
   /* --- density scopes ------------------------------------------------------
    *

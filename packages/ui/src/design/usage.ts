@@ -78,10 +78,10 @@ export const BUTTONS: readonly UsageRule[] = [
   {
     family: 'button',
     variant: 'secondary',
-    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet so the confirm is the one filled button.',
+    when: 'An ordinary action inside something that already encloses it — a card, a row, and Cancel or Close in a dialog footer, where it is drawn quiet whenever a filled act stands beside it, so the confirm is the one filled button. Alone in a footer it keeps its fill.',
     never: 'In a page or section head. It is the same grey as the surfaces around it and disappears into them.',
     because:
-      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer the footer decides its look (`in-data-[slot=dialog-footer]`), so a screen writes `secondary` and gets the quiet way out.',
+      'The enclosure supplies the separation, so the control does not have to. It is the app\'s most common button and the one an unqualified `Btn` has always drawn. In a footer that holds a filled act the footer decides its look (`:has()` on the footer slot), so a screen writes `secondary` and gets the quiet way out; a lone Close keeps its frame.',
   },
   {
     family: 'button',
@@ -103,7 +103,7 @@ export const BUTTONS: readonly UsageRule[] = [
     family: 'button',
     variant: 'destructive',
     when: 'A remove action set among others on a page or in a row — the door to a confirm, not the confirm.',
-    never: 'For an action that merely closes, cancels or hides (those are ordinary), and never as the act of a destructive confirm: that is `danger`, filled.',
+    never: 'For an action that merely closes, cancels or hides (those are ordinary), and never in a dialog footer: the act of a destructive confirm is `danger`, filled, and the audit refuses the soft red there.',
     because:
       'It is soft — danger ink on nothing, filling on hover — rather than a solid red. On a page a red fill competes with the primary for the loudest thing on the screen, and the loudest thing should be what you came to do, not what you might regret.',
   },
@@ -242,9 +242,9 @@ export const SLOTS: readonly {
   {
     slot: 'dialogFooter',
     what: 'the `footer` of a `Dialog`',
-    allow: ['default', 'primary', 'secondary', 'quiet', 'destructive', 'danger', 'outline'],
+    allow: ['default', 'primary', 'secondary', 'quiet', 'danger', 'outline'],
     size: 'full',
     oneInk: true,
-    why: 'Exactly one filled button: the confirm, `default` — or `danger` when it destroys. Cancel and Close are `secondary`, which the footer draws quiet, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled confirm keeps its own hue, dimmed, rather than fading into a grey slab. `ghost` is not allowed: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight.',
+    why: 'A footer of two or more buttons has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is exempt: a sheet with only Close has nothing to act. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page\'s remove action, not a confirm\'s act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`.',
   },
 ]

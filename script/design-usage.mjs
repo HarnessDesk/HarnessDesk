@@ -35,6 +35,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
+import ts from 'typescript'
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const FILE = path.join(root, 'packages/ui/src/design/usage.ts')
 
@@ -312,7 +314,8 @@ export const buttonsIn = (region) =>
 const SITES = [
   { slot: 'pageAction', tag: /^PageHead$/, props: ['actions'], where: "a page head's action" },
   { slot: 'sectionAction', tag: /^SectionHead$/, props: ['action'], where: "a section head's action" },
-  { slot: 'dialogFooter', tag: /^Dialog$/, props: ['footer'], where: "a dialog's footer" },
+  /* The dialog footer is read as a syntax tree by `footerOffenders` below:
+     its rule is about the buttons together, across every branch. */
 ]
 
 /** The value of each named prop on one element, in the order written. */
@@ -369,3 +372,239 @@ export const slotOffenders = (source, name) => {
   return out
 }
 
+
+/* --- a dialog's footer, read as a syntax tree ------------------------------
+ *
+ * The footer is the one slot whose rule is about the buttons *together* — one
+ * filled act among them — so it has to know which buttons are on screen at
+ * once. Reading the text could not: 39 of the app's 54 footers hold a `?`, and
+ * the text check stayed silent on every one of them rather than guess. This
+ * reads the TypeScript tree instead and evaluates the footer as a set of
+ * renderings — both arms of every `?:`, with and without every `&&` — and
+ * holds each rendering to the rule. `footerAside` is part of the footer, and a
+ * control drawn with `buttonVariants(...)` is a button of that variant.
+ */
+
+/** The variants that fill their button; a footer's act is one of these. */
+export const FILLED = new Set(['default', 'primary', 'danger'])
+
+const RENDERINGS_CAP = 256
+
+/** The cartesian product of per-child renderings, capped. */
+const product = (parts) => {
+  let out = [[]]
+  for (const part of parts) {
+    const next = []
+    for (const left of out) for (const right of part) next.push([...left, ...right])
+    out = next.slice(0, RENDERINGS_CAP)
+  }
+  return out
+}
+
+/** The variant strings an attribute's initializer can be, or null. */
+const variantsOfInitializer = (init) => {
+  if (!init) return ['']
+  if (ts.isStringLiteral(init)) return [init.text]
+  if (ts.isJsxExpression(init) && init.expression) return stringsOf(init.expression)
+  return null
+}
+const stringsOf = (node) => {
+  if (ts.isParenthesizedExpression(node)) return stringsOf(node.expression)
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return [node.text]
+  if (ts.isConditionalExpression(node)) {
+    const a = stringsOf(node.whenTrue)
+    const b = stringsOf(node.whenFalse)
+    return a && b ? [...a, ...b] : null
+  }
+  return null
+}
+
+/** `buttonVariants({ variant: 'x', size: 'y' })` inside a className, if any. */
+const buttonVariantsCall = (node) => {
+  let found = null
+  const visit = (child) => {
+    if (found) return
+    if (ts.isCallExpression(child) && ts.isIdentifier(child.expression) && child.expression.text === 'buttonVariants') {
+      const arg = child.arguments[0]
+      let variant = ['default']
+      let size = 'full'
+      if (arg && ts.isObjectLiteralExpression(arg)) {
+        for (const prop of arg.properties) {
+          if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue
+          if (prop.name.text === 'variant') variant = stringsOf(prop.initializer)
+          if (prop.name.text === 'size') {
+            const sizes = stringsOf(prop.initializer)
+            size = sizes === null ? null : sizes.every((one) => one === 'sm') ? 'sm' : sizes.some((one) => one === 'sm') ? null : 'full'
+          }
+        }
+      }
+      found = { variants: variant, size }
+      return
+    }
+    ts.forEachChild(child, visit)
+  }
+  visit(node)
+  return found
+}
+
+const attributeOf = (opening, name) =>
+  opening.attributes.properties.find((one) => ts.isJsxAttribute(one) && one.name.getText() === name)
+
+/** One element as renderings: a button is one control, anything else is its children. */
+const elementRenderings = (opening, children, locals) => {
+  const tag = opening.tagName.getText()
+  if (tag === 'Button' || tag === 'Btn') {
+    const written = attributeOf(opening, 'variant')
+    const variants = written ? variantsOfInitializer(written.initializer) : [tag === 'Btn' ? 'secondary' : 'default']
+    const sizeAttr = attributeOf(opening, 'size')
+    const smallAttr = attributeOf(opening, 'small')
+    const sizes = smallAttr ? ['sm'] : sizeAttr ? variantsOfInitializer(sizeAttr.initializer) : ['default']
+    const size = sizes === null ? null : sizes.every((one) => one === 'sm') ? 'sm' : sizes.some((one) => one === 'sm') ? null : 'full'
+    if (variants === null || variants.includes('')) return [[{ tag, variant: null, size }]]
+    return variants.map((variant) => [{ tag, variant, size }])
+  }
+  const className = attributeOf(opening, 'className')
+  const styled = className?.initializer ? buttonVariantsCall(className.initializer) : null
+  if (styled) {
+    if (styled.variants === null) return [[{ tag, variant: null, size: styled.size }]]
+    return styled.variants.map((variant) => [{ tag, variant, size: styled.size }])
+  }
+  return product(children.map((child) => nodeRenderings(child, locals)).filter((one) => one !== undefined).map((one) => one ?? [[{ tag: '?', variant: undefined, size: null }]]))
+}
+
+/**
+ * Every set of controls `node` can render, or `null` inside a set for a part
+ * this cannot read (a call, a map, an identifier it cannot resolve).
+ */
+const nodeRenderings = (node, locals) => {
+  if (ts.isJsxText(node)) return [[]]
+  if (ts.isJsxExpression(node)) return node.expression ? nodeRenderings(node.expression, locals) : [[]]
+  if (ts.isParenthesizedExpression(node)) return nodeRenderings(node.expression, locals)
+  if (ts.isJsxFragment(node)) return product(node.children.map((child) => nodeRenderings(child, locals) ?? [[{ tag: '?', variant: undefined, size: null }]]))
+  if (ts.isJsxElement(node)) return elementRenderings(node.openingElement, [...node.children], locals)
+  if (ts.isJsxSelfClosingElement(node)) return elementRenderings(node, [], locals)
+  if (ts.isConditionalExpression(node)) {
+    const a = nodeRenderings(node.whenTrue, locals)
+    const b = nodeRenderings(node.whenFalse, locals)
+    return a && b ? [...a, ...b].slice(0, RENDERINGS_CAP) : null
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      const right = nodeRenderings(node.right, locals)
+      return right ? [[], ...right] : null
+    }
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) {
+      const left = nodeRenderings(node.left, locals)
+      const right = nodeRenderings(node.right, locals)
+      return left && right ? [...left, ...right] : null
+    }
+    return null
+  }
+  if (
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node) ||
+    ts.isNumericLiteral(node) || node.kind === ts.SyntaxKind.NullKeyword || node.kind === ts.SyntaxKind.TrueKeyword ||
+    node.kind === ts.SyntaxKind.FalseKeyword || (ts.isIdentifier(node) && node.text === 'undefined')
+  ) return [[]]
+  if (ts.isIdentifier(node) && locals.has(node.text)) return nodeRenderings(locals.get(node.text), locals)
+  return null
+}
+
+/** `const name = <jsx>` in the file, so a hoisted footer is read, not refused. */
+const jsxLocals = (file) => {
+  const locals = new Map()
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      let init = node.initializer
+      while (ts.isParenthesizedExpression(init)) init = init.expression
+      if (ts.isJsxElement(init) || ts.isJsxFragment(init) || ts.isJsxSelfClosingElement(init) || ts.isConditionalExpression(init)) {
+        locals.set(node.name.text, init)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return locals
+}
+
+/**
+ * Every `<Dialog footer>` in a file, each with its renderings read.
+ *
+ * `readable` is false when some part of the footer is a call, a map or a name
+ * this cannot resolve — the footer is then reported rather than passed.
+ */
+export const dialogFooters = (source, name = 'file.tsx') => {
+  const file = ts.createSourceFile(name, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const locals = jsxLocals(file)
+  const found = []
+  const visit = (node) => {
+    const opening = ts.isJsxElement(node) ? node.openingElement : ts.isJsxSelfClosingElement(node) ? node : null
+    if (opening && opening.tagName.getText() === 'Dialog') {
+      const parts = ['footer', 'footerAside'].map((prop) => attributeOf(opening, prop)).filter(Boolean)
+      if (parts.some((one) => one.name.getText() === 'footer')) {
+        const each = parts.map((one) => {
+          const read = one.initializer ? nodeRenderings(one.initializer, locals) : [[]]
+          // The aside is the footer's far-left support line, set a step down:
+          // its controls count toward the one filled act, not toward the rung.
+          const aside = one.name.getText() === 'footerAside'
+          return read && aside ? read.map((rendering) => rendering.map((control) => ({ ...control, aside: true }))) : read
+        })
+        const readable = each.every((one) => one !== null)
+        const renderings = readable ? product(each) : []
+        const line = file.getLineAndCharacterOfPosition(opening.getStart()).line + 1
+        found.push({
+          line,
+          readable: readable && renderings.every((one) => one.every((control) => control.variant !== undefined)),
+          renderings: renderings.map((one) => one.filter((control) => control.variant !== undefined)),
+        })
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  return found
+}
+
+/**
+ * What a dialog footer's rule finds in a file.
+ *
+ *   - every control's variant is on the slot's list, at the slot's rung;
+ *   - a footer that renders two or more controls renders exactly one filled
+ *     act (`default`, `primary` or `danger`) — never none (three text
+ *     buttons with no default) and never two (two primaries, which is none);
+ *   - a lone control is exempt: a sheet with only Close has nothing to act.
+ */
+export const footerOffenders = (source, name) => {
+  const rule = SLOT_RULES.get('dialogFooter')
+  const out = []
+  for (const footer of dialogFooters(source, name)) {
+    const where = `${name}:${footer.line}`
+    if (!footer.readable) {
+      out.push(`${where}: a dialog's footer holds a part this cannot read`)
+      continue
+    }
+    const seen = new Set()
+    for (const rendering of footer.renderings) {
+      for (const { tag, variant, size, aside } of rendering) {
+        const key = `${tag}/${variant}/${size}/${aside}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        if (variant === null) out.push(`${where}: <${tag}> in a dialog's footer has a variant this cannot read`)
+        else if (!rule.allow.has(variant)) out.push(`${where}: <${tag} variant="${variant}"> in a dialog's footer`)
+        if (!aside && variant !== null && size !== null && size !== rule.size) out.push(`${where}: <${tag}> is ${size} in a dialog's footer, which is ${rule.size}`)
+      }
+    }
+    const counts = new Set()
+    for (const rendering of footer.renderings) {
+      if (rendering.length < 2) continue
+      const filled = rendering.filter((one) => FILLED.has(one.variant)).length
+      if (filled !== 1 && !counts.has(filled)) {
+        counts.add(filled)
+        out.push(filled === 0
+          ? `${where}: a dialog's footer renders ${rendering.length} buttons and no filled act`
+          : `${where}: ${filled} filled actions in a dialog's footer, which holds one`)
+      }
+    }
+  }
+  return out
+}

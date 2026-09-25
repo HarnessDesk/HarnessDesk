@@ -104,18 +104,30 @@ it('draws Cancel quiet in a dialog footer, and the same secondary button filled 
   expect(filled(byText(container, 'Elsewhere'))).toBe(true)
 })
 
-it('keeps a disabled primary in its own hue rather than fading it to a grey slab', async () => {
-  act(() => root.render(<Button disabled>Save and open the brief</Button>))
-  const save = byText(container, 'Save and open the brief')
-  await applyUtilities(save.className.split(/\s+/))
-  const style = getComputedStyle(save)
+it.each([
+  ['default', 'primary'],
+  ['danger', 'danger'],
+] as const)('draws a disabled %s act one way: its own hue dimmed toward the ground, not half opacity', async (variant, token) => {
+  act(() => root.render(<Button variant={variant} disabled>Act</Button>))
+  const button = byText(container, 'Act')
+  await applyUtilities(button.className.split(/\s+/))
+  const style = getComputedStyle(button)
   // Not the shared half opacity, which mixed the ink with the footer's grey…
   expect(['1', '100%']).toContain(style.opacity)
-  // …but the primary's own fill, softened, with its label faded into it.
-  expect(style.backgroundColor).toContain('--hd-btn-primary-disabled-fill')
-  expect(style.color).toContain('--hd-btn-primary-disabled-foreground')
+  // …but the variant's own fill and ink, dimmed toward the footer's ground.
+  expect(style.backgroundColor).toContain(`--hd-btn-${token}-disabled-fill`)
+  expect(style.color).toContain(`--hd-btn-${token}-disabled-foreground`)
   // Every other variant still dims the whole control.
   expect(buttonVariants({ variant: 'secondary' })).toContain('disabled:opacity-50')
+})
+
+it('leaves a lone Close its frame: a footer quiets only beside a filled act', async () => {
+  act(() => root.render(
+    <Dialog title="Record" onClose={() => {}} footer={<Button variant="secondary">Close</Button>} />,
+  ))
+  await applyUtilities(classesIn(document))
+  const footer = document.querySelector('[data-slot="dialog-footer"]')!
+  expect(filled(byText(footer, 'Close')), 'a lone Close keeps its fill').toBe(true)
 })
 
 /* The tokens those two lean on, resolved, in every face. */

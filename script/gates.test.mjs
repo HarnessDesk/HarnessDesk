@@ -302,10 +302,18 @@ test('a head action is held to its own rung', () => {
 })
 
 test('a dialog footer is held to its own list', () => {
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={<Btn variant="ghost">Save</Btn>} />', 'F.tsx'), [
-    "F.tsx: <Btn variant=\"ghost\"> in a dialog's footer",
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Btn variant="ghost">Save</Btn>} />', 'F.tsx'), [
+    "F.tsx:1: <Btn variant=\"ghost\"> in a dialog's footer",
   ])
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={<Btn variant="secondary">Cancel</Btn>} />', 'F.tsx'), [])
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Btn variant="secondary">Cancel</Btn>} />', 'F.tsx'), [])
+  // The soft red is a page's remove action, never a confirm's act.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="destructive">Delete</Button><Button variant="secondary">Keep</Button></>} />', 'F.tsx'),
+    [
+      "F.tsx:1: <Button variant=\"destructive\"> in a dialog's footer",
+      "F.tsx:1: a dialog's footer renders 2 buttons and no filled act",
+    ],
+  )
 })
 
 
@@ -376,37 +384,66 @@ test('a rung it cannot read is not called full', () => {
   )
 })
 
-test('two filled actions is two primaries, and a conditional slot is left alone', () => {
+test('a footer renders one filled act on every branch, and a lone button is exempt', () => {
   assert.deepEqual(
-    usage.slotOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
-    ["F.tsx: 2 filled actions in a dialog's footer, which holds one"],
+    usage.footerOffenders('<Dialog footer={<><Btn variant="default">A</Btn><Btn variant="primary">B</Btn></>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
   )
   // A filled red act is a filled button: beside the ink confirm it is a
   // second default, and the footer has no answer to lean on.
   assert.deepEqual(
-    usage.slotOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button>Save</Button></>} />', 'F.tsx'),
-    ["F.tsx: 2 filled actions in a dialog's footer, which holds one"],
+    usage.footerOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button>Save</Button></>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
   )
   // The footer's own grammar passes: one filled confirm, a quiet way out.
   assert.deepEqual(
-    usage.slotOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button variant="secondary">Cancel</Button></>} />', 'F.tsx'),
+    usage.footerOffenders('<Dialog footer={<><Button variant="danger">Delete</Button><Button variant="secondary">Cancel</Button></>} />', 'F.tsx'),
+    [],
+  )
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<><Button>Save</Button><Button variant="quiet">Close</Button></>} />', 'F.tsx'), [])
+  // A lone Close has nothing to act; two unfilled buttons have no default.
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={<Button variant="secondary">Close</Button>} />', 'F.tsx'), [])
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button variant="secondary">Open</Button><Button variant="secondary">Close</Button></>} />', 'F.tsx'),
+    ["F.tsx:1: a dialog's footer renders 2 buttons and no filled act"],
+  )
+  // Both arms of a conditional are read. Each arm here is right…
+  const branched =
+    '<Dialog footer={r ? (<Btn variant="primary">Close</Btn>) : (<><Btn variant="primary">Apply</Btn><Btn>Cancel</Btn></>)} />'
+  assert.deepEqual(usage.footerOffenders(branched, 'F.tsx'), [])
+  const nested =
+    '<Dialog footer={<><Btn variant="secondary">Cancel</Btn>{e ? <Btn variant="default">Save</Btn> : <Btn variant="default">Create</Btn>}</>} />'
+  assert.deepEqual(usage.footerOffenders(nested, 'F.tsx'), [])
+  // …and an arm that is wrong is found, where the text check stayed silent.
+  const wrongArm =
+    '<Dialog footer={<>{hard ? <Button variant="destructive">Reset</Button> : <Button>Reset</Button>}<Button variant="secondary">Keep</Button></>} />'
+  assert.ok(usage.footerOffenders(wrongArm, 'F.tsx').includes("F.tsx:1: a dialog's footer renders 2 buttons and no filled act"))
+  // `&&` is read with and without its button.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<><Button>Save</Button>{more && <Button>Also</Button>}</>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+})
+
+test('a footer counts its aside, a buttonVariants control, and a hoisted local', () => {
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<Button>Save</Button>} footerAside={<Button>Also save</Button>} />', 'F.tsx'),
+    ["F.tsx:1: 2 filled actions in a dialog's footer, which holds one"],
+  )
+  // The aside is set a step down; its rung is not the footer's.
+  assert.deepEqual(
+    usage.footerOffenders('<Dialog footer={<Button>Save</Button>} footerAside={<Button variant="secondary" size="sm">Prune</Button>} />', 'F.tsx'),
     [],
   )
   assert.deepEqual(
-    usage.slotOffenders('<Dialog footer={<><Button>Save</Button><Button variant="quiet">Close</Button></>} />', 'F.tsx'),
-    [],
+    usage.footerOffenders(
+      "<Dialog footer={<><Button>Save</Button><DialogClose className={buttonVariants({ variant: 'ghost' })}>Cancel</DialogClose></>} />",
+      'F.tsx',
+    ),
+    ["F.tsx:1: <DialogClose variant=\"ghost\"> in a dialog's footer"],
   )
-  // Both of these are correct code that earlier versions of this rule
-  // reported. The library's apply dialog writes two ink buttons in two
-  // branches and shows one; a conditional label nested in a fragment is the
-  // ordinary way to write "Save or Create". Deciding which branch renders is
-  // a JSX parser's job, so where there is a conditional this says nothing.
-  const branched =
-    '<Dialog footer={r ? (<Btn variant="primary">Close</Btn>) : (<><Btn variant="primary">Apply</Btn><Btn>Cancel</Btn></>)} />'
-  assert.deepEqual(usage.slotOffenders(branched, 'F.tsx'), [])
-  const nested =
-    '<Dialog footer={<><Btn variant="secondary">Cancel</Btn>{e ? <Btn variant="default">Save</Btn> : <Btn variant="default">Create</Btn>}</>} />'
-  assert.deepEqual(usage.slotOffenders(nested, 'F.tsx'), [])
+  const hoisted = 'const actions = <><Button>Save</Button><Button>Save too</Button></>;\n<Dialog footer={actions} />'
+  assert.deepEqual(usage.footerOffenders(hoisted, 'F.tsx'), ["F.tsx:2: 2 filled actions in a dialog's footer, which holds one"])
 })
 
 test('a rule is filed under the class it is about', (t) => {
@@ -716,8 +753,8 @@ test('a slot this cannot see into is reported, not skipped', () => {
   assert.deepEqual(usage.slotOffenders('<PageHead t="x" actions={headerAction} />', 'F.tsx'), [
     "F.tsx: a page head's action is held in `headerAction`, which this cannot read",
   ])
-  assert.deepEqual(usage.slotOffenders('<Dialog footer={renderFooter()} />', 'F.tsx'), [
-    "F.tsx: a dialog's footer is held in `renderFooter()`, which this cannot read",
+  assert.deepEqual(usage.footerOffenders('<Dialog footer={renderFooter()} />', 'F.tsx'), [
+    "F.tsx:1: a dialog's footer holds a part this cannot read",
   ])
   // An element that simply is not a button is legible, and is not the rule's
   // business.
