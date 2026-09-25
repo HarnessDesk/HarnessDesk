@@ -755,7 +755,12 @@ export const Segmented = <T extends string>({
     className={`inline-flex gap-0 ${styles.segmented}`}
     aria-label={label}
     value={value}
-    onValueChange={(next) => onChange(next as T)}
+    /* A second press on the chosen segment asks the group to empty itself.
+       A segmented control always holds an answer, so that press is ignored
+       here rather than by every caller that remembered to. */
+    onValueChange={(next) => {
+      if (next !== '') onChange(next as T)
+    }}
   >
     {options.map((option) => (
       <ToggleGroupItem
@@ -863,7 +868,7 @@ const TEXT_INK = {
 
 export type TextRole = keyof typeof TEXT_ROLE
 export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
-  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h4' | 'summary' | 'label' | 'li'
+  as?: 'span' | 'div' | 'p' | 'strong' | 'h2' | 'h3' | 'h4' | 'summary' | 'label' | 'li'
   children: ReactNode
   role?: TextRole
   tone?: Tone
