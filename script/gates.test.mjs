@@ -225,11 +225,12 @@ test('a pattern reached through cn() and a class constant is read the way a scre
 })
 
 test('single-screen patterns leave semantic appearance to system primitives', () => {
-  const css = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/GitHistory.module.css'), 'utf8')
-  const semantic = declarationsOf(css).filter(({ property }) =>
-    property === 'color' || property === 'height' || property === 'min-height' || property.startsWith('padding'),
-  )
-  assert.deepEqual(semantic, [], 'GitHistory.module.css')
+  // The Git history's chrome was a single-screen pattern; it is folded back
+  // into the Git pane, onto the tool pane's own bar and body, rather than
+  // parked in design/patterns with its appearance.
+  for (const file of ['GitHistory.tsx', 'GitHistory.module.css']) {
+    assert.equal(fs.existsSync(path.join(repoRoot, 'packages/ui/src/design/patterns', file)), false, file)
+  }
 
   const turnWork = fs.readFileSync(path.join(repoRoot, 'packages/ui/src/design/patterns/TurnWork.tsx'), 'utf8')
   assert.doesNotMatch(turnWork, /TurnWork\.module\.css/)

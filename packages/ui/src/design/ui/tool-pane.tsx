@@ -2,6 +2,8 @@ import * as React from 'react'
 
 import { CrossIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
+
+import { sortableItemClass } from './sortable-list'
 import { Text } from '../patterns/Settings'
 import { TabsList, TabsTrigger } from './tabs'
 
@@ -149,6 +151,18 @@ const ToolPaneHeaderDivider = () => (
   />
 )
 
+/**
+ * A bar of the tool's own controls under its header.
+ *
+ * `tools` is the one whose controls are the tool's verbs and filters rather
+ * than a single field — a repository's actions, its history's scope and
+ * search, the head of the commit it has open. It stands at the same 36px as
+ * `find`, and it is a floor rather than a height: a pane narrower than its
+ * controls wraps them onto a second line, and the bar grows with them instead
+ * of cutting the last one off. A bar whose one line must never break — a head
+ * whose title ellipsises instead — says `flex-nowrap`. A bar that is a set of
+ * controls says so with `role="toolbar"`, the one role a bar may take.
+ */
 const ToolPaneBar = ({
   as = 'div',
   variant,
@@ -156,9 +170,17 @@ const ToolPaneBar = ({
   ...props
 }: Omit<React.ComponentProps<'div'>, 'role'> & {
   as?: 'div' | 'form'
-  variant: 'terminal' | 'address' | 'find' | 'annotate'
+  variant: 'terminal' | 'address' | 'find' | 'annotate' | 'tools'
+  role?: 'toolbar'
 }) => {
-  const height = variant === 'terminal' ? 'h-(--hd-control-h)' : variant === 'address' ? 'h-10' : 'h-9'
+  const height =
+    variant === 'terminal'
+      ? 'h-(--hd-control-h)'
+      : variant === 'address'
+        ? 'h-10'
+        : variant === 'tools'
+          ? 'min-h-9 flex-wrap gap-y-1 py-0.5'
+          : 'h-9'
   return React.createElement(as, {
     ...props,
     'data-slot': 'tool-pane-bar',
@@ -233,7 +255,7 @@ const ToolPaneEmptyState = ({
     )}
   >
     {icon != null && <span className="inline-grid place-items-center text-(--hd-border-emphasis)">{icon}</span>}
-    <Text role="value" ink="secondary">{title}</Text>
+    <Text role="prose" ink="secondary">{title}</Text>
     {description != null && <Text as="p" role="muted" ink="muted" className="m-0 max-w-[40ch]">{description}</Text>}
   </div>
 )
@@ -299,7 +321,8 @@ const ToolPaneDocumentTab = ({ className, ...props }: React.ComponentProps<'span
       'flex h-(--hd-control-h) shrink-0 cursor-pointer items-center gap-1.5 rounded-(--hd-radius-sm) py-0 pr-1 pl-2 text-base leading-(--hd-line) whitespace-nowrap text-(--hd-secondary-foreground)',
       'hover:bg-(--hd-hover) hover:text-(--hd-foreground)',
       'data-[active]:bg-(--hd-muted) data-[active]:text-(--hd-foreground) data-[active]:shadow-[inset_0_0_0_1px_var(--hd-border)]',
-      'data-[dragging]:opacity-40 data-[drop]:shadow-[inset_2px_0_0_var(--hd-accent)]',
+      // A tab in a strip the person orders draws its move the way every sortable item does.
+      sortableItemClass('horizontal'),
       className,
     )}
     {...props}

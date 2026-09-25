@@ -165,6 +165,12 @@ const button = (text: string): HTMLButtonElement => {
   return found
 }
 
+/** The stop dialog's reason, found by the label a person reads rather than by its markup. */
+const whyField = (): HTMLInputElement | null => {
+  const label = [...document.querySelectorAll('label')].find((one) => one.textContent === 'Why it is stopped')
+  return label ? (document.getElementById(label.htmlFor) as HTMLInputElement | null) : null
+}
+
 it('columns are what is known about the work, so no card has to repeat its own', async () => {
   const { store } = rig([
     intent({ id: 1, state: 'open' }),
@@ -310,7 +316,7 @@ it('stopping a card asks why before it stops anything', async () => {
 
   // Nothing has happened yet — the question is the point.
   expect(store.teamIntent).not.toHaveBeenCalled()
-  const why = document.querySelector<HTMLInputElement>('input[aria-label="Why it is stopped"]')
+  const why = whyField()
   if (!why) throw new Error('nobody was asked why')
   act(() => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
@@ -341,7 +347,7 @@ it('cancelling the question leaves the card where it was', async () => {
   await act(async () => {})
 
   expect(store.teamIntent).not.toHaveBeenCalled()
-  expect(document.querySelector('input[aria-label="Why it is stopped"]')).toBeNull()
+  expect(whyField()).toBeNull()
   expect(column('To do').textContent).toContain('Migrate auth callers')
 })
 
@@ -350,7 +356,7 @@ it('offers the same stop from the card’s own menu', async () => {
   await render(store)
 
   await pick(1, 'Stop it — say why')
-  expect(document.querySelector('input[aria-label="Why it is stopped"]')).not.toBeNull()
+  expect(whyField()).not.toBeNull()
   expect(store.teamIntent).not.toHaveBeenCalled()
 })
 
@@ -551,6 +557,10 @@ it('draws the conversation’s title beside the holder without a tooltip of its 
   expect([...holder.querySelectorAll('span')].some((one) => one.textContent === 'API migration')).toBe(true)
   const tooltips = [holder, ...holder.querySelectorAll('*')].filter((one) => one.hasAttribute('title'))
   expect(tooltips.map((one) => one.getAttribute('title'))).toEqual([])
+  // Who holds the card is its key fact: named in a row's name role, the
+  // title beside it in meta.
+  expect(holder.querySelector('[data-slot="text"][data-role="row"]')?.textContent).toBe('Gemini')
+  expect(holder.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('API migration')
 })
 
 it('separates work waiting on its dependencies from work somebody stopped', async () => {

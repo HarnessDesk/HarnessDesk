@@ -409,6 +409,10 @@ it('a recipient that cannot reach the tools is said before the send — and hone
      person sending something that would have worked. */
   expect(container.textContent).toContain('Gemini will read this, but cannot claim work')
   expect(send().disabled).toBe(false)
+  // A warning, said as a sentence in the tail's voice: prose, the warning tone.
+  const notice = container.querySelector('[data-slot="room-composer-notice"]')
+  const words = notice?.querySelector('[data-slot="text"][data-role="prose"][data-tone="warning"]')
+  expect(words?.textContent).toContain('cannot claim work')
 })
 
 it('board-only stops the agents, not the person', () => {

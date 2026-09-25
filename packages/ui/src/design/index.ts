@@ -79,6 +79,7 @@ export {
   LibraryReachMark,
   DetailMark,
   PageDescription,
+  RowInput,
   RowMark,
   RowValue,
   SectionToggle,
@@ -136,16 +137,6 @@ export {
   type TurnWorkState,
 } from './patterns/TurnWork'
 export {
-  GitHistoryActionBar,
-  GitHistoryFilters,
-  GitHistoryTableHeader,
-  GitHistoryCommitDetail,
-  GitHistoryCommitDetailHeader,
-  GitHistoryCommitFileList,
-  GitHistoryDiffViewport,
-  GitHistoryInlinePatch,
-} from './patterns/GitHistory'
-export {
   ApprovalChoiceHint,
   ApprovalCode,
   ApprovalDialog,
@@ -192,18 +183,15 @@ export {
 export {
   MessageQueueActions,
   MessageQueueFrame,
-  MessageQueueGrip,
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
 } from './patterns/MessageQueue'
 export * from './ui'
 export {
   ChannelMessage,
   ChannelNotice,
   ChannelSignal,
-  type ChannelDensity,
   type ChannelMessageProps,
   type ChannelState,
 } from './patterns/ChannelMessage'

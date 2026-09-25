@@ -91,6 +91,9 @@ WorkbenchRail.displayName = 'WorkbenchRail'
  *
  * `corner` puts the head below the band the native window buttons sit in,
  * for a rail that owns the window's top-left corner with no bar of its own.
+ * `ruled` is for a head that sits directly under a bar's rule — a pane's
+ * own rail, under the pane's header — and opens with the same short step it
+ * closes with, so its first row's ground never meets the line.
  */
 export const RailSection = forwardRef<
   HTMLDivElement,
@@ -98,9 +101,10 @@ export const RailSection = forwardRef<
     stretch: 'head' | 'list'
     density?: 'compact' | 'comfortable'
     corner?: boolean
+    ruled?: boolean
     as?: 'div' | 'nav'
   }
->(({ stretch, density = 'compact', corner = false, as = 'div', className, ...props }, ref) => {
+>(({ stretch, density = 'compact', corner = false, ruled = false, as = 'div', className, ...props }, ref) => {
   const Component = as
   const compact = density === 'compact'
   return (
@@ -109,9 +113,11 @@ export const RailSection = forwardRef<
       data-slot="rail-section"
       data-stretch={stretch}
       data-density={density}
+      {...(stretch === 'head' && ruled ? { 'data-ruled': '' } : {})}
       className={cn(
         compact ? 'px-(--hd-bar-pad)' : 'px-3',
         stretch === 'head' && corner && 'pt-(--hd-titlebar-height)',
+        stretch === 'head' && ruled && !corner && (compact ? 'pt-(--hd-space-1)' : 'pt-2'),
         stretch === 'head' && (compact ? 'pb-(--hd-space-1)' : 'pb-2'),
         stretch === 'list' && (compact ? 'pt-(--hd-space-0-5)' : 'pt-1.5'),
         stretch === 'list' && 'pb-3',

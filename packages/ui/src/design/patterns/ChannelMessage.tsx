@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { BrandMark } from '../../components/BrandIcons'
 import type { Brand } from '../../lib/brands'
-import { Avatar, AvatarFallback } from '../ui/avatar'
-import { Badge } from '../ui/badge'
 import { Button } from '../ui/button'
-import { CodeText } from './Settings'
+import { IconTile } from '../ui/icon-tile'
+import type { Tone } from '../ui/tone'
+import { Chip, CodeText, MetaList, Monogram, Text } from './Settings'
+import { TurnItem } from './TurnWork'
 
 /**
  * One line in the team channel, said the way a person reads a conversation.
@@ -41,76 +42,41 @@ import { CodeText } from './Settings'
  *                               making the reader scroll past a duplicate.
  *
  * ---------------------------------------------------------------------------
- * Two densities, one implementation
+ * One density, and the transcript's parts
  *
- * The same channel is read in two places that are not the same size, and a
- * chat log wants a different shape in each. In the 360px Team panel it is a
- * glance: a 24px mark, 13px type, and the delivery state floated right so a
- * long name cannot push it off. In the room pane it is *the conversation* and
- * it should read like every chat window the reader has ever used: a 36px mark,
- * 14px body, the name and the time in one run at the left, and a highlight
- * under the row the pointer is on.
+ * The channel used to be read in two places — a 360px Team panel and the room
+ * — and carried a density for each. The panel is gone; the room is where the
+ * channel is *the conversation*, one keystroke from an agent's own transcript,
+ * so it reads the way that transcript does and is built from the same parts:
  *
- * That highlight used to reach both edges of the pane, because the room's
- * stream was full width. It is not any more: the room reads in `--hd-column`,
- * the same 736px an agent's transcript is set in, because the two sit one
- * keystroke apart and a group chat that ran its lines 40% wider than the
- * conversation beside it was the first thing anyone noticed about the pair.
- * The measure is the caller's — `TeamRoomPane.module.css` — and what is here
- * is only the row's own gutter inside it.
+ *   The rhythm        each row is a transcript item (`TurnItem`); a grouped
+ *                     message and a board event are its light register, a
+ *                     line rather than a card.
+ *   The face          the room's identity tile (`IconTile`), on the sender's
+ *                     tint — the tile the rail and the board draw the same
+ *                     member in — with a `Monogram` when there is no mark.
+ *   The words         `Text` roles: the name is the subject, the attribution
+ *                     is a `MetaList` of facts, an aside is meta.
+ *   The trouble       a `Chip` in the tone the trouble is (usage.ts, `tone`).
+ *   The quiet verbs   "Show more" and "Envelope" are the muted button.
  *
- * The differences are declared once, in `DENSITY` below, rather than sprinkled
- * as ternaries — because the moment they are sprinkled the two stop agreeing
- * about anything but the parts someone remembered to change.
+ * The measure is the caller's — `TeamRoomPane.module.css` sets it to
+ * `--hd-column`, the transcript's — and the rows sit on its edges the way the
+ * transcript's items do.
  *
- * Built from the shadcn layer (Avatar, Badge, Button) with Tailwind
- * utilities that resolve to the system's tokens — there is no stylesheet
- * beside this file. Presentation only — no store, no transport. The panel
- * hands it the entry and the verbs; whether a delivery can be released is
- * the host's business.
+ * What stays here is what only a channel has: the clamp that folds a long
+ * message, and the grid that keeps every row's words on one line after the
+ * face column. Presentation only — no store, no transport. The room hands it
+ * the entry and the verbs; whether a delivery can be released is the host's
+ * business.
  */
 
 export type ChannelState = 'delivered' | 'queued' | 'held' | 'refused' | 'shown'
 
-/** A glance in a 360px panel, or the conversation itself in a pane. */
-export type ChannelDensity = 'panel' | 'room'
-
-const DENSITY = {
-  panel: {
-    row: 'grid-cols-[24px_1fr] gap-2 rounded-lg px-2 py-1.5 hover:bg-accent/50',
-    avatar: 'size-6',
-    mark: 14,
-    initials: 'text-(length:--hd-text-xs)',
-    /* The grouped row's own moment, in the gutter the face would be in. */
-    stampAlign: 'justify-center',
-    stamp: 'pt-0.5 text-(length:--hd-text-xs) leading-4',
-    name: 'text-sm',
-    body: 'text-sm',
-    /* About eight lines at this size; the "Show more" below opens the rest. */
-    clamp: 'max-h-40',
-    /* Floated right: at 360px a name and a time on one line is a wrap. */
-    stampInline: false,
-    signalRail: 'mr-2 w-6',
-    signalPad: 'py-0.5 pr-2',
-    signalInline: false,
-  },
-  room: {
-    row: 'grid-cols-[36px_1fr] gap-3 px-4 py-1 hover:bg-(--hd-muted)/70',
-    avatar: 'size-9',
-    mark: 20,
-    initials: 'text-xs',
-    stampAlign: 'justify-end',
-    stamp: 'pt-1.5 text-xs leading-4',
-    name: 'text-base',
-    body: 'text-base',
-    clamp: 'max-h-48',
-    /* One run at the left, the way a chat window has always read. */
-    stampInline: true,
-    signalRail: 'mr-3 w-9',
-    signalPad: 'py-0.5 px-4 hover:bg-(--hd-muted)/70',
-    signalInline: true,
-  },
-} as const
+/** The face column, which every row keeps open so its words start on one line. */
+const FACE = 'grid-cols-[32px_1fr] gap-3'
+/** The same column, held open by a row with no face — a board event, a notice. */
+const SPINE = 'mr-3 w-8 flex-none'
 
 export type ChannelMessageProps = {
   /** The sender's display name — "You", or the conversation and its agent. */
@@ -125,7 +91,7 @@ export type ChannelMessageProps = {
    * A node rather than a URL for the reason `identify` is a render prop: this
    * pattern knows nothing about the app, and whose face it is — and what an
    * unchosen one looks like — are the app's to answer. It fills the tile, so
-   * it takes the tile's size and corner at either density.
+   * it takes the tile's size and corner.
    */
   readonly face?: ReactNode
   /** Which of the five identity tints this sender holds on this board. */
@@ -204,8 +170,6 @@ export type ChannelMessageProps = {
   readonly envelope?: string
   /** Same sender, moments ago: keep the body, drop the header. */
   readonly grouped?: boolean
-  /** The panel's glance, or the room's conversation. See `DENSITY`. */
-  readonly density?: ChannelDensity
   readonly onDeliver?: () => void
 }
 
@@ -217,21 +181,18 @@ const INITIALS = (name: string): string =>
     .join('')
     .toUpperCase()
 
-/** The identity tints, as the fill/ink pairs the token layer declares. */
-const TINT: Record<NonNullable<ChannelMessageProps['tint']>, string> = {
-  blue: 'bg-(--hd-tint-blue-fill) text-(--hd-tint-blue-ink)',
-  green: 'bg-(--hd-tint-green-fill) text-(--hd-tint-green-ink)',
-  amber: 'bg-(--hd-tint-amber-fill) text-(--hd-tint-amber-ink)',
-  violet: 'bg-(--hd-tint-violet-fill) text-(--hd-tint-violet-ink)',
-  rose: 'bg-(--hd-tint-rose-fill) text-(--hd-tint-rose-ink)',
-  teal: 'bg-(--hd-tint-teal-fill) text-(--hd-tint-teal-ink)',
+/**
+ * What a delivery's trouble is, in the tone it is (usage.ts, family `tone`):
+ * a refusal is broken until someone sends it differently, a held message
+ * waits on a person to release it, and a queued one only on a turn ending.
+ */
+const TROUBLE_TONE: Readonly<Record<string, Tone>> = {
+  refused: 'danger',
+  held: 'warning',
+  queued: 'neutral',
 }
 
-const TROUBLE: Record<string, string> = {
-  refused: 'bg-(--hd-tint-rose-fill) text-(--hd-tint-rose-ink)',
-  held: 'bg-(--hd-tint-amber-fill) text-(--hd-tint-amber-ink)',
-  queued: 'bg-muted text-muted-foreground',
-}
+const troubleTone = (state: string): Tone => TROUBLE_TONE[state] ?? 'neutral'
 
 export const ChannelMessage = ({
   from,
@@ -249,7 +210,6 @@ export const ChannelMessage = ({
   refusedFirst,
   envelope,
   grouped = false,
-  density = 'panel',
   onDeliver,
 }: ChannelMessageProps) => {
   const [expanded, setExpanded] = useState(false)
@@ -283,7 +243,6 @@ export const ChannelMessage = ({
     for (const child of node.children) observer.observe(child)
     return () => observer.disconnect()
   }, [text, body, expanded])
-  const size = DENSITY[density]
   /* Identity, where the surface offered one. `identify` is called rather than
      spread over a wrapper element so a caller that has nothing to say adds no
      node at all — a bare `<span>` around the face would change the grid. */
@@ -305,93 +264,88 @@ export const ChannelMessage = ({
     state === 'delivered' ? 'delivered' : state === 'shown' ? 'in the room' : null
 
   return (
-    <div
-      className={`group grid ${size.row} data-[grouped]:py-0`}
+    <TurnItem
+      {...(grouped ? { register: 'light' as const } : {})}
+      /* Grouped, the gutter holds a time rather than a face, and it sits on
+         the first line of the words beside it rather than at the row's top. */
+      className={`group grid ${FACE} data-[grouped]:items-baseline`}
+      data-channel="message"
       data-grouped={grouped ? '' : undefined}
       data-state={state}
-      data-density={density}
     >
-      <div className={`flex ${grouped ? size.stampAlign : 'justify-center'}`}>
+      <div className={`flex ${grouped ? 'justify-end' : 'justify-center'}`}>
         {grouped ? (
           // The grouped row's own moment, offered on hover or focus where
           // the face would be — the way a chat app answers "when exactly?".
           // Faded, never hidden: opacity keeps the time in the
           // accessibility tree, so a screen reader hears it whether or not
           // a pointer ever passes.
-          <span
-            className={`${size.stamp} text-muted-foreground tabular-nums opacity-0 select-none group-hover:opacity-100 group-focus-within:opacity-100`}
+          <Text
+            role="meta"
+            numeric
+            className="whitespace-nowrap opacity-0 select-none group-hover:opacity-100 group-focus-within:opacity-100"
           >
             {at}
-          </span>
+          </Text>
         ) : (
-          // The face is decoration — the header says who spoke in words.
-          <Avatar aria-hidden="true" className={face ? size.avatar : `${size.avatar} ${TINT[tint]}`}>
-            {face ?? (
-              <AvatarFallback className={`bg-transparent ${size.initials} ${TINT[tint]}`}>
-                {brand ? <BrandMark brand={brand} size={size.mark} /> : INITIALS(from)}
-              </AvatarFallback>
-            )}
-          </Avatar>
+          // The face is decoration — the header says who spoke in words. A
+          // picture brings its own plate, so the tint is not painted under it.
+          face ? (
+            <IconTile aria-hidden="true" tone="neutral">{face}</IconTile>
+          ) : (
+            <IconTile aria-hidden="true" tint={tint}>
+              {brand ? <BrandMark brand={brand} size={16} /> : <Monogram>{INITIALS(from)}</Monogram>}
+            </IconTile>
+          )
         )}
       </div>
 
       <div className="min-w-0">
         {!grouped && (
           <div className="mb-px flex items-baseline gap-1.5">
-            {wrap(
-              <span className={`truncate ${size.name} font-semibold text-foreground`}>{from}</span>,
-            )}
+            {wrap(<Text role="subject" truncate>{from}</Text>)}
             {/* `min-w-0`, or `truncate` is decoration: a flex item will not
                 shrink below its content without it, and a recipient list of
                 138 names ran off the row and gave the channel a scrollbar. */}
             {to && (
-              <span className="min-w-0 truncate text-xs text-muted-foreground" title={`to ${to}`}>
+              <Text role="meta" truncate className="min-w-0" title={`to ${to}`}>
                 to {to}
-              </span>
+              </Text>
             )}
-            {/* The room reads the attribution as one run — name, who it went
-                to, when, and how it went — because that is the line every chat
-                window has. The panel floats the time and the state right,
-                where 360px cannot afford the wrap. */}
-            <span
-              className={`flex items-baseline gap-1.5 text-xs text-muted-foreground tabular-nums ${
-                size.stampInline ? 'min-w-0' : 'ml-auto flex-none'
-              }`}
-            >
-              {size.stampInline ? (
-                <>
-                  <span>{at}</span>
-                  {whisper && <span aria-hidden>&middot;</span>}
-                  {whisper && <span>{whisper}</span>}
-                </>
-              ) : (
-                <>
-                  {whisper && <span>{whisper}</span>}
-                  <span>{at}</span>
-                </>
-              )}
-            </span>
+            {/* The attribution is one run — name, who it went to, when, and
+                how it went — because that is the line every chat window has.
+                In a narrow room it wraps a whole fact at a time, never "04:54"
+                on one line and "AM" on the next. */}
+            <MetaList className="min-w-0 whitespace-nowrap">
+              <span>{at}</span>
+              {whisper && <span>{whisper}</span>}
+            </MetaList>
           </div>
         )}
 
-        {/* `body` when the app gave one, the words themselves otherwise.
+        {/* `body` when the app gave one, the words themselves otherwise, at
+            the document's own reading size — the rendered body sets its own.
 
             Clamped by height rather than `line-clamp`: line clamping needs
             `display: -webkit-box`, which flattens the very blocks — lists,
-            fences, quotes — that a rendered body is made of. */}
+            fences, quotes — that a rendered body is made of. About eight lines;
+            the "Show more" below opens the rest. */}
         <div
           ref={bodyRef}
-          className={`${size.body} break-words text-foreground ${
-            body ? '' : 'whitespace-pre-wrap'
-          } ${expanded ? '' : `${size.clamp} overflow-hidden`}`}
+          data-slot="channel-body"
+          className={`break-words ${body ? '' : 'whitespace-pre-wrap'} ${
+            expanded ? '' : 'max-h-48 overflow-hidden'
+          }`}
         >
           {body ?? text}
         </div>
         {(overflows || expanded) && (
-          <Button variant="ghost" size="sm"
+          <Button
+            variant="muted"
+            size="xs"
             type="button"
             data-slot="channel-more"
-            className="mt-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+            className="mt-1"
             onClick={() => setExpanded((on) => !on)}
           >
             {expanded ? 'Show less' : 'Show more'}
@@ -405,13 +359,11 @@ export const ChannelMessage = ({
                 key={`${outcome.state}-${outcome.reason ?? ''}`}
                 className="flex items-center gap-1.5"
               >
-                <Badge className={`border-transparent ${TROUBLE[outcome.state] ?? 'bg-muted text-muted-foreground'}`}>
-                  {outcome.state}
-                </Badge>
-                <span className="text-xs text-muted-foreground">
+                <Chip tone={troubleTone(outcome.state)}>{outcome.state}</Chip>
+                <Text role="meta">
                   {outcome.names.join(', ')}
                   {outcome.reason ? ` — ${outcome.reason}` : ''}
-                </span>
+                </Text>
               </span>
             ))}
           </div>
@@ -419,11 +371,11 @@ export const ChannelMessage = ({
 
         {(state === 'held' || state === 'refused' || state === 'queued') && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge className={`border-transparent ${TROUBLE[state]}`}>{state}</Badge>
+            <Chip tone={troubleTone(state)}>{state}</Chip>
             {reason && (
-              <span className="min-w-0 flex-1 basis-48 text-xs text-muted-foreground">
+              <Text role="meta" className="min-w-0 flex-1 basis-48">
                 {reason}
-              </span>
+              </Text>
             )}
             {state === 'held' && onDeliver && (
               <Button variant="outline" size="sm" onClick={onDeliver}>
@@ -434,9 +386,9 @@ export const ChannelMessage = ({
         )}
 
         {refusedFirst && (
-          <p className="mt-1 text-xs text-muted-foreground">
+          <Text as="p" role="meta" className="mt-1">
             First attempt refused — {refusedFirst}
-          </p>
+          </Text>
         )}
 
         {envelope && (
@@ -444,15 +396,14 @@ export const ChannelMessage = ({
             {/* The exact envelope is a diagnostic, not part of reading the
                 message, so the room holds it back until the pointer or the
                 keyboard arrives — opacity, never `hidden`, so it stays in the
-                accessibility tree and stays tabbable. The panel is already a
-                diagnostic surface and keeps it up. */}
-            <Button variant="ghost" size="sm"
+                accessibility tree and stays tabbable. */}
+            <Button
+              variant="muted"
+              size="xs"
               type="button"
               data-slot="channel-peek"
-              className={`mt-1 text-xs text-muted-foreground hover:text-foreground hover:underline ${
-                density === 'room' && !peeking
-                  ? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
-                  : ''
+              className={`mt-1 ${
+                peeking ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
               }`}
               aria-expanded={peeking}
               onClick={() => setPeeking((on) => !on)}
@@ -467,7 +418,7 @@ export const ChannelMessage = ({
           </>
         )}
       </div>
-    </div>
+    </TurnItem>
   )
 }
 ChannelMessage.displayName = 'ChannelMessage'
@@ -475,64 +426,56 @@ ChannelMessage.displayName = 'ChannelMessage'
 /**
  * A board event — claimed, completed, released. The spine the messages hang
  * off: one line, quiet, never a slab, because thirty of them is a normal
- * afternoon and they are read as a sequence rather than one at a time.
+ * afternoon and they are read as a sequence rather than one at a time. The
+ * transcript's light register, like a step inside a turn's work.
  */
 export const ChannelSignal = ({
   by,
   said,
   at,
-  density = 'panel',
 }: {
   readonly by: string
   /** The whole sentence after the actor — "claimed #1 — verify never builds…". */
   readonly said: string
   readonly at: string
-  readonly density?: ChannelDensity
 }) => (
-  <div className={`flex items-baseline ${DENSITY[density].signalPad}`}>
-    {/* The rail holds the avatar column open so a signal's sentence starts on
-        the same line as a message's name — which is why it takes the density
-        with it. Nothing is drawn in it: the alignment is the spine, and a dash
-        here read as an artifact rather than a thread. */}
-    <span className={`${DENSITY[density].signalRail} flex-none`} aria-hidden />
-    <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-      <span className="font-medium">{by}</span> {said}
-      {/* The room's messages carry their time inline, so a signal that kept a
-          right-hand column would be the only thing left on that edge — and
-          these sentences wrap, which put the time beside the *first* line of a
-          three-line signal. At the end of the sentence it is where the reader
-          finishes reading. */}
-      {DENSITY[density].signalInline && (
-        <span className="ml-1.5 tabular-nums whitespace-nowrap">{at}</span>
-      )}
-    </span>
-    {!DENSITY[density].signalInline && (
-      <span className="ml-1.5 flex-none text-xs text-muted-foreground tabular-nums">{at}</span>
-    )}
-  </div>
+  <TurnItem register="light" data-channel="signal" className="flex items-baseline">
+    {/* The spine holds the face column open so a signal's sentence starts on
+        the same line as a message's name. Nothing is drawn in it: the
+        alignment is the spine, and a dash here read as an artifact rather
+        than a thread. */}
+    <span className={SPINE} aria-hidden />
+    <Text role="meta" className="min-w-0 flex-1">
+      <Text role="meta" ink="secondary">{by}</Text> {said}
+      {/* At the end of the sentence, where the reader finishes reading:
+          these sentences wrap, and a right-hand column put the time beside
+          the *first* line of a three-line signal. */}
+      <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
+    </Text>
+  </TurnItem>
 )
 ChannelSignal.displayName = 'ChannelSignal'
 
 /**
- * What each cause is called where a person reads it, and how it is tinted.
+ * What each cause is called where a person reads it, and its tone.
  *
- * Amber for a limit: it is nobody's mistake and it comes back on its own.
- * Rose for a sign-in that lapsed, which somebody has to go and fix.
+ * A usage limit is a wait the person must act on or sit out; a sign-in that
+ * lapsed is broken until somebody goes and fixes it.
  */
 const CAUSE = {
-  limit: { word: 'usage limit', chip: 'bg-(--hd-tint-amber-fill) text-(--hd-tint-amber-ink)' },
-  auth: { word: 'signed out', chip: 'bg-(--hd-tint-rose-fill) text-(--hd-tint-rose-ink)' },
-  stopped: { word: 'stopped', chip: 'bg-muted text-muted-foreground' },
+  limit: { word: 'usage limit', tone: 'warning' },
+  auth: { word: 'signed out', tone: 'danger' },
+  stopped: { word: 'stopped', tone: 'neutral' },
   /* Not a failure and not the agent's fault: the conversation is not in that
-     agent's history any more, so there is nothing left to address. Quiet ink,
+     agent's history any more, so there is nothing left to address. Neutral,
      because the row is a fact about the roster rather than something to fix. */
-  gone: { word: 'left the room', chip: 'bg-muted text-muted-foreground' },
-} as const
+  gone: { word: 'left the room', tone: 'neutral' },
+} as const satisfies Record<string, { word: string; tone: Tone }>
 
 /**
  * A row about a member rather than from one: its turn ended without an answer.
  *
- * Shaped like a signal — the same rail, the same aside voice — because it is
+ * Shaped like a signal — the same spine, the same aside voice — because it is
  * the room narrating rather than somebody speaking. It carries a chip, though,
  * because the difference between "still reading" and "ran out of its window
  * forty minutes ago" is the whole reason the row exists, and a grey sentence
@@ -543,30 +486,23 @@ export const ChannelNotice = ({
   cause,
   text,
   at,
-  density = 'panel',
 }: {
   readonly about: string
   readonly cause: 'limit' | 'auth' | 'stopped' | 'gone'
   /** The runtime's own words. */
   readonly text: string
   readonly at: string
-  readonly density?: ChannelDensity
 }) => (
-  <div className={`flex items-baseline ${DENSITY[density].signalPad}`}>
-    <span className={`${DENSITY[density].signalRail} flex-none`} aria-hidden />
-    <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-      <Badge className={`mr-1.5 border-transparent align-baseline ${CAUSE[cause].chip}`}>
+  <TurnItem register="light" data-channel="notice" className="flex items-baseline">
+    <span className={SPINE} aria-hidden />
+    <Text role="meta" className="min-w-0 flex-1">
+      <Chip tone={CAUSE[cause].tone} className="mr-1.5 align-baseline">
         {CAUSE[cause].word}
-      </Badge>
-      <span className="font-medium">{about}</span> {text}
-      {DENSITY[density].signalInline && (
-        <span className="ml-1.5 tabular-nums whitespace-nowrap">{at}</span>
-      )}
-    </span>
-    {!DENSITY[density].signalInline && (
-      <span className="ml-1.5 flex-none text-xs text-muted-foreground tabular-nums">{at}</span>
-    )}
-  </div>
+      </Chip>
+      <Text role="meta" ink="secondary">{about}</Text> {text}
+      <Text role="meta" numeric className="ml-1.5 whitespace-nowrap">{at}</Text>
+    </Text>
+  </TurnItem>
 )
 
 ChannelNotice.displayName = 'ChannelNotice'

@@ -64,6 +64,8 @@ const IconTile = ({ className, size, shape, tone, tint, color, style, ...props }
   <span
     data-slot="icon-tile"
     {...(color ? { 'data-color': '' } : {})}
+    {...(tint ? { 'data-tint': tint } : {})}
+    {...(!color && !tint ? { 'data-tone': tone ?? 'neutral' } : {})}
     className={cn(
       tileVariants({ size, shape }),
       color

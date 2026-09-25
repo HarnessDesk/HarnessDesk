@@ -56,7 +56,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   alert: 'packages/ui/src/components/WorktreeAlerts.tsx',
-  badge: 'packages/ui/src/components/Channel.tsx',
+  badge: 'packages/ui/src/components/GitPane.tsx',
   board: 'packages/ui/src/components/TeamBoardPane.tsx',
   bar: 'packages/ui/src/components/Sidebar.tsx',
   button: 'packages/ui/src/components/SignIn.tsx',
@@ -73,13 +73,14 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'hover-card': 'packages/ui/src/components/AgentCards.tsx',
   'icon-tile': 'packages/ui/src/components/SkillSheet.tsx',
   input: 'packages/ui/src/components/SignIn.tsx',
-  label: 'packages/ui/src/components/Library.tsx',
+  label: 'packages/ui/src/components/Settings.tsx',
   'list-row': 'packages/ui/src/components/TeamRoomPane.tsx',
   'native-select': 'packages/ui/src/components/PluginsSection.tsx',
   popover: 'packages/ui/src/components/ComposerControls.tsx',
   'radio-group': 'packages/ui/src/components/AddMember.tsx',
   'resize-handle': 'packages/ui/src/components/Panes.tsx',
   separator: 'packages/ui/src/components/Channel.tsx',
+  'sortable-list': 'packages/ui/src/components/MessageQueue.tsx',
   spark: 'packages/ui/src/components/Usage.tsx',
   switch: 'packages/ui/src/components/PluginsSection.tsx',
   tabs: 'packages/ui/src/components/Extensions.tsx',
@@ -97,6 +98,8 @@ const MODULE_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      in for every feature — so the handle was documented against a drawing of
      the thing it drags. */
   'resize-handle': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  /* Its example is the queue's own rows, which are a sortable list. */
+  'sortable-list': 'packages/ui/src/design/explorer/boards.tsx',
   /* The catalogue's own rail heads its groups with it. */
   'group-label': 'packages/ui/src/design/explorer/Explorer.tsx',
   badge: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -121,11 +124,11 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'breadcrumb', 'card', 'chart', 'checkbox', 'composer',
   'data-table', 'delta', 'dialog', 'disclosure-chevron', 'dropdown-menu', 'empty-state', 'field', 'group-label',
   'hover-card', 'key-value', 'label', 'list-row', 'popover', 'progress',
-  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator',
+  'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
   'spark', 'stepper', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'MessageQueue', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
-  'InspectorPanel', 'ConversationEmptyState', 'GitHistory', 'TurnWork',
+  'InspectorPanel', 'ConversationEmptyState', 'TurnWork',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -174,6 +177,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   section: ['card', 'plain', 'quiet', 'panel', 'page'],
   select: ['default'],
   separator: ['horizontal', 'vertical'],
+  'sortable-list': ['default'],
   bar: ['default'],
   spark: ['default'],
   stat: ['plain', 'bordered', 'tinted'],
@@ -209,7 +213,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
   ConversationEmptyState: ['default'],
-  GitHistory: ['default'],
   TurnWork: ['default'],
 }
 
@@ -254,6 +257,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   section: ['expanded', 'collapsed'],
   select: ['closed', 'open', 'selected', 'disabled'],
   separator: ['default'],
+  'sortable-list': ['default', 'hover', 'focus-visible', 'active'],
   bar: ['default'],
   spark: ['default', 'success', 'warning', 'error'],
   stat: ['default', 'loading', 'error'],
@@ -289,7 +293,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
   ConversationEmptyState: ['empty'],
-  GitHistory: ['default', 'selected', 'expanded'],
   TurnWork: ['default', 'expanded'],
 }
 
@@ -332,7 +335,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   RefusedAction: 'packages/ui/src/components/Archive.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
-  GitHistory: 'packages/ui/src/components/GitPane.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
@@ -358,7 +360,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ConversationEmptyState: 'packages/ui/src/components/Conversation.tsx',
-  GitHistory: 'packages/ui/src/components/GitPane.tsx',
   TurnWork: 'packages/ui/src/components/TurnWork.tsx',
 }
 
@@ -412,7 +413,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
 export const CANONICAL_UI_MODULES = [
   ['alert', 'banner', 'Status and notification anatomy'],
   ['alert-dialog', 'dialog', 'Consequential question semantics'],
-  ['avatar', 'face', 'Identity image primitive'],
+  ['avatar', 'list', 'Identity image primitive'],
   ['attachment', 'adopted', 'File attachment states'],
   ['avatar-stack', 'adopted', 'Overlapping identity group'],
   ['badge', 'badge', 'Compact categorical state'],
@@ -448,6 +449,7 @@ export const CANONICAL_UI_MODULES = [
   ['section', 'section', 'Titled content region, and the page section that owns its spacing'],
   ['select', 'adopted', 'Custom Base UI select'],
   ['separator', 'adopted', 'Semantic divider'],
+  ['sortable-list', 'queue', 'Orders the person sets: drag handle, ⌥↑/⌥↓ (⌥←/⌥→ on a strip), announced moves'],
   ['bar', 'panels', 'Bar-height row: title bars, filter rows, facts lines'],
   ['spark', 'spark', 'Inline quantitative marks'],
   ['stat', 'stat', 'Primary reading tile'],
@@ -485,7 +487,6 @@ export const CANONICAL_PATTERN_MODULES = [
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
   ['ConversationEmptyState', 'conversation', 'Conversation empty-state anatomy'],
-  ['GitHistory', 'git', 'Repository history controls and detail anatomy'],
   ['TurnWork', 'conversation', 'Turn work header and disclosure anatomy'],
 ] as const satisfies readonly ModuleSeed[]
 

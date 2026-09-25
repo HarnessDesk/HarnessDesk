@@ -2,7 +2,7 @@ import { useState, type JSX } from 'react'
 
 import type { AgentItem } from '@harnessdesk/protocol'
 
-import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, GripIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
+import { AlertIcon, BranchIcon, CheckIcon, CrossIcon, FolderIcon, PluginIcon, TerminalIcon } from '../../components/Icons'
 import { DiffView } from '../../components/Diff'
 import { ItemView } from '../../components/Items'
 import { Markdown } from '../../components/Markdown'
@@ -36,6 +36,7 @@ import {
   ApprovalMeta,
   ApprovalReason,
   ChannelMessage,
+  ChannelNotice,
   ChannelSignal,
   Chip,
   ChoiceList,
@@ -73,11 +74,9 @@ import {
   Monogram,
   MessageQueueActions,
   MessageQueueFrame,
-  MessageQueueGrip,
   MessageQueueHeader,
   MessageQueueList,
   MessageQueueRow,
-  MessageQueueTiming,
   NavigationGroupHeader,
   Note,
   NoteList,
@@ -97,6 +96,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
   stateTone,
+  SortableHandle,
+  useSortable,
 } from '..'
 import styles from './explorer.module.css'
 
@@ -656,6 +657,36 @@ const BannerBoard = () => (
   </>
 )
 
+/**
+ * The queue's rows are a sortable list: drag from the handle, or ⌥↑/⌥↓ from
+ * a row, and the move is announced. This owner answers at once; the app's
+ * queue answers when the host does.
+ */
+const QueueRows = () => {
+  const [ids, setIds] = useState(['Run the focused tests again', 'Then write the release note', 'Open a pull request'])
+  const sortable = useSortable({
+    ids,
+    name: (id) => `“${id}”`,
+    onMove: (id, to) => setIds((was) => {
+      const rest = was.filter((one) => one !== id)
+      return [...rest.slice(0, to), id, ...rest.slice(to)]
+    }),
+  })
+  return (
+    <MessageQueueList announcement={sortable.announcement} aria-label="Waiting messages" data-catalog-case="sortable-list">
+      {ids.map((id, index) => (
+        <MessageQueueRow key={id} {...sortable.row(id, index)}>
+          <SortableHandle {...sortable.handle(id)} />
+          <Text role="meta">{index + 1}</Text>
+          <Text role="navigation" className="min-w-0 flex-1 truncate">{id}</Text>
+          {index === 0 ? <Text role="meta" tone="brand">next</Text> : null}
+          <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
+        </MessageQueueRow>
+      ))}
+    </MessageQueueList>
+  )
+}
+
 const QueueBoard = () => (
   <>
     <div className={styles.stack}>
@@ -665,15 +696,7 @@ const QueueBoard = () => (
           <Text role="meta" ink="primary" className="flex-1">The turn did not finish. Two messages waiting.</Text>
           <Button variant="quiet" size="sm">Send now</Button>
         </MessageQueueHeader>
-        <MessageQueueList>
-          <MessageQueueRow>
-            <MessageQueueGrip><GripIcon size={12} /></MessageQueueGrip>
-            <Text role="meta">1</Text>
-            <Text role="navigation" className="min-w-0 flex-1 truncate">Run the focused tests again</Text>
-            <MessageQueueTiming tone="next">next</MessageQueueTiming>
-            <MessageQueueActions><Button variant="ghost" size="icon-sm" aria-label="Remove"><CrossIcon size={13} /></Button></MessageQueueActions>
-          </MessageQueueRow>
-        </MessageQueueList>
+        <QueueRows />
       </MessageQueueFrame>
       <PopoverSurface limit="trigger">
         <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
@@ -937,10 +960,8 @@ const DialogBoard = () => {
  * verdict — including the refusal the host issued when Cursor addressed a
  * conversation by a name nobody has.
  *
- * Shown at both densities, because the same channel is read in two places
- * that are not the same size: the 360px Team panel, where it is a glance, and
- * the room pane, where it *is* the conversation and should read like every
- * chat window the reader has ever used.
+ * One density: the channel is read in the room, where it *is* the
+ * conversation, and it is built from the transcript's own parts.
  */
 const ChannelBoard = () => (
   <div className={styles.stack}>
@@ -981,49 +1002,23 @@ const ChannelBoard = () => (
       </div>
     </Case>
 
-    <Case label="room density — the same channel, at the size it is the conversation">
-      <div className={styles.channelRoom}>
-        <ChannelSignal
-          by="You"
-          said="added #1 — verify never builds the renderer · script/verify.mjs"
-          at="03:29 PM"
-          density="room"
-        />
-        <ChannelSignal
-          by="Reviewer"
-          said="claimed #1 — verify never builds the renderer"
-          at="03:30 PM"
-          density="room"
+    <Case label="a notice, and a message with its envelope">
+      <div className={styles.channel}>
+        <ChannelNotice
+          about="Opus"
+          cause="limit"
+          text="You've hit your usage limit. It resets at 3:20 PM."
+          at="03:36 PM"
         />
         <ChannelMessage
           from="Builder"
           brand="cursor"
           tint="violet"
           to="Reviewer"
-          at="03:34 PM"
+          at="03:37 PM"
           state="delivered"
-          density="room"
           envelope={'Message from Builder — “Review the verify fix”\n\nThe verify fix looks right.'}
           text="The verify fix looks right — root build, then the suites. One thing: the fixture copy runs before the renderer build, so a changed fixture needs two runs to land."
-        />
-        <ChannelMessage
-          from="Reviewer"
-          brand="codex"
-          tint="green"
-          at="03:35 PM"
-          state="delivered"
-          density="room"
-          text="Understood — taking the CI parity point as the headline in the commit message."
-        />
-        <ChannelMessage
-          from="Reviewer"
-          brand="codex"
-          tint="green"
-          at="03:35 PM"
-          state="delivered"
-          grouped
-          density="room"
-          text="Nothing else is open on my side."
         />
       </div>
     </Case>
@@ -1064,15 +1059,13 @@ const ChannelBoard = () => (
     </Case>
 
     <p className={styles.rule}>
-      Two densities, one implementation. The panel is a glance in 360px: a 24px
-      mark, 13px type, and the time and delivery state floated right, where a
-      long name cannot push them off. The room is the conversation at full pane
-      width: a 36px mark, 14px body, and the attribution as one run at the left
-      &mdash; name, who it reached, when, and how it went &mdash; with a
-      full-bleed highlight under the row the pointer is on. Both come from one{' '}
-      <code>DENSITY</code> table in <code>ChannelMessage</code>; the envelope is
-      held back until the pointer or the keyboard arrives, because it is a
-      diagnostic rather than part of reading.
+      One density, and the transcript&rsquo;s parts. Each row is a transcript
+      item &mdash; a grouped message and a board event are its light register
+      &mdash; the face is the room&rsquo;s identity tile on the sender&rsquo;s
+      tint, the attribution is one run of facts at the left (name, who it
+      reached, when, and how it went), and trouble is a chip in the tone it is.
+      The envelope is held back until the pointer or the keyboard arrives,
+      because it is a diagnostic rather than part of reading.
     </p>
   </div>
 )

@@ -42,7 +42,7 @@ export const GoalReceipt = ({ receipt, insight, onOpenFinding }: GoalReceiptProp
       <Note tone="warn">{`${intakeStopWords(receipt.intake.stop.reason)} ${receipt.intake.stop.detail}`}</Note>
     )}
     <SectionHead name="What finished" />
-    <Text as="p" role="value">{receipt.summary}</Text>
+    <Text as="p" role="prose">{receipt.summary}</Text>
     <SectionHead name="Findings" />
     {!receipt.findings ? (
       <Text as="p" role="muted">Findings were not recorded.</Text>

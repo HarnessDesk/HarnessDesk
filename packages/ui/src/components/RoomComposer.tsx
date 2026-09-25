@@ -28,8 +28,8 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
-  Note,
   Text,
+  TurnWorkLive,
 } from '../design'
 import { BrandMark } from './BrandIcons'
 import { AgentIcon, SendIcon, TeamIcon } from './Icons'
@@ -487,6 +487,17 @@ export const RoomComposer = ({
     ).find((one): one is { readonly tone: 'warn' | 'muted'; readonly text: string } => one !== false) ?? null
 
   return (
+    <>
+    {/* What sending will do, said over the box rather than inside it, as one
+        more line of the room's tail: the transcript's live line, settled —
+        the same box, size and ink as who is working above it — so the tail
+        speaks in one voice and the box holds only the words and the ways to
+        send them. It changes only when the audience does. */}
+    {notice && (
+      <TurnWorkLive settled data-slot="room-composer-notice">
+        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
+      </TurnWorkLive>
+    )}
     <ComposerShell className="relative">
       {mention && (
         <TriggerMenu
@@ -542,12 +553,6 @@ export const RoomComposer = ({
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />
-
-      {notice && (
-        <Note className="px-3.5" {...(notice.tone === 'warn' ? { tone: 'warn' as const } : { ink: 'muted' as const })}>
-          {notice.text}
-        </Note>
-      )}
 
       <ComposerTools>
         <Popover
@@ -650,5 +655,6 @@ export const RoomComposer = ({
         </ComposerSend>
       </ComposerTools>
     </ComposerShell>
+    </>
   )
 }

@@ -307,6 +307,20 @@ it('lists its own seats, muted, where this Mac’s replace them', () => {
   expect(text).toContain('Not used on this Mac')
   expect(text).toContain('Free here')
   expect(text).toContain('Comes first over the one that ships')
+  // Muted, never withdrawn: each seat of the replaced list names itself in
+  // the muted ink, while this Mac's own list keeps the primary one.
+  const seats = container.querySelector('section[aria-label="Seats"]')
+  const names = [...(seats?.querySelectorAll('[data-slot="text"][data-role="row"]') ?? [])]
+  expect(names.length).toBeGreaterThan(0)
+  for (const name of names) expect(name.getAttribute('data-ink')).toBe('muted')
+})
+
+it('names its seats in the primary ink where they are the ones this Mac uses', () => {
+  mount({ focus: 'judge' })
+  const seats = container.querySelector('section[aria-label="Seats"]')
+  const names = [...(seats?.querySelectorAll('[data-slot="text"][data-role="row"]') ?? [])]
+  expect(names.length).toBeGreaterThan(0)
+  for (const name of names) expect(name.getAttribute('data-ink')).toBe('primary')
 })
 
 it('shows what it answers and produces, and reads its editable Skills/Servers section from the host, never "None"', async () => {
@@ -493,7 +507,7 @@ const summaryItem = (label: string): HTMLElement | null =>
   [...container.querySelectorAll('[data-slot="summary-item"]')].find((one) => one.querySelector('dt')?.textContent === label) as HTMLElement | null
 const section = (label: string): string =>
   container.querySelector(`section[aria-label="${label}"]`)?.textContent ?? summaryItem(label)?.textContent ?? ''
-/** Move up/down/remove live behind each "On this Mac" row's own "… actions" menu, in row order. */
+/** Remove lives behind each "On this Mac" row's own "… actions" menu, in row order; moving is the row's own. */
 const seatMenus = (): HTMLButtonElement[] => [
   ...container.querySelectorAll<HTMLButtonElement>('section[aria-label="On this Mac"] [aria-label$=" actions"]'),
 ]
@@ -502,6 +516,15 @@ const menuItem = (label: string): HTMLElement => {
   const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
   if (!found) throw new Error(`no menu item “${label}”`)
   return found as HTMLElement
+}
+/** Each seat's grip: a drag handle, and ⌥↑/⌥↓ from anywhere in the row. */
+const seatHandles = (scope: ParentNode = container): HTMLButtonElement[] => [
+  ...scope.querySelectorAll<HTMLButtonElement>('[data-slot="sortable-handle"]'),
+]
+const altKey = (node: Element, key: 'ArrowUp' | 'ArrowDown'): void => {
+  act(() => {
+    node.dispatchEvent(new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true }))
+  })
 }
 const choose = (label: string, value: string): void => {
   const tag = [...document.body.querySelectorAll('label')].find((one) => one.textContent === label)
@@ -530,6 +553,8 @@ it('no bare per-row Move up, Move down or remove button sits on "On this Mac" �
   expect([...here.querySelectorAll('button')].some((one) => one.textContent?.trim() === 'Move down')).toBe(false)
   expect([...here.querySelectorAll('button[aria-label="Remove this seat"]')]).toHaveLength(0)
   expect(seatMenus().length).toBeGreaterThan(0)
+  // Order is the row's: a grip that names its keys, not a menu row.
+  expect(seatHandles()[0]?.getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowUp Alt+ArrowDown')
 })
 
 it('a seat moves, or goes, and Clear gives the Agent its own list back', async () => {
@@ -537,10 +562,9 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', async (
   const expected = [{ runtime: 'codex' }, { runtime: 'claude-code' }]
   expect(seatMenus()).toHaveLength(2)
 
-  act(() => seatMenus()[0]!.click())
-  await settle()
-  expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
-  act(() => menuItem('Move down').click())
+  altKey(seatHandles()[0]!, 'ArrowUp')
+  expect(store.setSeating).not.toHaveBeenCalled()
+  altKey(seatHandles()[0]!, 'ArrowDown')
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith(
     'code-reviewer',
@@ -550,13 +574,99 @@ it('a seat moves, or goes, and Clear gives the Agent its own list back', async (
 
   act(() => seatMenus()[1]!.click())
   await settle()
-  expect(menuItem('Move down').getAttribute('aria-disabled')).toBe('true')
+  expect([...document.body.querySelectorAll('[role="menuitem"]')].map((one) => one.textContent?.trim())).toEqual(['Remove seat'])
   act(() => menuItem('Remove seat').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'codex' }], expected)
   act(() => button('Clear').click())
   await settle()
   expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', null, expected)
+})
+
+it('a seat keeps its model and effort when it moves, and a move never empties the list', async () => {
+  const seats = [
+    { runtime: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+    { runtime: 'claude-code', model: 'opus-5', effort: 'medium', thinking: true },
+    { runtime: 'codex', model: 'gpt-5.6-sol', effort: 'high' },
+  ]
+  const { store } = mount({
+    focus: 'code-reviewer',
+    seating: { ...SEATING, entries: [{ id: 'code-reviewer', seats }] },
+  })
+  // Twins are still two seats: three rows, three grips.
+  expect(seatHandles()).toHaveLength(3)
+  altKey(seatHandles()[2]!, 'ArrowUp')
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [seats[0], seats[2], seats[1]], seats)
+  // Moving off either end asks nothing: no write, and never a shorter or empty list.
+  vi.mocked(store.setSeating).mockClear()
+  altKey(seatHandles()[0]!, 'ArrowUp')
+  altKey(seatHandles()[2]!, 'ArrowDown')
+  expect(store.setSeating).not.toHaveBeenCalled()
+  // Picked up and carried from the keyboard, too: the same seats, reordered, all there.
+  act(() => seatHandles()[0]!.focus())
+  act(() => { seatHandles()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })) })
+  act(() => { seatHandles()[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })) })
+  await settle()
+  const written = vi.mocked(store.setSeating).mock.calls.at(-1)?.[1] as readonly unknown[] | null
+  expect(written).toEqual([seats[1], seats[0], seats[2]])
+})
+
+it('a seat carried from the keyboard keeps its focus across a slow write, and is named by what it is', async () => {
+  const seats = [{ runtime: 'claude-code', model: 'opus-5' }, { runtime: 'codex' }, { runtime: 'claude-code', model: 'sonnet-5' }]
+  let snapshot = snapshotFor({ ...SEATING, entries: [{ id: 'code-reviewer', seats }] })
+  const listeners = new Set<() => void>()
+  const writes: (() => void)[] = []
+  const store = storeFor(snapshot, {
+    subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    getSnapshot: () => snapshot,
+    // A slow host: each write lands only when the test lets it.
+    setSeating: vi.fn((id: string, next: readonly unknown[]) => new Promise<void>((done) => {
+      writes.push(() => {
+        snapshot = { ...snapshot, seating: { ...snapshot.seating!, entries: [{ id, seats: next as typeof seats }] } } as AppSnapshot
+        for (const listener of listeners) listener()
+        done()
+      })
+    })),
+  })
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <AgentsRosterSection focus="code-reviewer" onLeave={() => {}} />
+      </StoreProvider>,
+    )
+  })
+  await settle()
+  const grip = (): HTMLButtonElement => seatHandles().find((one) => one.getAttribute('aria-label') === 'Move Claude · opus-5')!
+  const key = (name: string): void => {
+    act(() => { (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true })) })
+  }
+  act(() => grip().focus())
+  key(' ')
+  key('ArrowDown')
+  expect(store.setSeating).toHaveBeenCalledTimes(1)
+  // The write is still out: the grip keeps the focus, and a second ↓ waits.
+  expect(document.activeElement).toBe(grip())
+  key('ArrowDown')
+  expect(store.setSeating).toHaveBeenCalledTimes(1)
+  await act(async () => { writes.shift()!() })
+  await settle()
+  expect(document.activeElement).toBe(grip())
+  expect(document.body.textContent).toContain('Moved Claude · opus-5 to position 2 of 3')
+  // Still carried: the next ↓ is the next write.
+  key('ArrowDown')
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [seats[1], seats[2], seats[0]], [seats[1], seats[0], seats[2]])
+  await act(async () => { writes.shift()!() })
+  await settle()
+  expect(document.activeElement).toBe(grip())
+})
+
+it('Alt+↓ on a seat’s ⋯ button moves the seat rather than opening its menu', async () => {
+  const { store } = mount({ focus: 'code-reviewer' })
+  altKey(seatMenus()[0]!, 'ArrowDown')
+  await settle()
+  expect(store.setSeating).toHaveBeenLastCalledWith('code-reviewer', [{ runtime: 'claude-code' }, { runtime: 'codex' }], [{ runtime: 'codex' }, { runtime: 'claude-code' }])
+  expect(document.body.querySelector('[role="menu"]')).toBeNull()
 })
 
 it('the last seat removed gives the Agent its own list back too', async () => {
@@ -575,11 +685,12 @@ it('disables every seat edit while a move is in flight, so a quick remove cannot
   const write = deferred<void>()
   store.setSeating = vi.fn(() => write.promise)
 
-  act(() => seatMenus()[0]!.click())
-  await settle()
-  act(() => menuItem('Move down').click())
-  // Every seat's own "… actions" trigger is disabled while the move is in flight.
-  expect(seatMenus().every((one) => one.disabled)).toBe(true)
+  altKey(seatHandles()[0]!, 'ArrowDown')
+  // Every seat's own "… actions" trigger and grip waits while the move is in
+  // flight — still focusable, so a keyboard move keeps its place, but inert.
+  expect(seatMenus().every((one) => one.getAttribute('aria-disabled') === 'true' && !one.disabled)).toBe(true)
+  expect(seatHandles().every((one) => one.getAttribute('aria-disabled') === 'true' && !one.disabled)).toBe(true)
+  altKey(seatHandles()[1]!, 'ArrowUp')
   expect(button('Clear').disabled).toBe(true)
   expect(button('Add a seat…').disabled).toBe(true)
 
@@ -642,9 +753,7 @@ it('two pages editing one Agent refuse the stale page, reload it, and show the r
     ...scope.querySelectorAll<HTMLButtonElement>('[aria-label$=" actions"]'),
   ]
 
-  act(() => menusIn(first)[0]!.click())
-  await settle()
-  act(() => menuItem('Move down').click())
+  altKey(seatHandles(first)[0]!, 'ArrowDown')
   await settle()
   expect(hostSeats).toEqual([{ runtime: 'claude-code' }, { runtime: 'codex' }])
 

@@ -60,7 +60,7 @@ const Alert = ({
   ...props
 }: React.ComponentProps<'div'> & VariantProps<typeof alertVariants>) => (
   /* No default `role`: see above. `props` carries the caller's, or nothing. */
-  <div data-slot="alert" data-variant={variant ?? 'default'} className={cn(alertVariants({ variant, tone }), className)} {...props} />
+  <div data-slot="alert" data-variant={variant ?? 'default'} data-tone={tone ?? 'neutral'} className={cn(alertVariants({ variant, tone }), className)} {...props} />
 )
 
 const AlertTitle = ({ className, ...props }: React.ComponentProps<'div'>) => (

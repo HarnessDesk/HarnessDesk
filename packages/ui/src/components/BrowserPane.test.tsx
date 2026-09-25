@@ -565,6 +565,29 @@ describe('BrowserPane', () => {
     expect(harness.calls.moveBrowserTab).toHaveBeenCalledWith('p1', view.tabs[0]!.id, 1)
   })
 
+  it('moves a focused tab along the strip with ⌥← and ⌥→, which the tab names', () => {
+    const harness = storeOf()
+    const view = addBrowserTab(browserView('https://a.test/'), 'https://b.test/')
+    mount(view, harness)
+    expect(tabs()[0]?.getAttribute('aria-keyshortcuts')).toBe('Alt+ArrowLeft Alt+ArrowRight')
+    const press = (node: Element, key: string): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { key, altKey: true, bubbles: true, cancelable: true })
+      act(() => {
+        node.dispatchEvent(event)
+      })
+      return event
+    }
+    expect(press(tabs()[0]!, 'ArrowRight').defaultPrevented).toBe(true)
+    expect(harness.calls.moveBrowserTab).toHaveBeenCalledWith('p1', view.tabs[0]!.id, 1)
+    // The first tab has nowhere further left to go: nothing is asked.
+    harness.calls.moveBrowserTab.mockClear()
+    press(tabs()[0]!, 'ArrowLeft')
+    expect(harness.calls.moveBrowserTab).not.toHaveBeenCalled()
+    // Moves are said out loud beside the strip, not inside the tablist.
+    expect(container.querySelector('[role="tablist"] [role="status"]')).toBeNull()
+    expect(container.querySelector('[data-slot="sortable-announcer"]')?.getAttribute('aria-live')).toBe('polite')
+  })
+
   it('turns the reload button into a stop button while a page is loading', () => {
     const view = browserView('https://a.test/')
     mount(view)
