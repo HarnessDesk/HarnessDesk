@@ -1780,11 +1780,23 @@ export const screenAreaOf = (file) => {
   return match?.[1]?.toLowerCase() ?? null
 }
 
+/**
+ * The pane registry mounts screens; it is not a screen family of its own.
+ * Following a consumer into its hosts is right when the host is another
+ * screen (a pattern used by Approvals, which the room also embeds, is used in
+ * two places), but every pane is registered in `panels/builtins.tsx`, so
+ * counting the registry as a host made every pane's pattern cross-area — and
+ * the single-area pass below counted nothing at all (#912: GitHistory's only
+ * consumer is GitPane, and it read as shared with the registry).
+ */
+const PANE_REGISTRIES = new Set(['panels/builtins.tsx'])
+const isPaneRegistry = (file) => PANE_REGISTRIES.has(path.relative(UI_SRC, file).split(path.sep).join('/'))
+
 /** One owning screen area, or `null` when a pattern is genuinely cross-area. */
 export const singleScreenAreaOf = (files, importersByFile = new Map()) => {
   const screens = new Set(files)
   for (const file of files) {
-    for (const importer of importersByFile.get(file) ?? []) screens.add(importer)
+    for (const importer of importersByFile.get(file) ?? []) if (!isPaneRegistry(importer)) screens.add(importer)
   }
   const areas = new Set([...screens].map(screenAreaOf))
   return areas.size === 1 && !areas.has(null) ? [...areas][0] : null
@@ -2670,6 +2682,12 @@ const classSiteEntries = (ast, file, countedDefs) => {
  */
 export const screenUtilityAppearanceOf = (file, source, ast, countedDefs = new Set()) => {
   if (!isScreenTsx(file)) return []
+  return utilityAppearanceIn(file, source, ast, countedDefs)
+}
+
+/* The classification itself, without the question of whose file this is:
+   a screen's, or a pattern only one screen family consumes. */
+const utilityAppearanceIn = (file, source, ast, countedDefs = new Set()) => {
   const tree = ast ?? parseScreenSource(file, source)
   const findings = []
   for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, countedDefs)) {
@@ -2796,6 +2814,10 @@ const styleObjectFindings = (object) => {
  */
 export const screenInlineStyleAppearanceOf = (file, source, ast) => {
   if (!isScreenTsx(file)) return []
+  return inlineStyleAppearanceIn(file, source, ast)
+}
+
+const inlineStyleAppearanceIn = (file, source, ast) => {
   const tree = ast ?? parseScreenSource(file, source)
   const findings = []
   const stylesIn = (expression) => {
@@ -2830,6 +2852,20 @@ export const screenInlineStyleAppearanceOf = (file, source, ast) => {
   visit(tree)
   return findings
 }
+
+/**
+ * The appearance a design module's own source draws — its className
+ * utilities and its inline style keys — by exactly the classification a
+ * screen's are. Counted only for a module one screen family consumes (see
+ * the single-area pass below): such a pattern is that screen's code moved
+ * into `design/`, and moving a drawing is not composing it. Before this, the
+ * pass read only the module's stylesheet, so appearance written as Tailwind
+ * in a single-consumer pattern left the ledger without converging (#912).
+ */
+export const patternSourceAppearanceOf = (file, source, ast, countedDefs = new Set()) => [
+  ...utilityAppearanceIn(file, source, ast, countedDefs),
+  ...inlineStyleAppearanceIn(file, source, ast).map((detail) => `${screenAppearanceName(file)}: ${detail}`),
+]
 
 /** Existing screen families only, capped at eleven additional owners. An
  * annotation documents membership; it cannot grant a new exception. See
@@ -3243,15 +3279,23 @@ for (const file of screenSources) {
     consumersByModule.set(module, [...(consumersByModule.get(module) ?? []), file])
   }
 }
+const patternCountedDefs = new Set()
 for (const [module, consumers] of consumersByModule) {
   const area = singleScreenAreaOf(consumers, importersByFile)
   if (!area) continue
   const sheet = module.replace(/\.tsx$/, '.module.css')
-  if (!tracked.has(sheet)) continue
-  for (const { property } of declarationsOf(read(sheet)).filter(
-    ({ property, value }) => screenPropertySideOf(property, value) === 'appearance',
-  )) {
-    findings.screenAppearance.push(`${label(sheet)} [${area} screen area]: ${property}`)
+  if (tracked.has(sheet)) {
+    for (const { property } of declarationsOf(read(sheet)).filter(
+      ({ property, value }) => screenPropertySideOf(property, value) === 'appearance',
+    )) {
+      findings.screenAppearance.push(`${label(sheet)} [${area} screen area]: ${property}`)
+    }
+  }
+  if (tracked.has(module)) {
+    for (const line of patternSourceAppearanceOf(module, read(module), undefined, patternCountedDefs)) {
+      const at = line.lastIndexOf(': ')
+      findings.screenAppearance.push(`${line.slice(0, at)} [${area} screen area]: ${line.slice(at + 2)}`)
+    }
   }
 }
 
