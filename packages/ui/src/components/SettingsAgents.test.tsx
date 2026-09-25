@@ -340,10 +340,10 @@ it('search appears with the long list and narrows it to the words a person knows
  * The list itself: ten agents on one page, read as a management roster.
  *
  * What the page owes someone with that many is a way to see all of them at
- * once and a way to find one of them — so each agent summarises its accounts
- * in its own one-line header and arrives folded unless it needs attention,
- * the caret and Expand all / Collapse all open the rest, and the two filters
- * agree with what the headers say.
+ * once and a way to find one of them — so what needs attention is listed
+ * first, each agent is one line saying who it is signed in as, a signed-out
+ * one carries its Sign in on that line, and the line opens the agent's page,
+ * where its accounts are.
  */
 
 const runtime = (over: Record<string, unknown>): RuntimeInfo =>
@@ -435,8 +435,8 @@ const listed = (): string[] =>
 /** The agents under each group's head, by group. */
 const grouped = (): Record<string, string[]> =>
   Object.fromEntries(
-    [...document.body.querySelectorAll('[role="group"][aria-label]')].map((group) => [
-      group.getAttribute('aria-label'),
+    [...document.body.querySelectorAll('[data-group]')].map((group) => [
+      group.getAttribute('data-group'),
       [...group.querySelectorAll('[data-slot="agent-row"]')].map(
         (node) => node.querySelector('[data-role="subject"]')?.textContent ?? '',
       ),
@@ -833,4 +833,95 @@ it("an agent's own page shows every copy on the machine, and offers the two verb
   )
   await act(async () => (update as HTMLButtonElement).click())
   expect(updateAgent).toHaveBeenCalledWith('opencode')
+})
+
+it('a search hit on a second account leads its agent\u2019s line', async () => {
+  await mountList()
+  type('input[aria-label="Search runtimes or accounts"]', 'grace@')
+  expect(line('Alpha').textContent).toContain('grace@example.com and 1 more')
+})
+
+it('a key-only agent hands its Sign in to the page that has a field, and a pending one waits', async () => {
+  const onSignIn = vi.fn()
+  const signInAgent = vi.fn(async () => {})
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: 'gamma',
+    ...ROSTER,
+    accountsByRuntime: { ...ROSTER.accountsByRuntime, beta: signedIn([], ['apiKey']) },
+    logins: { gamma: { method: 'm0', start: { type: 'browser', loginId: 'l1' }, outcome: { type: 'pending' } } },
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    loadAccounts: async () => {},
+    signInAgent,
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <RuntimesSection onSignIn={onSignIn} />
+      </StoreProvider>,
+    )
+  })
+  const action = (name: string) =>
+    line(name).closest('[data-slot="row-folding"]')?.querySelector('[data-slot="row-action"] button') as HTMLButtonElement
+  await act(async () => action('Beta').click())
+  expect(onSignIn).toHaveBeenCalledWith('beta')
+  expect(signInAgent).not.toHaveBeenCalled()
+  // Gamma is the default and signed out: its Default chip and its Sign in,
+  // never a third chip saying what the button says.
+  const chips = new Set([...line('Gamma').querySelectorAll('[class*=chip]')].map((node) => node.textContent))
+  expect([...chips]).toEqual(['Default'])
+  expect(action('Gamma').textContent).toContain('Waiting')
+  expect(action('Gamma').disabled).toBe(true)
+})
+
+it('back from an account lands on its agent, and a second account\u2019s page lists the agent\u2019s own accounts', async () => {
+  await mountList({ store: { limitsFor: async () => null, setAccountPrefs: () => {} } })
+  await act(async () => line('Alpha').click())
+  const account = [...document.body.querySelectorAll('button')].find((node) =>
+    node.textContent?.includes('grace@example.com'),
+  ) as HTMLButtonElement
+  await act(async () => account.click())
+  await act(async () => button('Alpha')?.click())
+  // Its agent's page, not the list: the accounts section is there.
+  expect(
+    [...document.body.querySelectorAll('[data-slot="section-name"]')].some((node) => node.textContent === 'Accounts'),
+  ).toBe(true)
+  expect(listed()).toEqual([])
+})
+
+it('opened on a second account\u2019s runtime, the page answers for the agent', async () => {
+  const snapshot = {
+    ...emptySnapshot(),
+    status: 'open',
+    activeRuntime: 'alpha',
+    ...ROSTER,
+  } as unknown as AppSnapshot
+  const store = {
+    subscribe: () => () => {},
+    getSnapshot: () => snapshot,
+    loadAccounts: async () => {},
+    installsFor: async () => null,
+    healthFor: async () => null,
+    newSessionDefaultsFor: async () => ({}),
+    optionsFor: async () => [],
+    listModels: async () => [],
+  } as unknown as AppStore
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <RuntimesSection onSignIn={() => {}} focus="alpha#2" />
+      </StoreProvider>,
+    )
+  })
+  // Both accounts, the agent's own one marked Default, and no "never
+  // finished" slot invented out of the agent's own runtime.
+  expect(document.body.textContent).toContain('ada@example.com')
+  expect(document.body.textContent).toContain('grace@example.com')
+  expect(document.body.textContent).not.toContain('Waiting to be signed in')
+  const ada = [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes('ada'))
+  expect(ada?.textContent).toContain('Default')
 })

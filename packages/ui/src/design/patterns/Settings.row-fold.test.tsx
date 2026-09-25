@@ -105,4 +105,7 @@ it('stands a row\u2019s one action beside its opener, in the chevron\u2019s plac
   expect([opened, acted]).toEqual([0, 1])
   await act(async () => opener.click())
   expect([opened, acted]).toEqual([1, 1])
+  // The inset around the action is lit with the row, so it opens the row too.
+  await act(async () => (pair?.querySelector('[data-slot="row-action"]') as HTMLElement).click())
+  expect([opened, acted]).toEqual([2, 1])
 })

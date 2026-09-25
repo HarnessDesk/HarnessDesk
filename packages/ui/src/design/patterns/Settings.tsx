@@ -923,7 +923,20 @@ export const RowButton = ({
   return (
     <div className={styles.rowFolding} data-slot="row-folding" {...(fold?.open ? { 'data-open': '' } : {})}>
       {button}
-      {action ? <span className={styles.rowActionEnd} data-slot="row-action">{action}</span> : null}
+      {/* The inset around the action is lit with the row under the pointer,
+          so a click on it opens the row, as a click on the row does; the
+          action's own button is the keyboard's target. */}
+      {action ? (
+        <span
+          className={styles.rowActionEnd}
+          data-slot="row-action"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) onClick()
+          }}
+        >
+          {action}
+        </span>
+      ) : null}
       {fold ? (
       <span className={styles.rowFoldEnd} style={{ '--row-chevron': `${ROW_CHEVRON}px` } as CSSProperties}>
         <Button

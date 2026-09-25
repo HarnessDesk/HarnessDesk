@@ -372,6 +372,7 @@ const AgentRow = ({
   info,
   siblings,
   state,
+  query,
   onOpen,
   onSignIn,
 }: {
@@ -379,6 +380,8 @@ const AgentRow = ({
   siblings: readonly RuntimeInfo[]
   /** Whether a turn sent to this agent would start — see `agentReadiness`. */
   state: Readiness
+  /** The page's search, lowercased; its hit leads the account line. */
+  query: string
   onOpen: () => void
   onSignIn: (runtime: RuntimeId) => void
 }) => {
@@ -396,7 +399,18 @@ const AgentRow = ({
     ),
     ...(entry.slot?.gateway ? [entry.slot.gateway.name] : []),
   ])
-  const who = names.length === 0 ? null : names.length === 1 ? names[0]! : `${names[0]} and ${names.length - 1} more`
+  // A search hit on a second account leads the line, so what was searched
+  // for is what is shown; and accounts that cannot say who they are count.
+  const hit = query ? names.findIndex((name) => name.toLowerCase().includes(query)) : -1
+  const ordered = hit > 0 ? [names[hit]!, ...names.filter((_, index) => index !== hit)] : names
+  const who =
+    ordered.length === 0
+      ? null
+      : ordered.length === 1
+        ? ordered[0]!
+        : ordered[0] === 'Signed in'
+          ? `${ordered.length} accounts`
+          : `${ordered[0]} and ${ordered.length - 1} more`
   const canSignIn = info.capabilities.account && (status?.signInMethods ?? []).some((method) => method.flow !== 'external')
   // A key has to be typed somewhere, so those methods hand off to the sign-in
   // page instead of being started from a button with nowhere to type.
@@ -1237,7 +1251,8 @@ const AccountDetail = ({
 
   return (
     <>
-      <BackLink to="Runtimes" onClick={onBack} />
+      {/* Back to the agent it belongs to, which is where its accounts are listed. */}
+      <BackLink to={info.presentation.name} onClick={onBack} />
       <DetailHead
         mark={
           <AccountMark
@@ -1810,8 +1825,12 @@ const AgentDetail = ({
         </>
       )}
 
+      {/* The accounts belong to the agent, not to whichever of its runtimes
+          this page was opened on: a fix for a second account opens the page
+          on that account's runtime, and read from there the Default chip,
+          the unfinished slots and Add account all answered for the wrong one. */}
       <AgentAccounts
-        info={info}
+        info={siblings[0] ?? info}
         siblings={siblings}
         state={agentReadiness(siblings, snapshot)}
         onOpenAccount={onOpenAccount}
@@ -2027,7 +2046,9 @@ export const RuntimesSection = ({
         </Rows>
       ) : (
         sections.map((section) => (
-          <div key={section.name} role="group" aria-label={section.name}>
+          /* No accessible name of its own: the head names the group, and a
+             label beside it was announced twice. */
+          <div key={section.name} data-group={section.name}>
             <SectionHead
               name={section.name}
               action={<Text role="meta" numeric>{section.agents.length}</Text>}
@@ -2039,6 +2060,7 @@ export const RuntimesSection = ({
                   info={info}
                   siblings={siblings}
                   state={state}
+                  query={needle}
                   onOpen={() => setView({ kind: 'agent', runtime: info.id })}
                   onSignIn={onSignIn}
                 />

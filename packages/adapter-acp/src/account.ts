@@ -265,10 +265,10 @@ export class CliAccount {
       // and `spawn devin ENOENT` says it only to someone who reads errno.
       if ((outcome.error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error(
-          `Its sign-in command, "${spec.command}", was not found. Install it, or put it on the PATH HarnessDesk starts agents with.`,
+          `The sign-in command "${spec.command}" was not found. Install it, or put it on the PATH HarnessDesk starts agents with.`,
         )
       }
-      throw new Error(`Its sign-in command, "${spec.command}", could not start: ${outcome.error.message}`)
+      throw new Error(`The sign-in command "${spec.command}" could not start: ${outcome.error.message}`)
     }
     // The exit this causes finds the flow never handed out, and reports nothing.
     if (outcome.kind === 'timeout') this.#stop(child)
