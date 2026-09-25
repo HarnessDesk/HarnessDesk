@@ -948,11 +948,14 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             aria-label="Commits"
           >
             {total === 0 && !loading ? (
-              <Note>
-                {searching
-                  ? 'Nothing in the history matches that search.'
-                  : 'No commits yet — the history starts with the first one.'}
-              </Note>
+              <EmptyState
+                variant="inline"
+                title={
+                  searching
+                    ? 'Nothing in the history matches that search.'
+                    : 'No commits yet — the history starts with the first one.'
+                }
+              />
             ) : (
               <div style={{ height: total * ROW, position: 'relative' }}>
                 {commits.slice(first, last).map((commit, offset) => {

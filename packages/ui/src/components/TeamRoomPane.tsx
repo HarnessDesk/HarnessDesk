@@ -79,6 +79,7 @@ import {
   ListRow,
   ListRows,
   Note,
+  PopoverGroupLabel,
   ProgressRing,
   Spinner,
   Text,
@@ -1064,8 +1065,8 @@ export const TeamRoomPane = ({
               to mean leaving the room, starting a session somewhere else,
               sending it something, and coming back to see whether it had
               appeared. */}
-          <div className={`${styles.railLabel} py-(--hd-label-space,var(--hd-space-3)) px-3 pb-1 text-xs font-medium tracking-[0.04em] uppercase text-(--hd-muted-foreground)`}>
-            <span>Agents</span>
+          <div className={`${styles.railLabel} py-(--hd-label-space,var(--hd-space-3)) px-3 pb-1`}>
+            <PopoverGroupLabel inset={false}>Agents</PopoverGroupLabel>
             <Text role="meta" numeric className={styles.count}>{roster.length}</Text>
             {goal ? <Button
               type="button"
@@ -1124,19 +1125,23 @@ export const TeamRoomPane = ({
                  folder was a board. Nothing joins by itself now — the + above is
                  the way in — and telling somebody to wait for something that
                  will never happen is worse than saying nothing. */
-              <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`}>
-                {/* "In this room", not "here": the two used to be one word
-                    because a member only appeared while its conversation was
-                    open, so an empty roster and an empty room were the same
-                    sight. They are different facts now — a room keeps its
-                    members across a quit — and this line is only ever the
-                    second one. */}
-                {here === 0
-                  ? 'No agents in this room yet, and no conversations in this project either. + starts one and puts it in.'
-                  : here === 1
-                    ? 'No agents in this room yet. One conversation is open in this project — + adds an agent.'
-                    : `No agents in this room yet. ${here} conversations are open in this project — + adds an agent.`}
-              </p>
+              <EmptyState
+                variant="inline"
+                className={styles.railEmpty}
+                title={
+                  /* "In this room", not "here": the two used to be one word
+                     because a member only appeared while its conversation was
+                     open, so an empty roster and an empty room were the same
+                     sight. They are different facts now — a room keeps its
+                     members across a quit — and this line is only ever the
+                     second one. */
+                  here === 0
+                    ? 'No agents in this room yet, and no conversations in this project either. + starts one and puts it in.'
+                    : here === 1
+                      ? 'No agents in this room yet. One conversation is open in this project — + adds an agent.'
+                      : `No agents in this room yet. ${here} conversations are open in this project — + adds an agent.`
+                }
+              />
             )}
             {roster.length > 0 && shown.length === 0 && (
               <p className={`${styles.railEmpty} px-1 pb-2 text-xs leading-(--hd-line-sm) text-(--hd-muted-foreground)`}>No agent here matches “{filter.trim()}”.</p>

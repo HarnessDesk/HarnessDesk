@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { FindingPublicationItem, FindingPublicationsView } from '@harnessdesk/protocol'
 
-import { Banner, Button, Chip, CodeText, ConfirmDialog, Dialog, Note, Row, Rows, SectionHead, Text, Textarea } from '../design'
+import { Banner, Button, Chip, CodeText, ConfirmDialog, Dialog, EmptyState, Note, Row, Rows, SectionHead, Text, Textarea } from '../design'
 import { useStore } from '../state/context'
 
 /**
@@ -68,7 +68,7 @@ export const FindingPublications = ({ goal, run, stamp }: { readonly goal: strin
     <section aria-label="Posting to the pull request" className="flex flex-col gap-2">
       <SectionHead name="Posting to the pull request" />
       {error && <Banner tone="danger" title="This posting could not be changed">{error}</Banner>}
-      {nothing && <Note>Nothing here needs you.</Note>}
+      {nothing && <EmptyState variant="inline" title="Nothing here needs you." />}
       {view.items.length > 0 && (
         <Rows>
           {view.items.map((item) => (

@@ -95,12 +95,12 @@ describe('an opened tool step', () => {
 
     const row = byClass('row')[0]
     const body = byClass('rowBody')[0]
-    expect(row?.className).toContain('bg-(--hd-card)')
-    expect(row?.className).toContain('shadow-(--hd-hairline)')
+    // The row itself is the shared `Card variant="plate"` surface.
+    expect(row?.getAttribute('data-slot')).toBe('card')
+    expect(row?.getAttribute('data-variant')).toBe('plate')
     expect(body?.className).toContain('pt-(--hd-space-2)')
+    expect(body?.getAttribute('data-slot')).not.toBe('card')
     expect(body?.className).not.toContain('rounded-(--hd-radius)')
-    expect(body?.className).not.toContain('bg-(--hd-card)')
-    expect(body?.className).not.toContain('shadow-(--hd-hairline)')
   })
 
   it('keeps a normal bare command body aligned under its disclosure title', () => {

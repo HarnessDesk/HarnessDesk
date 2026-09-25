@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
-import { Button, Chip, Dialog, Field, NativeSelect, Note, Row, RowButton, Rows, SectionHead, Switch } from '../design'
+import { Button, Chip, Dialog, EmptyState, Field, NativeSelect, Note, Row, RowButton, Rows, SectionHead, Switch } from '../design'
 import { triggerProblemPlace, triggerSentence, triggerSkipWords } from '../lib/intake'
 import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
@@ -141,9 +141,10 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
       <section aria-label="Triggers">
         <SectionHead name="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>} />
         <Rows>
-          <Row
+          <EmptyState
+            variant="row"
             title="No triggers"
-            desc={`Declare one in ${shortPath(view.path, snapshot.home)} to let this project open bounded work on its own.`}
+            description={`Declare one in ${shortPath(view.path, snapshot.home)} to let this project open bounded work on its own.`}
           />
         </Rows>
         <FlowChooser

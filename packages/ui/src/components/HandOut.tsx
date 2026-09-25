@@ -23,8 +23,8 @@ export const SLOTS = ['card', 'title', 'detail', 'files', 'member'] as const
 
 export const DEFAULT_TEMPLATE =
   'Take card #{{card}} — {{title}}.\n{{detail}}\n' +
-  'Claim it with claim_work (intent {{card}}), do the work, and complete it with complete_claim when it is done. ' +
-  'Then call claim_next and do that card too; keep going until it says nothing is left. ' +
+  'Claim it, do the work, and mark it complete when it is done. ' +
+  'Then take the next open card and keep going until none are left. ' +
   'Reply here with what you did, in three lines.'
 
 export const fill = (template: string, vars: Readonly<Record<string, string>>): string =>

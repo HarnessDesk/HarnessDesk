@@ -30,7 +30,7 @@ import type {
 } from '@harnessdesk/protocol'
 
 import { stripAnsi } from '../lib/ansi'
-import { ActionError, Button, ChangeStats, CodeBlock, CopyButton, Lightbox, TurnItem, type LightboxImage } from '../design'
+import { ActionError, Button, Card, ChangeStats, Chip, CodeBlock, CopyButton, DisclosureChevron, Lightbox, Spinner, Text, TurnItem, type LightboxImage } from '../design'
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
@@ -61,7 +61,6 @@ import {
   AgentIcon,
   AlertIcon,
   BrainIcon,
-  ChevronIcon,
   TeamIcon,
   DiffIcon,
   ExternalIcon,
@@ -193,14 +192,10 @@ const formatDuration = (ms: number | undefined): string | null => {
 }
 
 const StatusMark = ({ status }: { status: ItemStatus }) => {
-  if (status === 'inProgress') return <span className="flex-none size-3 rounded-full border-[1.5px] border-(--hd-border-emphasis) border-t-(--hd-accent) animate-[hd-spin_0.7s_linear_infinite]" />
+  if (status === 'inProgress') return <Spinner size="sm" tone="brand" />
   if (status === 'completed') return null
-  if (status === 'failed') return <span className="text-(--hd-danger-ink) text-xs font-medium">failed</span>
-  return (
-    <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground) data-[status=declined]:line-through" data-status={status}>
-      declined
-    </span>
-  )
+  if (status === 'failed') return <Text role="meta" tone="danger">failed</Text>
+  return <Chip tone="neutral" size="sm">Declined</Chip>
 }
 
 /** Shared disclosure row used by commands, tools, reasoning, and file changes. */
@@ -228,8 +223,8 @@ const Row = ({
   const register = useContext(ItemRegister)
   const collapsible = Boolean(children)
 
-  return (
-    <div className={`${styles.row}${register === 'light' ? '' : ' rounded-(--hd-radius) bg-(--hd-card) shadow-(--hd-hairline)'}`}>
+  const inner = (
+    <>
       <Button
         type="button" variant="quiet" size="row" className={styles.rowHeader}
         onClick={() => collapsible && setOpen((value) => !value)}
@@ -239,22 +234,22 @@ const Row = ({
       >
         <span className={`${styles.rowIcon} text-(--hd-muted-foreground)`}>{icon}</span>
         <span className={`${styles.rowTitle} font-(family-name:--hd-font-family) text-base leading-(--hd-line) text-(--hd-foreground)`}>{title}</span>
-        <span className={`${styles.rowMeta} text-xs text-(--hd-muted-foreground) tabular-nums`}>
+        <Text as="span" role="meta" numeric className={styles.rowMeta}>
           {meta}
           {status && <StatusMark status={status} />}
-        </span>
-        {collapsible && (
-          <ChevronIcon
-            className={`${styles.chevron} text-(--hd-muted-foreground)`}
-            size={14}
-            {...(open ? { 'data-open': '' } : {})}
-          />
-        )}
+        </Text>
+        {collapsible && <DisclosureChevron open={open} size="lg" />}
       </Button>
       {collapsible && open && (
         <div className={bareBody ? styles.rowBodyBare : `${styles.rowBody} pt-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) ps-(--hd-space-6)`}>{children}</div>
       )}
-    </div>
+    </>
+  )
+
+  return register === 'light' ? (
+    <div className={styles.row}>{inner}</div>
+  ) : (
+    <Card variant="plate" className={`${styles.row} !gap-0 !py-0`}>{inner}</Card>
   )
 }
 
@@ -303,7 +298,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
   const copyFailed = useCopyFailed()
   return (
     <div className={`${styles.userFooter} min-h-(--hd-chip-h) pr-(--hd-space-0-5)`}>
-      {when && <span className={"mr-(--hd-space-1-5) text-xs text-(--hd-muted-foreground) tabular-nums"}>{when}</span>}
+      {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
       <CopyButton text={text} label="Copy this message" onError={copyFailed} />
       <Button
         variant="quiet" size="icon-xs"
@@ -469,7 +464,7 @@ const UserMessage = ({ item, sentAt }: { item: UserMessageItem; sentAt?: number 
                 <span key={index} className={`${styles.chip} h-(--hd-chip-h) px-(--hd-space-2) rounded-full bg-(--hd-accent-dim) text-(--hd-primary-ink) text-xs`} title={part.path}>
                   <SparkIcon size={12} />
                   {part.name}
-                  <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">skill</span>
+                  <Chip tone="neutral" size="sm">Skill</Chip>
                 </span>
               )
             }
@@ -556,7 +551,7 @@ const ContextInjection = ({
       {...(fromAgent ? { 'data-peer': '' } : {})}
     >
       <Button type="button" variant={fromAgent ? 'quiet' : 'row'} size="row" className={styles.injection} onClick={() => setOpen((value) => !value)}>
-        <ChevronIcon size={11} {...(open ? { 'data-open': '' } : {})} className={`${styles.chevron} text-(--hd-muted-foreground)`} />
+        <DisclosureChevron open={open} size="xs" />
         {fromAgent ? <TeamIcon size={12} /> : <FileIcon size={12} />}
         {fromAgent ? 'From another agent' : origin === 'agent' ? 'Sent with your message' : 'Context added'}
         <span className="text-xs font-medium text-(--hd-secondary-foreground)">{fromAgent ? label.replace(/^Message from /, '') : label}</span>
@@ -598,7 +593,6 @@ const Reasoning = ({ item }: { item: ReasoningItem }) => {
     <Row
       icon={<BrainIcon size={14} />}
       title={headline}
-      meta={item.content.length > 0 ? 'reasoning' : undefined}
     >
       {body.length > 0 && (
         <div className="py-(--hd-space-2) px-(--hd-space-3) pb-(--hd-space-3) text-base leading-(--hd-line) text-(--hd-secondary-foreground)">
@@ -680,7 +674,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
       hoverTitle={described.path}
       meta={
         <>
-          {item.origin === 'user' && <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">you</span>}
+          {item.origin === 'user' && <Chip tone="neutral" size="sm">You</Chip>}
           {formatDuration(item.durationMs)}
         </>
       }
@@ -764,8 +758,8 @@ const FileEntry = ({
   return (
     <div className="border-t border-(--hd-border) first:border-t-0">
       <Button type="button" variant="quiet" size="content" className={styles.fileHeader} onClick={() => setOpen((v) => !v)}>
-        <ChevronIcon className={`${styles.chevron} text-(--hd-muted-foreground)`} size={12} {...(open ? { 'data-open': '' } : {})} />
-        <span className={`${styles.filePath} font-(family-name:--hd-font-code) text-sm`} title={change.path}>
+        <DisclosureChevron open={open} size="sm" />
+        <span className={`${styles.filePath} text-sm`} title={change.path}>
           {relativeTo(change.path, root)}
         </span>
         <ChangeStats added={added} removed={counts.removed} />
@@ -958,7 +952,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
         headline ? (
           <>
             {label}
-            <span className="ms-(--hd-space-2) text-sm font-(family-name:--hd-font-code) text-(--hd-muted-foreground) font-normal">{headline}</span>
+            <span className="ms-(--hd-space-2) text-sm text-(--hd-muted-foreground) font-normal">{headline}</span>
           </>
         ) : (
           label
@@ -1100,17 +1094,17 @@ const Subagent = ({ item }: { item: SubagentItem }) => {
                 <span className={`${styles.filePath} font-(family-name:--hd-font-code) text-sm`}>
                   {member.nickname ?? member.sessionId.slice(0, 8)}
                 </span>
-                {member.role && <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">{member.role}</span>}
-                {member.state && <span className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)">{member.state}</span>}
+                {member.role && <Chip tone="neutral" size="sm">{member.role}</Chip>}
+                {member.state && <Chip tone="neutral" size="sm">{member.state}</Chip>}
                 {member.usage && member.usage.totalTokens > 0 && (
-                  <span
-                    className="flex-none inline-flex items-center h-(--hd-icon-target-sm) px-(--hd-space-1-5) rounded-full text-xs font-medium uppercase bg-(--hd-muted) text-(--hd-muted-foreground)"
+                  <Chip
+                    tone="neutral" size="sm"
                     {...(member.usage.outputExact === false
                       ? { title: 'At least this much: the child was still streaming when its last count was taken.' }
                       : {})}
                   >
                     {formatTokensWithFloor(member.usage)} tokens
-                  </span>
+                  </Chip>
                 )}
               </Button>
             )
