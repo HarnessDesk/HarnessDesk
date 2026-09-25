@@ -38,7 +38,6 @@ export {
   type SpinnerProps,
   StateStrip,
   StatusSummary,
-  AccessHeader,
   AccessRail,
   AccessRailHeader,
   AccessRailList,

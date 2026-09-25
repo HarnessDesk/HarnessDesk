@@ -82,7 +82,7 @@ const detail = (): HTMLElement => {
   return pane
 }
 
-const mount = async (over: Partial<AppSnapshot>, on = 'codex'): Promise<void> => {
+const mount = async (over: Partial<AppSnapshot>, on = 'codex', onClose: () => void = () => {}): Promise<void> => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -103,7 +103,7 @@ const mount = async (over: Partial<AppSnapshot>, on = 'codex'): Promise<void> =>
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <SignIn runtime={on as never} onClose={() => {}} />
+        <SignIn runtime={on as never} onClose={onClose} />
       </StoreProvider>,
     )
   })
@@ -278,4 +278,23 @@ it('composes the shared roster, state and text roles', async () => {
   expect(container.querySelector('[data-slot="list-row"]')).not.toBeNull()
   expect(detail().querySelector('[data-slot="status-summary"]')).not.toBeNull()
   expect(detail().querySelector('[data-slot="text"][data-role="subject"]')).not.toBeNull()
+})
+
+it('wears the head every dialog wears, and its way out closes the sheet', async () => {
+  // It drew a title band of its own — its own inset and rule, a larger cross
+  // at another gap — beside every other dialog's head.
+  const onClose = vi.fn()
+  await mount({ accountsByRuntime: { codex: status([], ['browser']) } } as never, 'codex', onClose)
+  const dialog = container.querySelector('[role=dialog]')
+  const head = dialog?.querySelector('[data-slot="dialog-head"]')
+  expect(head?.textContent).toBe('Sign in')
+  expect(dialog?.querySelector('[data-slot="access-header"]')).toBeNull()
+  const close = head?.querySelector('button[aria-label="Close"]')
+  expect(close).toBeTruthy()
+  // The way out is the dialog's own step: a 13px cross, as on every dialog.
+  expect(close?.querySelector('svg')?.getAttribute('width')).toBe('13')
+  await act(async () => {
+    close?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  })
+  expect(onClose).toHaveBeenCalled()
 })

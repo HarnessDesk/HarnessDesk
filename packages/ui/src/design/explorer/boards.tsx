@@ -19,7 +19,6 @@ import {
   AccessCode,
   AccessDetail,
   AccessFact,
-  AccessHeader,
   AccessRail,
   AccessRailFooter,
   AccessRailHeader,
@@ -62,6 +61,7 @@ import {
   PatchSection,
   Row,
   RowButton,
+  Checkbox,
   RowChoice,
   Rows,
   Lightbox,
@@ -292,7 +292,6 @@ const StateBoard = () => (
             <AccessRailFooter>Credentials stay local.</AccessRailFooter>
           </AccessRail>
           <AccessDetail>
-            <AccessHeader>Sign in</AccessHeader>
             <AccessFact label="Credential" value="~/.agent">Kept on this machine.</AccessFact>
             <AccessCode>ABCD-EFGH</AccessCode>
           </AccessDetail>
@@ -422,6 +421,8 @@ const ControlBoard = () => {
 
 const RowBoard = () => {
   const [choice, setChoice] = useState('ask')
+  const [folded, setFolded] = useState(true)
+  const [picked, setPicked] = useState(false)
   return (
     <>
       <div className={styles.stack}>
@@ -457,6 +458,24 @@ const RowBoard = () => {
             onClick={() => {}}
           />
         </Rows>
+
+        <SectionHead name="A row that opens and folds" />
+        <Rows data-catalog-case="row-fold">
+          <RowButton
+            mark={<TerminalIcon size={15} />}
+            title={<Text role="subject">Codex</Text>}
+            chevron={false}
+            onClick={() => {}}
+            fold={{ open: !folded, onToggle: () => setFolded((was) => !was), label: `${folded ? 'Show' : 'Hide'} the accounts under Codex` }}
+          />
+          {!folded && <RowButton title="dev" desc="dev@example.com" onClick={() => {}} />}
+        </Rows>
+        <Checkbox
+          data-catalog-case="checkbox-label"
+          checked={picked}
+          onCheckedChange={(next) => setPicked(next === true)}
+          label={<Text role="navigation">Install for Codex</Text>}
+        />
 
         <SectionHead name="When an agent asks to run something" />
         <Rows>

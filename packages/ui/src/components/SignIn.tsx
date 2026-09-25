@@ -25,7 +25,6 @@ import {
   AlertIcon,
   CheckIcon,
   ChevronIcon,
-  CrossIcon,
   GlobeIcon,
   KeyIcon,
   KeyboardIcon,
@@ -35,7 +34,6 @@ import {
   AccessCode,
   AccessDetail,
   AccessFact,
-  AccessHeader,
   AccessRail,
   AccessRailFooter,
   AccessRailHeader,
@@ -47,8 +45,8 @@ import {
   AlertTitle,
   Button,
   DialogContent,
+  DialogHead,
   DialogRoot,
-  DialogTitle,
   Dot,
   Input,
   ListRow,
@@ -229,13 +227,9 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
         aria-label="Sign in"
         showCloseButton={false}
       >
-        <AccessHeader>
-          <DialogTitle><Text role="subject">Sign in</Text></DialogTitle>
-          <span className={own.fill} />
-          <Button variant="ghost" size="icon-sm" onClick={close} aria-label="Close">
-            <CrossIcon size={16} />
-          </Button>
-        </AccessHeader>
+        {/* The head every dialog wears: its name, one inset, the rule under
+            it and the way out. Closing through it is the root's own close. */}
+        <DialogHead title="Sign in" />
 
         <div className={own.split}>
           <AccessRail aria-label="Agents">

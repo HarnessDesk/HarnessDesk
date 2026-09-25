@@ -39,6 +39,7 @@ const Bar = ({
     data-slot="bar"
     data-inset={inset}
     {...(corner ? { 'data-corner': '' } : {})}
+    {...(rule ? { 'data-rule': rule } : {})}
     className={cn(
       'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),

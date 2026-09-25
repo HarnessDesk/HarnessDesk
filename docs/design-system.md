@@ -1300,12 +1300,6 @@ A compact whole-roster reading: one segment per agent, in readiness order.
 
 One operation or account state: judged mark, title, and the reason beneath it.
 
-### `AccessHeader`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The horizontal title band of an account-access sheet.
-
 ### `AccessRail`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1532,6 +1526,13 @@ row buttons) keeps its card, its edge and its ground.
 
 The same row, when the whole line opens something.
 
+With a `fold`, the row is two targets on one line: the button that opens,
+and at its end a fold that shows or hides what the row holds, wearing the
+trailing disclosure mark — down while folded, up while open — so it never
+reads as the drill-in chevron. The row keeps its inset and its one rule
+around both: the rule is the pair's, drawn under it unless it is its card's
+last row, as any row's is.
+
 ### `RowChoice`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -1636,8 +1637,8 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawType` | 0 | The one axis of the scale with no gate: a token edit moves the controls and leaves these behind. |
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
-| `screenAppearance` | 376 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
-| `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
+| `screenAppearance` | 447 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. |
+| `uppercaseLabel` | 8 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
 | `wrongVariant` | 0 | The same slot ends up drawn four different ways, one screen at a time. |
