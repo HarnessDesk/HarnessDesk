@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { test } from 'node:test'
@@ -11,6 +11,7 @@ import { parseSeating } from '../packages/server/dist/src/agent-seating-file.js'
 import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
+import { GoalStore } from '../packages/server/dist/src/goals/store.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
@@ -101,19 +102,24 @@ test('every seeded camera agent stays on its scripted process even with real CLI
   const openCode = configs.find(agent => agent.brand === 'opencode')
   assert.ok(openCode)
   assert.equal(await service.launchFor(openCode), null, 'the row must not be replaced with installed OpenCode')
+  // config.mjs resolves `WORK` through any symlink in its own path (macOS's
+  // `/var` and `/tmp` are themselves symlinks to `/private/var`/`/private/tmp`
+  // — #904), so a seeded conversation's `cwd` carries the resolved prefix even
+  // though this test's own `directory` is the as-given, pre-resolution one.
+  const work = realpathSync(join(directory, 'work'))
   for (const agent of configs) {
     assert.equal(service.knowledgeFor(agent), undefined, `${agent.id} must not inherit vendor stores or launch policy`)
     assert.equal(await service.launchFor(agent), null)
     assert.equal(agent.command, 'node')
     assert.deepEqual(agent.args, [join(root, 'script/shots/agent.mjs')])
     const sessions = Object.values(JSON.parse(readFileSync(agent.env.SHOT_STORE, 'utf8')))
-    assert.ok(sessions.every(session => session.cwd.startsWith(join(directory, 'work') + '/')))
+    assert.ok(sessions.every(session => session.cwd.startsWith(work + '/')))
     const runtime = new AcpRuntime({ ...agent, resolveLaunch: occasion => service.launchFor(agent, occasion) })
     try {
       await runtime.start()
       const listed = await runtime.listSessions()
       assert.deepEqual(listed.data.map(session => session.id).sort(), sessions.map(session => session.sessionId).sort())
-      assert.ok(listed.data.every(session => session.cwd.startsWith(join(directory, 'work') + '/')))
+      assert.ok(listed.data.every(session => session.cwd.startsWith(work + '/')))
     } finally {
       await runtime.dispose()
     }
@@ -219,6 +225,11 @@ test('each provenance take removes residue and seeds only synthetic local facts'
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   const home = join(directory, 'home')
   const work = join(directory, 'work')
+  // A first take marks this custom home as the rig's own; only then does
+  // leaving residue behind, and reseeding over it, mean anything.
+  execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+    env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' }, stdio: 'pipe',
+  })
   for (const path of ['evidence', 'provenance']) {
     mkdirSync(join(home, path), { recursive: true })
     writeFileSync(join(home, path, 'previous-take'), 'must not survive')
@@ -261,4 +272,130 @@ test('the Intake acceptance rig owns a disposable home and never runs the live g
   const live = script.slice(script.indexOf("if (mode === 'live')"), script.indexOf("if (mode !== 'rig')"))
   assert.match(live, /HD_INTAKE_ACCEPTANCE_REPO/)
   assert.match(live, /process\.exit\(1\)/)
+})
+
+test('reseeding clears a leftover Goal document, closing the leftover sidebar row it caused', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-goal-leak-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+  seed()
+  const storefront = join(work, 'storefront')
+
+  // What one un-reseeded take of the room, board or flow-board scene leaves
+  // behind: a Goal document on disk (`goals/store.ts` writes one file per
+  // Goal, plus an `index.json`). Left there, `GoalPlane` re-installs it as a
+  // Team projection on every boot (`host.ts`'s `for (const view of await
+  // this.#goals.list())`), which is the permanent, agent-less sidebar row —
+  // "Working"/"Needs you" with "No agents in here yet". That is the one claim
+  // this test makes. A Seat is a separate concern kept under `evidence/`,
+  // which this PR does not touch and which was already reset every take
+  // before it; a Goal document carries no Seat of its own (the schema
+  // forbids a `members` field), so it is deliberately left out here rather
+  // than implied as part of what this fix addresses (#909 review, P3-1).
+  const goals = new GoalStore(home)
+  mkdirSync(join(home, 'goals'), { recursive: true })
+  const now = Date.now()
+  await goals.save({
+    version: 1,
+    goal: {
+      id: 'stale-room', root: storefront, cwd: storefront, sentence: 'Checkout hardening',
+      state: 'open', revision: 0, checkout: 'shared', dependsOn: [],
+      createdAt: now, updatedAt: now, origin: { kind: 'person' }, receipt: null,
+    },
+    board: { nextIntent: 1, messaging: true, intents: [], channel: [] },
+    citations: [], receipt: null, operation: null,
+  }, null)
+  assert.ok(existsSync(join(home, 'goals', 'stale-room.json')), 'the fixture did not actually stage a Goal document')
+
+  // The next take reseeds, exactly as seed.mjs's own doc comment says to do
+  // before every one.
+  seed()
+
+  assert.equal(existsSync(join(home, 'goals')), false, 'a leftover Goal survived reseeding')
+})
+
+test('seed.mjs refuses to seed a non-empty folder it has not marked as its own, leaving it byte-for-byte unchanged', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'not-a-rig-home')
+  const work = join(directory, 'work')
+  mkdirSync(home, { recursive: true })
+  // Content that looks like it belongs to a real desk this rig must never
+  // touch — an `HD_SHOTS_HOME` pointed at a real `~/.harnessdesk`, or at
+  // `$HOME` itself, would otherwise have its registry and state overwritten
+  // on a first run that "skipped" cleanup, and its credentials, Goals and
+  // worktrees deleted by the very list this PR widened on the very next run,
+  // because that first run wrote the marker unconditionally (#909 review,
+  // P2-2). Refusing outright, before anything is written, is the only
+  // version of "leave it alone" that actually holds.
+  const files = {
+    'agents.json': '{"real":true}\n',
+    'credentials.json': '{"real":true}\n',
+    'goals/a-real-goal.json': '{}\n',
+    'worktrees/wt/file.ts': 'export {}\n',
+  }
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(join(home, dirname(path)), { recursive: true })
+    writeFileSync(join(home, path), content)
+  }
+
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+
+  // Twice, because the bug this replaces only bit on the second run: the
+  // first run "skipped" the deletions but still marked the folder, so the
+  // second one trusted it and cleared everything the list now names.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    let failure = null
+    try {
+      seed()
+    } catch (error) {
+      failure = error
+    }
+    assert.ok(failure, `run ${attempt} must refuse rather than seed a folder it does not own`)
+    assert.notEqual(failure.status, 0, `run ${attempt} must exit non-zero`)
+    assert.match(String(failure.stderr), /HD_SHOTS_HOME/, `run ${attempt}'s message must name the flag`)
+    assert.match(String(failure.stderr), /\.rig-home\.json/, `run ${attempt}'s message must name the marker`)
+  }
+
+  // Byte-for-byte unchanged: nothing this rig did not put there was deleted,
+  // and nothing of its own — registry, state or marker — was written either.
+  for (const [path, content] of Object.entries(files)) {
+    assert.equal(readFileSync(join(home, path), 'utf8'), content, path)
+  }
+  assert.equal(existsSync(join(home, '.rig-home.json')), false, 'an unowned folder must not be marked')
+  assert.equal(existsSync(join(home, 'state.json')), false)
+  assert.equal(existsSync(join(home, 'seating.json')), false)
+})
+
+test('seed.mjs marks an empty custom home on its first run, and seeds it normally from then on', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'hd-shots-guard-empty-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const home = join(directory, 'fresh-rig-home')
+  const work = join(directory, 'work')
+  const seed = () =>
+    execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
+      env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '0' },
+      stdio: 'pipe',
+    })
+
+  seed()
+  assert.ok(existsSync(join(home, '.rig-home.json')), 'an empty folder was not marked on its first run')
+  assert.ok(existsSync(join(home, 'agents.json')))
+
+  // Residue this rig staged is cleared normally next time, exactly like the
+  // default home always was.
+  mkdirSync(join(home, 'goals'), { recursive: true })
+  writeFileSync(join(home, 'goals', 'stale.json'), '{}\n')
+  seed()
+  assert.equal(existsSync(join(home, 'goals', 'stale.json')), false)
 })
