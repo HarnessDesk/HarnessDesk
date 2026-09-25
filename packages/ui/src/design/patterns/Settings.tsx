@@ -386,10 +386,13 @@ const chipIsCut = (words: Element): boolean =>
  *   less when its container is narrower), ellipsises, and says itself whole
  *   in `title` while it is cut. A fact that needs two lines is a row's
  *   description, not a chip.
- * - **Stale is quiet, never struck.** A stale fact takes the neutral fill,
- *   muted ink and a leading history glyph; the word "stale" is there for a
- *   screen reader. A strikethrough reads as "wrong", and a stale fact was
- *   right when it was recorded.
+ * - **Stale is marked, never struck.** A stale fact leads with a history
+ *   glyph, and the word "stale" is there for a screen reader. A stale *pass*
+ *   drops to the neutral fill and muted ink — it no longer vouches for what
+ *   is there now. A stale failure or warning keeps its tone: it is still the
+ *   last word, and hiding it would make a broken branch read as fine. A
+ *   strikethrough reads as "wrong", and a stale fact was right when it was
+ *   recorded.
  * - **Zero draws nothing.** Give counts as `count`; zero renders no chip
  *   unless `showZero` says zero is itself the finding.
  * - **A chip earns its place.** It never repeats the row's own title, nor the
@@ -421,9 +424,10 @@ export const Chip = (props: ChipProps) => {
   const tint = props.tint
   const emphasis = props.emphasis
   const requestedTone = props.tone ?? ((stale || unknown) && state ? READINESS_TONE[state] : undefined)
-  /* A stale or unknown fact claims no judgement: it was true, or may be, and
-     neither is a colour. */
-  const tone = unknown || stale ? (requestedTone ? 'neutral' : undefined) : requestedTone
+  /* An unknown fact claims no judgement. A stale pass no longer vouches for
+     what is there now, so it goes quiet too; a stale failure is still the
+     last word on the branch and keeps its tone. */
+  const tone = unknown || (stale && requestedTone === 'success') ? 'neutral' : requestedTone
   const said = children ?? label ?? (unknown ? 'Unknown' : state ? READINESS_LABEL[state] : null)
   const counted = count === undefined
     ? said

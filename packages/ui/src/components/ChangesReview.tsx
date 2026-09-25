@@ -4,7 +4,7 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
 import { inView } from '../lib/git-view'
-import { Button, Card, ChangeStats, CodeText, Note, PageHead, PatchHeader, PatchSection, Tabs, TabsList, TabsTrigger, Text } from '../design'
+import { Button, Card, ChangeStats, CodeText, EmptyState, Note, PageHead, PatchHeader, PatchSection, Tabs, TabsList, TabsTrigger, Text } from '../design'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavEmpty, WindowNavItem, WindowPage } from './AppWindow'
 import { DiffView } from './Diff'
@@ -198,13 +198,14 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
         />
 
         {groups.length === 0 && (
-          <div className="hd-empty-line">
-            {git === null
+          <EmptyState
+            variant="inline"
+            title={git === null
               ? 'This folder is not a git repository, so there is nothing to compare against.'
               : staged
                 ? 'Nothing staged. Staging stays in git — stage there, review here.'
                 : 'No uncommitted changes.'}
-          </div>
+          />
         )}
 
         {groups.map((group) => (

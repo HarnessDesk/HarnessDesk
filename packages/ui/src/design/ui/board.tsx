@@ -191,7 +191,7 @@ const BoardColumn = ({
     </header>
     <div className="flex min-w-0 flex-col gap-2">{children}</div>
     {derived && empty && (
-      <EmptyState variant="inline" data-slot="board-empty" className="mt-auto" title="Nothing here" />
+      <EmptyState variant="inline" data-slot="board-empty" className="my-auto" title="Nothing here" />
     )}
     {/* The second entry point, at the foot where the eye ends after reading the
         column. A composer when the column can take a title on the spot, and a

@@ -40,44 +40,67 @@ import { Row } from '../patterns/Settings'
  * is none.
  */
 
-type EmptyStateVariant = 'panel' | 'inline' | 'row'
-
-type EmptyStateProps = Omit<React.ComponentProps<'div'>, 'title'> & {
-  /** Where it sits: a page or pane (`panel`), a list or column (`inline`), a `Rows` card (`row`). */
-  variant?: EmptyStateVariant
-  /** `panel` draws it in a disc; `row` as the row's mark; `inline` never draws one. */
-  icon?: React.ReactNode
+type EmptyStateBase = Omit<React.ComponentProps<'div'>, 'title'> & {
   title: React.ReactNode
   description?: React.ReactNode
-  /** A footnote under everything — the way out for the reader none of the choices fit. `panel` only. */
-  footer?: React.ReactNode
-  /** `panel` only: the same words with less air, for a panel inside a card. */
-  tight?: boolean
 }
 
-const EmptyState = ({
-  className,
-  variant = 'panel',
-  icon,
-  title,
-  description,
-  footer,
-  tight,
-  children,
-  ...props
-}: EmptyStateProps) => {
+/**
+ * The props follow the variant, so a caller cannot hand one shape the other's
+ * furniture: `footer` and `tight` are the panel's alone, and `inline` has no
+ * icon to draw.
+ */
+type EmptyStateProps = EmptyStateBase &
+  (
+    | {
+        /** A page, a pane or a dialog body that exists to hold the missing content. */
+        variant?: 'panel'
+        /** Drawn in a disc above the title. */
+        icon?: React.ReactNode
+        /** A footnote under everything — the way out for the reader none of the choices fit. */
+        footer?: React.ReactNode
+        /** The same words with less air, for a panel inside a card. */
+        tight?: boolean
+      }
+    | {
+        /** One muted line inside a list, a column or a pane. */
+        variant: 'inline'
+        icon?: never
+        footer?: never
+        tight?: never
+      }
+    | {
+        /** One row of a `Rows` card. `children` is its trailing control. */
+        variant: 'row'
+        /** Drawn as the row's mark. */
+        icon?: React.ReactNode
+        footer?: never
+        tight?: never
+      }
+  )
+
+const EmptyState = (allProps: EmptyStateProps) => {
+  const { className, variant = 'panel', icon, title, description, footer, tight, children, ...props } = allProps
   if (variant === 'inline') {
+    /* A `div`, not a `p`: the line may carry an element — a link, a button —
+       and a paragraph cannot hold a block. The look is the one the sidebar,
+       the folder picker and the board column share: a centred muted line
+       with room above and below, so an empty list reads as quiet rather than
+       broken. */
     return (
-      <p
+      <div
         data-slot="empty-state"
         data-variant="inline"
-        className={cn('min-w-0 text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)', className)}
-        {...(props as React.ComponentProps<'p'>)}
+        className={cn(
+          'min-w-0 px-2.5 py-6 text-center text-sm leading-(--hd-line-sm) text-(--hd-muted-foreground)',
+          className,
+        )}
+        {...props}
       >
         {title}
         {description != null && <> {description}</>}
         {children != null && <> {children}</>}
-      </p>
+      </div>
     )
   }
   if (variant === 'row') {

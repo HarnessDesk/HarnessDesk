@@ -264,7 +264,6 @@ export const Sidebar = ({
         {snapshot.history.length === 0 && !snapshot.historyLoading && (
           <EmptyState
             variant="inline"
-            className="hd-empty-line"
             title={ready
               ? `No sessions yet. Start one to see it here${
                   runtime.presentation.historySource

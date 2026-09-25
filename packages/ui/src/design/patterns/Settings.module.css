@@ -225,16 +225,17 @@
   background: currentColor;
 }
 
-/* Stale is quiet rather than struck: muted ink for the mark and the words,
-   the history glyph in front. A strikethrough says "wrong", and a stale fact
-   was right when it was recorded. */
-.chip[data-stale] {
+/* Stale is marked rather than struck: the history glyph in front, and — for
+   a fact that no longer judges anything (a stale pass goes neutral) — muted
+   ink for the mark and the words. A stale failure keeps its tone's ink. A
+   strikethrough says "wrong", and a stale fact was right when it was
+   recorded. */
+.chip[data-stale]:is([data-tone='neutral'], :not([data-tone])) {
   color: var(--hd-muted-foreground);
 }
 
 .chip[data-stale] .chipWords {
-  color: var(--hd-muted-foreground);
-  text-decoration: none; /* desk: line-through → none, stale reads as muted with a glyph, never struck */
+  text-decoration: none; /* desk: line-through → none, stale reads as a glyph, never struck */
 }
 
 /* --- controls ------------------------------------------------------------ */

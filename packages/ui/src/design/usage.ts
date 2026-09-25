@@ -192,7 +192,7 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'chip',
     variant: 'stale',
-    when: 'A fact recorded before what is there now. Pass `stale`: the Chip mutes it, drops its tone, leads with the history glyph and says "stale" to a screen reader.',
+    when: 'A fact recorded before what is there now. Pass `stale`: the Chip leads with the history glyph and says "stale" to a screen reader; a stale pass drops to neutral and muted ink, while a stale failure keeps its danger ink.',
     never: 'A strikethrough. Struck text reads as "wrong", and a stale fact was right when it was recorded.',
     because:
       'Muted with a glyph keeps the fact legible for what it was, and still says it is no longer current.',

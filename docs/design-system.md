@@ -572,7 +572,7 @@ having written the judgement down.
 
 ### `stale`
 
-**Use** — A fact recorded before what is there now. Pass `stale`: the Chip mutes it, drops its tone, leads with the history glyph and says "stale" to a screen reader.
+**Use** — A fact recorded before what is there now. Pass `stale`: the Chip leads with the history glyph and says "stale" to a screen reader; a stale pass drops to neutral and muted ink, while a stale failure keeps its danger ink.
 
 **Not** — A strikethrough. Struck text reads as "wrong", and a stale fact was right when it was recorded.
 
@@ -1118,10 +1118,13 @@ facts keep those meanings distinct in both ink and their accessible names.
   less when its container is narrower), ellipsises, and says itself whole
   in `title` while it is cut. A fact that needs two lines is a row's
   description, not a chip.
-- **Stale is quiet, never struck.** A stale fact takes the neutral fill,
-  muted ink and a leading history glyph; the word "stale" is there for a
-  screen reader. A strikethrough reads as "wrong", and a stale fact was
-  right when it was recorded.
+- **Stale is marked, never struck.** A stale fact leads with a history
+  glyph, and the word "stale" is there for a screen reader. A stale *pass*
+  drops to the neutral fill and muted ink — it no longer vouches for what
+  is there now. A stale failure or warning keeps its tone: it is still the
+  last word, and hiding it would make a broken branch read as fine. A
+  strikethrough reads as "wrong", and a stale fact was right when it was
+  recorded.
 - **Zero draws nothing.** Give counts as `count`; zero renders no chip
   unless `showZero` says zero is itself the finding.
 - **A chip earns its place.** It never repeats the row's own title, nor the

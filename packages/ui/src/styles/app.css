@@ -148,7 +148,7 @@ a:hover {
 /*
  * A list with nothing in it, said in one line.
  *
- * Not `EmptyState`, which is a page taking the space the missing content would
+ * Not the `EmptyState` panel, which is a page taking the space the missing content would
  * have had and spending it on what to press instead. This is the other thing —
  * a search that matched nothing, a folder with no children, a directory still
  * being read — where the answer is a sentence and the surroundings already say
@@ -157,6 +157,11 @@ a:hover {
  * It exists because three screens wrote it three times: at twenty, twenty-four
  * and thirty-two pixels of padding, at thirteen and fourteen, centred twice and
  * ranged once. One sentence, one shape.
+ *
+ * That shape is now `EmptyState variant="inline"` (design/ui/empty-state.tsx),
+ * which draws exactly these values. The class stays only for the two screens
+ * that still spell it — CommandPalette and TriggerMenu — and goes when they
+ * move to the part; do not reach for it in new code.
  */
 .hd-empty-line {
   padding: var(--hd-space-6) var(--hd-space-2-5);

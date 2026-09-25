@@ -120,16 +120,22 @@ it('says itself whole in title while it is cut, and keeps a title the caller gav
   expect(named.getAttribute('title')).toBe('Whole story')
 })
 
-it('draws stale as muted ink behind a history glyph, never a strikethrough', () => {
-  const chip = draw(<Chip tone="warning" stale>verify ✓ @a1b2c3d</Chip>)
+it('marks stale with a history glyph, never a strikethrough, and mutes only a stale pass', () => {
+  const pass = draw(<Chip tone="success" stale>verify ✓ @a1b2c3d</Chip>)
   expect(css).not.toMatch(/text-decoration:\s*line-through/)
-  expect(css).toMatch(/\.chip\[data-stale\]\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
-  const glyph = chip.firstElementChild
+  expect(css).toMatch(/\.chip\[data-stale\]:is\(\[data-tone='neutral'\], :not\(\[data-tone\]\)\)\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
+  const glyph = pass.firstElementChild
   expect(glyph?.tagName.toLowerCase()).toBe('svg')
   expect(glyph?.getAttribute('aria-hidden')).toBe('true')
-  // A stale fact claims no judgement, whatever tone it was recorded with.
-  expect(chip.dataset['tone']).toBe('neutral')
-  expect(chip.querySelector('.sr-only')?.textContent).toContain('stale')
+  // A stale pass no longer vouches for what is there now.
+  expect(pass.dataset['tone']).toBe('neutral')
+  expect(pass.querySelector('.sr-only')?.textContent).toContain('stale')
+
+  // A stale failure is still the last word: it keeps its danger ink.
+  const failed = draw(<Chip tone="danger" stale>verify ✗ @a1b2c3d</Chip>)
+  expect(failed.dataset['tone']).toBe('danger')
+  expect(failed.className).toContain('bg-(--hd-danger-dim)')
+  expect(failed.firstElementChild?.tagName.toLowerCase()).toBe('svg')
 })
 
 it('draws nothing for a zero count unless zero is the finding', () => {

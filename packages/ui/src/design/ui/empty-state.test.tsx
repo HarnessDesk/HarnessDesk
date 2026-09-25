@@ -39,10 +39,14 @@ it('keeps the centred panel as the default, so existing callers do not move', ()
 })
 
 it('draws inline as one muted line with no icon and no heading', () => {
-  const line = draw(<EmptyState variant="inline" icon={<svg data-testid="icon" />} title="Nothing here." description="Cards land here when claimed." />)
-  expect(line.tagName).toBe('P')
+  const line = draw(<EmptyState variant="inline" title="Nothing here." description="Cards land here when claimed." />)
+  // A div, so the line can carry an element; one look for every list: centred, padded, muted.
+  expect(line.tagName).toBe('DIV')
   expect(line.dataset['variant']).toBe('inline')
   expect(line.className).toContain('text-(--hd-muted-foreground)')
+  expect(line.className).toContain('text-center')
+  expect(line.className).toContain('py-6')
+  expect(line.className).toContain('px-2.5')
   expect(line.querySelector('[data-testid="icon"]')).toBeNull()
   expect(line.querySelector('h3')).toBeNull()
   expect(line.textContent).toBe('Nothing here. Cards land here when claimed.')
@@ -73,4 +77,20 @@ it('lets a caller keep its own slot name on the inline line', () => {
   const empty = line.querySelector<HTMLElement>('[data-slot="board-empty"]')
   expect(empty?.dataset['variant']).toBe('inline')
   expect(empty?.textContent).toBe('Nothing here')
+})
+
+it('takes only the props its variant can draw', () => {
+  // @ts-expect-error — a footer is the panel's alone.
+  const inlineFooter = <EmptyState variant="inline" title="Nothing" footer="more" />
+  // @ts-expect-error — so is tight.
+  const rowTight = <EmptyState variant="row" title="Nothing" tight />
+  // @ts-expect-error — an inline line draws no icon.
+  const inlineIcon = <EmptyState variant="inline" title="Nothing" icon={<svg />} />
+  expect([inlineFooter, rowTight, inlineIcon]).toHaveLength(3)
+})
+
+it('holds an element in an inline line without nesting it in a paragraph', () => {
+  const line = draw(<EmptyState variant="inline" title="No sessions yet."><button type="button">Start one</button></EmptyState>)
+  expect(line.closest('p')).toBeNull()
+  expect(line.querySelector('button')?.textContent).toBe('Start one')
 })
