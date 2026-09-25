@@ -8,6 +8,7 @@ import {
   BreadcrumbSeparator,
   Button,
   Dialog,
+  EmptyState,
   NavigationList,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
@@ -120,9 +121,9 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
       footerAside="Click a folder to enter it; open the one you are in."
     >
       <NavigationList className={styles.list}>
-        {loading && <p className="hd-empty-line">Loading…</p>}
+        {loading && <EmptyState variant="inline" title="Loading…" />}
         {!loading && listing?.entries.length === 0 && (
-          <p className="hd-empty-line">No sub-folders here.</p>
+          <EmptyState variant="inline" title="No sub-folders here." />
         )}
         {listing?.entries.map((entry) => (
           <Button

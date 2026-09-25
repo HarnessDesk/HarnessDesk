@@ -92,6 +92,63 @@ it('says stale accessibly and refuses the success tone', () => {
   expect(chip.className).not.toContain('bg-(--hd-success-dim)')
 })
 
+it('stays on one line: bounded, ellipsised, never wrapping inside its pill', () => {
+  const chip = draw(<Chip tone="neutral">verify ✓ @a1b2c3d — 2 commits since</Chip>)
+  expect(css).toMatch(/\.chip\s*\{[^}]*max-width:\s*min\(100%, 240px\)[^}]*white-space:\s*nowrap/s)
+  // Bare words sit in a span of their own, which is the box that ellipsises.
+  const words = chip.querySelector('[data-slot="chip-words"]')
+  expect(words?.children).toHaveLength(1)
+  expect(words?.firstElementChild?.tagName).toBe('SPAN')
+  expect(css).toMatch(/\.chipWords > span\s*\{[^}]*text-overflow:\s*ellipsis[^}]*white-space:\s*nowrap/s)
+})
+
+it('says itself whole in title while it is cut, and keeps a title the caller gave', () => {
+  const text = 'verify ✓ @a1b2c3d — 2 commits since'
+  const chip = draw(<Chip tone="neutral">{text}</Chip>)
+  const inner = chip.querySelector<HTMLElement>('[data-slot="chip-words"] > span')
+  if (!inner) throw new Error('no words')
+  Object.defineProperty(inner, 'scrollWidth', { configurable: true, value: 300 })
+  Object.defineProperty(inner, 'clientWidth', { configurable: true, value: 120 })
+  act(() => { chip.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(chip.getAttribute('title')).toBe(text)
+  Object.defineProperty(inner, 'scrollWidth', { configurable: true, value: 100 })
+  act(() => { chip.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(chip.hasAttribute('title')).toBe(false)
+
+  const named = draw(<Chip tone="neutral" title="Whole story">Short</Chip>)
+  act(() => { named.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  expect(named.getAttribute('title')).toBe('Whole story')
+})
+
+it('marks stale with a history glyph, never a strikethrough, and mutes only a stale pass', () => {
+  const pass = draw(<Chip tone="success" stale>verify ✓ @a1b2c3d</Chip>)
+  expect(css).not.toMatch(/text-decoration:\s*line-through/)
+  expect(css).toMatch(/\.chip\[data-stale\]:is\(\[data-tone='neutral'\], :not\(\[data-tone\]\)\)\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
+  const glyph = pass.firstElementChild
+  expect(glyph?.tagName.toLowerCase()).toBe('svg')
+  expect(glyph?.getAttribute('aria-hidden')).toBe('true')
+  // A stale pass no longer vouches for what is there now.
+  expect(pass.dataset['tone']).toBe('neutral')
+  expect(pass.querySelector('.sr-only')?.textContent).toContain('stale')
+
+  // A stale failure is still the last word: it keeps its danger ink.
+  const failed = draw(<Chip tone="danger" stale>verify ✗ @a1b2c3d</Chip>)
+  expect(failed.dataset['tone']).toBe('danger')
+  expect(failed.className).toContain('bg-(--hd-danger-dim)')
+  expect(failed.firstElementChild?.tagName.toLowerCase()).toBe('svg')
+})
+
+it('draws nothing for a zero count unless zero is the finding', () => {
+  act(() => root.render(<Chip tone="neutral" count={0}>copies differ</Chip>))
+  expect(container.innerHTML).toBe('')
+  const shown = draw(<Chip tone="neutral" count={0} showZero>copies differ</Chip>)
+  expect(shown.textContent).toBe('0 copies differ')
+  const counted = draw(<Chip tone="warning" count={3}>copies differ</Chip>)
+  expect(counted.textContent).toBe('3 copies differ')
+  const bare = draw(<Chip tone="neutral" count={12} />)
+  expect(bare.textContent).toBe('12')
+})
+
 it('defaults an unknown fact to Unknown and the neutral tone', () => {
   const chip = draw(<Chip tone="danger" unknown />)
   expect(chip.dataset['unknown']).toBe('')

@@ -70,12 +70,21 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  /* One line, bounded: a chip stops at its box and ellipsises rather than
+     wrapping inside its pill. The container's width wins when it is the
+     narrower, so a chip in a card never runs past the card. */
+  max-width: min(100%, 240px);
   height: var(--hd-chip-h);
   padding: 0 var(--hd-space-2) 0 var(--hd-space-2);
   border-radius: var(--hd-chip-radius);
   font-size: var(--hd-text-xs);
   line-height: 1;
   white-space: nowrap;
+}
+
+/* The stale mark rides in front of the words and never shrinks away. */
+.chipGlyph {
+  flex: none;
 }
 
 .chip[data-size='sm'] {
@@ -216,9 +225,17 @@
   background: currentColor;
 }
 
-.chip[data-stale] .chipWords {
+/* Stale is marked rather than struck: the history glyph in front, and — for
+   a fact that no longer judges anything (a stale pass goes neutral) — muted
+   ink for the mark and the words. A stale failure keeps its tone's ink. A
+   strikethrough says "wrong", and a stale fact was right when it was
+   recorded. */
+.chip[data-stale]:is([data-tone='neutral'], :not([data-tone])) {
   color: var(--hd-muted-foreground);
-  text-decoration: line-through;
+}
+
+.chip[data-stale] .chipWords {
+  text-decoration: none; /* desk: line-through → none, stale reads as a glyph, never struck */
 }
 
 /* --- controls ------------------------------------------------------------ */
@@ -1206,4 +1223,20 @@
   place-items: center;
   width: 16px;
   color: var(--hd-accent);
+}
+
+/* An empty row is a sentence about the card, not one more item in it: its
+   title steps down a weight and an ink, and its note one more, so it never
+   reads as a row you could open. The padding and hairline stay the Row's. */
+.row[data-slot='empty-state'] .rowTitle {
+  font-weight: var(--hd-weight-normal);
+  color: var(--hd-secondary-foreground);
+}
+
+.row[data-slot='empty-state'] .rowDesc {
+  color: var(--hd-muted-foreground);
+}
+
+.row[data-slot='empty-state'] .rowMark {
+  color: var(--hd-muted-foreground);
 }

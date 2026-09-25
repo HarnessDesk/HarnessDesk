@@ -17,6 +17,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 
 import { SECTIONS } from './design-sections.mjs'
 import { resolveTokens } from './design-tokens.mjs'
@@ -24,7 +25,7 @@ import { attributes, footerOffenders, slotOffenders } from './design-usage.mjs'
 import { ownsStylesheet, resolveStylesheet, stylesheetImports } from './lib/stylesheet-imports.mjs'
 import { withoutComments } from './lib/without-comments.mjs'
 import { repositoryFiles } from './lib/repository-files.mjs'
-import { overlayViolations } from './ui-architecture.mjs'
+import { overlayViolations, utilityBase } from './ui-architecture.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const COMPONENTS = path.join(root, 'packages/ui/src/components')
@@ -1732,6 +1733,14 @@ const findings = {
   screenAppearance: [],
   screenUnclassified: [],
   visualKindUnion: [],
+  /**
+   * Utilities that look like an appearance family this rule has not been
+   * taught — `caret-red-500`, `from-black` — reported only under `--verbose`,
+   * never counted. Deliberately outside `SECTIONS`: adding a family here
+   * does not tighten anything, it is a hint for whoever next extends
+   * `screenUtilityDeclarationOf`, not a second strict category.
+   */
+  unmappedScreenUtility: [],
 }
 
 /**
@@ -1841,7 +1850,7 @@ const LAYOUT_HEIGHT = /%|\d(?:[sld]?v(?:h|w|min|max|b|i)|cq(?:h|w|i|b|min|max))\
  * and a role's inner box. Families are stems because CSS may add or the app
  * may adopt another longhand without that spelling becoming invisible.
  */
-const APPEARANCE_PROPERTIES = {
+export const APPEARANCE_PROPERTIES = {
   exact: new Set([
     'line-height', 'letter-spacing', 'word-spacing', 'text-transform', 'text-underline-offset', 'text-shadow',
     'color', 'fill', 'caret-color', 'accent-color', 'filter', 'backdrop-filter', 'mix-blend-mode',
@@ -1875,7 +1884,7 @@ const LAYOUT_BEHAVIOUR_PROPERTIES = {
 const inPropertyTable = (name, table) =>
   table.exact.has(name) || table.families.some((family) => name === family || name.startsWith(`${family}-`))
 
-const screenPropertySideOf = (property, value) => {
+export const screenPropertySideOf = (property, value) => {
   if (property.startsWith('--')) return 'custom'
   const name = unprefixedProperty(property)
   if (inPropertyTable(name, APPEARANCE_PROPERTIES)) {
@@ -1955,6 +1964,872 @@ const ICON_MODULES = new Set([
   'AppearancePreview.tsx',
   'GitGraph.tsx',
 ])
+
+/**
+ * Screen appearance, re-drawn as a Tailwind utility or an inline `style`
+ * instead of a screen's `.module.css`.
+ *
+ * `screenAppearanceOf` above answers this for a stylesheet; it went quiet
+ * because the same declarations moved into `className={\`... h-(--hd-chip-h)
+ * ...\`}` and `style={{ background: ... }}` in the screen's own `.tsx`, which
+ * that CSS-only rule cannot see. A screen that still draws its own type, ink,
+ * ground, edges or a role's inner box should still count, whichever of the
+ * three spellings — literal CSS, a utility class, an inline style — it used.
+ *
+ * A "screen" here is exactly `isScreenSheet`'s directory test (components,
+ * slots, panels, outside design/), so `preview/` — the harness, not a screen —
+ * and `app/` are never in scope without a separate rule. `ICON_MODULES` keeps
+ * the exemption it already has from the loose-icon rule: a data mark is
+ * content, not a role being redrawn. The `.tsx` that renders each exempt
+ * `.module.css` in `SCREEN_APPEARANCE_EXEMPTIONS` gets the same exemption for
+ * the same reason — prose keeps its own ratio ladder, a diff viewer is a
+ * specialized renderer — whichever of the pair holds the declaration.
+ */
+const SCREEN_APPEARANCE_TSX_EXEMPTIONS = new Set(
+  [...SCREEN_APPEARANCE_EXEMPTIONS].map((sheet) => sheet.replace(/\.module\.css$/, '.tsx')),
+)
+
+const isScreenTsx = (file) =>
+  isScreenSheet(file)
+  && !file.includes('.test.')
+  && !ICON_MODULES.has(path.basename(file))
+  && !SCREEN_APPEARANCE_TSX_EXEMPTIONS.has(screenAppearanceName(file))
+
+/** The combiner every shadcn component reaches for (`lib/utils.ts`'s `cn`)
+ * and its two common aliases — a `cn(...)`/`clsx(...)`/`cx(...)` call is a
+ * third place a screen's classes are spelled, alongside a plain string and a
+ * template literal. */
+const CLASS_COMBINERS = new Set(['cn', 'clsx', 'cx'])
+
+/**
+ * A real parser never reads a comment as code, so there is nothing here for a
+ * pre-pass to strip: a commented-out `className="…"` was never a token
+ * `ts.createSourceFile` produced, with or without one. (An earlier version
+ * ran the file through `withoutComments` first anyway, out of habit from the
+ * regex-based rules elsewhere in this file — round 1 review found the habit
+ * carried no effect and the fixture that claimed to prove it was vacuous.)
+ * `strict` parsing is kept: a file the parser could not read fails by name,
+ * the same contract `codeOf` and `ui-architecture.mjs`'s own `parseSource`
+ * hold elsewhere.
+ */
+const parseScreenSource = (file, source) => {
+  const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const problem = ast.parseDiagnostics?.[0]
+  if (problem) throw new Error(`${file}: TypeScript could not parse this file (${ts.flattenDiagnosticMessageText(problem.messageText, ' ')})`)
+  return ast
+}
+
+/* Tailwind's named type scale. `2xl` through `9xl` share one shape, so they
+   are matched by pattern instead of listed one at a time. */
+const TEXT_SIZE_SUFFIX = /^(?:xs|sm|base|lg|xl|\d+xl)$/
+const TEXT_ALIGN_SUFFIX = new Set(['left', 'center', 'right', 'justify', 'start', 'end'])
+// `text-wrap`/`nowrap`/`balance`/`pretty` set layout (`white-space`), not a
+// colour — named so they do not fall into the "anything else is a colour"
+// default below.
+const TEXT_LAYOUT_SUFFIX = new Set(['wrap', 'nowrap', 'balance', 'pretty'])
+const FONT_WEIGHT_SUFFIX = new Set(['thin', 'extralight', 'light', 'normal', 'medium', 'semibold', 'bold', 'extrabold', 'black'])
+const FONT_FAMILY_SUFFIX = new Set(['sans', 'serif', 'mono'])
+
+const looksLikeColour = (value) =>
+  /^#[0-9a-f]{3,8}$/i.test(value)
+  || /^(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color)\(/i.test(value)
+  || /^(?:currentcolor|transparent|black|white)$/i.test(value)
+
+/**
+ * A `h-`/`min-h-`/`max-h-`/`size-` suffix, resolved to a value string that
+ * carries the same layout-vs-metric signal a real CSS value would, so
+ * `screenPropertySideOf` can decide it with the exact rule it already applies
+ * to a stylesheet's `height`: `full`/`screen`/`dvh`/… are the keywords and
+ * viewport units `LAYOUT_HEIGHT` matches, a fraction is a percentage, and a
+ * bare scale number (`8`, `0.5`, `0`) is left for `ZERO_HEIGHT` to tell a
+ * reset from a metric.
+ */
+const HEIGHT_KEYWORD_VALUE = {
+  full: '100%', screen: '100vh', dvh: '100dvh', svh: '100svh', lvh: '100lvh',
+  min: 'min-content', max: 'max-content', fit: 'fit-content', auto: 'auto',
+}
+const heightSuffixValue = (suffix) => {
+  if (Object.hasOwn(HEIGHT_KEYWORD_VALUE, suffix)) return HEIGHT_KEYWORD_VALUE[suffix]
+  const fraction = /^(\d+)\/(\d+)$/.exec(suffix)
+  if (fraction) return `${(100 * Number(fraction[1])) / Number(fraction[2])}%`
+  if (suffix === 'px') return '1px'
+  return suffix
+}
+const HEIGHT_PROPERTY_OF = { h: 'height', 'min-h': 'min-height', 'max-h': 'max-height', size: 'height' }
+const PADDING_SIDE_PROPERTY = {
+  p: 'padding', px: 'padding-inline', py: 'padding-block',
+  pt: 'padding-top', pr: 'padding-right', pb: 'padding-bottom', pl: 'padding-left',
+  ps: 'padding-inline-start', pe: 'padding-inline-end',
+  pbs: 'padding-block-start', pbe: 'padding-block-end',
+}
+
+/** A whole utility with no suffix — the class name itself is the declaration.
+ * The numeric-variant family (`tabular-nums` and its siblings) all toggle
+ * `font-variant-numeric`, the same property a stylesheet's own declaration of
+ * it already counts under the `font` family match. */
+const LITERAL_UTILITY_PROPERTY = {
+  italic: 'font-style', 'not-italic': 'font-style',
+  underline: 'text-decoration', 'line-through': 'text-decoration', 'no-underline': 'text-decoration',
+  uppercase: 'text-transform', lowercase: 'text-transform', capitalize: 'text-transform', 'normal-case': 'text-transform',
+  truncate: 'text-overflow', 'text-ellipsis': 'text-overflow', 'text-clip': 'text-overflow',
+  border: 'border', rounded: 'border-radius', shadow: 'box-shadow', ring: 'box-shadow', outline: 'outline',
+  'normal-nums': 'font-variant-numeric', ordinal: 'font-variant-numeric', 'slashed-zero': 'font-variant-numeric',
+  'lining-nums': 'font-variant-numeric', 'oldstyle-nums': 'font-variant-numeric', 'proportional-nums': 'font-variant-numeric',
+  'tabular-nums': 'font-variant-numeric', 'diagonal-fractions': 'font-variant-numeric', 'stacked-fractions': 'font-variant-numeric',
+}
+
+/**
+ * A Tailwind utility — its variants and `!` already stripped by the caller —
+ * mapped to the CSS property it sets, and a value string for the one family
+ * where `screenPropertySideOf` reads the value at all (height). Classifying
+ * the RESULT through that one function, rather than keeping a second
+ * appearance/layout table here, is the whole point: a screen's utility and a
+ * screen's literal CSS declaration are the same drift, spelled two ways.
+ *
+ * Returns `null` for a token this has not been taught. That is not the same
+ * as "layout" — it is "not counted, and not claimed to be understood either".
+ */
+export const screenUtilityDeclarationOf = (token) => {
+  // `[prop:value]` names its own property outright — Tailwind's escape hatch
+  // for a property no utility covers. No prefix table applies; the bracket
+  // contents are read directly and handed to the same boundary function.
+  const arbitrary = /^\[([a-zA-Z-]+):(.+)\]$/.exec(token)
+  if (arbitrary) return { property: arbitrary[1].toLowerCase(), value: arbitrary[2] }
+
+  if (Object.hasOwn(LITERAL_UTILITY_PROPERTY, token)) return { property: LITERAL_UTILITY_PROPERTY[token], value: '' }
+
+  // `h-`/`min-h-`/`max-h-`/`size-` with nothing after the hyphen is what a
+  // template literal (`` `h-${n}` ``) leaves behind once its interpolation is
+  // read separately: the prefix alone still names the role. An empty value
+  // is neither `ZERO_HEIGHT` nor `LAYOUT_HEIGHT`, so it counts as a metric —
+  // the same way `text-${x}` already fell through to a colour below. This is
+  // the utility side only; an unknown *inline `style`* height is the opposite
+  // decision, right below `screenInlineStyleAppearanceOf`.
+  const height = /^(h|min-h|max-h|size)-(.*)$/.exec(token)
+  if (height) {
+    const [, key, rest] = height
+    const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
+    const paren = /^\((.+)\)$/.exec(rest)?.[1]
+    const value = bracket ?? paren ?? heightSuffixValue(rest)
+    return { property: HEIGHT_PROPERTY_OF[key], value }
+  }
+
+  // `text-shadow-*` (Tailwind's own type shadow) shares the `text-` prefix
+  // with the size/colour family below and must be pulled out first, or
+  // `shadow-md` reads as its "rest" and falls through to the colour default.
+  if (token.startsWith('text-shadow-')) return { property: 'text-shadow', value: '' }
+  if (token.startsWith('underline-offset-')) return { property: 'text-underline-offset', value: '' }
+
+  if (token.startsWith('text-')) {
+    const rest = token.slice('text-'.length)
+    const bracket = /^\[(.+)\]$/.exec(rest)?.[1]
+    if (bracket !== undefined) return { property: looksLikeColour(bracket) ? 'color' : 'font-size', value: '' }
+    const paren = /^\((.+)\)$/.exec(rest)?.[1]
+    if (paren !== undefined) return { property: /^length:/.test(paren) ? 'font-size' : 'color', value: '' }
+    if (TEXT_SIZE_SUFFIX.test(rest)) return { property: 'font-size', value: '' }
+    if (TEXT_ALIGN_SUFFIX.has(rest)) return { property: 'text-align', value: '' }
+    if (TEXT_LAYOUT_SUFFIX.has(rest)) return { property: 'white-space', value: '' }
+    return { property: 'color', value: '' }
+  }
+
+  if (token.startsWith('font-')) {
+    const rest = token.slice('font-'.length)
+    if (rest.startsWith('stretch-')) return { property: 'font-stretch', value: '' }
+    if (/^[[(]/.test(rest)) return { property: 'font-family', value: '' }
+    if (FONT_WEIGHT_SUFFIX.has(rest)) return { property: 'font-weight', value: '' }
+    if (FONT_FAMILY_SUFFIX.has(rest)) return { property: 'font-family', value: '' }
+    return null
+  }
+
+  if (token.startsWith('leading-')) return { property: 'line-height', value: '' }
+  // Tailwind negates an arbitrary/bracket value with a leading `-` rather
+  // than a different utility name (`-tracking-[2px]`), so the family is
+  // checked with the sign stripped, not as a second prefix.
+  if (token.startsWith('tracking-') || token.startsWith('-tracking-')) return { property: 'letter-spacing', value: '' }
+  if (token.startsWith('decoration-')) return { property: 'text-decoration', value: '' }
+
+  if (token.startsWith('bg-')) {
+    const rest = token.slice('bg-'.length)
+    if (rest.startsWith('clip-')) return { property: 'background-clip', value: '' }
+    if (rest.startsWith('origin-')) return { property: 'background-origin', value: '' }
+    return { property: 'background', value: '' }
+  }
+
+  // `inset-shadow-*`/`inset-ring-*` before the plain `shadow-`/`ring-` check:
+  // they do not share its prefix, so order does not matter for correctness,
+  // only for reading the two rings of the same family next to each other.
+  if (token.startsWith('inset-shadow-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('inset-ring-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('mix-blend-')) return { property: 'mix-blend-mode', value: '' }
+  // Every `mask-*` sub-property (image, size, position, repeat, clip, origin,
+  // type, mode, composite) is counted as one, the same approximation
+  // `bg-clip-`/`bg-origin-` already makes for `background`.
+  if (token.startsWith('mask-')) return { property: 'mask-image', value: '' }
+
+  if (token.startsWith('border-')) return { property: 'border', value: '' }
+  if (token.startsWith('rounded-')) return { property: 'border-radius', value: '' }
+  if (token.startsWith('shadow-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('ring-')) return { property: 'box-shadow', value: '' }
+  if (token.startsWith('outline-')) return { property: 'outline', value: '' }
+  if (token.startsWith('fill-')) return { property: 'fill', value: '' }
+  if (token.startsWith('stroke-')) return { property: 'stroke', value: '' }
+  if (token.startsWith('opacity-')) return { property: 'opacity', value: '' }
+
+  // As with height above, an empty suffix is what `` `px-${n}` `` leaves
+  // once its interpolation is read separately — padding has no value-based
+  // rule, so the property alone is enough to count it.
+  const padding = /^(pbs|pbe|p|px|py|pt|pr|pb|pl|ps|pe)-(.*)$/.exec(token)
+  if (padding) return { property: PADDING_SIDE_PROPERTY[padding[1]], value: '' }
+
+  return null
+}
+
+/**
+ * A Tailwind namespace this rule knows is appearance but has not mapped —
+ * `caret-red-500`, `from-black`, bare `antialiased` — reported only under
+ * `--verbose`, on `unmappedScreenUtility`, and never counted. Extending
+ * `screenUtilityDeclarationOf` is the fix; adding a name here is not — this
+ * is a hint, not a second strict category.
+ */
+const UNMAPPED_APPEARANCE_LITERAL = new Set(['antialiased', 'subpixel-antialiased'])
+const UNMAPPED_APPEARANCE_PREFIX = /^(?:caret|accent|placeholder|divide|from|via|to|selection|blur|brightness|contrast|grayscale|hue-rotate|invert|saturate|sepia|drop-shadow|backdrop-(?:blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia))-/
+export const looksLikeUnmappedAppearanceUtility = (token) =>
+  UNMAPPED_APPEARANCE_LITERAL.has(token) || UNMAPPED_APPEARANCE_PREFIX.test(token)
+
+/** Tailwind v4 moved the important marker to the end of a token
+ * (`bg-red-500!`); a v3 source may still carry it at the front
+ * (`!bg-red-500`). Either spelling is punctuation, not part of the name. */
+const withoutImportantMarker = (token) => token.replace(/^!/, '').replace(/!$/, '')
+
+/**
+ * The scopes a reference node sits inside, innermost first: every enclosing
+ * `{ }` block and the file itself. A function's own parameter list is not a
+ * scope this walks into separately — nothing here resolves a parameter — and
+ * arrow bodies with no block (`() => expr`) hold no declarations to find.
+ */
+const enclosingScopes = (node) => {
+  const scopes = []
+  let current = node.parent
+  while (current) {
+    if (ts.isSourceFile(current) || ts.isBlock(current)) scopes.push(current)
+    current = current.parent
+  }
+  return scopes
+}
+
+/** A `const`/`let`/`var` declared directly in `scope`'s own statement list —
+ * not in a nested block, which is a different scope with its own turn in
+ * `enclosingScopes`. */
+const directDeclarationIn = (scope, name) => {
+  for (const statement of scope.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name && declaration.initializer) return declaration
+    }
+  }
+  return null
+}
+
+/**
+ * A name, resolved to the nearest declaration in an enclosing scope — real JS
+ * scoping, not "the first one anywhere in the file": two components each
+ * declaring their own `const tone` are two declarations, and an inner block
+ * that shadows an outer `const tone` resolves to its own, not the outer one.
+ *
+ * `const` yields its one initializer. `let`/`var` is read the same way when
+ * it is never reassigned; when it is, every literal assignment reachable
+ * from the declaring scope — the initializer and each `name = …` found in it
+ * or a nested block, not inside a separate closure — is gathered, because a
+ * variable that can hold more than one thing statically is not the one
+ * declaration a `const` is. Either way the result is keyed by the
+ * declaration's own position (`pos`), not by name, so `countedDefs` can
+ * dedupe by the declaration rather than by a name two scopes both use.
+ */
+/** `=` and `+=` both introduce literal content worth gathering — `c += '
+ * bg-(--x)'` after `let c = 'text-xs'` adds a second piece to the same
+ * declaration, not a replacement of the first, so both are kept rather than
+ * only the initializer or only the latest assignment. */
+const REASSIGNMENT_OPERATORS = new Set([ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken])
+
+const nearestDeclaration = (refNode, name) => {
+  for (const scope of enclosingScopes(refNode)) {
+    const declaration = directDeclarationIn(scope, name)
+    if (!declaration) continue
+    if ((declaration.parent.flags & ts.NodeFlags.Const) !== 0) {
+      return { pos: declaration.pos, nodes: [declaration.initializer] }
+    }
+    const assignments = []
+    const visit = (node) => {
+      if (node !== scope && ts.isFunctionLike(node)) return
+      if (
+        ts.isBinaryExpression(node) && REASSIGNMENT_OPERATORS.has(node.operatorToken.kind)
+        && ts.isIdentifier(node.left) && node.left.text === name
+      ) {
+        assignments.push(node.right)
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(scope)
+    return { pos: declaration.pos, nodes: [declaration.initializer, ...assignments] }
+  }
+  return null
+}
+
+/** A named or default import's binding in one file → the name it was
+ * exported under (`'default'` for a default import) and the specifier it
+ * came from. A namespace import (`import * as ns`) is resolved separately,
+ * at its own `ns.NAME` property-access site, not by a bare name lookup. */
+const importBinding = (ast, localName) => {
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const spec = statement.moduleSpecifier.text
+    const clause = statement.importClause
+    if (clause.name && clause.name.text === localName) return { spec, exportedName: 'default' }
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) {
+        if (element.name.text === localName) return { spec, exportedName: (element.propertyName ?? element.name).text }
+      }
+    }
+  }
+  return null
+}
+
+/** A namespace import's local binding (`import * as styles2 from '…'`) →
+ * the specifier it came from, for a `styles2.NAME` property access. */
+const namespaceImportSpec = (ast, localName) => {
+  for (const statement of ast.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue
+    const bindings = statement.importClause.namedBindings
+    if (bindings && ts.isNamespaceImport(bindings) && bindings.name.text === localName) return statement.moduleSpecifier.text
+  }
+  return null
+}
+
+/** A relative or `@/`-aliased specifier → the `.tsx`/`.ts` file it names, the
+ * same two resolutions `publicDesignImports` and `resolveStylesheet` already
+ * make for their own imports. A bare package specifier resolves to nothing:
+ * a screen's own constants are never published from `node_modules`. */
+const resolveConstModule = (fromFile, spec) => {
+  if (!spec.startsWith('.') && !spec.startsWith('@/')) return null
+  const base = spec.startsWith('@/') ? path.join(UI_SRC, spec.slice(2)) : path.resolve(path.dirname(fromFile), spec)
+  for (const ext of ['.tsx', '.ts']) {
+    const candidate = base.endsWith(ext) ? base : `${base}${ext}`
+    if (sourceOf(candidate) !== null) return candidate
+  }
+  return null
+}
+
+/** Parsed once per file and kept: a constant several screens import —
+ * `LibraryActions.tsx`'s `SWITCH_TRACK`, read by `Library.tsx` too — would
+ * otherwise be re-parsed by every consumer that reaches for it. */
+const constFileCache = new Map()
+const parsedConstFile = (file) => {
+  if (!constFileCache.has(file)) {
+    const source = sourceOf(file)
+    constFileCache.set(file, source === null ? null : { ast: parseScreenSource(file, source) })
+  }
+  return constFileCache.get(file)
+}
+
+/**
+ * An exported name's value in `file`'s top level — where an import always
+ * lands, since only a module's own top level can be exported — following a
+ * re-export (`export { NAME } from './Other'`, `hops` deep, default four)
+ * and a default export, either `export default <expr>` directly or
+ * `export default NAME` naming a local `const`. `directDeclarationIn` at the
+ * `SourceFile` scope is enough here; an export can never name a block-scoped
+ * local.
+ */
+const exportedValueIn = (file, exportedName, hops = 4) => {
+  const parsed = parsedConstFile(file)
+  if (!parsed) return null
+  if (exportedName === 'default') {
+    for (const statement of parsed.ast.statements) {
+      if (!ts.isExportAssignment(statement) || statement.isExportEquals) continue
+      if (ts.isIdentifier(statement.expression)) {
+        const declaration = directDeclarationIn(parsed.ast, statement.expression.text)
+        return declaration ? { file, ast: parsed.ast, pos: declaration.pos, nodes: [declaration.initializer] } : null
+      }
+      return { file, ast: parsed.ast, pos: statement.pos, nodes: [statement.expression] }
+    }
+    return null
+  }
+  const declaration = directDeclarationIn(parsed.ast, exportedName)
+  if (declaration) return { file, ast: parsed.ast, pos: declaration.pos, nodes: [declaration.initializer] }
+  if (hops <= 0) return null
+  for (const statement of parsed.ast.statements) {
+    if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue
+    if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue
+    for (const element of statement.exportClause.elements) {
+      if (element.name.text === exportedName) {
+        const nextFile = resolveConstModule(file, statement.moduleSpecifier.text)
+        if (!nextFile || !isScreenTsx(nextFile)) return null
+        return exportedValueIn(nextFile, (element.propertyName ?? element.name).text, hops - 1)
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * A name used at a class site → the declaration it names, wherever that is:
+ * the nearest enclosing scope first, then one or more hops through an import
+ * to the file that (eventually, through a re-export chain) declares it. A
+ * definition outside the screen boundary (`design/`, a test file) is not
+ * followed — the boundary this whole rule enforces would otherwise credit a
+ * screen's reference for the design system's own choice.
+ */
+const resolveClassConst = (identifierNode, file, ast) => {
+  const name = identifierNode.text
+  const local = nearestDeclaration(identifierNode, name)
+  if (local) return { file, ast, pos: local.pos, nodes: local.nodes }
+  const binding = importBinding(ast, name)
+  if (!binding) return null
+  const modulePath = resolveConstModule(file, binding.spec)
+  if (!modulePath || !isScreenTsx(modulePath)) return null
+  return exportedValueIn(modulePath, binding.exportedName)
+}
+
+/**
+ * Every class-bearing site in a screen `.tsx`, resolved through however many
+ * layers separate it from the literal: a `className` — string, template
+ * literal, ternary, array, a nested `cn`/`clsx`/`cx` call, or a name that
+ * only leads to one of those through its own declaration; a `className:` key
+ * in an object literal (`BrowserPane.tsx`'s `createElement('webview', {
+ * className: … })`); and a bare `cn`/`clsx`/`cx` call reached some other way,
+ * such as a class list built once and assigned to a variable.
+ *
+ * The shapes this recurses into are named, not inferred by walking whatever
+ * a node happens to hold — round 3 review found the closed list too narrow,
+ * dropping 15 real shapes the previous, more permissive walker still caught,
+ * so the list below is deliberately generous: a template's head and each
+ * span, a type wrapper's expression (`as`, `as const`, `satisfies`, `!`,
+ * `<T>x`), a spread's or an element access's expression (`[...B]`, `TONE[t]`,
+ * `o?.a` — the object side only, same as a plain property access), a
+ * ternary's two branches, `cond && '…'`'s right side, `a || b`'s and `a ?? b`'s
+ * both sides, `a + b`'s both sides, an array's elements, an object literal's
+ * string-literal keys and every value (`clsx({ 'text-xs': c })`), `X.join(…)`'s
+ * `X`, a class-combiner call's arguments, a call resolving to a local
+ * function's return expressions only (never its whole body), any other
+ * call's arguments and (for a method call) the object it is called on, and a
+ * name's resolved declaration(s). A comparison (`=== !== == != < > <= >= in
+ * instanceof`) and a function body not reached through the call case above
+ * are the two shapes this still refuses: `const active = x === 'underline'`
+ * referenced at a class site counts nothing, and a bare reference to a
+ * function that is never called does not have its body opened. A property
+ * access reads only its object side (`styles.fileRow`'s `styles`, itself
+ * rarely resolvable) and never its `.name` as though it were a bare
+ * reference — `fileRow` is a property here, not a variable — except when the
+ * object is a namespace import, where `.name` is exactly the exported name
+ * being asked for.
+ *
+ * A name is counted once, at its declaration, however many times or files
+ * use it: `countedDefs` is a set of `file::pos` already resolved — the
+ * declaration's own position, not its name, so two components each
+ * declaring `const tone` (two declarations) are not mistaken for one, and a
+ * shadowed inner `const tone` is not mistaken for the outer one — shared
+ * across every class site this walks in one audit run. Every *direct*
+ * literal (typed at the class site itself, not reached through a name) is
+ * still counted at every occurrence: two screens copying the same string by
+ * hand is two copies, not one shared declaration.
+ *
+ * `file` on each result names where its token's declaration actually lives —
+ * the current file for a direct literal or a same-scope declaration, the
+ * imported module for one resolved across files — so the caller can label
+ * the finding at its definition rather than at whichever site happened to
+ * trigger it.
+ *
+ * `visitedCalls` guards the one way a `cn`/`clsx`/`cx` call can otherwise be
+ * read twice: `classSiteEntries` finds it directly, wherever it sits in the
+ * file, and a `className` that names the `const` it was assigned to reaches
+ * the identical call node a second time by resolving that name. The set
+ * remembers a call node once either path has read its arguments, so a
+ * `const rowClass = cn('rounded-full')` used as `className={rowClass}`
+ * counts `rounded-full` once, not twice.
+ */
+/** A function's return values only — the expression body of an arrow
+ * function with no block, or every `return`'s expression inside one,
+ * without crossing into a nested function's own returns. */
+const returnExpressionsOf = (fn) => {
+  if (!fn.body) return []
+  if (!ts.isBlock(fn.body)) return [fn.body]
+  const expressions = []
+  const visit = (node) => {
+    if (node !== fn.body && ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node) && node.expression) expressions.push(node.expression)
+    ts.forEachChild(node, visit)
+  }
+  visit(fn.body)
+  return expressions
+}
+
+/** `=== !== == != < > <= >= in instanceof` — a comparison's operands are
+ * never a class list (`x === 'underline'` must count nothing), so these are
+ * excluded explicitly rather than left to fall through to the fallback by
+ * accident. */
+const COMPARISON_OPERATORS = new Set([
+  ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken,
+  ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken,
+  ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken,
+  ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanEqualsToken,
+  ts.SyntaxKind.InKeyword, ts.SyntaxKind.InstanceOfKeyword,
+])
+
+const classSiteTokens = (node, file, ast, countedDefs, out, visitedCalls) => {
+  if (
+    ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+    || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)
+  ) {
+    for (const piece of node.text.split(/\s+/)) if (piece) out.push({ text: piece, file })
+    return
+  }
+  if (ts.isTemplateExpression(node)) {
+    classSiteTokens(node.head, file, ast, countedDefs, out, visitedCalls)
+    for (const span of node.templateSpans) {
+      classSiteTokens(span.expression, file, ast, countedDefs, out, visitedCalls)
+      classSiteTokens(span.literal, file, ast, countedDefs, out, visitedCalls)
+    }
+    return
+  }
+  // A type wrapper (`as`, `as const`, `satisfies`, `!`, `<T>x`), a spread
+  // (`[...B]`), and an element access (`TONE[t]`, `o?.a`) all name their one
+  // interesting child the same way: `.expression`. An element access's index
+  // is not walked, the same reason a property access's `.name` is not below
+  // — `t` in `TONE[t]` selects which of `TONE`'s values applies, it is not
+  // itself one.
+  if (
+    ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+    || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node)
+    || ts.isSpreadElement(node) || ts.isElementAccessExpression(node)
+  ) {
+    classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isConditionalExpression(node)) {
+    classSiteTokens(node.whenTrue, file, ast, countedDefs, out, visitedCalls)
+    classSiteTokens(node.whenFalse, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind
+    // `done && 'text-(--hd-secondary-foreground)'` — a ternary missing its
+    // "else" — reads only the guarded side; `||`, `??` and `+` read both,
+    // since either side (or both, concatenated) can be the live value.
+    if (op === ts.SyntaxKind.AmpersandAmpersandToken) {
+      classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    if (op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken || op === ts.SyntaxKind.PlusToken) {
+      classSiteTokens(node.left, file, ast, countedDefs, out, visitedCalls)
+      classSiteTokens(node.right, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    // A comparison, or any other operator (bitwise, arithmetic besides `+`)
+    // — none of these build a class list, comparison or not.
+    return
+  }
+  if (ts.isArrayLiteralExpression(node)) {
+    for (const element of node.elements) classSiteTokens(element, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // `clsx({ 'text-xs': c })`: a string-literal key is itself a class,
+  // whichever value decides whether it applies; every value is still walked,
+  // since a nested `clsx`/ternary/etc. inside one is legible the same way.
+  // An identifier key (`{ active: true }`) is not a string literal and is
+  // not yielded — most single-word identifiers are not meant as a class.
+  if (ts.isObjectLiteralExpression(node)) {
+    for (const property of node.properties) {
+      if (ts.isPropertyAssignment(property)) {
+        if (ts.isStringLiteral(property.name)) classSiteTokens(property.name, file, ast, countedDefs, out, visitedCalls)
+        else if (ts.isComputedPropertyName(property.name) && ts.isStringLiteral(property.name.expression)) {
+          classSiteTokens(property.name.expression, file, ast, countedDefs, out, visitedCalls)
+        }
+        classSiteTokens(property.initializer, file, ast, countedDefs, out, visitedCalls)
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        classSiteTokens(property.name, file, ast, countedDefs, out, visitedCalls)
+      } else if (ts.isSpreadAssignment(property)) {
+        classSiteTokens(property.expression, file, ast, countedDefs, out, visitedCalls)
+      }
+    }
+    return
+  }
+  if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'join') {
+    classSiteTokens(node.expression.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
+    if (visitedCalls.has(node)) return
+    visitedCalls.add(node)
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // A call to a local helper (`classFor(k)`) — its return expressions only,
+  // never the rest of its body, and counted once at the function's own
+  // declaration the same way a name is.
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && !CLASS_COMBINERS.has(node.expression.text)) {
+    const local = nearestDeclaration(node.expression, node.expression.text)
+    const fn = local?.nodes.find((value) => ts.isArrowFunction(value) || ts.isFunctionExpression(value))
+    if (fn) {
+      const key = `${file}::${local.pos}`
+      if (!countedDefs.has(key)) {
+        countedDefs.add(key)
+        for (const expression of returnExpressionsOf(fn)) classSiteTokens(expression, file, ast, countedDefs, out, visitedCalls)
+      }
+      return
+    }
+  }
+  // Any other call — `twMerge(...)`, `buttonVariants({ className })`,
+  // `String(x)`, `.filter(Boolean)` on the way to a `.join` this already
+  // understands — is opaque itself, but its arguments and (for a method
+  // call) the object it is called on are still read.
+  if (ts.isCallExpression(node)) {
+    if (ts.isPropertyAccessExpression(node.expression)) {
+      classSiteTokens(node.expression.expression, file, ast, countedDefs, out, visitedCalls)
+    }
+    for (const argument of node.arguments) classSiteTokens(argument, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isPropertyAccessExpression(node)) {
+    if (ts.isIdentifier(node.expression)) {
+      const nsSpec = namespaceImportSpec(ast, node.expression.text)
+      if (nsSpec) {
+        const modulePath = resolveConstModule(file, nsSpec)
+        const resolved = modulePath && isScreenTsx(modulePath) ? exportedValueIn(modulePath, node.name.text) : null
+        if (resolved) {
+          const key = `${resolved.file}::${resolved.pos}`
+          if (!countedDefs.has(key)) {
+            countedDefs.add(key)
+            for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
+          }
+        }
+        return
+      }
+    }
+    classSiteTokens(node.expression, file, ast, countedDefs, out, visitedCalls)
+    return
+  }
+  if (ts.isIdentifier(node)) {
+    const resolved = resolveClassConst(node, file, ast)
+    if (!resolved) return
+    const key = `${resolved.file}::${resolved.pos}`
+    if (countedDefs.has(key)) return
+    countedDefs.add(key)
+    for (const value of resolved.nodes) classSiteTokens(value, resolved.file, resolved.ast, countedDefs, out, visitedCalls)
+    return
+  }
+  // Fallback: walk the children generically, the way the pre-round-3 walker
+  // always did, with one exception — a function-like node reached this way
+  // (a bare reference to a function that is never called, say) is not
+  // entered. The one other exception, a comparison, is already handled
+  // above and never reaches here.
+  if (ts.isFunctionLike(node)) return
+  ts.forEachChild(node, (child) => classSiteTokens(child, file, ast, countedDefs, out, visitedCalls))
+}
+
+/** Every class site's entries, `{ text, file }`, across a whole screen file. */
+const classSiteEntries = (ast, file, countedDefs) => {
+  const out = []
+  const visitedCalls = new Set()
+  const visit = (node) => {
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'className') {
+      let expr = node.initializer
+      if (expr && ts.isJsxExpression(expr)) expr = expr.expression
+      if (expr) classSiteTokens(expr, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    if (ts.isPropertyAssignment(node)) {
+      const keyText = ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : null
+      if (keyText === 'className') {
+        classSiteTokens(node.initializer, file, ast, countedDefs, out, visitedCalls)
+        return
+      }
+    }
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && CLASS_COMBINERS.has(node.expression.text)) {
+      classSiteTokens(node, file, ast, countedDefs, out, visitedCalls)
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return out
+}
+
+/**
+ * Appearance a screen draws with a Tailwind utility instead of composing it —
+ * the `className` half of the split the module comment above describes.
+ *
+ * `ast` may be a tree already parsed for this file — the caller shares one
+ * parse across this, `screenInlineStyleAppearanceOf`, `screenUnmappedUtilityOf`
+ * and `screenUtilityUnclassifiedOf` — and `countedDefs` may be a set shared
+ * across every file in one audit run, so a name resolved while scanning one
+ * screen is not counted again reached from another. Fixtures pass neither:
+ * each gets its own parse and its own empty set, so one test's resolutions
+ * never leak into the next.
+ */
+export const screenUtilityAppearanceOf = (file, source, ast, countedDefs = new Set()) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, countedDefs)) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'appearance') {
+      findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
+    }
+  }
+  return findings
+}
+
+/**
+ * A utility mapped to a real property that is on neither side of the screen
+ * boundary — reachable today only through the `[prop:value]`
+ * arbitrary-property escape hatch naming something `APPEARANCE_PROPERTIES`
+ * and `LAYOUT_BEHAVIOUR_PROPERTIES` do not track, such as `[text-indent:2px]`.
+ * Held to the same strict zero a stylesheet's own `screenUnclassifiedOf` is:
+ * the boundary is total, or it silently is not.
+ */
+export const screenUtilityUnclassifiedOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    if (declaration && screenPropertySideOf(declaration.property, declaration.value) === 'unclassified') {
+      findings.push(`${screenAppearanceName(originFile)}: ${rawToken} (${declaration.property})`)
+    }
+  }
+  return findings
+}
+
+/** The utilities `screenUtilityAppearanceOf` saw but could not classify,
+ * worth a human's attention without being counted. See `--verbose`. Not
+ * deduplicated by definition the way the counted list is: a hint repeated
+ * from more than one call site is still worth seeing at each. */
+export const screenUnmappedUtilityOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
+    const token = withoutImportantMarker(utilityBase(rawToken))
+    if (!token || screenUtilityDeclarationOf(token)) continue
+    if (looksLikeUnmappedAppearanceUtility(token)) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
+  }
+  return findings
+}
+
+const unwrapStyleExpression = (node) => {
+  let current = node
+  while (
+    current
+    && (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isNonNullExpression(current) || ts.isSatisfiesExpression(current))
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+/** `backgroundColor` → `background-color`, `WebkitTransform` → `-webkit-transform`
+ * (a leading capital becomes a leading hyphen, which is exactly the vendor
+ * prefix `screenPropertySideOf`'s `unprefixedProperty` already strips). A key
+ * already spelled `--near` is a custom property name, not camelCase, and is
+ * returned as written. */
+const cssPropertyOfStyleKey = (key) => (key.startsWith('--') ? key : key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`))
+
+/** A style object's own properties: a plain `key: value`, a `{ color }`
+ * shorthand (the value is a variable this does not chase — the property
+ * alone still says which side of the boundary it is on), and `['color']`, a
+ * computed key that is itself a literal. A truly dynamic computed key
+ * (`[someVar]`) names nothing this can read and is skipped, the same as a
+ * dynamic `className` reference. */
+const styleObjectFindings = (object) => {
+  const findings = []
+  for (const property of object.properties) {
+    let key = null
+    let valueNode = null
+    if (ts.isPropertyAssignment(property)) {
+      const keyNode = property.name
+      key = ts.isIdentifier(keyNode) ? keyNode.text
+        : ts.isStringLiteral(keyNode) ? keyNode.text
+        : ts.isComputedPropertyName(keyNode) && ts.isStringLiteral(keyNode.expression) ? keyNode.expression.text
+        : null
+      valueNode = property.initializer
+    } else if (ts.isShorthandPropertyAssignment(property)) {
+      key = property.name.text
+    }
+    if (key === null) continue
+    const cssProperty = cssPropertyOfStyleKey(key)
+    // A dynamic height-family value (not a literal this can read) is decided
+    // explicitly as layout, not left to fall through the empty-string path:
+    // `GitPane.tsx`'s `height: total * ROW` is a virtual list doing its own
+    // scroll-height arithmetic, not a control's metric, and the value rule
+    // that tells a real metric from a reset or a share has nothing to read
+    // when there is no literal at all. This is the opposite default from a
+    // utility's `` `h-${n}` `` above, where the prefix itself still names a
+    // metric even with an unknown suffix; a `style` key has no such prefix.
+    const literal = valueNode && ts.isStringLiteral(valueNode) ? valueNode.text
+      : valueNode && ts.isNumericLiteral(valueNode) ? valueNode.text
+      : null
+    if (literal === null && (cssProperty === 'height' || cssProperty === 'min-height' || cssProperty === 'max-height')) continue
+    if (screenPropertySideOf(cssProperty, literal ?? '') === 'appearance') findings.push(`style ${cssProperty}`)
+  }
+  return findings
+}
+
+/**
+ * Appearance a screen draws with an inline `style` object instead of
+ * composing it — the third spelling of the same boundary. A literal
+ * `style={{ … }}` is legible this way, including through a `satisfies
+ * CSSProperties` assertion, a `c ? {…} : {…}` conditional and a `s ?? {…}`
+ * fallback (both sides of either read) and a `c && {…}` guard (its right
+ * side read the same way a conditional's branch is); and so is `style={S}`,
+ * an object `const` resolved the same way a class site's name is — the
+ * nearest enclosing scope, or one or more hops through an import to the file
+ * that declares it. A dynamic reference this cannot resolve — a prop, a
+ * parameter, anything not a `const` reachable that way — is not counted,
+ * the same way a dynamic `className` reference is not (`classNameIsStatic`
+ * in `ui-architecture.mjs` draws the identical line for the same reason).
+ */
+export const screenInlineStyleAppearanceOf = (file, source, ast) => {
+  if (!isScreenTsx(file)) return []
+  const tree = ast ?? parseScreenSource(file, source)
+  const findings = []
+  const stylesIn = (expression) => {
+    const resolved = unwrapStyleExpression(expression)
+    if (!resolved) return
+    if (ts.isObjectLiteralExpression(resolved)) { findings.push(...styleObjectFindings(resolved)); return }
+    if (ts.isConditionalExpression(resolved)) { stylesIn(resolved.whenTrue); stylesIn(resolved.whenFalse); return }
+    if (ts.isBinaryExpression(resolved) && resolved.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      stylesIn(resolved.right)
+      return
+    }
+    if (ts.isBinaryExpression(resolved) && resolved.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      stylesIn(resolved.left)
+      stylesIn(resolved.right)
+      return
+    }
+    if (ts.isIdentifier(resolved)) {
+      const declaration = resolveClassConst(resolved, file, tree)
+      if (declaration) for (const value of declaration.nodes) stylesIn(value)
+    }
+  }
+  const visit = (node) => {
+    if (
+      ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'style'
+      && node.initializer && ts.isJsxExpression(node.initializer) && node.initializer.expression
+    ) {
+      stylesIn(node.initializer.expression)
+      return
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(tree)
+  return findings
+}
 
 /** Existing screen families only, capped at eleven additional owners. An
  * annotation documents membership; it cannot grant a new exception. See
@@ -2380,6 +3255,13 @@ for (const [module, consumers] of consumersByModule) {
   }
 }
 
+// Shared across the whole run so a class constant resolved while scanning
+// one screen file is not counted again when another screen imports it —
+// see `classSiteTokens`. A fixture never touches this: each of
+// `screenUtilityAppearanceOf` and `screenUnmappedUtilityOf` defaults to a
+// set of its own when the caller does not share one.
+const screenClassConstDefs = new Set()
+
 for (const file of tsxFiles()) {
   const name = label(file)
   const dir = path.dirname(file)
@@ -2409,6 +3291,28 @@ for (const file of tsxFiles()) {
   /** Local binding → the classes that stylesheet declares. */
   const { sheets, crossImports } = sheetsOf(dir, file, name, source, UI_SRC)
   findings.crossImport.push(...crossImports)
+
+  // Appearance the screen drew as a Tailwind utility or an inline `style`
+  // instead of its `.module.css` — the other two spellings of the same
+  // boundary `screenAppearanceOf` reads a stylesheet for. One ceiling: both
+  // land on `findings.screenAppearance` beside the CSS-declared kind.
+  //
+  // Parsed once and shared across all three: each independently defaulted to
+  // parsing the file itself, so every screen file was read into a tree three
+  // separate times for no reason three different walks needed their own.
+  // `screenUtilityAppearanceOf` and `screenUnmappedUtilityOf` already carry
+  // the file a resolved token's declaration lives in, so they push a fully
+  // labelled line themselves; `screenInlineStyleAppearanceOf` never crosses a
+  // file (a `style` object is not resolved across an import) and still
+  // returns the bare detail for `name` to prefix here.
+  const screenAst = isScreenTsx(file) ? parseScreenSource(file, source) : undefined
+  findings.screenAppearance.push(...screenUtilityAppearanceOf(file, source, screenAst, screenClassConstDefs))
+  for (const detail of screenInlineStyleAppearanceOf(file, source, screenAst)) findings.screenAppearance.push(`${name}: ${detail}`)
+  findings.unmappedScreenUtility.push(...screenUnmappedUtilityOf(file, source, screenAst))
+  // Held to the same strict zero a stylesheet's own unclassified property is:
+  // an arbitrary-property utility naming something on neither side of the
+  // boundary (`[text-indent:2px]`) is not silently uncounted.
+  findings.screenUnclassified.push(...screenUtilityUnclassifiedOf(file, source, screenAst))
 
   // A glyph control drawn smaller than a finger.
   //
@@ -2566,6 +3470,14 @@ if (isMain) {
     } else if (verbose) for (const line of list) console.log(`        ${line}`)
     else for (const line of list.slice(0, 3)) console.log(`        ${line}`)
     if (!verbose && list.length > 3) console.log(`        … ${list.length - 3} more (--verbose)`)
+    console.log('')
+  }
+
+  // Outside SECTIONS on purpose: a hint for whoever next extends
+  // `screenUtilityDeclarationOf`, never a second strict category.
+  if (verbose && findings.unmappedScreenUtility.length > 0) {
+    console.log(`${String(findings.unmappedScreenUtility.length).padStart(4)}  Unmapped utility (not counted; looks like appearance)`)
+    for (const line of findings.unmappedScreenUtility) console.log(`        ${line}`)
     console.log('')
   }
   console.log(`${total} findings.`)

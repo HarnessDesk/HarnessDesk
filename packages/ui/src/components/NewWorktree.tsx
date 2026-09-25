@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Button, Chip, CodeText, Dialog, Field, Input, Note, Rows, Search, Text } from '../design'
+import { Button, Chip, CodeText, Dialog, EmptyState, Field, Input, Note, Rows, Search, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { folderName } from '../lib/projects'
 import { slugify } from '../lib/worktree-branch'
@@ -216,9 +216,10 @@ export const NewWorktree = ({
         <Rows className={styles.branches} role="radiogroup" aria-label="Start the worktree from">
           {branches === null && <Note>Reading branches…</Note>}
           {branches !== null && shown.length === 0 && (
-            <Note>
-              {query ? 'No branch matches.' : 'No branches yet — it will start from HEAD.'}
-            </Note>
+            <EmptyState
+              variant="row"
+              title={query ? 'No branch matches.' : 'No branches yet — it will start from HEAD.'}
+            />
           )}
           {shown.map((entry) => (
             <Button

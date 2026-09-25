@@ -247,6 +247,18 @@ const StateBoard = () => (
         <Chip tone="danger" unknown />
         <Chip tone="warning" unknown>Last checked</Chip>
       </Case>
+      <Case label="one line, in a narrow card">
+        <div className="flex w-44 flex-wrap gap-1 rounded-(--hd-radius-md) border border-(--hd-border) p-2">
+          <Chip tone="success">verify ✓ @a1b2c3d</Chip>
+          <Chip tone="neutral" stale>verify ✓ @a1b2c3d — 2 commits since</Chip>
+          <Chip tone="neutral" stale>+120 −30 in 6 files — 2 commits since</Chip>
+        </div>
+      </Case>
+      <Case label="counts, zero draws nothing">
+        <Chip tone="neutral" count={5}>never fired</Chip>
+        <Chip tone="warning" count={2}>copies differ</Chip>
+        <Chip tone="warning" count={0}>reach none</Chip>
+      </Case>
       <Case label="pull request states">
         {(['open', 'draft', 'merged', 'closed'] as const).map((state) => (
           <StatePill key={state} state={state} />
