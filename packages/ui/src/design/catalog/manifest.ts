@@ -73,7 +73,7 @@ const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
   'hover-card': 'packages/ui/src/components/AgentCards.tsx',
   'icon-tile': 'packages/ui/src/components/SkillSheet.tsx',
   input: 'packages/ui/src/components/SignIn.tsx',
-  label: 'packages/ui/src/components/Library.tsx',
+  label: 'packages/ui/src/components/Settings.tsx',
   'list-row': 'packages/ui/src/components/TeamRoomPane.tsx',
   'native-select': 'packages/ui/src/components/PluginsSection.tsx',
   popover: 'packages/ui/src/components/ComposerControls.tsx',

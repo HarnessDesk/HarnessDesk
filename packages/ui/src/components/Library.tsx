@@ -24,6 +24,7 @@ import {
   CrossIcon,
   DiffIcon,
   FileIcon,
+  FilterIcon,
   ImportIcon,
   LibraryIcon,
   MatrixIcon,
@@ -33,13 +34,30 @@ import {
   SearchIcon,
   TrashIcon,
 } from './Icons'
-import { ActionError, Alert, Chip, CodeText, LibraryReachMark, MetaList, PageHead, PanelPill, Search, Segmented, Text } from '../design'
+import {
+  ActionError,
+  Alert,
+  Chip,
+  CodeText,
+  LibraryReachMark,
+  Menu,
+  MenuItem,
+  MenuLabel,
+  MenuSeparator,
+  MetaList,
+  PageHead,
+  Popover,
+  Search,
+  Segmented,
+  Submenu,
+  Text,
+  Toolbar,
+  ToolbarGap,
+  buttonVariants,
+} from '../design'
 import {
   Button,
   EmptyState,
-  Label,
-  NativeSelect,
-  Switch,
   Table,
   TableBody,
   TableCaption,
@@ -184,56 +202,58 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
 /**
  * One count, which is also the filter that isolates it.
  *
- * Four shapes, in order. First six dashboard tiles, which promised a
- * *metric* — something you came to read — when every one of them is a filter
- * nobody opens this page to admire. Then outlined pills; then the app's own
- * outlined `Button`, which drew six bordered controls under a toolbar that
- * already had four.
+ * Five shapes, in order. Six dashboard tiles, which promised a *metric* when
+ * every one of them is a filter; outlined pills; the app's outlined `Button`;
+ * then the inspectors' filter pill, a second line of controls under a toolbar
+ * that already wrapped its own view switch onto a line of its own — three
+ * rows of controls before the first skill.
  *
- * Now it is the inspectors' filter pill, `PanelPill`: the one drawing for a
- * filter you press, lit in the accent while it is on. A count of none draws
- * nothing — a row of "0 reach some", "0 copies differ" was a row of controls
- * that would each empty the list — except the one that is on, which stays so
- * it can be released. The set is single-select.
+ * Now each is a row of the toolbar's one Filter menu: its words, and its count
+ * where a menu keeps a value, on tabular figures. A count of none is not
+ * offered — a row that would empty the list is not a choice — except the one
+ * that is on, which stays so it can be seen and left. The set is one answer
+ * (radio rows). Amber stays on the number of a problem, never the row.
  */
-const Count = ({
+const FilterRow = ({
   value,
   label,
   tone,
   title,
   active,
-  onClick,
+  onSelect,
 }: {
   value: number
   label: string
   tone?: 'warn'
   title?: string
   active: boolean
-  onClick: () => void
+  onSelect: () => void
 }) =>
   value === 0 && !active ? null : (
-    <PanelPill
-      data-slot="library-count"
-      {...(active ? { 'data-on': '' } : {})}
+    <MenuItem
+      label={label}
       {...(title ? { title } : {})}
-      onClick={onClick}
-    >
-      {/* Amber on the number, never the whole control: a filter row wearing
-          five warning colours is five warnings, and the count is the only
-          part that is news. Pressed, the number takes the pill's own lit ink
-          with its words, so the chip that is on reads as one thing. */}
-      {active ? (
-        /* Its own box, so the pill's gap still stands between it and the
-           words; a bare number would run into them. */
-        <span>{value}</span>
-      ) : (
-        <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : { ink: 'primary' as const })}>
+      selected={active}
+      value={(
+        <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : {})}>
           {value}
         </Text>
       )}
-      {label}
-    </PanelPill>
+      onSelect={onSelect}
+    />
   )
+
+/** The words a filter goes by, in its menu row and on the Filter button while it is on. */
+const FILTER_WORDS: Record<Filter, string> = {
+  all: 'Everything',
+  problems: 'Problems',
+  partial: 'Reach some',
+  unreachable: 'Reach none',
+  hollow: 'Empty on disk',
+  differs: 'Copies differ',
+  off: 'Switched off',
+  unused: 'Never fired',
+}
 
 export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' | null } = {}) => {
   const store = useStore()
@@ -580,7 +600,13 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   /** Only the gaps that apply to what is on screen; the rest are noise here. */
   const gaps = (library?.gaps ?? []).filter((gap) => gap.kind === kind)
 
-  const toggle = (next: Filter) => setFilter((current) => (current === next ? 'all' : next))
+  /** Over `searched`, like every count in the menu: the rows choosing it will leave. */
+  const problemCount = useMemo(() => searched.filter(entryHasProblem).length, [searched])
+  const agentName = agentFilter
+    ? (snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? null)
+    : null
+  /** What the Filter button says: the filter that is on, and whose declarations, or just "Filter". */
+  const filterWords = [filter === 'all' ? null : FILTER_WORDS[filter], agentName].filter(Boolean).join(' · ') || 'Filter'
 
   return (
     <>
@@ -669,7 +695,13 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
         </Alert>
       )}
 
-      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+      {/*
+       * One row: what is listed, a search, the filter menu and how to show it.
+       * The view switch used to wrap onto a line of its own and six count
+       * pills took a third; the counts are the Filter menu's rows now, and
+       * the Agent picker is its submenu, so the toolbar fits the page.
+       */}
+      <Toolbar className="mb-3" data-slot="library-toolbar">
         <Segmented
           label="What the library is listing"
           value={kind}
@@ -682,10 +714,8 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             setOpen(null)
           }}
         />
-        {/* Wide enough to type a skill name into, and capped: at the width
-            the settings pane actually is, `flex-1` gave the search box four
-            hundred pixels of empty field and pushed nothing useful anywhere
-            — a text input's size is a claim about how much you type in it. */}
+        {/* Wide enough to type a skill name into, and capped: a text input's
+            size is a claim about how much you type in it. */}
         <Search
           className="min-w-0 flex-1 basis-44 md:max-w-64"
           value={query}
@@ -693,29 +723,69 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
           label="Filter the library by name"
           onChange={setQuery}
         />
-        {snapshot.agents && snapshot.agents.length > 0 && (
-          <NativeSelect
-            aria-label="Agent"
-            className="w-40 shrink-0"
-            value={agentFilter}
-            onChange={(event) => setAgentFilter(event.target.value)}
-          >
-            <option value="">All Agents</option>
-            {snapshot.agents.map((entry) => (
-              <option key={`${entry.origin}:${entry.id}`} value={`${entry.origin}:${entry.id}`}>
-                {entry.definition?.name ?? entry.id}
-              </option>
-            ))}
-          </NativeSelect>
-        )}
-        <Label className="gap-1.5 whitespace-nowrap">
-          <Switch
-            checked={filter === 'problems'}
-            onCheckedChange={() => toggle('problems')}
-            aria-label="Show only entries with something wrong"
-          />
-          <Text role="muted">Only problems</Text>
-        </Label>
+        <ToolbarGap />
+        <Popover
+          label={<><FilterIcon size={13} /><span>{filterWords}</span></>}
+          title="Filter the library"
+          align="right"
+          triggerClassName={buttonVariants({ variant: 'outline' })}
+        >
+          {(close) => (
+            <Menu close={close}>
+              <MenuLabel>Show</MenuLabel>
+              {counts ? (
+                <>
+                  <FilterRow value={counts.total} label={FILTER_WORDS.all} active={filter === 'all'} onSelect={() => setFilter('all')} />
+                  <FilterRow value={problemCount} label={FILTER_WORDS.problems} tone="warn" title="Anything wrong: reaches no agent, empty on disk, or copies that differ." active={filter === 'problems'} onSelect={() => setFilter('problems')} />
+                  <FilterRow value={counts.partial} label={FILTER_WORDS.partial} active={filter === 'partial'} onSelect={() => setFilter('partial')} />
+                  <FilterRow value={counts.unreachable} label={FILTER_WORDS.unreachable} tone="warn" active={filter === 'unreachable'} onSelect={() => setFilter('unreachable')} />
+                  <FilterRow value={counts.hollow} label={FILTER_WORDS.hollow} tone="warn" active={filter === 'hollow'} onSelect={() => setFilter('hollow')} />
+                  <FilterRow value={counts.differs} label={FILTER_WORDS.differs} tone="warn" active={filter === 'differs'} onSelect={() => setFilter('differs')} />
+                  {/* No warn tone: a switch somebody threw is not a defect. */}
+                  <FilterRow
+                    value={counts.off}
+                    label={FILTER_WORDS.off}
+                    title="Installed in an agent and turned off in its own settings, so nothing loads it there."
+                    active={filter === 'off'}
+                    onSelect={() => setFilter('off')}
+                  />
+                  {kind === 'skill' &&
+                    (usage !== null ? (
+                      <FilterRow
+                        value={unusedCount}
+                        label={FILTER_WORDS.unused}
+                        title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
+                        active={filter === 'unused'}
+                        onSelect={() => setFilter('unused')}
+                      />
+                    ) : (
+                      /* The first usage read walks every stored conversation,
+                         so this row arrives late; it holds its place. */
+                      <MenuItem label={FILTER_WORDS.unused} disabled="Counting activations in the stored conversations…" onSelect={() => {}} />
+                    ))}
+                </>
+              ) : (
+                <MenuItem label={FILTER_WORDS.all} disabled="Reading every agent’s directories…" onSelect={() => {}} />
+              )}
+              {snapshot.agents && snapshot.agents.length > 0 && (
+                <>
+                  <MenuSeparator />
+                  <Submenu label="Declared by" value={agentName ?? 'Any Agent'}>
+                    <MenuItem label="Any Agent" selected={agentFilter === ''} onSelect={() => setAgentFilter('')} />
+                    {snapshot.agents.map((entry) => (
+                      <MenuItem
+                        key={`${entry.origin}:${entry.id}`}
+                        label={entry.definition?.name ?? entry.id}
+                        selected={agentFilter === `${entry.origin}:${entry.id}`}
+                        onSelect={() => setAgentFilter(`${entry.origin}:${entry.id}`)}
+                      />
+                    ))}
+                  </Submenu>
+                </>
+              )}
+            </Menu>
+          )}
+        </Popover>
         {/*
          * Two ways to read the same list, and the switch says which by
          * drawing it — and by naming it: a glyph with its name only in a
@@ -733,92 +803,12 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             setOpen(null)
           }}
         />
-      </div>
+      </Toolbar>
 
       {agentFilter && (
         <Text as="p" role="meta" className="mb-2">
-          {`${rows.length} of ${searched.length} declared by ${
-            snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? 'this Agent'
-          }`}
+          {`${rows.length} of ${searched.length} declared by ${agentName ?? 'this Agent'}`}
         </Text>
-      )}
-
-      {counts && (
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
-          {/*
-           * "All" rather than the everywhere-count this used to show. In a
-           * row of tiles a count that does not filter reads as a statistic;
-           * in a row of *chips* it reads as a filter, and pressing it to see
-           * the entries that reach every agent — which is what its label
-           * promised — showed the whole list instead. How many reach
-           * everything is legible from the cards; a control that lies about
-           * what it does is not repairable by a tooltip.
-           */}
-          <Count
-            value={counts.total}
-            label="in all"
-            active={filter === 'all'}
-            onClick={() => setFilter('all')}
-          />
-          <Count
-            value={counts.partial}
-            label="reach some"
-            active={filter === 'partial'}
-            onClick={() => toggle('partial')}
-          />
-          <Count
-            value={counts.unreachable}
-            label="reach none"
-            tone="warn"
-            active={filter === 'unreachable'}
-            onClick={() => toggle('unreachable')}
-          />
-          <Count
-            value={counts.hollow}
-            label="empty on disk"
-            tone="warn"
-            active={filter === 'hollow'}
-            onClick={() => toggle('hollow')}
-          />
-          <Count
-            value={counts.differs}
-            label="copies differ"
-            tone="warn"
-            active={filter === 'differs'}
-            onClick={() => toggle('differs')}
-          />
-          {/* No warn tone: a switch somebody threw is not a defect, and the
-              chip beside four amber ones would be read as a fifth. */}
-          <Count
-            value={counts.off}
-            label="switched off"
-            title="Installed in an agent and turned off in its own settings, so nothing loads it there."
-            active={filter === 'off'}
-            onClick={() => toggle('off')}
-          />
-          {kind === 'skill' &&
-            (usage !== null ? (
-              <Count
-                value={unusedCount}
-                label="never fired"
-                title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
-                active={filter === 'unused'}
-                onClick={() => toggle('unused')}
-              />
-            ) : (
-              /* The first usage read walks every stored conversation, so this
-                 pill arrives late. Holding its place is what keeps the strip
-                 from jumping when it does. */
-              <PanelPill
-                data-slot="library-count"
-                disabled
-                title="Counting activations in the stored conversations…"
-              >
-                <Text role="meta" ink="primary">…</Text>
-                never fired
-              </PanelPill>
-            ))}
-        </div>
       )}
 
       {loading && library === null ? (

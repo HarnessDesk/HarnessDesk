@@ -8,6 +8,8 @@ import {
   PopoverPositioner,
   PopoverTrigger,
 } from '../ui/popover'
+import { cn } from '@/lib/utils'
+
 import { Input } from '../ui/input'
 
 import styles from './Popover.module.css'
@@ -173,7 +175,11 @@ export const Popover = ({
         <PopoverTrigger
           ref={trigger}
           id={triggerId}
-          className={triggerClassName ?? styles.trigger}
+          /* Merged as `Button` merges its own classes: a trigger drawn with
+             `buttonVariants` carries the base's `border-transparent` beside the
+             variant's border colour, and unmerged the base could win — an
+             outline trigger with no outline. */
+          className={triggerClassName ? cn(triggerClassName) : styles.trigger}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
           title={title}

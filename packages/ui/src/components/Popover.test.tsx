@@ -2,7 +2,7 @@ import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { Popover, dismissOverlays } from '../design'
+import { Popover, buttonVariants, dismissOverlays } from '../design'
 
 /**
  * The popover's contract, exercised through the DOM. Chiefly: a menu is not a
@@ -55,6 +55,20 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('draws a trigger dressed as a button the way the button draws: its classes merged, so an outline keeps its edge', () => {
+    act(() => {
+      root.render(
+        <Popover label="Filter" title="Filter the list" triggerClassName={buttonVariants({ variant: 'outline' })}>
+          {() => null}
+        </Popover>,
+      )
+    })
+    const classes = trigger().className.split(/\s+/)
+    // The base's transparent border lost to the variant's colour, as in `Button`.
+    expect(classes).toContain('border-(--hd-btn-border)')
+    expect(classes).not.toContain('border-transparent')
+  })
+
   it('announces the popup role it opens and names that popup from the trigger', () => {
     render()
     click(trigger())
