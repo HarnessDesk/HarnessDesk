@@ -28,11 +28,11 @@ import {
   Text,
   Textarea,
 } from '../design'
-import { Checkbox, EmptyState, Fieldset, Segmented } from '../design'
+import { Checkbox, DisclosureChevron, EmptyState, Fieldset, Segmented } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
-import { AlertIcon, ChevronIcon, ImportIcon, PlusIcon } from './Icons'
+import { AlertIcon, ImportIcon, PlusIcon } from './Icons'
 import styles from './LibraryActions.module.css'
 
 /**
@@ -304,9 +304,7 @@ export const PlanDialog = ({
                     </Text>
                   )}
                   {expandable && (
-                    <Text role="meta" className={styles.opChev} data-chevron="" data-open={open === op.id ? '' : undefined}>
-                      <ChevronIcon size={13} />
-                    </Text>
+                    <DisclosureChevron open={open === op.id} className={styles.opChev} />
                   )}
                 </Button>
                 {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
