@@ -152,6 +152,13 @@ export class GoalPlane {
   #lanePreferences: (() => import('@harnessdesk/protocol').LanePreferences) | null = null
   readonly #activity = new Map<string, NonNullable<GoalView['activity']>>()
   readonly #recoveryProblems = new Map<string, string>()
+  /**
+   * Assignments and releases that could not finish and could not be set
+   * aside either, by Goal: still staged, so the Goal refuses new work. Each is
+   * tried again on the next successful board write (`retryStuck`), not only
+   * at the next launch.
+   */
+  readonly #stuck = new Map<string, { readonly operation: Exclude<GoalOperation, { kind: 'wrap' | 'carry' }>; readonly reason: string }>()
   /** How a carry's events reach the findings ledger: its one writer's append. */
   #appendCarry: ((records: readonly EvidenceRecord[]) => Promise<void>) | null = null
   /** Goals a wrap has begun on, decided under this plane's queue: no trigger firing joins one. */
@@ -880,7 +887,9 @@ export class GoalPlane {
              than retried on every launch, where a refusal that will never
              change — a card the Goal does not hold — failed the desk's start
              each time. Either way the Goal says what happened. */
-          this.#recoveryProblems.set(document.goal.id, (await this.#setAside(document.operation, reason)).sentence)
+          const aside = await this.#setAside(document.operation, reason)
+          this.#recoveryProblems.set(document.goal.id, aside.sentence)
+          if (!aside.settled) this.#stuck.set(document.goal.id, { operation: document.operation, reason })
         }
       }
       if (this.#lanes) await this.#lanes.recover(this.port.seats.all())
@@ -898,13 +907,47 @@ export class GoalPlane {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
       const aside = await this.#setAside(operation, reason)
-      // Set aside, the refusal says it all; stuck, the Goal says so until a launch clears it.
-      if (!aside.settled) this.#recoveryProblems.set(operation.goal, aside.sentence)
+      // Set aside, the refusal says it all; stuck, the Goal says so until a retry or a launch clears it.
+      if (!aside.settled) {
+        this.#recoveryProblems.set(operation.goal, aside.sentence)
+        this.#stuck.set(operation.goal, { operation, reason })
+      }
       await this.refresh(operation.goal).catch(() => {})
       throw error
     }
     // The Goal took an assignment or a release: a note about an earlier one set aside no longer applies.
     this.#recoveryProblems.delete(operation.goal)
+  }
+
+  /**
+   * Tries again to set aside every operation that could not be set aside,
+   * inside the Goal queue: called once a board write has landed, which is the
+   * sign that what refused the set-aside may be gone. One that is set aside
+   * now lets its Goal take work again, and its Goal says what happened; one
+   * the document no longer holds (a launch finished it) is forgotten; one
+   * still refused stays, and says why. Cheap when nothing is stuck.
+   */
+  retryStuck(): Promise<void> {
+    if (this.#stuck.size === 0) return Promise.resolve()
+    return this.serial.run(async () => {
+      for (const [goal, { operation, reason }] of [...this.#stuck]) {
+        let staged: GoalOperation | null
+        try {
+          const document = this.store.read(goal)
+          staged = document.restored ? null : document.operation
+        } catch {
+          staged = null
+        }
+        if (staged?.id !== operation.id) {
+          this.#stuck.delete(goal)
+          continue
+        }
+        const aside = await this.#setAside(operation, reason)
+        this.#recoveryProblems.set(goal, aside.sentence)
+        if (aside.settled) this.#stuck.delete(goal)
+        await this.refresh(goal).catch(() => {})
+      }
+    })
   }
 
   /**
@@ -929,7 +972,7 @@ export class GoalPlane {
     } catch (error) {
       return {
         settled: false,
-        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). Restart to retry recovery.`,
+        sentence: `${what} could not finish: ${reason}. Setting it aside failed too (${error instanceof Error ? error.message : String(error)}). It is tried again after the next board save, and at the next launch.`,
       }
     }
     return {

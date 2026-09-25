@@ -330,9 +330,11 @@ export interface TeamPort {
    * Goal-backed desks persist the board payload before announcing it. The
    * payload is `snapshot()`, called once the save actually runs — inside
    * whatever queue the host keeps for the Goal — so it is the board as it is
-   * then, never as it was when the save was asked for.
+   * then, never as it was when the save was asked for. `null` means there is
+   * nothing left to write: a Goal-plane write already carried this save,
+   * whole, and it landed.
    */
-  mutate?(snapshot: () => TeamState, refused?: (error: Error) => void): Promise<void>
+  mutate?(snapshot: () => TeamState | null, refused?: (error: Error) => void): Promise<void>
   /** A room that no longer exists, so a window can stop drawing it. */
   removed(room: string): void
   /**
@@ -1033,16 +1035,18 @@ export class Team {
         // never overwrite a root the running app has since decided on.
         if (!board || board.root !== was) return
         /* `Board.root` is readonly on purpose — a room's project is fixed for
-           the life of the board, and this migration is the one exception —
-           so the entry is replaced rather than the field assigned, and no
-           other call site gains the ability to re-key a room. */
-        const moved: Board = { ...board, root: now }
-        this.#boards.set(id, moved)
+           the life of the board, and this migration is the one exception, so
+           it alone writes the field, through a cast no other call site has.
+           Onto the board already held, never a copy swapped in: a verb holds
+           its board across its own awaits — `post` across a send — and one
+           that finished on a copy nobody reads any more lost what it wrote,
+           as `installProjection` once did. */
+        ;(board as { root: string }).root = now
         /* Written back through `#commit` like every other change — the same
            serialised write chain, and the same push, which is a no-op with no
            window connected — so the correction is made once rather than on
            every launch, and the file says what the room in memory says. */
-        this.#commit(moved)
+        this.#commit(board)
       }),
     ).catch(() => undefined)
     try {
@@ -1160,6 +1164,15 @@ export class Team {
     if (previous && this.#port.mutate && !options.final) {
       state = { ...state, intents: previous.intents, channel: previous.channel }
     }
+    /* A Seat's role is the document's word; a Seat opened without one (every
+       Goal Seat a legacy flow seats) says nothing, and a role this engine gave
+       such a member (`setRole`) stays — a read-back used to wipe it, and the
+       legacy flow's role-matched cards then had nobody to go to. Only for
+       members still here, and never onto a board that is final. */
+    const members = new Set<string>(state.members)
+    const kept = previous && !options.final
+      ? Object.fromEntries(Object.entries(previous.roles).filter(([key]) => members.has(key)))
+      : {}
     const next: Board = {
       id: state.id,
       name: state.name,
@@ -1172,7 +1185,7 @@ export class Team {
       plans: [...(state.plans ?? [])],
       messaging: state.messaging,
       nicknames: { ...(state.nicknames ?? previous?.nicknames ?? {}) },
-      roles: { ...(state.roles ?? {}) },
+      roles: { ...kept, ...(state.roles ?? {}) },
       roster: { ...(remembered ?? previous?.roster ?? {}) },
       intents: [...state.intents],
       channel: [...state.channel],
@@ -2444,7 +2457,10 @@ export class Team {
     /* The card as it stands, held by this caller — or why not. Asked twice:
        here, and again after the review check below, which awaits facts and
        git and so gives the Goal plane time to release or reassign the card. */
-    const held = (): { intent: Intent } | { refused: string } => {
+    /* `since` is the claim the first look found: the second one asks for that
+       very claim, not just the same holder — a card let go and taken again by
+       the same conversation in between is a different claim. */
+    const held = (since?: number): { intent: Intent } | { refused: string } => {
       const intent = board.intents.find((entry) => entry.id === intentId)
       if (!intent) return { refused: `There is no intent #${intentId}.` }
       if (
@@ -2454,6 +2470,9 @@ export class Team {
         intent.claim.sessionId !== caller.sessionId
       ) {
         return { refused: `Refused: you do not hold #${intentId}, so you cannot complete it. Claim it first, or leave it to ${this.#holderName(board, intent)}.` }
+      }
+      if (since !== undefined && intent.claim.at !== since) {
+        return { refused: `Refused: #${intentId} was let go and claimed again while this completion was being checked, so it is not finished. Call complete_claim again if the work is done.` }
       }
       return { intent }
     }
@@ -2472,7 +2491,7 @@ export class Team {
     const missingReview = (await this.#flows?.refuseCompletion?.(board.id, first.intent, caller)) ?? null
     if (missingReview) return missingReview
     this.#assertMutable(board)
-    const still = held()
+    const still = held(first.intent.claim!.at)
     if ('refused' in still) return still.refused
     const intent = still.intent
     /* A Goal board's completion is reported once it is saved, never before:
@@ -4541,9 +4560,13 @@ export class Team {
       }
       this.#queuedSave.set(board.id, entry)
       let saved: TeamState | null = null
-      const begin = (): TeamState => {
+      const begin = (): TeamState | null => {
         // From here on a change joins the next save, not this one.
         if (this.#queuedSave.get(board.id) === entry) this.#queuedSave.delete(board.id)
+        /* A Goal-plane write carried this save before it began, wrote every
+           field of it and answered it: there is nothing of its own left, and
+           a run of it now could only fail where nobody is listening. */
+        if (entry.settled) return null
         saved = this.#stateOf(this.#boards.get(board.id) ?? board)
         return saved
       }
@@ -4653,7 +4676,10 @@ export class Team {
     board.updatedAt = Date.now()
     undo.mark()
     /* A save of this engine's not yet begun is carried by this one: what rides
-       in it is in this snapshot. Not while the Goal plane is in the middle of
+       in it is in this snapshot, so `save` has to write all of it — the name,
+       messaging and plans as well as the cards and the channel — because the
+       carried save is answered as done the moment `save` lands, and its own
+       run is skipped (`begin` answers null). Not while the Goal plane is in the middle of
        an operation of its own (`carry: false`) — a wrap, say, whose receipt
        was read from the board before those changes — when the caller saves
        its own change alone and this engine's wait their turn. */

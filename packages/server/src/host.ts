@@ -970,7 +970,16 @@ export class Host {
       // A refused save is put back before the Goal's queue runs anything else.
       mutate: (snapshot, refused) => this.#goalSerial.run(async () => {
         try {
-          await this.#saveTeamProjection(snapshot())
+          const state = snapshot()
+          // Carried, whole, by a Goal-plane write that landed: nothing is left to save.
+          if (state === null) return
+          await this.#saveTeamProjection(state)
+          /* A board write landed, so whatever refused setting aside a stuck
+             assignment or release may be gone: try it again, behind this task
+             in the Goal queue — never awaited from inside it. */
+          void this.#goals.retryStuck().catch((error: unknown) => {
+            this.#logger.warn('goal set-aside retry failed', { error: error instanceof Error ? error.message : String(error) })
+          })
         } catch (error) {
           refused?.(error instanceof Error ? error : new Error(String(error)))
           throw error
@@ -2560,7 +2569,9 @@ export class Host {
         const intents = patch(now.board.intents)
         if (intents !== now.board.intents) await this.#writeGoalBoard(goal, { ...this.#goalState(goal), intents: [...intents] })
       }
-      : (state: TeamState) => this.#writeGoalBoard(goal, state)
+      /* Whole: a Team save this write carries is answered as done once it
+         lands, so its name, messaging and plans have to land here too. */
+      : (state: TeamState) => this.#writeGoalBoard(goal, state, { whole: true })
     if (await this.#team.goalPlaneWrite(goal, patch, save, { carry: !staged })) return
     const document = this.#goalStore.read(goal)
     const intents = patch(document.board.intents)
@@ -2573,23 +2584,35 @@ export class Host {
    * the board. Refused once the Goal is wrapped or was brought by a backup;
    * allowed while one of the Goal plane's own operations — a release, the
    * wrap's own releases — is in progress, since that operation is what is
-   * writing.
+   * writing. `whole` writes the rest of the Team's copy with them — the name,
+   * messaging, and a legacy room's plans, nicknames and roster — exactly as
+   * `#saveTeamProjection` would.
    */
-  async #writeGoalBoard(goal: string, state: TeamState): Promise<void> {
+  async #writeGoalBoard(goal: string, state: TeamState, options: { readonly whole?: boolean } = {}): Promise<void> {
     const document = this.#goalStore.read(goal)
     if (document.restored || document.goal.state === 'wrapped') {
       throw new Error('This Goal is read-only. Start another Goal for new work.')
     }
     const at = Date.now()
+    const legacy = options.whole && document.legacy ? this.#team.legacyFor(goal) : null
     await this.#goalStore.save({
       ...document,
       board: {
         ...document.board,
         nextIntent: Math.max(1, document.board.nextIntent, ...state.intents.map((intent) => intent.id + 1)),
+        ...(options.whole ? { messaging: state.messaging } : {}),
         intents: state.intents,
         channel: state.channel,
       },
-      goal: { ...document.goal, revision: document.goal.revision + 1, updatedAt: at },
+      goal: {
+        ...document.goal,
+        ...(options.whole ? { sentence: state.name || document.goal.sentence } : {}),
+        revision: document.goal.revision + 1,
+        updatedAt: at,
+      },
+      ...(legacy && document.legacy ? {
+        legacy: { ...document.legacy, plans: legacy.plans, nicknames: legacy.nicknames, roster: legacy.roster },
+      } : {}),
     }, document.goal.revision)
   }
 
